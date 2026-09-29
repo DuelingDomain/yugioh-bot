@@ -92,6 +92,12 @@ export function phaseLabel(phase: string | number | null | undefined): string {
   return PHASE_LABELS[key] ?? PHASE_LABELS[raw.toLowerCase()] ?? raw;
 }
 
+/** Battle, Damage and Damage calculation all count as the Battle Phase (the board warms to ember). */
+export function isBattlePhase(phase: string | number | null | undefined): boolean {
+  const label = phaseLabel(phase);
+  return label === "Battle" || label === "Damage" || label === "Damage calculation";
+}
+
 export function isFacedown(position: number | undefined): boolean {
   if (position == null) return false;
   return (position & POS_FACEDOWN_ATTACK) !== 0 || (position & POS_FACEDOWN_DEFENSE) !== 0;

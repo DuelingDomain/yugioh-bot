@@ -1,6 +1,8 @@
+/* Feedback cues: short ink-on-sheet announcements over the board.
+   Colours follow the room: purple for effects you and the engine put on the
+   stack, gold for chain results, red for a negated link. */
+
 .overlay {
-  --duel-gold: #f59e0b;
-  --duel-purple: #7c3aed;
   position: absolute;
   inset: 0;
   z-index: 6;
@@ -11,58 +13,62 @@
   pointer-events: none;
 }
 
+.overlay[data-phase="true"] {
+  padding-bottom: 0;
+}
+
 .cue {
   --cue-in: 280ms;
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  max-width: min(26.5rem, calc(100% - 1.5rem));
-  padding: 0.5rem 0.7rem 0.5rem 0.5rem;
+  gap: calc(12 * var(--duel-unit, 1px));
+  max-width: min(calc(430 * var(--duel-unit, 1px)), calc(100% - 1.5rem));
+  padding: calc(8 * var(--duel-unit, 1px)) calc(14 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px));
   pointer-events: none;
-  color: #e8ecf4;
-  font-family: var(--font-body);
-  background: linear-gradient(180deg, #182038, #10162a);
-  border: 1px solid rgb(245 158 11 / 0.42);
+  color: var(--duel-ink, #efe7d5);
+  font-family: var(--duel-f-ui, var(--font-body));
+  background: var(--duel-panel-2, #0e1729);
+  border: 1px solid var(--duel-rule-hi, rgb(181 153 99 / 0.6));
+  border-radius: 8px;
   box-shadow:
-    0 12px 28px rgb(0 0 0 / 0.5),
-    inset 0 1px 0 rgb(255 255 255 / 0.04);
+    0 14px 30px rgb(0 0 0 / 0.55),
+    0 2px 6px rgb(0 0 0 / 0.4);
   animation: cue-in var(--cue-in) ease-out both;
 }
 
 .cue[data-kind="activate"],
 .cue[data-kind="chain-resolving"] {
-  border-color: rgb(124 58 237 / 0.7);
+  border-color: var(--duel-pen, #9b7eff);
 }
 
 .cue[data-kind="chain-negated"] {
-  border-color: rgb(244 63 94 / 0.55);
+  border-color: rgb(228 90 77 / 0.75);
 }
 
 .cue[data-kind="chain-resolved"] {
-  border-color: rgb(245 158 11 / 0.7);
+  border-color: rgb(228 182 79 / 0.7);
 }
 
 .cue[data-reduced="true"] {
   animation: none;
   transform: none;
   filter: none;
-  padding: 0.38rem 0.55rem 0.38rem 0.4rem;
-  gap: 0.45rem;
+  padding: calc(6 * var(--duel-unit, 1px)) calc(10 * var(--duel-unit, 1px)) calc(6 * var(--duel-unit, 1px)) calc(6 * var(--duel-unit, 1px));
+  gap: calc(8 * var(--duel-unit, 1px));
 }
 
 .portrait {
   flex-shrink: 0;
-  width: 4.6rem;
-  height: 6.7rem;
+  width: calc(62 * var(--duel-unit, 1px));
+  aspect-ratio: 59 / 86;
   overflow: hidden;
-  border: 1px solid rgb(245 158 11 / 0.55);
-  border-radius: 3px;
-  background: #0a0e1a;
+  border-radius: 4px;
+  background: #06080e;
+  box-shadow: 0 5px 12px rgb(0 0 0 / 0.5), 0 1px 2px rgb(0 0 0 / 0.6);
 }
 
 .cue[data-reduced="true"] .portrait {
-  width: 2.55rem;
-  height: 3.7rem;
+  width: calc(38 * var(--duel-unit, 1px));
 }
 
 .art {
@@ -70,53 +76,75 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform: scale(1.075);
 }
 
 .meta {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.18rem;
+  gap: calc(4 * var(--duel-unit, 1px));
 }
 
 .row {
   display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
+  align-items: center;
+  gap: calc(6 * var(--duel-unit, 1px));
 }
 
-.kind {
-  font-family: var(--font-display);
-  font-size: 0.62rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--duel-gold);
+/* Kind and chain index read as small ruled tags. */
+.kind,
+.chain {
+  display: inline-flex;
+  align-items: center;
+  height: calc(20 * var(--duel-unit, 1px));
+  padding: 0 calc(8 * var(--duel-unit, 1px));
+  border: 1px solid var(--duel-rule-hi, rgb(181 153 99 / 0.6));
+  border-radius: 10px;
+  background: #0c1224;
+  color: var(--duel-ink-2, #c3bba8);
+  font-family: var(--duel-f-ui, var(--font-body));
+  font-size: var(--duel-t-xs, 11px);
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: none;
+  white-space: nowrap;
 }
 
 .cue[data-kind="activate"] .kind,
 .cue[data-kind="chain-resolving"] .kind {
-  color: #c4b5fd;
+  border-color: var(--duel-pen, #9b7eff);
+  color: var(--duel-pen-ink, #c6b6ff);
+}
+
+.cue[data-kind="chain-resolved"] .kind,
+.chain {
+  border-color: rgb(228 182 79 / 0.6);
+  color: var(--duel-chain-ink, #f4d690);
 }
 
 .cue[data-kind="chain-negated"] .kind {
-  color: #fb7185;
-}
-
-.chain {
-  font-size: 0.68rem;
-  letter-spacing: 0.04em;
-  color: #c4b5fd;
+  border-color: rgb(228 90 77 / 0.7);
+  color: var(--duel-loss-ink, #ff9489);
 }
 
 .cue[data-kind="chain-negated"] .chain {
-  color: #fb7185;
+  border-color: rgb(228 90 77 / 0.7);
+  color: var(--duel-loss-ink, #ff9489);
 }
 
 .title {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: var(--duel-t-head, 15px);
   line-height: 1.25;
-  font-weight: 600;
+  font-weight: 500;
+}
+
+.cue[data-kind="chain-negated"] .title {
+  text-decoration: line-through;
+  text-decoration-color: var(--duel-loss, #e45a4d);
+  text-decoration-thickness: 1.5px;
 }
 
 .blurb {
@@ -126,13 +154,15 @@
   -webkit-line-clamp: 3;
   line-clamp: 3;
   overflow: hidden;
-  font-size: 0.78rem;
+  font-family: var(--duel-f-ink, Georgia, serif);
+  font-size: var(--duel-t-body, 13px);
+  font-style: italic;
   line-height: 1.35;
-  color: #a8b0c8;
+  color: var(--duel-ink-2, #c3bba8);
 }
 
 .cue[data-reduced="true"] .title {
-  font-size: 0.8rem;
+  font-size: var(--duel-t-body, 13px);
 }
 
 .cue[data-reduced="true"] .blurb {
@@ -149,4 +179,36 @@
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* Phase change: a ruled banner. The frame colour turns ember in the Battle Phase. */
+.phaseRibbon {
+  --cue-in: 280ms;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(calc(520 * var(--duel-unit, 1px)), calc(100% - 1.5rem));
+  padding: calc(8 * var(--duel-unit, 1px)) calc(24 * var(--duel-unit, 1px));
+  pointer-events: none;
+  color: var(--duel-ink, #efe7d5);
+  background: rgb(7 11 21 / 0.94);
+  border-block: 3px double rgb(var(--duel-frame-rgb, 181 153 99) / 0.75);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.5);
+  animation: cue-in var(--cue-in) ease-out both;
+}
+
+.phaseRibbon[data-reduced="true"] {
+  animation: none;
+  transform: none;
+}
+
+.phaseTitle {
+  margin: 0;
+  font-family: var(--duel-f-ui, var(--font-body));
+  font-size: clamp(1.1rem, calc(24 * var(--duel-unit, 1px)), 1.7rem);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+  text-align: center;
+  text-transform: none;
 }

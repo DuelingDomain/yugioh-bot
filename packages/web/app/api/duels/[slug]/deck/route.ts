@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { DuelDeck } from "@yugidraft/shared/duels";
-import { callDuelHost, requireDuelActor, sessionFromHost } from "@/lib/duel-host";
+import { callDuelHost, duelErrorResponse, requireDuelActor, sessionFromHost } from "@/lib/duel-host";
 
 export const runtime = "nodejs";
 
@@ -8,6 +8,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
   const { slug } = await params;
+
+  try {
+    actor.duels.room(slug, actor.guildId, actor.playerId);
+  } catch (error) {
+    return duelErrorResponse(error);
+  }
 
   let deck: DuelDeck;
   try {

@@ -9,7 +9,14 @@ export async function GET(request: NextRequest) {
   if (!actor.ok) return actor.response;
   try {
     const archived = request.nextUrl.searchParams.get("archived") === "1";
-    return NextResponse.json({ duels: actor.duels.list(actor.guildId, actor.playerId, { archived }) });
+    if (!archived) {
+      return NextResponse.json({ duels: actor.duels.list(actor.guildId, actor.playerId) });
+    }
+    const scope = request.nextUrl.searchParams.get("scope") ?? "mine";
+    if (scope !== "mine" && scope !== "all") {
+      return NextResponse.json({ error: "Scope must be mine or all" }, { status: 400 });
+    }
+    return NextResponse.json({ duels: actor.duels.list(actor.guildId, actor.playerId, { archived: true, scope }) });
   } catch (error) {
     return duelErrorResponse(error);
   }
@@ -19,9 +26,9 @@ export async function POST(request: NextRequest) {
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
 
-  let body: { name?: unknown; mode?: unknown; masterRule?: unknown };
+  let body: { name?: unknown; mode?: unknown; masterRule?: unknown; settings?: unknown };
   try {
-    body = (await request.json()) as { name?: unknown; mode?: unknown; masterRule?: unknown };
+    body = (await request.json()) as { name?: unknown; mode?: unknown; masterRule?: unknown; settings?: unknown };
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -42,6 +49,7 @@ export async function POST(request: NextRequest) {
       name,
       mode,
       masterRule: body.masterRule as 1 | 2 | 3 | 4 | 5 | undefined,
+      settings: body.settings,
     });
     try {
       await notifyDuelChange(session.slug, actor.guildId);

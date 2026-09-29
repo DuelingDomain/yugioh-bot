@@ -68,6 +68,5 @@ describe("collectFreshEvents", () => {
     expect(second.fresh).toEqual([]);
     expect(second.nextCursor).toBe(first.nextCursor);
   });
-
 });
 

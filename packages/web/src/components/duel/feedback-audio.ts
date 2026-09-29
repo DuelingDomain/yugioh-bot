@@ -151,6 +151,10 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
         tone(audio, dest, { freq: 98, type: "sine", start: t, duration: 0.12, peak: 0.05, attack: 0.004 });
         tone(audio, dest, { freq: 196, type: "triangle", start: t + 0.02, duration: 0.08, peak: 0.02 });
         break;
+      case "phase":
+        tone(audio, dest, { freq: 329.63, type: "sine", start: t, duration: 0.16, peak: 0.03 });
+        tone(audio, dest, { freq: 493.88, type: "triangle", start: t + 0.06, duration: 0.18, peak: 0.018 });
+        break;
       default:
         break;
     }

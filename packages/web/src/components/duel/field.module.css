@@ -1,221 +1,455 @@
+/* Duel board: the Match Sheet look.
+   A ruled obsidian sheet with antique-gold hairlines. Purple marks YOUR legal action and selection,
+   gold is chain/response, red is loss. In Battle, Damage and Damage calculation the hairlines and a
+   faint wash warm to ember (data-battle="true" on the field root and the Deck Master rail).
+
+   Fit: the field root fills its parent and is a size container. --z (the zone size, also the card
+   height) is solved from the container's width AND height, so both hands, the five rows and the LP
+   tallies always fit with no scrolling, at any screen size. Everything else is a multiple of --z. */
+
+@property --sheet {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgb(181 153 99 / 0.34);
+}
+
+@property --sheet-hi {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgb(181 153 99 / 0.66);
+}
+
+@property --sheet-lo {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgb(181 153 99 / 0.17);
+}
+
+.felt,
+.masterRail {
+  --sheet: rgb(181 153 99 / 0.34);
+  --sheet-hi: rgb(181 153 99 / 0.66);
+  --sheet-lo: rgb(181 153 99 / 0.17);
+  --ink: #efe7d5;
+  --ink-2: #c3bba8;
+  --ink-3: #958f81;
+  --pen: #9b7eff;
+  --pen-ink: #c6b6ff;
+  --pen-fill: #5733d1;
+  --pen-soft: rgb(155 126 255 / 0.13);
+  --chain: #e4b64f;
+  --chain-ink: #f4d690;
+  --loss: #e45a4d;
+  --ember: #d98d52;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --f-ui: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  --f-num: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  color: var(--ink);
+  font-family: var(--f-ui);
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  transition:
+    --sheet 0.7s cubic-bezier(0.65, 0, 0.35, 1),
+    --sheet-hi 0.7s cubic-bezier(0.65, 0, 0.35, 1),
+    --sheet-lo 0.7s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.felt[data-battle="true"],
+.masterRail[data-battle="true"] {
+  --sheet: rgb(217 141 82 / 0.44);
+  --sheet-hi: rgb(217 141 82 / 0.82);
+  --sheet-lo: rgb(217 141 82 / 0.22);
+}
+
+.felt[data-reduced-motion="true"] {
+  transition: none;
+}
+
 .felt {
-  --mat: #0c121c;
-  --gold: #c4a35a;
-  --gold-dim: rgb(196 163 90 / 0.42);
-  --violet: #8b6cff;
-  --pile-col: clamp(2.45rem, 7.4%, 3.65rem);
-  --zone-gap: clamp(0.14rem, 0.55%, 0.3rem);
-  --lp-gutter: 8.5rem;
   position: relative;
   isolation: isolate;
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) minmax(0, 0.5fr) minmax(0, 1fr) auto;
+  place-items: center;
+  container-type: size;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 0.35rem 0.4rem 0.4rem;
+  padding: 0;
   overflow: hidden;
-  color: #e7edf6;
-  font-family: var(--font-body);
-  background-color: var(--mat);
-  background-image: url("/duel/felt-grain.webp");
-  background-repeat: repeat;
-  background-size: 400px auto;
-  container-type: size;
+  font-size: 13px;
+  /* The ground (obsidian navy) belongs to the shell; the field only adds soft lamp glows on top of it. */
+  background:
+    radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
+    radial-gradient(40% 50% at 12% 88%, rgb(46 34 84 / 0.22), transparent 70%),
+    linear-gradient(118deg, transparent 38%, rgb(140 160 210 / 0.035) 50%, transparent 62%);
 }
 
-.etch {
+/* Battle wash: a faint warm bloom behind the sheet. */
+.wash {
   position: absolute;
   inset: 0;
   z-index: 0;
-  width: 100%;
-  height: 100%;
+  opacity: 0;
   pointer-events: none;
-  opacity: 0.55;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 50%, rgb(217 120 60 / 0.15), transparent 75%),
+    radial-gradient(ellipse 60% 30% at 50% 100%, rgb(217 141 82 / 0.07), transparent 70%);
+  transition: opacity 0.7s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
-.sun {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  z-index: 0;
-  width: clamp(4rem, 20cqw, 12.5rem);
-  aspect-ratio: 1;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  opacity: 0.85;
+.felt[data-battle="true"] .wash {
+  opacity: 1;
 }
 
-.feltTrim {
-  position: absolute;
-  inset: 5px;
-  z-index: 0;
-  pointer-events: none;
+.felt[data-reduced-motion="true"] .wash {
+  transition: none;
 }
 
-.chamfer {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
+/* ---------- the sheet and its fit ---------- */
+
+.playmat {
+  /* Fixed insets in px so the fit can be solved in closed form. */
+  --pl: 30px;
+  --pr: 14px;
+  --py: 7px;
+  --gs: 5px;
+  --sg: 12px;
+  /* LP tally: 250 x 100 at 1440 x 900 (20px name line + 80px for <LifePoints />), growing with tall screens. */
+  --tally-h: clamp(100px, calc(100cqh * 0.125), 150px);
+  --head-h: calc(var(--tally-h) * 0.2);
+  --lp-h: calc(var(--tally-h) * 0.8);
+  --lp-fs: calc(var(--lp-h) * 0.575);
+  --tally-w: calc(var(--tally-h) * 2.5);
+
+  /* Multiples of --z: board width, arena height, opponent hand, your hand (minimum). */
+  --wk: 6.822;
+  --hk: 5.22;
+  --ok: 0.62;
+  --lk: 0.92;
+
+  --avail-w: calc(100cqw - var(--pl) - var(--pr) - 2px);
+  --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px);
+  --zw: calc(var(--avail-w) / var(--wk));
+  --zh: min(
+    calc((var(--avail-h) - 2 * var(--tally-h)) / var(--hk)),
+    calc((var(--avail-h) - var(--tally-h)) / (var(--hk) + var(--lk))),
+    calc(var(--avail-h) / (var(--hk) + var(--ok) + var(--lk)))
+  );
+  --z: clamp(30px, min(var(--zw), var(--zh)), 260px);
+
+  --cw: calc(var(--z) * 0.686);
+  --g: calc(var(--z) * 0.075);
+  --gy: calc(var(--z) * 0.055);
+  --r: calc(var(--z) * 0.035);
+  --pk: 0.86;
+  --pile-col: var(--cw);
+
+  --oh: calc(var(--z) * var(--ok));
+  --ohcw: calc(var(--oh) * 0.686);
+  --ohg: calc(var(--ohcw) * -0.32);
+  --top-h: max(var(--tally-h), var(--oh));
+  --spare: calc(var(--avail-h) - var(--top-h) - var(--hk) * var(--z));
+  --lh: clamp(calc(var(--z) * var(--lk)), var(--spare), min(calc(var(--z) * 1.85), 132px));
+  --lhcw: calc(var(--lh) * 0.686);
+  --lhg: calc(var(--z) * 0.07);
+  --bot-h: max(var(--tally-h), var(--lh));
+  --hw-top: calc(var(--z) * var(--wk) - var(--tally-w) - var(--sg));
+  --hw-bot: var(--hw-top);
+
+  --fs-name: clamp(13px, calc(var(--z) * 0.135), 17px);
+  --fs-small: clamp(10px, calc(var(--z) * 0.105), 13px);
+  --n3: clamp(9px, calc(var(--z) * 0.13), 17px);
+  --n4: clamp(9.5px, calc(var(--z) * 0.108), 14px);
+
+  position: relative;
+  z-index: 1;
   box-sizing: border-box;
-  pointer-events: none;
-  border: 12px solid transparent;
-  border-image-source: url("/duel/chamfer-gold.svg");
-  border-image-slice: 12;
-  border-image-width: 12px;
-  border-image-repeat: stretch;
-}
-
-.feltTrim.chamfer {
-  z-index: 0;
-}
-
-.lpBadge {
-  position: absolute;
-  z-index: 3;
   display: flex;
   flex-direction: column;
-  gap: 0.05rem;
-  max-width: calc(var(--lp-gutter) - 0.45rem);
-  padding: 0;
-  pointer-events: none;
-  color: #efeaf8;
-  font-family: var(--font-body);
-  line-height: 1.1;
-  text-shadow: 0 1px 2px #000a;
-}
-
-.lpOpp {
-  top: 14px;
-  left: 20px;
-}
-
-.lpYou {
-  bottom: 14px;
-  left: 20px;
-}
-
-.lpName {
-  overflow: hidden;
+  gap: var(--gs);
+  width: calc(var(--z) * var(--wk) + var(--pl) + var(--pr) + 2px);
+  max-width: 100%;
   min-width: 0;
-  color: #c9c3dc;
-  font-size: 1.0625rem;
-  font-weight: 500;
-  text-overflow: ellipsis;
+  padding: var(--py) var(--pr) var(--py) var(--pl);
+  border: 1px solid var(--sheet);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgb(10 17 34 / 0.55), rgb(5 8 15 / 0.5));
+  box-shadow:
+    0 0 40px -12px rgb(217 141 82 / 0),
+    inset 0 0 60px -30px rgb(217 141 82 / 0);
+  transition: box-shadow 0.7s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.felt[data-battle="true"] .playmat {
+  box-shadow:
+    0 0 40px -12px rgb(217 141 82 / 0.3),
+    inset 0 0 60px -30px rgb(217 141 82 / 0.2);
+}
+
+.felt[data-reduced-motion="true"] .playmat {
+  transition: none;
+}
+
+.playmat::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid var(--sheet-lo);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.marginRule {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 14px;
+  width: 3px;
+  border-right: 1px solid var(--sheet);
+  border-left: 1px solid var(--sheet);
+  pointer-events: none;
+}
+
+/* Master Rule 3 keeps its two Pendulum zones inside the pile columns, so the board is wider. */
+.felt[data-master-rule="3"] .playmat {
+  --wk: 8.344;
+  --pile-col: calc(var(--cw) * 2 + var(--g));
+}
+
+/* ---------- strips: LP tally plus hand ---------- */
+
+.strip {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  flex: none;
+  grid-template-columns: var(--tally-w) minmax(0, 1fr);
+  column-gap: var(--sg);
+  min-width: 0;
+}
+
+.stripTop {
+  height: var(--top-h);
+  align-items: start;
+}
+
+.stripBottom {
+  height: var(--bot-h);
+  align-items: end;
+}
+
+.tally {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.tHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: var(--head-h);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 
-.lpBadge strong {
+.tWho {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--fs-name);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.tTurn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+
+.tClock {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  font-family: var(--f-num);
+  font-size: calc(var(--fs-name) * 1.1);
+  font-variant-numeric: tabular-nums;
+}
+
+.tally[data-active="true"] .tClock {
+  color: var(--ink);
+}
+
+.tLp {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--lp-h);
+  border-top: 1px solid var(--sheet-lo);
+  border-bottom: 1px solid var(--sheet);
+  font-size: var(--lp-fs);
+  /* <LifePoints /> sizes its numerals from --lp-size; hand it the tally's size. */
+  --lp-size: var(--lp-fs);
+}
+
+.tLp strong {
   display: flex;
   align-items: baseline;
-  gap: 0.35rem;
-  overflow: visible;
-  color: #f6f3ff;
-  font-family: var(--font-body);
-  font-size: 1.75rem;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink);
+  font-family: var(--f-num);
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: 400;
   white-space: nowrap;
 }
 
 .lpPrefix {
-  color: #d5d0e6;
-  font-size: 1.0625rem;
-  font-weight: 600;
+  color: var(--ink-3);
+  font-family: var(--f-ui);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  letter-spacing: 0.06em;
 }
 
-.handRail,
-.half,
+/* Hands: cards overlap just enough to fit the room beside the tally (--hn cards, set inline). */
+.handRail {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.hand {
+  --cardw: var(--ohcw);
+  --base: var(--ohg);
+  --room: var(--hw-top);
+  --ov: max(
+    0px,
+    calc((var(--hn, 1) * var(--cardw) + var(--hn1, 1) * var(--base) - var(--room)) / var(--hn1, 1))
+  );
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: 0;
+  height: 100%;
+}
+
+.handLocal {
+  --cardw: var(--lhcw);
+  --base: var(--lhg);
+  --room: var(--hw-bot);
+  align-items: flex-end;
+}
+
+.handCard {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--cardw);
+}
+
+.handCard + .handCard {
+  margin-left: calc(var(--base) - var(--ov));
+}
+
+.handCard .zone {
+  height: auto;
+}
+
+.handCard .zoneHit {
+  display: block;
+  height: auto;
+}
+
+.handCard .frame {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 59 / 86;
+  border-color: transparent;
+}
+
+.handLocal .handCard .zone[data-legal="true"] .frame {
+  transform: translateY(calc(var(--lh) * -0.05));
+}
+
+.handLocal .handCard .zone[data-selected="true"] .frame {
+  transform: translateY(calc(var(--lh) * -0.12));
+}
+
+/* ---------- arena: five rows on a 7-column grid ---------- */
+
+.arena {
+  position: relative;
+  display: grid;
+  flex: none;
+  grid-template-columns: var(--pile-col) minmax(0, 1fr) var(--pile-col);
+  grid-template-rows: repeat(5, var(--z));
+  gap: var(--gy) var(--g);
+  min-width: 0;
+}
+
+/* The two ruled lines that frame the centre band. */
+.arena::before,
+.arena::after {
+  content: "";
+  position: absolute;
+  right: calc(var(--g) * -1);
+  left: calc(var(--g) * -1);
+  height: 0;
+  border-top: 1px solid var(--sheet);
+  pointer-events: none;
+}
+
+.arena::before {
+  top: calc(2 * var(--z) + 1.5 * var(--gy));
+}
+
+.arena::after {
+  top: calc(3 * var(--z) + 2.5 * var(--gy));
+}
+
+.half {
+  display: contents;
+}
+
 .emzBand {
   position: relative;
-  z-index: 1;
+  grid-row: 3;
+  grid-column: 2;
   min-width: 0;
   min-height: 0;
 }
 
-.emzBand {
-  z-index: 0;
-  overflow: visible;
-}
-
-.handRail {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  margin-inline-start: max(var(--lp-gutter), env(safe-area-inset-left));
-}
-
-.handRailLocal {
-  margin-inline-end: max(var(--lp-gutter), env(safe-area-inset-right));
-}
-
-.hand {
-  display: flex;
-  justify-content: safe center;
-  align-items: flex-end;
-  gap: 0.22rem;
-  min-width: 0;
-  padding: 0.12rem 0.4rem 0.2rem;
-  overflow-x: auto;
-  overflow-y: hidden;
-}
-
-.handCard {
-  flex: 0 0 auto;
-  width: clamp(2.6rem, 8.6cqw, 4.25rem);
-  aspect-ratio: 59 / 86;
-}
-
-.handLocal {
-  align-items: flex-start;
-  padding-bottom: 0.2rem;
-}
-
-.handLocal .handCard {
-  width: clamp(3.5rem, 13cqw, 7rem);
-}
-
-.half,
-.emzBand {
-  display: grid;
-  grid-template-columns: var(--pile-col) minmax(0, 1fr) var(--pile-col);
-  gap: var(--zone-gap);
-  align-items: stretch;
-}
-
 .rows {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1.08fr);
-  gap: var(--zone-gap);
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  grid-template-rows: subgrid;
+  gap: var(--gy);
   min-width: 0;
   min-height: 0;
 }
 
 .halfLocal .rows {
-  grid-template-rows: minmax(0, 1.08fr) minmax(0, 1fr);
+  grid-row: 4 / span 2;
 }
 
 .zones,
 .emzRow {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--zone-gap);
+  gap: var(--g);
+  width: 100%;
   height: 100%;
-  min-height: 0;
-}
-
-.piles {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.18rem;
-  min-width: 0;
-  min-height: 0;
-}
-
-.piles > * {
-  flex: 1 1 0;
   min-height: 0;
 }
 
@@ -223,26 +457,62 @@
   pointer-events: none;
 }
 
-.zone {
-  position: relative;
-  display: flex;
+.piles {
+  display: grid;
+  grid-template-rows: subgrid;
+  gap: var(--gy);
   min-width: 0;
   min-height: 0;
+}
+
+.piles[data-side="left"] { grid-column: 1; }
+.piles[data-side="right"] { grid-column: 3; }
+.piles[data-opponent="true"][data-side="left"] { grid-row: 1 / span 3; }
+.piles[data-opponent="true"][data-side="right"] { grid-row: 1 / span 2; }
+.piles[data-opponent="false"][data-side="left"] { grid-row: 4 / span 2; }
+.piles[data-opponent="false"][data-side="right"] { grid-row: 3 / span 3; }
+
+.felt[data-master-rule="3"] .piles {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--g);
+}
+.felt[data-master-rule="3"] .piles[data-side="left"] > .zone { grid-column: 2; }
+.felt[data-master-rule="3"] .piles[data-side="right"] > .zone { grid-column: 1; }
+.felt[data-master-rule="3"] .piles > .zone[data-kind="st"] { grid-row: 2; }
+.felt[data-master-rule="3"] .piles[data-side="left"] > .zone[data-kind="st"] { grid-column: 1; }
+.felt[data-master-rule="3"] .piles[data-side="right"] > .zone[data-kind="st"] { grid-column: 2; }
+.felt[data-master-rule="3"] .piles[data-opponent="false"][data-side="left"] > .zone[data-kind="st"] { grid-row: 1; }
+
+/* ---------- zones ---------- */
+
+.zone {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
   height: 100%;
-  container-type: size;
+  min-width: 0;
+  min-height: 0;
+}
+
+.zone:hover,
+.zone:focus-within {
+  z-index: 6;
 }
 
 .zoneHit {
+  position: relative;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  align-items: center;
-  justify-items: center;
+  flex: 1 1 auto;
+  place-items: center;
   width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   margin: 0;
-  padding: 0.08rem 0.04rem 0.04rem;
+  padding: 0;
   border: 0;
+  border-radius: 4px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -254,87 +524,148 @@
 }
 
 .zoneHit:focus-visible {
-  outline: 2px solid var(--gold);
-  outline-offset: 1px;
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 .zoneHit:disabled {
   cursor: default;
 }
 
+/* Monster zones are ONE slot with two guides that cross: portrait (the .frame) and landscape (::before). */
+.zone[data-kind="mz"] .zoneHit::before,
+.zone[data-kind="emz"] .zoneHit::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--z);
+  height: var(--cw);
+  border: 1px solid var(--sheet);
+  border-radius: var(--r);
+  transform: translate(-50%, -50%);
+  transition: border-color 0.3s;
+  pointer-events: none;
+}
+
+.zone[data-kind="emz"] .zoneHit::before {
+  border-color: var(--sheet-hi);
+}
+
 .frame {
   position: relative;
   z-index: 1;
   box-sizing: border-box;
-  width: auto;
-  height: min(100%, 100cqw);
+  width: var(--cw);
+  height: var(--z);
   max-width: 100%;
-  min-height: 0;
-  aspect-ratio: 59 / 86;
-  overflow: visible;
-  border: 1px solid var(--gold-dim);
-  border-radius: 2px;
-  background: rgb(8 14 22 / 0.55);
-  box-shadow: inset 0 0 0 1px rgb(12 20 30 / 0.65);
-}
-
-.zone[data-kind="st"] .frame,
-.zone[data-kind="hand"] .frame,
-.zone[data-kind="field"] .frame,
-.zone[data-kind="extra"] .frame,
-.zone[data-kind="gy"] .frame,
-.zone[data-kind="banish"] .frame,
-.zone[data-kind="deck"] .frame {
-  height: min(100%, calc(100cqw * 86 / 59));
-}
-
-.zone[data-kind="mz"]::before,
-.zone[data-kind="emz"]::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  z-index: 0;
-  width: min(92%, 100cqh);
-  aspect-ratio: 86 / 59;
-  transform: translate(-50%, -50%);
-  border: 1px solid rgb(196 163 90 / 0.16);
-  border-radius: 2px;
-  pointer-events: none;
+  border: 1px solid var(--sheet);
+  border-radius: var(--r);
+  transition:
+    border-color 0.3s,
+    background-color 0.2s,
+    transform 0.18s var(--ease);
 }
 
 .zone[data-kind="emz"] .frame {
-  border-color: rgb(139 108 255 / 0.45);
+  border-color: var(--sheet-hi);
 }
 
-.zone[data-kind="field"] .frame,
-.zone[data-kind="extra"] .frame {
-  border-color: rgb(167 139 250 / 0.4);
+.zoneHit:hover .frame {
+  border-color: var(--sheet-hi);
 }
 
-.zone[data-legal="true"] .frame {
-  border-color: var(--gold);
-  box-shadow:
-    0 0 0 1px var(--gold),
-    inset 0 0 10px rgb(196 163 90 / 0.16);
+/* Piles and the Field Spell zone: portrait only, smaller, with a count label. */
+.zone[data-kind="deck"] .frame,
+.zone[data-kind="gy"] .frame,
+.zone[data-kind="banish"] .frame,
+.zone[data-kind="extra"] .frame,
+.zone[data-kind="field"] .frame {
+  width: calc(var(--cw) * var(--pk));
+  height: calc(var(--z) * var(--pk));
 }
 
-.zone[data-selected="true"] .frame {
-  border-color: var(--violet);
-  box-shadow:
-    0 0 0 1px var(--violet),
-    inset 0 0 12px rgb(139 108 255 / 0.28);
+.zone[data-kind="deck"] .zoneHit,
+.zone[data-kind="gy"] .zoneHit,
+.zone[data-kind="banish"] .zoneHit,
+.zone[data-kind="extra"] .zoneHit,
+.zone[data-kind="field"] .zoneHit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: calc(var(--z) * 0.03);
+}
+
+.zone[data-side="opp"][data-kind="deck"] .zoneHit,
+.zone[data-side="opp"][data-kind="gy"] .zoneHit,
+.zone[data-side="opp"][data-kind="banish"] .zoneHit,
+.zone[data-side="opp"][data-kind="extra"] .zoneHit,
+.zone[data-side="opp"][data-kind="field"] .zoneHit {
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+}
+
+.pileLabel {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3em;
+  font-size: var(--n4);
+  line-height: 1.15;
+  color: var(--ink-2);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.plShort {
+  display: none;
+}
+
+.plCount {
+  color: var(--ink);
+  font-family: var(--f-num);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.zoneName {
+  position: absolute;
+  right: 0;
+  bottom: calc(50% - var(--cw) / 2 + 4px);
+  left: 0;
+  z-index: 0;
+  color: var(--ink-3);
+  font-size: var(--n4);
+  line-height: 1;
+  text-align: center;
+  pointer-events: none;
 }
 
 .pendulumMark {
   position: absolute;
   top: 3px;
   left: 4px;
-  z-index: 2;
-  font-size: 0.58rem;
-  letter-spacing: 0.04em;
-  color: rgb(231 237 246 / 0.55);
+  z-index: 0;
+  color: var(--ink-3);
+  font-size: var(--n4);
+  line-height: 1;
   pointer-events: none;
+}
+
+.zone[data-side="opp"] .pendulumMark {
+  top: auto;
+  right: 4px;
+  bottom: 3px;
+  left: auto;
+}
+
+/* ---------- cards ---------- */
+
+.artWrap {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
 }
 
 .cardFace,
@@ -342,20 +673,11 @@
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: 1px;
   overflow: hidden;
-}
-
-.artWrap {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-}
-
-.artWrap[data-defense="true"] {
-  overflow: visible;
+  border-radius: var(--r, 4px);
+  box-shadow:
+    0 4px 10px rgb(0 0 0 / 0.55),
+    0 1px 2px rgb(0 0 0 / 0.6);
 }
 
 .cardFace[data-defense="true"],
@@ -364,18 +686,17 @@
   height: 100%;
   transform: rotate(90deg);
   transform-origin: center;
-  box-shadow: 0 1px 6px rgb(0 0 0 / 0.45);
 }
 
 .cardBack {
   position: relative;
   isolation: isolate;
-  background: #120e0c url("/duel/card-back-main.webp") center / cover no-repeat;
-  border: 1.5px solid #b08a3e;
+  background: #120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat;
+  border: 1px solid #b08a3e;
 }
 
 .cardBackExtra {
-  background: #140e1c url("/duel/card-back-extra.webp") center / cover no-repeat;
+  background: #140e1c url("/duel/card-back-extra-hd.webp") center / cover no-repeat;
   border-color: #8a6bb0;
 }
 
@@ -387,56 +708,294 @@
   pointer-events: none;
 }
 
-.statLine,
-.pileLabel {
-  z-index: 2;
-  max-width: 100%;
-  overflow: hidden;
+.overlayBadge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  min-width: calc(var(--n4, 11px) * 1.5);
+  height: calc(var(--n4, 11px) * 1.5);
+  padding: 0 3px;
+  border: 1.5px solid var(--chain);
+  border-radius: 999px;
+  background: #140f04;
+  color: var(--chain-ink);
+  font-family: var(--f-num);
+  font-size: var(--n4, 11px);
   font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-  text-align: center;
-  text-overflow: ellipsis;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* ATK / DEF plate on the card face. */
+.plate {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  left: 3px;
+  z-index: 3;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.25em;
+  padding: 1px 0;
+  border-radius: 2px;
+  background: rgb(5 8 16 / 0.9);
+  color: var(--ink);
+  font-family: var(--f-num);
+  font-size: var(--n3);
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  line-height: 1.2;
   white-space: nowrap;
   pointer-events: none;
 }
 
-.statLine {
-  margin-top: 0.12rem;
-  font-size: 0.75rem;
-  color: #edd9a8;
+.plateSep {
+  color: var(--ink-3);
+  font-style: normal;
 }
 
-.pileLabel {
-  margin-top: 0.1rem;
-  font-size: 0.6875rem;
-  color: #b9c9d8;
+/* ---------- decks and pile fans ---------- */
+
+.frame[data-stack-size] {
+  --stack-art: url("/duel/card-back-main-hd.webp");
+  --stack-step: calc(var(--z) * 0.018);
 }
 
-.overlayBadge {
+.frame[data-stack-size="2"]::before,
+.frame[data-stack-size="3"]::before,
+.frame[data-stack-size="3"]::after {
+  content: "";
   position: absolute;
-  right: 2px;
-  bottom: 2px;
-  z-index: 3;
-  min-width: 0.9rem;
-  padding: 0 3px;
-  border-radius: 2px;
-  background: rgb(10 14 22 / 0.82);
-  font-size: 0.55rem;
-  font-variant-numeric: tabular-nums;
-  color: #edd9a8;
+  inset: 0;
+  z-index: -1;
+  border: 1px solid #a7997e;
+  border-radius: var(--r);
+  background: #15101c var(--stack-art) center / cover no-repeat;
+  box-shadow: 1px 1px 0 rgb(222 210 187 / 0.5), 2px 3px 3px rgb(0 0 0 / 0.6);
+  transform: translate(var(--stack-step), calc(-1 * var(--stack-step))) rotate(1.5deg);
   pointer-events: none;
 }
 
+.frame[data-stack-size="3"]::after {
+  z-index: -2;
+  transform: translate(calc(2 * var(--stack-step)), calc(-2 * var(--stack-step))) rotate(3deg);
+}
+
+/* GY, Banished and Extra Deck show their top two or three cards fanned, deepest card toward the outside. */
+.zone[data-col="left"] {
+  --dir: 1;
+}
+
+.zone[data-col="right"] {
+  --dir: -1;
+}
+
+.fanCard {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 108%;
+  transition: transform 0.3s var(--ease);
+}
+
+.fanCard[data-fi="0"] {
+  z-index: 3;
+  transform: translate(calc(var(--dir, 1) * 1%), 0) rotate(calc(var(--dir, 1) * 3deg));
+}
+
+.fanCard[data-fi="1"] {
+  z-index: 2;
+  transform: translate(calc(var(--dir, 1) * -5%), 0) rotate(calc(var(--dir, 1) * -5deg));
+}
+
+.fanCard[data-fi="2"] {
+  z-index: 1;
+  transform: translate(calc(var(--dir, 1) * -10%), 0) rotate(calc(var(--dir, 1) * -11deg));
+}
+
+.zone[data-fan="1"] .fanCard[data-fi="0"] {
+  transform: none;
+}
+
+.felt[data-reduced-motion="true"] .fanCard,
+.felt[data-reduced-motion="true"] .frame,
+.felt[data-reduced-motion="true"] .openChip {
+  transition: none;
+}
+
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="0"],
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="0"] {
+  transform: translate(calc(var(--dir, 1) * 7%), -4%) rotate(calc(var(--dir, 1) * 8deg));
+}
+
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="1"],
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="1"] {
+  transform: translate(calc(var(--dir, 1) * -9%), -1%) rotate(calc(var(--dir, 1) * -6deg));
+}
+
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="2"],
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="2"] {
+  transform: translate(calc(var(--dir, 1) * -19%), 0) rotate(calc(var(--dir, 1) * -16deg));
+}
+
+.openChip {
+  position: absolute;
+  bottom: calc(var(--z) * 0.03 + var(--n4) * 1.15 + 3px);
+  left: 50%;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(var(--n4) * 1.9);
+  padding: 0 8px 0 6px;
+  border: 1px solid var(--sheet-hi);
+  border-radius: 999px;
+  background: #0b1122;
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: var(--n4);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity 0.16s,
+    transform 0.2s var(--ease);
+}
+
+.zone[data-side="opp"] .openChip {
+  bottom: 3px;
+}
+
+.zone:hover .openChip,
+.zone:focus-within .openChip {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.openChip:hover {
+  background: #17203a;
+}
+
+.openChip:focus {
+  outline: none;
+}
+
+.openChip:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ---------- legal and selected: an outline shape and a tag, never colour alone ---------- */
+
+.ring {
+  position: absolute;
+  inset: -4px;
+  z-index: 4;
+  border: 1px dashed var(--pen);
+  border-radius: calc(var(--r) + 3px);
+  pointer-events: none;
+}
+
+.zone[data-selected="true"] .ring {
+  inset: -5px;
+  border: 2px solid var(--pen);
+}
+
+/* Rotated (defense) cards: outline the landscape shape, not the portrait guide. */
+.zone[data-defense="true"] .ring {
+  inset: calc((var(--z) - var(--cw)) / 2 - 4px) calc((var(--z) - var(--cw)) / -2 - 4px);
+}
+
+.zone[data-defense="true"][data-selected="true"] .ring {
+  inset: calc((var(--z) - var(--cw)) / 2 - 5px) calc((var(--z) - var(--cw)) / -2 - 5px);
+}
+
+.mark {
+  position: absolute;
+  top: calc(var(--z) * -0.085);
+  left: 50%;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: max(19px, calc(var(--z) * 0.19));
+  height: max(15px, calc(var(--z) * 0.155));
+  padding: 0 5px;
+  border: 1px solid var(--pen);
+  border-radius: 999px;
+  background: #0c1224;
+  color: var(--pen-ink);
+  translate: -50% 0;
+  pointer-events: none;
+}
+
+.zone[data-selected="true"] .mark {
+  background: var(--pen-fill);
+  color: #fff;
+}
+
+/* On piles the tag sits on the top-right corner so it never covers the label of the pile above. */
+.zone[data-kind="deck"] .mark,
+.zone[data-kind="gy"] .mark,
+.zone[data-kind="banish"] .mark,
+.zone[data-kind="extra"] .mark,
+.zone[data-kind="field"] .mark {
+  top: -5px;
+  right: -6px;
+  left: auto;
+  translate: none;
+}
+
+.nib {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.zone[data-legal="true"][data-occupied="false"] .frame {
+  border: 1px dashed var(--pen);
+  background: var(--pen-soft);
+}
+
+.zone[data-legal="true"][data-occupied="false"][data-selected="true"] .frame {
+  border: 2px solid var(--pen);
+}
+
+.zone[data-legal="true"][data-occupied="true"] .frame {
+  transform: translateY(calc(var(--z) * -0.03));
+}
+
+.zone[data-selected="true"][data-occupied="true"] .frame {
+  transform: translateY(calc(var(--z) * -0.05));
+}
+
+/* ---------- Deck Master docks ---------- */
+
 .masterRail {
+  --k: max(var(--u, 1px), 0.95px);
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: calc(10 * var(--k));
   box-sizing: border-box;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 0.15rem 0.1rem;
+  padding: 0;
+  font-size: calc(13.5 * var(--k));
 }
 
 .masterDock {
@@ -444,60 +1003,42 @@
   display: flex;
   flex: 1 1 0;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: calc(9 * var(--k));
   min-height: 0;
-  overflow: visible;
-  padding: 0.7rem 0.7rem 0.75rem;
-  border: 0;
-  background-color: #0c121c;
-  background-image: linear-gradient(rgb(12 18 28 / 0.7), rgb(12 18 28 / 0.7)), url("/duel/felt-grain.webp");
-  background-repeat: repeat;
-  background-size: auto, 400px auto;
+  overflow: hidden auto;
+  padding: calc(12 * var(--k));
+  border: 1px solid var(--sheet);
+  border-radius: calc(10 * var(--k));
+  background: rgb(12 19 36 / 0.55);
+  scrollbar-color: rgb(181 153 99 / 0.45) transparent;
+  scrollbar-width: thin;
 }
 
 .masterDock[data-local="true"] {
-  flex: 1.22 1 0;
-}
-
-.masterDock[data-local="true"] > .chamfer {
-  border-image-source: url("/duel/chamfer-violet.svg");
-}
-
-.masterDock[data-legal="true"] > .chamfer {
-  border-image-source: url("/duel/chamfer-gold.svg");
-}
-
-.masterDock[data-local="true"][data-legal="true"] > .chamfer,
-.masterDock[data-selected="true"] > .chamfer {
-  border-image-source: url("/duel/chamfer-violet.svg");
+  flex: 1.25 1 0;
 }
 
 .masterTitle {
-  position: relative;
-  z-index: 1;
   margin: 0;
-  color: #e7edf6;
-  font-family: var(--font-body);
-  font-size: 1.1875rem;
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: calc(15.5 * var(--k));
   font-weight: 600;
-  letter-spacing: 0.02em;
-  text-align: center;
+  line-height: 1.2;
 }
 
 .masterHit {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 0.4rem;
+  --dm-w: calc(88 * var(--k));
+  display: grid;
+  flex: none;
+  grid-template-columns: var(--dm-w) minmax(0, 1fr);
+  gap: calc(12 * var(--k));
+  align-items: start;
   width: 100%;
-  min-height: 0;
   margin: 0;
   padding: 0;
   border: 0;
+  border-radius: calc(6 * var(--k));
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -510,136 +1051,348 @@
 }
 
 .masterHit:focus-visible {
-  outline: 2px solid var(--gold);
-  outline-offset: 2px;
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
 }
 
 .masterArt {
-  width: min(100%, 10rem);
-  flex: none;
+  --z: calc(var(--dm-w) * 1.4576);
+  --cw: var(--dm-w);
+  --r: calc(5 * var(--k));
+  --n4: calc(11 * var(--k));
+  position: relative;
+  width: 100%;
   aspect-ratio: 59 / 86;
-  overflow: hidden;
-  border: 1px solid var(--gold-dim);
-  background: rgb(8 14 22 / 0.7);
+  border-radius: calc(5 * var(--k));
+  box-shadow: 0 8px 18px rgb(0 0 0 / 0.5);
 }
 
-.masterArt img,
-.masterArt .cardBack {
+.masterArt img {
+  display: block;
   width: 100%;
   height: 100%;
+  border-radius: calc(5 * var(--k));
   object-fit: cover;
 }
 
-.masterMeta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.12rem;
-  width: 100%;
-  color: #c5ced8;
-  font-size: 0.9375rem;
-  line-height: 1.35;
-  text-align: left;
+.masterArt[data-away="true"] img {
+  opacity: 0.28;
+  filter: grayscale(0.6);
 }
 
-.masterEmpty {
+.masterArt[data-away="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 1px dashed var(--sheet-hi);
+  border-radius: calc(5 * var(--k));
+  pointer-events: none;
+}
+
+.masterDock[data-selected="true"] .ring {
+  inset: -5px;
+  border: 2px solid var(--pen);
+}
+
+.masterDock[data-selected="true"] .mark {
+  background: var(--pen-fill);
+  color: #fff;
+}
+
+.masterId {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.masterName {
+  color: var(--ink);
+  font-size: calc(15 * var(--k));
+  font-weight: 500;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.masterDetails {
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: calc(12.5 * var(--k));
+  line-height: 1.3;
+}
+
+.masterDetails + .masterDetails {
+  margin-top: 0;
+}
+
+.masterStats {
+  margin-top: 6px;
+  color: var(--ink);
+  font-family: var(--f-num);
+  font-size: calc(17 * var(--k));
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.masterMeta {
   display: grid;
-  flex: 1;
-  place-items: center;
-  color: #8ea0b3;
-  font-size: 0.8rem;
+  flex: none;
+  margin: 0;
+  border-top: 1px solid var(--sheet);
+  font-size: calc(13 * var(--k));
+}
+
+.masterMeta > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(10 * var(--k));
+  padding: 5px 0;
+  border-bottom: 1px solid var(--sheet-lo);
+}
+
+.masterMeta dt {
+  color: var(--ink-3);
+}
+
+.masterMeta dd {
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .masterActions {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  width: 100%;
+  display: grid;
+  flex: none;
+  gap: 6px;
   margin-top: auto;
 }
 
 .masterAction,
 .masterInspect {
   display: flex;
-  flex: none;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
+  gap: 7px;
   width: 100%;
-  min-height: 33px;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid rgb(201 168 96 / 0.45);
-  background: rgb(18 22 32 / 0.9);
-  color: #e7edf6;
-  font-family: var(--font-body);
-  font-size: 0.875rem;
+  min-height: calc(36 * var(--k));
+  padding: 4px 8px;
+  border: 1px solid var(--sheet-hi);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--f-ui);
+  font-size: calc(13.5 * var(--k));
   cursor: pointer;
   touch-action: manipulation;
 }
 
-.masterAction {
-  border-color: rgb(196 181 253 / 0.85);
-  background: linear-gradient(#6d3fd4, #5427b0);
-  color: #f4edff;
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.18),
-    0 0 12px rgb(124 58 237 / 0.45);
+.masterInspect:hover:not(:disabled) {
+  background: rgb(239 231 213 / 0.085);
+  color: var(--ink);
 }
 
-.masterInspect {
-  background: rgb(12 16 24 / 0.85);
+.masterAction {
+  border-color: var(--pen);
+  background: var(--pen-soft);
+  color: var(--pen-ink);
+  font-weight: 500;
+}
+
+.masterAction[data-primary="true"] {
+  background: var(--pen-fill);
+  color: #fff;
+  font-weight: 600;
+}
+
+.masterAction:hover:not(:disabled) {
+  background: rgb(155 126 255 / 0.24);
+  color: #fff;
+}
+
+.masterAction[data-primary="true"]:hover:not(:disabled) {
+  background: #6440e0;
 }
 
 .masterAction:disabled,
 .masterInspect:disabled {
-  opacity: 0.45;
+  border-style: dashed;
+  color: var(--ink-3);
   cursor: default;
+}
+
+.masterAction:focus,
+.masterInspect:focus {
+  outline: none;
 }
 
 .masterAction:focus-visible,
 .masterInspect:focus-visible {
-  outline: 2px solid var(--gold);
-  outline-offset: 1px;
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.masterEmpty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  color: var(--ink-3);
+  font-size: calc(13 * var(--k));
+}
+
+/* ---------- compact boards (phones): tallies pinned, hand under the tally ---------- */
+
+@container (max-width: 640px) {
+  .playmat {
+    --pl: 6px;
+    --pr: 6px;
+    --py: 5px;
+    --gs: 5px;
+    --sg: 8px;
+    --tally-h: 54px;
+    --head-h: 16px;
+    --lp-h: 38px;
+    --lp-fs: 24px;
+    --tally-w: 150px;
+    --ok: 0.55;
+    --pk: 0.8;
+    --zh: calc((var(--avail-h) - 2 * var(--tally-h) - var(--gs)) / (var(--hk) + var(--lk)));
+    --spare: calc(var(--avail-h) - var(--top-h) - var(--hk) * var(--z) - var(--tally-h) - var(--gs));
+    --lh: clamp(calc(var(--z) * var(--lk)), var(--spare), min(calc(var(--z) * 1.9), 116px));
+    --bot-h: calc(var(--tally-h) + var(--gs) + var(--lh));
+    --hw-bot: calc(var(--z) * var(--wk));
+    --fs-name: 13px;
+    --fs-small: 10px;
+    --n3: clamp(8px, calc(var(--z) * 0.16), 12px);
+    --n4: 9.5px;
+  }
+
+  .playmat::before,
+  .marginRule {
+    display: none;
+  }
+
+  .stripBottom {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: var(--tally-h) var(--lh);
+    row-gap: var(--gs);
+    align-items: stretch;
+  }
+
+  .stripBottom .tally {
+    width: min(100%, var(--tally-w));
+  }
+
+  .plFull {
+    display: none;
+  }
+
+  .plShort {
+    display: inline;
+  }
+
+  .zoneName,
+  .plateDef,
+  .plateSep,
+  .openChip {
+    display: none;
+  }
+
+  .plate {
+    right: 1px;
+    bottom: 1px;
+    left: 1px;
+    padding: 0;
+  }
+
+  .mark {
+    min-width: 15px;
+    height: 13px;
+    padding: 0 3px;
+  }
+
+  .nib {
+    width: 10px;
+    height: 10px;
+  }
+
+  .tTurn {
+    font-size: 9.5px;
+  }
+}
+
+@media (hover: none) {
+  .openChip {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cardFace[data-defense="true"] {
+  .felt,
+  .masterRail,
+  .playmat,
+  .fanCard,
+  .frame,
+  .openChip,
+  .wash {
     transition: none;
   }
 }
 
 @media (max-width: 900px) {
-  .felt {
-    min-height: 22rem;
-    padding: 0.28rem 0.22rem;
-    --lp-gutter: 7.75rem;
+  .masterRail {
+    flex-direction: row;
+    height: auto;
+    gap: 6px;
   }
 
-  .handCard {
-    width: clamp(2.4rem, 12vw, 4.2rem);
+  .masterDock,
+  .masterDock[data-local="true"] {
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 6px;
+    overflow: visible;
+    padding: 8px;
   }
 
-  .handLocal .handCard {
-    width: clamp(2.8rem, 18vw, 6.2rem);
+  .masterTitle {
+    font-size: 13px;
   }
 
-  .handRailLocal {
-    margin-inline-end: 0.4rem;
+  .masterHit {
+    --dm-w: 46px;
+    gap: 8px;
   }
 
-  .lpOpp, .lpYou {
-    left: 12px;
-    max-width: calc(var(--lp-gutter) - 1.25rem);
+  .masterName {
+    font-size: 12.5px;
   }
 
-  .masterRail { height: auto; flex-direction: row; }
-  .masterDock { min-width: 0; flex: 1 1 0; }
-  .masterHit { flex: none; }
-  .masterArt { width: 4rem; flex: none; }
-}
+  .masterDetails {
+    display: none;
+  }
 
-@media (max-width: 600px) {
-  .statLine { font-size: 0.6875rem; overflow: visible; letter-spacing: -0.02em; }
-  .pileLabel { font-size: 0.6875rem; overflow: visible; }
+  .masterStats {
+    margin-top: 3px;
+    font-size: 13px;
+  }
+
+  .masterMeta {
+    font-size: 11px;
+  }
+
+  .masterMeta > div {
+    flex-wrap: wrap;
+    gap: 0 6px;
+    padding: 3px 0;
+  }
+
+  .masterAction,
+  .masterInspect {
+    min-height: 32px;
+    font-size: 12.5px;
+  }
 }

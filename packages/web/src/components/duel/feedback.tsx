@@ -28,6 +28,7 @@ const KIND_LABEL: Record<DuelEvent["kind"], string> = {
   "chain-negated": "Negated",
   "chain-end": "Chain end",
   attack: "Attack",
+  phase: "Phase",
 };
 
 function publicCard(event: DuelEvent): DuelCardInfo | null {
@@ -64,6 +65,20 @@ function FeedbackCue({
   reducedMotion: boolean;
   durationMs: number;
 }) {
+  if (event.kind === "phase") {
+    const title = event.text.trim() || KIND_LABEL.phase;
+    return (
+      <div
+        className={styles.phaseRibbon}
+        data-kind="phase"
+        data-reduced={reducedMotion ? "true" : "false"}
+        style={reducedMotion ? undefined : ({ "--cue-in": `${Math.min(280, durationMs)}ms` } as CSSProperties)}
+      >
+        <p className={styles.phaseTitle}>{title}</p>
+      </div>
+    );
+  }
+
   const card = publicCard(event);
   const title = cueTitle(event, card);
   const blurb = cueBlurb(event, card);
@@ -197,7 +212,11 @@ export function DuelFeedback({
   }, [duelKey, events]);
 
   return (
-    <div className={styles.overlay} role="status">
+    <div
+      className={styles.overlay}
+      data-phase={current?.event.kind === "phase" ? "true" : "false"}
+      role="status"
+    >
       {current ? (
         <FeedbackCue
           event={current.event}

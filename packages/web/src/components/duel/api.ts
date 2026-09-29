@@ -2,10 +2,15 @@ import type {
   DuelCardInfo,
   DuelCommand,
   DuelDeck,
+  DuelDeckValidation,
+  DuelHistoryScope,
+  DuelListItem,
+  DuelReplay,
   DuelMasterRule,
   DuelMode,
   DuelRoom,
   DuelSession,
+  DuelSettings,
 } from "@yugidraft/shared/duels";
 
 export class DuelRequestError extends Error {
@@ -43,26 +48,47 @@ export function duelRoomKey(slug: string): string {
   return `/api/duels/${slug}`;
 }
 
-export async function listDuels(archived = false): Promise<{ duels: DuelSession[] }> {
-  return parseBody(await fetch(archived ? `${DUEL_LIST_KEY}?archived=1` : DUEL_LIST_KEY, { cache: "no-store" }));
+export async function listDuels(
+  archived = false,
+  scope: DuelHistoryScope = "mine",
+): Promise<{ duels: DuelListItem[] }> {
+  const url = archived ? `${DUEL_LIST_KEY}?archived=1&scope=${scope}` : DUEL_LIST_KEY;
+  return parseBody(await fetch(url, { cache: "no-store" }));
+}
+
+export function duelReplayKey(slug: string): string {
+  return `/api/duels/${slug}/replay`;
+}
+
+export async function getDuelReplay(slug: string): Promise<DuelReplay> {
+  return parseBody(await fetch(duelReplayKey(slug), { cache: "no-store" }));
 }
 
 export async function createDuel(
   name: string,
   mode: DuelMode,
-  masterRule: DuelMasterRule = 5,
+  masterRule: DuelMasterRule,
+  settings: DuelSettings,
 ): Promise<{ session: DuelSession }> {
   return parseBody(
     await fetch("/api/duels", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, mode, masterRule }),
+      body: JSON.stringify({ name, mode, masterRule, settings }),
     }),
   );
 }
 
 export async function getDuelRoom(slug: string): Promise<DuelRoom> {
   return parseBody(await fetch(duelRoomKey(slug), { cache: "no-store" }));
+}
+
+export async function acceptDuelInvite(slug: string, inviteCode: string): Promise<DuelRoom> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/invite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inviteCode }),
+  }));
 }
 
 export async function joinDuel(slug: string): Promise<{ session: DuelSession }> {
@@ -90,6 +116,21 @@ export async function setDuelDeck(
   );
 }
 
+export async function validateDuelDeck(
+  slug: string,
+  deck: DuelDeck,
+  signal: AbortSignal,
+): Promise<DuelDeckValidation> {
+  return parseBody(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/deck/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(deck),
+      signal,
+    }),
+  );
+}
+
 export async function startDuel(slug: string): Promise<DuelRoom> {
   return parseBody(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/start`, { method: "POST" }),
@@ -113,6 +154,10 @@ export async function surrenderDuel(slug: string): Promise<DuelRoom> {
   return parseBody(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/surrender`, { method: "POST" }),
   );
+}
+
+export async function leaveDuel(slug: string): Promise<{ session: DuelSession }> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/leave`, { method: "POST" }));
 }
 
 export async function archiveDuel(slug: string): Promise<DuelRoom> {

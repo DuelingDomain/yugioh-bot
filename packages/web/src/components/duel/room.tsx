@@ -2,20 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Settings } from "lucide-react";
-import type { DuelAnswer, DuelCard, DuelDeck, DuelPromptOption, DuelRoom } from "@yugidraft/shared/duels";
+import { Circle, Diamond, Eye, Link2, Radio, Settings, Volume2, VolumeX, Waves } from "lucide-react";
+import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelChainLink, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Sheet } from "@/components/ui/sheet";
 import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
+import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import {
+  acceptDuelInvite,
   addPracticeBot,
   archiveDuel,
   cancelDuel,
   duelRoomKey,
   getDuelRoom,
   joinDuel,
+  leaveDuel,
   sendDuelAction,
   setDuelDeck,
   startDuel,
@@ -26,6 +30,7 @@ import { DeckMasterRail, DuelField } from "./field";
 import styles from "./room.module.css";
 import { CardActionMenu, CardHoverInfo } from "./card-interactions";
 import { DuelFeedback } from "./feedback";
+import { duelFontClasses } from "./fonts";
 import { useDuelPreferences } from "./preferences";
 import { CardInspector, type InspectTarget } from "./inspector";
 import {
@@ -36,13 +41,11 @@ import {
   promptSelectedKeys,
   usePromptDraft,
 } from "./prompts";
-import { phaseLabel, zoneKey } from "./constants";
+import { cardArtUrl, isBattlePhase, phaseLabel, zoneKey } from "./constants";
+import { DuelResultScreen } from "./duel-result";
+import { DuelClockDisplay, DuelSettingsSummary, RoomInvite } from "./room-settings";
+import { StationTrack } from "./station-track";
 
-function copyInvite(slug: string): Promise<void> {
-  const url = `${window.location.origin}/duels/${slug}`;
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(url);
-  return Promise.reject(new Error("Clipboard unavailable"));
-}
 
 function RoomLobby({
   room,
@@ -54,6 +57,7 @@ function RoomLobby({
   onReady,
   onStart,
   onCancel,
+  onLeave,
 }: {
   room: DuelRoom;
   slug: string;
@@ -64,8 +68,8 @@ function RoomLobby({
   onReady: (deck: DuelDeck) => void;
   onStart: () => void;
   onCancel: () => void;
+  onLeave: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
   const session = room.session;
   const mySeat = room.mySeat;
   const occupied = session.seats.length;
@@ -79,26 +83,12 @@ function RoomLobby({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-wide text-text-muted">
-            {session.mode === "domain" ? "Domain 1v1 · singleton" : `Master Rule ${session.masterRule}`} · Lobby
+            {session.mode === "domain" ? isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain 1v1 · singleton" : `Master Rule ${session.masterRule}`} · Lobby
           </p>
           <h1 className="font-display text-2xl text-text-primary">{session.name}</h1>
         </div>
         <div className="flex gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              copyInvite(slug)
-                .then(() => {
-                  setCopied(true);
-                  window.setTimeout(() => setCopied(false), 2000);
-                })
-                .catch(() => {});
-            }}
-          >
-            {copied ? "Copied" : "Copy invite"}
-          </Button>
+          <RoomInvite room={room} slug={slug} />
           <Link href="/duels" className="inline-flex h-8 items-center px-3 text-sm text-text-secondary">
             All tables
           </Link>
@@ -121,6 +111,8 @@ function RoomLobby({
           );
         })}
       </ul>
+
+      <DuelSettingsSummary session={session} />
 
       {isOrganizer && occupied < 2 ? (
         <div className="space-y-2">
@@ -149,7 +141,9 @@ function RoomLobby({
         </Button>
       ) : (
         <DeckEditor
+          slug={slug}
           mode={session.mode}
+          settings={session.settings}
           initial={room.myDeck}
           busy={busy}
           onReady={onReady}
@@ -165,41 +159,11 @@ function RoomLobby({
       ) : null}
       {isOrganizer ? (
         <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>Cancel table</Button>
+      ) : mySeat != null ? (
+        <Button type="button" variant="ghost" disabled={busy} onClick={onLeave}>Leave table</Button>
       ) : null}
 
     </div>
-  );
-}
-
-function ResultBanner({
-  room,
-  onClose,
-}: {
-  room: DuelRoom;
-  onClose: () => void;
-}) {
-  const result = room.engine?.result;
-  const reason = result?.reason ?? room.session.resultReason ?? "Duel ended";
-  let headline = room.session.status === "interrupted" ? "Duel interrupted"
-    : room.session.status === "cancelled" ? "Table cancelled" : "Draw";
-  const winnerSeat = result?.winnerSeat ?? room.session.winnerSeat;
-  if (winnerSeat != null) {
-    const winner = room.session.seats.find((seat) => seat.seat === winnerSeat);
-    headline = winner ? `${winner.displayName} wins` : `Seat ${winnerSeat + 1} wins`;
-  }
-  return (
-    <Modal open onClose={onClose} title="Result">
-      <p className="font-display text-2xl text-text-primary">{headline}</p>
-      <p className="mt-2 text-sm text-text-secondary">{reason}</p>
-      <div className="mt-4 flex gap-2">
-        <Link href="/duels">
-          <Button type="button">Back to tables</Button>
-        </Link>
-        <Button type="button" variant="ghost" onClick={onClose}>
-          Stay
-        </Button>
-      </div>
-    </Modal>
   );
 }
 
@@ -209,35 +173,176 @@ type CardMenuState = {
   options: DuelPromptOption[];
   promptId: string;
   revision: number;
+  tone: "action" | "chain";
 };
 
-const PHASES = [
-  { label: "DP", name: "Draw" },
-  { label: "SP", name: "Standby" },
-  { label: "M1", name: "Main 1" },
-  { label: "BP", name: "Battle", action: "to_bp" },
-  { label: "M2", name: "Main 2", action: "to_m2" },
-  { label: "EP", name: "End", action: "to_ep" },
-];
+type Pane = "card" | "log" | "options" | "masters";
 
-export function DuelRoomView({ slug }: { slug: string }) {
-  const realtimeConnected = useRef(false);
+// Action ids the engine sends that never change the board: phase moves and a
+// hand shuffle. When the local action prompt offers nothing else, the player has
+// no legal play left and the station track lets "End Turn" glow.
+const PASSIVE_ACTION_IDS: ReadonlySet<string> = new Set(["to_bp", "to_m2", "to_ep", "shuffle"]);
+
+function hasNoLegalMoves(options: readonly DuelPromptOption[]): boolean {
+  return options.length > 0 && options.every((option) => PASSIVE_ACTION_IDS.has(option.id));
+}
+
+function phaseTitle(phase: string | null | undefined): string {
+  const label = phaseLabel(phase);
+  switch (label) {
+    case "Draw":
+    case "Standby":
+    case "Battle":
+    case "End":
+      return `${label} Phase`;
+    case "Main 1":
+      return "Main Phase 1";
+    case "Main 2":
+      return "Main Phase 2";
+    case "Damage":
+      return "Damage Step";
+    case "Damage calculation":
+      return "Damage Calculation";
+    default:
+      return label;
+  }
+}
+
+const MOTION_CYCLE = { system: "reduced", reduced: "full", full: "system" } as const;
+const MOTION_TEXT = { system: "Device", reduced: "Reduced", full: "Full" } as const;
+
+const LOG_PHASE_KEYS: ReadonlySet<string> = new Set([
+  "draw", "standby", "main1", "battle_start", "battle_step", "damage", "damage_cal", "battle", "main2", "end",
+]);
+
+type LogKind = "turn" | "phase" | "loss" | "gain" | "chain" | "result" | "line";
+
+function logKind(text: string): LogKind {
+  if (/^Turn \d+/.test(text)) return "turn";
+  if (LOG_PHASE_KEYS.has(text)) return "phase";
+  if (/ wins \(|^Draw \(/.test(text)) return "result";
+  if (/ takes \d+ damage| pays \d+ LP/.test(text)) return "loss";
+  if (/ gains \d+ LP/.test(text)) return "gain";
+  if (/ is activating$|^A chain link was negated$|^Chain ended$/.test(text)) return "chain";
+  return "line";
+}
+
+/** The engine log names seats "Player N"; show the table's display names instead. */
+function logText(text: string, kind: LogKind, playerName: (seat: number) => string): string {
+  if (kind === "phase") return phaseTitle(text);
+  return text.replace(/\bPlayer ([12])\b/g, (_match, seat: string) => playerName(Number(seat) - 1));
+}
+
+function MatchSheetLog({
+  entries,
+  playerName,
+  players,
+}: {
+  entries: ReadonlyArray<{ id: number; text: string }>;
+  playerName: (seat: number) => string;
+  players: string;
+}) {
+  const endRef = useRef<HTMLLIElement>(null);
+  const count = entries.length;
+  // Follow the newest entry id: the engine caps the log at 400 lines, so the length stops changing.
+  const lastId = entries[count - 1]?.id;
+  useEffect(() => {
+    endRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [lastId, count]);
+  return (
+    <div className={styles.sheet}>
+      <div className={styles.sheetHead}>
+        <h2>Match sheet</h2>
+        <span>{players}</span>
+      </div>
+      <ol className={styles.log} aria-label="Duel log">
+        {entries.map((entry, index) => {
+          const kind = logKind(entry.text);
+          return (
+            <li key={entry.id} data-kind={kind} ref={index === count - 1 ? endRef : undefined}>
+              {logText(entry.text, kind, playerName)}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+function ChainBlock({
+  chain,
+  playerName,
+}: {
+  chain: readonly DuelChainLink[];
+  playerName: (seat: number) => string;
+}) {
+  return (
+    <section className={styles.chain} aria-label="Current chain">
+      <strong>
+        <Link2 size={14} strokeWidth={1.75} aria-hidden /> Chain<span className={styles.chainNote}> · resolves highest link first</span>
+      </strong>
+      <ol>
+        {chain.map((link) => (
+          <li key={link.index}>
+            <b>{link.index}</b>
+            {link.code != null && link.code > 0 ? (
+              <span className={styles.chainArt} aria-hidden style={{ backgroundImage: `url(${cardArtUrl(link.code)})` }} />
+            ) : null}
+            <span className={styles.chainText}>
+              {link.name ?? "Effect"}
+              <small>{playerName(link.seat)}{link.description ? ` · ${link.description}` : ""}</small>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: string }) {
+  const router = useRouter();
+  const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   const { data, error, isLoading, mutate } = useSWR(
     slug ? duelRoomKey(slug) : null,
-    () => getDuelRoom(slug),
-    { refreshInterval: () => realtimeConnected.current ? 10_000 : 1000, revalidateOnFocus: true, revalidateOnReconnect: true },
+    async () => {
+      let admitError: unknown = null;
+      if (inviteCode && (admitted.current?.slug !== slug || admitted.current.inviteCode !== inviteCode)) {
+        // Try each invite once. A public table, a stale code or an existing grant must not block
+        // the room: the normal GET below enforces access on its own.
+        admitted.current = { slug, inviteCode };
+        const url = new URL(window.location.href);
+        url.searchParams.delete("invite");
+        window.history.replaceState(window.history.state, "", url);
+        try {
+          await acceptDuelInvite(slug, inviteCode);
+        } catch (err) {
+          admitError = err;
+        }
+      }
+      try {
+        return await getDuelRoom(slug);
+      } catch (err) {
+        throw admitError ?? err;
+      }
+    },
+    { revalidateOnFocus: false, revalidateOnReconnect: false },
   );
   const refreshRoom = useCallback(
     () => mutate(() => getDuelRoom(slug), { revalidate: false }),
     [mutate, slug],
   );
   const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom);
-  realtimeConnected.current = realtime.connected;
+  const catchingUp = realtime.syncing || realtime.recovering;
+  useDuelLeaveGuard({
+    slug,
+    active: data?.session.status === "active" && !data.engine?.result,
+    role: data?.mySeat == null ? "spectator" : "player",
+  });
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
-  const [pane, setPane] = useState<"card" | "log" | "options">("card");
+  const [pane, setPane] = useState<Pane>("card");
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [hideResult, setHideResult] = useState(false);
@@ -249,13 +354,13 @@ export function DuelRoomView({ slug }: { slug: string }) {
   const legalKeys = useMemo(() => promptLegalKeys(prompt), [prompt]);
   const selectedKeys = useMemo(() => promptSelectedKeys(prompt, draft.selected), [draft.selected, prompt]);
   const closeMenu = useCallback(() => setMenu(null), []);
-  const activeMenu = !busy && !error && menu?.promptId === prompt?.id &&
+  const activeMenu = !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
     menu?.revision === data?.engine?.revision ? menu : null;
 
   useEffect(() => {
     setMenu(null);
     setHover(null);
-  }, [prompt?.id, data?.engine?.revision]);
+  }, [prompt?.id, data?.engine?.revision, realtime.recovering]);
 
   useEffect(() => {
     setInspect(null);
@@ -290,12 +395,12 @@ export function DuelRoomView({ slug }: { slug: string }) {
 
   const onSubmitAnswer = useCallback(
     (answer: DuelAnswer) => {
-      if (!data?.engine || !prompt || error || data.mySeat !== prompt.seat ||
+      if (!data?.engine || !prompt || error || catchingUp || data.mySeat !== prompt.seat ||
           data.session.status !== "active" || inFlight.current) return;
       const command = { promptId: prompt.id, revision: data.engine.revision, answer };
       void run(() => sendDuelAction(slug, command));
     },
-    [data, prompt, error, run, slug],
+    [data, prompt, error, catchingUp, run, slug],
   );
 
   function showInspector(target: InspectTarget, mobile = false) {
@@ -316,7 +421,7 @@ export function DuelRoomView({ slug }: { slug: string }) {
   function onFieldActivate(keys: string[], card: DuelCard | null, anchor: HTMLElement, preserveInspector = false) {
     setHover(null);
     if (card && !preserveInspector) showInspector({ type: "card", card });
-    if (busy || error) return;
+    if (busy || error || catchingUp) return;
     const mine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat;
     if (mine && (prompt.kind === "choice" || prompt.kind === "toggle")) {
       const options = optionsForCard(prompt, card, keys);
@@ -325,7 +430,14 @@ export function DuelRoomView({ slug }: { slug: string }) {
         return;
       }
       if (options.length && data?.engine) {
-        setMenu({ anchor, title: card?.name ?? "Card", options, promptId: prompt.id, revision: data.engine.revision });
+        setMenu({
+          anchor,
+          title: card?.name ?? "Card",
+          options,
+          promptId: prompt.id,
+          revision: data.engine.revision,
+          tone: prompt.context?.type === "chain" ? "chain" : "action",
+        });
         return;
       }
     }
@@ -358,6 +470,10 @@ export function DuelRoomView({ slug }: { slug: string }) {
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
         onStart={() => void run(() => startDuel(slug))}
         onCancel={() => void run(() => cancelDuel(slug))}
+        onLeave={() => void run(async () => {
+          await leaveDuel(slug);
+          router.push("/duels");
+        })}
       />
     );
   }
@@ -367,28 +483,70 @@ export function DuelRoomView({ slug }: { slug: string }) {
   const bottom = engine?.seats.find((seat) => seat.seat === localSeat);
   const top = engine?.seats.find((seat) => seat.seat !== localSeat);
   const mine = prompt != null && prompt.seat === data.mySeat;
-  const canAct = mine && !busy && !error && data.session.status === "active";
+  const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active";
   const canSurrender = data.session.status === "active" && data.mySeat != null && !engine?.result;
   const terminal = data.session.status !== "active";
   const isOrganizer = data.session.seats.some((seat) =>
     seat.seat === data.mySeat && seat.playerId === data.session.organizerPlayerId);
   const canArchive = terminal && isOrganizer && !data.session.archivedAt;
   const showResult = !hideResult && (engine?.result != null || terminal);
+  const connectionLabel = terminal ? "Finished" : realtime.syncing ? "Catching up…" :
+    error || realtime.recovering ? "Reconnecting" : realtime.connected ? "Live" : "Polling";
   const domain = data.session.mode === "domain";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const playerName = (seat: number) => data.session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
+  const spectator = data.mySeat == null;
+  const battle = isBattlePhase(engine?.phase);
+  const turnSeat = engine?.turnSeat;
+  const myTurn = !spectator && turnSeat === data.mySeat;
+  const turnText = turnSeat == null ? null : myTurn ? "Your turn" : `${playerName(turnSeat)}'s turn`;
+  const soundLabel = preferences.soundEnabled ? "On" : "Off";
+  const motionLabel = MOTION_TEXT[preferences.motion];
+
+  const isActionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
+  const promptMine = prompt != null && data.mySeat != null && prompt.seat === data.mySeat && data.session.status === "active";
+  // idle: nothing to answer (or only the action prompt, which the field and the
+  // station track answer); float: a short prompt over the lower board;
+  // flow: a long selection list that sits below the board.
+  const dockMode = !promptMine || prompt == null ? "idle"
+    : isActionPrompt ? (prompt.cancelable || prompt.finishable ? "float" : "idle")
+      : prompt.context?.type === "chain" || prompt.context?.type === "position" ||
+        prompt.context?.type === "deck-master-recall" || prompt.kind === "choice" ||
+        prompt.kind === "toggle" || prompt.kind === "number" ? "float" : "flow";
+  const trackCaption = data.session.status !== "active" ? "Duel finished" : prompt == null ? null
+    : promptMine ? (isActionPrompt ? null : prompt.title)
+      : `${playerName(prompt.seat)} is choosing…`;
+
   const inspector = (
     <CardInspector target={inspect}
       onInspectCard={(card) => setInspect({ type: "card", card })}
       onActivateCard={onInspectorActivate}
     />
   );
+  const masterRail = domain && engine ? (
+    <DeckMasterRail engine={engine} mySeat={data.mySeat} legalKeys={legalKeys}
+      selectedKeys={selectedKeys} canAct={canAct}
+      legalActionsFor={(card, keys) =>
+        canAct && prompt?.kind === "choice" && prompt.context?.type === "action"
+          ? optionsForCard(prompt, card, keys)
+          : []
+      }
+      onChooseAction={(option) => {
+        setMobileInspect(false);
+        onSubmitAnswer({ choice: option.id });
+      }}
+      onActivate={onFieldActivate}
+      onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
+  ) : null;
   const sideContent = pane === "card" ? inspector : pane === "log" ? (
-    <ol className={styles.log} aria-label="Duel log">
-      {engine?.log.map((entry) => <li key={entry.id}>{entry.text}</li>)}
-    </ol>
+    <MatchSheetLog entries={engine?.log ?? []} playerName={playerName}
+      players={data.session.seats.map((seat) => seat.displayName).join(" v ")} />
+  ) : pane === "masters" ? (
+    <div className={styles.mastersSheet}>{masterRail}</div>
   ) : (
     <div className={styles.options}>
+      <DuelSettingsSummary session={data.session} />
+      <RoomInvite room={data} slug={slug} />
       <h2>Presentation</h2>
       <label className={styles.soundOption}>
         <span>Sound effects</span>
@@ -409,7 +567,13 @@ export function DuelRoomView({ slug }: { slug: string }) {
           onClick={() => onSubmitAnswer({ choice: option.id })}>{option.label}</Button>
       ))}
       <h2>Connection</h2>
-      <p role="status">{realtime.connected ? "Live updates connected." : "Reconnecting live updates; polling for the latest state."}</p>
+      <p role="status">{terminal ? "Showing the saved final state." : realtime.syncing
+        ? "Catching up to the current duel. Actions resume when the latest state arrives."
+        : realtime.connected ? "Live updates connected." : "Reconnecting live updates; polling for the latest state."}</p>
+      {!terminal ? <Button type="button" size="sm" variant="secondary" disabled={busy || realtime.syncing}
+        onClick={() => void realtime.resync().catch(() => setActionError("Could not catch up. Check your connection and retry."))}>
+        Catch up now
+      </Button> : null}
       {data.mySeat == null ? <p>Watching only. Both players’ hidden cards remain private.</p> : null}
       {realtime.presence ? (
         <div>
@@ -423,50 +587,84 @@ export function DuelRoomView({ slug }: { slug: string }) {
         onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
       {canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
-      {data.session.archivedAt ? <p>Archived. The result and saved final board remain in match history.</p> : null}
+      {data.session.status === "completed" || data.session.status === "interrupted" ? (
+        <>
+          <p>Finished. This duel is in Match history.</p>
+          <Link href={`/duels/${slug}/replay`}>Watch replay</Link>
+        </>
+      ) : null}
       <Link href="/duels">Back to tables</Link>
     </div>
   );
-  const tabs = (mobile = false) => (
-    <div className={styles.tabs} role={mobile ? undefined : "tablist"} aria-label={mobile ? "Mobile duel panels" : "Duel panels"}
-      onKeyDown={(event) => {
-        if (mobile || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-        event.preventDefault();
-        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-        const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-        const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
-          : (current + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
-        buttons[next]?.focus();
-        buttons[next]?.click();
-      }}>
-      {(mobile ? (["card", "log", "options"] as const) : (["card", "log"] as const)).map((tab) => (
-        <button key={tab} type="button" role={mobile ? undefined : "tab"}
-          aria-selected={mobile ? undefined : pane === tab} aria-haspopup={mobile ? "dialog" : undefined}
-          tabIndex={mobile || pane === tab || (!mobile && pane === "options" && tab === "card") ? 0 : -1}
-          onClick={() => { setPane(tab); if (mobile) setMobileInspect(true); }}>
-          {tab[0].toUpperCase() + tab.slice(1)}
-        </button>
-      ))}
-    </div>
-  );
+  const tabs = (mobile = false) => {
+    const panes: readonly Pane[] = mobile
+      ? (domain ? ["card", "log", "options", "masters"] : ["card", "log", "options"])
+      : ["card", "log"];
+    return (
+      <div className={styles.tabs} role={mobile ? undefined : "tablist"} aria-label={mobile ? "Mobile duel panels" : "Duel panels"}
+        onKeyDown={(event) => {
+          if (mobile || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+          const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+          const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
+            : (current + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+          buttons[next]?.focus();
+          buttons[next]?.click();
+        }}>
+        {panes.map((tab) => (
+          <button key={tab} type="button" role={mobile ? undefined : "tab"}
+            aria-selected={mobile ? undefined : pane === tab} aria-haspopup={mobile ? "dialog" : undefined}
+            tabIndex={mobile || pane === tab || (!mobile && pane === "options" && tab === "card") ? 0 : -1}
+            onClick={() => { setPane(tab); if (mobile) setMobileInspect(true); }}>
+            {tab[0].toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+    );
+  };
 
   return (
-    <div className={`${styles.shell} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`} data-domain={domain}>
+    <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
+      data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
+      data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
+      data-reduced={preferences.reducedMotion ? "true" : "false"}>
       <header className={styles.header}>
-        <div className={styles.identity}><Link href="/duels">Yugidraft</Link><span>{domain ? "Domain" : `MR${data.session.masterRule}`} · 1v1</span></div>
-        <div className={styles.turn}><strong>Turn {engine?.turn ?? "—"}</strong><span>{phaseLabel(engine?.phase)}</span></div>
+        <div className={styles.identity}>
+          <Link href="/duels">Yugidraft</Link>
+          {spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
+            <Eye size={14} strokeWidth={1.75} aria-hidden /> Spectator
+          </strong> : null}
+          <span className={styles.format}>{domain ? isCustomDomain(data.session.masterRule, data.session.settings) ? "Custom Domain" : "Domain" : `MR${data.session.masterRule}`} · 1v1</span>
+        </div>
+        <div className={styles.turn}>
+          <strong>Turn {engine?.turn ?? "—"}</strong><span className={styles.phaseName}>{phaseTitle(engine?.phase)}</span>
+          {turnText ? (
+            <span className={styles.whoPill} data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}>
+              {spectator ? <Eye size={13} strokeWidth={1.75} aria-hidden /> : myTurn
+                ? <Diamond size={13} strokeWidth={1.75} fill="currentColor" aria-hidden />
+                : <Circle size={13} strokeWidth={1.75} aria-hidden />}
+              {turnText}
+            </span>
+          ) : null}
+        </div>
         <div className={styles.status}>
-          <span className={styles.pref} role="status">
-            {data.mySeat == null ? "Watching" : realtime.connected ? "Live" : "Polling"}
+          <span className={styles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
+            <Radio size={15} strokeWidth={1.75} aria-hidden />
+            {connectionLabel}
           </span>
-          <span className={styles.pref}>{preferences.soundEnabled ? "Sound on" : "Sound off"}</span>
-          <span className={styles.pref}>
-            {preferences.motion === "full"
-              ? "Motion full"
-              : preferences.motion === "reduced"
-                ? "Motion reduced"
-                : "Motion device"}
-          </span>
+          <button type="button" className={`${styles.tool} ${styles.pref}`}
+            aria-label={`Sound effects ${soundLabel.toLowerCase()}`}
+            onClick={() => preferences.setSoundEnabled(!preferences.soundEnabled)}>
+            {preferences.soundEnabled ? <Volume2 size={16} strokeWidth={1.75} aria-hidden /> : <VolumeX size={16} strokeWidth={1.75} aria-hidden />}
+            <span>Sound <b>{soundLabel}</b></span>
+          </button>
+          <button type="button" className={`${styles.tool} ${styles.pref}`}
+            aria-label={`Motion ${motionLabel.toLowerCase()}, change`}
+            onClick={() => preferences.setMotion(MOTION_CYCLE[preferences.motion])}>
+            <Waves size={16} strokeWidth={1.75} aria-hidden />
+            <span>Motion <b>{motionLabel}</b></span>
+          </button>
           <button
             type="button"
             className={styles.gear}
@@ -477,7 +675,7 @@ export function DuelRoomView({ slug }: { slug: string }) {
               if (window.matchMedia("(max-width: 900px)").matches) setMobileInspect(true);
             }}
           >
-            <Settings size={22} strokeWidth={1.75} aria-hidden />
+            <Settings size={20} strokeWidth={1.75} aria-hidden />
           </button>
         </div>
       </header>
@@ -487,84 +685,66 @@ export function DuelRoomView({ slug }: { slug: string }) {
       {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
       <div className={styles.layout}>
         <aside className={styles.inspector}>
-          <span className={styles.chamfer} aria-hidden="true" />
           {tabs()}
           <div className={styles.sideContent} role="tabpanel" aria-label={pane}>{sideContent}</div>
         </aside>
+        {engine?.chain.length ? <ChainBlock chain={engine.chain} playerName={playerName} /> : null}
+        <div
+          className={styles.promptDock}
+          data-mode={dockMode}
+          data-tone={prompt?.context?.type === "chain" ? "chain" : "action"}
+          data-idle={dockMode === "idle" ? "true" : "false"}
+        >
+          <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
+            draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu)}
+            active={data.session.status === "active"} />
+        </div>
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board}>
             {engine ? (
               <>
-                <DuelField engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
+                <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
+                  reducedMotion={preferences.reducedMotion}
                   legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                   onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
                   bottomName={playerName(localSeat)}
                   topName={playerName(top?.seat ?? 1 - localSeat)} />
-                {!error ? <DuelFeedback events={engine.events} duelKey={slug}
+                {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug}
                   soundEnabled={preferences.soundEnabled} reducedMotion={preferences.reducedMotion} /> : null}
               </>
             ) : <p className="p-4">{data.session.status === "active" ? "Waiting for engine view…" : "No saved final board is available for this record."}</p>}
           </div>
-          <nav className={styles.phases} aria-label="Duel phases">
-            {PHASES.map((phase) => {
-              const action = actionOptions.find((option) => option.id === phase.action);
-              return <button key={phase.label} type="button" aria-label={action?.label ?? phase.name}
-                aria-current={phaseLabel(engine?.phase) === phase.name ? "step" : undefined}
-                disabled={!canAct || !action} onClick={() => action && onSubmitAnswer({ choice: action.id })}>
-                {phase.label}
-              </button>;
-            })}
-          </nav>
-          {engine?.chain.length ? (
-            <section className={styles.chain} aria-label="Current chain">
-              <strong>Chain · resolves highest link first</strong>
-              <ol>{engine.chain.map((link) => (
-                <li key={link.index}><b>{link.index}</b><span>{link.name ?? "Effect"}<small>{playerName(link.seat)}{link.description ? ` · ${link.description}` : ""}</small></span></li>
-              ))}</ol>
-            </section>
-          ) : null}
-          <div
-            className={styles.promptDock}
-            data-idle={
-              !(
-                prompt != null &&
-                data.mySeat != null &&
-                prompt.seat === data.mySeat &&
-                data.session.status === "active" &&
-                !(prompt.kind === "choice" && prompt.context?.type === "action")
-              )
-                ? "true"
-                : "false"
-            }
-          >
-            <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error)}
-              draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu)}
-              active={data.session.status === "active"} />
-          </div>
         </section>
-        {domain && engine ? <aside className={styles.masters} aria-label="Deck Masters">
-          <DeckMasterRail engine={engine} mySeat={data.mySeat} legalKeys={legalKeys}
-            selectedKeys={selectedKeys} canAct={canAct}
-            legalActionsFor={(card, keys) =>
-              canAct && prompt?.kind === "choice" && prompt.context?.type === "action"
-                ? optionsForCard(prompt, card, keys)
-                : []
-            }
-            onChooseAction={(option) => onSubmitAnswer({ choice: option.id })}
-            onActivate={onFieldActivate}
-            onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
-        </aside> : null}
+        {masterRail ? <aside className={styles.masters} aria-label="Deck Masters">{masterRail}</aside> : null}
+      </div>
+      <div className={styles.track}>
+        <StationTrack
+          phase={engine?.phase}
+          turn={engine?.turn}
+          turnSeat={engine?.turnSeat}
+          mySeat={data.mySeat}
+          playerName={playerName}
+          actionOptions={mine ? actionOptions : []}
+          canAct={canAct}
+          noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
+          onChoose={(id) => onSubmitAnswer({ choice: id })}
+          clock={data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} /> : null}
+          caption={trackCaption}
+          reducedMotion={preferences.reducedMotion}
+        />
       </div>
       <div className={styles.mobileBar}>{tabs(true)}</div>
       {activeMenu ? <CardActionMenu anchor={activeMenu.anchor} title={activeMenu.title}
         options={activeMenu.options} busy={busy} onClose={closeMenu}
+        tone={activeMenu.tone}
         onChoose={(option) => {
           if (activeMenu.promptId !== prompt?.id || activeMenu.revision !== engine?.revision) return;
           closeMenu();
           onSubmitAnswer({ choice: option.id });
         }} /> : null}
       {hover && !activeMenu && !mobileInspect ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
-      <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)} title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : "Options"}>
+      <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
+        title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Options"}>
         {sideContent}
       </Sheet>
       <Modal open={confirmSurrender} onClose={() => setConfirmSurrender(false)} title="Surrender">
@@ -577,7 +757,10 @@ export function DuelRoomView({ slug }: { slug: string }) {
           <Button type="button" variant="ghost" onClick={() => setConfirmSurrender(false)}>Keep playing</Button>
         </div>
       </Modal>
-      {showResult ? <ResultBanner room={data} onClose={() => setHideResult(true)} /> : null}
+      {showResult ? (
+        <DuelResultScreen room={data} slug={slug} reducedMotion={preferences.reducedMotion}
+          soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} />
+      ) : null}
     </div>
   );
 }

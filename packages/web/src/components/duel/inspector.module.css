@@ -1,11 +1,17 @@
+/* Card inspector: the Match Sheet card pane.
+   Lives in the left sheet on desktop and in the mobile sheet on narrow screens. */
+
 .root {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: calc(8 * var(--duel-unit, 1px));
+  min-width: 0;
   min-height: 0;
-  padding: 0.7rem 0.75rem 0.9rem;
-  color: #e7edf6;
-  font-family: var(--font-body);
+  padding: calc(14 * var(--duel-unit, 1px)) calc(16 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px));
+  overflow-x: hidden;
+  color: var(--duel-ink, #efe7d5);
+  font-family: var(--duel-f-ui, var(--font-body));
+  font-size: var(--duel-t-body, 13px);
 }
 
 .empty {
@@ -13,94 +19,124 @@
   min-height: 12rem;
   place-items: center;
   padding: 1rem;
-  color: #8ea0b3;
-  font-size: 0.9rem;
+  color: var(--duel-ink-3, #958f81);
+  font-family: var(--duel-f-ui, var(--font-body));
+  font-size: var(--duel-t-body, 13px);
   text-align: center;
 }
 
 .art {
   position: relative;
-  width: min(100%, 18rem);
-  margin-inline: auto;
+  box-sizing: border-box;
+  flex: none;
+  width: min(100%, calc(190 * var(--duel-unit, 1px)));
+  min-width: 0;
   aspect-ratio: 59 / 86;
+  margin: 0 auto calc(4 * var(--duel-unit, 1px));
   overflow: hidden;
-  border: 1px solid rgb(201 168 96 / 0.55);
-  background: #0c121c;
-  box-shadow:
-    inset 0 0 0 1px rgb(10 12 16 / 0.65),
-    inset 0 0 0 2px rgb(186 155 90 / 0.28);
+  border-radius: 6px;
+  background: #06080e;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.5);
 }
 
 .art img,
 .artBack {
   display: block;
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
+/* Crop the printed card border, as the field does. */
+.art img { transform: scale(1.075); }
+.artBack { transform: none; }
+
 .body {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: calc(8 * var(--duel-unit, 1px));
   min-width: 0;
 }
 
 .name {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: 1.15rem;
-  line-height: 1.2;
-  color: #f3f5fa;
+  color: var(--duel-ink, #efe7d5);
+  font-family: var(--duel-f-ui, var(--font-body));
+  font-size: var(--duel-t-name, 20px);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: calc(3 * var(--duel-unit, 1px));
 }
 
 .details,
 .kind,
 .combat {
   margin: 0;
-  line-height: 1.4;
+  line-height: 1.35;
 }
 
 .details,
 .kind {
-  color: #c5d3e2;
-  font-size: 0.82rem;
+  color: var(--duel-ink-2, #c3bba8);
+  font-size: var(--duel-t-body, 13px);
 }
 
 .combat {
-  font-size: 0.92rem;
-  font-variant-numeric: tabular-nums;
-  color: #edd9a8;
+  padding-top: calc(2 * var(--duel-unit, 1px));
+  color: var(--duel-ink, #efe7d5);
+  font-family: var(--duel-f-num, var(--font-display));
+  font-size: var(--duel-t-num, 22px);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 450;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
 }
 
 .text {
   margin: 0;
-  max-height: min(38vh, 18rem);
-  overflow-y: auto;
-  color: #d5deea;
-  font-size: 0.88rem;
-  line-height: 1.55;
+  padding-top: calc(8 * var(--duel-unit, 1px));
+  border-top: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.17));
+  color: var(--duel-ink-2, #c3bba8);
+  font-size: var(--duel-t-body, 13px);
+  line-height: 1.45;
 }
 
 .metaList {
   margin: 0;
-  padding: 0 0.75rem 0.9rem;
+  padding: 0 calc(16 * var(--duel-unit, 1px)) calc(14 * var(--duel-unit, 1px));
   list-style: none;
-  color: #b7c6d6;
-  font-size: 0.78rem;
+  color: var(--duel-ink-2, #c3bba8);
+  font-family: var(--duel-f-ui, var(--font-body));
+  font-size: var(--duel-t-sm, 12px);
   line-height: 1.4;
+}
+
+.metaList li {
+  padding: calc(4 * var(--duel-unit, 1px)) 0;
+  border-top: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.17));
 }
 
 .pileTitle {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: 1rem;
+  padding-bottom: calc(6 * var(--duel-unit, 1px));
+  border-bottom: 3px double var(--duel-rule-hi, rgb(181 153 99 / 0.6));
+  font-family: var(--duel-f-ui, var(--font-body));
+  font-size: var(--duel-t-head, 15px);
+  font-weight: 600;
 }
 
 .pileGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(3.1rem, 1fr));
-  gap: 0.35rem;
+  grid-template-columns: repeat(auto-fill, minmax(calc(54 * var(--duel-unit, 1px)), 1fr));
+  gap: calc(6 * var(--duel-unit, 1px));
   margin: 0;
   padding: 0;
   list-style: none;
@@ -112,8 +148,10 @@
   aspect-ratio: 59 / 86;
   padding: 0;
   overflow: hidden;
-  border: 1px solid rgb(196 163 90 / 0.35);
-  background: #121c28;
+  border: 0;
+  border-radius: 3px;
+  background: #06080e;
+  box-shadow: 0 3px 8px rgb(0 0 0 / 0.45);
   cursor: pointer;
   touch-action: manipulation;
 }
@@ -123,8 +161,8 @@
 }
 
 .pileCard:focus-visible {
-  outline: 2px solid #c4a35a;
-  outline-offset: 1px;
+  outline: 2px solid var(--duel-ink, #efe7d5);
+  outline-offset: 2px;
 }
 
 .pileCard img {
@@ -132,4 +170,15 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform: scale(1.075);
+}
+
+@media (max-width: 900px) {
+  .root {
+    padding: 0.75rem;
+    overflow-x: hidden;
+  }
+
+  .art { width: min(100%, 11rem); }
+  .pileGrid { grid-template-columns: repeat(auto-fill, minmax(3.1rem, 1fr)); }
 }

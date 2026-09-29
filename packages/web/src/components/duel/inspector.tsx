@@ -41,9 +41,13 @@ function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
       </div>
       <div className={styles.body}>
         <h2 className={styles.name}>{card.name ?? `Card ${card.code}`}</h2>
-        {details ? <p className={styles.details}>{details}</p> : null}
-        {kind && kind !== details ? <p className={styles.kind}>{kind}</p> : null}
-        {combat ? <p className={styles.combat}>{combat}</p> : null}
+        {details || (kind && kind !== details) || combat ? (
+          <div className={styles.facts}>
+            {details ? <p className={styles.details}>{details}</p> : null}
+            {kind && kind !== details ? <p className={styles.kind}>{kind}</p> : null}
+            {combat ? <p className={styles.combat}>{combat}</p> : null}
+          </div>
+        ) : null}
         {description ? <p className={styles.text}>{description}</p> : null}
       </div>
     </div>

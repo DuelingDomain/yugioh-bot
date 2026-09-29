@@ -1,11 +1,11 @@
-"use client";
-
-import { useParams } from "next/navigation";
 import { DuelRoomView } from "@/components/duel/room";
 
-export default function DuelRoomPage() {
-  const params = useParams();
-  const slug = typeof params.slug === "string" ? params.slug : "";
-  if (!slug) return null;
-  return <DuelRoomView slug={slug} />;
+export default async function DuelRoomPage({
+  params, searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ invite?: string | string[] }>;
+}) {
+  const [{ slug }, { invite }] = await Promise.all([params, searchParams]);
+  return <DuelRoomView slug={slug} inviteCode={typeof invite === "string" ? invite : undefined} />;
 }

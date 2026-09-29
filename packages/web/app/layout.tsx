@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Russo_One, Chakra_Petch } from "next/font/google";
+import { DuelNavigationGuard } from "@/lib/hooks/use-duel-leave-guard";
 import "./globals.css";
 
 const russoOne = Russo_One({
@@ -29,6 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${russoOne.variable} ${chakraPetch.variable} dark`}>
       <body className="min-h-screen bg-bg-deep text-text-primary antialiased">
+        <DuelNavigationGuard />
         {children}
       </body>
     </html>

@@ -7,7 +7,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "view" | "start" | "respond" | "deck" | "cards" | "surrender" | "add-bot" | "archive" | "cancel";
+export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "surrender" | "add-bot" | "archive" | "cancel" | "replay";
 
 type DuelActor =
   | { ok: true; guildId: string; playerId: number; duels: DuelService }

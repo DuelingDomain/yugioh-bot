@@ -49,6 +49,8 @@ export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number
     case "set":
     case "attack":
       return 720;
+    case "phase":
+      return 820;
     case "chain-resolving":
       return 520;
     case "chain-resolved":

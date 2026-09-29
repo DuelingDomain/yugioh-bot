@@ -37,11 +37,11 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
   }, [open]);
 
   React.useEffect(() => {
-    if (!visible && mounted) {
+    if (!open && !visible && mounted) {
       const timer = setTimeout(() => setMounted(false), 200);
       return () => clearTimeout(timer);
     }
-  }, [visible, mounted]);
+  }, [open, visible, mounted]);
 
   // Lock body scroll
   React.useEffect(() => {
