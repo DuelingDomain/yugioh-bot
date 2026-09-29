@@ -12,17 +12,21 @@ COPY packages/bot/package*.json packages/bot/
 COPY packages/ws/package*.json packages/ws/
 COPY packages/web/package*.json packages/web/
 COPY packages/shared/package*.json packages/shared/
+COPY packages/duel-server/package*.json packages/duel-server/
+COPY patches/ patches/
 RUN npm ci
 
 # ── build ────────────────────────────────────────────────────────────────────
-# Build all packages via turbo (respects dependency order: shared → bot/ws/web).
-# Prune devDependencies afterward so production stages get a lean node_modules.
+# Build all packages via turbo (respects dependency order: shared → bot/ws/web/duel-server).
+# Prune without lifecycle scripts so native addons and patch-package edits are not
+# re-extracted from the registry. Re-apply patches afterward (postinstall would
+# not run under --ignore-scripts).
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx turbo run build
-RUN npm prune --omit=dev
+RUN npm prune --omit=dev --ignore-scripts && npx patch-package --error-on-fail
 
 # ── bot ──────────────────────────────────────────────────────────────────────
 # Production stage for the Discord bot.
@@ -48,34 +52,43 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
+# Shared package (symlink target for @yugidraft/shared; ws duel auth imports it)
+COPY --from=build /app/packages/shared/package*.json packages/shared/
+COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/ws/package*.json packages/ws/
 COPY --from=build /app/packages/ws/dist packages/ws/dist
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 CMD ["node", "packages/ws/dist/server.js"]
 
-# ── web ──────────────────────────────────────────────────────────────────────
-# Production stage for the Next.js web dashboard.
-# Runs `next start` from packages/web so it finds the local .next directory.
-FROM node:22-bookworm-slim AS web
+# ── duel ─────────────────────────────────────────────────────────────────────
+# Private automated duel engine. Browsers use authenticated Next routes.
+FROM node:22-bookworm-slim AS duel
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
-# Shared package (symlink target for @yugidraft/shared — used by web API routes)
 COPY --from=build /app/packages/shared/package*.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
-# Next.js built output and public assets
-COPY --from=build /app/packages/web/package*.json packages/web/
-COPY --from=build /app/packages/web/next.config.ts packages/web/next.config.ts
-COPY --from=build /app/packages/web/.next packages/web/.next
-COPY --from=build /app/packages/web/public packages/web/public
+COPY --from=build /app/packages/duel-server/package*.json packages/duel-server/
+COPY --from=build /app/packages/duel-server/dist packages/duel-server/dist
+COPY --from=build /app/packages/duel-server/scripts/install-engine-bundle.sh packages/duel-server/scripts/install-engine-bundle.sh
+RUN mkdir -p /app/data
+CMD ["sh", "-c", "sh packages/duel-server/scripts/install-engine-bundle.sh && exec node packages/duel-server/dist/server.js"]
+
+# ── web ──────────────────────────────────────────────────────────────────────
+# Production stage for the Next.js web dashboard.
+# Standalone output is traced from the worktree root (next.config outputFileTracingRoot).
+FROM node:22-bookworm-slim AS web
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/packages/web/.next/standalone ./
+COPY --from=build /app/packages/shared/package*.json packages/shared/
+COPY --from=build /app/packages/shared/dist packages/shared/dist
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 EXPOSE 3000
-# Run next start from packages/web so it locates the .next directory
-WORKDIR /app/packages/web
-CMD ["/app/node_modules/.bin/next", "start"]
+CMD ["node", "packages/web/server.js"]
 
 # ── web-dev ──────────────────────────────────────────────────────────────────
 # Development stage: runs `next dev` with HMR.
@@ -93,6 +106,7 @@ COPY packages/bot/package*.json packages/bot/
 COPY packages/ws/package*.json packages/ws/
 COPY packages/web/package*.json packages/web/
 COPY packages/shared/package*.json packages/shared/
+COPY packages/duel-server/package*.json packages/duel-server/
 # Copy full source — bind mounts in docker-compose.override.yml overlay these at runtime
 COPY . .
 # Next dev regenerates next-env.d.ts and writes .next/.turbo at runtime, but

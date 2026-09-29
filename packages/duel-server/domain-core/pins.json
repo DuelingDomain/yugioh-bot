@@ -1,0 +1,35 @@
+{
+  "ygoproCore": {
+    "repository": "https://github.com/edo9300/ygopro-core",
+    "commit": "efc21aa433b88cd35b7c37db4072a35c58d9d435",
+    "api": "11.0"
+  },
+  "ocgcoreWasm": {
+    "repository": "https://github.com/n1xx1/ocgcore-wasm",
+    "npm": "ocgcore-wasm@0.1.2",
+    "ref": "9f36452f2a2464f057f7fd6e2273aa5ab589401e"
+  },
+  "lua": {
+    "repository": "https://github.com/lua/lua",
+    "commit": "75ea9ccbea7c4886f30da147fb67b693b2624c26"
+  },
+  "cardScripts": {
+    "repository": "https://github.com/ProjectIgnis/CardScripts",
+    "commit": "e25331536ab3c15a901e80098b955d804b5a6842"
+  },
+  "emscripten": {
+    "image": "docker.io/emscripten/emsdk:4.0.9",
+    "digest": "sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811"
+  },
+  "locationDeckMaster": 16384,
+  "locationOverlay": 128,
+  "locationDeckMasterReturnsQuery": 32768,
+  "firstSummonTax": 0,
+  "returnTaxStep": 500,
+  "abi": {
+    "card_state.location": "uint16 holds 0x4000 internally",
+    "loc_info.location": "uint8 unchanged for wrapper MSG ABI; DMZ is not encoded as 0x03 (that is DECK|HAND)",
+    "engineView": "getDomainState via QueryCount(0x4000) and QueryCount(0x8000), not MSG location bytes"
+  },
+  "notes": "LOCATION_DECKMASTER is 0x4000. First leave from DMZ is free; each completed return adds 500 LP to the next leave, paid through PayLPCost for every proper leave (NS/MSet/SSProc/effect SS/main Pendulum activate), not non-leaves. Combined LP costs accumulate inside save_lp_cost/restore_lp_cost. Spell Economics can waive Pendulum-activate tax after the card is a spell in the PZONE, not Instant/Ready Fusion summon tax. Recall is offered to both owners in turn order after chains/triggers at open state when the DM's zone TYPE changed at least once since the last open state (not merely final != previous); field/overlay final locations block; decline consumes until the next transition."
+}

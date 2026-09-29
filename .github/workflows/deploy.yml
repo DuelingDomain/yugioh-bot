@@ -14,7 +14,7 @@ jobs:
   deploy:
     name: Deploy to Production VM
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
@@ -25,6 +25,49 @@ jobs:
       - name: Skip deploy when VM secrets are not configured
         if: ${{ env.VM_HOST == '' || env.VM_USER == '' || env.VM_SSH_PRIVATE_KEY == '' }}
         run: echo "VM deploy secrets are not configured yet; skipping deploy."
+
+      - name: Checkout
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        uses: actions/checkout@v4
+
+      - name: Compute bundle cache key
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
+
+      - name: Restore pinned duel-engine bundle
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        id: bundle
+        uses: actions/cache/restore@v4
+        with:
+          path: data/duel-engine
+          key: ${{ env.BUNDLE_CACHE_KEY }}
+
+      - name: Setup Node.js
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build pinned duel-engine bundle
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        run: |
+          npm ci --ignore-scripts
+          npx patch-package --error-on-fail
+          npm run duel:prepare
+          docker pull docker.io/emscripten/emsdk:4.0.9@sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811
+          npx tsx packages/duel-server/scripts/build-domain-core.ts
+
+      - name: Save pinned duel-engine bundle
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/duel-engine
+          key: ${{ env.BUNDLE_CACHE_KEY }}
+
+      - name: Verify duel-engine bundle
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        run: DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
 
       - name: Configure SSH key
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
@@ -42,7 +85,29 @@ jobs:
       - name: Deploy over SSH
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
         run: |
+          tar -C data/duel-engine -czf "$RUNNER_TEMP/duel-engine.tar.gz" .
+          scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+            "$RUNNER_TEMP/duel-engine.tar.gz" \
+            "$VM_USER@$VM_HOST:/tmp/yugidraft-duel-engine.tar.gz"
           ssh -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            'cd /opt/yugioh-bot && git fetch --all --prune && git reset --hard origin/main && docker compose -f docker-compose.yml build && docker compose -f docker-compose.yml down --remove-orphans && docker compose -f docker-compose.yml up -d && docker compose -f docker-compose.yml ps && docker compose -f docker-compose.yml logs --tail=40'
+            'set -eu
+             cd /opt/yugioh-bot
+             git fetch --all --prune
+             git reset --hard origin/main
+             docker compose -f docker-compose.yml build
+             rm -rf /tmp/yugidraft-duel-engine-src
+             mkdir -p /tmp/yugidraft-duel-engine-src
+             tar -C /tmp/yugidraft-duel-engine-src -xzf /tmp/yugidraft-duel-engine.tar.gz
+             docker compose -f docker-compose.yml stop web || true
+             if ! DUEL_BUNDLE_SRC=/tmp/yugidraft-duel-engine-src DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
+               sh packages/duel-server/scripts/install-engine-bundle.sh; then
+               docker compose -f docker-compose.yml start web || true
+               exit 1
+             fi
+             docker compose -f docker-compose.yml down --remove-orphans
+             docker compose -f docker-compose.yml up -d
+             docker compose -f docker-compose.yml ps
+             docker compose -f docker-compose.yml logs --tail=40
+             rm -rf /tmp/yugidraft-duel-engine-src /tmp/yugidraft-duel-engine.tar.gz'

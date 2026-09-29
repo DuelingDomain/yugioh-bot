@@ -28,19 +28,17 @@ describe("POST /api/tournaments/[slug]/announce", () => {
     vi.resetModules();
     auth.mockReset();
     fetchSpy.mockReset();
-    fetchSpy.mockResolvedValue({ ok: true } as any);
+    fetchSpy.mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchSpy);
-    delete process.env.DISCORD_DEFAULT_CHANNEL_ID;
-    delete process.env.DISCORD_REMINDER_CHANNEL_ID;
-    process.env.BOT_ANNOUNCE_URL = "http://bot:4001";
-    process.env.BOT_ANNOUNCE_SECRET = "shh";
+    vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "");
+    vi.stubEnv("DISCORD_REMINDER_CHANNEL_ID", "");
+    vi.stubEnv("BOT_ANNOUNCE_URL", "http://bot:4001");
+    vi.stubEnv("BOT_ANNOUNCE_SECRET", "shh");
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    delete process.env.DATABASE_PATH;
-    delete process.env.BOT_ANNOUNCE_URL;
-    delete process.env.BOT_ANNOUNCE_SECRET;
+    vi.unstubAllEnvs();
     while (tempDirs.length > 0) {
       const d = tempDirs.pop();
       if (d) rmSync(d, { recursive: true, force: true });
@@ -52,7 +50,7 @@ describe("POST /api/tournaments/[slug]/announce", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "ta-1-"));
     const dbPath = join(tempDir, "t.sqlite");
     tempDirs.push(tempDir);
-    process.env.DATABASE_PATH = dbPath;
+    vi.stubEnv("DATABASE_PATH", dbPath);
     await seedTournament(dbPath);
 
     const { POST } = await import("../../app/api/tournaments/[slug]/announce/route");
@@ -66,12 +64,12 @@ describe("POST /api/tournaments/[slug]/announce", () => {
 
   it("falls back to DISCORD_DEFAULT_CHANNEL_ID and POSTs to the bot announce endpoint", async () => {
     auth.mockResolvedValue({ user: { id: "u-org", name: "Org" } });
-    process.env.DISCORD_DEFAULT_CHANNEL_ID = "channel-default";
+    vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel-default");
 
     const tempDir = mkdtempSync(join(tmpdir(), "ta-2-"));
     const dbPath = join(tempDir, "t.sqlite");
     tempDirs.push(tempDir);
-    process.env.DATABASE_PATH = dbPath;
+    vi.stubEnv("DATABASE_PATH", dbPath);
     await seedTournament(dbPath);
 
     const { POST } = await import("../../app/api/tournaments/[slug]/announce/route");
@@ -79,8 +77,6 @@ describe("POST /api/tournaments/[slug]/announce", () => {
       params: Promise.resolve({ slug: "slug-1" }),
     });
     expect(res.status).toBe(200);
-
-    await new Promise((r) => setImmediate(r));
 
     expect(fetchSpy).toHaveBeenCalled();
     const [url, init] = fetchSpy.mock.calls[0];
@@ -94,12 +90,12 @@ describe("POST /api/tournaments/[slug]/announce", () => {
 
   it("returns 403 for non-organizer", async () => {
     auth.mockResolvedValue({ user: { id: "u-someone-else", name: "Stranger" } });
-    process.env.DISCORD_DEFAULT_CHANNEL_ID = "channel-default";
+    vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel-default");
 
     const tempDir = mkdtempSync(join(tmpdir(), "ta-3-"));
     const dbPath = join(tempDir, "t.sqlite");
     tempDirs.push(tempDir);
-    process.env.DATABASE_PATH = dbPath;
+    vi.stubEnv("DATABASE_PATH", dbPath);
     await seedTournament(dbPath);
 
     const { POST } = await import("../../app/api/tournaments/[slug]/announce/route");

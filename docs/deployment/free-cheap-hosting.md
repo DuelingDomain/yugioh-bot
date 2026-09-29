@@ -14,9 +14,10 @@ Run the app as a Docker Compose service on an always-on VM. Do not use serverles
 
 1. Create a CAX11 server (Ubuntu 24.04, ARM64)
 2. Add your SSH key in the Hetzner Cloud Console
-3. Allow TCP ports 22, 80, 443 in the firewall
+3. Allow TCP ports 22, 80, 443 in the firewall (do not expose 4003)
 4. Install Docker: `curl -fsSL https://get.docker.com | sh`
-5. Clone the repo, create `.env`, run `docker compose -f docker-compose.yml up -d --build`
+5. Clone the repo, create `.env` from `.env.example` (include `DUEL_INTERNAL_SECRET`)
+6. First start: push to `main` (or `workflow_dispatch`) so Actions installs `data/duel-engine`. The ARM host does not compile Domain wasm.
 
 See `docs/deployment/vm-runbook.md` for the full guide.
 
@@ -27,6 +28,8 @@ cd /opt/yugioh-bot
 git fetch --all --prune && git reset --hard origin/main
 docker compose -f docker-compose.yml up -d --build
 ```
+
+That rebuilds images only. Resource-bundle changes come from the `main` deploy workflow.
 
 Or push to `main` and let GitHub Actions deploy automatically.
 

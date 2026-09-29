@@ -58,19 +58,38 @@ The deploy workflow requires these GitHub Actions secrets:
 ## Deployment Pipeline
 
 1. Code is pushed to `main` on GitHub.
-2. GitHub Actions starts the `Deploy` workflow.
-3. The workflow SSHes into the VM.
-4. The VM resets `/opt/yugioh-bot` to `origin/main`.
-5. Docker Compose rebuilds and restarts all services.
-6. Caddy reverse-proxies HTTP on port 80.
+2. GitHub Actions starts the `Deploy` workflow on `ubuntu-latest` (amd64).
+3. The workflow builds or restores the pinned duel-engine resource bundle
+   (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `manifest.json`)
+   using `npm run duel:prepare` and `packages/duel-server/scripts/build-domain-core.ts`
+   inside `docker.io/emscripten/emsdk:4.0.9` (digest from `packages/duel-server/domain-core/pins.json`).
+   Identical pins hit the Actions cache and skip regenerate.
+4. The workflow SSHes into the VM, resets `/opt/yugioh-bot` to `origin/main`,
+   rebuilds Compose images, stops **web** (ingress) only, then installs the
+   bundle into `/opt/yugioh-bot/data/duel-engine` **before** `docker compose down`.
+   The duel engine stays up during the check. Install is a no-op when
+   `manifest.json` is identical. A different bundle is refused while
+   `duels.status = 'active'` in `data/bot.sqlite` (locked/corrupt DB and missing
+   columns fail closed); on refuse, `docker compose start web` restores the old
+   web container and the deploy exits without recreating duel. This reduces
+   new-table races; it is not a race-free preflight. It never writes `data/bot.sqlite`.
+5. Compose starts bot, ws, duel, web, and caddy. The duel container verifies
+   the volume bundle and runs `node packages/duel-server/dist/server.js`
+   (`dist/worker.js` is loaded by the compiled host). Container restarts do
+   not re-download or recompile the bundle.
+6. Caddy reverse-proxies HTTP on port 80. Port 4003 stays on the Docker
+   network only — do not publish it.
 
-Remote deploy command used by the workflow:
+Remote steps used by the workflow (bundle tarball is built on the runner first):
 
 ```bash
 cd /opt/yugioh-bot && \
 git fetch --all --prune && \
 git reset --hard origin/main && \
 docker compose -f docker-compose.yml build && \
+docker compose -f docker-compose.yml stop web && \
+# install-engine-bundle.sh: unique sibling staging; refuses a different
+# bundle while active duels exist; start web again on refuse
 docker compose -f docker-compose.yml down --remove-orphans && \
 docker compose -f docker-compose.yml up -d && \
 docker compose -f docker-compose.yml ps && \
@@ -131,18 +150,28 @@ NEXTAUTH_SECRET=  # generate with: openssl rand -base64 32
 NEXTAUTH_URL=http://YOUR_VM_IP
 NEXT_PUBLIC_WS_URL=http://YOUR_VM_IP
 
+WS_INTERNAL_SECRET=  # openssl rand -hex 32; same on web, bot, duel, ws
+BOT_ANNOUNCE_SECRET=  # openssl rand -hex 32
+DUEL_INTERNAL_SECRET=  # openssl rand -hex 32; same on web and duel
+
 DATABASE_PATH=./data/bot.sqlite
 REMINDER_CRON=0 10 * * *
 REMINDER_TIMEZONE=America/New_York
 ```
 
+Do not publish host port 4003. Compose already keeps the duel engine on the internal network.
+
 ### Build & Run
+
+The ARM VM does not compile Domain wasm. First production start should be a `main` push
+or `workflow_dispatch` so GitHub Actions can install `/opt/yugioh-bot/data/duel-engine`.
+A compose-only start without that bundle will fail the `duel` container at verify.
 
 ```bash
 docker compose -f docker-compose.yml up -d --build
 ```
 
-First build takes 3-5 minutes.
+Image builds take several minutes. The resource bundle is not rebuilt on container restart.
 
 ### Verify
 
@@ -202,7 +231,7 @@ docker compose -f docker-compose.yml logs -f
 # Restart a service
 docker compose -f docker-compose.yml restart bot
 
-# Manual update
+# Manual image update (does not rebuild the engine bundle; volume data/duel-engine stays)
 git fetch --all --prune && git reset --hard origin/main
 docker compose -f docker-compose.yml up -d --build
 
@@ -230,12 +259,12 @@ docker compose -f docker-compose.yml down
 
 - [ ] VM created (Hetzner CAX11 or similar, 4GB+ RAM)
 - [ ] SSH key added
-- [ ] Firewall allows TCP 22, 80, 443
+- [ ] Firewall allows TCP 22, 80, 443 (not 4003)
 - [ ] Docker and Docker Compose installed
 - [ ] Repo cloned to `/opt/yugioh-bot`
-- [ ] `.env` created with all values
-- [ ] First `docker compose -f docker-compose.yml up -d --build` succeeds
+- [ ] `.env` created with all values including `DUEL_INTERNAL_SECRET` and `WS_INTERNAL_SECRET`
+- [ ] GitHub Actions secrets configured
+- [ ] Push to `main` (or `workflow_dispatch`) installs `data/duel-engine` and starts services
 - [ ] `http://YOUR_VM_IP` loads in browser
 - [ ] Discord OAuth redirect added
-- [ ] GitHub Actions secrets configured
-- [ ] Push to `main` triggers successful auto-deploy
+- [ ] `duel` container logs show the private server listening; no public 4003

@@ -1,0 +1,645 @@
+.felt {
+  --mat: #0c121c;
+  --gold: #c4a35a;
+  --gold-dim: rgb(196 163 90 / 0.42);
+  --violet: #8b6cff;
+  --pile-col: clamp(2.45rem, 7.4%, 3.65rem);
+  --zone-gap: clamp(0.14rem, 0.55%, 0.3rem);
+  --lp-gutter: 8.5rem;
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 0.5fr) minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.35rem 0.4rem 0.4rem;
+  overflow: hidden;
+  color: #e7edf6;
+  font-family: var(--font-body);
+  background-color: var(--mat);
+  background-image: url("/duel/felt-grain.webp");
+  background-repeat: repeat;
+  background-size: 400px auto;
+  container-type: size;
+}
+
+.etch {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.sun {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 0;
+  width: clamp(4rem, 20cqw, 12.5rem);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.feltTrim {
+  position: absolute;
+  inset: 5px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.chamfer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: 12px solid transparent;
+  border-image-source: url("/duel/chamfer-gold.svg");
+  border-image-slice: 12;
+  border-image-width: 12px;
+  border-image-repeat: stretch;
+}
+
+.feltTrim.chamfer {
+  z-index: 0;
+}
+
+.lpBadge {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  max-width: calc(var(--lp-gutter) - 0.45rem);
+  padding: 0;
+  pointer-events: none;
+  color: #efeaf8;
+  font-family: var(--font-body);
+  line-height: 1.1;
+  text-shadow: 0 1px 2px #000a;
+}
+
+.lpOpp {
+  top: 14px;
+  left: 20px;
+}
+
+.lpYou {
+  bottom: 14px;
+  left: 20px;
+}
+
+.lpName {
+  overflow: hidden;
+  min-width: 0;
+  color: #c9c3dc;
+  font-size: 1.0625rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lpBadge strong {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  overflow: visible;
+  color: #f6f3ff;
+  font-family: var(--font-body);
+  font-size: 1.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lpPrefix {
+  color: #d5d0e6;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.handRail,
+.half,
+.emzBand {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.emzBand {
+  z-index: 0;
+  overflow: visible;
+}
+
+.handRail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin-inline-start: max(var(--lp-gutter), env(safe-area-inset-left));
+}
+
+.handRailLocal {
+  margin-inline-end: max(var(--lp-gutter), env(safe-area-inset-right));
+}
+
+.hand {
+  display: flex;
+  justify-content: safe center;
+  align-items: flex-end;
+  gap: 0.22rem;
+  min-width: 0;
+  padding: 0.12rem 0.4rem 0.2rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.handCard {
+  flex: 0 0 auto;
+  width: clamp(2.6rem, 8.6cqw, 4.25rem);
+  aspect-ratio: 59 / 86;
+}
+
+.handLocal {
+  align-items: flex-start;
+  padding-bottom: 0.2rem;
+}
+
+.handLocal .handCard {
+  width: clamp(3.5rem, 13cqw, 7rem);
+}
+
+.half,
+.emzBand {
+  display: grid;
+  grid-template-columns: var(--pile-col) minmax(0, 1fr) var(--pile-col);
+  gap: var(--zone-gap);
+  align-items: stretch;
+}
+
+.rows {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1.08fr);
+  gap: var(--zone-gap);
+  min-width: 0;
+  min-height: 0;
+}
+
+.halfLocal .rows {
+  grid-template-rows: minmax(0, 1.08fr) minmax(0, 1fr);
+}
+
+.zones,
+.emzRow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--zone-gap);
+  height: 100%;
+  min-height: 0;
+}
+
+.piles {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.18rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.piles > * {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.emzRow > :not(:nth-child(2)):not(:nth-child(4)) {
+  pointer-events: none;
+}
+
+.zone {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  container-type: size;
+}
+
+.zoneHit {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: center;
+  justify-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0.08rem 0.04rem 0.04rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.zoneHit:focus {
+  outline: none;
+}
+
+.zoneHit:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+.zoneHit:disabled {
+  cursor: default;
+}
+
+.frame {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: auto;
+  height: min(100%, 100cqw);
+  max-width: 100%;
+  min-height: 0;
+  aspect-ratio: 59 / 86;
+  overflow: visible;
+  border: 1px solid var(--gold-dim);
+  border-radius: 2px;
+  background: rgb(8 14 22 / 0.55);
+  box-shadow: inset 0 0 0 1px rgb(12 20 30 / 0.65);
+}
+
+.zone[data-kind="st"] .frame,
+.zone[data-kind="hand"] .frame,
+.zone[data-kind="field"] .frame,
+.zone[data-kind="extra"] .frame,
+.zone[data-kind="gy"] .frame,
+.zone[data-kind="banish"] .frame,
+.zone[data-kind="deck"] .frame {
+  height: min(100%, calc(100cqw * 86 / 59));
+}
+
+.zone[data-kind="mz"]::before,
+.zone[data-kind="emz"]::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  z-index: 0;
+  width: min(92%, 100cqh);
+  aspect-ratio: 86 / 59;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgb(196 163 90 / 0.16);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.zone[data-kind="emz"] .frame {
+  border-color: rgb(139 108 255 / 0.45);
+}
+
+.zone[data-kind="field"] .frame,
+.zone[data-kind="extra"] .frame {
+  border-color: rgb(167 139 250 / 0.4);
+}
+
+.zone[data-legal="true"] .frame {
+  border-color: var(--gold);
+  box-shadow:
+    0 0 0 1px var(--gold),
+    inset 0 0 10px rgb(196 163 90 / 0.16);
+}
+
+.zone[data-selected="true"] .frame {
+  border-color: var(--violet);
+  box-shadow:
+    0 0 0 1px var(--violet),
+    inset 0 0 12px rgb(139 108 255 / 0.28);
+}
+
+.pendulumMark {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  z-index: 2;
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  color: rgb(231 237 246 / 0.55);
+  pointer-events: none;
+}
+
+.cardFace,
+.cardBack {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.artWrap {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.artWrap[data-defense="true"] {
+  overflow: visible;
+}
+
+.cardFace[data-defense="true"],
+.artWrap[data-defense="true"] > .cardBack {
+  width: 100%;
+  height: 100%;
+  transform: rotate(90deg);
+  transform-origin: center;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.45);
+}
+
+.cardBack {
+  position: relative;
+  isolation: isolate;
+  background: #120e0c url("/duel/card-back-main.webp") center / cover no-repeat;
+  border: 1.5px solid #b08a3e;
+}
+
+.cardBackExtra {
+  background: #140e1c url("/duel/card-back-extra.webp") center / cover no-repeat;
+  border-color: #8a6bb0;
+}
+
+.art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.statLine,
+.pileLabel {
+  z-index: 2;
+  max-width: 100%;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.statLine {
+  margin-top: 0.12rem;
+  font-size: 0.75rem;
+  color: #edd9a8;
+}
+
+.pileLabel {
+  margin-top: 0.1rem;
+  font-size: 0.6875rem;
+  color: #b9c9d8;
+}
+
+.overlayBadge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  z-index: 3;
+  min-width: 0.9rem;
+  padding: 0 3px;
+  border-radius: 2px;
+  background: rgb(10 14 22 / 0.82);
+  font-size: 0.55rem;
+  font-variant-numeric: tabular-nums;
+  color: #edd9a8;
+  pointer-events: none;
+}
+
+.masterRail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.15rem 0.1rem;
+}
+
+.masterDock {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-height: 0;
+  overflow: visible;
+  padding: 0.7rem 0.7rem 0.75rem;
+  border: 0;
+  background-color: #0c121c;
+  background-image: linear-gradient(rgb(12 18 28 / 0.7), rgb(12 18 28 / 0.7)), url("/duel/felt-grain.webp");
+  background-repeat: repeat;
+  background-size: auto, 400px auto;
+}
+
+.masterDock[data-local="true"] {
+  flex: 1.22 1 0;
+}
+
+.masterDock[data-local="true"] > .chamfer {
+  border-image-source: url("/duel/chamfer-violet.svg");
+}
+
+.masterDock[data-legal="true"] > .chamfer {
+  border-image-source: url("/duel/chamfer-gold.svg");
+}
+
+.masterDock[data-local="true"][data-legal="true"] > .chamfer,
+.masterDock[data-selected="true"] > .chamfer {
+  border-image-source: url("/duel/chamfer-violet.svg");
+}
+
+.masterTitle {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  color: #e7edf6;
+  font-family: var(--font-body);
+  font-size: 1.1875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.masterHit {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.masterHit:focus {
+  outline: none;
+}
+
+.masterHit:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.masterArt {
+  width: min(100%, 10rem);
+  flex: none;
+  aspect-ratio: 59 / 86;
+  overflow: hidden;
+  border: 1px solid var(--gold-dim);
+  background: rgb(8 14 22 / 0.7);
+}
+
+.masterArt img,
+.masterArt .cardBack {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.masterMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  width: 100%;
+  color: #c5ced8;
+  font-size: 0.9375rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.masterEmpty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  color: #8ea0b3;
+  font-size: 0.8rem;
+}
+
+.masterActions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  margin-top: auto;
+}
+
+.masterAction,
+.masterInspect {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: 33px;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid rgb(201 168 96 / 0.45);
+  background: rgb(18 22 32 / 0.9);
+  color: #e7edf6;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.masterAction {
+  border-color: rgb(196 181 253 / 0.85);
+  background: linear-gradient(#6d3fd4, #5427b0);
+  color: #f4edff;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 0 12px rgb(124 58 237 / 0.45);
+}
+
+.masterInspect {
+  background: rgb(12 16 24 / 0.85);
+}
+
+.masterAction:disabled,
+.masterInspect:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.masterAction:focus-visible,
+.masterInspect:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cardFace[data-defense="true"] {
+    transition: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .felt {
+    min-height: 22rem;
+    padding: 0.28rem 0.22rem;
+    --lp-gutter: 7.75rem;
+  }
+
+  .handCard {
+    width: clamp(2.4rem, 12vw, 4.2rem);
+  }
+
+  .handLocal .handCard {
+    width: clamp(2.8rem, 18vw, 6.2rem);
+  }
+
+  .handRailLocal {
+    margin-inline-end: 0.4rem;
+  }
+
+  .lpOpp, .lpYou {
+    left: 12px;
+    max-width: calc(var(--lp-gutter) - 1.25rem);
+  }
+
+  .masterRail { height: auto; flex-direction: row; }
+  .masterDock { min-width: 0; flex: 1 1 0; }
+  .masterHit { flex: none; }
+  .masterArt { width: 4rem; flex: none; }
+}
+
+@media (max-width: 600px) {
+  .statLine { font-size: 0.6875rem; overflow: visible; letter-spacing: -0.02em; }
+  .pileLabel { font-size: 0.6875rem; overflow: visible; }
+}

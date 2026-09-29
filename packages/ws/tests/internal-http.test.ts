@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createInternalHttpHandler } from "../src/internal-http.js";
+import type { TypedServer } from "../src/events.js";
 
 const SECRET = "shh";
 const sign = (body: string) => "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex");
@@ -26,7 +27,7 @@ describe("createInternalHttpHandler", () => {
     const handle = createInternalHttpHandler({ io: io as any, secret: SECRET });
     const res = await handle(makeRequest("/internal/draft/status", { slug: "abc", status: "active" }));
     expect(res.status).toBe(204);
-    expect(to).toHaveBeenCalledWith("abc");
+    expect(to).toHaveBeenCalledWith("draft:abc");
     expect(emit).toHaveBeenCalledWith("draft:status", { status: "active" });
   });
 
@@ -35,7 +36,7 @@ describe("createInternalHttpHandler", () => {
     const handle = createInternalHttpHandler({ io: io as any, secret: SECRET });
     const res = await handle(makeRequest("/internal/draft/pick", { slug: "abc", playerId: 7, packRound: 1, pickStep: 2 }));
     expect(res.status).toBe(204);
-    expect(to).toHaveBeenCalledWith("abc");
+    expect(to).toHaveBeenCalledWith("draft:abc");
     expect(emit).toHaveBeenCalledWith("draft:pick", { playerId: 7, packRound: 1, pickStep: 2 });
   });
 
@@ -44,6 +45,7 @@ describe("createInternalHttpHandler", () => {
     const handle = createInternalHttpHandler({ io: io as any, secret: SECRET });
     const res = await handle(makeRequest("/internal/draft/resync", { slug: "abc", packRound: 1, pickStep: 2 }));
     expect(res.status).toBe(204);
+    expect(to).toHaveBeenCalledWith("draft:abc");
     expect(emit).toHaveBeenCalledWith("draft:resync", { packRound: 1, pickStep: 2 });
   });
 
@@ -52,6 +54,7 @@ describe("createInternalHttpHandler", () => {
     const handle = createInternalHttpHandler({ io: io as any, secret: SECRET });
     const res = await handle(makeRequest("/internal/draft/complete", { slug: "abc" }));
     expect(res.status).toBe(204);
+    expect(to).toHaveBeenCalledWith("draft:abc");
     expect(emit).toHaveBeenCalledWith("draft:complete", {});
   });
 
@@ -60,7 +63,7 @@ describe("createInternalHttpHandler", () => {
     const handle = createInternalHttpHandler({ io: io as any, secret: SECRET });
     const res = await handle(makeRequest("/internal/draft/seats", { slug: "test-slug" }));
     expect(res.status).toBe(204);
-    expect(to).toHaveBeenCalledWith("test-slug");
+    expect(to).toHaveBeenCalledWith("draft:test-slug");
     expect(emit).toHaveBeenCalledWith("draft:seats", {});
   });
 
@@ -97,5 +100,30 @@ describe("createInternalHttpHandler", () => {
     const handle = createInternalHttpHandler({ io: io as any, secret: SECRET });
     const res = await handle(makeRequest("/internal/draft/status", { status: "active" } as any));
     expect(res.status).toBe(400);
+  });
+
+  it("emits public duel:changed to the guild-scoped room", async () => {
+    const { io, to, emit } = makeIo();
+    const handle = createInternalHttpHandler({ io: io as unknown as TypedServer, secret: SECRET });
+    const res = await handle(
+      makeRequest("/internal/duel/changed", {
+        slug: "abc",
+        guildId: "g1",
+        prompt: "private",
+        cards: [1],
+      }),
+    );
+    expect(res.status).toBe(204);
+    expect(to).toHaveBeenCalledWith("duel:g1:abc");
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit).toHaveBeenCalledWith("duel:changed", { slug: "abc" });
+  });
+
+  it("rejects duel/changed missing guildId with 400", async () => {
+    const { io, emit } = makeIo();
+    const handle = createInternalHttpHandler({ io: io as unknown as TypedServer, secret: SECRET });
+    const res = await handle(makeRequest("/internal/duel/changed", { slug: "abc" }));
+    expect(res.status).toBe(400);
+    expect(emit).not.toHaveBeenCalled();
   });
 });

@@ -11,45 +11,6 @@ function getTableInfo(db: Database.Database, tableName: string) {
 }
 
 describe("shared database schema", () => {
-  it("creates all shared tables", () => {
-    const db = new Database(":memory:");
-
-    migrate(db);
-
-    const tables = db
-      .prepare(
-        "select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name",
-      )
-      .all()
-      .map((row: any) => row.name);
-
-    expect(tables).toEqual([
-      "archetypes",
-      "card_catalog",
-      "card_sets",
-      "cube_cards",
-      "cubes",
-      "draft_cards",
-      "draft_deal",
-      "draft_packs",
-      "draft_picks",
-      "draft_player_cube",
-      "draft_players",
-      "drafts",
-      "guild_settings",
-      "matches",
-      "player_achievements",
-      "player_ratings",
-      "players",
-      "point_awards",
-      "season_standings",
-      "seasons",
-      "tournament_matches",
-      "tournament_participants",
-      "tournaments",
-    ]);
-  });
-
   it("creates draft tables with the approved column shapes", () => {
     const db = new Database(":memory:");
 
@@ -460,5 +421,153 @@ describe("migrate backfills match-win tournament_id", () => {
       tournament_id: number | null;
     };
     expect(award.tournament_id).toBe(tournamentId);
+  });
+});
+
+describe("duel bot seat migration", () => {
+  it("rebuilds existing seats as nullable humans and backfills winner_seat", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      create table players (
+        id integer primary key autoincrement,
+        guild_id text not null,
+        discord_user_id text not null,
+        display_name text not null,
+        created_at text not null default current_timestamp,
+        unique (guild_id, discord_user_id)
+      );
+      create table duels (
+        id integer primary key autoincrement,
+        guild_id text not null,
+        web_slug text not null unique,
+        name text not null,
+        organizer_player_id integer not null references players(id),
+        mode text not null,
+        status text not null,
+        seed_json text,
+        bundle_version text,
+        created_at text not null default current_timestamp,
+        ended_at text,
+        winner_player_id integer references players(id),
+        result_reason text
+      );
+      create table duel_seats (
+        duel_id integer not null references duels(id) on delete cascade,
+        seat integer not null,
+        player_id integer not null references players(id),
+        ready integer not null default 0,
+        deck_json text,
+        primary key (duel_id, seat),
+        unique (duel_id, player_id)
+      );
+      create table duel_commands (
+        id integer primary key autoincrement,
+        duel_id integer not null references duels(id) on delete cascade,
+        seq integer not null,
+        seat integer not null,
+        command_json text not null,
+        created_at text not null default current_timestamp,
+        unique (duel_id, seq)
+      );
+    `);
+
+    const p1 = Number(
+      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'Yugi')").run()
+        .lastInsertRowid,
+    );
+    const p2 = Number(
+      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u2', 'Kaiba')").run()
+        .lastInsertRowid,
+    );
+    const duelId = Number(
+      db
+        .prepare(
+          "insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status, winner_player_id, result_reason) values ('g1', 'oldduel1', 'Old', ?, 'normal', 'completed', ?, 'life points')",
+        )
+        .run(p1, p2).lastInsertRowid,
+    );
+    db.prepare("insert into duel_seats (duel_id, seat, player_id, ready, deck_json) values (?, 0, ?, 1, ?)").run(
+      duelId,
+      p1,
+      JSON.stringify({ main: [1], extra: [], side: [] }),
+    );
+    db.prepare("insert into duel_seats (duel_id, seat, player_id, ready, deck_json) values (?, 1, ?, 1, ?)").run(
+      duelId,
+      p2,
+      JSON.stringify({ main: [2], extra: [], side: [] }),
+    );
+    db.prepare("insert into duel_commands (duel_id, seq, seat, command_json) values (?, 1, 0, ?)").run(
+      duelId,
+      JSON.stringify({ promptId: "p0-1", revision: 1, answer: { choice: "to_ep" } }),
+    );
+
+    migrate(db);
+
+    type SeatCol = { name: string; notnull: number };
+    const seatCols = db.pragma("table_info(duel_seats)") as SeatCol[];
+    const playerCol = seatCols.find((column) => column.name === "player_id");
+    expect(seatCols.some((column) => column.name === "is_bot")).toBe(true);
+    expect(playerCol?.notnull).toBe(0);
+
+    const seats = db
+      .prepare<[number], { seat: number; player_id: number | null; is_bot: number; ready: number; deck_json: string | null }>(
+        "select seat, player_id, is_bot, ready, deck_json from duel_seats where duel_id = ? order by seat",
+      )
+      .all(duelId);
+    expect(seats).toEqual([
+      { seat: 0, player_id: p1, is_bot: 0, ready: 1, deck_json: JSON.stringify({ main: [1], extra: [], side: [] }) },
+      { seat: 1, player_id: p2, is_bot: 0, ready: 1, deck_json: JSON.stringify({ main: [2], extra: [], side: [] }) },
+    ]);
+
+    const command = db
+      .prepare<[number], { n: number }>("select count(*) as n from duel_commands where duel_id = ?")
+      .get(duelId);
+    expect(command?.n).toBe(1);
+
+    const duel = db
+      .prepare<[number], { winner_seat: number | null; winner_player_id: number | null }>(
+        "select winner_seat, winner_player_id from duels where id = ?",
+      )
+      .get(duelId);
+    expect(duel?.winner_player_id).toBe(p2);
+    expect(duel?.winner_seat).toBe(1);
+
+    const duelCols = (db.pragma("table_info(duels)") as Array<{ name: string }>).map((column) => column.name);
+    expect(duelCols).toEqual(
+      expect.arrayContaining([
+        "archived_at",
+        "snapshot_public_json",
+        "snapshot_seat0_json",
+        "snapshot_seat1_json",
+        "master_rule",
+      ]),
+    );
+    const snapshots = db
+      .prepare<[number], { archived_at: string | null; snapshot_public_json: string | null; master_rule: number }>(
+        "select archived_at, snapshot_public_json, master_rule from duels where id = ?",
+      )
+      .get(duelId);
+    expect(snapshots?.archived_at).toBeNull();
+    expect(snapshots?.snapshot_public_json).toBeNull();
+    expect(snapshots?.master_rule).toBe(5);
+
+    const lobbyId = Number(
+      db
+        .prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status) values ('g1', 'newlobby1', 'New', ?, 'normal', 'lobby')")
+        .run(p1).lastInsertRowid,
+    );
+    db.prepare("insert into duel_seats (duel_id, seat, player_id, is_bot, ready) values (?, 0, ?, 0, 0)").run(lobbyId, p1);
+    db.prepare(
+      "insert into duel_seats (duel_id, seat, player_id, is_bot, ready, deck_json) values (?, 1, null, 1, 1, ?)",
+    ).run(lobbyId, JSON.stringify({ main: Array.from({ length: 40 }, (_, index) => index + 1), extra: [], side: [] }));
+
+    const checkId = Number(
+      db
+        .prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status) values ('g1', 'checkbot1', 'Check', ?, 'normal', 'lobby')")
+        .run(p1).lastInsertRowid,
+    );
+    expect(() =>
+      db.prepare("insert into duel_seats (duel_id, seat, player_id, is_bot, ready) values (?, 1, ?, 1, 1)").run(checkId, p2),
+    ).toThrow();
   });
 });

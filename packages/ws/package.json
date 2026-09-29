@@ -17,6 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@yugidraft/shared": "*",
     "dotenv": "latest",
     "socket.io": "^4.8.0"
   },

@@ -21,3 +21,5 @@ export type { ScoringService } from "./scoring.js";
 export * from "../scoring/projection.js";
 export * from "../scoring/rank.js";
 export * from "../scoring/achievements.js";
+export { createDuelService, DuelServiceError } from "./duels.js";
+export type { DuelService, DuelPrivateState, DuelFinalSnapshots } from "./duels.js";

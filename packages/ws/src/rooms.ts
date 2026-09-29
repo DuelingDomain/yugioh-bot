@@ -6,6 +6,10 @@ export interface DraftRoom {
   sockets: Set<Socket>;
 }
 
+export function draftSocketRoom(slug: string): string {
+  return `draft:${slug}`;
+}
+
 export class DraftRoomManager {
   private rooms = new Map<string, DraftRoom>();
 
@@ -34,12 +38,12 @@ export class DraftRoomManager {
 
   joinRoom(room: DraftRoom, socket: Socket): void {
     room.sockets.add(socket);
-    socket.join(room.slug);
+    socket.join(draftSocketRoom(room.slug));
   }
 
   leaveRoom(room: DraftRoom, socket: Socket): void {
     room.sockets.delete(socket);
-    socket.leave(room.slug);
+    socket.leave(draftSocketRoom(room.slug));
 
     if (room.sockets.size === 0) {
       this.removeRoom(room.slug);

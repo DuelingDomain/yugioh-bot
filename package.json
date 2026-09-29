@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "patch-package --error-on-fail",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
@@ -15,10 +16,15 @@
     "snapshot:draft-catalog": "tsx scripts/generate-draft-catalog-snapshot.ts",
     "dev:bot": "npm run dev --workspace=@yugioh-discord-bot/bot",
     "dev:ws": "npm run dev --workspace=@yugioh-discord-bot/ws",
+    "dev:duel": "npm run dev --workspace=@yugidraft/duel-server",
+    "duel:prepare": "npm run prepare:data --workspace=@yugidraft/duel-server",
     "dev:web": "npm run dev --workspace=@yugioh-discord-bot/web"
   },
   "devDependencies": {
     "dotenv": "^17.4.2",
     "turbo": "latest"
+  },
+  "dependencies": {
+    "patch-package": "8.0.1"
   }
 }

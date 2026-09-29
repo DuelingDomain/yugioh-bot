@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -8,14 +8,16 @@ import { createDraftImageService } from "../../src/services/card-images.js";
 describe("shared card image service", () => {
   it("renders a numbered grid image", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "draft-images-"));
+    const jpeg = await sharp({
+      create: { width: 120, height: 176, channels: 3, background: "white" },
+    })
+      .jpeg()
+      .toBuffer();
 
     try {
-      const source = path.join(dir, "card.jpg");
-      await sharp({ create: { width: 120, height: 176, channels: 3, background: "white" } }).jpeg().toFile(source);
       const images = createDraftImageService({
         cacheDir: dir,
-        fetch: async () =>
-          ({ ok: true, arrayBuffer: async () => (await readFile(source)).buffer }) as Response,
+        fetch: async () => new Response(new Uint8Array(jpeg)),
       });
 
       const output = await images.renderNumberedGrid([
@@ -29,8 +31,10 @@ describe("shared card image service", () => {
         { ygoprodeckId: 8, imageUrl: "https://example.com/8.jpg", imageUrlSmall: undefined },
       ]);
 
-      expect(output.filename).toBe("draft-picks.png");
-      expect(output.buffer.length).toBeGreaterThan(0);
+      const meta = await sharp(output.buffer).metadata();
+      expect(meta.format).toBe("png");
+      expect(meta.width).toBe(4 * 100);
+      expect(meta.height).toBe(2 * 145);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

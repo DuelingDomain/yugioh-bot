@@ -1,6 +1,9 @@
 node_modules/
 .env
 data/
+!scripts/data/
+scripts/data/*
+!scripts/data/draft-catalog-legendary.json
 dist/
 coverage/
 .turbo/
@@ -9,6 +12,12 @@ coverage/
 packages/*/data/
 packages/*/dist/
 packages/*/.next/
+packages/*/.next-*/
 packages/*/*.tsbuildinfo
 packages/*/coverage/
 .superpowers/
+packages/duel-server/domain-core/.build/
+packages/duel-server/domain-core/.emsdk/
+packages/duel-server/domain-core/out/
+packages/duel-server/domain-core/.dist-root-owned.bak/
+packages/duel-server/domain-core/.build-root-owned.bak/

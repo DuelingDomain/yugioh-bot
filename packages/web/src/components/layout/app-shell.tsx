@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { TopBar } from "./topbar";
 import { MobileDrawer } from "./mobile-drawer";
@@ -8,6 +9,13 @@ import { MobileDrawer } from "./mobile-drawer";
 export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const pathname = usePathname();
+
+  // Keep the field's inspector and Domain rail usable instead of squeezing them
+  // beside the dashboard navigation. The room includes its own route back.
+  if (pathname.startsWith("/duels/")) {
+    return <main className="min-h-screen bg-bg-deep p-4 text-text-primary sm:p-6 lg:p-8">{children}</main>;
+  }
 
   return (
     <div

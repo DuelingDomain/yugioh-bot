@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import { DraftRoomManager } from "./rooms.js";
 import { registerEventHandlers } from "./events.js";
+import { registerDuelEventHandlers } from "./duel-events.js";
 import { listenInternalHttp } from "./internal-http.js";
 import type { TypedServer } from "./events.js";
 
@@ -18,6 +19,7 @@ const io: TypedServer = new Server(httpServer, {
 
 const roomManager = new DraftRoomManager();
 registerEventHandlers(io, roomManager);
+registerDuelEventHandlers(io, { secret: WS_INTERNAL_SECRET });
 
 httpServer.listen(WS_PORT, () => {
   console.log(`[ws] Socket.IO server listening on port ${WS_PORT}`);

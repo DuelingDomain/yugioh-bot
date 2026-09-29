@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { generateYdk, downloadYdk } from "../src/lib/ydk.js";
+import { applyDomainMaster } from "../src/components/duel/ydk.js";
 
 describe("generateYdk", () => {
   it("generates YDK with main deck cards only", () => {
@@ -146,5 +147,11 @@ describe("downloadYdk", () => {
 
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("Domain deck imports", () => {
+  it("rejects Side Deck cards instead of silently discarding them", () => {
+    expect(() => applyDomainMaster({ main: [1], extra: [], side: [2, 3] }, 4)).toThrow();
   });
 });

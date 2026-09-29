@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "build": "next build && npm run package:standalone",
+    "package:standalone": "node scripts/package-standalone.mjs",
+    "start": "node .next/standalone/packages/web/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude '.next/**'"
   },

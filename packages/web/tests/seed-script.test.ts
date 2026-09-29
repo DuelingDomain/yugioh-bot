@@ -1,11 +1,12 @@
 import Database from "better-sqlite3";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 
-const repoRoot = "/home/imran/yugioh-discord-bot";
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const tempDirs: string[] = [];
 
 afterEach(() => {
