@@ -2,12 +2,13 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo, DuelPrompt } from "@yugidraft/shared/duels";
 import {
   OcgAttribute,
   OcgEffectClientMode,
   OcgLocation,
   OcgMessageType,
+  OcgPhase,
   OcgPosition,
   OcgRace,
   OcgResponseType,
@@ -32,6 +33,7 @@ import {
   projectView,
   redactCard,
   slotRevealed,
+  type RevealMap,
   type StoredChainLink,
 } from "../src/views.js";
 import { createEngineGame, parseSeed } from "../src/engine.js";
@@ -785,4 +787,250 @@ describe("duel events", () => {
     expect(attack?.card).toBeUndefined();
     expect(attack?.text).toMatch(/direct attack/);
   });
+
+  it("announces main/battle/end from NEW_PHASE and skips auto draw/standby/substeps", () => {
+    const chain: StoredChainLink[] = [];
+    const sequence: Array<{ phase: typeof OcgPhase[keyof typeof OcgPhase]; title: string | null }> = [
+      { phase: OcgPhase.DRAW, title: null },
+      { phase: OcgPhase.STANDBY, title: null },
+      { phase: OcgPhase.MAIN1, title: "Main Phase 1" },
+      { phase: OcgPhase.BATTLE_START, title: "Battle Phase" },
+      { phase: OcgPhase.BATTLE_STEP, title: null },
+      { phase: OcgPhase.DAMAGE, title: null },
+      { phase: OcgPhase.DAMAGE_CAL, title: null },
+      { phase: OcgPhase.BATTLE, title: null },
+      { phase: OcgPhase.MAIN2, title: "Main Phase 2" },
+      { phase: OcgPhase.END, title: "End Phase" },
+      { phase: OcgPhase.DRAW, title: null },
+      { phase: OcgPhase.STANDBY, title: null },
+      { phase: OcgPhase.MAIN1, title: "Main Phase 1" },
+    ];
+    const stored = sequence.map((step, index) =>
+      observeDuelEvent({ type: OcgMessageType.NEW_PHASE, phase: step.phase }, eventCards, chain, index + 1),
+    );
+    expect(stored.map((event) => event?.text ?? null)).toEqual(sequence.map((step) => step.title));
+    const announced = stored.filter((event): event is NonNullable<typeof event> => event != null);
+    expect(announced.map((event) => event.kind)).toEqual(["phase", "phase", "phase", "phase", "phase"]);
+    expect(announced.map((event) => event.text)).toEqual([
+      "Main Phase 1",
+      "Battle Phase",
+      "Main Phase 2",
+      "End Phase",
+      "Main Phase 1",
+    ]);
+    for (const viewer of [0, 1, null]) {
+      const projected = projectStoredEvent(announced[0]!, viewer);
+      expect(projected.kind).toBe("phase");
+      expect(projected.text).toBe("Main Phase 1");
+      expect(projected.card).toBeUndefined();
+      expect(projected.description).toBeUndefined();
+    }
+  });
+
 });
+
+describe("prompt privacy", () => {
+  const vacant = { position: 0, materials: 0 };
+  const emptyPlayer = {
+    monsters: [vacant, vacant, vacant, vacant, vacant, vacant, vacant],
+    spells: [vacant, vacant, vacant, vacant, vacant, vacant, vacant, vacant],
+    deck_size: 0,
+    hand_size: 0,
+    grave_size: 0,
+    banish_size: 0,
+    extra_size: 0,
+    extra_faceup_count: 0,
+  };
+
+  function project(args: {
+    viewer: number | null;
+    prompt: DuelPrompt | null;
+    promptSeat: number | null;
+    locations?: Record<string, Array<{ code: number; position: number } | null>>;
+    reveals?: RevealMap;
+  }) {
+    return projectView({
+      lib: {
+        duelQueryField: () => ({ flags: 0n, players: [emptyPlayer, emptyPlayer], chain: [] }),
+        duelQueryLocation: (_handle: unknown, loc: { controller: number; location: number }) =>
+          args.locations?.[`${loc.controller}:${loc.location}`] ?? [],
+      } as never,
+      handle: {} as never,
+      cards,
+      viewer: args.viewer,
+      revision: 1,
+      turn: 1,
+      turnSeat: 0,
+      phase: "main1",
+      lp: [8000, 8000],
+      prompt: args.prompt,
+      promptSeat: args.promptSeat,
+      log: [],
+      events: [],
+      result: null,
+      reveals: args.reveals ?? createRevealMap(),
+      mode: "normal",
+    });
+  }
+
+  const mirror = {
+    code: 44095762,
+    name: "Mirror Force",
+    description: "When an opponent's monster declares an attack: Destroy all your opponent's Attack Position monsters.",
+    type: 4,
+    attack: 0,
+    defense: 0,
+    level: 0,
+    attribute: 0,
+    race: "unknown",
+  };
+  const torrential = {
+    code: 53582587,
+    name: "Torrential Tribute",
+    description: "When a monster(s) is Summoned: Destroy all monsters on the field.",
+    type: 4,
+    attack: 0,
+    defense: 0,
+    level: 0,
+    attribute: 0,
+    race: "unknown",
+  };
+
+  it("redacts opponent set Spell/Trap identities in SELECT_CARD options but keeps native indexes", () => {
+    const prompt: DuelPrompt = {
+      id: "p1",
+      seat: 0,
+      kind: "cards",
+      title: "Select the card(s) to destroy",
+      options: [
+        { id: "card:0", label: "Mirror Force", card: mirror, controller: 1, location: OcgLocation.SZONE, sequence: 0 },
+        { id: "card:1", label: "Torrential Tribute", card: torrential, controller: 1, location: OcgLocation.SZONE, sequence: 1 },
+      ],
+      min: 1,
+      max: 1,
+    };
+    const view = project({
+      viewer: 0,
+      promptSeat: 0,
+      prompt,
+      locations: {
+        [`1:${OcgLocation.SZONE}`]: [
+          { code: mirror.code, position: OcgPosition.FACEDOWN_DEFENSE },
+          { code: torrential.code, position: OcgPosition.FACEDOWN_DEFENSE },
+        ],
+      },
+    });
+    expect(view.prompt?.options.map((option) => option.id)).toEqual(["card:0", "card:1"]);
+    expect(view.prompt?.options.map((option) => [option.controller, option.location, option.sequence])).toEqual([
+      [1, OcgLocation.SZONE, 0],
+      [1, OcgLocation.SZONE, 1],
+    ]);
+    expect(view.prompt?.options.every((option) => option.card == null && option.label === "Face-down card")).toBe(true);
+    expect(JSON.stringify(view.prompt)).not.toMatch(/Mirror Force|Torrential Tribute|44095762|53582587|declares an attack|Summoned/);
+    expect(prompt.options[0]?.card?.name).toBe("Mirror Force");
+    expect(project({ viewer: null, promptSeat: 0, prompt }).prompt).toBeNull();
+  });
+
+  it("keeps own hand, public GY, and own deck-search identities", () => {
+    const bewd = info(89631139, "Blue-Eyes White Dragon");
+    const view = project({
+      viewer: 0,
+      promptSeat: 0,
+      prompt: {
+        id: "p-visible",
+        seat: 0,
+        kind: "cards",
+        title: "Select a card",
+        options: [
+          { id: "card:0", label: bewd.name, card: bewd, controller: 0, location: OcgLocation.HAND, sequence: 0 },
+          { id: "card:1", label: mirror.name, card: mirror, controller: 1, location: OcgLocation.GRAVE, sequence: 0 },
+          { id: "card:2", label: bewd.name, card: bewd, controller: 0, location: OcgLocation.DECK, sequence: 3 },
+        ],
+        min: 1,
+        max: 1,
+      },
+      locations: {
+        [`0:${OcgLocation.HAND}`]: [{ code: bewd.code, position: OcgPosition.FACEUP_ATTACK }],
+        [`1:${OcgLocation.GRAVE}`]: [{ code: mirror.code, position: OcgPosition.FACEUP_ATTACK }],
+      },
+    });
+    expect(view.prompt?.options.map((option) => option.card?.name)).toEqual([
+      "Blue-Eyes White Dragon",
+      "Mirror Force",
+      "Blue-Eyes White Dragon",
+    ]);
+  });
+
+  it("hides opponent deck and unrevealed hand, but shows a revealed hand card", () => {
+    const reveals = createRevealMap();
+    noteReveal(reveals, 0, 1, OcgLocation.HAND, 1, torrential.code);
+    const view = project({
+      viewer: 0,
+      promptSeat: 0,
+      reveals,
+      prompt: {
+        id: "p-private",
+        seat: 0,
+        kind: "toggle",
+        title: "Select or unselect a card",
+        options: [
+          { id: "select:0", label: mirror.name, card: mirror, controller: 1, location: OcgLocation.DECK, sequence: 0, selected: false },
+          { id: "select:1", label: torrential.name, card: torrential, controller: 1, location: OcgLocation.HAND, sequence: 0, selected: false },
+          { id: "unselect:0", label: torrential.name, card: torrential, controller: 1, location: OcgLocation.HAND, sequence: 1, selected: true },
+        ],
+      },
+      locations: {
+        [`1:${OcgLocation.HAND}`]: [
+          { code: torrential.code, position: OcgPosition.FACEUP_ATTACK },
+          { code: torrential.code, position: OcgPosition.FACEUP_ATTACK },
+        ],
+      },
+    });
+    expect(view.prompt?.options[0]).toMatchObject({ id: "select:0", label: "Unknown card", selected: false });
+    expect(view.prompt?.options[0]?.card).toBeUndefined();
+    expect(view.prompt?.options[1]?.card).toBeUndefined();
+    expect(view.prompt?.options[1]?.label).toBe("Unknown card");
+    expect(view.prompt?.options[2]).toMatchObject({ id: "unselect:0", label: torrential.name, selected: true, card: torrential });
+    expect(JSON.stringify(view.prompt?.options.slice(0, 2))).not.toMatch(/Mirror Force|Torrential Tribute|44095762|53582587/);
+  });
+
+  it("hides facedown tribute targets while retaining release metadata", () => {
+    const view = project({
+      viewer: 0,
+      promptSeat: 0,
+      prompt: {
+        id: "p-tribute",
+        seat: 0,
+        kind: "tribute",
+        title: "Select tribute(s)",
+        options: [
+          {
+            id: "card:0",
+            label: "Blue-Eyes White Dragon (2)",
+            card: info(89631139, "Blue-Eyes White Dragon"),
+            controller: 1,
+            location: OcgLocation.MZONE,
+            sequence: 2,
+            values: [2],
+          },
+        ],
+        min: 2,
+        max: 2,
+      },
+      locations: {
+        [`1:${OcgLocation.MZONE}`]: [null, null, { code: 89631139, position: OcgPosition.FACEDOWN_DEFENSE }],
+      },
+    });
+    expect(view.prompt?.options[0]).toMatchObject({
+      id: "card:0",
+      label: "Face-down card",
+      controller: 1,
+      location: OcgLocation.MZONE,
+      sequence: 2,
+      values: [2],
+    });
+    expect(view.prompt?.options[0]?.card).toBeUndefined();
+    expect(JSON.stringify(view.prompt)).not.toMatch(/Blue-Eyes|89631139/);
+  });
+});
+

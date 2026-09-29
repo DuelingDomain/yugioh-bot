@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { OcgDuelMode, type OcgLocation, type OcgCoreSync } from "ocgcore-wasm";
+import { type OcgLocation, type OcgCoreSync } from "ocgcore-wasm";
 import type { DomainCoreFactory } from "./engine.js";
 import { LOCATION_DECKMASTER, DOMAIN_LEAVE_TAX_STEP, DOMAIN_RECALL_DESC, type DomainSeatState } from "./views.js";
 
@@ -29,10 +29,10 @@ export const createDomainCore: DomainCoreFactory = async (ctx) => {
     wasmBinary,
   })) as OcgCoreSync;
   const handle = lib.createDuel({
-    flags: OcgDuelMode.MODE_MR5,
+    flags: ctx.flags,
     seed: ctx.seed,
-    team1: { startingLP: 8000, startingDrawCount: 5, drawCountPerTurn: 1 },
-    team2: { startingLP: 8000, startingDrawCount: 5, drawCountPerTurn: 1 },
+    team1: ctx.team1,
+    team2: ctx.team2,
     cardReader: ctx.cardReader,
     scriptReader: ctx.scriptReader,
     errorHandler: ctx.errorHandler,

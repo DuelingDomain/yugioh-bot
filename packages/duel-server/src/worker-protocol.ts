@@ -1,4 +1,4 @@
-import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 
 export interface DuelWorkerCreateOptions {
   mode: DuelMode;
@@ -6,6 +6,7 @@ export interface DuelWorkerCreateOptions {
   seed: string[];
   dataDirectory: string;
   masterRule?: DuelMasterRule;
+  settings?: DuelSettings;
 }
 
 export type DuelWorkerRequest =

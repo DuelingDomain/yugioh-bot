@@ -1,13 +1,50 @@
+import type { DuelClock, DuelSettings } from "./settings.js";
+
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
 export type DuelActorRole = "player" | "spectator";
 export type DuelMasterRule = 1 | 2 | 3 | 4 | 5;
+
+export type {
+  DuelCardPool,
+  DuelClock,
+  DuelClockState,
+  DuelSettings,
+  DuelTimeout,
+  DuelVisibility,
+} from "./settings.js";
+export {
+  defaultDuelSettings,
+  isCustomDomain,
+  legacyDuelSettings,
+  normalizeDuelSettings,
+  NO_BANLIST_ID,
+  PINNED_TCG_BANLIST_ID,
+} from "./settings.js";
+export type { DuelBanlistOption } from "./banlist-options.js";
+export { DUEL_BANLIST_OPTIONS } from "./banlist-options.js";
 
 export interface DuelDeck {
   main: number[];
   extra: number[];
   side: number[];
   deckMaster?: number;
+}
+
+export interface DuelDeckCardRef {
+  section: "main" | "extra" | "side" | "deckMaster";
+  index: number;
+  code: number;
+  name?: string;
+}
+
+export interface DuelDeckIssue {
+  message: string;
+  cards: DuelDeckCardRef[];
+}
+
+export interface DuelDeckValidation {
+  issues: DuelDeckIssue[];
 }
 
 export interface DuelCardInfo {
@@ -104,7 +141,7 @@ export interface DuelSeatView {
 
 export interface DuelEvent {
   id: number;
-  kind: "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end" | "attack";
+  kind: "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end" | "attack" | "phase";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
@@ -151,6 +188,7 @@ export interface DuelSession {
   mode: DuelMode;
   masterRule: DuelMasterRule;
   status: DuelStatus;
+  settings: DuelSettings;
   seats: DuelSeat[];
   createdAt: string;
   endedAt: string | null;
@@ -166,8 +204,40 @@ export interface DuelRoom {
   mySeat: number | null;
   myDeck: DuelDeck | null;
   engine: DuelEngineView | null;
+  clock: DuelClock | null;
   metadataOnly: boolean;
   error?: string;
+  inviteCode?: string;
+}
+
+/** A table row in the lobby list or match history, as seen by one viewer. */
+export interface DuelListItem extends DuelSession {
+  /** The viewer's seat, or null when the viewer is not seated. */
+  mySeat: number | null;
+  /** Last start or accepted input; falls back to creation time. */
+  lastActivityAt: string;
+}
+
+/** `mine` lists only duels the viewer played; `all` lists every duel the viewer may open. */
+export type DuelHistoryScope = "mine" | "all";
+
+export interface DuelReplayFrame {
+  /** 0 is the opening board; n is the board after the nth accepted input. */
+  step: number;
+  /** Seat whose accepted input produced this frame; null for the opening and saved final frames. */
+  actorSeat: number | null;
+  /**
+   * Board for the viewer's role, with `prompt` always null. `log` and `events`
+   * hold only entries new since the previous frame; clients concatenate them.
+   */
+  view: DuelEngineView;
+}
+
+export interface DuelReplay {
+  session: DuelSession;
+  role: DuelActorRole;
+  mySeat: number | null;
+  frames: DuelReplayFrame[];
 }
 
 export interface DuelCommand {

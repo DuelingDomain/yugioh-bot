@@ -58,7 +58,13 @@ bool field::domain_can_pay_leave_tax(uint8_t playerid) {
 	uint32_t tax = domain_leave_tax_for(playerid);
 	if(tax == 0)
 		return true;
-	return check_lp_cost(playerid, tax) != FALSE;
+	const bool nested = cost[playerid].count > 0;
+	if(!nested)
+		save_lp_cost();
+	const bool payable = check_lp_cost(playerid, tax) != FALSE;
+	if(!nested)
+		restore_lp_cost();
+	return payable;
 }
 
 void field::domain_pay_leave_tax(uint8_t playerid) {

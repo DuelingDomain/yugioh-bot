@@ -540,16 +540,35 @@ describe("duel bot seat migration", () => {
         "snapshot_seat0_json",
         "snapshot_seat1_json",
         "master_rule",
+        "settings_json",
+        "clock_json",
+        "invite_code",
       ]),
     );
     const snapshots = db
-      .prepare<[number], { archived_at: string | null; snapshot_public_json: string | null; master_rule: number }>(
-        "select archived_at, snapshot_public_json, master_rule from duels where id = ?",
+      .prepare<
+        [number],
+        {
+          archived_at: string | null;
+          snapshot_public_json: string | null;
+          master_rule: number;
+          settings_json: string | null;
+          clock_json: string | null;
+          invite_code: string | null;
+        }
+      >(
+        "select archived_at, snapshot_public_json, master_rule, settings_json, clock_json, invite_code from duels where id = ?",
       )
       .get(duelId);
     expect(snapshots?.archived_at).toBeNull();
     expect(snapshots?.snapshot_public_json).toBeNull();
     expect(snapshots?.master_rule).toBe(5);
+    expect(snapshots?.settings_json).toBeNull();
+    expect(snapshots?.clock_json).toBeNull();
+    expect(snapshots?.invite_code).toBeNull();
+    expect(
+      db.prepare("select name from sqlite_master where type = 'table' and name = 'duel_invite_grants'").get(),
+    ).toEqual({ name: "duel_invite_grants" });
 
     const lobbyId = Number(
       db

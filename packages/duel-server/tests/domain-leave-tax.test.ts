@@ -13,6 +13,7 @@ import { engineDataDirectory } from "./engine-data-dir.js";
 const dataDirectory = engineDataDirectory;
 const seed = ["1", "2", "3", "4"];
 const COMBINED_ID = 888111010;
+const SET_LP_ID = 888111020;
 const overlays: string[] = [];
 
 afterEach(() => {
@@ -93,7 +94,11 @@ function optionCodes(prompt: DuelPrompt, prefix: string): number[] {
 type Drive = {
   activate?: number;
   select?: number;
+  summon?: number;
   recall?: "yes" | "no";
+  attack?: boolean;
+  battle?: boolean;
+  toM2?: boolean;
   endTurn?: boolean;
 };
 
@@ -112,6 +117,22 @@ function choose(prompt: DuelPrompt, policy: Drive): DuelAnswer {
     if (policy.activate != null) {
       const activation = prompt.options.find((option) => option.id.startsWith("activate:") && option.card?.code === policy.activate);
       if (activation) return { choice: activation.id };
+    }
+    if (policy.summon != null) {
+      const summon = prompt.options.find((option) => option.id.startsWith("summon:") && option.card?.code === policy.summon);
+      if (summon) return { choice: summon.id };
+    }
+    if (policy.attack) {
+      const attack = prompt.options.find((option) => option.id.startsWith("attack:"));
+      if (attack) return { choice: attack.id };
+    }
+    if (policy.battle) {
+      const toBp = prompt.options.find((option) => option.id === "to_bp");
+      if (toBp) return { choice: "to_bp" };
+    }
+    if (policy.toM2) {
+      const toM2 = prompt.options.find((option) => option.id === "to_m2");
+      if (toM2) return { choice: "to_m2" };
     }
     if (policy.endTurn) {
       const toEp = prompt.options.find((option) => option.id === "to_ep");
@@ -281,3 +302,98 @@ end
     }
   });
 });
+
+describe("domain leave tax reservation", () => {
+  it("keeps NS and MSet after recall at 750 LP across repeated idle collections", async () => {
+    const overlay = makeOverlay(
+      `-- Domain LP setter (test fixture, not an official card)
+local s,id=GetID()
+function s.initial_effect(c)
+	local e1=Effect.CreateEffect(c)
+	e1:SetType(EFFECT_TYPE_ACTIVATE)
+	e1:SetCode(EVENT_FREE_CHAIN)
+	e1:SetOperation(function(e,tp) Duel.SetLP(tp,750) end)
+	c:RegisterEffect(e1)
+end
+`,
+      SET_LP_ID,
+    );
+    const db = new Database(join(overlay, "cards.cdb"));
+    const master = cardId(db, "Axe Raider");
+    const north = await arrangeWanted(overlay, domainDeckFrom(db, master, [SET_LP_ID], [], overlay), [SET_LP_ID]);
+    const south = domainDeckFrom(db, master, [], [], overlay);
+    db.close();
+    const game = await createEngineGame({ mode: "domain", decks: [north, south], seed, dataDirectory: overlay });
+    const until = (match: (view: DuelEngineView) => boolean, policy: Drive, limit = 80) => {
+      let view = game.view(0);
+      for (let step = 0; step < limit; step++) {
+        if (match(view)) return view;
+        view = play(game, policy);
+      }
+      throw new Error(`timed out at ${game.view(0).prompt ? dump(game.view(0).prompt!) : "no prompt"}`);
+    };
+    try {
+      const opening = game.view(0);
+      const first = opening.turnSeat;
+      const second = 1 - first;
+      expect(optionCodes(opening.prompt!, "activate:")).toContain(SET_LP_ID);
+
+      until((current) => current.seats[first].deckMaster?.inZone === false, { summon: master });
+      until((current) => current.turnSeat === second, { endTurn: true });
+      until((current) => current.seats[second].deckMaster?.inZone === false, { summon: master });
+      until(
+        (current) =>
+          [0, 1].every((seat) => current.seats[seat].deckMaster?.inZone === false && current.seats[seat].graveyard.some((card) => card.code === master)),
+        { battle: true, attack: true },
+      );
+
+      let recalls = 0;
+      for (let step = 0; step < 40 && recalls < 2; step++) {
+        const waiting = answering(game);
+        assert(waiting, "lost prompt while waiting for dual recall");
+        if (isYesNo(waiting.prompt)) {
+          game.answer(waiting.seat, waiting.prompt.id, { choice: "yes" });
+          recalls += 1;
+        } else {
+          play(game, { battle: true, attack: true });
+        }
+      }
+      expect(recalls).toBe(2);
+      expect(game.view(0).seats[0].deckMaster?.inZone).toBe(true);
+      expect(game.view(0).seats[0].deckMaster?.nextCost).toBe(500);
+      expect(game.view(0).seats[0].lp).toBe(8000);
+
+      until(
+        (current) =>
+          current.turnSeat === 0 &&
+          current.seats[0].deckMaster?.inZone === true &&
+          current.seats[0].deckMaster?.nextCost === 500 &&
+          Boolean(current.prompt && optionCodes(current.prompt, "activate:").includes(SET_LP_ID)),
+        { endTurn: true, toM2: true },
+      );
+      until((current) => current.seats[0].lp === 750, { activate: SET_LP_ID });
+      const idle = until(
+        (current) => current.turnSeat === 0 && Boolean(current.prompt?.options.some((option) => option.id === "to_ep")),
+        {},
+      );
+      expect(idle.seats[0].lp).toBe(750);
+      expect(idle.seats[0].deckMaster?.nextCost).toBe(500);
+      expect(optionCodes(idle.prompt!, "summon:")).toContain(master);
+      expect(optionCodes(idle.prompt!, "mset:")).toContain(master);
+
+      if (idle.prompt?.options.some((option) => option.id === "to_bp")) {
+        until((current) => Boolean(current.prompt?.options.some((option) => option.id === "to_m2")), { battle: true });
+        const again = until(
+          (current) => current.turnSeat === 0 && current.prompt?.context?.type === "action" && current.prompt.context.phase === "main",
+          { toM2: true },
+        );
+        expect(optionCodes(again.prompt!, "summon:")).toContain(master);
+        expect(optionCodes(again.prompt!, "mset:")).toContain(master);
+        expect(again.seats[0].lp).toBe(750);
+      }
+    } finally {
+      game.close();
+    }
+  });
+});
+

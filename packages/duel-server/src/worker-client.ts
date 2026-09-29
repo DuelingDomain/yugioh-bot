@@ -1,5 +1,5 @@
 import { Worker } from "node:worker_threads";
-import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 
 export interface GameOptions {
   mode: DuelMode;
@@ -7,6 +7,7 @@ export interface GameOptions {
   seed: string[];
   dataDirectory: string;
   masterRule?: DuelMasterRule;
+  settings?: DuelSettings;
 }
 
 export interface DuelGameWorker {

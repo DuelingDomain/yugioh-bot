@@ -4,7 +4,16 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import Database from "better-sqlite3";
-import type { DuelDeck, DuelMode } from "@yugidraft/shared/duels";
+import type {
+  DuelCardPool,
+  DuelDeck,
+  DuelDeckCardRef,
+  DuelDeckIssue,
+  DuelDeckValidation,
+  DuelMode,
+  DuelSettings,
+} from "@yugidraft/shared/duels";
+import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
 
 export class DeckLegalityError extends Error {
   constructor(message: string) {
@@ -14,12 +23,16 @@ export class DeckLegalityError extends Error {
 }
 
 const TYPE_MONSTER = 0x1;
+const TYPE_SPELL = 0x2;
+const TYPE_TRAP = 0x4;
 const TYPE_NORMAL = 0x10;
+const TYPE_EFFECT = 0x20;
 const TYPE_FUSION = 0x40;
 const TYPE_TOKEN = 0x4000;
 const TYPE_MAXIMUM = 0x8000;
 const TYPE_SYNCHRO = 0x2000;
 const TYPE_XYZ = 0x800000;
+const TYPE_PENDULUM = 0x1000000;
 const TYPE_LINK = 0x4000000;
 const TYPE_SKILL = 0x8000000;
 const TYPE_ACTION = 0x10000000;
@@ -28,6 +41,7 @@ const TYPE_MINUS = 0x40000000;
 const TYPE_ARMOR = 0x80000000;
 const TYPE_EXTRA = TYPE_FUSION | TYPE_SYNCHRO | TYPE_XYZ | TYPE_LINK;
 const UNPLAYABLE_TYPES = TYPE_TOKEN | TYPE_SKILL | TYPE_ACTION | TYPE_MAXIMUM | TYPE_PLUS | TYPE_MINUS | TYPE_ARMOR;
+const SCRIPT_TYPES = TYPE_SPELL | TYPE_TRAP | TYPE_EFFECT | TYPE_PENDULUM;
 
 const OT_OCG = 0x1;
 const OT_TCG = 0x2;
@@ -422,11 +436,9 @@ function isPlayable(card: EngineCard): boolean {
   return true;
 }
 
-function requireCard(catalog: Catalog, id: number): EngineCard {
-  if (!Number.isInteger(id) || id <= 0) fail(`Unknown card ${id}`);
-  const card = catalog.cards.get(id);
-  if (!card) fail(`Unknown card ${id}`);
-  return card;
+function readCard(catalog: Catalog, id: number): EngineCard | undefined {
+  if (!Number.isInteger(id) || id <= 0) return undefined;
+  return catalog.cards.get(id);
 }
 
 function unionFind(): { find(name: string): string; union(a: string, b: string): void } {
@@ -539,71 +551,297 @@ function inDomain(card: EngineCard, domain: Domain, catalog: Catalog): boolean {
   return false;
 }
 
-function assertPlayableSection(card: EngineCard, section: "main" | "extra" | "side"): void {
-  if (!isPlayable(card)) fail(`${card.name} is not a playable deck card`);
+interface LocatedCard {
+  section: "main" | "extra" | "side";
+  index: number;
+  code: number;
+  card: EngineCard;
+}
+
+function locatedRef(item: LocatedCard): DuelDeckCardRef {
+  return { section: item.section, index: item.index, code: item.code, name: item.card.name };
+}
+
+function playableSectionMessage(card: EngineCard, section: "main" | "extra" | "side"): string | undefined {
+  if (!isPlayable(card)) return `${card.name} is not a playable deck card`;
   const extra = isExtraDeckMonster(card);
   if (section === "extra") {
-    if (!extra) fail(`${card.name} belongs in the Main Deck`);
-    return;
+    if (!extra) return `${card.name} belongs in the Main Deck`;
+    return undefined;
   }
-  if (extra) fail(`${card.name} belongs in the Extra Deck`);
+  if (extra) return `${card.name} belongs in the Extra Deck`;
+  return undefined;
 }
 
-function assertCopyLimits(cards: EngineCard[], identities: { find(name: string): string }, max: number): void {
-  const counts = new Map<string, { count: number; name: string }>();
-  for (const card of cards) {
-    const key = componentOf(card, identities);
-    const current = counts.get(key) ?? { count: 0, name: card.identityNames[0] ?? card.name };
-    current.count += 1;
-    counts.set(key, current);
-    if (current.count > max) {
-      fail(max === 1 ? `Duplicate card: ${current.name}` : `More than 3 copies of ${current.name}`);
+function listedLimitForIdentity(
+  key: string,
+  identities: { find(name: string): string },
+  catalog: Catalog,
+  limits: Record<number, BanlistLimit>,
+): number | undefined {
+  let listed: number | undefined;
+  for (const card of catalog.cards.values()) {
+    if (componentOf(card, identities) !== key) continue;
+    for (const code of [card.id, card.alias]) {
+      if (!code || !Object.hasOwn(limits, code)) continue;
+      listed = listed === undefined ? limits[code] : Math.min(listed, limits[code]);
     }
   }
+  return listed;
 }
 
-export function validateDeck(mode: DuelMode, deck: DuelDeck, dataDirectory: string): void {
-  if (mode !== "normal" && mode !== "domain") fail(`Unknown duel mode ${String(mode)}`);
-  if (!Array.isArray(deck?.main) || !Array.isArray(deck.extra) || !Array.isArray(deck.side)) {
-    fail("Deck must include main, extra, and side arrays");
+function cardPoolMessage(card: EngineCard, pool: DuelCardPool): string | undefined {
+  if (pool === "tcg") {
+    if ((card.ot & OT_TCG) === 0) return `${card.name} is not TCG legal`;
+    return undefined;
   }
+  if (pool === "ocg") {
+    if ((card.ot & OT_OCG) === 0) return `${card.name} is not OCG legal`;
+  }
+  return undefined;
+}
+
+function cardScriptMessage(card: EngineCard, catalog: Catalog): string | undefined {
+  if ((card.type & SCRIPT_TYPES) === 0) return undefined;
+  if (catalog.scripts.has(card.id)) return undefined;
+  if (card.alias !== 0 && catalog.scripts.has(card.alias)) return undefined;
+  return `${card.name} is missing a card script`;
+}
+
+function engineLoadableMessage(
+  card: EngineCard,
+  section: "main" | "extra" | "side",
+  catalog: Catalog,
+  pool: DuelCardPool | undefined,
+): string | undefined {
+  return (
+    playableSectionMessage(card, section) ??
+    (pool ? cardPoolMessage(card, pool) : undefined) ??
+    (pool !== undefined ? cardScriptMessage(card, catalog) : undefined)
+  );
+}
+
+function resolveSection(
+  catalog: Catalog,
+  section: "main" | "extra" | "side",
+  ids: number[],
+  issues: DuelDeckIssue[],
+): LocatedCard[] {
+  const located: LocatedCard[] = [];
+  for (let index = 0; index < ids.length; index++) {
+    const code = ids[index]!;
+    const card = readCard(catalog, code);
+    if (!card) {
+      issues.push({ message: `Unknown card ${code}`, cards: [{ section, index, code }] });
+      continue;
+    }
+    located.push({ section, index, code, card });
+  }
+  return located;
+}
+
+function collectLoadableIssues(
+  items: LocatedCard[],
+  sectionFor: (item: LocatedCard) => "main" | "extra" | "side",
+  catalog: Catalog,
+  pool: DuelCardPool | undefined,
+  issues: DuelDeckIssue[],
+): void {
+  for (const item of items) {
+    const message = engineLoadableMessage(item.card, sectionFor(item), catalog, pool);
+    if (message) issues.push({ message, cards: [locatedRef(item)] });
+  }
+}
+
+function collectCopyLimitIssues(
+  cards: LocatedCard[],
+  identities: { find(name: string): string },
+  formatMax: number,
+  catalog: Catalog,
+  limits: Record<number, BanlistLimit> | null,
+  issues: DuelDeckIssue[],
+): void {
+  const groups = new Map<string, LocatedCard[]>();
+  for (const item of cards) {
+    const key = componentOf(item.card, identities);
+    const group = groups.get(key);
+    if (group) group.push(item);
+    else groups.set(key, [item]);
+  }
+  for (const [key, group] of groups) {
+    let max = formatMax;
+    if (limits) {
+      const listed = listedLimitForIdentity(key, identities, catalog, limits);
+      if (listed !== undefined) max = Math.min(max, listed);
+    }
+    if (group.length <= max) continue;
+    const lead = group[0];
+    if (!lead) continue;
+    const name = lead.card.identityNames[0] ?? lead.card.name;
+    const message =
+      max === 0
+        ? `${name} is forbidden`
+        : formatMax === 1
+          ? `Duplicate card: ${name}`
+          : `More than ${max} ${max === 1 ? "copy" : "copies"} of ${name}`;
+    const offending = max === 0 ? group : group.slice(max);
+    issues.push({ message, cards: offending.map(locatedRef) });
+  }
+}
+
+export function inspectDeck(
+  mode: DuelMode,
+  deck: DuelDeck,
+  dataDirectory: string,
+  settings?: DuelSettings,
+): DuelDeckValidation {
+  if (mode !== "normal" && mode !== "domain") {
+    return { issues: [{ message: `Unknown duel mode ${String(mode)}`, cards: [] }] };
+  }
+  if (!Array.isArray(deck?.main) || !Array.isArray(deck.extra) || !Array.isArray(deck.side)) {
+    return { issues: [{ message: "Deck must include main, extra, and side arrays", cards: [] }] };
+  }
+
+  const issues: DuelDeckIssue[] = [];
+  const competitive = settings ? settings.validateDeck : true;
+  let limits: Record<number, BanlistLimit> | null = null;
+  if (settings) {
+    try {
+      limits = banlistLimitsFor(settings.banlist);
+    } catch {
+      return { issues: [{ message: `Unknown banlist ${settings.banlist}`, cards: [] }] };
+    }
+  }
+
+  const mainOversize = deck.main.length > 60;
+  if (mainOversize) {
+    issues.push({
+      message:
+        competitive && mode === "normal"
+          ? "Main Deck must have 40-60 cards"
+          : competitive && mode === "domain"
+            ? "Main Deck must have exactly 60 cards"
+            : "Main Deck must have 60 or fewer cards",
+      cards: [],
+    });
+  }
+  if (deck.extra.length > 15) issues.push({ message: "Extra Deck must have 15 or fewer cards", cards: [] });
+  if (deck.side.length > 15) issues.push({ message: "Side Deck must have 15 or fewer cards", cards: [] });
+
   const catalog = loadCatalog(dataDirectory);
   const identities = identityIndex(catalog);
-  const main = deck.main.map((id) => requireCard(catalog, id));
-  const extra = deck.extra.map((id) => requireCard(catalog, id));
-  const side = deck.side.map((id) => requireCard(catalog, id));
+  const main = resolveSection(catalog, "main", deck.main, issues);
+  const extra = resolveSection(catalog, "extra", deck.extra, issues);
+  const side = resolveSection(catalog, "side", deck.side, issues);
+  const cardPool = settings?.cardPool;
+
+  if (settings && deck.main.length < settings.startingHand) {
+    issues.push({ message: `Main Deck must have at least ${settings.startingHand} cards`, cards: [] });
+  }
+
+  const collectEngineCards = () => {
+    collectLoadableIssues(main, () => "main", catalog, cardPool, issues);
+    collectLoadableIssues(extra, () => "extra", catalog, cardPool, issues);
+    collectLoadableIssues(side, (item) => (isExtraDeckMonster(item.card) ? "extra" : "side"), catalog, cardPool, issues);
+  };
 
   if (mode === "normal") {
-    if (deck.deckMaster !== undefined) fail("Normal Format does not use a Deck Master");
-    if (main.length < 40 || main.length > 60) fail("Main Deck must have 40-60 cards");
-    if (extra.length > 15) fail("Extra Deck must have 15 or fewer cards");
-    if (side.length > 15) fail("Side Deck must have 15 or fewer cards");
-    for (const card of main) assertPlayableSection(card, "main");
-    for (const card of extra) assertPlayableSection(card, "extra");
-    for (const card of side) assertPlayableSection(card, isExtraDeckMonster(card) ? "extra" : "side");
-    assertCopyLimits([...main, ...extra, ...side], identities, 3);
-    return;
+    if (competitive && deck.deckMaster !== undefined) {
+      const master = readCard(catalog, deck.deckMaster);
+      issues.push({
+        message: "Normal Format does not use a Deck Master",
+        cards: [
+          master
+            ? { section: "deckMaster", index: 0, code: deck.deckMaster, name: master.name }
+            : { section: "deckMaster", index: 0, code: deck.deckMaster },
+        ],
+      });
+    }
+    if (competitive && !mainOversize && (deck.main.length < 40 || deck.main.length > 60)) {
+      issues.push({ message: "Main Deck must have 40-60 cards", cards: [] });
+    }
+    collectEngineCards();
+    if (competitive) collectCopyLimitIssues([...main, ...extra, ...side], identities, 3, catalog, limits, issues);
+    return { issues };
   }
 
-  if (deck.deckMaster === undefined) fail("Deck Master is required for Domain Format");
-  const dm = requireCard(catalog, deck.deckMaster);
-  if (!isMonster(dm) || !isPlayable(dm)) fail("Deck Master must be a playable monster card");
-  if (main.length !== 60) fail("Main Deck must have exactly 60 cards");
-  if (extra.length > 15) fail("Extra Deck must have 15 or fewer cards");
-  if (side.length !== 0) fail("Domain Format does not use a Side Deck; put the Deck Master in deckMaster");
-  for (const card of main) assertPlayableSection(card, "main");
-  for (const card of extra) assertPlayableSection(card, "extra");
-
-  const pool = [...main, ...extra];
-  const dmKey = componentOf(dm, identities);
-  for (const card of pool) {
-    if (componentOf(card, identities) === dmKey) fail(`Deck Master ${dm.name} cannot appear in the Main, Extra, or Side Deck`);
+  let dm: EngineCard | undefined;
+  let dmValid = false;
+  if (deck.deckMaster === undefined) {
+    issues.push({ message: "Deck Master is required for Domain Format", cards: [] });
+  } else {
+    dm = readCard(catalog, deck.deckMaster);
+    if (!dm) {
+      issues.push({
+        message: `Unknown card ${deck.deckMaster}`,
+        cards: [{ section: "deckMaster", index: 0, code: deck.deckMaster }],
+      });
+    } else {
+      const dmRef: DuelDeckCardRef = { section: "deckMaster", index: 0, code: deck.deckMaster, name: dm.name };
+      if (!isMonster(dm) || !isPlayable(dm)) {
+        issues.push({ message: "Deck Master must be a playable monster card", cards: [dmRef] });
+      } else {
+        dmValid = true;
+        if (cardPool) {
+          const message = cardPoolMessage(dm, cardPool);
+          if (message) issues.push({ message, cards: [dmRef] });
+        }
+        if (settings) {
+          const message = cardScriptMessage(dm, catalog);
+          if (message) issues.push({ message, cards: [dmRef] });
+        }
+      }
+    }
   }
-  assertCopyLimits(pool, identities, 1);
 
-  const domain = buildDomain(dm, catalog);
-  for (const card of pool) {
-    if (!isMonster(card)) continue;
-    if (!inDomain(card, domain, catalog)) fail(`${card.name} is outside the Deck Master's Domain`);
+  if (competitive) {
+    if (!mainOversize && deck.main.length !== 60) {
+      issues.push({ message: "Main Deck must have exactly 60 cards", cards: [] });
+    }
+    if (deck.side.length !== 0) {
+      issues.push({
+        message: "Domain Format does not use a Side Deck; put the Deck Master in deckMaster",
+        cards: deck.side.map((code, index) => {
+          const card = readCard(catalog, code);
+          return card
+            ? { section: "side" as const, index, code, name: card.name }
+            : { section: "side" as const, index, code };
+        }),
+      });
+    }
   }
+
+  collectEngineCards();
+  if (!competitive) return { issues };
+
+  const copies = [...main, ...extra];
+  if (dmValid && dm) {
+    const dmKey = componentOf(dm, identities);
+    const found = copies.filter((item) => componentOf(item.card, identities) === dmKey);
+    if (found.length) {
+      issues.push({
+        message: `Deck Master ${dm.name} cannot appear in the Main, Extra, or Side Deck`,
+        cards: found.map(locatedRef),
+      });
+    }
+  }
+  collectCopyLimitIssues(copies, identities, 1, catalog, limits, issues);
+  if (dmValid && dm) {
+    const domain = buildDomain(dm, catalog);
+    for (const item of copies) {
+      if (!isMonster(item.card)) continue;
+      if (!inDomain(item.card, domain, catalog)) {
+        issues.push({
+          message: `${item.card.name} is outside the Deck Master's Domain`,
+          cards: [locatedRef(item)],
+        });
+      }
+    }
+  }
+  return { issues };
+}
+
+export function validateDeck(mode: DuelMode, deck: DuelDeck, dataDirectory: string, settings?: DuelSettings): void {
+  const issue = inspectDeck(mode, deck, dataDirectory, settings).issues[0];
+  if (issue) fail(issue.message);
 }

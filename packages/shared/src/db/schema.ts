@@ -460,6 +460,7 @@ export function migrate(db: Database.Database) {
       created_at text not null default current_timestamp,
       ended_at text,
       archived_at text,
+      last_activity_at text,
       winner_player_id integer references players(id),
       winner_seat integer,
       result_reason text,
@@ -495,10 +496,14 @@ export function migrate(db: Database.Database) {
 
   addColumnIfMissing(db, "duels", "winner_seat", "integer");
   addColumnIfMissing(db, "duels", "archived_at", "text");
+  addColumnIfMissing(db, "duels", "last_activity_at", "text");
   addColumnIfMissing(db, "duels", "snapshot_public_json", "text");
   addColumnIfMissing(db, "duels", "snapshot_seat0_json", "text");
   addColumnIfMissing(db, "duels", "snapshot_seat1_json", "text");
   addColumnIfMissing(db, "duels", "master_rule", "integer not null default 5");
+  addColumnIfMissing(db, "duels", "settings_json", "text");
+  addColumnIfMissing(db, "duels", "clock_json", "text");
+  addColumnIfMissing(db, "duels", "invite_code", "text");
 
   db.transaction(() => {
     const seatInfo = db.prepare<[], { name: string; notnull: number }>("pragma table_info(duel_seats)").all();
@@ -528,6 +533,14 @@ export function migrate(db: Database.Database) {
   db.exec(`
     create index if not exists duels_guild_archived_created_idx on duels (guild_id, archived_at, created_at);
     create index if not exists duels_archive_due_idx on duels (ended_at) where archived_at is null;
+    create table if not exists duel_invite_grants (
+      duel_id integer not null references duels(id) on delete cascade,
+      player_id integer not null references players(id),
+      created_at text not null default current_timestamp,
+      primary key (duel_id, player_id)
+    );
+    create index if not exists duel_invite_grants_player_idx on duel_invite_grants (player_id);
+    create unique index if not exists duels_invite_code_idx on duels (invite_code) where invite_code is not null;
 
     update duels
     set winner_seat = (

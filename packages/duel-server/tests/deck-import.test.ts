@@ -169,6 +169,20 @@ describe("normalizeImportedDeck shape", () => {
     await normalizeImportedDeck(deck, DATA, db, { fetch });
     expect(deck).toEqual(snapshot);
   });
+
+  it("keeps an explicit Deck Master and Side cards without Domain cardinality", async () => {
+    const { db, fetch } = catalogFixture();
+    const deck: DuelDeck = {
+      main: fillerSpells(20, [DARK_MAGICIAN]),
+      extra: [],
+      side: fillerSpells(2, [DARK_MAGICIAN]),
+      deckMaster: DARK_MAGICIAN,
+    };
+    const normalized = await normalizeImportedDeck(deck, DATA, db, { fetch });
+    expect(normalized.deckMaster).toBe(DARK_MAGICIAN);
+    expect(normalized.side).toEqual(deck.side);
+    expect(normalized.main).toHaveLength(20);
+  });
 });
 
 describe("normalizeImportedDeck reported passcodes", () => {
@@ -338,5 +352,97 @@ describe("normalizeImportedDeck then validateDeck", () => {
     expect(normalized.main[0]).toBe(BARREL_CANONICAL);
     expect(normalized.deckMaster).toBe(BARREL_CANONICAL);
     expect(() => validateDeck("domain", normalized, DATA)).toThrow(/cannot appear/);
+  });
+});
+
+describe("normalizeImportedDeck keepUnresolved", () => {
+  it("keeps unknown positive passcodes and remaps the rest in order", async () => {
+    const { db, fetch } = catalogFixture({
+      [String(BARREL_EXTERNAL)]: [ygoproCard(BARREL_EXTERNAL, "Barrel Dragon")],
+    });
+    const unknown = 90000001;
+    const deck: DuelDeck = {
+      main: [BARREL_EXTERNAL, unknown, BARREL_EXTERNAL],
+      extra: [unknown],
+      side: [BARREL_EXTERNAL],
+      deckMaster: unknown,
+    };
+    const normalized = await normalizeImportedDeck(deck, DATA, db, { fetch, keepUnresolved: true });
+    expect(normalized.main).toEqual([BARREL_CANONICAL, unknown, BARREL_CANONICAL]);
+    expect(normalized.extra).toEqual([unknown]);
+    expect(normalized.side).toEqual([BARREL_CANONICAL]);
+    expect(normalized.deckMaster).toBe(unknown);
+    expect(normalized.main).toHaveLength(deck.main.length);
+    await expect(normalizeImportedDeck(deck, DATA, db, { fetch })).rejects.toThrow(/Unknown card 90000001/);
+  });
+
+  it("keeps catalog names that do not resolve to a playable engine card", async () => {
+    const { db, fetch } = catalogFixture({
+      "90000002": [ygoproCard(90000002, "Ghost Print")],
+      "99": [ygoproCard(99, "Twin Blade")],
+    });
+    const dir = isolatedEngine([
+      { id: 10, name: "Twin Blade" },
+      { id: 20, name: "Twin Blade" },
+    ]);
+    const unknownNamed = await normalizeImportedDeck(
+      { main: [90000002, 10], extra: [], side: [] },
+      dir,
+      db,
+      { fetch, keepUnresolved: true },
+    );
+    expect(unknownNamed.main).toEqual([90000002, 10]);
+    const ambiguous = await normalizeImportedDeck(
+      { main: [99, 10], extra: [], side: [] },
+      dir,
+      db,
+      { fetch, keepUnresolved: true },
+    );
+    expect(ambiguous.main).toEqual([99, 10]);
+  });
+
+  it("still rejects invalid card-id types and missing sections", async () => {
+    const { db, fetch, fetchCalls } = catalogFixture();
+    await expect(
+      normalizeImportedDeck({ extra: [], side: [] } as unknown as DuelDeck, DATA, db, { fetch, keepUnresolved: true }),
+    ).rejects.toThrow(/main, extra, and side/i);
+    await expect(
+      normalizeImportedDeck({ main: [0], extra: [], side: [] }, DATA, db, { fetch, keepUnresolved: true }),
+    ).rejects.toThrow(/Unknown card 0/);
+    await expect(
+      normalizeImportedDeck({ main: [-81480461], extra: [], side: [] }, DATA, db, { fetch, keepUnresolved: true }),
+    ).rejects.toThrow(/Unknown card -81480461/);
+    await expect(
+      normalizeImportedDeck({ main: [1.5], extra: [], side: [] }, DATA, db, { fetch, keepUnresolved: true }),
+    ).rejects.toThrow(/Unknown card 1.5/);
+    expect(fetchCalls).toEqual([]);
+  });
+
+  it("does not treat catalog or engine infrastructure failures as unresolved cards", async () => {
+    const unreachable = catalogFixture();
+    const failingFetch: FetchLike = async () => {
+      throw new Error("socket hang up");
+    };
+    await expect(
+      normalizeImportedDeck(
+        { main: [90000001], extra: [], side: [] },
+        DATA,
+        unreachable.db,
+        { fetch: failingFetch, keepUnresolved: true },
+      ),
+    ).rejects.toThrow(/Could not reach the card database/);
+
+    const down = catalogFixture();
+    const downFetch: FetchLike = async () => ({ ok: false, async json() { return {}; } });
+    await expect(
+      normalizeImportedDeck({ main: [90000001], extra: [], side: [] }, DATA, down.db, { fetch: downFetch, keepUnresolved: true }),
+    ).rejects.toThrow(/YGOPRODeck request failed/);
+
+    const { db, fetch, fetchCalls } = catalogFixture();
+    const empty = mkdtempSync(join(tmpdir(), "import-empty-"));
+    await expect(
+      normalizeImportedDeck({ main: [DARK_MAGICIAN], extra: [], side: [] }, empty, db, { fetch, keepUnresolved: true }),
+    ).rejects.toThrow(/Cannot read engine card database/);
+    expect(fetchCalls).toEqual([]);
   });
 });

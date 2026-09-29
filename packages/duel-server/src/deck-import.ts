@@ -12,6 +12,7 @@ type FetchLike = (
 
 type NormalizeImportedDeckOptions = {
   fetch?: FetchLike;
+  keepUnresolved?: boolean;
 };
 
 type EngineRow = {
@@ -175,8 +176,16 @@ export async function normalizeImportedDeck(
     }
     for (const id of missing) {
       const name = nameByInputId.get(id);
-      if (!name) fail(`Unknown card ${id}`);
-      resolved.set(id, canonicalForName(index, name, id));
+      if (!name) {
+        if (options.keepUnresolved) continue;
+        fail(`Unknown card ${id}`);
+      }
+      try {
+        resolved.set(id, canonicalForName(index, name, id));
+      } catch (error) {
+        if (options.keepUnresolved && error instanceof DeckLegalityError) continue;
+        throw error;
+      }
     }
   }
 

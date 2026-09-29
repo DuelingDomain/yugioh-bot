@@ -1,7 +1,8 @@
-import type { DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelPrompt, DuelSeatView } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   OcgLocation,
   OcgMessageType,
+  OcgPhase,
   OcgPosition,
   OcgQueryFlags,
   ocgPhaseString,
@@ -10,7 +11,6 @@ import {
   type OcgDuelHandle,
   type OcgLocation as OcgLocationValue,
   type OcgMessage,
-  type OcgPhase,
   type OcgQueryFlags as OcgQueryFlagsValue,
 } from "ocgcore-wasm";
 import { raceLabel, type CardDatabase } from "./cards.js";
@@ -230,6 +230,21 @@ export function phaseName(phase: OcgPhase): string {
   return ocgPhaseString.get(phase) ?? String(phase);
 }
 
+function announcedPhaseTitle(phase: OcgPhase): string | null {
+  switch (phase) {
+    case OcgPhase.MAIN1:
+      return "Main Phase 1";
+    case OcgPhase.BATTLE_START:
+      return "Battle Phase";
+    case OcgPhase.MAIN2:
+      return "Main Phase 2";
+    case OcgPhase.END:
+      return "End Phase";
+    default:
+      return null;
+  }
+}
+
 export interface StoredChainLink {
   index: number;
   seat: number;
@@ -355,11 +370,87 @@ export function observeDuelEvent(message: OcgMessage, cards: CardDatabase, chain
         : `Player ${seat + 1} declares a direct attack`;
       return { id, kind: "attack", seat, text, publicText: text, revealCardTo: "all" };
     }
+    case OcgMessageType.NEW_PHASE: {
+      const text = announcedPhaseTitle(message.phase);
+      if (!text) return null;
+      return { id, kind: "phase", text, publicText: text, revealCardTo: "all" };
+    }
     default:
       return null;
   }
 }
 
+function cardAt(seats: DuelSeatView[], controller: number, location: number, sequence: number): DuelCard | null | undefined {
+  const seat = seats[controller];
+  if (!seat) return undefined;
+  if (location === OcgLocation.MZONE) return seat.monsters[sequence] ?? null;
+  if (location === OcgLocation.SZONE) return seat.spells[sequence] ?? null;
+  if (location === OcgLocation.HAND) return seat.hand.find((card) => card.sequence === sequence) ?? null;
+  if (location === OcgLocation.GRAVE) return seat.graveyard.find((card) => card.sequence === sequence) ?? null;
+  if (location === OcgLocation.REMOVED) return seat.banished.find((card) => card.sequence === sequence) ?? null;
+  if (location === OcgLocation.EXTRA) return seat.extra.find((card) => card.sequence === sequence) ?? null;
+  if (location === LOCATION_DECKMASTER) {
+    const master = seat.deckMaster?.card;
+    if (!master) return null;
+    return {
+      controller,
+      location,
+      sequence: 0,
+      position: OcgPosition.FACEUP_ATTACK,
+      code: master.code,
+      name: master.name,
+    };
+  }
+  return undefined;
+}
+
+function promptOptionVisible(option: DuelPromptOption, viewer: number, seats: DuelSeatView[], reveals: RevealMap): boolean {
+  if (option.controller == null || option.location == null || option.sequence == null) return true;
+  const revealed = slotRevealed(reveals, viewer, option.controller, option.location, option.sequence, option.card?.code);
+  if (option.location === OcgLocation.DECK || option.location === 0) {
+    return revealed || viewer === option.controller;
+  }
+  const fieldCard = cardAt(seats, option.controller, option.location, option.sequence);
+  if (fieldCard) return fieldCard.code != null;
+  return cardIsVisible({
+    viewer,
+    controller: option.controller,
+    location: option.location,
+    position: OcgPosition.FACEDOWN,
+    revealed,
+  });
+}
+
+function redactPromptOption(option: DuelPromptOption, fieldCard: DuelCard | null | undefined): DuelPromptOption {
+  const redacted: DuelPromptOption = {
+    id: option.id,
+    label: fieldCard && isFacedownPosition(fieldCard.position) ? "Face-down card" : "Unknown card",
+  };
+  if (option.controller != null) redacted.controller = option.controller;
+  if (option.location != null) redacted.location = option.location;
+  if (option.sequence != null) redacted.sequence = option.sequence;
+  if (option.values) redacted.values = option.values;
+  if (option.max != null) redacted.max = option.max;
+  if (option.selected != null) redacted.selected = option.selected;
+  return redacted;
+}
+
+function projectPrompt(
+  prompt: DuelPrompt | null,
+  viewer: number | null,
+  promptSeat: number | null,
+  seats: DuelSeatView[],
+  reveals: RevealMap,
+): DuelPrompt | null {
+  if (!prompt || viewer == null || viewer !== promptSeat) return null;
+  return {
+    ...prompt,
+    options: prompt.options.map((option) => {
+      if (promptOptionVisible(option, viewer, seats, reveals)) return option;
+      return redactPromptOption(option, cardAt(seats, option.controller ?? -1, option.location ?? -1, option.sequence ?? -1));
+    }),
+  };
+}
 
 export function projectView(args: {
   lib: OcgCoreSync;
@@ -451,7 +542,7 @@ export function projectView(args: {
     turnSeat: args.turnSeat,
     phase: args.phase,
     seats,
-    prompt: args.viewer !== null && args.viewer === args.promptSeat ? args.prompt : null,
+    prompt: projectPrompt(args.prompt, args.viewer, args.promptSeat, seats, args.reveals),
     chain,
     events: args.events.map((event) => projectStoredEvent(event, args.viewer)),
     log: args.log

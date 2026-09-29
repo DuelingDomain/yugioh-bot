@@ -1,4 +1,4 @@
-import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 import createCore, {
   OcgDuelMode,
   OcgHintType,
@@ -39,6 +39,7 @@ export interface EngineGameOptions {
   seed: string[];
   dataDirectory: string;
   masterRule?: DuelMasterRule;
+  settings?: DuelSettings;
 }
 
 export interface EngineGame {
@@ -53,6 +54,9 @@ export type DomainCoreFactory = (ctx: {
   dataDirectory: string;
   seed: [bigint, bigint, bigint, bigint];
   decks: DuelDeck[];
+  flags: bigint;
+  team1: { startingLP: number; startingDrawCount: number; drawCountPerTurn: number };
+  team2: { startingLP: number; startingDrawCount: number; drawCountPerTurn: number };
   cardReader: (code: number) => OcgCardData | null;
   scriptReader: (name: string) => string | null;
   errorHandler: (type: number, text: string) => void;
@@ -89,20 +93,32 @@ const MASTER_RULE_FLAGS: Record<DuelMasterRule, bigint> = {
   5: OcgDuelMode.MODE_MR5,
 };
 
-function duelFlagsFor(mode: DuelMode, masterRule?: DuelMasterRule): bigint {
+function duelFlagsFor(masterRule?: DuelMasterRule): bigint {
   const rule = masterRule ?? 5;
   if (rule !== 1 && rule !== 2 && rule !== 3 && rule !== 4 && rule !== 5) {
     throw new Error(`Unknown master rule ${String(rule)}`);
   }
-  if (mode === "domain" && rule !== 5) {
-    throw new Error("Domain Format requires Master Rule 5");
-  }
   return MASTER_RULE_FLAGS[rule];
 }
 
+function engineStartConfig(settings?: DuelSettings): {
+  startingLP: number;
+  startingDrawCount: number;
+  drawCountPerTurn: number;
+  shuffle: boolean;
+} {
+  return {
+    startingLP: settings?.startingLP ?? 8000,
+    startingDrawCount: settings?.startingHand ?? 5,
+    drawCountPerTurn: settings?.drawPerTurn ?? 1,
+    shuffle: settings?.shuffleDeck ?? true,
+  };
+}
 
-function addDeck(lib: OcgCoreSync, handle: OcgDuelHandle, team: 0 | 1, deck: DuelDeck) {
-  for (const code of deck.main) {
+function addDeck(lib: OcgCoreSync, handle: OcgDuelHandle, team: 0 | 1, deck: DuelDeck, importedOrder: boolean) {
+  // sequence 0 push_back: last added card is deck top (drawn first). Reverse so imported[0] is top.
+  const main = importedOrder ? [...deck.main].reverse() : deck.main;
+  for (const code of main) {
     lib.duelNewCard(handle, {
       team,
       duelist: 0,
@@ -134,7 +150,8 @@ function loadScriptOrThrow(lib: OcgCoreSync, handle: OcgDuelHandle, cards: CardD
 
 export async function createEngineGame(options: EngineGameOptions): Promise<EngineGame> {
   if (options.decks.length !== 2) throw new Error("Exactly two decks are required");
-  const flags = duelFlagsFor(options.mode, options.masterRule);
+  const start = engineStartConfig(options.settings);
+  const flags = duelFlagsFor(options.masterRule);
   const seed = parseSeed(options.seed);
   const cards = loadCardDatabase(options.dataDirectory);
   const errors: string[] = [];
@@ -150,6 +167,11 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const errorHandler = (type: number, text: string) => {
     if (type === OcgLogType.ERROR || type === OcgLogType.UNDEFINED) errors.push(text);
   };
+  const team = {
+    startingLP: start.startingLP,
+    startingDrawCount: start.startingDrawCount,
+    drawCountPerTurn: start.drawCountPerTurn,
+  };
 
   let lib: OcgCoreSync;
   let handle: OcgDuelHandle;
@@ -162,6 +184,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       dataDirectory: options.dataDirectory,
       seed,
       decks: options.decks,
+      flags,
+      team1: team,
+      team2: team,
       cardReader,
       scriptReader,
       errorHandler,
@@ -175,8 +200,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     const created = lib.createDuel({
       flags,
       seed,
-      team1: { startingLP: 8000, startingDrawCount: 5, drawCountPerTurn: 1 },
-      team2: { startingLP: 8000, startingDrawCount: 5, drawCountPerTurn: 1 },
+      team1: team,
+      team2: team,
       cardReader,
       scriptReader,
       errorHandler,
@@ -191,23 +216,27 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     if (options.mode === "domain") {
       loadScriptOrThrow(lib, handle, cards, "domain.lua");
       // Card creation runs initial_effect; procedure libraries must be loaded first.
-      for (const team of [0, 1] as const) {
-        const code = options.decks[team].deckMaster;
-        if (!code) throw new Error(`Seat ${team} is missing a Deck Master`);
+      for (const teamSeat of [0, 1] as const) {
+        const code = options.decks[teamSeat].deckMaster;
+        if (!code) throw new Error(`Seat ${teamSeat} is missing a Deck Master`);
         lib.duelNewCard(handle, {
-          team,
+          team: teamSeat,
           duelist: 0,
           code,
-          controller: team,
+          controller: teamSeat,
           location: LOCATION_DECKMASTER as OcgLocation,
           sequence: 0,
           position: OcgPosition.FACEUP_ATTACK,
         });
       }
     }
-    addDeck(lib, handle, 0, options.decks[0]);
-    addDeck(lib, handle, 1, options.decks[1]);
-    if (!lib.loadScript(handle, "duel-startup.lua", `
+    addDeck(lib, handle, 0, options.decks[0], !start.shuffle);
+    addDeck(lib, handle, 1, options.decks[1], !start.shuffle);
+    // Opening shuffle is only this EVENT_STARTUP ShuffleDeck. DUEL_PSEUDO_SHUFFLE is not used:
+    // field.cpp applies it to every later deck/extra shuffle. EnableGlobalFlag is a noop here;
+    // Debug.ReloadFieldBegin writes flags but also clears the duel.
+    if (start.shuffle) {
+      if (!lib.loadScript(handle, "duel-startup.lua", `
       local e=Effect.GlobalEffect()
       e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
       e:SetCode(EVENT_STARTUP)
@@ -218,6 +247,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       end)
       Duel.RegisterEffect(e,0)
     `)) throw new Error("Failed to register opening deck shuffle");
+    }
     lib.startDuel(handle);
   } catch (error) {
     lib.destroyDuel(handle);
@@ -229,7 +259,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let turn = 0;
   let turnSeat = 0;
   let phase = "draw";
-  const lp: [number, number] = [8000, 8000];
+  const lp: [number, number] = [start.startingLP, start.startingLP];
   let pending: PendingPrompt | null = null;
   let result: DuelEngineView["result"] = null;
   let closed = false;

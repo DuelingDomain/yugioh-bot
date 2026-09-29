@@ -4,7 +4,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import type { DuelDeck } from "@yugidraft/shared/duels";
-import { validateDeck } from "../src/deck-legality.js";
+import { inspectDeck, validateDeck } from "../src/deck-legality.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 
 const DARK_MAGICIAN = 46986414;
@@ -238,3 +238,102 @@ describe("validateDeck engine bundle", () => {
     expect(() => validateDeck("normal", { main: [1], extra: [], side: [] }, empty)).toThrow(/strings\.conf/);
   });
 });
+
+function refOf(card: { section: string; index: number; code: number }) {
+  return { section: card.section, index: card.index, code: card.code };
+}
+
+describe("inspectDeck", () => {
+  it("aggregates independent size and card issues and validateDeck throws the first", () => {
+    const deck: DuelDeck = {
+      main: [BLUE_EYES_ULTIMATE, KURIBOH_TOKEN, ...fillerSpells(37)],
+      extra: [DARK_MAGICIAN],
+      side: [],
+    };
+    const { issues } = inspectDeck("normal", deck, DATA);
+    expect(issues.map((issue) => issue.message)).toEqual([
+      "Main Deck must have 40-60 cards",
+      expect.stringMatching(/Extra Deck/),
+      expect.stringMatching(/not a playable deck card/),
+      expect.stringMatching(/Main Deck/),
+    ]);
+    expect(issues[1]?.cards.map(refOf)).toEqual([{ section: "main", index: 0, code: BLUE_EYES_ULTIMATE }]);
+    expect(issues[2]?.cards.map(refOf)).toEqual([{ section: "main", index: 1, code: KURIBOH_TOKEN }]);
+    expect(issues[3]?.cards.map(refOf)).toEqual([{ section: "extra", index: 0, code: DARK_MAGICIAN }]);
+    expect(() => validateDeck("normal", deck, DATA)).toThrow(issues[0]!.message);
+  });
+
+  it("highlights only copies beyond the allowance in main/extra/side order", () => {
+    const arts = [DARK_MAGICIAN, 46986415, 46986416, 46986417];
+    const { issues } = inspectDeck(
+      "normal",
+      {
+        main: [arts[0]!, arts[1]!, ...fillerSpells(38, arts)],
+        extra: [],
+        side: [arts[2]!, arts[3]!],
+      },
+      DATA,
+    );
+    const copies = issues.find((issue) => /more than 3 copies of dark magician/i.test(issue.message));
+    expect(copies?.cards.map(refOf)).toEqual([
+      { section: "side", index: 1, code: 46986417 },
+    ]);
+  });
+
+  it("still reports size, loadable, and copy issues when the Deck Master is missing", () => {
+    const deck: DuelDeck = {
+      main: [HARPIE_LADY, HARPIE_LADY_1, CYBER_DRAGON, ...fillerSpells(56, [HARPIE_LADY, HARPIE_LADY_1, CYBER_DRAGON])],
+      extra: [],
+      side: [POLYMERIZATION, UMI],
+    };
+    const { issues } = inspectDeck("domain", deck, DATA);
+    expect(issues.some((issue) => /Deck Master is required/.test(issue.message))).toBe(true);
+    expect(issues.some((issue) => /exactly 60 cards/.test(issue.message))).toBe(true);
+    const noSide = issues.find((issue) => /does not use a Side Deck/.test(issue.message));
+    expect(noSide?.cards.map(refOf)).toEqual([
+      { section: "side", index: 0, code: POLYMERIZATION },
+      { section: "side", index: 1, code: UMI },
+    ]);
+    expect(issues.some((issue) => /Duplicate card/.test(issue.message))).toBe(true);
+    expect(issues.some((issue) => /outside the Deck Master's Domain/.test(issue.message))).toBe(false);
+  });
+
+  it("still reports copy and size issues when the Deck Master is invalid", () => {
+    const deck: DuelDeck = {
+      main: [UMI, LEGENDARY_OCEAN, ...fillerSpells(57, [UMI, LEGENDARY_OCEAN])],
+      extra: [],
+      side: [],
+      deckMaster: POT_OF_GREED,
+    };
+    const { issues } = inspectDeck("domain", deck, DATA);
+    expect(issues.some((issue) => /Deck Master must be a playable monster/.test(issue.message))).toBe(true);
+    expect(issues.some((issue) => /exactly 60 cards/.test(issue.message))).toBe(true);
+    expect(issues.some((issue) => /Duplicate card/.test(issue.message))).toBe(true);
+    expect(issues.find((issue) => /playable monster/.test(issue.message))?.cards.map(refOf)).toEqual([
+      { section: "deckMaster", index: 0, code: POT_OF_GREED },
+    ]);
+  });
+
+  it("references every Side card on the Domain no-Side issue", () => {
+    const deck: DuelDeck = {
+      main: fillerSpells(60),
+      extra: [],
+      side: [POLYMERIZATION, UMI],
+      deckMaster: DARK_MAGICIAN,
+    };
+    const { issues } = inspectDeck("domain", deck, DATA);
+    const noSide = issues.find((issue) => /does not use a Side Deck/.test(issue.message));
+    expect(noSide?.cards).toEqual([
+      { section: "side", index: 0, code: POLYMERIZATION, name: expect.any(String) },
+      { section: "side", index: 1, code: UMI, name: expect.any(String) },
+    ]);
+  });
+
+  it("highlights Deck Master duplicates in the deck, not the master slot", () => {
+    const { issues } = inspectDeck("domain", domainDeck(DARK_MAGICIAN, [], DARK_MAGICIAN), DATA);
+    const duplicateMaster = issues.find((issue) => /cannot appear/.test(issue.message));
+    expect(duplicateMaster?.cards.map(refOf)).toEqual([{ section: "main", index: 0, code: DARK_MAGICIAN }]);
+    expect(duplicateMaster?.cards.some((card) => card.section === "deckMaster")).toBe(false);
+  });
+});
+

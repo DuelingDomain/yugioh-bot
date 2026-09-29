@@ -82,7 +82,7 @@ async function openingHandSize(masterRule: DuelMasterRule, main: number[]): Prom
 }
 
 describe("native master rule presets", () => {
-  it("rejects unknown master rules and Domain games that are not MR5", async () => {
+  it("rejects unknown master rules", async () => {
     const deck: DuelDeck = { main: [1, 2, 3], extra: [], side: [] };
     await expect(
       createEngineGame({
@@ -93,18 +93,6 @@ describe("native master rule presets", () => {
         masterRule: 9 as DuelMasterRule,
       }),
     ).rejects.toThrow(/Unknown master rule/);
-    await expect(
-      createEngineGame({
-        mode: "domain",
-        decks: [
-          { ...deck, deckMaster: 1 },
-          { ...deck, deckMaster: 1 },
-        ],
-        seed,
-        dataDirectory,
-        masterRule: 4,
-      }),
-    ).rejects.toThrow(/Master Rule 5/);
   });
 
   it("defaults omitted masterRule to MR5 (first player does not draw)", async () => {
