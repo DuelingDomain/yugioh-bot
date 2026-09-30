@@ -30,6 +30,7 @@ import { DeckMasterRail, DuelField } from "./field";
 import styles from "./room.module.css";
 import { AttackConfirm, CardActionMenu, CardHoverInfo } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
+import { FxBoundary } from "./fx-boundary";
 import { BattleFx, type BattleAim } from "./battle-fx";
 import fxStyles from "./battle-fx.module.css";
 import { DuelFeedback } from "./feedback";
@@ -856,6 +857,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                   onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
                   bottomName={playerName(localSeat)}
                   topName={playerName(top?.seat ?? 1 - localSeat)} />
+                <FxBoundary>
                 {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug}
                   soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
                 {!error && !realtime.recovering ? <SummonFx events={engine.events} duelKey={slug}
@@ -866,6 +868,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                   active={!error && !realtime.recovering} aim={battleAim} />
                 <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
                   active={!error && !realtime.recovering} mySeat={localSeat} />
+                </FxBoundary>
                 <PromptCenter prompt={prompt} mySeat={data.mySeat} active={data.session.status === "active"} slug={slug}
                   busy={busy || Boolean(error) || catchingUp} draft={draft} onSubmit={onSubmitAnswer}
                   menuOpen={Boolean(activeMenu)} chain={engine.chain} aim={promptAim}

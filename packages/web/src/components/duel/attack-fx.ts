@@ -9,6 +9,7 @@
  * Ported from the approved prototype (designs/duel-ui/attack-fx/fx.js). The style table (which
  * effect a monster plays) lives in attack-styles.ts; this file only draws them.
  */
+import { safeAnimate } from "./safe-animate";
 import {
   COUNTER_GAP_MS,
   DESTROY_BEAT_MS,
@@ -250,14 +251,14 @@ type Geo = {
 
 function add(cx: Ctx, el: Element, keyframes: Keyframe[], o: Anim): Animation | null {
   if (typeof el.animate !== "function") return null;
-  const a = el.animate(keyframes, {
+  const a = safeAnimate(el, keyframes, {
     delay: Math.max(0, o.at),
     duration: Math.max(1, o.dur),
     easing: o.easing ?? "linear",
     fill: o.fill ?? "both",
     composite: o.composite ?? "replace",
   });
-  cx.animations.push(a);
+  if (a) cx.animations.push(a);
   return a;
 }
 

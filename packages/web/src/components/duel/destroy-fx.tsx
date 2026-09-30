@@ -9,6 +9,7 @@ import { PIECE_TINTS, groupScenes, planScene, tintForCode, type SceneCue, type S
 import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
 import type { FxRect, FxScene } from "./fx3d/types";
+import { safeAnimate } from "./safe-animate";
 import { holdPromptReveal } from "./prompt-reveal";
 
 /**
@@ -178,7 +179,10 @@ function domFlash(planned: Planned): () => void {
     });
     document.body.appendChild(el);
     nodes.push(el);
-    if (typeof el.animate === "function") anims.push(el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 300, easing: "ease-out", fill: "forwards" }));
+    {
+      const flash = safeAnimate(el, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 300, easing: "ease-out", fill: "forwards" });
+      if (flash) anims.push(flash);
+    }
   }
   return () => {
     for (const a of anims) a.cancel();

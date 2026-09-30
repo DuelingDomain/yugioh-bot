@@ -59,6 +59,7 @@ import { holdPromptReveal } from "./prompt-reveal";
 import { MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } from "./move-plan";
 import type { DuelShakePreference } from "./preferences";
 import styles from "./summon-fx.module.css";
+import { safeAnimate } from "./safe-animate";
 
 export type SummonFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -325,8 +326,8 @@ export class Track {
             delay: this.at(Number(options.delay ?? 0)),
             duration: typeof options.duration === "number" ? options.duration * this.scale : options.duration,
           };
-    const anim = el.animate(frames, { fill: "both", ...paced });
-    this.anims.push(anim);
+    const anim = safeAnimate(el, frames, { fill: "both", ...paced });
+    if (anim) this.anims.push(anim);
     return anim;
   }
 
@@ -677,9 +678,9 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
       whole.current,
       [
         { opacity: 1, filter: "brightness(1)", transform: "translate(0, 0)" },
-        { opacity: 1, filter: "brightness(1)", offset: (breakAt - 130) / total },
-        { opacity: 1, filter: "brightness(1.7) saturate(1.2)", transform: "translate(-1.5px, 0)", offset: (breakAt - 70) / total },
-        { opacity: 1, filter: "brightness(1.2)", transform: "translate(1.5px, 0)", offset: (breakAt - 20) / total },
+        { opacity: 1, filter: "brightness(1)", offset: Math.max(0, breakAt - 130) / total },
+        { opacity: 1, filter: "brightness(1.7) saturate(1.2)", transform: "translate(-1.5px, 0)", offset: Math.max(0, breakAt - 70) / total },
+        { opacity: 1, filter: "brightness(1.2)", transform: "translate(1.5px, 0)", offset: Math.max(0, breakAt - 20) / total },
         { opacity: 0, offset: Math.min(0.999, breakAt / total) },
         { opacity: 0 },
       ],
@@ -713,7 +714,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
         el,
         [
           { opacity: 0, transform: "translate(0, 0) rotate(0deg) scale(1)", offset: 0 },
-          { opacity: 0, transform: "translate(0, 0) rotate(0deg) scale(1)", offset: (breakAt - 1) / (breakAt + burst + lag) },
+          { opacity: 0, transform: "translate(0, 0) rotate(0deg) scale(1)", offset: Math.max(0, breakAt - 1) / (breakAt + burst + lag) },
           { opacity: 1, transform: "translate(0, 0) rotate(0deg) scale(1)", offset: breakAt / (breakAt + burst + lag), easing: "cubic-bezier(0.1, 0.7, 0.3, 1)" },
           { opacity: 1, transform: `translate(${burstX}px, ${burstY}px) rotate(${spin * 0.6}deg) scale(1.02)`, offset: (breakAt + 150) / (breakAt + burst + lag), easing: "cubic-bezier(0.5, 0, 0.75, 0.4)" },
           { opacity: 0, transform: `translate(${flyX}px, ${flyY}px) rotate(${spin * 1.6}deg) scale(0.3)` },
