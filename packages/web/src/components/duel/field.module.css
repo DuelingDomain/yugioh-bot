@@ -118,7 +118,7 @@
   --gs: 3px;
   --sg: 12px;
   /* LP tally: one slim block that sits INSIDE the hand strip (name line + numerals), so it costs no rows. */
-  --tally-h: clamp(52px, calc(100cqh * 0.068), 96px);
+  --tally-h: clamp(46px, calc(100cqh * 0.058), 88px);
   --head-h: calc(var(--tally-h) * 0.32);
   --lp-h: calc(var(--tally-h) * 0.68);
   --lp-fs: calc(var(--lp-h) * 0.94);
@@ -127,19 +127,24 @@
   /* Multiples of --z: board width, arena height, opponent hand (fully visible), your hand (minimum). */
   --wk: 6.822;
   --hk: 5.16;
-  --lk: 0.91;
-  --ohk: 0.71;
+  --lk: 0.58;
+  --ohk: 0.6;
   /* Breathing room above the opponent's hand and below yours (marks and rings sit outside the cards). */
-  --hpad: 9px;
+  --hpad: 4px;
   /* Lift reserve: the board-side edge of each hand strip keeps room for a lifted (legal 5%, selected 12%)
      or fanned card, its dashed ring (5px) and, on your side, the nib tag above the card (8.5% of --z).
      So a hand card can never cross into the Spell/Trap row, whatever its state. */
-  --lift-k: 0.16;
-  --mark-k: 0.085;
-  --res-top-px: 6px;
+  --lift-k: 0.12;
+  --mark-k: 0.07;
+  --res-top-px: 3px;
   --res-bot-px: 2px;
+  /* Your hand is a compact row (rises to full size on hover). The opponent's hand is a strip of card
+     backs tucked under the header: --top-hide of each card sits above the board (the header paints over
+     it) and slides fully into view on hover, so it costs only the visible share plus a small lift reserve. */
+  --top-hide: 0.5;
+  --top-lift-k: 0.05;
   --lkr: calc(var(--lk) * (1 + var(--lift-k)) + var(--mark-k));
-  --ohkr: calc(var(--ohk) * (1 + var(--lift-k)));
+  --ohkr: calc(var(--ohk) * (1 - var(--top-hide) + var(--top-lift-k)));
 
   --avail-w: calc(100cqw - var(--pl) - var(--pr) - 2px);
   --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
@@ -167,8 +172,8 @@
   --oh: min(calc(var(--z) * var(--ohk) + var(--spare) * 0.345), calc(var(--z) * 1.05));
   --ohcw: calc(var(--oh) * 0.686);
   --ohg: calc(var(--ohcw) * 0.06);
-  --top-res: calc(var(--oh) * var(--lift-k) + var(--res-top-px));
-  --top-h: max(var(--tally-h), calc(var(--oh) + var(--top-res) + var(--hpad)));
+  --top-res: calc(var(--oh) * var(--top-lift-k) + var(--res-top-px));
+  --top-h: max(var(--tally-h), calc(var(--oh) * (1 - var(--top-hide)) + var(--top-res) + var(--hpad)));
   --lh: min(calc(var(--z) * var(--lk) + var(--spare) * 0.517), calc(var(--z) * 1.15), 260px);
   --lhcw: calc(var(--lh) * 0.686);
   --lhg: calc(var(--z) * 0.07);
@@ -262,6 +267,8 @@
 /* The opponent's hand is a whole row (never clipped): revealed cards must be readable and any card
    may have to be picked. Cards hang from the top edge; the lift reserve sits below them. */
 .stripTop .hand {
+  position: relative;
+  top: calc(var(--oh) * var(--top-hide) * -1);
   align-items: flex-start;
   padding-top: var(--hpad);
 }
@@ -463,22 +470,22 @@
    board. Yours grows up too (see below), so the station track never hides it. */
 @media (hover: hover) {
   .hand:not(.handLocal) .handCard .zone .frame {
-    transform-origin: 50% 100%;
+    transform-origin: 50% 0;
   }
 
   .hand:not(.handLocal) .handCard .zone:hover .frame,
   .hand:not(.handLocal) .handCard .zone:focus-within .frame {
-    transform: scale(1.35);
+    transform: translateY(calc(var(--oh) * var(--top-hide))) scale(1.6);
   }
 
   .hand:not(.handLocal) .handCard .zone[data-legal="true"]:hover .frame,
   .hand:not(.handLocal) .handCard .zone[data-legal="true"]:focus-within .frame {
-    transform: translateY(calc(var(--oh) * 0.05)) scale(1.35);
+    transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.05))) scale(1.6);
   }
 
   .hand:not(.handLocal) .handCard .zone[data-selected="true"]:hover .frame,
   .hand:not(.handLocal) .handCard .zone[data-selected="true"]:focus-within .frame {
-    transform: translateY(calc(var(--oh) * 0.12)) scale(1.35);
+    transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.12))) scale(1.6);
   }
 
   /* Yours grows UP from its bottom edge: the station track below must never cover it. It may overlap
@@ -489,17 +496,17 @@
 
   .handLocal .handCard .zone:hover .frame,
   .handLocal .handCard .zone:focus-within .frame {
-    transform: translateY(calc(var(--lh) * -0.08)) scale(1.3);
+    transform: translateY(calc(var(--lh) * -0.08)) scale(2);
   }
 
   .handLocal .handCard .zone[data-legal="true"]:hover .frame,
   .handLocal .handCard .zone[data-legal="true"]:focus-within .frame {
-    transform: translateY(calc(var(--lh) * -0.1)) scale(1.3);
+    transform: translateY(calc(var(--lh) * -0.1)) scale(2);
   }
 
   .handLocal .handCard .zone[data-selected="true"]:hover .frame,
   .handLocal .handCard .zone[data-selected="true"]:focus-within .frame {
-    transform: translateY(calc(var(--lh) * -0.14)) scale(1.3);
+    transform: translateY(calc(var(--lh) * -0.14)) scale(2);
   }
 }
 
@@ -1378,6 +1385,11 @@
     --ohk: 1.1;
     --lk: 1.3;
     --hpad: 4px;
+    --top-hide: 0;
+    --top-lift-k: 0.16;
+    --lift-k: 0.16;
+    --mark-k: 0.085;
+    --res-top-px: 6px;
     --pk: 0.8;
     --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
     /* Both tallies sit above their hands (full width rows), so the hands can be wide and barely overlap. */

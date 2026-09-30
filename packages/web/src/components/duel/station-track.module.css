@@ -22,7 +22,7 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --plate-w: clamp(48px, 4.6vw, 72px);
   /* Track height: slim on short screens (the board wants the height), full size on tall ones. */
-  --th: clamp(60px, 6.6dvh, 88px);
+  --th: clamp(58px, 5.6dvh, 68px);
   --plate-h: calc(var(--th) * 0.5);
   --plate-h-now: calc(var(--th) * 0.6);
   --gap: clamp(10px, 1.7vw, 32px);

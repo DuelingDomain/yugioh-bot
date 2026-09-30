@@ -59,8 +59,9 @@
 .shell {
   /* The field is height-bound (its width follows from the rows), so on wide screens the spare width
      goes to the side panes. --duel-free is the viewport width left once the field has what it needs
-     (about 1.3 x the height under the header and track); the panes share it, up to a vw ceiling. */
-  --duel-free: max(0px, calc(100vw - (100dvh - 200px) * 1.3));
+     (about 1.12 x the height under the header and track, plus the sheet margins); the panes share it,
+     up to a vw ceiling. */
+  --duel-free: max(0px, calc(100vw - (100dvh - 140px) * 1.12 - 40px));
   --duel-insp-w: clamp(240px, min(22vw, calc(var(--duel-free) * 0.55)), 640px);
   --duel-dock-w: clamp(212px, min(16vw, calc(var(--duel-free) * 0.45)), 460px);
   position: relative;
@@ -96,8 +97,11 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: calc(12 * var(--duel-unit));
-  /* Held at its 1.5px-unit height on big screens: every px here comes off the height-bound field. */
-  height: calc(38 * min(var(--duel-unit), 1.5px));
+  /* Held at a 1.2px-unit height on big screens: every px here comes off the height-bound field.
+     It also paints over the opponent's hand, which is tucked partly under it. */
+  position: relative;
+  z-index: 3;
+  height: calc(34 * min(var(--duel-unit), 1.2px));
   padding: 0 max(calc(12 * var(--duel-unit)), env(safe-area-inset-right)) 0 max(calc(16 * var(--duel-unit)), env(safe-area-inset-left));
   border-bottom: 1px solid var(--duel-rule);
   background: linear-gradient(180deg, rgb(12 19 36 / 0.95), rgb(8 13 25 / 0.95));
@@ -283,7 +287,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: calc(4 * var(--duel-unit)) calc(6 * var(--duel-unit));
+  padding: calc(2 * var(--duel-unit)) calc(6 * var(--duel-unit));
   border-left: 1px solid var(--duel-rule);
 }
 /* The field measures this box: it must stay definite and never scroll. Overflow stays visible and the
