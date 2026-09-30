@@ -67,10 +67,19 @@ function useAnchoredPosition(
   const [position, setPosition] = useState({ left: 0, top: 0, ready: false, side: "above" as "above" | "below", ax: 0, hidden: false });
 
   useLayoutEffect(() => {
-    function place() {
+    // An interactive menu must not move under the pointer: a hovered hand card grows, then shrinks
+    // again when the pointer moves onto the menu. The menu follows the card while it grows and
+    // ignores the shrink (only a resize or a scroll places it afresh).
+    let largest = 0;
+    function place(event?: Event) {
       const surface = ref.current;
       if (!surface || !anchor.isConnected) return;
       const card = (anchor.querySelector<HTMLElement>("[data-card-art]") ?? anchor).getBoundingClientRect();
+      if (interactive) {
+        if (event && (event.type === "resize" || event.type === "scroll")) largest = 0;
+        else if (card.height < largest - 0.5) return;
+        largest = Math.max(largest, card.height);
+      }
       const width = surface.offsetWidth;
       const height = surface.offsetHeight;
       const margin = 8;
