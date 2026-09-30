@@ -37,6 +37,16 @@ npm run dev
 
 SQLite data is stored in `./data/bot.sqlite` by default.
 
+### Saved decks
+
+**Decks** in the sidebar opens your private library at `/decks`. **New deck** opens `/decks/new`; saved lists reopen at `/decks/:id`. Decks are stored in SQLite and scoped to the configured guild and signed-in Discord account. Other accounts cannot list, read, update, or delete them.
+
+The editor lays out every copy in separate **Main**, **Extra**, and **Side** card grids, alongside a card inspector and engine-catalog search by name or passcode. Click a card to inspect it, add/remove a copy, or move a copy between sections. Search places Fusion/Synchro/Xyz/Link monsters in Extra by default and other cards in Main; **Side** adds an explicit Side copy. Domain decks have a searchable **Deck Master** slot; promoting a deck card moves one copy out, and changing/clearing that choice restores it during the editing session, including after saving.
+
+Upload/drop **YDK**, paste YDK or **YDKE**, or build a deck from search. Imports replace the current list; empty/unrecognized files leave it intact. **Export YDK** preserves card order, duplicates, all three sections, and an explicit Master in a `#deckmaster` section before `#main`. Domain imports with a lone Side card and no explicit Master select that card automatically. Switching formats does not delete cards or a saved Master.
+
+**Save** accepts unfinished lists; it does not certify duel legality. Unknown passcodes remain visible rather than being silently discarded. Unsaved changes are guarded on links, Back/Forward, and browser unload; failed saves retain the edits. Delete requires confirmation. In a duel lobby, choose **Use a saved deck → Load deck**. This loads a room-local copy, so lobby edits do not overwrite your library. Standard rooms omit any saved Domain Master from that copy. The room validates its own rules before **Ready with this deck**, and submission revalidates server-side.
+
 ### Automated duel service
 
 Authenticated **Standard 1v1** tables use selectable EDOPro Master Rule presets **1–5**, defaulting to **Master Rule 5**. **Domain 1v1** is a separate mode using modern rules plus Domain mechanics. The selection is fixed when a table is created and retained for reconnect, replay, and history. These are native gameplay presets with the current card catalog, not historical card pools or banlists. Players choose; the private compiled engine enforces legality and resolves effects. An organizer can fill an empty opponent seat with **Add practice bot** for solo testing. The bot brings a format-valid generic EARTH Normal Monster deck, makes basic legal choices, summons, and attacks automatically; it is not a competitive AI. There is no 3-/4-player mode. Casual `/duel` match reports and ranking are unchanged.

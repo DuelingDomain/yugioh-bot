@@ -10,6 +10,7 @@ import styles from "./deck-editor.module.css";
 import { applyDomainMaster, parseDeckText, selectDomainMaster, serializeYdk, type DeckMasterSelection } from "./ydk";
 import { validateDuelDeck } from "./api";
 import { DeckMasterPicker } from "./deck-master-picker";
+import { SavedDeckPicker } from "./saved-deck-picker";
 
 type CardProblem = { name?: string; messages: string[] };
 
@@ -259,6 +260,16 @@ export function DeckEditor({
         </div>
         <p className={styles.rules}><Info size={15} strokeWidth={1.6} aria-hidden /><span>{rulesNote}</span></p>
       </header>
+
+      <SavedDeckPicker mode={mode} disabled={busy} onLoad={(saved) => {
+        const hasCards = main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined;
+        if (hasCards && !window.confirm("Replace the deck currently loaded at this table? Your saved deck is unchanged.")) return;
+        const localDeck = mode === "normal"
+          ? { main: saved.main, extra: saved.extra, side: saved.side }
+          : saved;
+        commitSelection({ deck: localDeck, masterOrigin: null });
+        setFileName(null);
+      }} />
 
       {showValidation ? (
         <div aria-live="polite" role="status">

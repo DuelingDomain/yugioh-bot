@@ -64,10 +64,17 @@ export function useDuelLeaveGuard({
   active: boolean;
   role: "player" | "spectator";
 }): void {
-  useLayoutEffect(() => {
-    if (!active || !slug) return;
+  useNavigationLeaveGuard(
+    active && !!slug,
+    role === "player" ? PLAYER_LEAVE_MESSAGE : SPECTATOR_LEAVE_MESSAGE,
+    slug,
+  );
+}
 
-    const message = role === "player" ? PLAYER_LEAVE_MESSAGE : SPECTATOR_LEAVE_MESSAGE;
+/** Shared link, browser-history, and unload protection for unsaved work. */
+export function useNavigationLeaveGuard(active: boolean, message: string, scope = ""): void {
+  useLayoutEffect(() => {
+    if (!active) return;
     const pinnedHref = window.location.href;
     const nav = (window as Window & { navigation?: AppNavigation }).navigation;
     const navigation = nav && typeof nav.addEventListener === "function" ? nav : null;
@@ -183,7 +190,7 @@ export function useDuelLeaveGuard({
         activeTraversalGuard = null;
       }
     };
-  }, [slug, active, role]);
+  }, [active, message, scope]);
 }
 
 function isSamePath(left: URL, right: URL): boolean {

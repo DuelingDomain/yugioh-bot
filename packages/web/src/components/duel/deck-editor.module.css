@@ -31,6 +31,8 @@
 .addRow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
 .addCode { display: block; width: 190px; }
 .addSection { width: 132px; }
+.savedSelect { flex: 1 1 260px; min-width: 0; max-width: 480px; }
+.savedSelect select { width: 100%; }
 .compactInput { height: 36px; font-size: 14px; }
 .addBtn { align-self: flex-end; }
 
