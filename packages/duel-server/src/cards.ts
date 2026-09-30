@@ -199,7 +199,12 @@ function loadFromDisk(root: string): CardDatabase {
       const needle = query.trim().toLowerCase();
       if (!needle && !matches) return [];
       const found: DuelCardInfo[] = [];
+      // An exact passcode comes first, so a lookup by code never falls past the result cap.
+      const exact = /^\d+$/.test(needle) ? info.get(Number(needle)) : undefined;
+      const exactData = exact ? datas.get(exact.code) : undefined;
+      if (exact && (!matches || (exactData && matches(exactData)))) found.push(exact);
       for (const card of info.values()) {
+        if (card === exact) continue;
         if (needle && !card.name.toLowerCase().includes(needle) && !String(card.code).includes(needle)) continue;
         if (matches) {
           const data = datas.get(card.code);

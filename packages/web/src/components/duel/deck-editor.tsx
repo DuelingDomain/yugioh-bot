@@ -21,6 +21,7 @@ function Section({
   problems,
   target,
   onChooseMaster,
+  onPreview,
 }: {
   title: string;
   section: "main" | "extra" | "side";
@@ -29,6 +30,7 @@ function Section({
   problems: ReadonlyMap<string, CardProblem>;
   target?: string;
   onChooseMaster?: (code: number) => void;
+  onPreview?: (code: number) => void;
 }) {
   return (
     <section className={styles.list} aria-label={`${title} deck`}>
@@ -50,6 +52,8 @@ function Section({
                   type="button"
                   className={styles.card}
                   onClick={() => onRemove(index)}
+                  onMouseEnter={() => onPreview?.(code)}
+                  onFocus={() => onPreview?.(code)}
                   aria-label={`Remove ${problem?.name ?? code} from ${title}${reason ? `. Invalid: ${reason}` : ""}`}
                   title={reason ? `${reason} Click to remove this copy.` : "Click to remove this copy"}
                   data-invalid={problem ? "true" : undefined}
@@ -83,6 +87,7 @@ export function DeckEditor({
   initial,
   busy,
   onReady,
+  onPreviewCard,
 }: {
   slug: string;
   mode: DuelMode;
@@ -90,6 +95,8 @@ export function DeckEditor({
   initial: DuelDeck | null;
   busy: boolean;
   onReady: (deck: DuelDeck) => void;
+  /** Called with the passcode of the deck card under the pointer or focus. */
+  onPreviewCard?: (code: number) => void;
 }) {
   const [selection, setSelection] = useState<DeckMasterSelection>(() => ({
     deck: initial ?? { main: [], extra: [], side: [] },
@@ -130,6 +137,13 @@ export function DeckEditor({
     return byPosition;
   }, [report]);
   const masterProblem = problems.get("deckMaster:0");
+  const leadCard = masterCode ?? main[0] ?? extra[0];
+
+  useEffect(() => {
+    if (leadCard != null) onPreviewCard?.(leadCard);
+    // Only a new lead card resets the preview; hovering keeps control otherwise.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadCard]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -371,12 +385,12 @@ export function DeckEditor({
       {parseError ? <p role="alert" className={ui.alert}>{parseError}</p> : null}
 
       <Section title="Main" section="main" codes={main} problems={problems} target={mainTarget}
-        onRemove={(index) => removeCard("main", index)} onChooseMaster={mode === "domain" ? chooseMaster : undefined} />
+        onRemove={(index) => removeCard("main", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} />
       <Section title="Extra" section="extra" codes={extra} problems={problems} target={extraTarget}
-        onRemove={(index) => removeCard("extra", index)} onChooseMaster={mode === "domain" ? chooseMaster : undefined} />
+        onRemove={(index) => removeCard("extra", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} />
       {sideAllowed || side.length > 0 ? (
         <Section title="Side" section="side" codes={side} problems={problems} target={sideTarget}
-          onRemove={(index) => removeCard("side", index)} onChooseMaster={mode === "domain" ? chooseMaster : undefined} />
+          onRemove={(index) => removeCard("side", index)} onPreview={onPreviewCard} onChooseMaster={mode === "domain" ? chooseMaster : undefined} />
       ) : null}
 
     </div>

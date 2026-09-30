@@ -119,9 +119,12 @@ function useAnchoredPosition(
     place();
     window.addEventListener("resize", place);
     window.addEventListener("scroll", place, true);
+    // A hovered hand card grows with a short transition: measure it again once it has grown.
+    anchor.addEventListener("transitionend", place);
     return () => {
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
+      anchor.removeEventListener("transitionend", place);
     };
   }, [anchor, interactive, prefer, avoid]);
 

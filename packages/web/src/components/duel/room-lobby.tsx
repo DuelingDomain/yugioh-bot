@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, type LucideIcon } from "lucide-react";
 import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yugidraft/shared/duels";
+import { DeckCardPreview } from "./deck-card-preview";
 import { DeckEditor } from "./deck-editor";
 import { DuelSettingsSummary, RoomInvite } from "./room-settings";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "./sheet-ui";
@@ -68,6 +70,7 @@ export function RoomLobby({
 }) {
   const session = room.session;
   const mySeat = room.mySeat;
+  const [previewCode, setPreviewCode] = useState<number | null>(null);
   const occupied = session.seats.length;
   const readyCount = session.seats.filter((seat) => seat.ready).length;
   const myMeta = mySeat != null ? session.seats.find((seat) => seat.seat === mySeat) : undefined;
@@ -78,10 +81,11 @@ export function RoomLobby({
     ? isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain 1v1 · singleton"
     : `Master Rule ${session.masterRule}`;
   const isPrivate = session.settings.visibility === "private";
+  const showPreview = mySeat != null;
 
   return (
     <div className={cx(sheetPage, styles.page)}>
-      <div className={styles.wrap}>
+      <div className={cx(styles.wrap, showPreview && styles.wrapWide)}>
         <header className={styles.head}>
           <div className={styles.titleBlock}>
             <h1 className={ui.title}>{session.name}</h1>
@@ -100,7 +104,12 @@ export function RoomLobby({
           </div>
         </header>
 
-        <div className={styles.layout}>
+        <div className={cx(styles.layout, showPreview && styles.layoutPreview)}>
+          {showPreview ? (
+            <aside className={cx(styles.panel, styles.preview)} aria-label="Card preview">
+              <DeckCardPreview code={previewCode} />
+            </aside>
+          ) : null}
           <div className={styles.main}>
             <section className={styles.panel} aria-label="Seats">
               <ul className={styles.seats}>
@@ -145,6 +154,7 @@ export function RoomLobby({
                   initial={room.myDeck}
                   busy={busy}
                   onReady={onReady}
+                  onPreviewCard={setPreviewCode}
                 />
               </section>
             ) : null}

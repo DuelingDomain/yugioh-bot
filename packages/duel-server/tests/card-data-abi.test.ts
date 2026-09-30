@@ -7,6 +7,11 @@ import { loadCardDatabase } from "../src/cards.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 
 describe("native card data ABI", () => {
+  it("returns an exact passcode match first", () => {
+    const cards = loadCardDatabase(engineDataDirectory);
+    expect(cards.search("46986414")[0]?.name).toBe("Dark Magician");
+  });
+
   it.each(["normal", "domain"] as const)("preserves Pendulum scales and Link arrows in the %s core", async (mode) => {
     const cards = loadCardDatabase(engineDataDirectory);
     const imduk = cards.search("Imduk the World Chalice Dragon").find((card) => card.name === "Imduk the World Chalice Dragon");

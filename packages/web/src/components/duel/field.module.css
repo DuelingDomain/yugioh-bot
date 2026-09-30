@@ -130,7 +130,7 @@
   --lk: 0.91;
   --ohk: 0.71;
   /* Breathing room above the opponent's hand and below yours (marks and rings sit outside the cards). */
-  --hpad: 5px;
+  --hpad: 9px;
   /* Lift reserve: the board-side edge of each hand strip keeps room for a lifted (legal 5%, selected 12%)
      or fanned card, its dashed ring (5px) and, on your side, the nib tag above the card (8.5% of --z).
      So a hand card can never cross into the Spell/Trap row, whatever its state. */
@@ -459,9 +459,8 @@
   transform: translateY(calc(var(--lh) * -0.12));
 }
 
-/* The card under the pointer grows so you can read it, AWAY from the board: yours grows down over the
-   station track, theirs grows up over the header. The board-side edge (and any lift) stays inside the
-   strip's lift reserve, so a grown card never covers a Spell/Trap zone. */
+/* The card under the pointer grows so you can read it. Theirs grows up over the header, away from the
+   board. Yours grows up too (see below), so the station track never hides it. */
 @media (hover: hover) {
   .hand:not(.handLocal) .handCard .zone .frame {
     transform-origin: 50% 100%;
@@ -482,23 +481,25 @@
     transform: translateY(calc(var(--oh) * 0.12)) scale(1.35);
   }
 
+  /* Yours grows UP from its bottom edge: the station track below must never cover it. It may overlap
+     your own back row for as long as the pointer stays on it. */
   .handLocal .handCard .zone .frame {
-    transform-origin: 50% 0%;
+    transform-origin: 50% 100%;
   }
 
   .handLocal .handCard .zone:hover .frame,
   .handLocal .handCard .zone:focus-within .frame {
-    transform: scale(1.35);
+    transform: translateY(calc(var(--lh) * -0.08)) scale(1.3);
   }
 
   .handLocal .handCard .zone[data-legal="true"]:hover .frame,
   .handLocal .handCard .zone[data-legal="true"]:focus-within .frame {
-    transform: translateY(calc(var(--lh) * -0.05)) scale(1.35);
+    transform: translateY(calc(var(--lh) * -0.1)) scale(1.3);
   }
 
   .handLocal .handCard .zone[data-selected="true"]:hover .frame,
   .handLocal .handCard .zone[data-selected="true"]:focus-within .frame {
-    transform: translateY(calc(var(--lh) * -0.12)) scale(1.35);
+    transform: translateY(calc(var(--lh) * -0.14)) scale(1.3);
   }
 }
 

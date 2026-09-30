@@ -10,6 +10,27 @@
 .main, .aside { display: grid; gap: 20px; min-width: 0; }
 .aside { position: sticky; top: 24px; }
 
+/* Deck card preview: its own left column on wide screens, above the settings on medium ones. */
+.wrapWide { max-width: 1720px; }
+.layoutPreview {
+  grid-template-columns: clamp(260px, 19vw, 340px) minmax(0, 1fr) 344px;
+  grid-template-areas: "preview main aside";
+}
+.layoutPreview > .preview { grid-area: preview; position: sticky; top: 24px; max-height: calc(100dvh - 48px); overflow-y: auto; }
+.layoutPreview > .main { grid-area: main; }
+.layoutPreview > .aside { grid-area: aside; }
+@media (max-width: 1399px) {
+  .wrapWide { max-width: 1180px; }
+  .layoutPreview {
+    grid-template-columns: minmax(0, 1fr) 344px;
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "main preview" "main aside";
+  }
+  .layoutPreview > .preview { position: static; max-height: none; }
+  .layoutPreview > .preview > div { grid-template-columns: 120px minmax(0, 1fr); align-items: start; }
+  .layoutPreview > .aside { position: static; }
+}
+
 .panel { display: grid; gap: 16px; min-width: 0; padding: 22px; border: 1px solid var(--duel-rule); border-radius: 12px; background: linear-gradient(180deg, rgb(19 32 55 / 0.4), rgb(10 17 32 / 0.85)); }
 .deckPanel { gap: 22px; }
 
@@ -37,8 +58,10 @@
 .bot { gap: 12px; justify-items: start; }
 
 @media (max-width: 1040px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
+  .layout, .layoutPreview { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; grid-template-rows: none; }
+  .layoutPreview > .main, .layoutPreview > .aside { grid-area: auto; }
   .aside { position: static; }
+  .layoutPreview > .preview { display: none; }
 }
 @media (max-width: 600px) {
   .seats { grid-template-columns: minmax(0, 1fr); }
