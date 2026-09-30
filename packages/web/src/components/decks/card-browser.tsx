@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, LayoutGrid, List, Plus, RotateCw, Search, SlidersHorizontal, X } from "lucide-react";
 import { cardLimit, type CardArchetype, type CardQuery, type DeckCardInfo } from "@yugidraft/shared/duels";
 import { TYPE_LINK, cardDetailsText, cardStatsText } from "@/components/duel/constants";
@@ -40,6 +40,7 @@ export function CardBrowser({
   deckCount,
   inspectCode,
   onInspect,
+  onHover,
   onAdd,
   onCatalog,
   onRemoveDrop,
@@ -55,6 +56,8 @@ export function CardBrowser({
   deckCount: (card: DeckCardInfo) => number;
   inspectCode: number | null;
   onInspect: (card: DeckCardInfo) => void;
+  /** The card under the pointer, or null when the pointer leaves it. */
+  onHover: (card: DeckCardInfo | null) => void;
   onAdd: (card: DeckCardInfo) => void;
   onCatalog: (cards: DeckCardInfo[]) => void;
   onRemoveDrop: (drag: CardDrag) => void;
@@ -311,6 +314,8 @@ export function CardBrowser({
                   draggable: true,
                   "aria-pressed": inspectCode === card.code,
                   onClick: () => onInspect(card),
+                  onPointerEnter: (event: PointerEvent) => { if (event.pointerType !== "touch") onHover(card); },
+                  onPointerLeave: () => onHover(null),
                   onDoubleClick: () => onAdd(card),
                   onContextMenu: (event: MouseEvent) => { event.preventDefault(); onAdd(card); },
                   onKeyDown: (event: KeyboardEvent) => onTileKey(event, card),

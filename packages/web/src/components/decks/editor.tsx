@@ -29,7 +29,6 @@ import {
   X,
 } from "lucide-react";
 import { TYPE_MONSTER } from "@/components/duel/constants";
-import { CardInspector } from "@/components/duel/inspector";
 import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
 import { cx, SheetButton, SheetSegmented, SheetSelect, sheetButtonClass, sheetRoot } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
@@ -38,6 +37,7 @@ import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getS
 import { CardActions } from "./card-actions";
 import { CardArt } from "./card-art";
 import { CardBrowser } from "./card-browser";
+import { CardPreview } from "./card-preview";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import {
   BANLIST_CHOICES,
@@ -74,7 +74,7 @@ import {
   type DeckSection,
   type SelectedStack,
 } from "./model";
-import { DeckSectionGrid, type CountTone } from "./section-grid";
+import { DeckSectionGrid, type CountTone, type HoveredCopy } from "./section-grid";
 import styles from "./editor.module.css";
 
 const MODE_CHOICES = [
@@ -84,11 +84,17 @@ const MODE_CHOICES = [
 
 const HISTORY_LIMIT = 100;
 const HAND_SIZE = 5;
+/** The pointer must rest this long on a card before the preview changes, so crossing cards does not flash them. */
+const HOVER_IN_MS = 60;
+/** Moving between cards keeps the preview; leaving the cards goes back to the selected card after this wait. */
+const HOVER_OUT_MS = 160;
 
 /** One undo step. The format is part of it, because a format change can move the Deck Master. */
 type Snapshot = { selection: DeckMasterSelection; mode: DuelMode };
 type History = { past: Snapshot[]; future: Snapshot[] };
 type TestHand = { drawn: number[]; pile: number[] };
+/** The card under the pointer. A deck copy is kept by position, so the preview follows the deck when it changes. */
+type HoverTarget = { code: number } | HoveredCopy;
 
 function parseRouteId(raw: string | undefined): number | "new" | "invalid" {
   if (raw == null || raw === "") return "new";
@@ -151,10 +157,16 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [hand, setHand] = useState<TestHand | null>(null);
   const [masterDropping, setMasterDropping] = useState(false);
+  const [hover, setHover] = useState<HoverTarget | null>(null);
   const importGeneration = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
+  const inspectScrollRef = useRef<HTMLDivElement>(null);
+  const hoverTimer = useRef<number | undefined>(undefined);
 
-  useEffect(() => () => { importGeneration.current += 1; }, []);
+  useEffect(() => () => {
+    importGeneration.current += 1;
+    window.clearTimeout(hoverTimer.current);
+  }, []);
 
   const { deck, masterOrigin } = selection;
   const busy = saveBusy || deleteBusy;
@@ -329,8 +341,15 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
   );
 
   function inspect(code: number, stack: SelectedStack | null = null) {
+    window.clearTimeout(hoverTimer.current);
+    setHover(null);
     setInspectCode(code);
     setSelected(stack);
+  }
+
+  function pointAt(target: HoverTarget | null) {
+    window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = window.setTimeout(() => setHover(target), target ? HOVER_IN_MS : HOVER_OUT_MS);
   }
 
   /** Main and Extra only take the cards that belong there; the Side Deck takes any card. */
@@ -540,6 +559,15 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
 
   const notes = guidanceNotes(mode, deck);
   const inspected = inspectCode == null ? undefined : catalog.get(inspectCode);
+  const hoverCode = hover == null ? null : "section" in hover ? deck[hover.section][hover.index] ?? null : hover.code;
+  const shownCode = hoverCode ?? inspectCode;
+  const shown = shownCode == null ? undefined : catalog.get(shownCode);
+  // Deck controls belong to the selected card, so they hide while the pane shows another card.
+  const previewing = hoverCode != null && hoverCode !== inspectCode;
+
+  useEffect(() => {
+    if (inspectScrollRef.current) inspectScrollRef.current.scrollTop = 0;
+  }, [shownCode]);
   const statusTone = saveError ? "bad" : dirty ? "warn" : savedId != null ? "ok" : undefined;
   const statusText = saveBusy
     ? "Saving…"
@@ -575,6 +603,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
     over,
     selected,
     onSelect: (stack: SelectedStack) => inspect(stack.code, stack),
+    onHover: pointAt,
     onRemove: removeCopy,
     onDrop: dropCard,
   };
@@ -683,10 +712,10 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
 
       <div className={styles.panes}>
         <aside className={styles.inspectPane} aria-label="Card details">
-          <div className={styles.inspectScroll}>
-            {inspectCode == null ? (
+          <div ref={inspectScrollRef} className={styles.inspectScroll}>
+            {shownCode == null ? (
               <div className={styles.inspectEmpty}>
-                <p className={styles.inspectEmptyTitle}>Select a card to see its text.</p>
+                <p className={styles.inspectEmptyTitle}>Point at a card to read it here. Click a card to select it.</p>
                 <ul className={styles.tips}>
                   <li><b>Add</b> Double-click, right-click or drag a card from the list.</li>
                   <li><b>Remove</b> Right-click a card in the deck, press Delete, or drag it back to the list.</li>
@@ -694,17 +723,17 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
                   <li><b>Keys</b> <kbd>/</kbd> search · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save</li>
                 </ul>
               </div>
-            ) : inspected ? (
-              <CardInspector target={{ type: "info", card: inspected }} />
+            ) : shown ? (
+              <CardPreview card={shown} />
             ) : (
               <p className={styles.inspectNotice}>
-                Passcode {inspectCode}: {unknown.has(inspectCode)
+                Passcode {shownCode}: {unknown.has(shownCode)
                   ? "this card is not in the card database. It stays in your deck."
                   : metaError ? "card details are not available." : "loading card details…"}
               </p>
             )}
           </div>
-          {inspected ? (
+          {inspected && !previewing ? (
             <CardActions
               card={inspected}
               deck={deck}
@@ -803,7 +832,15 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
               <ul className={styles.handCards}>
                 {hand.drawn.map((code, index) => (
                   <li key={`${index}-${code}`}>
-                    <button type="button" className={styles.card} aria-label={cardName(code)} title={cardName(code)} onClick={() => inspect(code)}>
+                    <button
+                      type="button"
+                      className={styles.card}
+                      aria-label={cardName(code)}
+                      title={cardName(code)}
+                      onClick={() => inspect(code)}
+                      onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code }); }}
+                      onPointerLeave={() => pointAt(null)}
+                    >
                       <CardArt code={code} name={cardName(code)} />
                     </button>
                   </li>
@@ -841,6 +878,8 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
                     title={cardName(deck.deckMaster)}
                     draggable
                     onClick={() => inspect(deck.deckMaster!)}
+                    onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster! }); }}
+                    onPointerLeave={() => pointAt(null)}
                     onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })}
                     onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}
                   >
@@ -908,6 +947,10 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
           deckCount={deckCount}
           inspectCode={selected == null ? inspectCode : null}
           onInspect={(card) => { rememberCatalog([card]); inspect(card.code); }}
+          onHover={(card) => {
+            if (card) rememberCatalog([card]);
+            pointAt(card ? { code: card.code } : null);
+          }}
           onAdd={(card) => addFromList(card)}
           onCatalog={rememberCatalog}
           onRemoveDrop={(drag) => removeCopy(drag)}

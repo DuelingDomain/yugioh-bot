@@ -20,6 +20,8 @@ import {
 import styles from "./editor.module.css";
 
 export type CountTone = "ok" | "warn" | "bad";
+/** One deck copy under the pointer. */
+export type HoveredCopy = { section: DeckSection; index: number };
 
 export function DeckSectionGrid({
   title,
@@ -36,6 +38,7 @@ export function DeckSectionGrid({
   emptyHint,
   children,
   onSelect,
+  onHover,
   onRemove,
   onDrop,
 }: {
@@ -54,6 +57,7 @@ export function DeckSectionGrid({
   emptyHint: string;
   children?: ReactNode;
   onSelect: (stack: SelectedStack) => void;
+  onHover: (copy: HoveredCopy | null) => void;
   onRemove: (source: CardSource) => void;
   onDrop: (source: CardSource, section: DeckSection, at?: number) => void;
 }) {
@@ -153,6 +157,8 @@ export function DeckSectionGrid({
                     writeCardDrag(event, { code, from: section, index });
                   }}
                   onClick={() => onSelect({ section, code })}
+                  onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover({ section, index }); }}
+                  onPointerLeave={() => onHover(null)}
                   onContextMenu={(event) => { event.preventDefault(); onRemove({ code, from: section, index }); }}
                   onKeyDown={(event) => {
                     if (event.ctrlKey || event.metaKey || event.altKey) return;

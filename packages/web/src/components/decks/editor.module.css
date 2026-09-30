@@ -132,12 +132,11 @@
 /* ---------- panes ---------- */
 .panes {
   display: grid;
-  grid-template-columns: clamp(236px, 18vw, 290px) minmax(0, 1fr) clamp(330px, 27vw, 430px);
+  grid-template-columns: clamp(270px, 21vw, 400px) minmax(0, 1fr) clamp(330px, 27vw, 430px);
   min-height: 0;
 }
 
 .inspectPane {
-  --duel-unit: 1.12px;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   min-width: 0;

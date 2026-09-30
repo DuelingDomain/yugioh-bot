@@ -119,6 +119,23 @@ describe("SavedDeckEditor", () => {
     expect(mainCards()).toHaveLength(0);
   });
 
+  it("shows the card under the pointer in the card details pane", async () => {
+    render(<SavedDeckEditor />);
+    fireEvent.click(await screen.findByRole("button", { name: "Blue-Eyes White Dragon" }));
+    const details = screen.getByRole("complementary", { name: "Card details" });
+    expect(within(details).getByRole("heading", { name: "Blue-Eyes White Dragon" })).toBeInTheDocument();
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Pot of Greed" }));
+    expect(await within(details).findByRole("heading", { name: "Pot of Greed" })).toBeInTheDocument();
+    expect(within(details).getByText("Pot of Greed text.")).toBeInTheDocument();
+    // Deck controls stay with the selected card, so they hide while another card shows.
+    expect(within(details).queryByRole("button", { name: /Add one/ })).toBeNull();
+
+    fireEvent.pointerLeave(screen.getByRole("button", { name: "Pot of Greed" }));
+    expect(await within(details).findByRole("heading", { name: "Blue-Eyes White Dragon" })).toBeInTheDocument();
+    expect(within(details).getByRole("button", { name: "Add one Blue-Eyes White Dragon to Main" })).toBeInTheDocument();
+  });
+
   it("undoes a format change", async () => {
     render(<SavedDeckEditor />);
     await screen.findByRole("button", { name: "Pot of Greed" });
