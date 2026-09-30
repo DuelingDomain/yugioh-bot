@@ -33,6 +33,9 @@ export type DestroyFxProps = {
 };
 
 type Box = { left: number; top: number; width: number; height: number };
+
+/** The DOM fallback: the tint flash, then the plain crack-and-shatter of SummonFx. */
+const DOM_FLASH_HOLD_MS = 700;
 type Planned = {
   key: string;
   three: boolean;
@@ -219,8 +222,11 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
       if (planned.started) continue;
       planned.started = true;
       const late = performance.now() - planned.startAt;
-      holdPromptReveal(Math.max(0, planned.scene.totalMs - late));
       const shared = planned.three ? getSharedFx3d() : null;
+      // The prompt waits for what actually plays: the whole piece on the canvas, or (DOM) the flash
+      // plus, when holds were armed for the canvas, the held cards breaking on their zones.
+      const lastBreak = planned.three ? planned.scene.victims.reduce((max, v) => Math.max(max, v.atMs), 0) : 0;
+      holdPromptReveal(Math.max(0, (shared ? planned.scene.totalMs : Math.max(DOM_FLASH_HOLD_MS, lastBreak + DOM_FLASH_HOLD_MS)) - late));
       if (shared) {
         for (const victim of planned.scene.victims) if (victim.code > 0) shared.api.prefetchArt(victim.code);
         const host = shared.host.getBoundingClientRect();

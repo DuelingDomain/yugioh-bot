@@ -378,6 +378,8 @@ Duel.RegisterEffect(e,0)
 interface PendingMove {
   code: number;
   from: { controller: number; location: number; sequence: number; position: number };
+  /** The chain link that was resolving when the card left: its note may only arrive after CHAIN_SOLVED. */
+  resolving: EventContext["resolving"];
 }
 
 /** Mutable per-duel state the event observer needs across messages. */
@@ -434,7 +436,7 @@ const REASON_COST = 0x80;
 const REASON_RULE = 0x400;
 
 /** Read the optional ":reason:rcode:rtype:rplayer" tail of a destruction note. Undefined for old three-part notes. */
-function parseDestroyDetail(ctx: EventContext, tail: string[]): DestroyDetail | undefined {
+function parseDestroyDetail(resolving: EventContext["resolving"], tail: string[]): DestroyDetail | undefined {
   if (tail.length < 4) return undefined;
   const [reason, code, type, player] = tail.map(Number) as [number, number, number, number];
   if ([reason, code, type, player].some((value) => !Number.isFinite(value))) return undefined;
@@ -444,11 +446,11 @@ function parseDestroyDetail(ctx: EventContext, tail: string[]): DestroyDetail | 
   let sourceCode = code;
   let sourceType = type;
   let sourceSeat = player === 1 ? 1 : 0;
-  if (!sourceCode && cause === "effect" && ctx.resolving) {
+  if (!sourceCode && cause === "effect" && resolving) {
     // The core gave no reason card: attribute the destroy to the chain link that is resolving.
-    sourceCode = ctx.resolving.code;
-    sourceSeat = ctx.resolving.seat === 1 ? 1 : 0;
-    sourceType = ctx.resolving.type;
+    sourceCode = resolving.code;
+    sourceSeat = resolving.seat === 1 ? 1 : 0;
+    sourceType = resolving.type;
   }
   if (sourceCode) {
     detail.sourceCode = sourceCode;
@@ -459,12 +461,16 @@ function parseDestroyDetail(ctx: EventContext, tail: string[]): DestroyDetail | 
   return detail;
 }
 
-function takeDestroyNote(ctx: EventContext, from: { controller: number; location: number; sequence: number }): DestroyDetail | true | null {
+function takeDestroyNote(
+  ctx: EventContext,
+  from: { controller: number; location: number; sequence: number },
+  resolving: EventContext["resolving"] = ctx.resolving,
+): DestroyDetail | true | null {
   const key = `${from.controller}:${from.location}:${from.sequence}`;
   const index = ctx.destroyNotes.findIndex((note) => note === key || note.startsWith(`${key}:`));
   if (index < 0) return null;
   const [note] = ctx.destroyNotes.splice(index, 1);
-  const detail = parseDestroyDetail(ctx, note!.split(":").slice(3));
+  const detail = parseDestroyDetail(resolving, note!.split(":").slice(3));
   const settled = settleMove(ctx, (move) => sameZone(move.from, from), "destroy");
   if (detail && settled) applyDestroyDetail(settled, detail);
   return detail ?? true;
@@ -527,7 +533,7 @@ export function drainDeferredDestroys(ctx: EventContext, cards: CardDatabase, fi
   const out: StoredDuelEvent[] = [];
   const remaining: PendingMove[] = [];
   for (const move of ctx.pendingMoves) {
-    const detail = takeDestroyNote(ctx, move.from);
+    const detail = takeDestroyNote(ctx, move.from, move.resolving);
     if (detail) {
       if (move.from.location === OcgLocation.MZONE) ctx.released[move.from.controller === 1 ? 1 : 0] -= 1;
       out.push(destroyEvent(firstId + out.length, move.code, move.from, cards, detail));
@@ -917,7 +923,7 @@ export function observeDuelEvent(
       const detail = takeDestroyNote(ctx, from);
       if (detail) return destroyEvent(id, message.card, from, cards, detail);
       if (message.from.location === OcgLocation.MZONE) ctx.released[from.controller === 1 ? 1 : 0] += 1;
-      ctx.pendingMoves.push({ code: message.card, from });
+      ctx.pendingMoves.push({ code: message.card, from, resolving: ctx.resolving });
       return null;
     }
     case OcgMessageType.NEW_PHASE: {

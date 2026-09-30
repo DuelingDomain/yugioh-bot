@@ -7,7 +7,7 @@ import { LOCATION_DMZONE, isDefense, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
-import { armBattleDestroy, attackImpactAt, noteAttackImpact } from "./battle-hold";
+import { armBattleDestroy, attackImpactAt, clearBattleHolds, noteAttackImpact } from "./battle-hold";
 import { planBattle } from "./fx3d/battle-plan";
 import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
@@ -491,9 +491,9 @@ function armBattleDamage(events: readonly DuelEvent[], attack: DuelEvent, captur
 }
 
 /** The fight as the 3D layer plays it, in the canvas space (relative to the host). */
-function startBattle3d(capture: AttackCapture, play: Play, skipMs: number, controllers: Set<AbortController>): void {
+function startBattle3d(capture: AttackCapture, play: Play, skipMs: number, controllers: Set<AbortController>): number {
   const shared = getSharedFx3d();
-  if (!shared) return;
+  if (!shared) return 0;
   const host = shared.host.getBoundingClientRect();
   const to = (box: Box): FxRect => viewportToHost(box, host);
   const attackerCard = capture.attackerCard;
@@ -516,6 +516,7 @@ function startBattle3d(capture: AttackCapture, play: Play, skipMs: number, contr
   void shared.api
     .play("battle", { rect: { x: 0, y: 0, w: host.width, h: host.height }, battle, seed: fx.seed, skipMs, artCode: attackerSide.code || undefined }, controller.signal)
     .finally(() => controllers.delete(controller));
+  return Math.max(0, battle.totalMs - skipMs);
 }
 
 export function BattleFx({ events, reducedMotion, active = true, aim = null, seats }: BattleFxProps) {
@@ -571,6 +572,8 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     return () => {
       for (const controller of controllers) controller.abort();
       controllers.clear();
+      // Event ids restart in the next duel: a hold, claim or impact keyed by an old id must not match it.
+      clearBattleHolds();
     };
   }, []);
   useEffect(() => {
@@ -596,8 +599,9 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     const three = route?.three === true && !reducedRef.current && getSharedFx3d() != null;
     const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, latest, three) : null;
     if (next && capture) {
-      if (three) startBattle3d(capture, next, Math.min(120, Math.max(0, performance.now() - (route?.at ?? performance.now()))), controllersRef.current);
-      holdPromptReveal(next.totalMs);
+      // The 3D fight can outlast the DOM one: its shards keep falling after the last break.
+      const long3d = three ? startBattle3d(capture, next, Math.min(120, Math.max(0, performance.now() - (route?.at ?? performance.now()))), controllersRef.current) : 0;
+      holdPromptReveal(Math.max(next.totalMs, long3d));
       emitDuelFxCue({ cue: "battle", strength: 1, battle: next.sound });
       setPlay(next);
     }

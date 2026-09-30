@@ -537,6 +537,17 @@ describe("event observer messages", () => {
     expect(destroyed).toMatchObject({ cause: "effect", sourceCode: 55, sourceSeat: 1 });
   });
 
+  it("keeps the resolving chain link for a note that arrives after the link resolved", () => {
+    const ctx = createEventContext();
+    const chain = [{ index: 1, seat: 1, code: 55 }];
+    observeDuelEvent({ type: OcgMessageType.CHAIN_SOLVING, chain_size: 1 } as OcgMessage, cards, chain, 1, ctx);
+    observeDuelEvent(moveOut(2, at(0, OcgLocation.MZONE, 0)), cards, chain, 2, ctx);
+    observeDuelEvent({ type: OcgMessageType.CHAIN_SOLVED, chain_size: 1 } as OcgMessage, cards, chain, 3, ctx);
+    noteDestroyLog(ctx, `${DESTROY_NOTE_PREFIX}0:${OcgLocation.MZONE}:0:65:0:0:1`);
+    const [destroyed] = drainDeferredDestroys(ctx, cards, 4);
+    expect(destroyed).toMatchObject({ cause: "effect", sourceCode: 55, sourceSeat: 1 });
+  });
+
   it("ignores moves that stay on the field", () => {
     const ctx = createEventContext();
     noteDestroyLog(ctx, `${DESTROY_NOTE_PREFIX}0:${OcgLocation.MZONE}:0`);

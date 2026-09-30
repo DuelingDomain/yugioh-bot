@@ -29,6 +29,8 @@ export function useFx3d(host: HTMLElement | null, enabled: boolean): React.RefOb
         }
         handle = loaded;
         ref.current = loaded?.api ?? null;
+        // Re-render the owner so it can publish the canvas now, not only at its next snapshot.
+        if (loaded) bump((n) => n + 1);
       });
     };
     const idle = typeof window.requestIdleCallback === "function" ? window.requestIdleCallback(start, { timeout: 1500 }) : window.setTimeout(start, 200);

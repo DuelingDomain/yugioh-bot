@@ -25,11 +25,14 @@ export class ArtStore {
     }
     const entry: Entry = { full: null, small: null, failed: false };
     this.entries.set(code, entry);
+    // A load that lands after its entry was evicted is dropped: nothing would ever dispose it.
     this.load(cardArtUrl(code, "small"), (texture) => {
-      entry.small = texture;
+      if (this.entries.get(code) === entry) entry.small = texture;
+      else texture.dispose();
     });
     this.load(cardArtUrl(code, "full"), (texture) => {
-      entry.full = texture;
+      if (this.entries.get(code) === entry) entry.full = texture;
+      else texture.dispose();
     });
     while (this.entries.size > MAX_TEXTURES) {
       const oldest = this.entries.keys().next().value as number;

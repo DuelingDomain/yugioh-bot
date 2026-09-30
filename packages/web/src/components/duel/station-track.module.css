@@ -228,7 +228,8 @@
   background: var(--panel-2);
   color: var(--ink-3);
   font: inherit;
-  line-height: 1.05;
+  /* 1, not more: at the 58px track the plate is 29px and code + name must fit inside its border. */
+  line-height: 1;
   transition: background-color 0.3s, border-color 0.3s, color 0.3s, height 0.3s var(--ease), box-shadow 0.3s;
 }
 button.plate {

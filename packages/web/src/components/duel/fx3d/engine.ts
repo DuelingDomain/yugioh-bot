@@ -19,11 +19,15 @@ const SLOW_FRAMES_BEFORE_DROP = 24;
 const LOW_QUALITY = 0.6;
 /** No effect may run longer than this, whatever its own duration says. */
 const HARD_LIMIT_MS = 4000;
+/** How far past its end an effect may run when frames stall before the timer ends it. */
+const BACKSTOP_SLACK_MS = 400;
 
 type Running = {
   instance: FxInstance;
   start: number;
   resolve: () => void;
+  /** Wall-clock backstop: rAF does not run in a hidden tab, and the callers await this effect. */
+  timer: number;
 };
 
 export type Fx3dEngineOptions = {
@@ -110,7 +114,12 @@ export class Fx3dEngine implements Fx3dApi {
     if (request.artCode) this.art.prefetch(request.artCode);
     return new Promise<void>((resolve) => {
       const late = Math.min(600, Math.max(0, request.skipMs ?? 0));
-      const run: Running = { instance, start: performance.now() - late, resolve };
+      const limit = Math.min(instance.durationMs, HARD_LIMIT_MS) - late;
+      const run: Running = { instance, start: performance.now() - late, resolve, timer: 0 };
+      run.timer = window.setTimeout(() => {
+        this.finish(run);
+        if (this.running.size === 0) this.stop();
+      }, Math.max(0, limit) + BACKSTOP_SLACK_MS);
       this.running.add(run);
       signal?.addEventListener(
         "abort",
@@ -135,6 +144,7 @@ export class Fx3dEngine implements Fx3dApi {
 
   private finish(run: Running): void {
     if (!this.running.delete(run)) return;
+    window.clearTimeout(run.timer);
     try {
       run.instance.dispose();
     } catch {

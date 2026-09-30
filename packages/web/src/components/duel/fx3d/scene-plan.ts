@@ -150,7 +150,13 @@ export function mirrorHitMs(attackImpactMs: number | null): { hitMs: number; inc
 }
 
 function withBreaks(input: SceneInput, times: number[], extra: Partial<FxScene> & { hitMs?: number; incoming?: boolean; cues: SceneCue[] }): { scene: FxScene; cues: SceneCue[] } {
-  const victims: FxVictim[] = input.victims.map((victim, index) => ({ ...victim, atMs: Math.round(times[index] ?? times[times.length - 1] ?? 0) }));
+  // Every break must land while the piece still draws (a late attack impact can push Mirror Force's
+  // wave past the life cap): a break the canvas never draws would leave its card only fading out.
+  const latest = SCENE_LIFE_CAP_MS - SCENE_TAIL_MS;
+  const victims: FxVictim[] = input.victims.map((victim, index) => ({
+    ...victim,
+    atMs: Math.min(latest, Math.round(times[index] ?? times[times.length - 1] ?? 0)),
+  }));
   const last = victims.reduce((max, v) => Math.max(max, v.atMs), 0);
   const totalMs = Math.min(SCENE_LIFE_CAP_MS, last + SCENE_TAIL_MS);
   const { cues, ...rest } = extra;
