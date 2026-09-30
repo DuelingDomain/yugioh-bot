@@ -8,6 +8,8 @@ import {
   slamStrengthOf,
   slamTierOf,
   pacedCueDuration,
+  positionChangeOf,
+  type PositionEvent,
 } from "../../src/components/duel/event-queue";
 
 function event(
@@ -166,5 +168,34 @@ describe("pacedCueDuration", () => {
       expect(pacedCueDuration("summon", false, count) * count).toBeLessThanOrEqual(7000);
     }
     expect(pacedCueDuration("summon", false, 60)).toBe(250);
+  });
+});
+
+describe("positionChangeOf", () => {
+  function position(location: number, fromPosition: number, toPosition: number, flip = false): PositionEvent {
+    return {
+      id: 1,
+      kind: "position",
+      text: "position",
+      zone: { controller: 0, location, sequence: 2 },
+      fromPosition,
+      toPosition,
+      ...(flip ? { flip: true } : {}),
+    } as PositionEvent;
+  }
+
+  it("keeps an activated Set Spell/Trap upright (engine sends 0xA to 0x5)", () => {
+    // Both values carry a defense bit; only a monster zone may turn the card sideways.
+    const change = positionChangeOf(position(0x08, 0x0a, 0x05, true));
+    expect(change).toMatchObject({ reveal: true, turn: false, fromDefense: false, toDefense: false });
+  });
+
+  it("keeps a flipped face-down Defense monster sideways", () => {
+    const change = positionChangeOf(position(0x04, 0x08, 0x04, true));
+    expect(change).toMatchObject({ reveal: true, turn: false, fromDefense: true, toDefense: true });
+  });
+
+  it("turns a monster between Attack and Defense", () => {
+    expect(positionChangeOf(position(0x04, 0x01, 0x04))).toMatchObject({ turn: true, fromDefense: false, toDefense: true });
   });
 });

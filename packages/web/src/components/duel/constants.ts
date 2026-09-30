@@ -108,6 +108,15 @@ export function isDefense(position: number | undefined): boolean {
   return (position & POS_FACEUP_DEFENSE) !== 0 || (position & POS_FACEDOWN_DEFENSE) !== 0;
 }
 
+/**
+ * Whether a card at this location is drawn sideways. Only a monster zone has Defense Position: a
+ * Set Spell/Trap is POS_FACEDOWN (0xA) and turns face-up as POS_FACEUP (0x5), and both carry a
+ * defense bit.
+ */
+export function isDefenseAt(location: number | undefined, position: number | undefined): boolean {
+  return location === LOCATION_MZONE && isDefense(position);
+}
+
 export function zoneKey(controller: number, location: number, sequence: number): string {
   return `${controller}:${location}:${sequence}`;
 }

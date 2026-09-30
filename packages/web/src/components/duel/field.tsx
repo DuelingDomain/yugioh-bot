@@ -13,7 +13,7 @@ import {
   cardDetailsText,
   cardStatsText,
   isBattlePhase,
-  isDefense,
+  isDefenseAt,
   LOCATION_DECK,
   LOCATION_DMZONE,
   LOCATION_EXTRA,
@@ -247,7 +247,7 @@ function ZoneSlot({
   const selected = anySelected(keys, selectedKeys);
   const stats = cardFieldStats(card, showStats);
   const [atk, def] = stats ? stats.split(" / ") : [null, null];
-  const defense = card != null && card.location === LOCATION_MZONE && isDefense(card.position);
+  const defense = card != null && isDefenseAt(card.location, card.position);
 
   return (
     <div
