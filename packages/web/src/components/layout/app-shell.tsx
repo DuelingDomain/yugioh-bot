@@ -17,6 +17,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <main className="min-h-screen bg-bg-deep p-4 text-text-primary sm:p-6 lg:p-8">{children}</main>;
   }
 
+  // The deck editor is a full-screen, three-pane workspace with its own route back.
+  if (pathname === "/decks/new" || /^\/decks\/\d+$/.test(pathname)) {
+    return <main className="min-h-screen bg-bg-deep text-text-primary">{children}</main>;
+  }
+
   return (
     <div
       className="min-h-screen bg-bg-deep text-text-primary"

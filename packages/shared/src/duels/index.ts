@@ -366,3 +366,47 @@ export interface DuelCommand {
   revision: number;
   answer: DuelAnswer;
 }
+
+export type {
+  CardArchetype,
+  CardFacets,
+  CardKindFilter,
+  CardLimitStatus,
+  CardMatch,
+  CardPoolFilter,
+  CardQuery,
+  CardQueryResult,
+  CardRange,
+  CardSearchScope,
+  CardSearchTerm,
+  CardSort,
+  DeckCardInfo,
+  MonsterTypeKey,
+  SortOrder,
+  SpellTypeKey,
+  TrapTypeKey,
+} from "./card-query.js";
+export {
+  CARD_ATTRIBUTES,
+  CARD_LIMIT_KEYS,
+  CARD_POOL_OCG,
+  CARD_POOL_TCG,
+  CARD_QUERY_PAGE_MAX,
+  CARD_QUERY_TEXT_MAX,
+  CARD_RACES,
+  CARD_TYPE_BITS,
+  CardQueryError,
+  LINK_ARROW_MASK,
+  LINK_ARROWS,
+  MONSTER_TYPE_BITS,
+  MONSTER_TYPE_KEYS,
+  SPELL_TYPE_KEYS,
+  TRAP_TYPE_KEYS,
+  cardLimit,
+  cardTypeRank,
+  emptyCardQuery,
+  foldCardText,
+  inArchetype,
+  parseCardQuery,
+  parseCardSearchTerms,
+} from "./card-query.js";

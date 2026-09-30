@@ -1,4 +1,4 @@
-import type { DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
+import type { CardFacets, CardQuery, CardQueryResult, DeckCardInfo, DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
 
 export type { SavedDeck };
 
@@ -77,4 +77,31 @@ export async function updateSavedDeck(
 
 export async function deleteSavedDeck(id: number): Promise<void> {
   await parseBody<{ ok?: boolean }>(await fetch(`/api/decks/${id}`, { method: "DELETE" }));
+}
+
+export async function queryDeckCards(query: CardQuery, signal?: AbortSignal): Promise<CardQueryResult> {
+  const body = await parseBody<Partial<CardQueryResult>>(await fetch("/api/decks/cards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(query),
+    signal,
+  }));
+  if (!Array.isArray(body.cards) || typeof body.total !== "number") {
+    throw new DeckRequestError("The server returned an invalid card list.", 502);
+  }
+  return { cards: body.cards, total: body.total, offset: body.offset ?? query.offset };
+}
+
+export async function getDeckCardFacets(): Promise<CardFacets> {
+  const body = await parseBody<Partial<CardFacets>>(await fetch("/api/decks/cards/facets"));
+  return { archetypes: body.archetypes ?? [], banlists: body.banlists ?? {} };
+}
+
+export async function getDeckCards(codes: number[]): Promise<{ cards: DeckCardInfo[]; missing: number[] }> {
+  const body = await parseBody<{ cards?: DeckCardInfo[]; missing?: number[] }>(await fetch("/api/duels/cards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ codes }),
+  }));
+  return { cards: body.cards ?? [], missing: body.missing ?? [] };
 }

@@ -44,6 +44,9 @@ function info(code: number, name = `Card ${code}`): DuelCardInfo {
 
 const cards: CardDatabase = {
   search: () => [],
+  deckCard: () => undefined,
+  all: () => [],
+  setnames: () => new Map(),
   get: (code) => info(code),
   cardData: (code): OcgCardData | null => ({
     code,

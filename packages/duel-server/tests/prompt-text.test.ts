@@ -53,6 +53,9 @@ const cardStrings: Record<number, string[]> = {
 
 const cards: CardDatabase = {
   search: () => [],
+  deckCard: () => undefined,
+  all: () => [],
+  setnames: () => new Map(),
   get: (code) => library[code],
   cardData: () => null,
   resolveLabel: (desc) => {

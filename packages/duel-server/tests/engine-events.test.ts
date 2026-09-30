@@ -420,7 +420,7 @@ describe("event observer messages", () => {
     code, name: `Card ${code}`, description: "", type: 1, attack: 1000, defense: 1000, level: code === 7 ? 7 : 4, attribute: 1, race: "warrior",
   });
   const cards: CardDatabase = {
-    search: () => [], get: info, cardData: () => null, resolveLabel: () => "", system: () => undefined,
+    search: () => [], get: info, deckCard: () => undefined, all: () => [], setnames: () => new Map(), cardData: () => null, resolveLabel: () => "", system: () => undefined,
     victory: () => undefined, counter: () => undefined, readScript: () => null, close() {},
   };
   const at = (controller: 0 | 1, location: OcgLocation, sequence: number, position: OcgPosition = OcgPosition.FACEUP_ATTACK) => ({

@@ -16,10 +16,12 @@ import type {
   DuelSession,
   DuelSettings,
 } from "@yugidraft/shared/duels";
+import { CardQueryError, parseCardQuery } from "@yugidraft/shared/duels";
 import { GameWorker, type DuelGameWorker, type GameOptions } from "./worker-client.js";
 import { inspectDeck, validateDeck } from "./deck-legality.js";
 import { normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
+import { cardFacets, queryCards } from "./card-search.js";
 import { buildPracticeBotDeck, choosePracticeBotAnswer, PracticeBotError } from "./practice-bot.js";
 import {
   freezeContinueClock,
@@ -759,12 +761,21 @@ export function createDuelHost(options: {
       const cards = [];
       const missing: number[] = [];
       for (const code of new Set<number>(body.codes)) {
-        const card = catalog.get(code);
+        const card = catalog.deckCard(code);
         if (card) cards.push(card);
         else missing.push(code);
       }
       return { cards, missing };
     }
+    if (op === "card-query") {
+      try {
+        return queryCards(loadCardDatabase(options.dataDirectory), parseCardQuery(body.cardQuery));
+      } catch (error) {
+        if (error instanceof CardQueryError) throw new RequestError(error.message, 400);
+        throw error;
+      }
+    }
+    if (op === "card-facets") return cardFacets(loadCardDatabase(options.dataDirectory));
     if (op === "cards") {
       if (typeof body.query !== "string" || body.query.length > 200) throw new RequestError("Invalid card search", 400);
       if (typeof body.slug === "string" && body.slug) {

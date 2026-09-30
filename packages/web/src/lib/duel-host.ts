@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { httpTransport } from "@yugidraft/shared/notify";
 import { createDuelService, createPlayerService, DuelServiceError, type DuelService } from "@yugidraft/shared/services";
-import type { DuelCommand, DuelDeck } from "@yugidraft/shared/duels";
+import type { CardQuery, DuelCommand, DuelDeck } from "@yugidraft/shared/duels";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "surrender" | "add-bot" | "archive" | "cancel" | "replay";
+export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay";
 
 type DuelActor =
   | { ok: true; guildId: string; playerId: number; duels: DuelService }
@@ -80,6 +80,7 @@ export async function callDuelHost(input: {
   deck?: DuelDeck;
   query?: string;
   codes?: number[];
+  cardQuery?: CardQuery;
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
@@ -98,6 +99,7 @@ export async function callDuelHost(input: {
   if (input.deck) payload.deck = input.deck;
   if (input.query !== undefined) payload.query = input.query;
   if (input.codes !== undefined) payload.codes = input.codes;
+  if (input.cardQuery !== undefined) payload.cardQuery = input.cardQuery;
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
