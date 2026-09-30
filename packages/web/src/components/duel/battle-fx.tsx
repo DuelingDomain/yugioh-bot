@@ -7,8 +7,10 @@ import { LOCATION_DMZONE, isDefense, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { attackStyleFor, battleKind, battleTiming, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
+import { armBattleDestroy } from "./battle-hold";
 import { holdPromptReveal } from "./prompt-reveal";
-import { collectFreshEvents, maxEventId } from "./event-queue";
+import type { BattleSoundPlan } from "./attack-audio";
+import { collectFreshEvents, emitDuelFxCue, maxEventId } from "./event-queue";
 import { duelFontClasses } from "./fonts";
 import { armLpHold } from "./life-points";
 import styles from "./battle-fx.module.css";
@@ -249,7 +251,14 @@ type Play = {
   counterStyle: AttackStyleId | null;
   kind: BattleKind;
   totalMs: number;
+  /** What the fight sounds like (sent to the audio layer when it starts). */
+  sound: BattleSoundPlan;
 };
+
+/** The signature passcode when the card plays a signature attack, else null. */
+function signatureOf(style: ReturnType<typeof attackStyleFor>, card: BattleCard | null): number | null {
+  return style.rule.startsWith("signature") && card?.code != null ? card.code : null;
+}
 
 type Resolved = {
   kind: BattleKind;
@@ -261,7 +270,14 @@ type Resolved = {
 
 /** Reduced motion: one flash on each side, the loser fades; no travel. */
 function reducedTiming(kind: BattleKind): BattleTiming {
-  return { impactMs: 260, attackerDamageMs: kind === "lose" ? 520 : 400, totalMs: BATTLE_REDUCED_MS };
+  // Same order as the full play (hit, damage, then the break), only shorter.
+  return {
+    impactMs: 260,
+    attackerDamageMs: kind === "lose" ? 420 : 400,
+    targetBreakMs: kind === "win" || kind === "tie" ? 460 : null,
+    attackerBreakMs: kind === "lose" ? 620 : kind === "tie" ? 520 : null,
+    totalMs: BATTLE_REDUCED_MS + (kind === "lose" ? 100 : 0),
+  };
 }
 
 /** Pure: who fights, how it ends, and when things land. Called at capture (LP holds) and at play time. */
@@ -311,10 +327,15 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events
     reduced, kind, attacker, defender, hit: capture.to, defenderInDefense: capture.targetInDefense,
     lpHits, seed: (attack.id * 2654435761) >>> 0, timing,
   };
+  const sound: BattleSoundPlan = {
+    kind, reduced, timing, seed: fx.seed, lpAt: lpHits.map((hit) => hit.at),
+    attacker: { style: attackerStyle.style, signature: signatureOf(attackerStyle, capture.attackerCard) },
+    defender: defenderStyle ? { style: defenderStyle.style, signature: signatureOf(defenderStyle, capture.targetCard) } : null,
+  };
   return {
     seq, reduced, fx, style: attackerStyle.style,
     counterStyle: kind === "lose" && defenderStyle ? defenderStyle.style : null,
-    kind, totalMs: timing.totalMs,
+    kind, totalMs: timing.totalMs, sound,
   };
 }
 
@@ -440,6 +461,22 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
 
 /* ---------- component ---------- */
 
+/**
+ * The card(s) a fight destroyed stay on their zones until the killing strike (the counter strike,
+ * when the attacker loses) has landed and its damage shows; SummonFx and MoveFx read the hold when
+ * they plan the destroy (see battle-hold.ts). Keyed by the attack and zone, so a repeat render is a no-op.
+ */
+function armBattleDestroys(events: readonly DuelEvent[], attack: DuelEvent, capture: AttackCapture | null, reduced: boolean): void {
+  if (!capture || !attack.zone) return;
+  const { timing, outcome } = resolveBattle(capture, events, attack, reduced);
+  if (outcome.target && attack.target && timing.targetBreakMs != null) {
+    armBattleDestroy(`${attack.id}:target`, attack.target, timing.targetBreakMs);
+  }
+  if (outcome.attacker && timing.attackerBreakMs != null) {
+    armBattleDestroy(`${attack.id}:attacker`, attack.zone, timing.attackerBreakMs);
+  }
+}
+
 /** Damage that follows an attack in the same snapshot rolls when the strike that dealt it lands. */
 function armBattleDamage(events: readonly DuelEvent[], attack: DuelEvent, capture: AttackCapture | null): void {
   const timing = capture ? resolveBattle(capture, events, attack, false).timing : null;
@@ -478,6 +515,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     if (latest && typeof document !== "undefined") {
       if (!capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
       if (!reducedMotion) armBattleDamage(events, latest, capturesRef.current.get(latest.id) ?? null);
+      armBattleDestroys(events, latest, capturesRef.current.get(latest.id) ?? null, reducedMotion);
     }
   }
 
@@ -504,6 +542,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, latest) : null;
     if (next) {
       holdPromptReveal(next.totalMs);
+      emitDuelFxCue({ cue: "battle", strength: 1, battle: next.sound });
       setPlay(next);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `seats` only names cards for a late capture

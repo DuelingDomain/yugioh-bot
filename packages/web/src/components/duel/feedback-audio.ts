@@ -1,3 +1,4 @@
+import { scheduleBattleSound, shatter, type BattleSoundPlan, type BurstOpts, type Synth, type ToneOpts } from "./attack-audio";
 import type { DuelEventKind, DuelFxCue } from "./event-queue";
 
 type Voice = {
@@ -11,10 +12,37 @@ export type DuelSoundCue = DuelEventKind | DuelFxCue;
 export interface DuelFeedbackAudio {
   unlock: () => Promise<boolean>;
   setMuted: (muted: boolean) => void;
+  /** Master level 0..1, eased in so a slider drag does not click. Applies while unmuted. */
+  setVolume: (volume: number) => void;
   /** `strength` (about 0.8 to 1.25) scales the slam and shatter cues; other cues ignore it. */
   play: (kind: DuelSoundCue, strength?: number) => void;
+  /** Schedules a whole battle (strikes, clash, counter, LP ticks) from its plan. */
+  playBattle: (plan: BattleSoundPlan) => void;
   stopAll: () => void;
   dispose: () => void;
+}
+
+/** A cheap reverb: three filtered, feeding-back echoes summed into `out`. Returns the bus to send voices to. */
+function buildWetBus(audio: AudioContext, out: AudioNode): GainNode {
+  const bus = audio.createGain();
+  const level = audio.createGain();
+  level.gain.value = 0.45;
+  level.connect(out);
+  for (const time of [0.083, 0.127, 0.191]) {
+    const delay = audio.createDelay(0.5);
+    delay.delayTime.value = time;
+    const tone = audio.createBiquadFilter();
+    tone.type = "lowpass";
+    tone.frequency.value = 2600;
+    const feedback = audio.createGain();
+    feedback.gain.value = 0.38;
+    bus.connect(delay);
+    delay.connect(tone);
+    tone.connect(feedback);
+    feedback.connect(delay);
+    tone.connect(level);
+  }
+  return bus;
 }
 
 export function createDuelFeedbackAudio(): DuelFeedbackAudio {
@@ -22,6 +50,9 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
   let master: GainNode | null = null;
   let unlocked = false;
   let muted = true;
+  let volume = 1;
+  /** Send bus for the reverb-like tail (a few filtered echoes). */
+  let wet: GainNode | null = null;
   const voices: Voice[] = [];
 
   function dropVoice(voice: Voice): void {
@@ -50,8 +81,16 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     if (!Ctor) return null;
     ctx = new Ctor();
     master = ctx.createGain();
-    master.gain.value = muted ? 0 : 1;
-    master.connect(ctx.destination);
+    master.gain.value = muted ? 0 : volume;
+    // Layered attack sounds can stack loud: a compressor keeps the sum from clipping.
+    if (typeof ctx.createDynamicsCompressor === "function") {
+      const limiter = ctx.createDynamicsCompressor();
+      master.connect(limiter);
+      limiter.connect(ctx.destination);
+    } else {
+      master.connect(ctx.destination);
+    }
+    wet = buildWetBus(ctx, master);
     return ctx;
   }
 
@@ -73,23 +112,23 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     muted = next;
     if (master && ctx) {
       master.gain.cancelScheduledValues(ctx.currentTime);
-      master.gain.setValueAtTime(next ? 0 : 1, ctx.currentTime);
+      master.gain.setValueAtTime(next ? 0 : volume, ctx.currentTime);
     }
     if (next) stopAll();
+  }
+
+  function setVolume(next: number): void {
+    volume = Number.isFinite(next) ? Math.min(1, Math.max(0, next)) : 1;
+    if (master && ctx && !muted) {
+      master.gain.cancelScheduledValues(ctx.currentTime);
+      master.gain.setTargetAtTime(volume, ctx.currentTime, 0.02);
+    }
   }
 
   function tone(
     audio: AudioContext,
     dest: GainNode,
-    opts: {
-      freq: number;
-      freqEnd?: number;
-      type: OscillatorType;
-      start: number;
-      duration: number;
-      peak: number;
-      attack?: number;
-    },
+    opts: ToneOpts,
   ): void {
     const osc = audio.createOscillator();
     const gain = audio.createGain();
@@ -103,13 +142,41 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     gain.gain.setValueAtTime(0, t);
     gain.gain.linearRampToValueAtTime(opts.peak, t + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + opts.duration);
-    osc.connect(gain);
+    let out: AudioNode = osc;
+    if (opts.lowpass != null) {
+      const lp = audio.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.setValueAtTime(opts.lowpass, t);
+      osc.connect(lp);
+      out = lp;
+    }
+    out.connect(gain);
     gain.connect(dest);
+    sendTo(audio, gain, opts.send);
+    if (opts.vibrato) {
+      const lfo = audio.createOscillator();
+      const depth = audio.createGain();
+      lfo.frequency.setValueAtTime(opts.vibrato.hz, t);
+      depth.gain.setValueAtTime(opts.vibrato.cents, t);
+      lfo.connect(depth);
+      depth.connect(osc.detune);
+      lfo.start(t);
+      lfo.stop(t + opts.duration + 0.02);
+    }
     const voice: Voice = { osc, gain };
     voices.push(voice);
     osc.onended = () => dropVoice(voice);
     osc.start(t);
     osc.stop(t + opts.duration + 0.02);
+  }
+
+  /** Routes a voice's output to the reverb-like bus as well, `amount` deep. */
+  function sendTo(audio: AudioContext, from: GainNode, amount: number | undefined): void {
+    if (!wet || !amount) return;
+    const send = audio.createGain();
+    send.gain.setValueAtTime(amount, audio.currentTime);
+    from.connect(send);
+    send.connect(wet);
   }
 
   let noise: AudioBuffer | null = null;
@@ -118,7 +185,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
   function burst(
     audio: AudioContext,
     dest: GainNode,
-    opts: { start: number; duration: number; peak: number; filter: BiquadFilterType; freq: number; freqEnd?: number },
+    opts: BurstOpts,
   ): void {
     if (!noise) {
       noise = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.5), audio.sampleRate);
@@ -129,17 +196,19 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     src.buffer = noise;
     const filter = audio.createBiquadFilter();
     filter.type = opts.filter;
+    if (opts.q != null) filter.Q.setValueAtTime(opts.q, opts.start);
     filter.frequency.setValueAtTime(opts.freq, opts.start);
     if (opts.freqEnd != null) {
       filter.frequency.exponentialRampToValueAtTime(Math.max(opts.freqEnd, 20), opts.start + opts.duration);
     }
     const gain = audio.createGain();
     gain.gain.setValueAtTime(0, opts.start);
-    gain.gain.linearRampToValueAtTime(opts.peak, opts.start + 0.004);
+    gain.gain.linearRampToValueAtTime(opts.peak, opts.start + Math.min(opts.attack ?? 0.004, opts.duration * 0.9));
     gain.gain.exponentialRampToValueAtTime(0.0001, opts.start + opts.duration);
     src.connect(filter);
     filter.connect(gain);
     gain.connect(dest);
+    sendTo(audio, gain, opts.send);
     const voice: Voice = { osc: src, gain };
     voices.push(voice);
     src.onended = () => dropVoice(voice);
@@ -206,8 +275,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
         break;
       case "shatter":
       case "destroy":
-        burst(audio, dest, { start: t, duration: 0.2, peak: 0.05, filter: "highpass", freq: 2200, freqEnd: 5200 });
-        tone(audio, dest, { freq: 880, freqEnd: 260, type: "triangle", start: t, duration: 0.16, peak: 0.02, attack: 0.003 });
+        shatter(synthFor(audio, dest), t, strength);
         break;
       case "turn":
         // A card sliding a quarter turn on the mat: a short brush and a soft tap as it settles.
@@ -275,6 +343,21 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     }
   }
 
+  function synthFor(audio: AudioContext, dest: GainNode): Synth {
+    return {
+      tone: (opts) => tone(audio, dest, opts),
+      burst: (opts) => burst(audio, dest, opts),
+    };
+  }
+
+  function playBattle(plan: BattleSoundPlan): void {
+    if (!unlocked || muted) return;
+    const audio = ctx;
+    const dest = master;
+    if (!audio || !dest || audio.state !== "running") return;
+    scheduleBattleSound(synthFor(audio, dest), plan, audio.currentTime + 0.01);
+  }
+
   function dispose(): void {
     stopAll();
     unlocked = false;
@@ -286,5 +369,5 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     }
   }
 
-  return { unlock, setMuted, play, stopAll, dispose };
+  return { unlock, setMuted, setVolume, play, playBattle, stopAll, dispose };
 }

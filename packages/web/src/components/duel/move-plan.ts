@@ -21,6 +21,7 @@ import {
   LOCATION_REMOVED,
   zoneKey,
 } from "./constants";
+import { battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
 import { findZoneElement, isHeavySummon, summonStyleOf } from "./event-queue";
 
 export const MOVE_TIMING = {
@@ -147,6 +148,8 @@ type Candidate = {
   base: number;
   lead: number;
   hold: number;
+  /** A battle holds this destroy: the flight starts no earlier than this (performance.now(), 0 = free). */
+  notBefore: number;
   paired: number[];
   source: ZoneSnapshot | null;
 };
@@ -217,6 +220,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     const paired: number[] = [];
     let lead = 0;
     let hold = 0;
+    let notBefore = 0;
 
     // The summon, set or activation this card lands for.
     for (let j = i + 1; j < fresh.length && j <= i + 8; j += 1) {
@@ -236,9 +240,12 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       paired.push(other.id);
       claimed.add(other.id);
       lead = reduced ? 0 : other.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs;
+      // A fight that killed the card is still playing: it breaks only after the last strike landed.
+      notBefore = battleDestroyAt(other.zone, now);
+      if (notBefore > 0) lead = HELD_CRACK_MS;
       break;
     }
-    candidates.push({ event, style, base: baseDuration(style, geo.distance), lead, hold, paired, source: resolveSource(from) });
+    candidates.push({ event, style, base: baseDuration(style, geo.distance), lead, hold, notBefore, paired, source: resolveSource(from) });
   }
   if (candidates.length === 0) return [];
 
@@ -248,7 +255,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     const out: Array<{ start: number; dur: number }> = [];
     for (const item of candidates) {
       const dur = item.base * speed;
-      const start = cursor + item.lead;
+      const start = Math.max(cursor + item.lead, item.notBefore);
       out.push({ start, dur });
       cursor = start + Math.max(dur * MOVE_TIMING.overlap, MOVE_TIMING.minGapMs);
     }
@@ -260,7 +267,9 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     const last = l.out[l.out.length - 1];
     return last.start + last.dur;
   };
-  const span = finishOf(layout) - now;
+  // Time spent waiting for a battle is not a backlog to squeeze: measure from the latest hold.
+  const floor = candidates.reduce((max, item) => Math.max(max, item.notBefore), now);
+  const span = finishOf(layout) - floor;
   if (span > MOVE_TIMING.queueCapMs) {
     const fixed = candidates.reduce((sum, item) => sum + item.lead, 0);
     const variable = span - fixed;

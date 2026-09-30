@@ -9,6 +9,7 @@ vi.mock("next/font/google", () => {
 });
 
 import { BattleFx } from "@/components/duel/battle-fx";
+import { battleDestroyAt, clearBattleHolds } from "@/components/duel/battle-hold";
 import { AttackConfirm } from "@/components/duel/card-interactions";
 import { armLpHold, clearLpHolds, takeLpHold } from "@/components/duel/life-points";
 import { isAttackTargetPrompt, isDirectAttackPrompt } from "@/components/duel/prompts";
@@ -233,6 +234,35 @@ describe("BattleFx", () => {
     const total = Number.parseFloat((playLayer() as HTMLElement).style.getPropertyValue("--total"));
     expect(total).toBeGreaterThan(1150);
     expect(total).toBeLessThanOrEqual(1600);
+  });
+
+  it("keeps the losing attacker standing until the counter strike has landed", () => {
+    clearBattleHolds();
+    const seats = seatsOf(warrior, machine);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
+    act(() => undefined);
+    const destroyed: DuelEvent = { id: 4, kind: "destroy", seat: 0, text: "", zone: { controller: 0, location: 4, sequence: 0 } };
+    const before = performance.now();
+    rerender(<BattleFx events={[phase, attack, destroyed]} reducedMotion={false} seats={seats} />);
+    // slash lands at 520 ms, the counter (beam) lands at 1060 ms; the attacker breaks a beat after that
+    const breakAt = battleDestroyAt({ controller: 0, location: 4, sequence: 0 }, before) - before;
+    expect(breakAt).toBeGreaterThanOrEqual(Math.round(520 + 100 + 440 * 0.7) + 120 - 5);
+    // the surviving defender is not held
+    expect(battleDestroyAt({ controller: 1, location: 4, sequence: 0 }, before)).toBe(0);
+  });
+
+  it("holds a destroyed target until its own hit landed, and keeps the order under reduced motion", () => {
+    clearBattleHolds();
+    const seats = seatsOf(machine, warrior);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={seats} />);
+    act(() => undefined);
+    const destroyed: DuelEvent = { id: 3, kind: "destroy", seat: 1, text: "", zone: { controller: 1, location: 4, sequence: 0 } };
+    const before = performance.now();
+    rerender(<BattleFx events={[phase, attack, destroyed]} reducedMotion seats={seats} />);
+    const breakAt = battleDestroyAt({ controller: 1, location: 4, sequence: 0 }, before) - before;
+    // reduced: the hit lands at 260 ms, the break is after it (460 ms), still after the flash
+    expect(breakAt).toBeGreaterThan(260);
+    expect(breakAt).toBeLessThan(800);
   });
 
   it("uses flashes and fades only under reduced motion", () => {

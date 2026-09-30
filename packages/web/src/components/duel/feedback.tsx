@@ -14,6 +14,8 @@ import {
   maxEventId,
   pacedCueDuration,
 } from "./event-queue";
+import { DEFAULT_SOUND_VOLUME } from "./preferences";
+import { battleDestroyAt } from "./battle-hold";
 import { createDuelFeedbackAudio, type DuelFeedbackAudio } from "./feedback-audio";
 import { pairedMovePlan } from "./move-plan";
 import styles from "./feedback.module.css";
@@ -22,6 +24,8 @@ export type DuelFeedbackProps = {
   events: readonly DuelEvent[];
   duelKey: string;
   soundEnabled: boolean;
+  /** Master volume 0..1; missing means full level (the audio default). */
+  soundVolume?: number;
   reducedMotion: boolean;
 };
 
@@ -162,6 +166,7 @@ export function DuelFeedback({
   events,
   duelKey,
   soundEnabled,
+  soundVolume = DEFAULT_SOUND_VOLUME,
   reducedMotion,
 }: DuelFeedbackProps) {
   const [current, setCurrent] = useState<{ event: DuelEvent; durationMs: number } | null>(null);
@@ -174,10 +179,12 @@ export function DuelFeedback({
   const holdTimersRef = useRef<Set<number>>(new Set());
   const audioRef = useRef<DuelFeedbackAudio | null>(null);
   const soundRef = useRef(soundEnabled);
+  const volumeRef = useRef(soundVolume);
   const reducedRef = useRef(reducedMotion);
   const startNextRef = useRef<() => void>(() => undefined);
 
   soundRef.current = soundEnabled;
+  volumeRef.current = soundVolume;
   reducedRef.current = reducedMotion;
   startNextRef.current = () => {
     if (currentRef.current) return;
@@ -203,6 +210,7 @@ export function DuelFeedback({
     const audio = createDuelFeedbackAudio();
     audioRef.current = audio;
     audio.setMuted(!soundRef.current);
+    audio.setVolume(volumeRef.current);
 
     const onGesture = (event: Event) => {
       if (!event.isTrusted) return;
@@ -217,6 +225,10 @@ export function DuelFeedback({
     const onFxCue = (event: Event) => {
       const detail = (event as CustomEvent<DuelFxCueDetail>).detail;
       if (!detail || !soundRef.current) return;
+      if (detail.cue === "battle") {
+        if (detail.battle) audioRef.current?.playBattle(detail.battle);
+        return;
+      }
       audioRef.current?.play(detail.cue, detail.strength);
     };
     window.addEventListener(DUEL_FX_CUE_EVENT, onFxCue);
@@ -237,6 +249,10 @@ export function DuelFeedback({
   useEffect(() => {
     audioRef.current?.setMuted(!soundEnabled);
   }, [soundEnabled]);
+
+  useEffect(() => {
+    audioRef.current?.setVolume(soundVolume);
+  }, [soundVolume]);
 
   useEffect(() => {
     const timers = holdTimersRef.current;
@@ -278,7 +294,9 @@ export function DuelFeedback({
       if (event.kind === "damage" || event.kind === "move" || isPositionEvent(event)) continue;
       // A card flying onto the board is heard and announced when it lands, not when it leaves.
       const landAt = pairedMovePlan(event.id)?.landAt;
-      const holdMs = landAt != null ? landAt - now : 0;
+      // A card a fight destroyed is announced once the fight has landed its last strike.
+      const battleAt = event.kind === "destroy" ? battleDestroyAt(event.zone, now) : 0;
+      const holdMs = Math.max(landAt != null ? landAt - now : 0, battleAt > 0 ? battleAt - now : 0);
       if (isDrawnOnBoard(event, reducedRef.current)) {
         // SummonFx draws it on the zone; heavy, typed and destroy effects sound their own cues at their moment.
         const fxSounds = fxSoundsItself(event);

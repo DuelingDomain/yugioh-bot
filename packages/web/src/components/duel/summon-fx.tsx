@@ -42,6 +42,7 @@ import {
   type DuelFxCueDetail,
   type SummonStyle,
 } from "./event-queue";
+import { battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
 import { MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } from "./move-plan";
 import type { DuelShakePreference } from "./preferences";
 import styles from "./summon-fx.module.css";
@@ -154,6 +155,8 @@ type FxItem = {
   strength: number;
   /** impact: how long the field effects last after the moment of impact. */
   life: number;
+  /** destroy: ms the card cracks in place before it breaks; set when a battle holds the destroy. */
+  breakMs?: number;
 };
 
 /**
@@ -589,7 +592,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
   useEffectSetup(overlay, item, done, ({ track, geo }) => {
     if (anchor.current) placeAnchor(anchor.current, geo);
     const d = item.delayMs;
-    const breakAt = item.event.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs;
+    const breakAt = item.breakMs ?? (item.event.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs);
     // With a flight to the Graveyard the card ends here and MoveFx picks it up at the break.
     const burst = handoff ? 60 : 520;
     const total = breakAt + burst;
@@ -1896,6 +1899,15 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         delayMs = Math.max(delayMs, heavyFreeAtRef.current - now);
         heavyFreeAtRef.current = now + delayMs + HEAVY_LOCK_MS;
       }
+      // A card a fight destroyed keeps standing until the fight has landed its last strike.
+      let breakMs: number | undefined;
+      if (kind === "destroy") {
+        const heldAt = battleDestroyAt(event.zone, now);
+        if (heldAt > 0) {
+          breakMs = HELD_CRACK_MS;
+          delayMs = Math.max(delayMs, heldAt - now - breakMs);
+        }
+      }
       step += 1;
       seqRef.current += 1;
       const strength = kind === "heavy" || kind === "typed" ? slamStrengthOf(event, plan?.event.from?.location) : 0;
@@ -1911,6 +1923,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         plan,
         strength,
         life: 0,
+        breakMs,
       };
       planned.push(base);
       if (strength > 0 && !base.reduced) {

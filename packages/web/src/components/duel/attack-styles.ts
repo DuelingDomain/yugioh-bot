@@ -197,12 +197,23 @@ export const COUNTER_SCALE = 0.7;
 export const TIE_RECOIL_MS = 200;
 /** How long after the impact the destroyed card's break-up takes at most. */
 export const DESTROY_TAIL_MS = 700;
+/**
+ * A destroyed card breaks this long after the strike that killed it lands, so the hit and the
+ * start of the LP roll are seen first (the card never breaks before, or while, the strike travels).
+ */
+export const DESTROY_BEAT_MS = 120;
+/** No fight holds the prompts longer than this. */
+export const MAX_BATTLE_MS = 1600;
 
 export type BattleTiming = {
   /** The attacker's strike lands (damage to the defender rolls here). */
   impactMs: number;
   /** When damage that lands on the attacker's own seat rolls (the counter's impact when the attacker loses). */
   attackerDamageMs: number;
+  /** When the destroyed target breaks (null when it survives). Always after the strike that killed it landed. */
+  targetBreakMs: number | null;
+  /** When the destroyed attacker breaks (null when it survives). After the counter strike, if any. */
+  attackerBreakMs: number | null;
   /** Whole sequence, prompts wait for this. */
   totalMs: number;
 };
@@ -212,14 +223,27 @@ export function battleTiming(kind: BattleKind, attacker: AttackStyleId, defender
   if (kind === "lose" && defender) {
     const d = STYLE_TIMING[defender];
     const start = a.impact + COUNTER_GAP_MS;
+    const counterImpact = Math.round(start + d.impact * COUNTER_SCALE);
     return {
       impactMs: a.impact,
-      attackerDamageMs: Math.round(start + d.impact * COUNTER_SCALE),
-      totalMs: Math.round(Math.max(a.total, start + d.total * COUNTER_SCALE)),
+      attackerDamageMs: counterImpact,
+      targetBreakMs: null,
+      attackerBreakMs: counterImpact + DESTROY_BEAT_MS,
+      totalMs: Math.min(MAX_BATTLE_MS, Math.round(Math.max(a.total, start + d.total * COUNTER_SCALE)) + DESTROY_BEAT_MS),
     };
   }
   if (kind === "tie") {
-    return { impactMs: a.impact, attackerDamageMs: a.impact, totalMs: Math.max(a.total, a.impact + TIE_RECOIL_MS + DESTROY_TAIL_MS - 100) };
+    const attackerBreak = a.impact + TIE_RECOIL_MS + DESTROY_BEAT_MS;
+    return {
+      impactMs: a.impact,
+      attackerDamageMs: a.impact,
+      targetBreakMs: a.impact + DESTROY_BEAT_MS,
+      attackerBreakMs: attackerBreak,
+      totalMs: Math.max(a.total + DESTROY_BEAT_MS, attackerBreak + DESTROY_TAIL_MS - 100),
+    };
   }
-  return { impactMs: a.impact, attackerDamageMs: a.impact + 140, totalMs: a.total };
+  if (kind === "win") {
+    return { impactMs: a.impact, attackerDamageMs: a.impact + 140, targetBreakMs: a.impact + DESTROY_BEAT_MS, attackerBreakMs: null, totalMs: a.total + DESTROY_BEAT_MS };
+  }
+  return { impactMs: a.impact, attackerDamageMs: a.impact + 140, targetBreakMs: null, attackerBreakMs: null, totalMs: a.total };
 }
