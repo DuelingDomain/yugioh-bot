@@ -222,7 +222,7 @@ describe("BattleFx", () => {
     expect(playLayer()?.getAttribute("data-kind")).toBe("held");
   });
 
-  it("waits for the counter strike before rolling the attacker's LP, and keeps a normal attack under 1.6 s", () => {
+  it("waits for the counter strike before rolling the attacker's LP, and keeps a counter fight under 1.85 s", () => {
     const seats = seatsOf(warrior, machine);
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
     act(() => undefined);
@@ -233,7 +233,7 @@ describe("BattleFx", () => {
     expect(takeLpHold(0)).toBe(Math.round(520 + 100 + 440 * 0.7));
     const total = Number.parseFloat((playLayer() as HTMLElement).style.getPropertyValue("--total"));
     expect(total).toBeGreaterThan(1150);
-    expect(total).toBeLessThanOrEqual(1600);
+    expect(total).toBeLessThanOrEqual(1850);
   });
 
   it("keeps the losing attacker standing until the counter strike has landed", () => {

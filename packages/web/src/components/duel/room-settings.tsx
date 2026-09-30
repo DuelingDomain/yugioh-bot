@@ -63,7 +63,8 @@ export function DuelSoundControls({ enabled, volume, onEnabledChange, onVolumeCh
         <input id={sliderId} type="range" min={0} max={100} step={5} value={percent}
           aria-valuetext={`${percent}%`}
           onChange={(event) => onVolumeChange(Number(event.target.value) / 100)} />
-        <output htmlFor={sliderId}>{percent}%</output>
+        {/* The slider already speaks its value; an <output> is a live region and would say it twice. */}
+        <output htmlFor={sliderId} aria-hidden="true">{percent}%</output>
       </div>
     </div>
   );

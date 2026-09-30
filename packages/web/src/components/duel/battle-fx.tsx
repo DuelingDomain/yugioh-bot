@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import type { DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
 import { LOCATION_DMZONE, isDefense, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
-import { attackStyleFor, battleKind, battleTiming, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
+import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { armBattleDestroy } from "./battle-hold";
 import { holdPromptReveal } from "./prompt-reveal";
@@ -550,7 +550,12 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
 
   useEffect(() => {
     if (!play) return;
-    const timer = window.setTimeout(() => setPlay((current) => (current?.seq === play.seq ? null : current)), play.totalMs + 60);
+    // The prompts wait for totalMs only; the layer stays until a late break-up (a slow counter
+    // strike) has fallen, so its shards are not cut off mid-air.
+    const { targetBreakMs, attackerBreakMs } = play.fx.timing;
+    const lastBreak = Math.max(targetBreakMs ?? 0, attackerBreakMs ?? 0);
+    const lifeMs = play.reduced ? play.totalMs : Math.max(play.totalMs, lastBreak > 0 ? lastBreak + DESTROY_TAIL_MS : 0);
+    const timer = window.setTimeout(() => setPlay((current) => (current?.seq === play.seq ? null : current)), lifeMs + 60);
     return () => window.clearTimeout(timer);
   }, [play]);
 

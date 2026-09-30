@@ -7,6 +7,7 @@ import {
   slamCrackCount,
   slamStrengthOf,
   slamTierOf,
+  pacedCueDuration,
 } from "../../src/components/duel/event-queue";
 
 function event(
@@ -151,5 +152,19 @@ describe("auraTintOf", () => {
     expect(auraTintOf(0x20)[0]).toBe("184 120 255");
     expect(auraTintOf(0)).toEqual(["244 214 144", "155 126 255"]);
     expect(auraTintOf(undefined)).toEqual(auraTintOf(0));
+  });
+});
+
+describe("pacedCueDuration", () => {
+  it("keeps a short backlog at a readable pace", () => {
+    expect(pacedCueDuration("summon", false, 1)).toBe(1200);
+    expect(pacedCueDuration("summon", false, 6)).toBe(600);
+  });
+
+  it("never lets a long backlog trail the board by much more than about 7 s", () => {
+    for (const count of [10, 20, 28]) {
+      expect(pacedCueDuration("summon", false, count) * count).toBeLessThanOrEqual(7000);
+    }
+    expect(pacedCueDuration("summon", false, 60)).toBe(250);
   });
 });

@@ -104,11 +104,11 @@ describe("battle timing", () => {
     for (const a of STYLE_IDS) {
       for (const d of STYLE_IDS) {
         const t = battleTiming("lose", a, d);
-        expect(t.totalMs).toBeLessThanOrEqual(1600);
+        expect(t.totalMs).toBeLessThanOrEqual(1850);
         expect(t.attackerDamageMs).toBeGreaterThan(t.impactMs);
         expect(t.attackerDamageMs).toBeLessThan(t.totalMs);
       }
-      expect(battleTiming("tie", a, "slash").totalMs).toBeLessThanOrEqual(1600);
+      expect(battleTiming("tie", a, "slash").totalMs).toBeLessThanOrEqual(1850);
     }
   });
 });

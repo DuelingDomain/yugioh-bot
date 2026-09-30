@@ -4,7 +4,12 @@ import type { DuelEventKind, DuelFxCue } from "./event-queue";
 type Voice = {
   osc: AudioScheduledSourceNode;
   gain: GainNode;
+  /** Every node the voice made (filters, sends, the vibrato LFO): disconnected when it ends. */
+  nodes: AudioNode[];
 };
+
+/** A stopped voice fades out over about this long instead of cutting (a cut clicks). */
+const FADE_OUT_S = 0.012;
 
 /** An engine event kind, or a moment SummonFx reports (hologram rise, slam, shatter). */
 export type DuelSoundCue = DuelEventKind | DuelFxCue;
@@ -54,23 +59,47 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
   /** Send bus for the reverb-like tail (a few filtered echoes). */
   let wet: GainNode | null = null;
   const voices: Voice[] = [];
+  /** The voices of the fight now sounding: a new fight fades them out (its picture replaced the old one). */
+  let battleVoices: Voice[] = [];
+  /** While a fight is being scheduled, its voices are collected here. */
+  let collecting: Voice[] | null = null;
 
-  function dropVoice(voice: Voice): void {
-    const index = voices.indexOf(voice);
-    if (index >= 0) voices.splice(index, 1);
+  function addVoice(voice: Voice): void {
+    voices.push(voice);
+    collecting?.push(voice);
+    voice.osc.onended = () => {
+      const index = voices.indexOf(voice);
+      if (index >= 0) voices.splice(index, 1);
+      // Nothing holds a finished voice in the graph (the send buses and the LFO stay connected otherwise).
+      for (const node of voice.nodes) {
+        try {
+          node.disconnect();
+        } catch {
+          // already disconnected
+        }
+      }
+    };
   }
 
-  function stopAll(): void {
+  function fadeOut(list: readonly Voice[]): void {
     const now = ctx?.currentTime ?? 0;
-    for (const voice of voices.splice(0)) {
+    for (const voice of list) {
       try {
-        voice.gain.gain.cancelScheduledValues(now);
-        voice.gain.gain.setValueAtTime(0, now);
-        voice.osc.stop(now);
+        const gain = voice.gain.gain;
+        // Hold the level where it is, then glide to silence; a bare cancel would jump the envelope.
+        if (typeof gain.cancelAndHoldAtTime === "function") gain.cancelAndHoldAtTime(now);
+        else gain.cancelScheduledValues(now);
+        gain.setTargetAtTime(0, now, FADE_OUT_S);
+        voice.osc.stop(now + FADE_OUT_S * 6);
       } catch {
         // already stopped
       }
     }
+  }
+
+  function stopAll(): void {
+    fadeOut(voices.splice(0));
+    battleVoices = [];
   }
 
   function ensureGraph(): AudioContext | null {
@@ -82,9 +111,17 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     ctx = new Ctor();
     master = ctx.createGain();
     master.gain.value = muted ? 0 : volume;
-    // Layered attack sounds can stack loud: a compressor keeps the sum from clipping.
+    // Layered attack sounds can stack loud: a limiter keeps the sum from clipping. Set as a limiter
+    // (high threshold, fast attack); the defaults (-24 dB, 12:1) would squash every cue flat.
     if (typeof ctx.createDynamicsCompressor === "function") {
       const limiter = ctx.createDynamicsCompressor();
+      if (limiter.threshold) {
+        limiter.threshold.value = -8;
+        limiter.knee.value = 6;
+        limiter.ratio.value = 12;
+        limiter.attack.value = 0.003;
+        limiter.release.value = 0.2;
+      }
       master.connect(limiter);
       limiter.connect(ctx.destination);
     } else {
@@ -112,9 +149,15 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     muted = next;
     if (master && ctx) {
       master.gain.cancelScheduledValues(ctx.currentTime);
-      master.gain.setValueAtTime(next ? 0 : volume, ctx.currentTime);
+      // A short glide, not a step: a step in the middle of a sound clicks.
+      master.gain.setTargetAtTime(next ? 0 : volume, ctx.currentTime, FADE_OUT_S);
     }
     if (next) stopAll();
+  }
+
+  /** Nothing to hear: muted, still locked, or the volume is at zero (no nodes are built then). */
+  function silent(): boolean {
+    return !unlocked || muted || volume <= 0;
   }
 
   function setVolume(next: number): void {
@@ -142,6 +185,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     gain.gain.setValueAtTime(0, t);
     gain.gain.linearRampToValueAtTime(opts.peak, t + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + opts.duration);
+    const nodes: AudioNode[] = [osc, gain];
     let out: AudioNode = osc;
     if (opts.lowpass != null) {
       const lp = audio.createBiquadFilter();
@@ -149,10 +193,12 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
       lp.frequency.setValueAtTime(opts.lowpass, t);
       osc.connect(lp);
       out = lp;
+      nodes.push(lp);
     }
     out.connect(gain);
     gain.connect(dest);
-    sendTo(audio, gain, opts.send);
+    const send = sendTo(audio, gain, opts.send);
+    if (send) nodes.push(send);
     if (opts.vibrato) {
       const lfo = audio.createOscillator();
       const depth = audio.createGain();
@@ -162,21 +208,21 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
       depth.connect(osc.detune);
       lfo.start(t);
       lfo.stop(t + opts.duration + 0.02);
+      nodes.push(lfo, depth);
     }
-    const voice: Voice = { osc, gain };
-    voices.push(voice);
-    osc.onended = () => dropVoice(voice);
+    addVoice({ osc, gain, nodes });
     osc.start(t);
     osc.stop(t + opts.duration + 0.02);
   }
 
   /** Routes a voice's output to the reverb-like bus as well, `amount` deep. */
-  function sendTo(audio: AudioContext, from: GainNode, amount: number | undefined): void {
-    if (!wet || !amount) return;
+  function sendTo(audio: AudioContext, from: GainNode, amount: number | undefined): GainNode | null {
+    if (!wet || !amount) return null;
     const send = audio.createGain();
     send.gain.setValueAtTime(amount, audio.currentTime);
     from.connect(send);
     send.connect(wet);
+    return send;
   }
 
   let noise: AudioBuffer | null = null;
@@ -208,16 +254,16 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     src.connect(filter);
     filter.connect(gain);
     gain.connect(dest);
-    sendTo(audio, gain, opts.send);
-    const voice: Voice = { osc: src, gain };
-    voices.push(voice);
-    src.onended = () => dropVoice(voice);
+    const nodes: AudioNode[] = [src, filter, gain];
+    const send = sendTo(audio, gain, opts.send);
+    if (send) nodes.push(send);
+    addVoice({ osc: src, gain, nodes });
     src.start(opts.start);
     src.stop(opts.start + opts.duration + 0.02);
   }
 
   function play(kind: DuelSoundCue, strength = 1): void {
-    if (!unlocked || muted) return;
+    if (silent()) return;
     const audio = ctx;
     const dest = master;
     if (!audio || !dest || audio.state !== "running") return;
@@ -351,11 +397,20 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
   }
 
   function playBattle(plan: BattleSoundPlan): void {
-    if (!unlocked || muted) return;
+    if (silent()) return;
     const audio = ctx;
     const dest = master;
     if (!audio || !dest || audio.state !== "running") return;
-    scheduleBattleSound(synthFor(audio, dest), plan, audio.currentTime + 0.01);
+    // A new fight replaces the picture of the one before it: its pending strikes must not play on.
+    fadeOut(battleVoices);
+    const mine: Voice[] = [];
+    collecting = mine;
+    try {
+      scheduleBattleSound(synthFor(audio, dest), plan, audio.currentTime + 0.01);
+    } finally {
+      collecting = null;
+    }
+    battleVoices = mine;
   }
 
   function dispose(): void {

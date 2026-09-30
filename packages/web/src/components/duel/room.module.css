@@ -96,7 +96,8 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: calc(12 * var(--duel-unit));
-  height: calc(38 * var(--duel-unit));
+  /* Held at its 1.5px-unit height on big screens: every px here comes off the height-bound field. */
+  height: calc(38 * min(var(--duel-unit), 1.5px));
   padding: 0 max(calc(12 * var(--duel-unit)), env(safe-area-inset-right)) 0 max(calc(16 * var(--duel-unit)), env(safe-area-inset-left));
   border-bottom: 1px solid var(--duel-rule);
   background: linear-gradient(180deg, rgb(12 19 36 / 0.95), rgb(8 13 25 / 0.95));

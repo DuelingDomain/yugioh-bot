@@ -31,7 +31,9 @@ const now = (): number => (typeof performance !== "undefined" ? performance.now(
 export function armBattleDestroy(key: string, zone: Zone, delayMs: number, at: number = now()): void {
   if (armedKeys.has(key)) return;
   armedKeys.add(key);
-  if (armedKeys.size > 200) armedKeys.clear();
+  // Forget the oldest key only: clearing them all could let a repeat render of the current
+  // attack arm it again, later, and push its hold back.
+  if (armedKeys.size > 200) armedKeys.delete(armedKeys.values().next().value as string);
   const zoneId = zoneKey(zone.controller, zone.location, zone.sequence);
   holds.set(zoneId, Math.max(holds.get(zoneId) ?? 0, at + delayMs));
 }

@@ -228,6 +228,12 @@ export function emitDuelFxCue(detail: DuelFxCueDetail): void {
 const CATCH_UP_BUDGET_MS = 3600;
 const MIN_CUE_MS = 400;
 const MIN_CUE_FRACTION = 0.5;
+/**
+ * Past this, a backlog would trail the board by more and more (the floor above times the queue
+ * length), so the floor gives way and the whole queue fits in about this long, down to BLINK_CUE_MS.
+ */
+const MAX_BACKLOG_MS = 7000;
+const BLINK_CUE_MS = 250;
 
 export function maxEventId(events: readonly DuelEvent[]): number | null {
   let max: number | null = null;
@@ -294,6 +300,10 @@ export function pacedCueDuration(
 ): number {
   const base = cueDuration(kind, reducedMotion);
   if (remainingCount <= 1) return base;
-  const floor = Math.min(base, Math.max(MIN_CUE_MS, Math.round(base * MIN_CUE_FRACTION)));
+  const floor = Math.min(
+    base,
+    Math.max(MIN_CUE_MS, Math.round(base * MIN_CUE_FRACTION)),
+    Math.max(BLINK_CUE_MS, Math.floor(MAX_BACKLOG_MS / remainingCount)),
+  );
   return Math.min(base, Math.max(floor, Math.floor(CATCH_UP_BUDGET_MS / remainingCount)));
 }

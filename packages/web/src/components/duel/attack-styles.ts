@@ -201,9 +201,9 @@ export const DESTROY_TAIL_MS = 700;
  * A destroyed card breaks this long after the strike that killed it lands, so the hit and the
  * start of the LP roll are seen first (the card never breaks before, or while, the strike travels).
  */
-export const DESTROY_BEAT_MS = 120;
+export const DESTROY_BEAT_MS = 320;
 /** No fight holds the prompts longer than this. */
-export const MAX_BATTLE_MS = 1600;
+export const MAX_BATTLE_MS = 1850;
 
 export type BattleTiming = {
   /** The attacker's strike lands (damage to the defender rolls here). */

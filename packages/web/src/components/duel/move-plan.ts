@@ -243,7 +243,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       lead = reduced ? 0 : other.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs;
       // A fight that killed the card is still playing: it breaks only after the last strike landed.
       notBefore = battleDestroyAt(other.zone, now);
-      if (notBefore > 0) lead = HELD_CRACK_MS;
+      if (notBefore > 0) lead = reduced ? 0 : HELD_CRACK_MS;
       break;
     }
     candidates.push({ event, style, base: baseDuration(style, geo.distance), lead, hold, notBefore, paired, source: resolveSource(from) });

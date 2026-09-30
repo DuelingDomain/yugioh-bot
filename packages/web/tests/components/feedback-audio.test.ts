@@ -28,6 +28,7 @@ class FakeContext {
   destination = new FakeNode();
   oscillators = 0;
   sources = 0;
+  sourceNodes: Array<FakeNode & { stop: ReturnType<typeof vi.fn>; onended: null | (() => void) }> = [];
   master: (FakeNode & { gain: ReturnType<typeof param> }) | null = null;
   gains: Array<FakeNode & { gain: ReturnType<typeof param> }> = [];
   constructor() {
@@ -44,7 +45,9 @@ class FakeContext {
   }
   createOscillator() {
     this.oscillators += 1;
-    return Object.assign(new FakeNode(), { type: "sine", frequency: param(440), detune: param(0), start: vi.fn(), stop: vi.fn(), onended: null as null | (() => void) });
+    const node = Object.assign(new FakeNode(), { type: "sine", frequency: param(440), detune: param(0), start: vi.fn(), stop: vi.fn(), onended: null as null | (() => void) });
+    this.sourceNodes.push(node);
+    return node;
   }
   createBiquadFilter() {
     return Object.assign(new FakeNode(), { type: "lowpass", frequency: param(1000), Q: param(1) });
@@ -54,13 +57,15 @@ class FakeContext {
   }
   createBufferSource() {
     this.sources += 1;
-    return Object.assign(new FakeNode(), { buffer: null, start: vi.fn(), stop: vi.fn(), onended: null as null | (() => void) });
+    const node = Object.assign(new FakeNode(), { buffer: null, start: vi.fn(), stop: vi.fn(), onended: null as null | (() => void) });
+    this.sourceNodes.push(node);
+    return node;
   }
   createDelay() {
     return Object.assign(new FakeNode(), { delayTime: param(0) });
   }
   createDynamicsCompressor() {
-    return new FakeNode();
+    return Object.assign(new FakeNode(), { threshold: param(-24), knee: param(30), ratio: param(12), attack: param(0.003), release: param(0.25) });
   }
 }
 
@@ -119,14 +124,47 @@ describe("createDuelFeedbackAudio", () => {
     expect(master.gain.setTargetAtTime).toHaveBeenLastCalledWith(1, expect.any(Number), expect.any(Number));
     audio.setVolume(-1);
     expect(master.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, expect.any(Number), expect.any(Number));
-    // muting silences at once; un-muting returns to the chosen volume
+    // muting glides to silence in a few ms (no click); un-muting returns to the chosen volume
     audio.setVolume(0.6);
     audio.setMuted(true);
-    expect(master.gain.setValueAtTime).toHaveBeenLastCalledWith(0, expect.any(Number));
+    expect(master.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, expect.any(Number), expect.any(Number));
     audio.setVolume(0.7);
     expect(master.gain.setTargetAtTime).not.toHaveBeenLastCalledWith(0.7, expect.any(Number), expect.any(Number));
     audio.setMuted(false);
-    expect(master.gain.setValueAtTime).toHaveBeenLastCalledWith(0.7, expect.any(Number));
+    expect(master.gain.setTargetAtTime).toHaveBeenLastCalledWith(0.7, expect.any(Number), expect.any(Number));
+  });
+
+  it("builds no nodes at zero volume", async () => {
+    const audio = createDuelFeedbackAudio();
+    audio.setMuted(false);
+    audio.setVolume(0);
+    await audio.unlock();
+    audio.playBattle(battle);
+    audio.play("shatter");
+    expect(created[0].oscillators + created[0].sources).toBe(0);
+  });
+
+  it("disconnects a voice's nodes once it has ended", async () => {
+    const audio = createDuelFeedbackAudio();
+    audio.setMuted(false);
+    await audio.unlock();
+    audio.play("shatter");
+    const ctx = created[0];
+    expect(ctx.sourceNodes.length).toBeGreaterThan(0);
+    for (const node of ctx.sourceNodes) node.onended?.();
+    for (const node of ctx.sourceNodes) expect(node.disconnect).toHaveBeenCalled();
+  });
+
+  it("fades out the fight before when a new one starts", async () => {
+    const audio = createDuelFeedbackAudio();
+    audio.setMuted(false);
+    await audio.unlock();
+    const ctx = created[0];
+    audio.playBattle(battle);
+    const first = ctx.sourceNodes.slice();
+    for (const node of first) expect(node.stop).toHaveBeenCalledTimes(1);
+    audio.playBattle(battle);
+    for (const node of first) expect(node.stop).toHaveBeenCalledTimes(2);
   });
 
   it("uses a volume chosen before the audio graph exists", async () => {
