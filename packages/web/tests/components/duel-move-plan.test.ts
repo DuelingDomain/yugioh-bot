@@ -30,15 +30,15 @@ const geometry = () => ({ distance: 300 });
 beforeEach(() => resetMoveSchedule("t"));
 
 describe("baseDuration", () => {
-  it("keeps placements between 420 and 560 ms", () => {
-    expect(baseDuration("place", 0)).toBe(420);
-    expect(baseDuration("place", 200)).toBeGreaterThan(420);
-    expect(baseDuration("place", 5000)).toBe(560);
+  it("keeps placements between 480 and 600 ms", () => {
+    expect(baseDuration("place", 0)).toBe(480);
+    expect(baseDuration("place", 200)).toBeGreaterThan(480);
+    expect(baseDuration("place", 5000)).toBe(600);
   });
-  it("keeps tosses between 360 and 450 ms and draws at 380 ms", () => {
-    expect(baseDuration("toss", 0)).toBe(360);
-    expect(baseDuration("toss", 5000)).toBe(450);
-    expect(baseDuration("draw", 300)).toBe(380);
+  it("keeps tosses between 460 and 580 ms and draws at 520 ms", () => {
+    expect(baseDuration("toss", 0)).toBe(460);
+    expect(baseDuration("toss", 5000)).toBe(580);
+    expect(baseDuration("draw", 300)).toBe(520);
     expect(baseDuration("fade", 300)).toBe(150);
   });
 });
@@ -56,7 +56,7 @@ describe("planMoves", () => {
     expect(pairedMovePlan(2)?.landAt).toBeCloseTo(1000 + baseDuration("place", 300));
   });
 
-  it("starts the next move when the previous is 60% through", () => {
+  it("starts the next move when the previous is 70% through", () => {
     const events = [move(1, z(0, HAND, 0), z(0, MZONE, 0)), move(2, z(0, HAND, 0), z(0, MZONE, 1))];
     const [a, b] = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
     expect(b.startAt).toBeCloseTo(a.startAt + a.durationMs * MOVE_TIMING.overlap);
@@ -71,12 +71,12 @@ describe("planMoves", () => {
     expect(plans[0].durationMs).toBeGreaterThanOrEqual(baseDuration("place", 300) * MOVE_TIMING.minSpeed - 1);
   });
 
-  it("keeps a batch under about 1.4 s and each card a distinct beat apart", () => {
-    expect(MOVE_TIMING.queueCapMs).toBeLessThanOrEqual(1400);
+  it("keeps a batch under about 3 s and each card a distinct beat apart", () => {
+    expect(MOVE_TIMING.queueCapMs).toBeLessThanOrEqual(3000);
     const events = Array.from({ length: 5 }, (_, i) => move(i + 1, z(0, DECK, 0), z(0, HAND, 3 + i), { reason: "draw" }));
     const plans = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
     expect(plans.every((p) => p.style === "draw")).toBe(true);
-    expect(plans[plans.length - 1].landAt).toBeLessThanOrEqual(1400 + 1);
+    expect(plans[plans.length - 1].landAt).toBeLessThanOrEqual(3000 + 1);
     for (let i = 1; i < plans.length; i += 1) {
       expect(plans[i].startAt - plans[i - 1].startAt).toBeGreaterThanOrEqual(MOVE_TIMING.minGapMs - 0.001);
     }
@@ -89,7 +89,7 @@ describe("planMoves", () => {
     expect(b.startAt).toBeLessThan(a.landAt);
   });
 
-  it("keeps every flight under 700 ms", () => {
+  it("keeps every flight under 800 ms", () => {
     const events = [
       move(1, z(0, DECK, 0), z(0, HAND, 0)),
       move(2, z(0, GRAVE, 0), z(0, HAND, 1)),
@@ -97,7 +97,7 @@ describe("planMoves", () => {
       move(4, z(0, MZONE, 1), z(0, REMOVED, 0)),
     ];
     for (const plan of planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry: () => ({ distance: 5000 }) })) {
-      expect(plan.durationMs).toBeLessThan(700);
+      expect(plan.durationMs).toBeLessThan(800);
     }
   });
 
@@ -145,9 +145,9 @@ describe("moveStyleOf", () => {
     expect(style(z(0, MZONE, 3), z(0, 0x40, 0))).toBe("toss");
     expect(moveStyleOf(move(1, z(0, DECK, 0), z(0, HAND, 3)), true)).toBe("fade");
   });
-  it("plans a search from the Graveyard as a 520 ms lift, reveal and settle", () => {
+  it("plans a search from the Graveyard as a 680 ms lift, reveal and settle", () => {
     expect(baseDuration("search", 300)).toBe(MOVE_TIMING.search);
-    expect(MOVE_TIMING.search).toBeLessThan(700);
+    expect(MOVE_TIMING.search).toBeLessThan(800);
   });
 });
 

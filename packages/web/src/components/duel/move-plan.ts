@@ -6,11 +6,12 @@
  * The plan is a pure function of the fresh events, the clock and the measured distance, and it is
  * memoised per event id, so whichever layer sees a batch first plans it and the others read it.
  *
- * Human pacing: a card placed from the hand takes 420-560 ms, a toss into a pile 360-450 ms, a draw
- * about 380 ms, a card taken back from a pile (search, salvage) 520 ms. Moves queue one after
- * another; the next one starts when the previous one is 60% through (never less than minGapMs
- * later, so two draws stay two cards), and a long burst is sped up so the whole queue never trails
- * more than about 1.4 s.
+ * Human pacing (Master Duel / Hearthstone speed): a card placed from the hand takes 480-600 ms, a
+ * toss into a pile 460-580 ms, a draw about 520 ms, a card returned to the hand 500 ms, a card
+ * taken back from a pile (search, salvage) 680 ms. Moves queue one after another; the next one
+ * starts when the previous one is 70% through (never less than minGapMs later, so two draws stay
+ * two cards). A long burst is compressed, never skipped, so the whole queue trails no more than
+ * about 3 s, and no flight is squeezed below 55% of its length.
  */
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
@@ -25,28 +26,28 @@ import { battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
 import { findZoneElement, isHeavySummon, summonStyleOf } from "./event-queue";
 
 export const MOVE_TIMING = {
-  placeMin: 420,
-  placeMax: 560,
-  tossMin: 360,
-  tossMax: 450,
-  draw: 380,
-  ret: 420,
+  placeMin: 480,
+  placeMax: 600,
+  tossMin: 460,
+  tossMax: 580,
+  draw: 520,
+  ret: 500,
   /** A card taken from the Graveyard or banished pile into the hand: it lifts out, shows its face, then settles. */
-  search: 520,
+  search: 680,
   reduced: 150,
   /** The next move starts when the previous one is this far through. */
-  overlap: 0.6,
+  overlap: 0.7,
   /** The next move never starts sooner than this after the previous one (a sped-up burst still reads as separate cards). */
-  minGapMs: 70,
+  minGapMs: 180,
   /** The whole queue should finish within this many ms of the newest batch arriving. */
-  queueCapMs: 1400,
+  queueCapMs: 3000,
   /** Never speed a burst up by more than this factor (1 / minSpeed). */
-  minSpeed: 0.3,
+  minSpeed: 0.55,
   /** Destroy: the card cracks and breaks in place first, then flies off. */
-  destroyBreakMs: 150,
+  destroyBreakMs: 260,
   destroyBreakBattleMs: 460,
   /** A heavy or typed summon's ghost stays this long after landing so the effect can take over from it. */
-  heavyHoldMs: 140,
+  heavyHoldMs: 160,
 } as const;
 
 export type MoveStyle = "place" | "toss" | "draw" | "return" | "search" | "fade";

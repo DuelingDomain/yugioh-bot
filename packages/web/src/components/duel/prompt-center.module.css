@@ -47,7 +47,7 @@
     0 0 0 1px rgb(0 0 0 / 0.55),
     0 22px 56px rgb(0 0 0 / 0.6);
   outline: none;
-  animation: rise 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: rise 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 /* A soft dim only around the panel, so the rest of the board stays fully readable. */

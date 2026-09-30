@@ -71,13 +71,13 @@ const STRIP: readonly number[] = Array.from({ length: 30 }, (_, i) => i % 10);
 const MID = 10;
 
 // Slot-machine timing. Whole roll is ROLL_MIN_MS..ROLL_MAX_MS, scaled by the size of the hit.
-const ROLL_MIN_MS = 1000;
-const ROLL_MAX_MS = 1500;
+const ROLL_MIN_MS = 600;
+const ROLL_MAX_MS = 900;
 const BIG_HIT = 8000;
 const FIRST_STOP = 0.56; // leftmost changing reel stops at 56% of the roll, the rightmost at 100%
 const SOLO_STOP = 0.86; // a lone changing reel stops at 86%
-const SPIN_RATE_MIN = 15; // average digits per second, small hit
-const SPIN_RATE_MAX = 28; // average digits per second, big hit
+const SPIN_RATE_MIN = 20; // average digits per second, small hit
+const SPIN_RATE_MAX = 34; // average digits per second, big hit
 const SETTLE_SPLIT = 0.84; // share of a reel's time spent spinning before the snap back
 const OVERSHOOT = 0.08; // digits past the target before the snap
 const BLUR_MAX_EM = 0.045;
@@ -85,7 +85,7 @@ const BLUR_FULL_SPEED = 55; // digits per second at which the blur is at its max
 const DIM_MAX = 0.22;
 const EPS = 0.001;
 const FINISH_SLACK_MS = 140;
-const CUE_MS = 700;
+const CUE_MS = 500;
 
 function wrap10(n: number): number {
   return ((n % 10) + 10) % 10;
@@ -160,7 +160,7 @@ export function mergeGlyphs(from: Glyph[], to: Glyph[]): Glyph[] {
 export type ReelColumn = { key: string; pos: number; target: number };
 export type ReelPlan = { key: string; from: number; target: number; travel: number; duration: number };
 
-/** Total roll time for a hit of `magnitude` LP: 1.0 s for a scratch, 1.5 s for a full 8000. */
+/** Total roll time for a hit of `magnitude` LP: 0.6 s for a scratch, 0.9 s for a full 8000. */
 export function rollDurationMs(magnitude: number): number {
   const f = Math.sqrt(Math.min(1, Math.max(0, magnitude) / BIG_HIT));
   return Math.round(ROLL_MIN_MS + (ROLL_MAX_MS - ROLL_MIN_MS) * f);

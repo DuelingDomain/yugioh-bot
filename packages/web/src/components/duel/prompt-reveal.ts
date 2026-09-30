@@ -16,13 +16,13 @@ import { useEffect, useState, type RefObject } from "react";
 
 export const REVEAL_TIMING = {
   /** The beat before a panel may appear. */
-  beatMs: 500,
+  beatMs: 450,
   /** Quiet time after the last board effect ends. */
-  settleMs: 200,
+  settleMs: 350,
   /** The panel never stays hidden longer than this. */
-  capMs: 2600,
+  capMs: 4000,
   /** Reduced motion: one short pause instead. */
-  reducedMs: 120,
+  reducedMs: 150,
 };
 
 export type RevealTiming = typeof REVEAL_TIMING;

@@ -58,16 +58,16 @@ export type SummonFxProps = {
 
 /** Milliseconds from the start of a heavy summon. Everything else is derived from these. */
 export const HEAVY_TIMELINE = {
-  rise: 360,
-  hoverEnd: 580,
-  impact: 720,
-  handOver: 800,
+  rise: 320,
+  hoverEnd: 520,
+  impact: 640,
+  handOver: 710,
   shake: 320,
   crackDraw: 150,
-  crackFadeFrom: 1040,
+  crackFadeFrom: 900,
   /** Rays of light from the impact are gone by here. */
-  raysEnd: 1240,
-  total: 1600,
+  raysEnd: 1080,
+  total: 1300,
 } as const;
 
 /**
@@ -81,8 +81,12 @@ export const SHAKE_AMPLITUDE_PX: Record<DuelShakePreference, number> = {
   high: 7,
 };
 
-/** Milliseconds from the start of a typed summon: when the real card takes over, and when the effect is gone. */
-export const TYPED_TIMELINE: Record<SummonStyle, { handOver: number; total: number }> = {
+/**
+ * The typed effects are authored on this timeline (ms from the start of the summon: when the real
+ * card takes over, and when the effect is gone). Every duration and delay inside them plays at
+ * TYPED_SCALE of these numbers (see Track.pace), which brings them to a human pace.
+ */
+const TYPED_AUTHORED: Record<SummonStyle, { handOver: number; total: number }> = {
   fusion: { handOver: 780, total: 1300 },
   synchro: { handOver: 800, total: 1350 },
   xyz: { handOver: 900, total: 1400 },
@@ -90,6 +94,15 @@ export const TYPED_TIMELINE: Record<SummonStyle, { handOver: number; total: numb
   ritual: { handOver: 820, total: 1350 },
   pendulum: { handOver: 1080, total: 1500 },
 };
+export const TYPED_SCALE = 0.75;
+
+/** The same timeline as it plays: when the real card takes over, and when the effect is gone. */
+export const TYPED_TIMELINE = Object.fromEntries(
+  (Object.keys(TYPED_AUTHORED) as SummonStyle[]).map((style) => [
+    style,
+    { handOver: Math.round(TYPED_AUTHORED[style].handOver * TYPED_SCALE), total: Math.round(TYPED_AUTHORED[style].total * TYPED_SCALE) },
+  ]),
+) as Record<SummonStyle, { handOver: number; total: number }>;
 
 /** Light colours per summon type as "r g b" triplets: main light, secondary, accent. */
 export type FxTone = "gold" | SummonStyle;
@@ -121,9 +134,11 @@ function applyTone(el: HTMLElement | SVGElement | null, tone: FxTone): void {
 }
 
 const CARD_ASPECT = 0.686;
-const STAGGER_MS = 140;
+/** Gap between queued board effects (a chain link, a second summon), so each one reads on its own. */
+const STAGGER_MS = 220;
 const MAX_STAGGER_STEPS = 5;
-const HEAVY_LOCK_MS = 1000;
+/** A second slam waits this long after the first starts; the first one's aftermath overlaps it a little. */
+const HEAVY_LOCK_MS = 1150;
 const MAX_ITEMS = 10;
 const HIDE_FAILSAFE_MS = 4000;
 const GY_LOCATION = LOCATION_GRAVE;
@@ -134,10 +149,10 @@ type FxKind = "heavy" | "typed" | "light" | "set" | "activate" | "destroy" | "im
 const SLAM_LOOK_MIN = 0.6;
 const SLAM_LOOK_MAX = 1.6;
 /** After the impact the field effects (cracks, aura, rings) last at most this long. */
-const IMPACT_LIFE_MAX = 880;
-const IMPACT_LIFE_MIN = 600;
+const IMPACT_LIFE_MAX = 700;
+const IMPACT_LIFE_MIN = 560;
 /** The whole slam (drop, impact and aftermath) stays under about this many ms from the start of the summon. */
-const SLAM_TOTAL_MS = 1650;
+const SLAM_TOTAL_MS = 1300;
 
 type FxItem = {
   key: string;
@@ -265,16 +280,39 @@ function emitCue(cue: DuelFxCue, strength = 1): void {
 export class Track {
   readonly anims: Animation[] = [];
   private readonly timers: number[] = [];
+  private origin = 0;
+  private scale = 1;
+
+  /**
+   * From here on every duration, and every delay past `origin`, is multiplied by `scale`. The effect
+   * is authored at one speed and played at another; the start (`origin`) does not move.
+   */
+  pace(origin: number, scale: number): void {
+    this.origin = origin;
+    this.scale = scale;
+  }
+
+  private at(ms: number): number {
+    return ms >= this.origin ? this.origin + (ms - this.origin) * this.scale : ms;
+  }
 
   play(el: Element | null | undefined, frames: Keyframe[], options: KeyframeAnimationOptions): Animation | null {
     if (!el || typeof el.animate !== "function") return null;
-    const anim = el.animate(frames, { fill: "both", ...options });
+    const paced =
+      this.scale === 1
+        ? options
+        : {
+            ...options,
+            delay: this.at(Number(options.delay ?? 0)),
+            duration: typeof options.duration === "number" ? options.duration * this.scale : options.duration,
+          };
+    const anim = el.animate(frames, { fill: "both", ...paced });
     this.anims.push(anim);
     return anim;
   }
 
   after(ms: number, fn: () => void): void {
-    this.timers.push(window.setTimeout(fn, Math.max(0, ms)));
+    this.timers.push(window.setTimeout(fn, Math.max(0, this.at(ms))));
   }
 
   /** Resolves when every animation on the track has finished (a cancel counts as finished). */
@@ -471,7 +509,7 @@ function GlowFx({ item, overlay, done, tone }: EffectProps & { tone: "gold" | "v
     if (anchor.current) placeAnchor(anchor.current, geo);
     if (tone === "typed") applyTone(anchor.current, item.style ?? "gold");
     track.play(glow.current, [{ opacity: 0 }, { opacity: 0.95, offset: 0.25 }, { opacity: 0 }], {
-      duration: 460,
+      duration: 320,
       delay: item.delayMs,
       easing: "ease-out",
     });
@@ -483,7 +521,7 @@ function GlowFx({ item, overlay, done, tone }: EffectProps & { tone: "gold" | "v
   );
 }
 
-/** Level 6 and below: the card develops in place with a small lift and a thin ring. Under 400 ms. */
+/** Level 6 and below: the card develops in place with a small lift and a thin ring. About 450 ms, the landing of a normal summon. */
 function LightFx({ item, overlay, done }: EffectProps) {
   const anchor = useAnchor();
   const ring = useRef<HTMLSpanElement>(null);
@@ -498,9 +536,9 @@ function LightFx({ item, overlay, done }: EffectProps) {
         { filter: "brightness(1.45) saturate(1.1)", opacity: 1, translate: "0 0", scale: "1.035", offset: 0.55 },
         { filter: "brightness(1) saturate(1)", opacity: 1, translate: "0 0", scale: "1" },
       ],
-      { duration: 380, delay: item.delayMs, easing: "cubic-bezier(0.22, 0.8, 0.3, 1)" },
+      { duration: 450, delay: item.delayMs, easing: "cubic-bezier(0.22, 0.8, 0.3, 1)" },
     );
-    pulseRing(track, ring.current, item.delayMs, { grow: 1.22, duration: 380, peak: 0.7 });
+    pulseRing(track, ring.current, item.delayMs, { grow: 1.22, duration: 480, peak: 0.7 });
   });
   return (
     <div ref={anchor} className={styles.anchor}>
@@ -523,10 +561,10 @@ function SetFx({ item, overlay, done }: EffectProps) {
         { opacity: 1, translate: "0 -3%", scale: "0.985", offset: 0.62 },
         { opacity: 1, translate: "0 0", scale: "1" },
       ],
-      { duration: 340, delay: item.delayMs, easing: "cubic-bezier(0.2, 0.75, 0.3, 1)" },
+      { duration: 450, delay: item.delayMs, easing: "cubic-bezier(0.2, 0.75, 0.3, 1)" },
     );
     track.play(shadow.current, [{ opacity: 0, transform: "scale(1.25)" }, { opacity: 0.55, offset: 0.6 }, { opacity: 0, transform: "scale(1)" }], {
-      duration: 380,
+      duration: 500,
       delay: item.delayMs,
       easing: "ease-out",
     });
@@ -556,16 +594,16 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
     if (item.plan) {
       // The flight already brought the card face-up onto the zone: only the ring marks the activation.
     } else if (art) {
-      track.play(art, frames, { duration: 420, delay: item.delayMs, easing: "cubic-bezier(0.25, 0.8, 0.3, 1)" });
+      track.play(art, frames, { duration: 560, delay: item.delayMs, easing: "cubic-bezier(0.25, 0.8, 0.3, 1)" });
     } else if (ghost.current) {
       // The card already left the zone (it resolved): flip a copy in place so the activation still reads.
       track.play(ghost.current, [{ opacity: 0, transform: "perspective(520px) rotateY(84deg)" }, { opacity: 1, transform: "perspective(520px) rotateY(0deg)", offset: 0.4 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }], {
-        duration: 620,
+        duration: 800,
         delay: item.delayMs,
         easing: "cubic-bezier(0.25, 0.8, 0.3, 1)",
       });
     }
-    pulseRing(track, edge.current, item.delayMs + 60, { grow: 1.16, duration: 620, peak: 1 });
+    pulseRing(track, edge.current, item.delayMs + 80, { grow: 1.16, duration: 700, peak: 1 });
   });
   return (
     <div ref={anchor} className={styles.anchor}>
@@ -594,7 +632,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
     const d = item.delayMs;
     const breakAt = item.breakMs ?? (item.event.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs);
     // With a flight to the Graveyard the card ends here and MoveFx picks it up at the break.
-    const burst = handoff ? 60 : 520;
+    const burst = handoff ? 60 : 560;
     const total = breakAt + burst;
     track.after(d + breakAt, () => emitCue("shatter", 1));
 
@@ -626,7 +664,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
       { duration: total, delay: d, easing: "linear" },
     );
     track.play(flash.current, [{ opacity: 0 }, { opacity: 0.8, offset: 0.35 }, { opacity: 0 }], {
-      duration: 240,
+      duration: 280,
       delay: d + breakAt - 20,
       easing: "ease-out",
     });
@@ -883,13 +921,13 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
     track.after(hit, () => emitCue("slam", weight));
     const grow = 2.3 + weight * 0.5;
     track.play(ring.current, [{ opacity: 0.9, transform: "scale(0.5)" }, { opacity: 0, transform: `scale(${grow})` }], {
-      duration: 470,
+      duration: 420,
       delay: hit,
       fill: "forwards",
       easing: "cubic-bezier(0.1, 0.7, 0.2, 1)",
     });
     track.play(ring2.current, [{ opacity: 0.5, transform: "scale(0.4)" }, { opacity: 0, transform: `scale(${grow * 1.35})` }], {
-      duration: 620,
+      duration: 560,
       delay: hit + 70,
       fill: "forwards",
       easing: "cubic-bezier(0.1, 0.7, 0.2, 1)",
@@ -917,7 +955,7 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
       const dist = geo.w * (0.55 + rand() * 0.75);
       const dx = Math.cos(angle) * dist * 1.25;
       const dy = Math.sin(angle) * dist * 0.55 - geo.h * 0.05;
-      const life = 420 + rand() * 260;
+      const life = 380 + rand() * 240;
       track.play(
         el,
         [
@@ -1049,12 +1087,12 @@ function ImpactFx({ item, overlay, done }: EffectProps) {
     track.play(
       shock.current,
       [{ opacity: 0.95, transform: "scale(0.5, 0.2)" }, { opacity: 0, transform: `scale(${grow}, ${grow * 0.42})` }],
-      { duration: 560, delay: d, easing: "cubic-bezier(0.1, 0.7, 0.2, 1)" },
+      { duration: 480, delay: d, easing: "cubic-bezier(0.1, 0.7, 0.2, 1)" },
     );
     track.play(
       shock2.current,
       [{ opacity: 0.55, transform: "scale(0.4, 0.16)" }, { opacity: 0, transform: `scale(${grow * 1.25}, ${grow * 0.52})` }],
-      { duration: 720, delay: d + 90, easing: "cubic-bezier(0.1, 0.7, 0.2, 1)" },
+      { duration: 600, delay: d + 90, easing: "cubic-bezier(0.1, 0.7, 0.2, 1)" },
     );
     const rand = mulberry32(item.event.id * 7919 + 29);
     if (item.style) {
@@ -1069,7 +1107,7 @@ function ImpactFx({ item, overlay, done }: EffectProps) {
             { opacity: 0.75, transform: "translate(0, 0) scale(1)" },
             { opacity: 0, transform: `translate(${Math.cos(angle) * dist * 1.25}px, ${Math.sin(angle) * dist * 0.5}px) scale(${0.25 + rand() * 0.3})` },
           ],
-          { duration: 420 + rand() * 260, delay: d, easing: "cubic-bezier(0.1, 0.6, 0.3, 1)" },
+          { duration: 380 + rand() * 240, delay: d, easing: "cubic-bezier(0.1, 0.6, 0.3, 1)" },
         );
       });
     }
@@ -1079,7 +1117,7 @@ function ImpactFx({ item, overlay, done }: EffectProps) {
     const boardScale = clamp(geo.overlayW / 1100, 0.7, 1.4);
     const amp = SHAKE_AMPLITUDE_PX[item.shake] * strength * 1.15 * boardScale;
     if (amp > 0 && field) {
-      track.play(field, shakeFrames(amp, item.event.id), { duration: 420, delay: d, fill: "none", easing: "linear" });
+      track.play(field, shakeFrames(amp, item.event.id), { duration: 400, delay: d, fill: "none", easing: "linear" });
     }
     if (mul > 0) {
       const o = overlay.getBoundingClientRect();
@@ -1096,7 +1134,7 @@ function ImpactFx({ item, overlay, done }: EffectProps) {
         const uy = dist > 0 ? dy / dist : 1;
         // Pushed away from the impact, tilted away too, and a little down (into the board).
         track.play(el, joltFrames(ux * push, uy * push + push * 0.35, (ux >= 0 ? 1 : -1) * 2.4 * strength * f * mul), {
-          duration: 460,
+          duration: 440,
           delay: d,
           fill: "none",
           easing: "linear",
@@ -1230,11 +1268,13 @@ function useTypedSetup(
   const { item, overlay, done } = props;
   useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
     const d = item.delayMs;
-    const { handOver, total } = TYPED_TIMELINE[style];
+    const { handOver, total } = TYPED_AUTHORED[style];
     if (refs.anchor.current) placeAnchor(refs.anchor.current, geo);
     applyTone(refs.anchor.current, style);
     if (refs.copyBody.current && geo.defense) refs.copyBody.current.style.rotate = "90deg";
-    holdHidden(track, zone, d + handOver);
+    holdHidden(track, zone, d + handOver * TYPED_SCALE);
+    // Everything below is written on the authored timeline and plays at TYPED_SCALE of it.
+    track.pace(d, TYPED_SCALE);
     // The copy stands until the real card is back, then goes in a blink so nothing shows twice for long.
     track.play(refs.copy.current, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: handOver / total }, { opacity: 0, offset: Math.min(0.999, (handOver + 90) / total) }, { opacity: 0 }], {
       duration: total,

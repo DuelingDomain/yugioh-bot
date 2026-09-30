@@ -4,10 +4,10 @@
  * Position changes for monsters on the board ("position" events).
  *
  *  - Turn (Attack to Defense or back): the real card turns a quarter in place, lifting a little on
- *    the way and settling with a small overshoot, about 380 ms. A soft shadow under it sells the lift.
+ *    the way and settling with a small overshoot, about 400 ms. A soft shadow under it sells the lift.
  *  - Reveal (face-down to face-up: an attacked Set monster, a Flip Summon, a flipped-up effect): a
  *    copy of the card flips over in 3D on the zone, back to face, with a glint across the face, about
- *    450 ms. The face is fully showing by 300 ms, before a battle slash lands (BATTLE_IMPACT_MS, 490).
+ *    560 ms. The face is fully showing by 380 ms, before a battle slash lands (BATTLE_IMPACT_MS, 490).
  *    The real card is hidden underneath until the copy is done, so nothing shows twice.
  *  - Conceal (face-up to face-down, Book of Moon): the same flip the other way.
  *
@@ -45,16 +45,16 @@ export type PositionFxProps = {
 };
 
 /** A quarter turn between Attack and Defense Position. */
-export const TURN_MS = 380;
+export const TURN_MS = 400;
 /** A face-down card turning face-up (or the reverse): whole flip including the glint. */
-export const FLIP_REVEAL_MS = 450;
+export const FLIP_REVEAL_MS = 560;
 /** When the face is fully showing during a reveal. Under BattleFx's BATTLE_IMPACT_MS (490) on purpose. */
-export const FLIP_FACE_AT_MS = 300;
+export const FLIP_FACE_AT_MS = 380;
 /** Reduced motion: the new state fades in. */
 export const REDUCED_MS = 150;
 
 const CARD_ASPECT = 0.686;
-const STAGGER_MS = 90;
+const STAGGER_MS = 200;
 const MAX_STAGGER_STEPS = 5;
 const MAX_ITEMS = 8;
 

@@ -221,9 +221,13 @@ export function emitDuelFxCue(detail: DuelFxCueDetail): void {
   window.dispatchEvent(new CustomEvent<DuelFxCueDetail>(DUEL_FX_CUE_EVENT, { detail }));
 }
 
-/** Cap remaining cue time so a burst does not stack full-length playback. */
-const CATCH_UP_BUDGET_MS = 1000;
-const MIN_CUE_MS = 120;
+/**
+ * A backlog of cues is compressed, never dropped: each cue keeps at least MIN_CUE_FRACTION of its
+ * length (and MIN_CUE_MS), so a long chain stays a row of distinct beats instead of a blur.
+ */
+const CATCH_UP_BUDGET_MS = 3600;
+const MIN_CUE_MS = 400;
+const MIN_CUE_FRACTION = 0.5;
 
 export function maxEventId(events: readonly DuelEvent[]): number | null {
   let max: number | null = null;
@@ -257,31 +261,29 @@ export function collectFreshEvents(
   return { nextCursor, fresh };
 }
 
+/** How long a banner or toast stays: at least about 1.2 s for anything with words to read. */
 export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number {
   if (reducedMotion) {
-    return kind === "activate" ? 900 : 650;
+    return kind === "activate" ? 1200 : 900;
   }
   switch (kind) {
     case "activate":
-      return 1100;
+      return 1500;
     case "summon":
     case "set":
-      return 720;
     case "attack":
-      return 620;
     case "destroy":
-      return 700;
     case "phase":
-      return 900;
+      return 1200;
     case "chain-resolving":
-      return 520;
+      return 800;
     case "chain-resolved":
     case "chain-negated":
-      return 640;
+      return 900;
     case "chain-end":
-      return 420;
-    default:
       return 600;
+    default:
+      return 900;
   }
 }
 
@@ -292,5 +294,6 @@ export function pacedCueDuration(
 ): number {
   const base = cueDuration(kind, reducedMotion);
   if (remainingCount <= 1) return base;
-  return Math.min(base, Math.max(MIN_CUE_MS, Math.floor(CATCH_UP_BUDGET_MS / remainingCount)));
+  const floor = Math.min(base, Math.max(MIN_CUE_MS, Math.round(base * MIN_CUE_FRACTION)));
+  return Math.min(base, Math.max(floor, Math.floor(CATCH_UP_BUDGET_MS / remainingCount)));
 }

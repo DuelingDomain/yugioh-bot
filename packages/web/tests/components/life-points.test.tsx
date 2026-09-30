@@ -71,15 +71,15 @@ describe("life points reel plan", () => {
       expect([...durations].sort((a, b) => a - b)).toEqual(durations);
       expect(new Set(durations).size).toBe(durations.length);
       expect(total).toBe(durations[durations.length - 1]);
-      expect(total).toBeGreaterThanOrEqual(1000);
-      expect(total).toBeLessThanOrEqual(1500);
+      expect(total).toBeGreaterThanOrEqual(600);
+      expect(total).toBeLessThanOrEqual(900);
     }
   });
 
   it("scales duration and spin count with the size of the hit", () => {
     expect(rollDurationMs(1)).toBeLessThan(rollDurationMs(800));
     expect(rollDurationMs(800)).toBeLessThan(rollDurationMs(8000));
-    expect(rollDurationMs(1_000_000)).toBe(1500);
+    expect(rollDurationMs(1_000_000)).toBe(900);
     const cols = [col("d0", 0, 5)];
     const small = planReels(cols, 1, 5).reels[0];
     const big = planReels(cols, 1, 8000).reels[0];

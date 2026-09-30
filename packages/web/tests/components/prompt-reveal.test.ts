@@ -107,7 +107,7 @@ describe("waitForReveal", () => {
 
   it("never waits past the cap", async () => {
     const stuck = animation();
-    const at = await timeToReveal({ source: source(() => [stuck]), reducedMotion: false }, 4000);
+    const at = await timeToReveal({ source: source(() => [stuck]), reducedMotion: false }, 6000);
     expect(at).toBe(REVEAL_TIMING.capMs);
   });
 
@@ -159,13 +159,13 @@ describe("holdPromptReveal", () => {
 
   it("keeps the panel hidden while a portal effect (the battle layer) plays, within the cap", async () => {
     holdPromptReveal(1250);
-    const at = await timeToReveal({ source: source(() => []), reducedMotion: false }, 4000);
+    const at = await timeToReveal({ source: source(() => []), reducedMotion: false }, 6000);
     expect(at).toBe(1250 + REVEAL_TIMING.settleMs);
   });
 
   it("never holds past the cap", async () => {
     holdPromptReveal(10_000);
-    const at = await timeToReveal({ source: source(() => []), reducedMotion: false }, 4000);
+    const at = await timeToReveal({ source: source(() => []), reducedMotion: false }, 6000);
     expect(at).toBe(REVEAL_TIMING.capMs);
   });
 });

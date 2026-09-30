@@ -48,7 +48,7 @@ const SAMPLES = 18;
 const HIDE_FAILSAFE_MS = 1500;
 const MAX_GHOSTS = 12;
 /** The ghost dissolves over the real card this long after landing. */
-export const LAND_FADE_MS = 110;
+export const LAND_FADE_MS = 140;
 /** A destination that moved during the flight is followed for this long, at the end. */
 const GLIDE_MS = 140;
 /** Moves smaller than this many px are not chased. */
@@ -280,7 +280,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 
     if (plan.style === "fade" || !source) {
       track.play(el, [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], {
-        duration: plan.reduced ? plan.durationMs : Math.min(plan.durationMs, 240),
+        duration: plan.reduced ? plan.durationMs : Math.min(plan.durationMs, 300),
         easing: "ease-out",
       });
       if (flipper.current) flipper.current.style.transform = `rotateY(${endAngle}deg)`;
@@ -380,7 +380,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 /* ---------- the hand slides (FLIP) ---------- */
 
 export const HAND_FLIP_MS = 320;
-export const HAND_ENTER_MS = 260;
+export const HAND_ENTER_MS = 320;
 const HAND_FLIP_ID = "duel-hand-flip";
 const HAND_FLIP_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 
