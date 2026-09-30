@@ -817,6 +817,12 @@ export function inspectDeck(
   const copies = [...main, ...extra];
   if (dmValid && dm) {
     const dmKey = componentOf(dm, identities);
+    if (limits && listedLimitForIdentity(dmKey, identities, catalog, limits) === 0) {
+      issues.push({
+        message: `${dm.name} is forbidden`,
+        cards: [{ section: "deckMaster", index: 0, code: dm.id, name: dm.name }],
+      });
+    }
     const found = copies.filter((item) => componentOf(item.card, identities) === dmKey);
     if (found.length) {
       issues.push({

@@ -189,6 +189,17 @@ describe("validateDeck settings banlist", () => {
       validateDeck("normal", { main: fillerSpells(40), extra: [], side: [] }, DATA, settings({ banlist: "tcg-2025-01" })),
     ).toThrow(/unknown banlist/i);
   });
+
+  it("applies a custom banlist to the separate Domain Deck Master", () => {
+    const cyberStein = 69015963;
+    const deck = { main: tcgLegalFillers(60), extra: [], side: [], deckMaster: cyberStein };
+    const { issues } = inspectDeck("domain", deck, DATA, settings({ banlist: "tcg-2026-09" }));
+    expect(issues.flatMap((issue) => issue.cards)).toContainEqual(
+      expect.objectContaining({ section: "deckMaster", index: 0, code: cyberStein }),
+    );
+    expect(inspectDeck("domain", deck, DATA, settings()).issues).toEqual([]);
+    expect(inspectDeck("domain", deck, DATA, settings({ banlist: "tcg-2026-09", validateDeck: false })).issues).toEqual([]);
+  });
 });
 
 describe("validateDeck settings card pool", () => {
