@@ -51,7 +51,7 @@ import { cardArtUrl, isBattlePhase, phaseLabel, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
 import { SheetButton } from "./sheet-ui";
-import { DuelClockDisplay, DuelSettingsSummary, RoomInvite } from "./room-settings";
+import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } from "./room-settings";
 import { battleStepLabel, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
 import { MoveFx } from "./move-fx";
 import { PositionFx } from "./position-fx";
@@ -670,8 +670,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       {engine ? <DuelHistoryRail events={engine.events} engine={engine} mySeat={data.mySeat} playerName={playerName}
         onInspectCard={(card) => showInspector("location" in card ? { type: "card", card } : { type: "info", card })}
         reducedMotion={preferences.reducedMotion} /> : null}
-      <MatchSheetLog entries={engine?.log ?? []} playerName={playerName}
-        players={data.session.seats.map((seat) => seat.displayName).join(" v ")} />
+      <details className={styles.textLog}>
+        <summary>Text log</summary>
+        <MatchSheetLog entries={engine?.log ?? []} playerName={playerName}
+          players={data.session.seats.map((seat) => seat.displayName).join(" v ")} />
+      </details>
     </div>
   ) : pane === "masters" ? (
     <div className={styles.mastersSheet}>{masterRail}</div>
@@ -680,11 +683,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       <DuelSettingsSummary session={data.session} />
       <RoomInvite room={data} slug={slug} />
       <h2>Presentation</h2>
-      <label className={styles.soundOption}>
-        <span>Sound effects</span>
-        <input type="checkbox" checked={preferences.soundEnabled}
-          onChange={(event) => preferences.setSoundEnabled(event.target.checked)} />
-      </label>
+      <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
+        onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />
       <label className="flex flex-col gap-2">Motion
         <select value={preferences.motion}
           onChange={(event) => preferences.setMotion(event.target.value as typeof preferences.motion)}>
@@ -856,7 +856,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                   bottomName={playerName(localSeat)}
                   topName={playerName(top?.seat ?? 1 - localSeat)} />
                 {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug}
-                  soundEnabled={preferences.soundEnabled} reducedMotion={preferences.reducedMotion} /> : null}
+                  soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
                 {!error && !realtime.recovering ? <SummonFx events={engine.events} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
                 {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}

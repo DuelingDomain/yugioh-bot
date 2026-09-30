@@ -244,7 +244,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
               bottomName={playerName(localSeat)}
               topName={playerName(top?.seat ?? 1 - localSeat)} />
             <DuelFeedback events={engine.events} duelKey={`${slug}:replay:${epoch}`}
-              soundEnabled={preferences.soundEnabled} reducedMotion={preferences.reducedMotion} />
+              soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} />
           </div>
           <nav className={styles.phases} aria-label="Duel phases">
             {PHASES.map((phase) => (

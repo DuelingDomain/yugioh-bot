@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { DUEL_BANLIST_OPTIONS, duelClockRulesText, isCustomDomain, type DuelClock, type DuelRoom, type DuelSession } from "@yugidraft/shared/duels";
 import { Check, Link2 } from "lucide-react";
 import { SheetButton } from "./sheet-ui";
@@ -39,6 +39,33 @@ export function DuelSettingsSummary({ session }: { session: DuelSession }) {
       </dl>
       <p className={own.note}>Settings are locked and retained in match history.</p>
     </section>
+  );
+}
+
+/** Sound on/off plus a master volume slider (native range input: arrow keys, Home/End, PageUp/PageDown). */
+export function DuelSoundControls({ enabled, volume, onEnabledChange, onVolumeChange }: {
+  enabled: boolean;
+  volume: number;
+  onEnabledChange: (enabled: boolean) => void;
+  onVolumeChange: (volume: number) => void;
+}) {
+  const sliderId = useId();
+  const percent = Math.round(volume * 100);
+  return (
+    <div className={own.sound}>
+      <label className={own.soundToggle}>
+        <span>Sound effects</span>
+        <input type="checkbox" role="switch" checked={enabled}
+          onChange={(event) => onEnabledChange(event.target.checked)} />
+      </label>
+      <div className={own.soundVolume} data-off={!enabled || undefined}>
+        <label htmlFor={sliderId}>Volume</label>
+        <input id={sliderId} type="range" min={0} max={100} step={5} value={percent}
+          aria-valuetext={`${percent}%`}
+          onChange={(event) => onVolumeChange(Number(event.target.value) / 100)} />
+        <output htmlFor={sliderId}>{percent}%</output>
+      </div>
+    </div>
   );
 }
 

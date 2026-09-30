@@ -17,3 +17,20 @@
   background: var(--duel-panel-2, #0e1729); color: var(--duel-ink, #efe7d5); font: inherit; font-size: 13px;
 }
 .manual input:focus-visible { outline: none; border-color: var(--duel-pen, #9b7eff); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.22); }
+
+/* ---------- sound controls (options pane) ---------- */
+.sound { display: flex; flex-direction: column; gap: calc(8 * var(--duel-unit)); }
+.soundToggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+.soundToggle input { width: calc(18 * var(--duel-unit)); height: calc(18 * var(--duel-unit)); accent-color: #7c5cf0; }
+.soundVolume {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 4ch;
+  align-items: center;
+  gap: calc(10 * var(--duel-unit));
+  color: var(--duel-ink-2);
+  font-size: var(--duel-t-sm);
+}
+.soundVolume[data-off] { opacity: 0.55; }
+.soundVolume input { width: 100%; min-width: 0; accent-color: #7c5cf0; cursor: pointer; }
+.soundVolume output { color: var(--duel-ink); font-variant-numeric: tabular-nums; text-align: right; }
+.soundToggle input:focus-visible, .soundVolume input:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
