@@ -96,6 +96,7 @@ jobs:
              cd /opt/yugioh-bot
              git fetch --all --prune
              git reset --hard origin/main
+             sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
              docker compose -f docker-compose.yml build
              rm -rf /tmp/yugidraft-duel-engine-src
              mkdir -p /tmp/yugidraft-duel-engine-src
@@ -110,4 +111,12 @@ jobs:
              docker compose -f docker-compose.yml up -d
              docker compose -f docker-compose.yml ps
              docker compose -f docker-compose.yml logs --tail=40
-             rm -rf /tmp/yugidraft-duel-engine-src /tmp/yugidraft-duel-engine.tar.gz'
+             rm -rf /tmp/yugidraft-duel-engine-src /tmp/yugidraft-duel-engine.tar.gz
+             sleep 20
+             duel_state=$(docker inspect -f "{{.State.Status}} restarts={{.RestartCount}}" "$(docker compose -f docker-compose.yml ps -q duel)")
+             echo "duel container: $duel_state"
+             if [ "$duel_state" != "running restarts=0" ]; then
+               docker compose -f docker-compose.yml logs --tail=60 duel
+               echo "The duel container is not running cleanly." >&2
+               exit 1
+             fi'
