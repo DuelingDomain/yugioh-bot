@@ -7,6 +7,14 @@ export interface DraftJoinPayload {
   slug: string;
 }
 
+export type DuelJoinAck =
+  | { ok: true; onlineSeats: number[]; spectatorCount: number }
+  | { ok: false; error: string };
+
+export interface DuelJoinPayload {
+  token: string;
+}
+
 export interface ServerToClientEvents {
   "draft:status": (data: { status: DraftStatus }) => void;
   "draft:pick": (data: { playerId: number; packRound: number; pickStep: number }) => void;
@@ -19,6 +27,9 @@ export interface ServerToClientEvents {
   "tournament:cancelled": (data: Record<string, never>) => void;
   "tournament:completed": (data: Record<string, never>) => void;
   "tournament:match-updated": (data: Record<string, never>) => void;
+  "duel:changed": (data: { slug: string }) => void;
+  "duel:presence": (data: { slug: string; onlineSeats: number[]; spectatorCount: number }) => void;
+  "duel:subscription-expired": (data: { slug: string }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -30,6 +41,11 @@ export interface ClientToServerEvents {
     payload: { slug: string },
     ack?: (result?: { error?: string }) => void,
   ) => void;
+  "duel:join": (
+    payload: DuelJoinPayload,
+    ack?: (result: DuelJoinAck) => void,
+  ) => void;
+  "duel:leave": (payload: { slug: string; guildId: string }) => void;
 }
 
 export interface InterServerEvents {
@@ -37,7 +53,13 @@ export interface InterServerEvents {
 }
 
 export interface SocketData {
-  // reserved for future use
+  duel?: {
+    slug: string;
+    guildId: string;
+    playerId: number;
+    seat: number | null;
+    expiresAt: number;
+  };
 }
 
 export type TypedServer = Server<
@@ -93,9 +115,11 @@ export function registerEventHandlers(
     });
 
     socket.on("disconnecting", () => {
-      for (const roomSlug of socket.rooms) {
-        if (roomSlug === socket.id) continue;
-        const draftRoom = roomManager.getRoom(roomSlug);
+      for (const roomName of socket.rooms) {
+        if (roomName === socket.id || !roomName.startsWith("draft:")) continue;
+        const slug = roomName.slice("draft:".length);
+        if (!slug) continue;
+        const draftRoom = roomManager.getRoom(slug);
         if (draftRoom) {
           roomManager.leaveRoom(draftRoom, socket);
         }

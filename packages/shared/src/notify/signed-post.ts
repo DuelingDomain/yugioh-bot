@@ -17,7 +17,7 @@ export function httpTransport(cfg: { url: string; secret: string }): SignedPostT
           headers: { "content-type": "application/json", "x-announce-signature": sig },
           body,
         });
-        const text = res.ok ? "" : await res.text().catch(() => "");
+        const text = await res.text();
         return { ok: res.ok, status: res.status, text };
       } catch (err) {
         return { ok: false, status: 0, text: err instanceof Error ? err.message : "Network error" };

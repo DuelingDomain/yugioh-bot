@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./duels": {
+      "types": "./dist/duels/index.d.ts",
+      "source": "./src/duels/index.ts",
+      "default": "./dist/duels/index.js"
+    },
     "./db": {
       "types": "./dist/db/index.d.ts",
       "source": "./src/db/index.ts",
@@ -31,6 +36,7 @@
     },
     "./ws": {
       "types": "./dist/ws/index.d.ts",
+      "source": "./src/ws/index.ts",
       "default": "./dist/ws/index.js"
     },
     "./scoring": {

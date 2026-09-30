@@ -1,12 +1,23 @@
 import { describe, expect, it } from "vitest";
+import type { Socket } from "socket.io";
 import { DraftRoomManager } from "../src/rooms.js";
 
-function createMockSocket(id: string) {
+type MockSocket = Socket & { joined: string[]; left: string[] };
+
+function createMockSocket(id: string): MockSocket {
+  const joined: string[] = [];
+  const left: string[] = [];
   return {
     id,
-    join: () => {},
-    leave: () => {},
-  } as unknown as import("socket.io").Socket;
+    joined,
+    left,
+    join: (room: string) => {
+      joined.push(room);
+    },
+    leave: (room: string) => {
+      left.push(room);
+    },
+  } as unknown as MockSocket;
 }
 
 describe("DraftRoomManager", () => {
@@ -49,6 +60,7 @@ describe("DraftRoomManager", () => {
 
     expect(room.sockets.size).toBe(1);
     expect(room.sockets.has(socket)).toBe(true);
+    expect(socket.joined).toEqual(["draft:draft-abc"]);
   });
 
   it("leaveRoom removes socket from room", () => {
@@ -61,6 +73,7 @@ describe("DraftRoomManager", () => {
 
     expect(room.sockets.size).toBe(0);
     expect(room.sockets.has(socket)).toBe(false);
+    expect(socket.left).toEqual(["draft:draft-abc"]);
   });
 
   it("leaveRoom removes the room when it becomes empty", () => {

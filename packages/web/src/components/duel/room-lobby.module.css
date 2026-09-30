@@ -1,0 +1,71 @@
+/* Table lobby: seats, deck import and start on the left; settings and the practice bot beside them. */
+.wrap { width: 100%; max-width: 1180px; margin: 0 auto; }
+
+.head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 24px; margin-bottom: clamp(22px, 3vw, 34px); }
+.titleBlock { display: grid; gap: 12px; min-width: 0; flex: 1 1 320px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.headActions { display: flex; align-items: flex-start; gap: 6px; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 344px; gap: clamp(20px, 2.6vw, 32px); align-items: start; }
+.main, .aside { display: grid; gap: 20px; min-width: 0; }
+.aside { position: sticky; top: 24px; }
+
+/* Deck card preview: its own left column on wide screens, above the settings on medium ones. */
+.wrapWide { max-width: 1720px; }
+.layoutPreview {
+  grid-template-columns: clamp(260px, 19vw, 340px) minmax(0, 1fr) 344px;
+  grid-template-areas: "preview main aside";
+}
+.layoutPreview > .preview { grid-area: preview; position: sticky; top: 24px; max-height: calc(100dvh - 48px); overflow-y: auto; }
+.layoutPreview > .main { grid-area: main; }
+.layoutPreview > .aside { grid-area: aside; }
+@media (max-width: 1399px) {
+  .wrapWide { max-width: 1180px; }
+  .layoutPreview {
+    grid-template-columns: minmax(0, 1fr) 344px;
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "main preview" "main aside";
+  }
+  .layoutPreview > .preview { position: static; max-height: none; }
+  .layoutPreview > .preview > div { grid-template-columns: 120px minmax(0, 1fr); align-items: start; }
+  .layoutPreview > .aside { position: static; }
+}
+
+.panel { display: grid; gap: 16px; min-width: 0; padding: 22px; border: 1px solid var(--duel-rule); border-radius: 12px; background: linear-gradient(180deg, rgb(19 32 55 / 0.4), rgb(10 17 32 / 0.85)); }
+.deckPanel { gap: 22px; }
+
+/* ---------- seats ---------- */
+.seats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.seat { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "avatar text" "status status"; gap: 12px 12px; align-items: center; padding: 14px; border: 1px solid var(--duel-rule-lo); border-radius: 10px; background: rgb(4 7 14 / 0.4); }
+.seat[data-ready="true"] { border-color: rgb(134 207 161 / 0.32); }
+.seat[data-mine="true"] { border-color: rgb(155 126 255 / 0.42); }
+.seatOpen { border-style: dashed; border-color: var(--duel-rule-lo); background: none; }
+.avatar { grid-area: avatar; display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--duel-rule); border-radius: 50%; background: var(--duel-panel-3); color: var(--duel-ink); font-size: 18px; font-weight: 400; }
+.seatOpen .avatar { border-style: dashed; background: none; color: var(--duel-ink-4); }
+.seat[data-mine="true"] .avatar { border-color: rgb(155 126 255 / 0.6); color: var(--duel-pen-ink); }
+.seatText { grid-area: text; display: grid; gap: 1px; min-width: 0; }
+.seatName { color: var(--duel-ink); font-size: 16px; font-weight: 450; line-height: 1.2; overflow-wrap: anywhere; }
+.seatOpen .seatName { color: var(--duel-ink-3); font-weight: 400; }
+.seatMeta { color: var(--duel-ink-3); font-size: 12.5px; }
+.status { grid-area: status; display: inline-flex; align-items: center; gap: 7px; justify-self: start; height: 26px; padding: 0 11px 0 9px; border: 1px solid var(--duel-rule-lo); border-radius: 999px; color: var(--duel-ink-3); font-size: 13px; }
+.statusReady { border-color: rgb(134 207 161 / 0.4); background: var(--duel-ok-soft); color: var(--duel-ok); }
+
+.help { color: var(--duel-ink-3); font-size: 13.5px; line-height: 1.55; max-width: 72ch; }
+.footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding-top: 16px; border-top: 1px solid var(--duel-rule-lo); }
+.footer:empty { display: none; }
+.startHint { color: var(--duel-ink-3); font-size: 13.5px; }
+
+.bot { gap: 12px; justify-items: start; }
+
+@media (max-width: 1040px) {
+  .layout, .layoutPreview { grid-template-columns: minmax(0, 1fr); grid-template-areas: none; grid-template-rows: none; }
+  .layoutPreview > .main, .layoutPreview > .aside { grid-area: auto; }
+  .aside { position: static; }
+  .layoutPreview > .preview { display: none; }
+}
+@media (max-width: 600px) {
+  .seats { grid-template-columns: minmax(0, 1fr); }
+  .seat { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "avatar text status"; }
+  .panel { padding: 16px; }
+  .footer > button:first-child { flex: 1 1 100%; }
+}

@@ -90,6 +90,9 @@ describe("registerEventHandlers", () => {
     const room = server.roomManager.getRoom("draft-1");
     expect(room).toBeDefined();
     expect(room!.sockets.size).toBe(2);
+    const socketA = server.io.sockets.sockets.get(clientA.id ?? "");
+    expect(socketA ? [...socketA.rooms] : []).toContain("draft:draft-1");
+    expect(socketA ? [...socketA.rooms] : []).not.toContain("draft-1");
   });
 
   it("draft:join rejects an empty slug", async () => {

@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { TypedServer } from "./events.js";
 import { verifyBroadcastSignature } from "./auth.js";
+import { draftSocketRoom } from "./rooms.js";
 
 type StatusBody = { slug: string; status: "active" | "cancelled" | "completed" };
 type PickBody = { slug: string; playerId: number; packRound: number; pickStep: number };
@@ -77,6 +78,13 @@ function parseTournamentSlugOnly(v: unknown): TournamentSlugOnlyBody | null {
   return { slug: o.slug };
 }
 
+function parseDuelChanged(v: unknown): { slug: string; guildId: string } | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (!isNonEmptyString(o.slug) || !isNonEmptyString(o.guildId)) return null;
+  return { slug: o.slug, guildId: o.guildId };
+}
+
 export function createInternalHttpHandler(opts: { io: TypedServer; secret: string }) {
   return async function handle(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -93,13 +101,13 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/draft/status": {
         const data = parseStatus(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
-        opts.io.to(data.slug).emit("draft:status", { status: data.status });
+        opts.io.to(draftSocketRoom(data.slug)).emit("draft:status", { status: data.status });
         return new Response(null, { status: 204 });
       }
       case "/internal/draft/pick": {
         const data = parsePick(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
-        opts.io.to(data.slug).emit("draft:pick", {
+        opts.io.to(draftSocketRoom(data.slug)).emit("draft:pick", {
           playerId: data.playerId,
           packRound: data.packRound,
           pickStep: data.pickStep,
@@ -109,7 +117,7 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/draft/resync": {
         const data = parseResync(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
-        opts.io.to(data.slug).emit("draft:resync", {
+        opts.io.to(draftSocketRoom(data.slug)).emit("draft:resync", {
           packRound: data.packRound,
           pickStep: data.pickStep,
         });
@@ -118,13 +126,13 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/draft/complete": {
         const data = parseComplete(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
-        opts.io.to(data.slug).emit("draft:complete", {});
+        opts.io.to(draftSocketRoom(data.slug)).emit("draft:complete", {});
         return new Response(null, { status: 204 });
       }
       case "/internal/draft/seats": {
         const data = parseSeats(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
-        opts.io.to(data.slug).emit("draft:seats", {});
+        opts.io.to(draftSocketRoom(data.slug)).emit("draft:seats", {});
         return new Response(null, { status: 204 });
       }
       case "/internal/tournament/participant-joined": {
@@ -165,6 +173,12 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
         const data = parseTournamentSlugOnly(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
         opts.io.to(`tournament:${data.slug}`).emit("tournament:match-updated", {});
+        return new Response(null, { status: 204 });
+      }
+      case "/internal/duel/changed": {
+        const data = parseDuelChanged(parsed);
+        if (!data) return new Response("Bad payload", { status: 400 });
+        opts.io.to(`duel:${data.guildId}:${data.slug}`).emit("duel:changed", { slug: data.slug });
         return new Response(null, { status: 204 });
       }
       default:

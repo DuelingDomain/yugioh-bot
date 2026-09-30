@@ -444,4 +444,123 @@ export function migrate(db: Database.Database) {
       and match_id is not null
       and exists (select 1 from tournament_matches tm where tm.match_id = point_awards.match_id);
   `);
+
+  db.exec(`
+    create table if not exists duels (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      web_slug text not null unique,
+      name text not null,
+      organizer_player_id integer not null references players(id),
+      mode text not null,
+      master_rule integer not null default 5,
+      status text not null,
+      seed_json text,
+      bundle_version text,
+      created_at text not null default current_timestamp,
+      ended_at text,
+      archived_at text,
+      last_activity_at text,
+      winner_player_id integer references players(id),
+      winner_seat integer,
+      result_reason text,
+      snapshot_public_json text,
+      snapshot_seat0_json text,
+      snapshot_seat1_json text
+    );
+
+    create table if not exists duel_seats (
+      duel_id integer not null references duels(id) on delete cascade,
+      seat integer not null,
+      player_id integer references players(id),
+      is_bot integer not null default 0,
+      ready integer not null default 0,
+      deck_json text,
+      primary key (duel_id, seat),
+      unique (duel_id, player_id),
+      check ((is_bot = 0 and player_id is not null) or (is_bot = 1 and player_id is null))
+    );
+
+    create table if not exists duel_commands (
+      id integer primary key autoincrement,
+      duel_id integer not null references duels(id) on delete cascade,
+      seq integer not null,
+      seat integer not null,
+      command_json text not null,
+      created_at text not null default current_timestamp,
+      unique (duel_id, seq)
+    );
+
+    create index if not exists duels_guild_status_idx on duels (guild_id, status);
+  `);
+
+  addColumnIfMissing(db, "duels", "winner_seat", "integer");
+  addColumnIfMissing(db, "duels", "archived_at", "text");
+  addColumnIfMissing(db, "duels", "last_activity_at", "text");
+  addColumnIfMissing(db, "duels", "snapshot_public_json", "text");
+  addColumnIfMissing(db, "duels", "snapshot_seat0_json", "text");
+  addColumnIfMissing(db, "duels", "snapshot_seat1_json", "text");
+  addColumnIfMissing(db, "duels", "master_rule", "integer not null default 5");
+  addColumnIfMissing(db, "duels", "settings_json", "text");
+  addColumnIfMissing(db, "duels", "clock_json", "text");
+  addColumnIfMissing(db, "duels", "invite_code", "text");
+
+  db.transaction(() => {
+    const seatInfo = db.prepare<[], { name: string; notnull: number }>("pragma table_info(duel_seats)").all();
+    const playerCol = seatInfo.find((column) => column.name === "player_id");
+    const hasBotCol = seatInfo.some((column) => column.name === "is_bot");
+    if (playerCol && (!hasBotCol || playerCol.notnull === 1)) {
+      db.exec(`
+        create table duel_seats_bot (
+          duel_id integer not null references duels(id) on delete cascade,
+          seat integer not null,
+          player_id integer references players(id),
+          is_bot integer not null default 0,
+          ready integer not null default 0,
+          deck_json text,
+          primary key (duel_id, seat),
+          unique (duel_id, player_id),
+          check ((is_bot = 0 and player_id is not null) or (is_bot = 1 and player_id is null))
+        );
+        insert into duel_seats_bot (duel_id, seat, player_id, is_bot, ready, deck_json)
+          select duel_id, seat, player_id, 0, ready, deck_json from duel_seats;
+        drop table duel_seats;
+        alter table duel_seats_bot rename to duel_seats;
+      `);
+    }
+  }).immediate();
+
+  db.exec(`
+    create index if not exists duels_guild_archived_created_idx on duels (guild_id, archived_at, created_at);
+    create index if not exists duels_archive_due_idx on duels (ended_at) where archived_at is null;
+    create table if not exists duel_invite_grants (
+      duel_id integer not null references duels(id) on delete cascade,
+      player_id integer not null references players(id),
+      created_at text not null default current_timestamp,
+      primary key (duel_id, player_id)
+    );
+    create index if not exists duel_invite_grants_player_idx on duel_invite_grants (player_id);
+    create unique index if not exists duels_invite_code_idx on duels (invite_code) where invite_code is not null;
+
+    update duels
+    set winner_seat = (
+      select s.seat from duel_seats s
+      where s.duel_id = duels.id and s.player_id = duels.winner_player_id
+    )
+    where winner_player_id is not null and winner_seat is null;
+  `);
+
+  db.exec(`
+    create table if not exists saved_decks (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      owner_user_id text not null,
+      name text not null,
+      mode text not null,
+      deck_json text not null,
+      created_at text not null default current_timestamp,
+      updated_at text not null default current_timestamp
+    );
+    create index if not exists saved_decks_owner_list_idx on saved_decks (guild_id, owner_user_id, updated_at);
+  `);
 }

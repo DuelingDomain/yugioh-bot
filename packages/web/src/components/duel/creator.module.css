@@ -1,0 +1,51 @@
+/* Custom game creator: ruled sections on the left, a live summary on the right. */
+.form { display: block; }
+.wrap { width: 100%; max-width: 1160px; margin: 0 auto; }
+
+.head { display: grid; gap: 8px; margin-bottom: clamp(24px, 3.4vw, 40px); justify-items: start; }
+.crumb { margin-left: -13px; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: clamp(28px, 4vw, 56px); align-items: start; }
+
+.sections { min-width: 0; margin: 0; padding: 0; border: 0; border-top: 1px solid var(--duel-rule-lo); }
+.section { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px 32px; padding: 28px 0; border-bottom: 1px solid var(--duel-rule-lo); }
+.side { display: grid; align-content: start; gap: 6px; }
+.side .hint { max-width: 26ch; }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 16px; align-content: start; min-width: 0; }
+.wide { grid-column: 1 / -1; min-width: 0; }
+.below { margin-top: 9px; }
+
+.notes { display: grid; gap: 8px; }
+.note { display: flex; align-items: flex-start; gap: 10px; color: var(--duel-ink-3); font-size: 13px; line-height: 1.55; }
+.note > svg { flex: none; margin-top: 2px; color: var(--duel-ink-4); }
+.note strong { color: var(--duel-ink); font-weight: 500; }
+.noteWarn { color: var(--duel-chain-ink); }
+.noteWarn > svg { color: var(--duel-chain); }
+
+/* ---------- summary ---------- */
+.summary { position: sticky; top: 24px; min-width: 0; }
+.card { display: grid; gap: 18px; padding: 22px; border: 1px solid var(--duel-rule); border-radius: 12px; background: linear-gradient(180deg, rgb(19 32 55 / 0.55), rgb(10 17 32 / 0.85)); }
+.kind { color: var(--duel-pen-ink); font-size: 14px; font-weight: 450; line-height: 1.35; }
+.name { margin-top: -12px; color: var(--duel-ink); font-size: 22px; font-weight: 300; line-height: 1.2; letter-spacing: -0.005em; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tally { display: grid; grid-template-columns: 1.5fr 1fr 1fr; border-block: 1px solid var(--duel-rule-lo); }
+.tally > div { display: flex; flex-direction: column-reverse; gap: 2px; padding: 12px 0 11px 14px; border-left: 1px solid var(--duel-rule-lo); }
+.tally > div:first-child { padding-left: 0; border-left: 0; }
+.tally dd { font-size: 30px; font-weight: 350; line-height: 1; color: var(--duel-ink); }
+.tally dt { color: var(--duel-ink-3); font-size: 12px; }
+.rows { display: grid; gap: 9px; }
+.rows > div { display: flex; justify-content: space-between; gap: 16px; font-size: 13.5px; }
+.rows dt { color: var(--duel-ink-3); }
+.rows dd { min-width: 0; color: var(--duel-ink); text-align: right; overflow-wrap: anywhere; }
+.error { margin: 0; }
+.actions { display: grid; gap: 6px; margin-top: 4px; }
+
+@media (max-width: 1000px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .summary { position: static; }
+  .section { grid-template-columns: minmax(0, 1fr); padding: 24px 0; gap: 16px; }
+  .side .hint { max-width: none; }
+}
+@media (max-width: 560px) {
+  .fields { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .card { padding: 18px; }
+}

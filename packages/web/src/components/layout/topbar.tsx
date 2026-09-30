@@ -57,6 +57,8 @@ export function TopBar({ onMenuClick, onToggleSidebar, sidebarCollapsed }: TopBa
     pageTitle = "Tournament";
   } else if (pathname.startsWith("/draft")) {
     pageTitle = "Draft";
+  } else if (pathname.startsWith("/duels")) {
+    pageTitle = "Duel";
   } else if (pathname === "/login") {
     pageTitle = "Sign In";
   }

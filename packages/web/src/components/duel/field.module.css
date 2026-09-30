@@ -1,0 +1,1576 @@
+/* Duel board: the Match Sheet look.
+   A ruled obsidian sheet with antique-gold hairlines. Purple marks YOUR legal action and selection,
+   gold is chain/response, red is loss. In Battle, Damage and Damage calculation the hairlines and a
+   faint wash warm to ember (data-battle="true" on the field root and the Deck Master rail).
+
+   Fit: the field root fills its parent and is a size container. --z (the zone size, also the card
+   height) is solved from the container's width AND height, so both hands, the five rows and the LP
+   tallies always fit with no scrolling, at any screen size. Everything else is a multiple of --z. */
+
+@property --sheet {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgb(181 153 99 / 0.34);
+}
+
+@property --sheet-hi {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgb(181 153 99 / 0.66);
+}
+
+@property --sheet-lo {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: rgb(181 153 99 / 0.17);
+}
+
+.felt,
+.masterRail {
+  --sheet: rgb(181 153 99 / 0.34);
+  --sheet-hi: rgb(181 153 99 / 0.66);
+  --sheet-lo: rgb(181 153 99 / 0.17);
+  --ink: #efe7d5;
+  --ink-2: #c3bba8;
+  --ink-3: #958f81;
+  --pen: #9b7eff;
+  --pen-ink: #c6b6ff;
+  --pen-fill: #5733d1;
+  --pen-soft: rgb(155 126 255 / 0.13);
+  --chain: #e4b64f;
+  --chain-ink: #f4d690;
+  --loss: #e45a4d;
+  --ember: #d98d52;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --f-ui: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  --f-num: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  color: var(--ink);
+  font-family: var(--f-ui);
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  transition:
+    --sheet 0.7s cubic-bezier(0.65, 0, 0.35, 1),
+    --sheet-hi 0.7s cubic-bezier(0.65, 0, 0.35, 1),
+    --sheet-lo 0.7s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.felt[data-battle="true"],
+.masterRail[data-battle="true"] {
+  --sheet: rgb(217 141 82 / 0.44);
+  --sheet-hi: rgb(217 141 82 / 0.82);
+  --sheet-lo: rgb(217 141 82 / 0.22);
+}
+
+.felt[data-reduced-motion="true"] {
+  transition: none;
+}
+
+.felt {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  container-type: size;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  /* Visible: a hovered hand card grows outward (over the station track or the header), never over the board. */
+  overflow: visible;
+  font-size: 13px;
+  /* The ground (obsidian navy) belongs to the shell; the field only adds soft lamp glows on top of it. */
+  background:
+    radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
+    radial-gradient(40% 50% at 12% 88%, rgb(46 34 84 / 0.22), transparent 70%),
+    linear-gradient(118deg, transparent 38%, rgb(140 160 210 / 0.035) 50%, transparent 62%);
+}
+
+/* Battle wash: a faint warm bloom behind the sheet. */
+.wash {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 50%, rgb(217 120 60 / 0.15), transparent 75%),
+    radial-gradient(ellipse 60% 30% at 50% 100%, rgb(217 141 82 / 0.07), transparent 70%);
+  transition: opacity 0.7s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.felt[data-battle="true"] .wash {
+  opacity: 1;
+}
+
+.felt[data-reduced-motion="true"] .wash {
+  transition: none;
+}
+
+/* ---------- the sheet and its fit ---------- */
+
+.playmat {
+  /* Fixed insets in px so the fit can be solved in closed form. Kept slim: every pixel saved is card. */
+  --pl: 22px;
+  --pr: 10px;
+  --py: 3px;
+  --gs: 3px;
+  --sg: 12px;
+  /* LP tally: one slim block that sits INSIDE the hand strip (name line + numerals), so it costs no rows. */
+  --tally-h: clamp(46px, calc(100cqh * 0.058), 88px);
+  --head-h: calc(var(--tally-h) * 0.32);
+  --lp-h: calc(var(--tally-h) * 0.68);
+  --lp-fs: calc(var(--lp-h) * 0.94);
+  --tally-w: calc(var(--tally-h) * 3.1);
+
+  /* Multiples of --z: board width, arena height, opponent hand (fully visible), your hand (minimum). */
+  --wk: 6.822;
+  --hk: 5.16;
+  --lk: 0.58;
+  --ohk: 0.6;
+  /* Breathing room above the opponent's hand and below yours (marks and rings sit outside the cards). */
+  --hpad: 4px;
+  /* Lift reserve: the board-side edge of each hand strip keeps room for a lifted (legal 5%, selected 12%)
+     or fanned card, its dashed ring (5px) and, on your side, the nib tag above the card (8.5% of --z).
+     So a hand card can never cross into the Spell/Trap row, whatever its state. */
+  --lift-k: 0.12;
+  --mark-k: 0.07;
+  --res-top-px: 3px;
+  --res-bot-px: 2px;
+  /* Your hand is a compact row (rises to full size on hover). The opponent's hand is a strip of card
+     backs tucked under the header: --top-hide of each card sits above the board (the header paints over
+     it) and slides fully into view on hover, so it costs only the visible share plus a small lift reserve. */
+  --top-hide: 0.5;
+  --top-lift-k: 0.05;
+  --lkr: calc(var(--lk) * (1 + var(--lift-k)) + var(--mark-k));
+  --ohkr: calc(var(--ohk) * (1 - var(--top-hide) + var(--top-lift-k)));
+
+  --avail-w: calc(100cqw - var(--pl) - var(--pr) - 2px);
+  --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
+  --zw: calc(var(--avail-w) / var(--wk));
+  --zh: min(
+    calc((var(--avail-h) - 2 * var(--tally-h)) / var(--hk)),
+    calc((var(--avail-h) - var(--tally-h) - var(--res-bot-px)) / (var(--hk) + var(--lkr))),
+    calc((var(--avail-h) - var(--tally-h) - var(--res-top-px)) / (var(--hk) + var(--ohkr))),
+    calc((var(--avail-h) - var(--res-top-px) - var(--res-bot-px)) / (var(--hk) + var(--ohkr) + var(--lkr)))
+  );
+  --z: clamp(30px, min(var(--zw), var(--zh)), 320px);
+
+  --cw: calc(var(--z) * 0.686);
+  --g: calc(var(--z) * 0.075);
+  --gy: calc(var(--z) * 0.04);
+  --r: calc(var(--z) * 0.035);
+  --pk: 0.86;
+  --pile-col: var(--cw);
+
+  /* Both hands are whole rows beside the LP tallies. Spare height (tall or narrow boards) grows them
+     (the growth shares are divided by 1 + --lift-k so the reserve grows with the card and still fits). */
+  --top-min: max(var(--tally-h), calc(var(--z) * var(--ohkr) + var(--res-top-px)));
+  --bot-min: max(var(--tally-h), calc(var(--z) * var(--lkr) + var(--res-bot-px)));
+  --spare: max(0px, calc(var(--avail-h) - var(--hk) * var(--z) - var(--top-min) - var(--bot-min)));
+  --oh: min(calc(var(--z) * var(--ohk) + var(--spare) * 0.345), calc(var(--z) * 1.05));
+  --ohcw: calc(var(--oh) * 0.686);
+  --ohg: calc(var(--ohcw) * 0.06);
+  --top-res: calc(var(--oh) * var(--top-lift-k) + var(--res-top-px));
+  --top-h: max(var(--tally-h), calc(var(--oh) * (1 - var(--top-hide)) + var(--top-res) + var(--hpad)));
+  --lh: min(calc(var(--z) * var(--lk) + var(--spare) * 0.517), calc(var(--z) * 1.15), 260px);
+  --lhcw: calc(var(--lh) * 0.686);
+  --lhg: calc(var(--z) * 0.07);
+  --bot-res: calc(var(--lh) * var(--lift-k) + var(--z) * var(--mark-k) + var(--res-bot-px));
+  --bot-h: max(var(--tally-h), calc(var(--lh) + var(--bot-res) + var(--hpad)));
+  --hw-top: calc(var(--z) * var(--wk) - var(--tally-w) - var(--sg));
+  --hw-bot: var(--hw-top);
+
+  --fs-name: clamp(13px, calc(var(--z) * 0.125), 18px);
+  --fs-small: clamp(10px, calc(var(--z) * 0.1), 14px);
+  --n3: clamp(9px, calc(var(--z) * 0.13), 19px);
+  --n4: clamp(9.5px, calc(var(--z) * 0.104), 15px);
+
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gs);
+  width: calc(var(--z) * var(--wk) + var(--pl) + var(--pr) + 2px);
+  max-width: 100%;
+  min-width: 0;
+  padding: var(--py) var(--pr) var(--py) var(--pl);
+  border: 1px solid var(--sheet);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgb(10 17 34 / 0.55), rgb(5 8 15 / 0.5));
+  box-shadow:
+    0 0 40px -12px rgb(217 141 82 / 0),
+    inset 0 0 60px -30px rgb(217 141 82 / 0);
+  transition: box-shadow 0.7s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.felt[data-battle="true"] .playmat {
+  box-shadow:
+    0 0 40px -12px rgb(217 141 82 / 0.3),
+    inset 0 0 60px -30px rgb(217 141 82 / 0.2);
+}
+
+.felt[data-reduced-motion="true"] .playmat {
+  transition: none;
+}
+
+.playmat::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid var(--sheet-lo);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.marginRule {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 9px;
+  width: 3px;
+  border-right: 1px solid var(--sheet);
+  border-left: 1px solid var(--sheet);
+  pointer-events: none;
+}
+
+/* Master Rule 3 keeps its two Pendulum zones inside the pile columns, so the board is wider. */
+.felt[data-master-rule="3"] .playmat {
+  --wk: 8.344;
+  --pile-col: calc(var(--cw) * 2 + var(--g));
+}
+
+/* ---------- strips: LP tally plus hand ---------- */
+
+.strip {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  flex: none;
+  grid-template-columns: var(--tally-w) minmax(0, 1fr);
+  column-gap: var(--sg);
+  min-width: 0;
+}
+
+.stripTop {
+  height: var(--top-h);
+  align-items: start;
+}
+
+.stripBottom {
+  height: var(--bot-h);
+  align-items: end;
+}
+
+/* The opponent's hand is a whole row (never clipped): revealed cards must be readable and any card
+   may have to be picked. Cards hang from the top edge; the lift reserve sits below them. */
+.stripTop .hand {
+  position: relative;
+  top: calc(var(--oh) * var(--top-hide) * -1);
+  align-items: flex-start;
+  padding-top: var(--hpad);
+}
+
+.tally {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.tHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: var(--head-h);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.tWho {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--fs-name);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.tTurn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-2);
+  font-size: var(--fs-small);
+}
+
+.tClock {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  font-family: var(--f-num);
+  font-size: calc(var(--fs-name) * 1.1);
+  font-variant-numeric: tabular-nums;
+}
+
+.tally[data-active="true"] .tClock {
+  color: var(--ink);
+}
+
+.tLp {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--lp-h);
+  border-top: 1px solid var(--sheet-lo);
+  border-bottom: 1px solid var(--sheet);
+  font-size: var(--lp-fs);
+  /* <LifePoints /> sizes its numerals from --lp-size; hand it the tally's size. */
+  --lp-size: var(--lp-fs);
+}
+
+.tLp strong {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink);
+  font-family: var(--f-num);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.lpPrefix {
+  color: var(--ink-3);
+  font-family: var(--f-ui);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+
+/* Hands: cards overlap just enough to fit the room beside the tally (--hn cards, set inline). */
+.handRail {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.hand {
+  --cardw: var(--ohcw);
+  --base: var(--ohg);
+  --room: var(--hw-top);
+  --ov: max(
+    0px,
+    calc((var(--hn, 1) * var(--cardw) + var(--hn1, 1) * var(--base) - var(--room)) / var(--hn1, 1))
+  );
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 100%;
+}
+
+.handLocal {
+  --cardw: var(--lhcw);
+  --base: var(--lhg);
+  --room: var(--hw-bot);
+  align-items: flex-end;
+  padding-bottom: var(--hpad);
+}
+
+/* Seven or more cards: they overlap to fit and fan out on a shallow arc (pivot below your hand, above theirs). */
+.hand[data-many="true"] .handCard {
+  --fan: calc((var(--i, 0) - (var(--hn, 1) - 1) / 2) * 1.15deg);
+  transform: rotate(var(--fan));
+  transform-origin: 50% 170%;
+}
+
+.hand[data-many="true"]:not(.handLocal) .handCard {
+  transform-origin: 50% -70%;
+}
+
+.felt[data-reduced-motion="true"] .hand[data-many="true"] .handCard {
+  transform: none;
+}
+
+.handCard {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--cardw);
+}
+
+.handCard:hover,
+.handCard:focus-within {
+  z-index: 6;
+}
+
+/* Revealed opponent cards: a thin gold hairline so a face-up card in their hand reads as public. */
+.handCard[data-revealed="true"] .frame {
+  border-color: var(--sheet-hi);
+}
+
+.handCard + .handCard {
+  margin-left: calc(var(--base) - var(--ov));
+}
+
+.handCard .zone {
+  height: auto;
+}
+
+/* The ATK / DEF plate follows the hand card, not the board card. */
+.handCard .plate {
+  right: 2px;
+  bottom: 2px;
+  left: 2px;
+  font-size: clamp(8px, calc(var(--cardw) * 0.185), 17px);
+}
+
+.handCard .zoneHit {
+  display: block;
+  height: auto;
+}
+
+.handCard .frame {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 59 / 86;
+  border-color: transparent;
+}
+
+.hand:not(.handLocal) .handCard .zone[data-legal="true"] .frame {
+  transform: translateY(calc(var(--oh) * 0.05));
+}
+
+.hand:not(.handLocal) .handCard .zone[data-selected="true"] .frame {
+  transform: translateY(calc(var(--oh) * 0.12));
+}
+
+/* Marks sit inside the top edge of their cards: nothing may poke past the board's top edge. */
+.hand:not(.handLocal) .handCard .mark {
+  top: 3px;
+}
+
+.handLocal .handCard .zone[data-legal="true"] .frame {
+  transform: translateY(calc(var(--lh) * -0.05));
+}
+
+.handLocal .handCard .zone[data-selected="true"] .frame {
+  transform: translateY(calc(var(--lh) * -0.12));
+}
+
+/* The card under the pointer grows so you can read it. Theirs grows up over the header, away from the
+   board. Yours grows up too (see below), so the station track never hides it. */
+@media (hover: hover) {
+  .hand:not(.handLocal) .handCard .zone .frame {
+    transform-origin: 50% 0;
+  }
+
+  .hand:not(.handLocal) .handCard .zone:hover .frame,
+  .hand:not(.handLocal) .handCard .zone:focus-within .frame {
+    transform: translateY(calc(var(--oh) * var(--top-hide))) scale(1.6);
+  }
+
+  .hand:not(.handLocal) .handCard .zone[data-legal="true"]:hover .frame,
+  .hand:not(.handLocal) .handCard .zone[data-legal="true"]:focus-within .frame {
+    transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.05))) scale(1.6);
+  }
+
+  .hand:not(.handLocal) .handCard .zone[data-selected="true"]:hover .frame,
+  .hand:not(.handLocal) .handCard .zone[data-selected="true"]:focus-within .frame {
+    transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.12))) scale(1.6);
+  }
+
+  /* Yours grows UP from its bottom edge: the station track below must never cover it. It may overlap
+     your own back row for as long as the pointer stays on it. */
+  .handLocal .handCard .zone .frame {
+    transform-origin: 50% 100%;
+  }
+
+  .handLocal .handCard .zone:hover .frame,
+  .handLocal .handCard .zone:focus-within .frame {
+    transform: translateY(calc(var(--lh) * -0.08)) scale(2);
+  }
+
+  .handLocal .handCard .zone[data-legal="true"]:hover .frame,
+  .handLocal .handCard .zone[data-legal="true"]:focus-within .frame {
+    transform: translateY(calc(var(--lh) * -0.1)) scale(2);
+  }
+
+  .handLocal .handCard .zone[data-selected="true"]:hover .frame,
+  .handLocal .handCard .zone[data-selected="true"]:focus-within .frame {
+    transform: translateY(calc(var(--lh) * -0.14)) scale(2);
+  }
+}
+
+/* ---------- arena: five rows on a 7-column grid ---------- */
+
+.arena {
+  position: relative;
+  display: grid;
+  flex: none;
+  grid-template-columns: var(--pile-col) minmax(0, 1fr) var(--pile-col);
+  grid-template-rows: repeat(5, var(--z));
+  gap: var(--gy) var(--g);
+  min-width: 0;
+}
+
+/* The two ruled lines that frame the centre band. */
+.arena::before,
+.arena::after {
+  content: "";
+  position: absolute;
+  right: calc(var(--g) * -1);
+  left: calc(var(--g) * -1);
+  height: 0;
+  border-top: 1px solid var(--sheet);
+  pointer-events: none;
+}
+
+.arena::before {
+  top: calc(2 * var(--z) + 1.5 * var(--gy));
+}
+
+.arena::after {
+  top: calc(3 * var(--z) + 2.5 * var(--gy));
+}
+
+.half {
+  display: contents;
+}
+
+.emzBand {
+  position: relative;
+  grid-row: 3;
+  grid-column: 2;
+  min-width: 0;
+  min-height: 0;
+}
+
+.rows {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  grid-template-rows: subgrid;
+  gap: var(--gy);
+  min-width: 0;
+  min-height: 0;
+}
+
+.halfLocal .rows {
+  grid-row: 4 / span 2;
+}
+
+.zones,
+.emzRow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--g);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.emzRow > :not(:nth-child(2)):not(:nth-child(4)) {
+  pointer-events: none;
+}
+
+.piles {
+  display: grid;
+  grid-template-rows: subgrid;
+  gap: var(--gy);
+  min-width: 0;
+  min-height: 0;
+}
+
+.piles[data-side="left"] { grid-column: 1; }
+.piles[data-side="right"] { grid-column: 3; }
+.piles[data-opponent="true"][data-side="left"] { grid-row: 1 / span 3; }
+.piles[data-opponent="true"][data-side="right"] { grid-row: 1 / span 2; }
+.piles[data-opponent="false"][data-side="left"] { grid-row: 4 / span 2; }
+.piles[data-opponent="false"][data-side="right"] { grid-row: 3 / span 3; }
+
+.felt[data-master-rule="3"] .piles {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--g);
+}
+.felt[data-master-rule="3"] .piles[data-side="left"] > .zone { grid-column: 2; }
+.felt[data-master-rule="3"] .piles[data-side="right"] > .zone { grid-column: 1; }
+.felt[data-master-rule="3"] .piles > .zone[data-kind="st"] { grid-row: 2; }
+.felt[data-master-rule="3"] .piles[data-side="left"] > .zone[data-kind="st"] { grid-column: 1; }
+.felt[data-master-rule="3"] .piles[data-side="right"] > .zone[data-kind="st"] { grid-column: 2; }
+.felt[data-master-rule="3"] .piles[data-opponent="false"][data-side="left"] > .zone[data-kind="st"] { grid-row: 1; }
+
+/* ---------- zones ---------- */
+
+.zone {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.zone:hover,
+.zone:focus-within {
+  z-index: 6;
+}
+
+.zoneHit {
+  position: relative;
+  display: grid;
+  flex: 1 1 auto;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.zoneHit:focus {
+  outline: none;
+}
+
+.zoneHit:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.zoneHit:disabled {
+  cursor: default;
+}
+
+/* Monster zones are ONE slot with two guides that cross: portrait (the .frame) and landscape (::before). */
+.zone[data-kind="mz"] .zoneHit::before,
+.zone[data-kind="emz"] .zoneHit::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--z);
+  height: var(--cw);
+  border: 1px solid var(--sheet);
+  border-radius: var(--r);
+  transform: translate(-50%, -50%);
+  transition: border-color 0.3s;
+  pointer-events: none;
+}
+
+.zone[data-kind="emz"] .zoneHit::before {
+  border-color: var(--sheet-hi);
+}
+
+.frame {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: var(--cw);
+  height: var(--z);
+  max-width: 100%;
+  border: 1px solid var(--sheet);
+  border-radius: var(--r);
+  transition:
+    border-color 0.3s,
+    background-color 0.2s,
+    transform 0.18s var(--ease);
+}
+
+.zone[data-kind="emz"] .frame {
+  border-color: var(--sheet-hi);
+}
+
+.zoneHit:hover .frame {
+  border-color: var(--sheet-hi);
+}
+
+/* Piles and the Field Spell zone: portrait only, smaller, with a count label. */
+.zone[data-kind="deck"] .frame,
+.zone[data-kind="gy"] .frame,
+.zone[data-kind="banish"] .frame,
+.zone[data-kind="extra"] .frame,
+.zone[data-kind="field"] .frame {
+  width: calc(var(--cw) * var(--pk));
+  height: calc(var(--z) * var(--pk));
+}
+
+.zone[data-kind="deck"] .zoneHit,
+.zone[data-kind="gy"] .zoneHit,
+.zone[data-kind="banish"] .zoneHit,
+.zone[data-kind="extra"] .zoneHit,
+.zone[data-kind="field"] .zoneHit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: calc(var(--z) * 0.03);
+}
+
+.zone[data-side="opp"][data-kind="deck"] .zoneHit,
+.zone[data-side="opp"][data-kind="gy"] .zoneHit,
+.zone[data-side="opp"][data-kind="banish"] .zoneHit,
+.zone[data-side="opp"][data-kind="extra"] .zoneHit,
+.zone[data-side="opp"][data-kind="field"] .zoneHit {
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+}
+
+.pileLabel {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3em;
+  font-size: var(--n4);
+  line-height: 1.15;
+  color: var(--ink-2);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.plShort {
+  display: none;
+}
+
+.plCount {
+  color: var(--ink);
+  font-family: var(--f-num);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.zoneName {
+  position: absolute;
+  right: 0;
+  bottom: calc(50% - var(--cw) / 2 + 4px);
+  left: 0;
+  z-index: 0;
+  color: var(--ink-3);
+  font-size: var(--n4);
+  line-height: 1;
+  text-align: center;
+  pointer-events: none;
+}
+
+.pendulumMark {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  z-index: 0;
+  color: var(--ink-3);
+  font-size: var(--n4);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.zone[data-side="opp"] .pendulumMark {
+  top: auto;
+  right: 4px;
+  bottom: 3px;
+  left: auto;
+}
+
+/* ---------- cards ---------- */
+
+.artWrap {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.cardFace,
+.cardBack {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--r, 4px);
+  box-shadow:
+    0 4px 10px rgb(0 0 0 / 0.55),
+    0 1px 2px rgb(0 0 0 / 0.6);
+}
+
+.cardFace[data-defense="true"],
+.artWrap[data-defense="true"] > .cardBack {
+  width: 100%;
+  height: 100%;
+  transform: rotate(90deg);
+  transform-origin: center;
+}
+
+.cardBack {
+  position: relative;
+  isolation: isolate;
+  background: #120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat;
+  border: 1px solid #b08a3e;
+}
+
+.cardBackExtra {
+  background: #140e1c url("/duel/card-back-extra-hd.webp") center / cover no-repeat;
+  border-color: #8a6bb0;
+}
+
+.art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.overlayBadge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  min-width: calc(var(--n4, 11px) * 1.5);
+  height: calc(var(--n4, 11px) * 1.5);
+  padding: 0 3px;
+  border: 1.5px solid var(--chain);
+  border-radius: 999px;
+  background: #140f04;
+  color: var(--chain-ink);
+  font-family: var(--f-num);
+  font-size: var(--n4, 11px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* ATK / DEF plate on the card face. */
+.plate {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  left: 3px;
+  z-index: 3;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.25em;
+  padding: 1px 0;
+  border-radius: 2px;
+  background: rgb(5 8 16 / 0.9);
+  color: var(--ink);
+  font-family: var(--f-num);
+  font-size: var(--n3);
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.plateSep {
+  color: var(--ink-3);
+  font-style: normal;
+}
+
+/* ---------- decks and pile fans ---------- */
+
+.frame[data-stack-size] {
+  --stack-art: url("/duel/card-back-main-hd.webp");
+  --stack-step: calc(var(--z) * 0.018);
+}
+
+.frame[data-stack-size="2"]::before,
+.frame[data-stack-size="3"]::before,
+.frame[data-stack-size="3"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 1px solid #a7997e;
+  border-radius: var(--r);
+  background: #15101c var(--stack-art) center / cover no-repeat;
+  box-shadow: 1px 1px 0 rgb(222 210 187 / 0.5), 2px 3px 3px rgb(0 0 0 / 0.6);
+  transform: translate(var(--stack-step), calc(-1 * var(--stack-step))) rotate(1.5deg);
+  pointer-events: none;
+}
+
+.frame[data-stack-size="3"]::after {
+  z-index: -2;
+  transform: translate(calc(2 * var(--stack-step)), calc(-2 * var(--stack-step))) rotate(3deg);
+}
+
+/* GY, Banished and Extra Deck show their top two or three cards fanned, deepest card toward the outside. */
+.zone[data-col="left"] {
+  --dir: 1;
+}
+
+.zone[data-col="right"] {
+  --dir: -1;
+}
+
+.fanCard {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 108%;
+  transition: transform 0.3s var(--ease);
+}
+
+.fanCard[data-fi="0"] {
+  z-index: 3;
+  transform: translate(calc(var(--dir, 1) * 1%), 0) rotate(calc(var(--dir, 1) * 3deg));
+}
+
+.fanCard[data-fi="1"] {
+  z-index: 2;
+  transform: translate(calc(var(--dir, 1) * -5%), 0) rotate(calc(var(--dir, 1) * -5deg));
+}
+
+.fanCard[data-fi="2"] {
+  z-index: 1;
+  transform: translate(calc(var(--dir, 1) * -10%), 0) rotate(calc(var(--dir, 1) * -11deg));
+}
+
+.zone[data-fan="1"] .fanCard[data-fi="0"] {
+  transform: none;
+}
+
+.felt[data-reduced-motion="true"] .fanCard,
+.felt[data-reduced-motion="true"] .frame,
+.felt[data-reduced-motion="true"] .openChip {
+  transition: none;
+}
+
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="0"],
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="0"] {
+  transform: translate(calc(var(--dir, 1) * 7%), -4%) rotate(calc(var(--dir, 1) * 8deg));
+}
+
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="1"],
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="1"] {
+  transform: translate(calc(var(--dir, 1) * -9%), -1%) rotate(calc(var(--dir, 1) * -6deg));
+}
+
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="2"],
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="2"] {
+  transform: translate(calc(var(--dir, 1) * -19%), 0) rotate(calc(var(--dir, 1) * -16deg));
+}
+
+.openChip {
+  position: absolute;
+  bottom: calc(var(--z) * 0.03 + var(--n4) * 1.15 + 3px);
+  left: 50%;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(var(--n4) * 1.9);
+  padding: 0 8px 0 6px;
+  border: 1px solid var(--sheet-hi);
+  border-radius: 999px;
+  background: #0b1122;
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: var(--n4);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity 0.16s,
+    transform 0.2s var(--ease);
+}
+
+.zone[data-side="opp"] .openChip {
+  bottom: 3px;
+}
+
+.zone:hover .openChip,
+.zone:focus-within .openChip {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.openChip:hover {
+  background: #17203a;
+}
+
+.openChip:focus {
+  outline: none;
+}
+
+.openChip:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ---------- legal and selected: an outline shape and a tag, never colour alone ---------- */
+
+.ring {
+  position: absolute;
+  inset: -4px;
+  z-index: 4;
+  border: 1px dashed var(--pen);
+  border-radius: calc(var(--r) + 3px);
+  pointer-events: none;
+}
+
+.zone[data-selected="true"] .ring {
+  inset: -5px;
+  border: 2px solid var(--pen);
+}
+
+/* Rotated (defense) cards: outline the landscape shape, not the portrait guide. */
+.zone[data-defense="true"] .ring {
+  inset: calc((var(--z) - var(--cw)) / 2 - 4px) calc((var(--z) - var(--cw)) / -2 - 4px);
+}
+
+.zone[data-defense="true"][data-selected="true"] .ring {
+  inset: calc((var(--z) - var(--cw)) / 2 - 5px) calc((var(--z) - var(--cw)) / -2 - 5px);
+}
+
+.mark {
+  position: absolute;
+  top: calc(var(--z) * -0.085);
+  left: 50%;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: max(19px, calc(var(--z) * 0.19));
+  height: max(15px, calc(var(--z) * 0.155));
+  padding: 0 5px;
+  border: 1px solid var(--pen);
+  border-radius: 999px;
+  background: #0c1224;
+  color: var(--pen-ink);
+  translate: -50% 0;
+  pointer-events: none;
+}
+
+.zone[data-selected="true"] .mark {
+  background: var(--pen-fill);
+  color: #fff;
+}
+
+/* On piles the tag sits on the top-right corner so it never covers the label of the pile above. */
+.zone[data-kind="deck"] .mark,
+.zone[data-kind="gy"] .mark,
+.zone[data-kind="banish"] .mark,
+.zone[data-kind="extra"] .mark,
+.zone[data-kind="field"] .mark {
+  top: -5px;
+  right: -6px;
+  left: auto;
+  translate: none;
+}
+
+.nib {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.zone[data-legal="true"][data-occupied="false"] .frame {
+  border: 1px dashed var(--pen);
+  background: var(--pen-soft);
+}
+
+.zone[data-legal="true"][data-occupied="false"][data-selected="true"] .frame {
+  border: 2px solid var(--pen);
+}
+
+.zone[data-legal="true"][data-occupied="true"] .frame {
+  transform: translateY(calc(var(--z) * -0.03));
+}
+
+.zone[data-selected="true"][data-occupied="true"] .frame {
+  transform: translateY(calc(var(--z) * -0.05));
+}
+
+/* ---------- Deck Master docks ---------- */
+
+.masterRail {
+  --k: max(var(--u, 1px), 0.95px);
+  display: flex;
+  flex-direction: column;
+  gap: calc(10 * var(--k));
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  font-size: calc(13.5 * var(--k));
+}
+
+.masterDock {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: calc(9 * var(--k));
+  min-height: 0;
+  overflow: hidden auto;
+  padding: calc(12 * var(--k));
+  border: 1px solid var(--sheet);
+  border-radius: calc(10 * var(--k));
+  background: rgb(12 19 36 / 0.55);
+  scrollbar-color: rgb(181 153 99 / 0.45) transparent;
+  scrollbar-width: thin;
+}
+
+.masterDock[data-local="true"] {
+  flex: 1.25 1 0;
+}
+
+.masterTitle {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: calc(15.5 * var(--k));
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.masterHit {
+  --dm-w: calc(88 * var(--k));
+  display: grid;
+  flex: none;
+  grid-template-columns: var(--dm-w) minmax(0, 1fr);
+  gap: calc(12 * var(--k));
+  align-items: start;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: calc(6 * var(--k));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.masterHit:focus {
+  outline: none;
+}
+
+.masterHit:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.masterArt {
+  --z: calc(var(--dm-w) * 1.4576);
+  --cw: var(--dm-w);
+  --r: calc(5 * var(--k));
+  --n4: calc(11 * var(--k));
+  position: relative;
+  width: 100%;
+  aspect-ratio: 59 / 86;
+  border-radius: calc(5 * var(--k));
+  box-shadow: 0 8px 18px rgb(0 0 0 / 0.5);
+}
+
+.masterArt img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: calc(5 * var(--k));
+  object-fit: cover;
+}
+
+.masterArt[data-away="true"] img {
+  opacity: 0.28;
+  filter: grayscale(0.6);
+}
+
+.masterArt[data-away="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 1px dashed var(--sheet-hi);
+  border-radius: calc(5 * var(--k));
+  pointer-events: none;
+}
+
+.masterDock[data-selected="true"] .ring {
+  inset: -5px;
+  border: 2px solid var(--pen);
+}
+
+.masterDock[data-selected="true"] .mark {
+  background: var(--pen-fill);
+  color: #fff;
+}
+
+.masterId {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.masterName {
+  color: var(--ink);
+  font-size: calc(15 * var(--k));
+  font-weight: 500;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.masterDetails {
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: calc(12.5 * var(--k));
+  line-height: 1.3;
+}
+
+.masterDetails + .masterDetails {
+  margin-top: 0;
+}
+
+.masterStats {
+  margin-top: 6px;
+  color: var(--ink);
+  font-family: var(--f-num);
+  font-size: calc(17 * var(--k));
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.masterMeta {
+  display: grid;
+  flex: none;
+  margin: 0;
+  border-top: 1px solid var(--sheet);
+  font-size: calc(13 * var(--k));
+}
+
+.masterMeta > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(10 * var(--k));
+  padding: 5px 0;
+  border-bottom: 1px solid var(--sheet-lo);
+}
+
+.masterMeta dt {
+  color: var(--ink-3);
+}
+
+.masterMeta dd {
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.masterActions {
+  display: grid;
+  flex: none;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.masterAction,
+.masterInspect {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: calc(36 * var(--k));
+  padding: 4px 8px;
+  border: 1px solid var(--sheet-hi);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--f-ui);
+  font-size: calc(13.5 * var(--k));
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.masterInspect:hover:not(:disabled) {
+  background: rgb(239 231 213 / 0.085);
+  color: var(--ink);
+}
+
+.masterAction {
+  border-color: var(--pen);
+  background: var(--pen-soft);
+  color: var(--pen-ink);
+  font-weight: 500;
+}
+
+.masterAction[data-primary="true"] {
+  background: var(--pen-fill);
+  color: #fff;
+  font-weight: 600;
+}
+
+.masterAction:hover:not(:disabled) {
+  background: rgb(155 126 255 / 0.24);
+  color: #fff;
+}
+
+.masterAction[data-primary="true"]:hover:not(:disabled) {
+  background: #6440e0;
+}
+
+.masterAction:disabled,
+.masterInspect:disabled {
+  border-style: dashed;
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.masterAction:focus,
+.masterInspect:focus {
+  outline: none;
+}
+
+.masterAction:focus-visible,
+.masterInspect:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.masterEmpty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  color: var(--ink-3);
+  font-size: calc(13 * var(--k));
+}
+
+/* ---------- compact boards (phones): tallies pinned, hand under the tally ---------- */
+
+@container (max-width: 640px) {
+  .playmat {
+    --pl: 6px;
+    --pr: 6px;
+    --py: 5px;
+    --gs: 5px;
+    --sg: 8px;
+    --tally-h: 54px;
+    --head-h: 16px;
+    --lp-h: 38px;
+    --lp-fs: 24px;
+    --tally-w: 150px;
+    --ohk: 1.1;
+    --lk: 1.3;
+    --hpad: 4px;
+    --top-hide: 0;
+    --top-lift-k: 0.16;
+    --lift-k: 0.16;
+    --mark-k: 0.085;
+    --res-top-px: 6px;
+    --pk: 0.8;
+    --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
+    /* Both tallies sit above their hands (full width rows), so the hands can be wide and barely overlap. */
+    --fixed-h: calc(2 * var(--tally-h) + 2 * var(--gs) + var(--res-top-px) + var(--res-bot-px));
+    --zh: calc((var(--avail-h) - var(--fixed-h)) / (var(--hk) + var(--lkr) + var(--ohkr)));
+    --spare: max(
+      0px,
+      calc(var(--avail-h) - var(--fixed-h) - var(--z) * (var(--hk) + var(--lkr) + var(--ohkr)))
+    );
+    --oh: min(calc(var(--z) * var(--ohk) + var(--spare) * 0.3), calc(var(--z) * 1.5));
+    --lh: min(calc(var(--z) * var(--lk) + var(--spare) * 0.56), calc(var(--z) * 1.9), 120px);
+    --top-h: calc(var(--tally-h) + var(--gs) + var(--oh) + var(--top-res) + var(--hpad));
+    --bot-h: calc(var(--tally-h) + var(--gs) + var(--lh) + var(--bot-res) + var(--hpad));
+    --hw-top: calc(var(--z) * var(--wk));
+    --hw-bot: calc(var(--z) * var(--wk));
+    --fs-name: 13px;
+    --fs-small: 10px;
+    --n3: clamp(8px, calc(var(--z) * 0.16), 12px);
+    --n4: 9.5px;
+  }
+
+  .playmat::before,
+  .marginRule {
+    display: none;
+  }
+
+  .stripTop,
+  .stripBottom {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--gs);
+    align-items: stretch;
+  }
+
+  .stripTop {
+    grid-template-rows: var(--tally-h) calc(var(--oh) + var(--top-res) + var(--hpad));
+  }
+
+  .stripBottom {
+    grid-template-rows: var(--tally-h) calc(var(--lh) + var(--bot-res) + var(--hpad));
+  }
+
+  .stripTop .tally,
+  .stripBottom .tally {
+    width: min(100%, var(--tally-w));
+  }
+
+  .plFull {
+    display: none;
+  }
+
+  .plShort {
+    display: inline;
+  }
+
+  .zoneName,
+  .plateDef,
+  .plateSep,
+  .openChip {
+    display: none;
+  }
+
+  .plate {
+    right: 1px;
+    bottom: 1px;
+    left: 1px;
+    padding: 0;
+  }
+
+  .mark {
+    min-width: 15px;
+    height: 13px;
+    padding: 0 3px;
+  }
+
+  .nib {
+    width: 10px;
+    height: 10px;
+  }
+
+  .tTurn {
+    font-size: 9.5px;
+  }
+}
+
+@media (hover: none) {
+  .openChip {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .felt,
+  .masterRail,
+  .playmat,
+  .fanCard,
+  .frame,
+  .openChip,
+  .wash {
+    transition: none;
+  }
+}
+
+/* Slimmer Deck Master docks on mid-size and short desktop screens, so both fit without scrolling. */
+@media (min-width: 901px) and (max-width: 1500px) {
+  .masterHit {
+    --dm-w: calc(70 * var(--k));
+    gap: calc(10 * var(--k));
+  }
+}
+
+@media (min-width: 901px) and (max-height: 820px) {
+  .masterHit {
+    --dm-w: calc(58 * var(--k));
+  }
+
+  .masterDock {
+    gap: calc(6 * var(--k));
+    padding: calc(9 * var(--k));
+  }
+
+  .masterMeta > div {
+    padding: 3px 0;
+  }
+
+  .masterAction,
+  .masterInspect {
+    min-height: calc(30 * var(--k));
+  }
+}
+
+@media (max-width: 900px) {
+  .masterRail {
+    flex-direction: row;
+    height: auto;
+    gap: 6px;
+  }
+
+  .masterDock,
+  .masterDock[data-local="true"] {
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 6px;
+    overflow: visible;
+    padding: 8px;
+  }
+
+  .masterTitle {
+    font-size: 13px;
+  }
+
+  .masterHit {
+    --dm-w: 46px;
+    gap: 8px;
+  }
+
+  .masterName {
+    font-size: 12.5px;
+  }
+
+  .masterDetails {
+    display: none;
+  }
+
+  .masterStats {
+    margin-top: 3px;
+    font-size: 13px;
+  }
+
+  .masterMeta {
+    font-size: 11px;
+  }
+
+  .masterMeta > div {
+    flex-wrap: wrap;
+    gap: 0 6px;
+    padding: 3px 0;
+  }
+
+  .masterAction,
+  .masterInspect {
+    min-height: 32px;
+    font-size: 12.5px;
+  }
+}

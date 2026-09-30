@@ -1,0 +1,78 @@
+/* Position changes: a monster turning between Attack and Defense, or flipping face-up / face-down.
+   The turn animates the real card in place; a flip plays on a copy over the zone. Nothing here
+   takes pointer input. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout style;
+}
+
+/* Placed on the card outline of its zone (left, top, width, height set in JS). */
+.anchor {
+  position: absolute;
+  pointer-events: none;
+  perspective: 900px;
+  will-change: transform;
+}
+
+.shadow {
+  position: absolute;
+  inset: -4% -12% -10%;
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(closest-side, rgb(0 0 0 / 0.6), transparent 80%);
+}
+
+.flipper {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.face,
+.back {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--fx-r, 4px);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  box-shadow:
+    0 4px 10px rgb(0 0 0 / 0.55),
+    0 1px 2px rgb(0 0 0 / 0.6);
+}
+
+.face {
+  background: #0c0a09;
+}
+
+.art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+/* A band of light that crosses the face once it is showing. */
+.glint {
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  left: 0;
+  width: 55%;
+  opacity: 0;
+  background: linear-gradient(to right, transparent, rgb(255 246 220 / 0.55) 45%, rgb(255 255 255 / 0.85) 50%, rgb(255 246 220 / 0.55) 55%, transparent);
+  mix-blend-mode: screen;
+}
+
+.back {
+  background: #120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat;
+  border: 1px solid #b08a3e;
+  transform: rotateY(180deg);
+}

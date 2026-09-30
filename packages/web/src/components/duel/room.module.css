@@ -1,0 +1,777 @@
+/* Duel room shell: the Match Sheet look.
+   Ground is obsidian navy, rules are fine antique-gold hairlines. Purple marks
+   your legal action, gold marks the chain, red marks LP loss and destruction.
+   Battle Phase warms the board frame to ember (data-phase="battle"). */
+
+/* Tokens live on the shell and on the two portals that render outside it. */
+.shell,
+.cardMenu,
+.cardTooltip {
+  --duel-unit: clamp(0.94px, min(0.0764vw, 0.1222dvh), 1.75px);
+
+  --duel-ground: #070b15;
+  --duel-panel: #0a1120;
+  --duel-panel-2: #0e1729;
+  --duel-panel-3: #132037;
+  --duel-ink: #efe7d5;
+  --duel-ink-2: #c3bba8;
+  --duel-ink-3: #958f81;
+  --duel-ink-4: #5f5c57;
+
+  --duel-rule-rgb: 181 153 99;
+  --duel-rule-a: 0.34;
+  --duel-rule: rgb(var(--duel-rule-rgb) / var(--duel-rule-a));
+  --duel-rule-hi: rgb(var(--duel-rule-rgb) / calc(var(--duel-rule-a) * 1.9));
+  --duel-rule-lo: rgb(var(--duel-rule-rgb) / calc(var(--duel-rule-a) * 0.5));
+
+  /* Board frame: gold at rest, ember in the Battle Phase. */
+  --duel-ember-rgb: 217 141 82;
+  --duel-frame-rgb: var(--duel-rule-rgb);
+  --duel-frame-a: var(--duel-rule-a);
+  --duel-frame: rgb(var(--duel-frame-rgb) / var(--duel-frame-a));
+
+  --duel-pen: #9b7eff;
+  --duel-pen-ink: #c6b6ff;
+  --duel-pen-fill: #5733d1;
+  --duel-pen-soft: rgb(155 126 255 / 0.13);
+  --duel-chain: #e4b64f;
+  --duel-chain-ink: #f4d690;
+  --duel-chain-soft: rgb(228 182 79 / 0.11);
+  --duel-loss: #e45a4d;
+  --duel-loss-ink: #ff9489;
+  --duel-lamp: rgb(239 231 213 / 0.085);
+  --duel-gold: var(--duel-chain);
+  --duel-edge: var(--duel-rule-hi);
+
+  --duel-f-ui: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  --duel-f-num: var(--font-duel-num), "Sofia Sans Extra Condensed", "Arial Narrow", sans-serif;
+  --duel-f-ink: var(--font-duel-ink), "Newsreader", Georgia, serif;
+
+  /* Type scale: the prototype's sizes, about 10% larger at 1440x900. */
+  --duel-t-xs: max(11px, calc(11 * var(--duel-unit)));
+  --duel-t-sm: max(12px, calc(12 * var(--duel-unit)));
+  --duel-t-body: max(13px, calc(13 * var(--duel-unit)));
+  --duel-t-head: max(14px, calc(15 * var(--duel-unit)));
+  --duel-t-name: max(18px, calc(20 * var(--duel-unit)));
+  --duel-t-num: max(20px, calc(22 * var(--duel-unit)));
+}
+
+.shell {
+  /* The field is height-bound (its width follows from the rows), so on wide screens the spare width
+     goes to the side panes. --duel-free is the viewport width left once the field has what it needs
+     (about 1.12 x the height under the header and track, plus the sheet margins); the panes share it,
+     up to a vw ceiling. */
+  --duel-free: max(0px, calc(100vw - (100dvh - 140px) * 1.12 - 40px));
+  --duel-insp-w: clamp(240px, min(22vw, calc(var(--duel-free) * 0.55)), 640px);
+  --duel-dock-w: clamp(212px, min(16vw, calc(var(--duel-free) * 0.45)), 460px);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--duel-ink);
+  font-family: var(--duel-f-ui);
+  font-size: var(--duel-t-body);
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
+    radial-gradient(40% 50% at 12% 88%, rgb(46 34 84 / 0.22), transparent 70%),
+    linear-gradient(180deg, #0a1122 0%, #070b15 55%, #05080f 100%);
+}
+.shell[data-turn="opp"] { --duel-rule-a: 0.22; }
+.shell[data-phase="battle"] {
+  --duel-frame-rgb: var(--duel-ember-rgb);
+  --duel-frame-a: 0.46;
+}
+
+.tool, .gear, .tabs button, .phases button, .cardMenu button, .error button { cursor: pointer; }
+.tool:disabled, .gear:disabled, .tabs button:disabled, .phases button:disabled, .cardMenu button:disabled { cursor: default; }
+.shell * { scrollbar-width: thin; scrollbar-color: rgb(var(--duel-rule-rgb) / 0.45) transparent; }
+
+/* ---------- header ---------- */
+.header {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: calc(12 * var(--duel-unit));
+  /* Held at a 1.2px-unit height on big screens: every px here comes off the height-bound field.
+     It also paints over the opponent's hand, which is tucked partly under it. */
+  position: relative;
+  z-index: 3;
+  height: calc(34 * min(var(--duel-unit), 1.2px));
+  padding: 0 max(calc(12 * var(--duel-unit)), env(safe-area-inset-right)) 0 max(calc(16 * var(--duel-unit)), env(safe-area-inset-left));
+  border-bottom: 1px solid var(--duel-rule);
+  background: linear-gradient(180deg, rgb(12 19 36 / 0.95), rgb(8 13 25 / 0.95));
+}
+.identity, .turn { display: flex; align-items: center; gap: calc(10 * var(--duel-unit)); min-width: 0; white-space: nowrap; }
+.identity a {
+  font-size: calc(20 * var(--duel-unit));
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  color: var(--duel-ink);
+}
+.identity a:focus-visible, .gear:focus-visible, .tool:focus-visible, .error button:focus-visible {
+  outline: 2px solid var(--duel-ink);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.identity span { color: var(--duel-ink-2); font-size: var(--duel-t-body); overflow: hidden; text-overflow: ellipsis; }
+.format::before { content: "/"; margin-right: calc(10 * var(--duel-unit)); color: var(--duel-rule-hi); }
+.turn { justify-content: center; }
+.turn strong { font-size: var(--duel-t-head); font-weight: 500; }
+.turn > span { color: var(--duel-ink-2); font-size: var(--duel-t-head); }
+.turn strong + span::before { content: "·"; margin-right: calc(8 * var(--duel-unit)); color: var(--duel-rule-hi); }
+.phaseName { transition: color 0.4s; }
+.shell[data-phase="battle"] .phaseName { color: rgb(var(--duel-ember-rgb)); }
+.whoPill {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(6 * var(--duel-unit));
+  padding: calc(2 * var(--duel-unit)) calc(9 * var(--duel-unit)) calc(2 * var(--duel-unit)) calc(7 * var(--duel-unit));
+  border: 1px solid var(--duel-rule);
+  border-radius: 999px;
+  transition: border-color 0.4s, color 0.4s;
+}
+.turn .whoPill { margin-left: calc(2 * var(--duel-unit)); font-size: var(--duel-t-body); }
+.whoPill[data-turn="you"] { color: var(--duel-ink); border-color: var(--duel-rule-hi); }
+.shell[data-phase="battle"] .whoPill { border-color: rgb(var(--duel-ember-rgb) / 0.6); }
+.status { display: flex; align-items: center; justify-content: flex-end; gap: calc(4 * var(--duel-unit)); min-width: 0; color: var(--duel-ink-2); font-size: var(--duel-t-body); }
+.pref { white-space: nowrap; }
+/* Spectating: light purple type with a soft glow, so the viewer knows they only watch. */
+.viewerRole {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px 2px 9px;
+  border: 1px solid rgb(155 126 255 / 0.6);
+  border-radius: 999px;
+  color: #d4c8ff;
+  background: rgb(87 51 209 / 0.12);
+  box-shadow: 0 0 14px 1px rgb(155 126 255 / 0.28);
+  text-shadow: 0 0 10px rgb(170 145 255 / 0.75);
+  font-size: var(--duel-t-body);
+  font-weight: 300;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.connectionStatus { display: inline-flex; align-items: center; gap: 6px; padding: 0 calc(9 * var(--duel-unit)); white-space: nowrap; color: var(--duel-chain-ink); }
+/* A live duel reads at a glance: red lamp, larger label. */
+.connectionStatus[data-live="true"] {
+  gap: 8px;
+  margin-right: calc(6 * var(--duel-unit));
+  padding: 3px 12px 3px 10px;
+  border: 1px solid rgb(255 84 72 / 0.55);
+  border-radius: 999px;
+  background: rgb(255 84 72 / 0.08);
+  color: #ff8a80;
+  font-size: calc(var(--duel-t-body) * 1.15);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.liveDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ff4a3d;
+  box-shadow: 0 0 0 0 rgb(255 74 61 / 0.6);
+  animation: livePulse 1.8s ease-out infinite;
+}
+@keyframes livePulse {
+  0% { box-shadow: 0 0 0 0 rgb(255 74 61 / 0.55); }
+  70% { box-shadow: 0 0 0 7px rgb(255 74 61 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(255 74 61 / 0); }
+}
+@media (prefers-reduced-motion: reduce) { .liveDot { animation: none; } }
+.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: calc(30 * var(--duel-unit));
+  padding: 0 calc(9 * var(--duel-unit));
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--duel-ink-2);
+  transition: border-color 0.15s, color 0.15s;
+}
+.tool:hover { border-color: var(--duel-rule); color: var(--duel-ink); }
+.tool b { font-weight: 500; color: var(--duel-ink); }
+.gear {
+  display: grid;
+  place-items: center;
+  width: calc(30 * var(--duel-unit));
+  height: calc(30 * var(--duel-unit));
+  min-width: 30px;
+  min-height: 30px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--duel-ink-2);
+  transition: border-color 0.15s, color 0.15s;
+}
+.gear:hover { border-color: var(--duel-rule); color: var(--duel-ink); }
+.gear[aria-pressed="true"] { color: var(--duel-ink); border-color: var(--duel-rule-hi); background: var(--duel-lamp); }
+
+/* ---------- three-column layout ---------- */
+.layout {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--duel-insp-w) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "insp board"
+    "chain board"
+    "prompt board";
+  background: linear-gradient(90deg, rgb(9 15 29 / 0.9) var(--duel-insp-w), transparent var(--duel-insp-w));
+}
+.shell[data-domain="true"] .layout {
+  grid-template-columns: var(--duel-insp-w) minmax(0, 1fr) var(--duel-dock-w);
+  grid-template-areas:
+    "insp board masters"
+    "chain board masters"
+    "prompt board masters";
+  background: linear-gradient(90deg, rgb(9 15 29 / 0.9) var(--duel-insp-w), transparent var(--duel-insp-w));
+}
+.inspector { grid-area: insp; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.masters {
+  grid-area: masters;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: calc(10 * var(--duel-unit));
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-left: 1px solid var(--duel-rule);
+  background: linear-gradient(180deg, rgb(11 18 34 / 0.92), rgb(8 13 25 / 0.96));
+}
+.masters > * { flex: 1 1 auto; min-height: 0; }
+.mastersSheet { display: flex; flex-direction: column; min-height: 0; }
+.chamfer { display: none; }
+
+.tabs {
+  flex: none;
+  display: flex;
+  padding: calc(6 * var(--duel-unit)) calc(12 * var(--duel-unit)) 0;
+  border-bottom: 1px solid var(--duel-rule);
+}
+.tabs button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: calc(34 * var(--duel-unit));
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--duel-ink-3);
+  font-size: var(--duel-t-body);
+}
+.tabs button:hover { color: var(--duel-ink); }
+.tabs button[aria-selected="true"], .tabs button[aria-pressed="true"] {
+  color: var(--duel-ink);
+  border-bottom-color: var(--duel-ink);
+  font-weight: 500;
+}
+.tabs button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -3px; border-radius: 4px; }
+.sideContent { position: relative; flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+
+/* ---------- board column ---------- */
+.boardColumn {
+  grid-area: board;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: calc(2 * var(--duel-unit)) calc(6 * var(--duel-unit));
+  border-left: 1px solid var(--duel-rule);
+}
+/* The field measures this box: it must stay definite and never scroll. Overflow stays visible and the
+   box sits above the header and station track, so a hovered hand card can grow outward over them
+   instead of over the board (the field's fx layers clip themselves). */
+.board {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+}
+.board::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(60% 55% at 50% 50%, rgb(var(--duel-ember-rgb) / 0.07), transparent 72%),
+    linear-gradient(180deg, rgb(var(--duel-ember-rgb) / 0.04), transparent 40%);
+  transition: opacity 0.6s;
+}
+.shell[data-phase="battle"] .board::after { opacity: 1; }
+.shell[data-reduced="true"] .board::after,
+.shell[data-reduced="true"] .phaseName, .shell[data-reduced="true"] .whoPill { transition: none; }
+
+/* Phase strip: replay still uses it; the live room uses the station track. */
+.phases {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  align-self: center;
+  width: min(calc(400 * var(--duel-unit)), 100%);
+  margin: calc(6 * var(--duel-unit)) auto 0;
+  border: 1px solid var(--duel-rule);
+  border-radius: 4px;
+  background: rgb(8 13 25 / 0.8);
+}
+.phases button {
+  flex: 1;
+  height: calc(34 * var(--duel-unit));
+  border-right: 1px solid var(--duel-rule);
+  color: var(--duel-ink-3);
+  font-size: var(--duel-t-body);
+  font-weight: 600;
+}
+.phases button:last-child { border-right: 0; }
+.phases button:disabled { color: var(--duel-ink-4); }
+.phases button[aria-current="step"] { color: var(--duel-ink); background: var(--duel-lamp); box-shadow: inset 0 2px 0 var(--duel-ink); }
+
+.track {
+  flex: none;
+  min-width: 0;
+  border-top: 1px solid var(--duel-rule);
+  background: linear-gradient(180deg, rgb(10 16 31 / 0.96), #070b15);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ---------- chain block ---------- */
+.chain {
+  grid-area: chain;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  max-height: min(26dvh, calc(240 * var(--duel-unit)));
+  margin: 0 calc(8 * var(--duel-unit)) calc(8 * var(--duel-unit));
+  overflow: hidden;
+  border: 1px solid rgb(228 182 79 / 0.55);
+  border-radius: 6px;
+  background: var(--duel-chain-soft);
+  color: var(--duel-ink);
+  font-size: var(--duel-t-body);
+}
+.chain > strong {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: calc(6 * var(--duel-unit)) calc(10 * var(--duel-unit)) calc(5 * var(--duel-unit));
+  border-bottom: 1px solid rgb(228 182 79 / 0.35);
+  color: var(--duel-chain-ink);
+  font-size: var(--duel-t-body);
+  font-weight: 600;
+}
+.chain ol { min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
+.chain li {
+  display: flex;
+  align-items: center;
+  gap: calc(9 * var(--duel-unit));
+  padding: calc(6 * var(--duel-unit)) calc(10 * var(--duel-unit));
+  border-bottom: 1px solid rgb(228 182 79 / 0.2);
+}
+.chain li:last-child { border-bottom: 0; }
+.chain b {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: calc(32 * var(--duel-unit));
+  height: calc(32 * var(--duel-unit));
+  border: 1.5px solid var(--duel-chain);
+  border-radius: 50%;
+  color: var(--duel-chain-ink);
+  font-family: var(--duel-f-num);
+  font-size: var(--duel-t-num);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 600;
+  line-height: 1;
+}
+.chainArt {
+  flex: none;
+  width: calc(36 * var(--duel-unit));
+  height: calc(36 * var(--duel-unit));
+  border-radius: 4px;
+  background-color: #06080e;
+  background-position: 50% 36%;
+  background-repeat: no-repeat;
+  background-size: 131% auto;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.4);
+}
+.chainText { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
+.chain small { display: block; color: var(--duel-ink-2); font-size: var(--duel-t-xs); line-height: 1.35; }
+
+/* ---------- prompt dock ---------- */
+.promptDock { position: relative; min-width: 0; }
+/* Replay keeps its controls in the board column. */
+.promptDock[data-idle="true"] { padding: calc(6 * var(--duel-unit)) 0 0; }
+/* Nothing to answer: the station track carries the status. The live region stays for screen readers. */
+.promptDock[data-mode="idle"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* A prompt for you sits in the left sheet under the chain, so the board never resizes. */
+.promptDock[data-mode="float"], .promptDock[data-mode="flow"] {
+  grid-area: prompt;
+  min-height: 0;
+  max-height: min(40dvh, calc(420 * var(--duel-unit)));
+  margin: 0 calc(8 * var(--duel-unit)) calc(8 * var(--duel-unit));
+  padding: calc(10 * var(--duel-unit)) calc(12 * var(--duel-unit)) calc(12 * var(--duel-unit));
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid rgb(155 126 255 / 0.65);
+  border-radius: 8px;
+  background: var(--duel-panel-2);
+  box-shadow: 0 16px 34px rgb(0 0 0 / 0.5), 0 2px 6px rgb(0 0 0 / 0.4);
+}
+.promptDock[data-tone="chain"][data-mode="float"], .promptDock[data-tone="chain"][data-mode="flow"] {
+  border-color: var(--duel-chain);
+}
+
+/* ---------- match sheet (log) ---------- */
+.sheet { display: flex; flex-direction: column; min-height: 100%; }
+.sheetHead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(9 * var(--duel-unit)) calc(14 * var(--duel-unit)) calc(7 * var(--duel-unit));
+  border-bottom: 3px double var(--duel-rule-hi);
+  background: #0a1120;
+}
+.sheetHead h2 { margin: 0; font-size: var(--duel-t-head); font-weight: 600; }
+.sheetHead span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--duel-ink-3); font-size: var(--duel-t-xs); }
+.log {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  margin: 0;
+  padding: 0 0 calc(4 * var(--duel-unit));
+  list-style: none;
+  font-size: var(--duel-t-body);
+}
+.log li {
+  padding: calc(6 * var(--duel-unit)) calc(14 * var(--duel-unit));
+  border-bottom: 1px solid var(--duel-rule-lo);
+  color: var(--duel-ink);
+  overflow-wrap: anywhere;
+}
+.log li:hover { background: rgb(239 231 213 / 0.03); }
+.log li[data-kind="turn"] {
+  margin-top: calc(6 * var(--duel-unit));
+  padding-top: calc(10 * var(--duel-unit));
+  border-top: 3px double var(--duel-rule-hi);
+  border-bottom: 0;
+  font-weight: 600;
+}
+.log li[data-kind="turn"]:first-child { margin-top: 0; border-top: 0; }
+.log li[data-kind="phase"] {
+  padding-top: calc(4 * var(--duel-unit));
+  padding-bottom: calc(3 * var(--duel-unit));
+  padding-left: calc(28 * var(--duel-unit));
+  border-bottom: 1px dotted var(--duel-rule);
+  color: var(--duel-ink-3);
+  font-size: var(--duel-t-xs);
+}
+.log li[data-kind="loss"] { color: var(--duel-loss-ink); }
+.log li[data-kind="gain"] { color: var(--duel-ink-2); }
+.log li[data-kind="chain"] { color: var(--duel-chain-ink); background: var(--duel-chain-soft); }
+.log li[data-kind="result"] { font-weight: 600; border-top: 3px double var(--duel-rule-hi); }
+
+/* ---------- options pane ---------- */
+.options { display: flex; flex-direction: column; gap: calc(12 * var(--duel-unit)); padding: calc(14 * var(--duel-unit)); font-size: var(--duel-t-body); }
+.options h2 {
+  margin: 0;
+  padding-bottom: calc(5 * var(--duel-unit));
+  border-bottom: 3px double var(--duel-rule-hi);
+  color: var(--duel-ink);
+  font-family: var(--duel-f-ui);
+  font-size: var(--duel-t-head);
+  font-weight: 600;
+}
+.options p, .options dt { color: var(--duel-ink-2); font-size: var(--duel-t-sm); }
+.options dd { color: var(--duel-ink); }
+.options select {
+  height: calc(34 * var(--duel-unit));
+  padding: 0 calc(8 * var(--duel-unit));
+  border: 1px solid var(--duel-rule-hi);
+  border-radius: 6px;
+  background: var(--duel-panel-3);
+  color: var(--duel-ink);
+}
+.options a { color: var(--duel-pen-ink); text-decoration: underline; text-underline-offset: 3px; }
+.options :focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+
+.error {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(16 * var(--duel-unit));
+  padding: calc(7 * var(--duel-unit)) calc(16 * var(--duel-unit));
+  border-bottom: 1px solid rgb(228 182 79 / 0.45);
+  color: var(--duel-chain-ink);
+  background: rgb(228 182 79 / 0.1);
+  font-size: var(--duel-t-body);
+}
+.error button { text-decoration: underline; text-underline-offset: 3px; }
+
+.mobileBar { display: none; }
+
+/* ---------- anchored card menu (portal) ---------- */
+.cardMenu {
+  position: fixed;
+  z-index: 100;
+  width: max-content;
+  min-width: calc(190 * var(--duel-unit));
+  max-width: min(calc(340 * var(--duel-unit)), calc(100vw - 16px));
+  padding: calc(4 * var(--duel-unit));
+  border: 1px solid var(--duel-rule-hi);
+  border-radius: 8px;
+  background: var(--duel-panel-2);
+  box-shadow: 0 14px 30px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4);
+  color: var(--duel-ink);
+  font-family: var(--duel-f-ui);
+  font-size: var(--duel-t-body);
+  line-height: 1.3;
+}
+.cardMenu::after {
+  content: "";
+  position: absolute;
+  left: var(--ax, 50%);
+  width: 10px;
+  height: 10px;
+  translate: -50% 0;
+  rotate: 45deg;
+  background: var(--duel-panel-2);
+}
+.cardMenu[data-side="above"]::after { bottom: -6px; border-right: 1px solid var(--duel-rule-hi); border-bottom: 1px solid var(--duel-rule-hi); }
+.cardMenu[data-side="below"]::after { top: -6px; border-left: 1px solid var(--duel-rule-hi); border-top: 1px solid var(--duel-rule-hi); }
+.cardMenu[data-tone="chain"] { border-color: rgb(228 182 79 / 0.6); }
+.cardMenu[data-tone="chain"]::after { border-color: rgb(228 182 79 / 0.6); }
+.menuTitle {
+  margin-bottom: calc(2 * var(--duel-unit));
+  padding: calc(4 * var(--duel-unit)) calc(8 * var(--duel-unit)) calc(5 * var(--duel-unit));
+  border-bottom: 1px solid var(--duel-rule-lo);
+  color: var(--duel-ink-3);
+  font-size: var(--duel-t-xs);
+  overflow-wrap: anywhere;
+}
+.menuList { display: grid; gap: calc(2 * var(--duel-unit)); max-height: calc(100dvh - 96px); overflow-y: auto; }
+.cardMenu button {
+  display: flex;
+  align-items: center;
+  gap: calc(9 * var(--duel-unit));
+  width: 100%;
+  min-height: calc(36 * var(--duel-unit));
+  padding: calc(5 * var(--duel-unit)) calc(10 * var(--duel-unit));
+  border-radius: 5px;
+  color: var(--duel-pen-ink);
+  font-size: var(--duel-t-body);
+  text-align: left;
+}
+.cardMenu button svg { flex: none; }
+.cardMenu button:hover, .cardMenu button:focus-visible { background: var(--duel-pen-soft); color: #fff; }
+.cardMenu button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -2px; }
+.cardMenu button[data-primary="true"] { background: var(--duel-pen-fill); color: #fff; }
+.cardMenu button[data-primary="true"]:hover { background: #6440e0; }
+.cardMenu button:disabled { opacity: 0.45; }
+.menuLabel { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
+.menuLabel small { font-size: var(--duel-t-xs); font-weight: 400; opacity: 0.78; }
+.cardMenu[data-tone="chain"] button { color: var(--duel-chain-ink); }
+.cardMenu[data-tone="chain"] button:hover, .cardMenu[data-tone="chain"] button:focus-visible { background: var(--duel-chain-soft); color: #fff; }
+.cardMenu[data-tone="chain"] button[data-primary="true"] { background: var(--duel-chain); color: #1a1204; }
+.cardMenu[data-tone="chain"] button[data-primary="true"]:hover { background: #f0c463; }
+
+/* ---------- hover tooltip (portal) ---------- */
+.cardTooltip {
+  pointer-events: none;
+  position: fixed;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--duel-unit));
+  max-width: min(calc(300 * var(--duel-unit)), calc(100vw - 16px));
+  padding: calc(7 * var(--duel-unit)) calc(10 * var(--duel-unit));
+  border: 1px solid var(--duel-rule-hi);
+  border-radius: 6px;
+  background: rgb(9 14 28 / 0.96);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.45);
+  color: var(--duel-ink-2);
+  font-family: var(--duel-f-ui);
+  font-size: var(--duel-t-sm);
+  line-height: 1.35;
+}
+.cardTooltip strong { color: var(--duel-ink); font-size: var(--duel-t-body); font-weight: 500; }
+.tooltipStats { font-family: var(--duel-f-num); font-size: var(--duel-t-head); font-variant-numeric: tabular-nums lining-nums; color: var(--duel-ink); }
+
+/* ---------- decision clocks (rendered inside the station track) ---------- */
+.clock {
+  display: flex;
+  align-items: baseline;
+  gap: calc(14 * var(--duel-unit));
+  white-space: nowrap;
+  color: var(--duel-ink-3);
+  font-size: var(--duel-t-xs);
+}
+.clock > span { display: inline-flex; align-items: baseline; gap: 6px; }
+.clock small { max-width: 9ch; overflow: hidden; text-overflow: ellipsis; font-size: var(--duel-t-xs); }
+.clockTime {
+  font-family: var(--duel-f-num);
+  font-size: var(--duel-t-num);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 450;
+  line-height: 1;
+}
+.clock > span[data-active="true"] { color: var(--duel-ink); }
+.clock > span[data-active="true"] .clockTime { color: var(--duel-ink); }
+
+/* ============================================================
+   Narrow screens: one board column, tab bar at the bottom,
+   inspector and Deck Masters open in a sheet.
+   ============================================================ */
+@media (max-width: 1150px) {
+  .format { display: none; }
+}
+@media (max-width: 900px) {
+  .shell, .cardMenu, .cardTooltip { --duel-unit: 1px; }
+  /* Legacy flow (replay): the page may grow and scroll. */
+  .shell { height: auto; min-height: 100dvh; overflow: visible; }
+  .header { height: calc(42 * var(--duel-unit)); grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 8px; padding: 0 8px 0 12px; }
+  .layout, .shell[data-domain="true"] .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas: none;
+    grid-auto-rows: auto;
+    height: auto;
+    min-height: 0;
+    padding: 4px 6px;
+    background: none;
+  }
+  .inspector { display: none; }
+  .inspector, .boardColumn, .masters, .chain, .promptDock[data-mode="float"], .promptDock[data-mode="flow"] { grid-area: auto; }
+  .boardColumn, .shell[data-domain="true"] .boardColumn { padding: 0; border: 0; }
+  .board { flex: none; height: clamp(480px, calc(100dvh - 13rem), 780px); }
+  .masters { border: 0; padding: 4px 0; background: none; }
+  .chain { margin: 6px 0 0; }
+  .promptDock[data-mode="float"], .promptDock[data-mode="flow"] { margin: 6px 0 0; max-height: none; }
+
+  /* The live room: everything fits one screen, nothing scrolls. */
+  .shell[data-fit="true"] { height: 100dvh; min-height: 0; overflow: hidden; }
+  .shell[data-fit="true"] .layout, .shell[data-fit="true"][data-domain="true"] .layout {
+    flex: 1;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-auto-rows: 0;
+    padding: 4px 6px 2px;
+    overflow: hidden;
+  }
+  .shell[data-fit="true"] .boardColumn { grid-row: 2; min-height: 0; }
+  .shell[data-fit="true"] .board { flex: 1; height: auto; }
+  .shell[data-fit="true"] .masters { display: none; }
+  /* A chain becomes a slim strip above the board; the prompt overlays the bottom. */
+  .shell[data-fit="true"] .chain {
+    grid-row: 1;
+    max-height: none;
+    margin: 0 0 4px;
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .shell[data-fit="true"] .chain > strong { flex: none; align-items: center; padding: 0 10px; border-bottom: 0; border-right: 1px solid rgb(228 182 79 / 0.35); }
+  .chainNote { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .shell[data-fit="true"] .chain ol { display: flex; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; }
+  .shell[data-fit="true"] .chain li { flex: none; width: max-content; max-width: 210px; padding: 5px 10px; border-bottom: 0; border-right: 1px solid rgb(228 182 79 / 0.2); }
+  .shell[data-fit="true"] .chain b { width: 26px; height: 26px; font-size: 18px; }
+  .shell[data-fit="true"] .chainArt { width: 30px; height: 30px; }
+  .shell[data-fit="true"] .promptDock[data-mode="float"],
+  .shell[data-fit="true"] .promptDock[data-mode="flow"] {
+    position: absolute;
+    z-index: 12;
+    left: 6px;
+    right: 6px;
+    bottom: 4px;
+    margin: 0;
+    max-height: 40dvh;
+    border-radius: 10px 10px 0 0;
+  }
+  .shell[data-fit="true"] .promptDock[data-mode="flow"] { max-height: 52dvh; }
+
+  .identity .format, .connectionStatus svg, .pref, .whoPill { display: none; }
+  .identity:has(.viewerRole) { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .identity a { font-size: 17px; }
+  .viewerRole { padding: 0; border: 0; background: transparent; font-size: 10px; line-height: 12px; }
+  .viewerRole svg { width: 12px; height: 12px; }
+  .turn { justify-content: flex-start; }
+  .turn strong, .turn > span { font-size: 13px; }
+  .connectionStatus { padding: 0 4px; font-size: 11px; }
+  .track { padding-bottom: 0; }
+  .mobileBar {
+    display: block;
+    flex: none;
+    border-top: 1px solid var(--duel-rule);
+    background: #0a1120;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .mobileBar .tabs { max-width: 32rem; margin-inline: auto; padding: 0 6px; border-bottom: 0; }
+  .mobileBar .tabs button { height: 40px; margin: 0; border: 0; border-top: 2px solid transparent; color: var(--duel-ink-2); }
+  .cardTooltip { display: none; }
+  .log li { font-size: 13px; }
+}
+
+/* Log tab: history rail above the match sheet; the sheet keeps the remaining height. */
+.logPane { display: flex; flex-direction: column; gap: 10px; min-height: 0; height: 100%; overflow: hidden; }
+.logPane > :first-child { flex: none; }
+/* The sheet fills the rest of the pane and scrolls its own list, so the history rail stays in view. */
+.logPane > .sheet { flex: 1; min-height: 0; }
+.logPane > .sheet .log { min-height: 0; overflow-y: auto; justify-content: flex-start; }
+
+/* The Hearthstone-style history owns the pane; the plain text log folds into a drawer under it. */
+.textLog { flex: none; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--duel-rule); }
+.textLog > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(7 * var(--duel-unit)) calc(14 * var(--duel-unit));
+  color: var(--duel-ink-2);
+  font-size: var(--duel-t-sm);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+.textLog > summary::-webkit-details-marker { display: none; }
+.textLog > summary::after { content: "+"; color: var(--duel-ink-3); }
+.textLog[open] > summary::after { content: "\2212"; }
+.textLog > summary:hover { color: var(--duel-ink); }
+.textLog > summary:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -2px; }
+.textLog[open] { flex: 0 1 38%; }
+.textLog[open] > .sheet { flex: 1; min-height: 0; overflow: hidden; }
+.textLog[open] .log { min-height: 0; overflow-y: auto; justify-content: flex-start; }
+
+/* In the mobile sheet the pane has no fixed parent height, so give the history a definite one. */
+@media (max-width: 900px) {
+  .logPane { height: min(72dvh, 600px); }
+}

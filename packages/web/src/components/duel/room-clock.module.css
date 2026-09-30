@@ -1,0 +1,49 @@
+/* Time-bank gain pop next to a seat's clock (DuelClockDisplay). One-shot, self-fading. */
+.seat { position: relative; }
+
+.pop {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgb(7 11 21 / 0.86);
+  color: var(--duel-pen-ink, #c6b6ff);
+  font-family: var(--duel-f-num, inherit);
+  font-size: var(--duel-t-xs);
+  font-weight: 450;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 3;
+  opacity: 0;
+  transform: translateY(-50%);
+  animation: clockGain 1600ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: var(--pop-delay, 0ms);
+}
+
+.pop[data-motion="off"] {
+  animation-name: clockGainStill;
+  animation-duration: 1200ms;
+}
+
+@keyframes clockGain {
+  0% { opacity: 0; transform: translateY(-30%); }
+  14% { opacity: 1; transform: translateY(-50%); }
+  72% { opacity: 1; transform: translateY(-50%); }
+  100% { opacity: 0; transform: translateY(-78%); }
+}
+
+@keyframes clockGainStill {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pop { animation-name: clockGainStill; animation-duration: 1200ms; }
+}

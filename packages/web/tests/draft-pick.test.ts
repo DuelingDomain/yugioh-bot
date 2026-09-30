@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
-const repoRoot = "/home/imran/yugioh-discord-bot";
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const tempDirs: string[] = [];
 const testTimeoutMs = 20000;
 
@@ -24,8 +25,7 @@ describe("POST /api/drafts/[slug]/pick", () => {
   });
 
   afterEach(() => {
-    delete process.env.DATABASE_PATH;
-    delete process.env.DISCORD_GUILD_ID;
+    vi.unstubAllEnvs();
 
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop();
@@ -68,8 +68,8 @@ describe("POST /api/drafts/[slug]/pick", () => {
       stdio: "pipe",
     });
 
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "196382772699332609";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
     const { POST } = await import("../app/api/drafts/[slug]/pick/route");
 
@@ -101,8 +101,8 @@ describe("POST /api/drafts/[slug]/pick", () => {
       stdio: "pipe",
     });
 
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "196382772699332609";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
     const { POST } = await import("../app/api/drafts/[slug]/pick/route");
 
@@ -136,8 +136,8 @@ describe("POST /api/drafts/[slug]/pick", () => {
       stdio: "pipe",
     });
 
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "196382772699332609";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
     // Start the draft
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
@@ -204,8 +204,8 @@ describe("POST /api/drafts/[slug]/pick", () => {
       stdio: "pipe",
     });
 
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "196382772699332609";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
     // Start the draft first
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
@@ -268,8 +268,8 @@ describe("POST /api/drafts/[slug]/pick", () => {
       stdio: "pipe",
     });
 
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "196382772699332609";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
     // Start the draft first
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");

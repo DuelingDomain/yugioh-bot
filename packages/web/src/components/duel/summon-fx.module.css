@@ -1,0 +1,731 @@
+/* Board effects: holographic heavy summons, typed summons, sets, activations and destruction.
+   Palette: obsidian, a cool projector light (cyan into violet) and antique gold. Red only for
+   destruction. A summon type recolours its light through --fx-a (main), --fx-b (secondary) and
+   --fx-c (accent), "r g b" triplets set in JS; the defaults below are the gold projector look.
+   Nothing here takes pointer input. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout style;
+}
+
+/* Every effect is positioned on the card outline of its zone (left, top, width, height set in JS). */
+.anchor {
+  --fx-a: 244 226 180;
+  --fx-b: 155 126 255;
+  --fx-c: 130 200 255;
+  position: absolute;
+  pointer-events: none;
+}
+
+/* ---------- shared bits ---------- */
+
+.ring {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--fx-r, 4px);
+  opacity: 0;
+  box-shadow:
+    0 0 0 1px rgb(228 200 140 / 0.85),
+    0 0 12px rgb(228 182 79 / 0.45);
+}
+
+.ring[data-tone="violet"] {
+  box-shadow:
+    0 0 0 1px rgb(198 182 255 / 0.85),
+    0 0 12px rgb(155 126 255 / 0.5);
+}
+
+.ring[data-strong="true"] {
+  box-shadow:
+    0 0 0 1.5px rgb(244 214 144 / 0.95),
+    0 0 18px rgb(228 182 79 / 0.6);
+}
+
+.ring[data-strong="true"][data-tone="violet"] {
+  box-shadow:
+    0 0 0 1.5px rgb(198 182 255 / 0.95),
+    0 0 18px rgb(155 126 255 / 0.6);
+}
+
+.glow {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--fx-r, 4px);
+  opacity: 0;
+  box-shadow:
+    0 0 0 1px rgb(228 200 140 / 0.8),
+    0 0 14px rgb(228 182 79 / 0.4);
+}
+
+.glow[data-tone="violet"] {
+  box-shadow:
+    0 0 0 1px rgb(198 182 255 / 0.8),
+    0 0 14px rgb(155 126 255 / 0.4);
+}
+
+.glow[data-tone="red"] {
+  box-shadow:
+    0 0 0 1px rgb(255 148 137 / 0.8),
+    0 0 14px rgb(228 90 77 / 0.4);
+}
+
+.glow[data-tone="typed"] {
+  box-shadow:
+    0 0 0 1px rgb(var(--fx-a) / 0.85),
+    0 0 16px rgb(var(--fx-b) / 0.5);
+}
+
+.softShadow {
+  position: absolute;
+  inset: -6% -10% -8%;
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(closest-side, rgb(0 0 0 / 0.55), transparent 78%);
+}
+
+.ghostArt {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.flipGhost {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  overflow: hidden;
+  border-radius: var(--fx-r, 4px);
+  box-shadow: 0 4px 10px rgb(0 0 0 / 0.55);
+}
+
+/* ---------- heavy summon: hologram ---------- */
+
+.stage {
+  position: absolute;
+  inset: 0;
+  perspective-origin: 50% 100%;
+}
+
+.holoCard {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  border-radius: var(--fx-r, 4px);
+  will-change: transform, opacity;
+  filter:
+    drop-shadow(0 0 calc(var(--fx-w, 80px) * 0.09) rgb(var(--fx-c) / 0.4))
+    drop-shadow(0 0 calc(var(--fx-w, 80px) * 0.22) rgb(var(--fx-b) / 0.32));
+}
+
+.holoArt {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  filter: saturate(1.18) contrast(1.06);
+}
+
+/* Iridescent foil: a diagonal band of cyan, violet and gold that sweeps once across the card. */
+.holoFoil {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  mix-blend-mode: color-dodge;
+  background: linear-gradient(
+      112deg,
+      transparent 20%,
+      rgb(88 214 255 / 0.55) 37%,
+      rgb(155 126 255 / 0.62) 50%,
+      rgb(244 214 144 / 0.5) 63%,
+      transparent 80%
+    )
+    115% 0 / 260% 100% no-repeat;
+}
+
+.holoScan {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  mix-blend-mode: screen;
+  background: repeating-linear-gradient(
+    0deg,
+    rgb(170 232 255 / 0.2) 0,
+    rgb(170 232 255 / 0.2) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+.holoEdge {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  box-shadow:
+    inset 0 0 0 1px rgb(var(--fx-c) / 0.8),
+    inset 0 0 calc(var(--fx-w, 80px) * 0.2) rgb(var(--fx-c) / 0.4),
+    inset 0 calc(var(--fx-w, 80px) * 0.12) calc(var(--fx-w, 80px) * 0.2) -6px rgb(var(--fx-b) / 0.4);
+}
+
+.plate {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: max-content;
+  max-width: calc(var(--fx-w, 80px) * 2.2);
+  padding: 2px calc(var(--fx-w, 80px) * 0.1);
+  transform: translateX(-50%);
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 1px 4px rgb(0 0 0 / 0.9);
+  opacity: 0;
+}
+
+.plate b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--duel-ink, #efe7d5);
+  font-family: var(--duel-f-ink, Georgia, serif);
+  font-size: max(11px, calc(var(--fx-w, 80px) * 0.19));
+  font-style: italic;
+  font-weight: 400;
+  line-height: 1.15;
+}
+
+.plate em {
+  color: rgb(var(--fx-a) / 0.92);
+  font-family: var(--duel-f-ui, sans-serif);
+  font-size: max(10px, calc(var(--fx-w, 80px) * 0.14));
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Projector light: a cone from a pad on the zone up to the hovering card. */
+.beam {
+  position: absolute;
+  right: 4%;
+  left: 4%;
+  opacity: 0;
+}
+
+.pad {
+  position: absolute;
+  right: -14%;
+  bottom: -6%;
+  left: -14%;
+  height: 30%;
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(closest-side, rgb(var(--fx-c) / 0.5), rgb(var(--fx-b) / 0.18) 60%, transparent 100%);
+}
+
+.shadow {
+  position: absolute;
+  inset: -4% -12% -10%;
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(closest-side, rgb(0 0 0 / 0.62), transparent 80%);
+}
+
+/* ---------- impact ---------- */
+
+.impactRing {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  aspect-ratio: 1;
+  margin: calc(var(--fx-w, 80px) * -0.5) 0 0 calc(var(--fx-w, 80px) * -0.5);
+  border: 2px solid rgb(var(--fx-a) / 0.9);
+  border-radius: 50%;
+  opacity: 0;
+}
+
+.impactRing[data-thin="true"] {
+  border-width: 1px;
+  border-color: rgb(var(--fx-b) / 0.8);
+}
+
+.burst {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--fx-w, 80px) * 3.4);
+  aspect-ratio: 1;
+  margin: calc(var(--fx-w, 80px) * -1.7) 0 0 calc(var(--fx-w, 80px) * -1.7);
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(closest-side, rgb(var(--fx-a) / 0.55), rgb(var(--fx-b) / 0.14) 55%, transparent 100%);
+}
+
+.burst[data-white="true"] {
+  background: radial-gradient(closest-side, rgb(255 255 255 / 0.9), rgb(230 236 255 / 0.3) 45%, transparent 100%);
+}
+
+/* Spokes of light from the impact, in the type's colour. */
+.rays {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--fx-w, 80px) * 4.4);
+  aspect-ratio: 1;
+  margin: calc(var(--fx-w, 80px) * -2.2) 0 0 calc(var(--fx-w, 80px) * -2.2);
+  border-radius: 50%;
+  opacity: 0;
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgb(var(--fx-a) / 0.8) 0deg 3deg,
+    transparent 5deg 22deg,
+    rgb(var(--fx-a) / 0.35) 23deg 25deg,
+    transparent 27deg 45deg
+  );
+  -webkit-mask: radial-gradient(closest-side, #000 8%, rgb(0 0 0 / 0.55) 40%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 8%, rgb(0 0 0 / 0.55) 40%, transparent 100%);
+}
+
+.dust {
+  position: absolute;
+  top: 55%;
+  left: 50%;
+  width: max(3px, calc(var(--fx-w, 80px) * 0.07));
+  aspect-ratio: 1;
+  border-radius: 50%;
+  opacity: 0;
+  background: rgb(214 200 170 / 0.7);
+  filter: blur(0.6px);
+}
+
+/* ---------- cracks ---------- */
+
+.cracks {
+  --fx-a: 244 226 180;
+  --fx-b: 155 126 255;
+  --fx-c: 130 200 255;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  overflow: visible;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.crackShade,
+.crackCore,
+.crackGlint {
+  fill: none;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.crackShade {
+  stroke: rgb(0 0 0 / 0.65);
+  stroke-width: calc(5px * var(--cw, 1));
+}
+
+.crackCore {
+  stroke: rgb(var(--au, var(--fx-a)) / 0.9);
+  stroke-width: calc(1.6px * var(--cw, 1));
+  filter: drop-shadow(0 0 3px rgb(var(--au, var(--fx-a)) / 0.65));
+}
+
+.crackGlint {
+  stroke: rgb(var(--fx-c) / 0.55);
+  stroke-width: calc(0.6px * var(--cw, 1));
+  transform: translate(0.8px, -0.8px);
+}
+
+/* ---------- slam: aura and shockwave ---------- */
+
+/* A wide glow centred on the zone, in the card's attribute colour (--au, --au2 set in JS). */
+.aura {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--fx-w, 80px) * 4.4);
+  aspect-ratio: 1;
+  margin: calc(var(--fx-w, 80px) * -2.2) 0 0 calc(var(--fx-w, 80px) * -2.2);
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(
+    closest-side,
+    rgb(var(--au, 244 214 144) / 0.8),
+    rgb(var(--au2, 155 126 255) / 0.32) 42%,
+    rgb(var(--au2, 155 126 255) / 0.08) 72%,
+    transparent 100%
+  );
+  will-change: transform, opacity;
+}
+
+/* The glow hugging the card outline. */
+.auraHalo {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--fx-r, 4px);
+  opacity: 0;
+  box-shadow:
+    0 0 0 1px rgb(var(--au, 244 214 144) / 0.9),
+    0 0 calc(var(--fx-w, 80px) * 0.3) rgb(var(--au, 244 214 144) / 0.85),
+    0 0 calc(var(--fx-w, 80px) * 0.8) rgb(var(--au2, 155 126 255) / 0.55);
+  will-change: transform, opacity;
+}
+
+/* A flat ring that runs out over the field from the landing zone (squashed to an ellipse in JS). */
+.shockRing {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  aspect-ratio: 1;
+  margin: calc(var(--fx-w, 80px) * -0.5) 0 0 calc(var(--fx-w, 80px) * -0.5);
+  border: max(2px, calc(var(--fx-w, 80px) * 0.05)) solid rgb(var(--au, 244 214 144) / 0.85);
+  border-radius: 50%;
+  opacity: 0;
+  box-shadow: 0 0 calc(var(--fx-w, 80px) * 0.2) rgb(var(--au2, 155 126 255) / 0.55);
+  will-change: transform, opacity;
+}
+
+.shockRing[data-thin="true"] {
+  border-width: max(1px, calc(var(--fx-w, 80px) * 0.02));
+  border-color: rgb(var(--au2, 155 126 255) / 0.7);
+}
+
+/* ---------- destroy ---------- */
+
+.destroyWhole {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--fx-r, 4px);
+  box-shadow: 0 4px 10px rgb(0 0 0 / 0.5);
+}
+
+.destroyRim {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 148 137 / 0.9),
+    inset 0 0 calc(var(--fx-w, 80px) * 0.18) rgb(228 90 77 / 0.5);
+}
+
+.cardCracks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  fill: none;
+  stroke: rgb(255 226 214 / 0.95);
+  stroke-width: 0.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 1.5px rgb(228 90 77 / 0.9));
+  vector-effect: non-scaling-stroke;
+}
+
+.cardCracks path {
+  vector-effect: non-scaling-stroke;
+}
+
+.shard {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background-color: #10131c;
+  background-position: center;
+  background-size: cover;
+  border-radius: var(--fx-r, 4px);
+  will-change: transform, opacity;
+}
+
+.breakFlash {
+  position: absolute;
+  inset: -20%;
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(closest-side, rgb(255 168 156 / 0.55), rgb(228 90 77 / 0.15) 55%, transparent 100%);
+}
+
+/* ---------- typed summons ----------
+   A copy of the card stands in for the real one while the effect plays (the real card is hidden
+   underneath), so the flight's landing and the effect never show two cards. */
+
+.copy {
+  position: absolute;
+  inset: 0;
+  will-change: transform, filter, opacity;
+}
+
+.copyBody {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--fx-r, 4px);
+  background: #0c0a09;
+  box-shadow: 0 4px 10px rgb(0 0 0 / 0.55);
+}
+
+.copyTint {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  mix-blend-mode: screen;
+  background: rgb(var(--fx-b) / 0.95);
+}
+
+/* Fusion: two spirals, one in each of the type's colours, that spin in from the sides. */
+.vortex {
+  --v: var(--fx-c);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--fx-w, 80px) * 2.2);
+  aspect-ratio: 1;
+  margin: calc(var(--fx-w, 80px) * -1.1) 0 0 calc(var(--fx-w, 80px) * -1.1);
+  border-radius: 50%;
+  opacity: 0;
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+  background:
+    conic-gradient(from 0deg, transparent 0 18%, rgb(var(--v) / 0.95) 28%, transparent 40%, transparent 52%, rgb(var(--v) / 0.7) 64%, transparent 78%),
+    conic-gradient(from 90deg, transparent 0 30%, rgb(255 255 255 / 0.35) 36%, transparent 42%, transparent 80%, rgb(255 255 255 / 0.25) 86%, transparent 92%);
+  -webkit-mask: radial-gradient(closest-side, transparent 6%, #000 26%, #000 58%, transparent 100%);
+  mask: radial-gradient(closest-side, transparent 6%, #000 26%, #000 58%, transparent 100%);
+  filter: blur(0.8px);
+}
+
+.vortex[data-hue="b"] {
+  --v: var(--fx-b);
+}
+
+/* Synchro: a column of white light and the tuning rings with their star points. */
+.column {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--fx-w, 80px) * 1.15);
+  height: calc(var(--fx-h, 110px) * 2.7);
+  margin: calc(var(--fx-h, 110px) * -1.35) 0 0 calc(var(--fx-w, 80px) * -0.575);
+  opacity: 0;
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+  background: linear-gradient(to right, transparent, rgb(255 255 255 / 0.5) 28%, rgb(255 255 255 / 0.9) 50%, rgb(255 255 255 / 0.5) 72%, transparent);
+  -webkit-mask: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+  mask: linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+}
+
+.tuneRing {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--fx-w, 80px) * 1.7);
+  height: calc(var(--fx-w, 80px) * 0.46);
+  margin: calc(var(--fx-w, 80px) * -0.23) 0 0 calc(var(--fx-w, 80px) * -0.85);
+  border: 1.5px solid rgb(255 255 255 / 0.92);
+  border-radius: 50%;
+  opacity: 0;
+  will-change: transform, opacity;
+  box-shadow:
+    0 0 10px rgb(220 230 255 / 0.75),
+    inset 0 0 8px rgb(220 230 255 / 0.45);
+}
+
+.tuneRing i {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  background: #fff;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  filter: drop-shadow(0 0 4px rgb(255 255 255 / 0.95));
+}
+
+.tuneRing i:nth-child(1) { top: 0; left: 50%; }
+.tuneRing i:nth-child(2) { top: 50%; left: 100%; }
+.tuneRing i:nth-child(3) { top: 100%; left: 50%; }
+.tuneRing i:nth-child(4) { top: 50%; left: 0; }
+
+/* Xyz: a dark galaxy under the card with faint gold streaks; gold overlay units on their orbits. */
+.galaxy {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--fx-w, 80px) * 2.7);
+  aspect-ratio: 1;
+  margin: calc(var(--fx-w, 80px) * -1.35) 0 0 calc(var(--fx-w, 80px) * -1.35);
+  border-radius: 50%;
+  opacity: 0;
+  will-change: transform, opacity;
+  background:
+    conic-gradient(from 0deg, transparent 0 8%, rgb(var(--fx-a) / 0.5) 10%, transparent 13%, transparent 40%, rgb(var(--fx-b) / 0.6) 43%, transparent 47%, transparent 70%, rgb(var(--fx-a) / 0.4) 73%, transparent 76%),
+    radial-gradient(closest-side, rgb(6 3 14 / 0.98), rgb(18 10 40 / 0.92) 45%, rgb(var(--fx-c) / 0.55) 70%, transparent 100%);
+  -webkit-mask: radial-gradient(closest-side, #000 55%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 55%, transparent 100%);
+}
+
+.orbit {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.orb {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(6px, calc(var(--fx-w, 80px) * 0.14));
+  aspect-ratio: 1;
+  margin: calc(var(--fx-w, 80px) * -0.07) 0 0 calc(var(--fx-w, 80px) * -0.07);
+  border-radius: 50%;
+  opacity: 0;
+  will-change: transform, opacity;
+  background: radial-gradient(circle at 35% 35%, #fff8dc, rgb(var(--fx-a)) 45%, rgb(190 140 40) 100%);
+  box-shadow: 0 0 10px 2px rgb(var(--fx-a) / 0.8);
+}
+
+/* Link: circuit grid, the eight link arrows, and a data line that fills the card in as it passes. */
+.linkGrid {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--fx-w, 80px) * 2.5);
+  height: calc(var(--fx-h, 110px) * 1.75);
+  margin: calc(var(--fx-h, 110px) * -0.875) 0 0 calc(var(--fx-w, 80px) * -1.25);
+  opacity: 0;
+  background:
+    repeating-linear-gradient(0deg, rgb(var(--fx-b) / 0.6) 0 1px, transparent 1px 12px),
+    repeating-linear-gradient(90deg, rgb(var(--fx-b) / 0.6) 0 1px, transparent 1px 12px);
+  -webkit-mask: radial-gradient(closest-side, #000 25%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 25%, transparent 100%);
+}
+
+.linkFill {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--fx-r, 4px);
+  clip-path: inset(0 0 100% 0);
+}
+
+.linkSweep {
+  position: absolute;
+  top: 50%;
+  right: -12%;
+  left: -12%;
+  height: 3px;
+  margin-top: -1.5px;
+  opacity: 0;
+  will-change: transform, opacity;
+  background: linear-gradient(to right, transparent, rgb(var(--fx-c)) 20%, #fff 50%, rgb(var(--fx-c)) 80%, transparent);
+  box-shadow: 0 0 10px 2px rgb(var(--fx-c) / 0.7);
+}
+
+.linkArrow {
+  position: absolute;
+  width: calc(var(--fx-w, 80px) * 0.22);
+  height: calc(var(--fx-w, 80px) * 0.17);
+  opacity: 0;
+  background: rgb(var(--fx-c));
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  filter: drop-shadow(0 0 5px rgb(var(--fx-b) / 0.9));
+}
+
+/* Ritual: a pillar of blue light and blue flames around the card. */
+.pillar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--fx-w, 80px) * 0.85);
+  height: calc(var(--fx-h, 110px) * 2.5);
+  margin: calc(var(--fx-h, 110px) * -1.25) 0 0 calc(var(--fx-w, 80px) * -0.425);
+  opacity: 0;
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+  background: linear-gradient(to right, transparent, rgb(var(--fx-b) / 0.5) 30%, rgb(var(--fx-c) / 0.8) 50%, rgb(var(--fx-b) / 0.5) 70%, transparent);
+  -webkit-mask: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+  mask: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+}
+
+.flame {
+  position: absolute;
+  width: calc(var(--fx-w, 80px) * 0.32);
+  height: calc(var(--fx-w, 80px) * 0.6);
+  opacity: 0;
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+  border-radius: 50% 50% 45% 45% / 65% 65% 35% 35%;
+  background: radial-gradient(ellipse at 50% 80%, rgb(var(--fx-c) / 0.95), rgb(var(--fx-b) / 0.75) 45%, transparent 75%);
+  filter: blur(1.5px);
+}
+
+/* Pendulum: the arc between the Pendulum Zones, the swinging light and the beam that drops. */
+.pendulumSvg {
+  --fx-a: 120 230 220;
+  --fx-b: 244 214 144;
+  --fx-c: 200 255 250;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  pointer-events: none;
+}
+
+.arcGlow {
+  stroke: rgb(var(--fx-a) / 0.35);
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  opacity: 0;
+  filter: blur(3px);
+}
+
+.arcLine {
+  stroke: rgb(var(--fx-c) / 0.95);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  opacity: 0;
+}
+
+.arcBeam {
+  stroke: rgb(var(--fx-b) / 0.9);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  opacity: 0;
+  filter: drop-shadow(0 0 6px rgb(var(--fx-a) / 0.9));
+}
+
+.arcOrb {
+  fill: #fff;
+  opacity: 0;
+  will-change: transform, opacity;
+  filter:
+    drop-shadow(0 0 6px rgb(var(--fx-a)))
+    drop-shadow(0 0 14px rgb(var(--fx-b) / 0.8));
+}

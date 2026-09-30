@@ -13,7 +13,7 @@ const errorMessages: Record<string, string> = {
 };
 
 interface LoginPageProps {
-  searchParams: Promise<{ error?: string }> | { error?: string };
+  searchParams: Promise<{ error?: string }>;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {

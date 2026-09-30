@@ -1,0 +1,292 @@
+/*
+  Life points: heavy squared counter numerals in Oxanium (see life-points.tsx),
+  a slot-machine reel per digit, and the Match Sheet tally (struck previous value + delta chip).
+
+  Footprint (reserved, never shifts):
+    lg  numeral 52px tall, about 140px wide for 8,000 (+31px per extra digit) + ~82px tally = ~225-255 x 52
+    sm  numeral 24px tall, about 65px wide for 8,000 + ~50px tally                        = ~115-130 x 24
+  Optional override from a parent: --lp-size (numeral font-size, e.g. calc(var(--u) * 52)).
+*/
+
+.root {
+  --lp-ink: #efe7d5;
+  --lp-ink-loss: #ff9489;
+  --lp-ink-gain: #f4d690;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--lp-ink);
+  font-family: var(--font-duel-display), "Chakra Petch", "Arial Narrow", sans-serif;
+  font-size: var(--lp-fs);
+  /* Slimmer digits read cleaner than the heavy 800 cut. */
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  font-kerning: none;
+  line-height: 1;
+  white-space: nowrap;
+  transition: color 0.7s ease-out;
+}
+
+.lg {
+  --lp-fs: var(--lp-size, 52px);
+  --lp-t: calc(var(--lp-fs) * 0.29);
+}
+
+.sm {
+  --lp-fs: var(--lp-size, 24px);
+  --lp-t: max(9px, calc(var(--lp-fs) * 0.4));
+}
+
+/* Set imperatively while the reels spin (and briefly in reduced motion). */
+.root[data-tone="loss"] {
+  color: var(--lp-ink-loss);
+  transition-duration: 0.05s;
+}
+
+.root[data-tone="gain"] {
+  color: var(--lp-ink-gain);
+  transition-duration: 0.05s;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.roll {
+  display: inline-flex;
+  align-items: flex-end;
+  flex: none;
+  height: 1em;
+  color: inherit;
+  transition: filter 0.7s ease-out;
+}
+
+.root[data-tone="loss"] .roll {
+  filter: drop-shadow(0 0 0.14em rgb(228 90 77 / 0.4));
+  transition-duration: 0.05s;
+}
+
+.root[data-tone="gain"] .roll {
+  filter: drop-shadow(0 0 0.14em rgb(228 182 79 / 0.36));
+  transition-duration: 0.05s;
+}
+
+/* One reel window per digit. Fixed cell width: no jitter whatever the digit. */
+.digit {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 0.6em;
+  height: 1em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 6%, #000 94%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 6%, #000 94%, transparent 100%);
+}
+
+.strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Oxanium digits sit 0.055em above the middle of a 1em line; centre them in the window. */
+  margin-top: 0.055em;
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+.glyph {
+  display: block;
+  height: 1em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.sign,
+.dash {
+  display: block;
+  flex: none;
+  height: 1em;
+  line-height: 1;
+  text-align: center;
+  color: inherit;
+  transform: translateY(0.055em);
+}
+
+/* Oxanium's comma is a big slab; scale it down so it reads as punctuation. Bottom-aligned, so
+   its baseline lands on the digit baseline without an offset. */
+.comma {
+  display: block;
+  flex: none;
+  width: 0.4em;
+  font-size: 0.7em;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  color: inherit;
+  opacity: 0.8;
+}
+
+.sign {
+  width: 0.6em;
+}
+
+.dash {
+  width: 1em;
+}
+
+/* ---------- tally: struck previous value + delta chip ---------- */
+
+.tally {
+  display: inline-flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  align-self: center;
+  min-width: calc(var(--lp-t) * 4.8);
+  height: var(--lp-fs);
+  margin-left: calc(var(--lp-fs) * 0.2);
+  font-size: var(--lp-t);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
+
+.tallyInner {
+  --strike: #e45a4d;
+  --chip-ink: #ff9489;
+  --chip-fill: rgb(228 90 77 / 0.14);
+  --chip-line: rgb(228 90 77 / 0.55);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3em;
+}
+
+.gain {
+  --strike: rgb(228 182 79 / 0.85);
+  --chip-ink: #f4d690;
+  --chip-fill: rgb(228 182 79 / 0.12);
+  --chip-line: rgb(228 182 79 / 0.55);
+}
+
+.old {
+  position: relative;
+  display: inline-block;
+  color: #958f81;
+  font-weight: 600;
+  animation: lp-old-in 0.24s ease-out var(--lp-tally-delay, 0ms) both;
+}
+
+.strike {
+  position: absolute;
+  top: 48%;
+  right: -0.2em;
+  left: -0.2em;
+  height: 0;
+  pointer-events: none;
+  transform: rotate(-8deg);
+}
+
+.strike::after {
+  content: "";
+  position: absolute;
+  top: -0.7px;
+  right: 0;
+  left: 0;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--strike);
+  transform-origin: 0 50%;
+  animation: lp-strike 0.3s cubic-bezier(0.5, 0, 0.2, 1) calc(var(--lp-tally-delay, 0ms) + 0.12s) both;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.13em 0.5em 0.11em;
+  border: 1px solid var(--chip-line);
+  border-radius: 3px;
+  background: var(--chip-fill);
+  color: var(--chip-ink);
+  animation: lp-chip-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) calc(var(--lp-tally-delay, 0ms) + 0.08s) both;
+}
+
+@keyframes lp-old-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.35em);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lp-strike {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes lp-chip-in {
+  0% {
+    opacity: 0;
+    transform: translateY(0.4em) scale(0.9);
+  }
+
+  60% {
+    opacity: 1;
+    transform: translateY(0) scale(1.06);
+  }
+
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes lp-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* Reduced motion: no travel, no draw-on; the tally still updates with a plain fade. */
+.reduced .old,
+.reduced .chip {
+  animation: lp-fade 0.18s ease-out both;
+}
+
+.reduced .strike::after {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .old,
+  .chip {
+    animation: lp-fade 0.18s ease-out both;
+  }
+
+  .strike::after {
+    animation: none;
+  }
+}

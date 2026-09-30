@@ -28,6 +28,25 @@ services:
     depends_on:
       - bot
 
+  duel:
+    build:
+      context: .
+      target: duel
+    restart: unless-stopped
+    user: "${UID}:${GID}"
+    environment:
+      - DATABASE_PATH=/app/data/bot.sqlite
+      - DUEL_DATA_DIR=/app/data/duel-engine
+      - DUEL_INTERNAL_HOST=0.0.0.0
+      - DUEL_INTERNAL_PORT=4003
+      - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET}
+      - WS_INTERNAL_URL=http://ws:4002
+      - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
+      - DUEL_ARCHIVE_AFTER_MS=${DUEL_ARCHIVE_AFTER_MS:-600000}
+      - DUEL_IDLE_WORKER_MS=${DUEL_IDLE_WORKER_MS:-300000}
+    volumes:
+      - ./data:/app/data
+
   web:
     build:
       context: .
@@ -40,10 +59,13 @@ services:
       - DATABASE_PATH=/app/data/bot.sqlite
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
+      - DUEL_INTERNAL_URL=http://duel:4003
+      - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET}
     volumes:
       - ./data:/app/data
     depends_on:
       - ws
+      - duel
 
   caddy:
     image: caddy:2-alpine

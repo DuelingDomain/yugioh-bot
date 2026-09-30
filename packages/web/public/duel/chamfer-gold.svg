@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40" fill="none">
+  <path d="M12 .7H28L39.3 12V28L28 39.3H12L.7 28V12Z" stroke="#d4b468" stroke-width="1.25" stroke-linejoin="miter"/>
+  <path d="M12 3.2H28L36.8 12V28L28 36.8H12L3.2 28V12Z" stroke="#ba9b5a" stroke-width="1" stroke-linejoin="miter" opacity=".85"/>
+</svg>

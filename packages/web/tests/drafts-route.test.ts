@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
-const repoRoot = "/home/imran/yugioh-discord-bot";
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const tempDirs: string[] = [];
 const testTimeoutMs = 40000;
 
@@ -23,9 +24,7 @@ describe("GET /api/drafts/[slug]", () => {
   });
 
   afterEach(() => {
-    delete process.env.DATABASE_PATH;
-    delete process.env.DISCORD_GUILD_ID;
-    delete process.env.DISCORD_DEFAULT_CHANNEL_ID;
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
 
     while (tempDirs.length > 0) {
@@ -53,8 +52,8 @@ describe("GET /api/drafts/[slug]", () => {
       stdio: "pipe",
     });
 
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "196382772699332609";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
     const { GET } = await import("../app/api/drafts/[slug]/route");
 
@@ -114,8 +113,8 @@ describe("GET /api/drafts/[slug]", () => {
       stdio: "pipe",
     });
 
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "196382772699332609";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
     const { GET } = await import("../app/api/drafts/[slug]/route");
 
@@ -149,8 +148,8 @@ describe("GET /api/drafts/[slug]", () => {
       stdio: "pipe",
     });
 
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "196382772699332609";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
     const Database = (await import("better-sqlite3")).default;
     const db = new Database(dbPath);
@@ -191,9 +190,9 @@ describe("GET /api/drafts/[slug]", () => {
     const creatorUserId = "196382527131222016";
 
     tempDirs.push(tempDir);
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = guildId;
-    process.env.DISCORD_DEFAULT_CHANNEL_ID = "channel-1";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", guildId);
+    vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel-1");
 
     const Database = (await import("better-sqlite3")).default;
     const { migrate } = await import("@yugidraft/shared/db");
@@ -270,9 +269,9 @@ describe("GET /api/drafts/[slug]", () => {
     const creatorUserId = "196382527131222016";
 
     tempDirs.push(tempDir);
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = guildId;
-    process.env.DISCORD_DEFAULT_CHANNEL_ID = "channel-1";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", guildId);
+    vi.stubEnv("DISCORD_DEFAULT_CHANNEL_ID", "channel-1");
 
     // card 1 has 5 copies > 3 waves; plus cards 2..19 for 19 distinct total.
     const range = (start: number, end: number) =>
@@ -338,8 +337,8 @@ describe("GET /api/drafts/[slug]", () => {
     const creatorUserId = "196382527131222016";
 
     tempDirs.push(tempDir);
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = guildId;
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", guildId);
 
     const Database = (await import("better-sqlite3")).default;
     const { migrate } = await import("@yugidraft/shared/db");
