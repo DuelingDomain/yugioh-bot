@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { DuelDeck, DuelDeckValidation, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
-import { Button } from "@/components/ui/button";
+import { AlertTriangle, CheckCircle2, FileUp, Info, Loader2, Plus, X } from "lucide-react";
 import { cardArtUrl } from "./constants";
+import { cx, SheetButton, SheetSelect } from "./sheet-ui";
+import ui from "./sheet-ui.module.css";
+import styles from "./deck-editor.module.css";
 import { applyDomainMaster, parseDeckText, serializeYdk } from "./ydk";
 import { validateDuelDeck } from "./api";
 
@@ -15,23 +18,26 @@ function Section({
   codes,
   onRemove,
   problems,
+  target,
 }: {
   title: string;
   section: "main" | "extra" | "side";
   codes: number[];
   onRemove: (index: number) => void;
   problems: ReadonlyMap<string, CardProblem>;
+  target?: string;
 }) {
   return (
-    <section className="space-y-2">
-      <h3 className="font-display text-sm text-text-primary">
-        {title}{" "}
-        <span className="font-body text-xs text-text-muted tabular-nums">{codes.length}</span>
+    <section className={styles.list} aria-label={`${title} deck`}>
+      <h3 className={styles.listHead}>
+        <span className={styles.listTitle}>{title}</span>
+        <span className={cx(ui.num, styles.count)}>{codes.length}</span>
+        {target ? <span className={styles.target}>{target}</span> : null}
       </h3>
       {codes.length === 0 ? (
-        <p className="text-xs text-text-muted">Empty</p>
+        <p className={styles.empty}>Empty</p>
       ) : (
-        <ul className="grid grid-cols-6 gap-1 sm:grid-cols-8">
+        <ul className={styles.cards}>
           {codes.map((code, index) => {
             const problem = problems.get(`${section}:${index}`);
             const reason = problem?.messages.join(" ");
@@ -39,23 +45,17 @@ function Section({
               <li key={`${title}-${index}-${code}`}>
                 <button
                   type="button"
-                  className={`group relative aspect-[59/86] w-full overflow-hidden rounded-sm border ${
-                    problem ? "border-accent-cta outline-2 outline-accent-cta" : "border-border"
-                  }`}
+                  className={styles.card}
                   onClick={() => onRemove(index)}
                   aria-label={`Remove ${problem?.name ?? code} from ${title}${reason ? `. Invalid: ${reason}` : ""}`}
                   title={reason ? `${reason} Click to remove this copy.` : "Click to remove this copy"}
                   data-invalid={problem ? "true" : undefined}
                 >
-                  <img src={cardArtUrl(code, "small")} alt="" className="h-full w-full object-cover" />
+                  <img src={cardArtUrl(code, "small")} alt="" loading="lazy" />
                   {problem ? (
-                    <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-bg-deep/95 py-1 text-[10px] font-semibold uppercase tracking-wide text-accent-cta">
-                      Invalid
-                    </span>
+                    <span className={styles.invalidTag}><AlertTriangle size={11} strokeWidth={1.8} aria-hidden />Invalid</span>
                   ) : null}
-                  <span className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/55 text-[10px] text-white group-hover:flex group-focus-visible:flex">
-                    Remove
-                  </span>
+                  <span className={styles.removeVeil}><X size={16} strokeWidth={1.6} aria-hidden />Remove</span>
                 </button>
               </li>
             );
@@ -93,6 +93,8 @@ export function DeckEditor({
   const [parseError, setParseError] = useState<string | null>(null);
   const [edited, setEdited] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [validation, setValidation] = useState<{
     slug: string;
     deck: DuelDeck;
@@ -161,6 +163,7 @@ export function DeckEditor({
   }
 
   function onFile(file: File) {
+    setFileName(file.name);
     file
       .text()
       .then((text) => applyImported(parseDeckText(text)))
@@ -199,155 +202,202 @@ export function DeckEditor({
     onReady(deck);
   }
 
+  const rulesNote = !settings.validateDeck
+    ? `Custom deck: format and copy-limit checks are disabled. Card-pool and engine-safety restrictions still apply.${mode === "domain" ? " Enter a separate monster Deck Master passcode." : ""}`
+    : mode === "domain"
+      ? "Domain: exactly 60 singleton Main Deck cards, up to 15 Extra Deck cards, and one separate Deck Master. The master determines your Domain; there is no separate leader or Domain selection."
+      : "Normal: 40–60 Main Deck cards and up to 15 each in Extra and Side. To use a Deck Master, create a Domain table instead.";
+  const mainTarget = !settings.validateDeck ? undefined : mode === "domain" ? "of 60" : "40–60";
+  const extraTarget = settings.validateDeck ? "up to 15" : undefined;
+  const sideTarget = settings.validateDeck && mode === "normal" ? "up to 15" : undefined;
+
   return (
-    <div className="space-y-4">
+    <div className={styles.editor}>
+      <header className={styles.head}>
+        <div className={styles.headRow}>
+          <div className={styles.headTitle}>
+            <h2 className={ui.sectionTitle}>Your deck</h2>
+            <p className={styles.counts} aria-label="Deck counts">
+              <span>Main <b className={ui.num}>{main.length}</b></span>
+              <span>Extra <b className={ui.num}>{extra.length}</b></span>
+              {sideAllowed || side.length > 0 ? <span>Side <b className={ui.num}>{side.length}</b></span> : null}
+            </p>
+          </div>
+          <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || !canReady} onClick={submit}>
+            Ready with this deck
+          </SheetButton>
+        </div>
+        <p className={styles.rules}><Info size={15} strokeWidth={1.6} aria-hidden /><span>{rulesNote}</span></p>
+      </header>
+
       {showValidation ? (
         <div aria-live="polite" role="status">
           {currentValidation?.error ? (
-            <div className="space-y-2 rounded-md border border-accent-cta/50 bg-accent-cta/10 p-3 text-sm">
-              <p className="font-semibold text-text-primary">Deck could not be checked</p>
-              <p className="text-text-secondary">{currentValidation.error}</p>
-              <Button type="button" size="sm" variant="secondary" onClick={() => {
-                setValidation(null);
-                setRetry((value) => value + 1);
-              }}>Retry validation</Button>
+            <div className={cx(ui.banner, ui.bannerBad)}>
+              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
+              <div className={ui.bannerBody}>
+                <strong>Deck could not be checked</strong>
+                <p>{currentValidation.error}</p>
+                <div><SheetButton size="sm" onClick={() => {
+                  setValidation(null);
+                  setRetry((value) => value + 1);
+                }}>Retry validation</SheetButton></div>
+              </div>
             </div>
           ) : !report ? (
-            <p className="text-sm text-text-secondary">Checking deck against this room&apos;s rules…</p>
+            <div className={ui.banner}>
+              <Loader2 size={17} strokeWidth={1.6} className={ui.spin} aria-hidden />
+              <p>Checking deck against this room&apos;s rules…</p>
+            </div>
           ) : report.issues.length > 0 ? (
-            <div className="space-y-2 rounded-md border border-accent-cta/50 bg-accent-cta/10 p-3 text-sm">
-              <p className="font-semibold text-text-primary">Invalid deck — fix the following before readying</p>
-              <ul className="list-disc space-y-1 pl-5 text-text-primary">
-                {report.issues.map((issue, index) => (
-                  <li key={index}>
-                    {issue.message}
-                    {issue.cards.length > 1 ? <span className="text-text-secondary"> ({issue.cards.length} highlighted cards)</span> : null}
-                  </li>
-                ))}
-              </ul>
-              {problems.size > 0 ? (
-                <p className="text-text-secondary">Your imported cards are kept below. Click a red-outlined card to remove that copy.</p>
-              ) : null}
+            <div className={cx(ui.banner, ui.bannerBad)}>
+              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
+              <div className={ui.bannerBody}>
+                <strong>Invalid deck — fix the following before readying</strong>
+                <ul className={ui.bannerList}>
+                  {report.issues.map((issue, index) => (
+                    <li key={index}>
+                      {issue.message}
+                      {issue.cards.length > 1 ? <span className={styles.muted}> ({issue.cards.length} highlighted cards)</span> : null}
+                    </li>
+                  ))}
+                </ul>
+                {problems.size > 0 ? (
+                  <p className={styles.muted}>Your imported cards are kept below. Click a red-outlined card to remove that copy.</p>
+                ) : null}
+              </div>
             </div>
           ) : (
-            <p className="text-sm text-accent-success">Deck is valid for this room. You can ready up.</p>
+            <div className={cx(ui.banner, ui.bannerOk)}>
+              <CheckCircle2 size={17} strokeWidth={1.6} aria-hidden />
+              <p>Deck is valid for this room. You can ready up.</p>
+            </div>
           )}
         </div>
       ) : null}
-      <p className="text-sm text-text-secondary">
-        {!settings.validateDeck
-          ? `Custom deck: format and copy-limit checks are disabled. Card-pool and engine-safety restrictions still apply.${mode === "domain" ? " Enter a separate monster Deck Master passcode." : ""}`
-          : mode === "domain"
-            ? "Domain: exactly 60 singleton Main Deck cards, up to 15 Extra Deck cards, and one separate Deck Master. The master determines your Domain; there is no separate leader or Domain selection."
-            : "Normal: 40–60 Main Deck cards and up to 15 each in Extra and Side. To use a Deck Master, create a Domain table instead."}
-      </p>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="text-sm">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">YDK file</span>
+
+
+      <div className={styles.import}>
+        <label className={styles.drop} data-dragging={dragging ? "true" : undefined}
+          onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            const file = event.dataTransfer.files?.[0];
+            if (file) onFile(file);
+          }}>
           <input
             type="file"
             accept=".ydk,text/plain"
-            className="block text-sm file:mr-3 file:rounded-md file:border-0 file:bg-accent-primary file:px-3 file:py-2 file:text-white"
+            className={ui.srOnly}
+            aria-label="YDK file"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) onFile(file);
             }}
           />
+          <FileUp size={22} strokeWidth={1.4} aria-hidden />
+          <span className={styles.dropTitle}>{fileName ?? "Drop a .ydk file"}</span>
+          <span className={styles.dropHint}>{fileName ? "Choose another file to replace it" : "or click to choose one"}</span>
         </label>
+
+        <div className={styles.paste}>
+          <label>
+            <span className={ui.label}>Paste YDK</span>
+            <textarea
+              value={paste}
+              onChange={(event) => setPaste(event.target.value)}
+              rows={6}
+              className={cx(ui.input, ui.textarea)}
+              spellCheck={false}
+              placeholder={"#main\n46986414\n#extra\n!side"}
+            />
+          </label>
+          <SheetButton size="sm" onClick={onPasteApply}>Load paste</SheetButton>
+        </div>
       </div>
 
-      <label className="block text-sm">
-        <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Paste YDK</span>
-        <textarea
-          value={paste}
-          onChange={(event) => setPaste(event.target.value)}
-          rows={6}
-          className="w-full rounded-md border border-border bg-bg-deep px-3 py-2 font-mono text-xs text-text-primary"
-          spellCheck={false}
-        />
-      </label>
-      <Button type="button" size="sm" variant="secondary" onClick={onPasteApply}>
-        Load paste
-      </Button>
-
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="text-sm">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Add passcode</span>
+      <div className={styles.addRow}>
+        <label className={styles.addCode}>
+          <span className={ui.label}>Add passcode</span>
           <input
             value={addCode}
             onChange={(event) => setAddCode(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addPasscode(); } }}
             inputMode="numeric"
-            className="h-11 w-36 rounded-md border border-border bg-bg-deep px-3 text-sm"
+            placeholder="e.g. 46986414"
+            className={cx(ui.input, styles.compactInput)}
           />
         </label>
-        <label className="text-sm">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Section</span>
-          <select
-            value={addSection}
-            onChange={(event) => setAddSection(event.target.value as "main" | "extra" | "side")}
-            className="native-select h-11 rounded-md border border-border bg-bg-deep px-2 text-sm"
-          >
-            <option value="main">Main</option>
-            <option value="extra">Extra</option>
-            {sideAllowed ? <option value="side">Side</option> : null}
-          </select>
-        </label>
-        <Button type="button" size="sm" variant="secondary" onClick={addPasscode}>
-          Add
-        </Button>
+        <SheetSelect
+          className={styles.addSection}
+          label="Section"
+          compact
+          value={addSection}
+          choices={[
+            { value: "main", label: "Main" },
+            { value: "extra", label: "Extra" },
+            ...(sideAllowed ? [{ value: "side" as const, label: "Side" }] : []),
+          ]}
+          onChange={setAddSection}
+        />
+        <SheetButton size="sm" className={styles.addBtn} onClick={addPasscode}>
+          <Plus size={15} strokeWidth={1.7} aria-hidden />Add
+        </SheetButton>
       </div>
 
-      <Section title="Main" section="main" codes={main} problems={problems} onRemove={(index) => {
+      {parseError ? <p role="alert" className={ui.alert}>{parseError}</p> : null}
+
+      <Section title="Main" section="main" codes={main} problems={problems} target={mainTarget} onRemove={(index) => {
         setMain((cards) => cards.filter((_, i) => i !== index));
         setEdited(true);
       }} />
-      <Section title="Extra" section="extra" codes={extra} problems={problems} onRemove={(index) => {
+      <Section title="Extra" section="extra" codes={extra} problems={problems} target={extraTarget} onRemove={(index) => {
         setExtra((cards) => cards.filter((_, i) => i !== index));
         setEdited(true);
       }} />
       {sideAllowed || side.length > 0 ? (
-        <Section title="Side" section="side" codes={side} problems={problems} onRemove={(index) => {
+        <Section title="Side" section="side" codes={side} problems={problems} target={sideTarget} onRemove={(index) => {
           setSide((cards) => cards.filter((_, i) => i !== index));
           setEdited(true);
         }} />
       ) : null}
 
       {mode === "domain" ? (
-        <label className="block text-sm">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">
-            Deck Master passcode
-          </span>
-          <input
-            value={deckMaster}
-            onChange={(event) => {
-              setDeckMaster(event.target.value);
-              setEdited(true);
-              setParseError(null);
-            }}
-            inputMode="numeric"
-            aria-invalid={masterProblem ? true : undefined}
-            aria-describedby={masterProblem ? "deck-master-problem" : undefined}
-            className={`h-11 w-48 rounded-md border bg-bg-deep px-3 text-sm ${
-              masterProblem ? "border-accent-cta outline-2 outline-accent-cta" : "border-border"
-            }`}
-          />
+        <div className={styles.master}>
+          <label>
+            <span className={ui.label}>Deck Master passcode</span>
+            <input
+              value={deckMaster}
+              onChange={(event) => {
+                setDeckMaster(event.target.value);
+                setEdited(true);
+                setParseError(null);
+              }}
+              inputMode="numeric"
+              aria-invalid={masterProblem ? true : undefined}
+              aria-describedby={masterProblem ? "deck-master-problem" : undefined}
+              className={cx(ui.input, styles.masterInput)}
+            />
+          </label>
           {masterProblem ? (
-            <span id="deck-master-problem" className="mt-1 block text-sm text-accent-cta">
+            <p id="deck-master-problem" className={ui.alert}>
               {masterProblem.messages.join(" ")}
-            </span>
+            </p>
           ) : null}
-          <span className="mt-1 block text-xs text-text-muted">
+          <p className={ui.hint}>
             Enter your chosen monster&apos;s card passcode. Keep it separate from Main and Extra.
-            {settings.validateDeck ? " A Domain Toolbox YDK can supply it as the sole Side card." : " In Custom Domain, the imported Side section is kept as a Side Deck."}
+            {settings.validateDeck ? " A Domain Toolbox YDK can supply it as the sole Side card." : " In Custom Domain, the imported Side section is kept as a Side Deck."}{" "}
             Main Deck Pendulum Masters may also be activated as Pendulum scales.
-          </span>
+          </p>
           {extra.length > 0 ? (
-            <span className="mt-2 flex flex-wrap gap-1">
+            <div className={styles.useRow}>
               {Array.from(new Set(extra)).map((code) => (
                 <button
                   key={code}
                   type="button"
-                  className="rounded border border-border px-2 py-1 text-xs hover:border-accent-gold"
+                  className={styles.use}
                   onClick={() => {
                     setDeckMaster(String(code));
                     setEdited(true);
@@ -357,17 +407,11 @@ export function DeckEditor({
                   Use {code}
                 </button>
               ))}
-            </span>
+            </div>
           ) : null}
-        </label>
+        </div>
       ) : null}
 
-      {parseError ? <p role="alert" className="text-sm text-accent-cta">{parseError}</p> : null}
-
-      <Button type="button" loading={busy}
-        disabled={busy || !canReady} onClick={submit}>
-        Ready with this deck
-      </Button>
     </div>
   );
 }

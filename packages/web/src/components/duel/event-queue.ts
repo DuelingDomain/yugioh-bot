@@ -1,6 +1,50 @@
-import type { DuelEvent } from "@yugidraft/shared/duels";
+import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
+import { TYPE_MONSTER, zoneKey } from "./constants";
 
 export type DuelEventKind = DuelEvent["kind"];
+
+/** Level or Rank at which a summon counts as heavy (holographic rise, slam, field shake). */
+export const HEAVY_SUMMON_LEVEL = 7;
+
+/**
+ * A summon that deserves weight: a Level/Rank 7+ monster, or any Tribute Summon.
+ * Needs a public card; a hidden or missing card never counts.
+ */
+export function isHeavySummon(event: DuelEvent): boolean {
+  if (event.kind !== "summon") return false;
+  const card = event.card;
+  if (card == null || card.code <= 0) return false;
+  if (card.type !== 0 && (card.type & TYPE_MONSTER) === 0) return false;
+  return event.summonKind === "tribute" || card.level >= HEAVY_SUMMON_LEVEL;
+}
+
+/** Event kinds whose picture is drawn on the board by SummonFx when the zone is known. */
+export function isZoneFxKind(kind: DuelEventKind): boolean {
+  return kind === "summon" || kind === "set" || kind === "destroy";
+}
+
+/** Zone element for a board position, or null when the board has no such anchor. */
+export function findZoneElement(zone: DuelZoneRef | undefined | null): HTMLElement | null {
+  if (!zone || typeof document === "undefined") return null;
+  return document.querySelector<HTMLElement>(
+    `[data-zones~="${zoneKey(zone.controller, zone.location, zone.sequence)}"]`,
+  );
+}
+
+/**
+ * True when SummonFx will show this event on the board, so the centre toast stays out of its way.
+ * Reduced motion keeps the toast: the board effect is only a short glow.
+ */
+export function isDrawnOnBoard(event: DuelEvent, reducedMotion: boolean): boolean {
+  if (reducedMotion || !isZoneFxKind(event.kind)) return false;
+  if (event.kind === "destroy" && (event.card == null || event.card.code <= 0)) return false;
+  return findZoneElement(event.zone) != null;
+}
+
+/** SummonFx tells the audio layer when its moments land (rise, slam, shatter). */
+export const DUEL_FX_CUE_EVENT = "yugidraft:duel-fx-cue";
+export type DuelFxCue = "holo" | "slam" | "shatter";
+export type DuelFxCueDetail = { cue: DuelFxCue; strength: number };
 
 /** Cap remaining cue time so a burst does not stack full-length playback. */
 const CATCH_UP_BUDGET_MS = 1000;
@@ -47,10 +91,13 @@ export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number
       return 1100;
     case "summon":
     case "set":
-    case "attack":
       return 720;
+    case "attack":
+      return 620;
+    case "destroy":
+      return 700;
     case "phase":
-      return 820;
+      return 900;
     case "chain-resolving":
       return 520;
     case "chain-resolved":

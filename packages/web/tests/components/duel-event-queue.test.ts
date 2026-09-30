@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import {
   collectFreshEvents,
+  isHeavySummon,
 } from "../../src/components/duel/event-queue";
 
 function event(
@@ -70,3 +71,29 @@ describe("collectFreshEvents", () => {
   });
 });
 
+
+describe("isHeavySummon", () => {
+  const card = (level: number, type = 0x21) => ({
+    code: 100, name: "x", description: "", type, attack: 0, defense: 0, level, attribute: 0, race: "",
+  });
+  const summon = (level: number, summonKind?: DuelEvent["summonKind"], type?: number): DuelEvent => ({
+    id: 1, kind: "summon", text: "s", card: card(level, type), ...(summonKind ? { summonKind } : {}),
+  });
+
+  it("counts Level or Rank 7 and higher", () => {
+    expect(isHeavySummon(summon(7))).toBe(true);
+    expect(isHeavySummon(summon(12, "special"))).toBe(true);
+    expect(isHeavySummon(summon(6))).toBe(false);
+  });
+
+  it("counts every Tribute Summon, whatever the level", () => {
+    expect(isHeavySummon(summon(5, "tribute"))).toBe(true);
+  });
+
+  it("ignores other kinds, hidden cards and non-monsters", () => {
+    expect(isHeavySummon({ ...summon(8), kind: "set" })).toBe(false);
+    expect(isHeavySummon({ id: 2, kind: "summon", text: "s" })).toBe(false);
+    expect(isHeavySummon({ ...summon(8), card: { ...card(8), code: 0 } })).toBe(false);
+    expect(isHeavySummon(summon(8, undefined, 0x2))).toBe(false);
+  });
+});

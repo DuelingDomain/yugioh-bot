@@ -19,7 +19,8 @@
   color: var(--lp-ink);
   font-family: var(--font-duel-display), "Chakra Petch", "Arial Narrow", sans-serif;
   font-size: var(--lp-fs);
-  font-weight: 800;
+  /* Slimmer digits read cleaner than the heavy 800 cut. */
+  font-weight: 560;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
   font-kerning: none;

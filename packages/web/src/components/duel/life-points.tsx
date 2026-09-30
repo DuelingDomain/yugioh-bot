@@ -16,7 +16,41 @@ export type LifePointsProps = {
   size?: "lg" | "sm";
   /** Match-sheet tally: struck previous value plus a -/+ delta chip after a change. Default true. */
   showChange?: boolean;
+  /**
+   * Wait this many ms before rolling down after a LOSS, so the roll starts when a battle
+   * animation lands. Omit to use the hold a battle effect armed for this counter's seat
+   * (see armLpHold). Ignored under reduced motion, which always snaps.
+   */
+  holdMs?: number;
 };
+
+/* ---------- hold store: lets a battle animation delay a roll it does not own ---------- */
+
+type LpHold = { ms: number; until: number };
+const lpHolds = new Map<number, LpHold>();
+const lpHoldKeys = new Set<string>();
+
+/**
+ * Arm a one-shot delay for the next LP loss shown at `seat`. `key` de-duplicates re-renders
+ * (use the damage event id). The hold expires after 2 s if no LP change consumes it.
+ */
+export function armLpHold(seat: number, ms: number, key: string): void {
+  if (lpHoldKeys.has(key)) return;
+  lpHoldKeys.add(key);
+  if (lpHoldKeys.size > 200) lpHoldKeys.clear();
+  lpHolds.set(seat, { ms, until: Date.now() + 2000 });
+}
+
+export function takeLpHold(seat: number): number {
+  const hold = lpHolds.get(seat);
+  lpHolds.delete(seat);
+  if (!hold || hold.until < Date.now()) return 0;
+  return hold.ms;
+}
+
+export function clearLpHolds(): void {
+  lpHolds.clear();
+}
 
 type Tone = "loss" | "gain";
 
@@ -422,7 +456,7 @@ function DigitColumn({ placeKey, initialDigit }: { placeKey: string; initialDigi
 
 type Tally = { seq: number; from: number; to: number };
 
-export function LifePoints({ value, reducedMotion, size = "lg", showChange = true }: LifePointsProps) {
+export function LifePoints({ value, reducedMotion, size = "lg", showChange = true, holdMs }: LifePointsProps) {
   const [shown, setShown] = useState(() => formatGlyphs(value));
   const [engine] = useState(createEngine);
   const shownRef = useRef(shown);
@@ -431,7 +465,11 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
   const rootRef = useRef<HTMLSpanElement>(null);
   const rollRef = useRef<HTMLSpanElement>(null);
   const pendingRef = useRef<Plan | null>(null);
+  const holdTimerRef = useRef<number | null>(null);
+  const [tallyHold, setTallyHold] = useState(0);
+  const holdMsRef = useRef(holdMs);
 
+  holdMsRef.current = holdMs;
   shownRef.current = shown;
   valueRef.current = value;
 
@@ -447,6 +485,8 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
 
   useLayoutEffect(() => {
     return () => {
+      if (holdTimerRef.current != null) window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
       stopMotion(engine);
       if (engine.cueTimer != null) window.clearTimeout(engine.cueTimer);
       engine.cueTimer = null;
@@ -454,6 +494,8 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
   }, [engine]);
 
   useLayoutEffect(() => {
+    if (holdTimerRef.current != null) window.clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
     const ctx: Ctx = { engine, rootRef, rollRef, valueRef, setShown };
     const prev = prevValueRef.current;
     const next = finiteLp(value);
@@ -462,24 +504,43 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
     if (unchanged && !(reducedMotion && engine.active)) return;
 
     const from = prev === UNSET ? null : prev;
-    let plan: Plan;
-    if (reducedMotion || from == null || next == null) {
-      const cue: Tone | null =
-        reducedMotion && !unchanged && from != null && next != null ? (next < from ? "loss" : "gain") : null;
-      plan = { kind: "snap", value: next, glyphs: formatGlyphs(next), cue };
-    } else {
-      plan = { kind: "roll", from, to: next, glyphs: mergeGlyphs(shownRef.current, formatGlyphs(next)) };
-    }
-    prevValueRef.current = next;
 
-    if (keysOf(shownRef.current) !== keysOf(plan.glyphs)) {
-      stopMotion(engine);
-      pendingRef.current = plan;
-      setShown(plan.glyphs);
+    const run = () => {
+      let plan: Plan;
+      if (reducedMotion || from == null || next == null) {
+        const cue: Tone | null =
+          reducedMotion && !unchanged && from != null && next != null ? (next < from ? "loss" : "gain") : null;
+        plan = { kind: "snap", value: next, glyphs: formatGlyphs(next), cue };
+      } else {
+        plan = { kind: "roll", from, to: next, glyphs: mergeGlyphs(shownRef.current, formatGlyphs(next)) };
+      }
+      prevValueRef.current = next;
+
+      if (keysOf(shownRef.current) !== keysOf(plan.glyphs)) {
+        stopMotion(engine);
+        pendingRef.current = plan;
+        setShown(plan.glyphs);
+        return;
+      }
+      pendingRef.current = null;
+      applyPlan(plan, ctx);
+    };
+
+    // A battle animation may ask the roll to wait until its slash lands. Losses only.
+    let hold = 0;
+    if (!reducedMotion && !unchanged && from != null && next != null && next < from) {
+      const seat = Number(rootRef.current?.closest("[data-lp-seat]")?.getAttribute("data-lp-seat"));
+      hold = holdMsRef.current ?? (Number.isFinite(seat) ? takeLpHold(seat) : 0);
+    }
+    setTallyHold(hold > 0 ? hold : 0);
+    if (hold > 0) {
+      holdTimerRef.current = window.setTimeout(() => {
+        holdTimerRef.current = null;
+        run();
+      }, hold);
       return;
     }
-    pendingRef.current = null;
-    applyPlan(plan, ctx);
+    run();
   }, [value, reducedMotion, engine]);
 
   useLayoutEffect(() => {
@@ -495,7 +556,7 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
 
   const label = lp == null ? "—" : formatLp(lp);
   const change = showChange && tally ? describeChange(tally.from, tally.to) : null;
-  const tallyDelay = reducedMotion || !tally ? 0 : Math.round(rollDurationMs(Math.abs(tally.to - tally.from)) * 0.5);
+  const tallyDelay = reducedMotion || !tally ? 0 : Math.round(rollDurationMs(Math.abs(tally.to - tally.from)) * 0.5) + tallyHold;
 
   const rootClass = [
     duelFontClasses,

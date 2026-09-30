@@ -18,6 +18,7 @@ const wsTransport = httpTransport({
 });
 const archiveAfterMs = Number(process.env.DUEL_ARCHIVE_AFTER_MS);
 const idleWorkerMs = Number(process.env.DUEL_IDLE_WORKER_MS);
+const botStepMs = Number(process.env.DUEL_BOT_STEP_MS ?? 900);
 const host = createDuelHost({
   db,
   dataDirectory,
@@ -28,6 +29,8 @@ const host = createDuelHost({
   },
   archiveAfterMs: Number.isFinite(archiveAfterMs) ? archiveAfterMs : undefined,
   idleWorkerMs: Number.isFinite(idleWorkerMs) ? idleWorkerMs : undefined,
+  // Base pause before a practice bot summon/set/activation; other actions scale from it. 0 answers instantly.
+  botStepDelayMs: Number.isFinite(botStepMs) && botStepMs > 0 ? botStepMs : 0,
 });
 const server = createServer(async (request, response) => {
   try {

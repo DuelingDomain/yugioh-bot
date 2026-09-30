@@ -20,12 +20,17 @@ import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
   clearRevealsAt,
+  createEventContext,
   createRevealMap,
+  DESTROY_NOTE_SCRIPT,
+  drainDeferredDestroys,
   moveReveals,
+  noteDestroyLog,
   noteReveal,
   observeDuelEvent,
   phaseName,
   projectView,
+  resetEventBatch,
   type DomainSeatState,
   type LogEntry,
   type StoredChainLink,
@@ -155,6 +160,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const seed = parseSeed(options.seed);
   const cards = loadCardDatabase(options.dataDirectory);
   const errors: string[] = [];
+  const eventContext = createEventContext();
   const cardReader = (code: number) => {
     if (!code) return null;
     return cards.cardData(code);
@@ -165,6 +171,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     return content;
   };
   const errorHandler = (type: number, text: string) => {
+    if (noteDestroyLog(eventContext, text)) return;
     if (type === OcgLogType.ERROR || type === OcgLogType.UNDEFINED) errors.push(text);
   };
   const team = {
@@ -213,6 +220,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   try {
     loadScriptOrThrow(lib, handle, cards, "constant.lua");
     loadScriptOrThrow(lib, handle, cards, "utility.lua");
+    if (!lib.loadScript(handle, "duel-events.lua", DESTROY_NOTE_SCRIPT)) throw new Error("Failed to register destruction reporter");
     if (options.mode === "domain") {
       loadScriptOrThrow(lib, handle, cards, "domain.lua");
       // Card creation runs initial_effect; procedure libraries must be loaded first.
@@ -278,11 +286,18 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   };
 
   const recordEvent = (message: OcgMessage) => {
-    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId);
-    if (!stored) return;
+    const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
+    if (stored) pushEvent(stored);
+  };
+
+  const pushEvent = (stored: StoredDuelEvent) => {
     nextEventId += 1;
     events.push(stored);
     if (events.length > 400) events.splice(0, events.length - 400);
+  };
+
+  const flushDeferredDestroys = () => {
+    for (const stored of drainDeferredDestroys(eventContext, cards, nextEventId)) pushEvent(stored);
   };
 
   const applyMessage = (message: OcgMessage) => {
@@ -420,6 +435,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
 
   const processUntilWait = () => {
     if (closed) throw new Error("Engine is closed");
+    resetEventBatch(eventContext);
     while (!result) {
       const status = lib.duelProcess(handle);
       const messages = lib.duelGetMessage(handle);
@@ -427,6 +443,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         applyMessage(message);
         recordEvent(message);
       }
+      flushDeferredDestroys();
       if (errors.length > 0) {
         const detail = errors.join("; ");
         errors.length = 0;

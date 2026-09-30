@@ -21,15 +21,17 @@
   --focus: #ddd2ff;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --plate-w: clamp(48px, 4.6vw, 72px);
-  --plate-h: 46px;
-  --plate-h-now: 54px;
+  /* Track height: slim on short screens (the board wants the height), full size on tall ones. */
+  --th: clamp(60px, 6.6dvh, 88px);
+  --plate-h: calc(var(--th) * 0.5);
+  --plate-h-now: calc(var(--th) * 0.6);
   --gap: clamp(10px, 1.7vw, 32px);
 
   position: relative;
   box-sizing: border-box;
   flex: none;
   width: 100%;
-  height: 88px;
+  height: var(--th);
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(0, 46rem) minmax(260px, 1fr);
   align-items: center;
@@ -138,7 +140,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
   padding: 0 8px;
 }
@@ -147,7 +149,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  height: 58px;
+  height: calc(var(--th) * 0.66);
   max-width: 100%;
 }
 
@@ -208,7 +210,7 @@
   align-items: center;
   justify-content: center;
   width: var(--plate-w);
-  height: 58px;
+  height: calc(var(--th) * 0.66);
 }
 
 .plate {
@@ -343,7 +345,7 @@ button.plate[data-next="true"]:hover {
 .primary,
 .secondary {
   box-sizing: border-box;
-  height: 48px;
+  height: clamp(38px, calc(var(--th) * 0.66), 48px);
   margin: 0;
   border-radius: 8px;
   font: inherit;
@@ -464,10 +466,6 @@ button.plate[data-next="true"]:hover {
 }
 
 @media (min-width: 1800px) {
-  .root {
-    --plate-h: 48px;
-    --plate-h-now: 56px;
-  }
   .code {
     font-size: 16px;
   }

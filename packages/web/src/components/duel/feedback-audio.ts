@@ -1,14 +1,18 @@
-import type { DuelEventKind } from "./event-queue";
+import type { DuelEventKind, DuelFxCue } from "./event-queue";
 
 type Voice = {
-  osc: OscillatorNode;
+  osc: AudioScheduledSourceNode;
   gain: GainNode;
 };
+
+/** An engine event kind, or a moment SummonFx reports (hologram rise, slam, shatter). */
+export type DuelSoundCue = DuelEventKind | DuelFxCue;
 
 export interface DuelFeedbackAudio {
   unlock: () => Promise<boolean>;
   setMuted: (muted: boolean) => void;
-  play: (kind: DuelEventKind) => void;
+  /** `strength` (about 0.8 to 1.25) scales the slam and shatter cues; other cues ignore it. */
+  play: (kind: DuelSoundCue, strength?: number) => void;
   stopAll: () => void;
   dispose: () => void;
 }
@@ -108,7 +112,42 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     osc.stop(t + opts.duration + 0.02);
   }
 
-  function play(kind: DuelEventKind): void {
+  let noise: AudioBuffer | null = null;
+
+  /** A short burst of filtered noise: the body of a slam or a shattering card. */
+  function burst(
+    audio: AudioContext,
+    dest: GainNode,
+    opts: { start: number; duration: number; peak: number; filter: BiquadFilterType; freq: number; freqEnd?: number },
+  ): void {
+    if (!noise) {
+      noise = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.5), audio.sampleRate);
+      const data = noise.getChannelData(0);
+      for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
+    }
+    const src = audio.createBufferSource();
+    src.buffer = noise;
+    const filter = audio.createBiquadFilter();
+    filter.type = opts.filter;
+    filter.frequency.setValueAtTime(opts.freq, opts.start);
+    if (opts.freqEnd != null) {
+      filter.frequency.exponentialRampToValueAtTime(Math.max(opts.freqEnd, 20), opts.start + opts.duration);
+    }
+    const gain = audio.createGain();
+    gain.gain.setValueAtTime(0, opts.start);
+    gain.gain.linearRampToValueAtTime(opts.peak, opts.start + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, opts.start + opts.duration);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(dest);
+    const voice: Voice = { osc: src, gain };
+    voices.push(voice);
+    src.onended = () => dropVoice(voice);
+    src.start(opts.start);
+    src.stop(opts.start + opts.duration + 0.02);
+  }
+
+  function play(kind: DuelSoundCue, strength = 1): void {
     if (!unlocked || muted) return;
     const audio = ctx;
     const dest = master;
@@ -154,6 +193,21 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
       case "phase":
         tone(audio, dest, { freq: 329.63, type: "sine", start: t, duration: 0.16, peak: 0.03 });
         tone(audio, dest, { freq: 493.88, type: "triangle", start: t + 0.06, duration: 0.18, peak: 0.018 });
+        break;
+      case "holo":
+        // A soft rising shimmer while the projection lifts.
+        tone(audio, dest, { freq: 220, freqEnd: 740, type: "sine", start: t, duration: 0.34, peak: 0.02, attack: 0.05 });
+        tone(audio, dest, { freq: 1318.5, freqEnd: 1760, type: "triangle", start: t + 0.12, duration: 0.24, peak: 0.008, attack: 0.06 });
+        break;
+      case "slam":
+        // Weight: a low drop plus a short muffled knock.
+        tone(audio, dest, { freq: 118, freqEnd: 36, type: "sine", start: t, duration: 0.34, peak: 0.16 * strength, attack: 0.004 });
+        burst(audio, dest, { start: t, duration: 0.14, peak: 0.07 * strength, filter: "lowpass", freq: 900, freqEnd: 180 });
+        break;
+      case "shatter":
+      case "destroy":
+        burst(audio, dest, { start: t, duration: 0.2, peak: 0.05, filter: "highpass", freq: 2200, freqEnd: 5200 });
+        tone(audio, dest, { freq: 880, freqEnd: 260, type: "triangle", start: t, duration: 0.16, peak: 0.02, attack: 0.003 });
         break;
       default:
         break;

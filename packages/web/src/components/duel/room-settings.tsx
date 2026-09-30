@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { DUEL_BANLIST_OPTIONS, isCustomDomain, type DuelClock, type DuelRoom, type DuelSession } from "@yugidraft/shared/duels";
-import { Button } from "@/components/ui/button";
+import { Check, Link2 } from "lucide-react";
+import { SheetButton } from "./sheet-ui";
 import styles from "./room.module.css";
+import own from "./room-settings.module.css";
 
 export function DuelSettingsSummary({ session }: { session: DuelSession }) {
   const { settings } = session;
@@ -15,24 +17,26 @@ export function DuelSettingsSummary({ session }: { session: DuelSession }) {
     ["Card pool", settings.cardPool === "both" ? "TCG + OCG" : settings.cardPool.toUpperCase()],
     ["Turn timer", settings.turnSeconds === 0 ? "Unlimited" : `${settings.turnSeconds} seconds per player`],
     ["Starting LP", settings.startingLP.toLocaleString("en-US")],
-    ["Starting hand", `${settings.startingHand} cards`],
-    ["Draw Phase", `${settings.drawPerTurn} cards`],
+    ["Starting hand", `${settings.startingHand} ${settings.startingHand === 1 ? "card" : "cards"}`],
+    ["Draw Phase", `${settings.drawPerTurn} ${settings.drawPerTurn === 1 ? "card" : "cards"}`],
     ["Timeout", settings.turnSeconds === 0 ? "No timer" : settings.timeout === "loss" ? "Lose on timeout" : "Continue at zero"],
     ["Deck validation", settings.validateDeck ? "Valid decks only" : "Format checks off; engine safety enforced"],
     ["Opening order", settings.shuffleDeck ? "Shuffled" : "Imported order"],
   ];
   return (
-    <section aria-label="Game settings" className="space-y-3">
-      <h2 className="font-display text-base">Game settings</h2>
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-xs sm:grid-cols-2">
+    <section aria-label="Game settings" className={own.settings}>
+      <div className={own.settingsHead}>
+        <h2 className={own.settingsTitle}>Game settings</h2>
+      </div>
+      <dl className={own.grid}>
         {values.map(([label, value]) => (
-          <div key={label} className="min-w-0">
-            <dt className="text-text-secondary">{label}</dt>
-            <dd className="break-words text-text-primary">{value}</dd>
+          <div key={label} className={own.row}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
           </div>
         ))}
       </dl>
-      <p className="text-xs text-text-secondary">Settings are locked and retained in match history.</p>
+      <p className={own.note}>Settings are locked and retained in match history.</p>
     </section>
   );
 }
@@ -42,8 +46,8 @@ export function RoomInvite({ room, slug }: { room: DuelRoom; slug: string }) {
   const [manualLink, setManualLink] = useState<string | null>(null);
   if (room.session.settings.visibility === "private" && !room.inviteCode) return null;
   return (
-    <div className="min-w-0 space-y-2">
-      <Button type="button" size="sm" variant="secondary" onClick={async () => {
+    <div className={own.invite}>
+      <SheetButton size="sm" onClick={async () => {
         const url = new URL(`/duels/${encodeURIComponent(slug)}`, window.location.origin);
         if (room.inviteCode) url.searchParams.set("invite", room.inviteCode);
         try {
@@ -54,12 +58,14 @@ export function RoomInvite({ room, slug }: { room: DuelRoom; slug: string }) {
           setCopied(false);
           setManualLink(url.href);
         }
-      }}>{copied ? "Invite copied" : "Copy invite"}</Button>
+      }}>
+        {copied ? <Check size={15} strokeWidth={1.7} aria-hidden /> : <Link2 size={15} strokeWidth={1.7} aria-hidden />}
+        {copied ? "Invite copied" : "Copy invite"}
+      </SheetButton>
       {manualLink ? (
-        <label className="block text-xs text-text-secondary">
+        <label className={own.manual}>
           Clipboard unavailable. Copy this invite:
-          <input className="mt-1 w-full border border-border bg-bg-deep p-2" readOnly value={manualLink}
-            onFocus={(event) => event.currentTarget.select()} />
+          <input readOnly value={manualLink} onFocus={(event) => event.currentTarget.select()} />
         </label>
       ) : null}
     </div>

@@ -18,7 +18,10 @@
 }
 
 .cue {
-  --cue-in: 280ms;
+  --cue-in: 240ms;
+  --cue-out: 160ms;
+  --cue-total: 900ms;
+  position: relative;
   display: flex;
   align-items: center;
   gap: calc(12 * var(--duel-unit, 1px));
@@ -33,7 +36,26 @@
   box-shadow:
     0 14px 30px rgb(0 0 0 / 0.55),
     0 2px 6px rgb(0 0 0 / 0.4);
-  animation: cue-in var(--cue-in) ease-out both;
+  animation:
+    cue-in var(--cue-in) cubic-bezier(0.2, 0.8, 0.25, 1) both,
+    cue-out var(--cue-out) cubic-bezier(0.5, 0, 0.9, 0.5) calc(var(--cue-total) - var(--cue-out)) forwards;
+}
+
+/* Attack caption: one ruled line, no portrait. */
+.cue[data-compact="true"] {
+  gap: calc(8 * var(--duel-unit, 1px));
+  padding: calc(6 * var(--duel-unit, 1px)) calc(14 * var(--duel-unit, 1px)) calc(6 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px));
+  border-radius: 999px;
+  box-shadow: 0 8px 18px rgb(0 0 0 / 0.45);
+}
+
+.cue[data-kind="attack"] {
+  border-color: rgb(217 141 82 / 0.6);
+}
+
+.cue[data-kind="attack"] .kind {
+  border-color: rgb(217 141 82 / 0.6);
+  color: rgb(236 184 140);
 }
 
 .cue[data-kind="activate"],
@@ -41,16 +63,57 @@
   border-color: var(--duel-pen, #9b7eff);
 }
 
+/* A link on the chain wears a gold edge that lights once as it lands. */
+.cue[data-kind="activate"][data-chain="true"] {
+  border-color: rgb(228 182 79 / 0.85);
+  animation:
+    cue-in var(--cue-in) cubic-bezier(0.2, 0.8, 0.25, 1) both,
+    edge-light 720ms ease-out both,
+    cue-out var(--cue-out) cubic-bezier(0.5, 0, 0.9, 0.5) calc(var(--cue-total) - var(--cue-out)) forwards;
+}
+
 .cue[data-kind="chain-negated"] {
   border-color: rgb(228 90 77 / 0.75);
+  animation:
+    cue-in var(--cue-in) cubic-bezier(0.2, 0.8, 0.25, 1) both,
+    cue-reject 300ms ease-out 60ms both,
+    cue-out var(--cue-out) cubic-bezier(0.5, 0, 0.9, 0.5) calc(var(--cue-total) - var(--cue-out)) forwards;
+}
+
+.cue[data-kind="chain-resolving"]::after {
+  content: "";
+  position: absolute;
+  right: calc(10 * var(--duel-unit, 1px));
+  bottom: 0;
+  left: calc(10 * var(--duel-unit, 1px));
+  height: 2px;
+  border-radius: 2px;
+  background: var(--duel-pen, #9b7eff);
+  transform-origin: left center;
+  animation: cue-progress calc(var(--cue-total) - var(--cue-out)) linear both;
+}
+
+.cue[data-kind="chain-resolved"] {
+  animation:
+    cue-in var(--cue-in) cubic-bezier(0.2, 0.8, 0.25, 1) both,
+    edge-light 560ms ease-out both,
+    cue-out var(--cue-out) cubic-bezier(0.5, 0, 0.9, 0.5) calc(var(--cue-total) - var(--cue-out)) forwards;
+}
+
+.cue[data-reduced="true"]::after,
+.cue[data-reduced="true"] .title::after {
+  animation: none;
 }
 
 .cue[data-kind="chain-resolved"] {
   border-color: rgb(228 182 79 / 0.7);
 }
 
-.cue[data-reduced="true"] {
-  animation: none;
+.cue[data-reduced="true"],
+.cue[data-kind][data-reduced="true"] {
+  animation:
+    cue-fade-in var(--cue-in) ease-out both,
+    cue-fade-out var(--cue-out) ease-in calc(var(--cue-total) - var(--cue-out)) forwards;
   transform: none;
   filter: none;
   padding: calc(6 * var(--duel-unit, 1px)) calc(10 * var(--duel-unit, 1px)) calc(6 * var(--duel-unit, 1px)) calc(6 * var(--duel-unit, 1px));
@@ -69,6 +132,30 @@
 
 .cue[data-reduced="true"] .portrait {
   width: calc(38 * var(--duel-unit, 1px));
+}
+
+/* Activation: the card brightens once, with a thin glint crossing it. */
+.cue[data-kind="activate"] .portrait {
+  position: relative;
+  animation: portrait-flare 560ms ease-out both;
+}
+
+.cue[data-kind="activate"] .portrait::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgb(255 244 214 / 0.55) 48%, transparent 66%);
+  transform: translateX(-120%);
+  animation: portrait-glint 620ms ease-out 120ms both;
+}
+
+.cue[data-kind="chain-negated"] .portrait {
+  animation: portrait-negate 320ms ease-out 120ms both;
+}
+
+.cue[data-reduced="true"] .portrait,
+.cue[data-reduced="true"] .portrait::after {
+  animation: none;
 }
 
 .art {
@@ -141,10 +228,36 @@
   font-weight: 500;
 }
 
+.title {
+  position: relative;
+}
+
+/* Negated: a red line is struck through the name. */
 .cue[data-kind="chain-negated"] .title {
+  width: fit-content;
+}
+
+.cue[data-kind="chain-negated"] .title::after {
+  content: "";
+  position: absolute;
+  top: 55%;
+  right: 0;
+  left: 0;
+  height: 1.5px;
+  background: var(--duel-loss, #e45a4d);
+  transform-origin: left center;
+  animation: strike 240ms cubic-bezier(0.3, 0.7, 0.2, 1) 160ms both;
+}
+
+.cue[data-kind="chain-negated"][data-reduced="true"] .title {
   text-decoration: line-through;
   text-decoration-color: var(--duel-loss, #e45a4d);
-  text-decoration-thickness: 1.5px;
+}
+
+.cue[data-compact="true"] .title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .blurb {
@@ -173,7 +286,7 @@
 @keyframes cue-in {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.97);
+    transform: translateY(12px) scale(0.965);
   }
   to {
     opacity: 1;
@@ -181,9 +294,116 @@
   }
 }
 
+@keyframes cue-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+}
+
+@keyframes cue-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cue-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes cue-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes cue-reject {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  25% {
+    translate: -3px 0;
+  }
+  55% {
+    translate: 2px 0;
+  }
+  80% {
+    translate: -1px 0;
+  }
+}
+
+@keyframes edge-light {
+  0% {
+    box-shadow: 0 14px 30px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4), 0 0 0 0 rgb(228 182 79 / 0);
+  }
+  30% {
+    box-shadow: 0 14px 30px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4), 0 0 18px 1px rgb(228 182 79 / 0.5);
+  }
+  100% {
+    box-shadow: 0 14px 30px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4), 0 0 0 0 rgb(228 182 79 / 0);
+  }
+}
+
+@keyframes strike {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes portrait-flare {
+  0% {
+    filter: brightness(0.6);
+  }
+  40% {
+    filter: brightness(1.45);
+  }
+  100% {
+    filter: brightness(1);
+  }
+}
+
+@keyframes portrait-glint {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes portrait-negate {
+  from {
+    filter: grayscale(0) brightness(1);
+  }
+  to {
+    filter: grayscale(0.85) brightness(0.7);
+  }
+}
+
 /* Phase change: a ruled banner. The frame colour turns ember in the Battle Phase. */
 .phaseRibbon {
-  --cue-in: 280ms;
+  --cue-in: 260ms;
+  --cue-out: 160ms;
+  --cue-total: 900ms;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -194,21 +414,53 @@
   background: rgb(7 11 21 / 0.94);
   border-block: 3px double rgb(var(--duel-frame-rgb, 181 153 99) / 0.75);
   box-shadow: 0 10px 24px rgb(0 0 0 / 0.5);
-  animation: cue-in var(--cue-in) ease-out both;
+  animation:
+    ribbon-in var(--cue-in) cubic-bezier(0.2, 0.8, 0.25, 1) both,
+    cue-fade-out var(--cue-out) ease-in calc(var(--cue-total) - var(--cue-out)) forwards;
 }
 
 .phaseRibbon[data-reduced="true"] {
-  animation: none;
+  animation:
+    cue-fade-in var(--cue-in) ease-out both,
+    cue-fade-out var(--cue-out) ease-in calc(var(--cue-total) - var(--cue-out)) forwards;
   transform: none;
+}
+
+.phaseRibbon[data-reduced="true"] .phaseTitle {
+  animation: none;
+}
+
+/* The ribbon opens from the middle and the title settles into place. */
+@keyframes ribbon-in {
+  from {
+    opacity: 0;
+    clip-path: inset(0 45% 0 45%);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes title-settle {
+  from {
+    opacity: 0;
+    letter-spacing: 0.14em;
+  }
+  to {
+    opacity: 1;
+    letter-spacing: 0.02em;
+  }
 }
 
 .phaseTitle {
   margin: 0;
   font-family: var(--duel-f-ui, var(--font-body));
   font-size: clamp(1.1rem, calc(24 * var(--duel-unit, 1px)), 1.7rem);
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.02em;
   line-height: 1.15;
   text-align: center;
   text-transform: none;
+  animation: title-settle calc(var(--cue-in) + 160ms) cubic-bezier(0.2, 0.8, 0.25, 1) 40ms both;
 }

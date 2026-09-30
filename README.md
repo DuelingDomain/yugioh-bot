@@ -161,6 +161,7 @@ Source attribution: [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), [EDOP
 | `DUEL_INTERNAL_PORT` | No | Duel host port. Defaults to `4003` |
 | `DUEL_ARCHIVE_AFTER_MS` | No | Delay before terminal tables are archived from live listings; default `600000` (10 minutes). Records remain in SQLite |
 | `DUEL_IDLE_WORKER_MS` | No | Idle worker reclamation delay; default `300000` (5 minutes). Re-entry replays the game without forfeiting a seat |
+| `DUEL_BOT_STEP_MS` | No | Base pause in ms before each practice bot action, so players can follow its play (phase moves about 0.6x, summons/sets/activations 1x, attacks 1.5x, plus jitter). Defaults to `900`; `0` makes the bot answer instantly inside the player's request |
 | `DATABASE_PATH` | No | SQLite file path. Defaults to `./data/bot.sqlite`. Web and duel must open the same file |
 | `REMINDER_CRON` | No | Cron schedule for daily reminders. Defaults to `0 10 * * *` |
 | `REMINDER_TIMEZONE` | No | Timezone for reminders. Defaults to `America/New_York` |

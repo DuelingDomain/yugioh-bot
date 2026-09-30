@@ -4,10 +4,12 @@ import { join } from "node:path";
 import type Database from "better-sqlite3";
 import { createDuelService, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
+  DuelAnswer,
   DuelCommand,
   DuelDeck,
   DuelEngineView,
   DuelMode,
+  DuelPrompt,
   DuelReplay,
   DuelReplayFrame,
   DuelRoom,
@@ -49,7 +51,58 @@ class ReplayMismatchError extends Error {
   }
 }
 
+type BotOutcome = { kind: "stop" } | { kind: "replan" } | { kind: "acted"; visible: boolean };
+
 type LiveGame = { game: DuelGameWorker; lastRequestAt: number; guildId: string };
+
+/** One background loop plays the practice bot's turns at a human pace; at most one per duel. */
+interface BotLoop {
+  cancelled: boolean;
+  /** Wakes the loop's current pause so it can notice cancellation. */
+  wake: (() => void) | null;
+  done: Promise<void>;
+}
+
+interface BotPlan {
+  promptId: string;
+  revision: number;
+  answer: DuelAnswer;
+  delayMs: number;
+  /** Relative weight of what the bot is about to do, used to size the pause after a visible action. */
+  cost: number;
+}
+
+/** Relative pause weights. The base delay is the pause before a summon, set or activation. */
+const BOT_COST_PHASE = 0.6;
+const BOT_COST_CHAIN = 0.75;
+const BOT_COST_SUMMON = 1;
+const BOT_COST_ATTACK = 1.5;
+const BOT_COST_FOLLOW_UP = 0.3;
+const BOT_JITTER = 0.12;
+
+function botAnswerCost(prompt: DuelPrompt, answer: DuelAnswer): number {
+  if (prompt.context?.type === "chain") return BOT_COST_CHAIN;
+  const choice = answer.choice;
+  if (prompt.kind !== "choice" || typeof choice !== "string") return BOT_COST_FOLLOW_UP;
+  if (choice.startsWith("attack:")) return BOT_COST_ATTACK;
+  if (/^(summon|spsummon|mset|sset|activate):/.test(choice)) return BOT_COST_SUMMON;
+  if (choice === "to_bp" || choice === "to_m2" || choice === "to_ep" || choice === "shuffle") return BOT_COST_PHASE;
+  if (prompt.context?.type === "action") return BOT_COST_PHASE;
+  return BOT_COST_FOLLOW_UP;
+}
+
+/** Human-like pause: `base` ms scaled by what the bot does, with a little jitter. Exported for tests. */
+export function practiceBotDelay(base: number, cost: number, random: () => number = Math.random): number {
+  if (!(base > 0)) return 0;
+  const jitter = 1 + (random() * 2 - 1) * BOT_JITTER;
+  return Math.max(0, Math.round(base * cost * jitter));
+}
+
+function newestEventId(view: DuelEngineView): number {
+  let newest = 0;
+  for (const event of view.events) newest = Math.max(newest, event.id);
+  return newest;
+}
 
 function freezeView(view: DuelEngineView, result: { winnerSeat: number | null; reason: string }): DuelEngineView {
   return { ...view, prompt: null, result };
@@ -71,6 +124,13 @@ export function createDuelHost(options: {
   pollIntervalMs?: number;
   now?: () => number;
   createWorker?: () => DuelGameWorker;
+  /**
+   * Practice bot pacing. 0 or undefined keeps the synchronous behaviour: the bot answers every prompt inside the
+   * human's request. A positive number is the base pause in ms (scaled by action: about 0.6x for phase moves,
+   * 1x for summons, sets and activations, 1.5x for attacks); a function returns the pause in ms for a prompt.
+   * When positive, the bot plays in a background loop and calls `onChange` after each step.
+   */
+  botStepDelayMs?: number | ((prompt: DuelPrompt) => number);
 }): DuelHost {
   if (!options.secret) throw new Error("DUEL_INTERNAL_SECRET is required");
   const service = createDuelService(options.db);
@@ -84,6 +144,8 @@ export function createDuelHost(options: {
   const idleWorkerMs = options.idleWorkerMs ?? DEFAULT_IDLE_WORKER_MS;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const now = options.now ?? Date.now;
+  const botLoops = new Map<string, BotLoop>();
+  const pacedBot = typeof options.botStepDelayMs === "function" || (options.botStepDelayMs ?? 0) > 0;
   let stopped = false;
 
   function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings): void {
@@ -131,7 +193,16 @@ export function createDuelHost(options: {
   async function disposeGame(slug: string): Promise<void> {
     const entry = games.get(slug);
     games.delete(slug);
+    cancelBotLoop(slug);
     if (entry) await safeClose(entry.game);
+  }
+
+  function cancelBotLoop(slug: string): void {
+    const loop = botLoops.get(slug);
+    if (!loop) return;
+    botLoops.delete(slug);
+    loop.cancelled = true;
+    loop.wake?.();
   }
 
   async function captureSnapshots(
@@ -239,11 +310,236 @@ export function createDuelHost(options: {
     throw new RequestError("Practice bot failed to make progress", 500);
   }
 
+  /** Answer bot prompts now (unpaced) or hand them to the background loop (paced). */
+  async function driveBot(slug: string, guildId: string, game: DuelGameWorker): Promise<void> {
+    if (!pacedBot) {
+      await advancePracticeBot(slug, guildId, game);
+      return;
+    }
+    startBotLoop(slug, guildId);
+  }
+
+  function botPause(loop: BotLoop, ms: number): Promise<void> {
+    if (ms <= 0 || loop.cancelled || stopped) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        loop.wake = null;
+        resolve();
+      }, ms);
+      loop.wake = () => {
+        clearTimeout(timer);
+        loop.wake = null;
+        resolve();
+      };
+    });
+  }
+
+  function botDelayFor(prompt: DuelPrompt, cost: number, settle: number): number {
+    const configured = options.botStepDelayMs;
+    if (typeof configured === "function") return Math.max(0, Math.round(configured(prompt)));
+    return practiceBotDelay(configured ?? 0, Math.max(cost, settle));
+  }
+
+  /** Give up on a bot that cannot choose a legal answer: end the table instead of leaving it stuck. */
+  async function interruptBrokenBot(slug: string, guildId: string, reason: string): Promise<void> {
+    try {
+      const session = service.get(slug, guildId);
+      if (session.status === "active") service.interrupt(slug, guildId, reason);
+    } catch (error) {
+      console.warn("[duel] could not interrupt a stuck practice bot table", error);
+    }
+    await disposeGame(slug);
+    await emitChange(slug, guildId);
+  }
+
+  function startBotLoop(slug: string, guildId: string): void {
+    if (stopped || botLoops.has(slug)) return;
+    const loop: BotLoop = { cancelled: false, wake: null, done: Promise.resolve() };
+    botLoops.set(slug, loop);
+    const finish = () => {
+      if (botLoops.get(slug) === loop) botLoops.delete(slug);
+    };
+    // The loop only ever touches the duel from inside the per-duel queue, so human commands and the
+    // clock sweep interleave with bot steps but never overlap them. Every stop decision is taken inside
+    // the queue and unregisters the loop right there, so a human command queued next always sees the
+    // registry as it truly is and can start a fresh loop.
+    loop.done = (async () => {
+      let steps = 0;
+      let settle = 0;
+      for (;;) {
+        if (loop.cancelled || stopped) return finish();
+        let plan: BotPlan | null;
+        try {
+          plan = await enqueue(slug, () => planBotStep(slug, guildId, loop, finish, settle));
+        } catch (error) {
+          console.warn("[duel] practice bot planning failed", error);
+          return finish();
+        }
+        if (!plan) return;
+        await botPause(loop, plan.delayMs);
+        if (loop.cancelled || stopped) return finish();
+        let outcome: BotOutcome;
+        try {
+          outcome = await enqueue(slug, () => actBotStep(slug, guildId, loop, finish, plan));
+        } catch (error) {
+          console.warn("[duel] practice bot step failed", error);
+          return finish();
+        }
+        if (outcome.kind === "stop") return;
+        if (outcome.kind === "replan") continue;
+        steps += 1;
+        settle = outcome.visible ? plan.cost : 0;
+        if (steps >= BOT_ADVANCE_LIMIT) {
+          await enqueue(slug, async () => {
+            if (loop.cancelled || stopped) return;
+            finish();
+            await interruptBrokenBot(slug, guildId, "The practice bot failed to make progress.");
+          }).catch((error) => console.warn("[duel] practice bot interrupt failed", error));
+          return;
+        }
+      }
+    })().catch((error) => {
+      console.warn("[duel] practice bot loop crashed", error);
+      finish();
+    });
+  }
+
+  /** Runs inside the duel queue. Returns the next bot step, or null after ending the loop. */
+  async function planBotStep(
+    slug: string,
+    guildId: string,
+    loop: BotLoop,
+    finish: () => void,
+    settle: number,
+  ): Promise<BotPlan | null> {
+    if (loop.cancelled || stopped) {
+      finish();
+      return null;
+    }
+    const session = service.get(slug, guildId);
+    const bot = session.seats.find((seat) => seat.isBot);
+    const entry = games.get(slug);
+    if (session.status !== "active" || !bot || !entry?.game.running) {
+      finish();
+      return null;
+    }
+    const game = entry.game;
+    let view: DuelEngineView;
+    try {
+      view = await game.view(bot.seat);
+    } catch (error) {
+      console.warn("[duel] practice bot could not read the duel", error);
+      finish();
+      await disposeGame(slug);
+      return null;
+    }
+    if (view.result) {
+      finish();
+      try {
+        await persistComplete(slug, guildId, game, view.result.winnerSeat, view.result.reason);
+      } catch (error) {
+        console.warn("[duel] could not record the finished duel", error);
+      }
+      return null;
+    }
+    const prompt = view.prompt;
+    if (!prompt || prompt.seat !== bot.seat) {
+      finish();
+      return null;
+    }
+    let answer: DuelAnswer;
+    try {
+      const permittedCards = prompt.kind === "announce-card" ? await game.search("") : undefined;
+      answer = choosePracticeBotAnswer(prompt, { permittedCards });
+    } catch (error) {
+      finish();
+      if (!game.running) {
+        await disposeGame(slug);
+        return null;
+      }
+      const message = error instanceof PracticeBotError ? error.message : "Practice bot failed to choose";
+      console.warn(`[duel] ${message}`);
+      await interruptBrokenBot(slug, guildId, "The practice bot could not continue.");
+      return null;
+    }
+    const cost = botAnswerCost(prompt, answer);
+    return {
+      promptId: prompt.id,
+      revision: view.revision,
+      answer,
+      cost,
+      delayMs: botDelayFor(prompt, cost, settle),
+    };
+  }
+
+  /** Runs inside the duel queue. Applies a planned step if the duel is still exactly where the plan left it. */
+  async function actBotStep(
+    slug: string,
+    guildId: string,
+    loop: BotLoop,
+    finish: () => void,
+    plan: BotPlan,
+  ): Promise<BotOutcome> {
+    if (loop.cancelled || stopped) {
+      finish();
+      return { kind: "stop" };
+    }
+    const session = service.get(slug, guildId);
+    const bot = session.seats.find((seat) => seat.isBot);
+    const entry = games.get(slug);
+    if (session.status !== "active" || !bot || !entry?.game.running) {
+      finish();
+      return { kind: "stop" };
+    }
+    const game = entry.game;
+    let before: DuelEngineView;
+    try {
+      before = await game.view(bot.seat);
+    } catch (error) {
+      console.warn("[duel] practice bot could not read the duel", error);
+      finish();
+      await disposeGame(slug);
+      return { kind: "stop" };
+    }
+    if (before.result || before.prompt?.seat !== bot.seat) return { kind: "replan" };
+    if (before.prompt.id !== plan.promptId || before.revision !== plan.revision) return { kind: "replan" };
+
+    const command: DuelCommand = { promptId: plan.promptId, revision: plan.revision, answer: plan.answer };
+    const decidedAt = now();
+    try {
+      await game.answer(bot.seat, plan.promptId, plan.answer);
+    } catch (error) {
+      finish();
+      console.warn("[duel] practice bot answer was rejected", error);
+      if (!game.running) await disposeGame(slug);
+      else await interruptBrokenBot(slug, guildId, "The practice bot could not continue.");
+      return { kind: "stop" };
+    }
+    try {
+      await persistAcceptedCommand(slug, guildId, bot.seat, command, game, decidedAt);
+    } catch (error) {
+      // The answer was applied but not journaled. Dropping the worker makes the next request rebuild the
+      // duel from the journal, which never contains an unrecorded command.
+      finish();
+      console.warn("[duel] could not record the practice bot's move", error);
+      await disposeGame(slug);
+      return { kind: "stop" };
+    }
+    let visible = false;
+    try {
+      visible = newestEventId(await game.view(bot.seat)) > newestEventId(before);
+    } catch {
+      // Pacing hint only.
+    }
+    await emitChange(slug, guildId);
+    return { kind: "acted", visible };
+  }
+
   async function recover(slug: string, guildId: string): Promise<DuelGameWorker> {
     const existing = games.get(slug);
     if (existing?.game.running) {
       existing.lastRequestAt = now();
-      await advancePracticeBot(slug, guildId, existing.game);
+      await driveBot(slug, guildId, existing.game);
       return existing.game;
     }
     games.delete(slug);
@@ -300,7 +596,7 @@ export function createDuelHost(options: {
       throw error;
     }
     games.set(slug, { game, lastRequestAt: now(), guildId });
-    await advancePracticeBot(slug, guildId, game);
+    await driveBot(slug, guildId, game);
     return game;
   }
 
@@ -313,7 +609,7 @@ export function createDuelHost(options: {
     const expired = clock.activeSeat;
     if (expired !== null && state.session.seats.some((seat) => seat.seat === expired && seat.isBot)) {
       const live = game?.running ? game : await recover(slug, guildId);
-      if (game?.running) await advancePracticeBot(slug, guildId, live);
+      if (game?.running) await driveBot(slug, guildId, live);
       return;
     }
 
@@ -541,7 +837,7 @@ export function createDuelHost(options: {
         service.activate(slug, guildId, actor, seed, manifest.bundleVersion, clock);
         games.set(slug, { game, lastRequestAt: now(), guildId });
         await emitChange(slug, guildId);
-        await advancePracticeBot(slug, guildId, game);
+        await driveBot(slug, guildId, game);
         return await project(slug, guildId, actor, game);
       } catch (error) {
         games.delete(slug);
@@ -588,7 +884,7 @@ export function createDuelHost(options: {
     try {
       await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt);
       await emitChange(slug, guildId);
-      await advancePracticeBot(slug, guildId, live);
+      await driveBot(slug, guildId, live);
       return await project(slug, guildId, actor, live);
     } catch (error) {
       await disposeGame(slug);
@@ -630,6 +926,7 @@ export function createDuelHost(options: {
       if (queues.has(slug)) continue;
       if (t - entry.lastRequestAt < idleWorkerMs) continue;
       games.delete(slug);
+      cancelBotLoop(slug);
       await safeClose(entry.game);
     }
     if (stopped) return;
@@ -673,7 +970,9 @@ export function createDuelHost(options: {
     async close(): Promise<void> {
       stopped = true;
       clearInterval(timer);
-      await Promise.allSettled([...queues.values()]);
+      const loops = [...botLoops.values()];
+      for (const slug of [...botLoops.keys()]) cancelBotLoop(slug);
+      await Promise.allSettled([...queues.values(), ...loops.map((loop) => loop.done)]);
       await Promise.all([...games.values()].map((entry) => safeClose(entry.game)));
       games.clear();
       replayCache.clear();

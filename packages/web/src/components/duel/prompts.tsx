@@ -11,7 +11,7 @@ import type {
 } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { searchDuelCards } from "./api";
-import { cardArtUrl, zoneKey } from "./constants";
+import { cardArtUrl, LOCATION_MZONE, zoneKey } from "./constants";
 import styles from "./prompts.module.css";
 
 export interface PromptDraft {
@@ -25,6 +25,37 @@ export interface PromptDraft {
   setCardCode: Dispatch<SetStateAction<number | null>>;
   highlight: number;
   setHighlight: Dispatch<SetStateAction<number>>;
+}
+
+/**
+ * The engine's "choose what to attack" step is a single-pick `cards` prompt whose hint is
+ * "Select an attack target" (system string 549). Some builds word it differently, so when an attacker
+ * was just chosen (`attackerChosen`) any single pick made only of opposing monsters counts too.
+ */
+const ATTACK_TARGET_TITLE = /attack target|target(?:s)? (?:to|for) (?:the )?attack/i;
+
+export function isAttackTargetPrompt(prompt: DuelPrompt | null, attackerChosen = false): boolean {
+  if (!prompt || prompt.kind !== "cards") return false;
+  if ((prompt.min ?? 1) !== 1 || (prompt.max ?? 1) !== 1) return false;
+  if (ATTACK_TARGET_TITLE.test(`${prompt.title} ${prompt.description ?? ""}`)) return true;
+  return (
+    attackerChosen &&
+    prompt.options.length > 0 &&
+    prompt.options.every((option) => option.location === LOCATION_MZONE && option.controller != null && option.controller !== prompt.seat)
+  );
+}
+
+/** "Attack directly?" yes/no, asked when an attacker could hit the player but monsters are also attackable. */
+export function isDirectAttackPrompt(prompt: DuelPrompt | null): boolean {
+  if (!prompt || prompt.kind !== "choice" || prompt.context) return false;
+  return /attack directly/i.test(prompt.title) && prompt.options.some((option) => option.id === "yes");
+}
+
+/** Wiring for the attack-target step: picking only aims; the room's confirm submits. */
+export interface PromptAim {
+  lockedId: string | null;
+  onAim: (option: DuelPromptOption) => void;
+  onHover: (option: DuelPromptOption | null) => void;
 }
 
 export function optionZoneKeys(option: DuelPromptOption): string[] {
@@ -246,6 +277,7 @@ function OptionButton({
   onPick,
   detail,
   disabled,
+  onHover,
 }: {
   option: DuelPromptOption;
   index: number;
@@ -254,11 +286,16 @@ function OptionButton({
   onPick: () => void;
   detail?: string;
   disabled?: boolean;
+  onHover?: (option: DuelPromptOption | null) => void;
 }) {
   return (
     <button
       type="button"
       onClick={onPick}
+      onMouseEnter={onHover ? () => onHover(option) : undefined}
+      onMouseLeave={onHover ? () => onHover(null) : undefined}
+      onFocus={onHover ? () => onHover(option) : undefined}
+      onBlur={onHover ? () => onHover(null) : undefined}
       disabled={disabled}
       aria-pressed={selected}
       title={option.label}
@@ -460,6 +497,7 @@ export function PromptTray({
   onSubmit,
   menuOpen,
   active,
+  aim,
 }: {
   prompt: DuelPrompt | null;
   mySeat: number | null;
@@ -469,6 +507,8 @@ export function PromptTray({
   onSubmit: (answer: DuelAnswer) => void;
   menuOpen?: boolean;
   active?: boolean;
+  /** Set while the prompt is the attack-target step: picking a target aims instead of answering. */
+  aim?: PromptAim;
 }) {
   const seated = prompt != null && mySeat != null && prompt.seat === mySeat;
   const answering = seated && active !== false;
@@ -481,6 +521,8 @@ export function PromptTray({
   const answeringRef = useRef(answering);
   const menuOpenRef = useRef(Boolean(menuOpen));
   const confirmableRef = useRef(confirmable);
+  const aimRef = useRef(aim);
+  aimRef.current = aim;
   promptRef.current = prompt;
   draftRef.current = draft;
   busyRef.current = busy;
@@ -538,7 +580,8 @@ export function PromptTray({
           min === 1 &&
           max === 1
         ) {
-          submitAnswer({ selected: [option.id] });
+          if (aimRef.current) aimRef.current.onAim(option);
+          else submitAnswer({ selected: [option.id] });
           return;
         }
         currentDraft.setSelected((selected) => toggleSelected(current, selected, option.id));
@@ -570,7 +613,8 @@ export function PromptTray({
           max === 1
         ) {
           event.preventDefault();
-          submitAnswer({ selected: [highlighted.id] });
+          if (aimRef.current) aimRef.current.onAim(highlighted);
+          else submitAnswer({ selected: [highlighted.id] });
           return;
         }
         if (confirmableRef.current) {
@@ -620,7 +664,8 @@ export function PromptTray({
       min === 1 &&
       max === 1
     ) {
-      submitAnswer({ selected: [option.id] });
+      if (aim) aim.onAim(option);
+      else submitAnswer({ selected: [option.id] });
       return;
     }
     draft.setSelected((selected) => toggleSelected(prompt, selected, option.id));
@@ -852,7 +897,10 @@ export function PromptTray({
           {prompt.max != null ? ` · up to ${prompt.max} cards` : ""}
         </p>
       ) : null}
-      {prompt.kind === "cards" || prompt.kind === "places" || prompt.kind === "order" ? (
+      {aim ? (
+        <p className={styles.hint}>Point at a target, then confirm the attack. Esc goes back.</p>
+      ) : null}
+      {!aim && (prompt.kind === "cards" || prompt.kind === "places" || prompt.kind === "order") ? (
         <p className={styles.status}>
           {draft.selected.length} selected
           {min === max ? ` · ${min} required` : ` · ${min} to ${max}`}
@@ -868,8 +916,9 @@ export function PromptTray({
               : valueDetail ? option.values?.join(" / ") : undefined}
             index={index}
             active={draft.highlight === index}
-            selected={draft.selected.includes(option.id)}
+            selected={aim ? aim.lockedId === option.id : draft.selected.includes(option.id)}
             disabled={busy}
+            onHover={aim?.onHover}
             onPick={() => {
               draft.setHighlight(index);
               pickSelectable(option);

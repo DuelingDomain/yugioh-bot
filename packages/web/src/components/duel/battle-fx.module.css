@@ -1,0 +1,711 @@
+/* Battle effects: the attack arrow, the sword slash, the cut card, the aim layer,
+   the attack confirm and the screen-shake control. The layer and the confirm render
+   in portals outside the room shell, so they carry their own tokens.
+
+   Timeline of one attack (BATTLE_TOTAL_MS = 1250):
+     0-300     arrow draws, energy runs along it
+     230-410   chevron head lands, target ring flares
+     400-580   slash sweeps the target        (impact = 490, the LP roll starts here)
+     490-1010  card halves part, shake, flash, sparks
+     1000-1250 everything fades                                                    */
+
+.layer,
+.confirm,
+.shakeRow {
+  --fx-unit: clamp(0.94px, min(0.0764vw, 0.1222dvh), 1.5px);
+  --fx-ember: rgb(217 141 82);
+  --fx-ember-hi: #f6b273;
+  --fx-ember-soft: rgb(217 141 82 / 0.55);
+  --fx-hot: #fff6e2;
+  --fx-loss: #e45a4d;
+  --fx-pen: #9b7eff;
+  --fx-pen-ink: #c6b6ff;
+  --fx-pen-fill: #5733d1;
+  --fx-panel: #0e1729;
+  --fx-ink: #efe7d5;
+  --fx-ink-3: #958f81;
+  --fx-rule: rgb(181 153 99 / 0.6);
+  --fx-f-ui: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+}
+
+/* ---------- overlay layer ---------- */
+
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* ---------- attack playback ---------- */
+
+.play {
+  position: absolute;
+  inset: 0;
+  animation: fx-life var(--total, 1250ms) linear both;
+}
+
+@keyframes fx-life {
+  0%,
+  80% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.arrowShadow,
+.arrowLine,
+.arrowEnergy,
+.slashGlow,
+.slashLine {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.arrowShadow,
+.arrowLine {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: fx-draw 300ms cubic-bezier(0.3, 0.75, 0.25, 1) both;
+}
+
+.arrowShadow {
+  stroke: rgb(0 0 0 / 0.6);
+  stroke-width: 8;
+  filter: blur(2.5px);
+}
+
+.arrowLine {
+  stroke: var(--fx-ember-hi);
+  stroke-width: 2.6;
+  filter: drop-shadow(0 0 5px rgb(217 141 82 / 0.7));
+}
+
+.arrowEnergy {
+  stroke: var(--fx-hot);
+  stroke-width: 2.4;
+  stroke-dasharray: 0.07 1.3;
+  stroke-dashoffset: 0.07;
+  opacity: 0;
+  filter: drop-shadow(0 0 4px rgb(255 226 170 / 0.9));
+  animation: fx-run 400ms cubic-bezier(0.4, 0, 0.6, 1) 70ms both;
+}
+
+.origin {
+  fill: var(--fx-ember-hi);
+  filter: drop-shadow(0 0 4px rgb(217 141 82 / 0.9));
+  animation: fx-pop 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.arrowHead {
+  fill: none;
+  stroke: var(--fx-ember-hi);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgb(217 141 82 / 0.75));
+  animation: fx-head 190ms cubic-bezier(0.2, 0.9, 0.3, 1.15) 230ms both;
+}
+
+.hitRing {
+  fill: none;
+  stroke: var(--fx-ember);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 6px rgb(217 141 82 / 0.6));
+  animation: fx-ring 300ms ease-out 200ms both;
+}
+
+@keyframes fx-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes fx-run {
+  0% {
+    stroke-dashoffset: 0.07;
+    opacity: 1;
+  }
+
+  88% {
+    opacity: 1;
+  }
+
+  100% {
+    stroke-dashoffset: -1.05;
+    opacity: 0;
+  }
+}
+
+@keyframes fx-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fx-head {
+  from {
+    opacity: 0;
+    transform: scale(0.35);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fx-ring {
+  0% {
+    opacity: 0;
+  }
+
+  60% {
+    opacity: 1;
+    stroke-width: 2.4;
+  }
+
+  100% {
+    opacity: 0.85;
+    stroke-width: 1.5;
+  }
+}
+
+/* The sword slash: a bright diagonal that sweeps once, then fades. */
+.slashGlow,
+.slashLine {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation:
+    fx-draw 180ms cubic-bezier(0.55, 0, 0.25, 1) 400ms both,
+    fx-out 260ms ease-in 600ms both;
+}
+
+.slashGlow {
+  stroke: var(--fx-ember);
+  stroke-width: 10;
+  filter: blur(4px);
+}
+
+.slashLine {
+  stroke: var(--fx-hot);
+  stroke-width: 2.6;
+  filter: drop-shadow(0 0 3px rgb(255 240 210 / 0.95));
+}
+
+@keyframes fx-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.flash {
+  fill: #ffe9c2;
+  opacity: 0;
+  filter: blur(7px);
+  animation: fx-flash 320ms ease-out 480ms both;
+}
+
+@keyframes fx-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+
+  22% {
+    opacity: 0.85;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+.lpFlash {
+  position: absolute;
+  border-radius: 8px;
+  background: rgb(228 90 77 / 0.28);
+  box-shadow: 0 0 22px rgb(228 90 77 / 0.55);
+  opacity: 0;
+  animation: fx-lp-flash 480ms ease-out 490ms both;
+}
+
+@keyframes fx-lp-flash {
+  0% {
+    opacity: 0;
+  }
+
+  18% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.spark {
+  position: absolute;
+  width: 12px;
+  height: 2px;
+  margin: -1px 0 0 -2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgb(255 240 210 / 0), #ffeccc);
+  transform-origin: 0 50%;
+  opacity: 0;
+  animation: fx-spark 340ms cubic-bezier(0.2, 0.7, 0.3, 1) 490ms forwards;
+}
+
+@keyframes fx-spark {
+  0% {
+    opacity: 1;
+    transform: rotate(var(--a)) translateX(4px) scaleX(0.3);
+  }
+
+  100% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateX(var(--d)) scaleX(1);
+  }
+}
+
+/* The cut card: two clipped copies of the art part along the slash. */
+.cut {
+  position: absolute;
+  animation: fx-shake 200ms linear 490ms both;
+}
+
+.half {
+  position: absolute;
+  inset: 0;
+}
+
+.inner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--iw);
+  height: var(--ih);
+  translate: -50% -50%;
+}
+
+.halfA {
+  animation: fx-half-a 560ms cubic-bezier(0.2, 0.8, 0.2, 1) 490ms both;
+}
+
+.halfB {
+  animation: fx-half-b 560ms cubic-bezier(0.2, 0.8, 0.2, 1) 490ms both;
+}
+
+@keyframes fx-half-a {
+  0% {
+    translate: 0 0;
+    rotate: 0deg;
+  }
+
+  30% {
+    translate: calc(var(--nx) * var(--sep)) calc(var(--ny) * var(--sep));
+    rotate: var(--rot);
+  }
+
+  100% {
+    translate: calc(var(--nx) * var(--sep) * 1.5) calc(var(--ny) * var(--sep) * 1.5);
+    rotate: var(--rot);
+  }
+}
+
+@keyframes fx-half-b {
+  0% {
+    translate: 0 0;
+    rotate: 0deg;
+  }
+
+  30% {
+    translate: calc(var(--nx) * var(--sep)) calc(var(--ny) * var(--sep));
+    rotate: calc(var(--rot) * 0.8);
+  }
+
+  100% {
+    translate: calc(var(--nx) * var(--sep) * 1.5) calc(var(--ny) * var(--sep) * 1.5);
+    rotate: calc(var(--rot) * 0.8);
+  }
+}
+
+@keyframes fx-shake {
+  0% {
+    transform: none;
+  }
+
+  20% {
+    transform: translate(-2.5px, 1px);
+  }
+
+  40% {
+    transform: translate(2.5px, -1px);
+  }
+
+  60% {
+    transform: translate(-1.5px, 0.5px);
+  }
+
+  80% {
+    transform: translate(1px, -0.5px);
+  }
+
+  100% {
+    transform: none;
+  }
+}
+
+/* Reduced motion: a static arrow and ring that fade in and out. No slash, no shake, no parting. */
+.play[data-reduced="true"] {
+  animation: fx-life-reduced var(--total, 800ms) linear both;
+}
+
+.play[data-reduced="true"] .arrowShadow,
+.play[data-reduced="true"] .arrowLine {
+  stroke-dashoffset: 0;
+  animation: none;
+}
+
+.play[data-reduced="true"] .arrowHead,
+.play[data-reduced="true"] .origin,
+.play[data-reduced="true"] .hitRing {
+  opacity: 1;
+  animation: none;
+}
+
+.play[data-reduced="true"] .arrowEnergy,
+.play[data-reduced="true"] .slash,
+.play[data-reduced="true"] .flash,
+.play[data-reduced="true"] .spark {
+  display: none;
+}
+
+.play[data-reduced="true"] .cut,
+.play[data-reduced="true"] .halfA,
+.play[data-reduced="true"] .halfB,
+.play[data-reduced="true"] .lpFlash {
+  animation: none;
+}
+
+.play[data-reduced="true"] .lpFlash {
+  opacity: 0.6;
+}
+
+@keyframes fx-life-reduced {
+  0% {
+    opacity: 0;
+  }
+
+  12%,
+  72% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ---------- aim layer (your own attack) ---------- */
+
+.aim {
+  animation: fx-fade-in 140ms ease-out both;
+}
+
+@keyframes fx-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.aimShadow,
+.aimLine,
+.aimHead {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.aimShadow {
+  stroke: rgb(0 0 0 / 0.55);
+  stroke-width: 7;
+  filter: blur(2px);
+}
+
+.aimLine {
+  stroke: var(--fx-ember-hi);
+  stroke-width: 2.4;
+  filter: drop-shadow(0 0 4px rgb(217 141 82 / 0.6));
+}
+
+.aimHead {
+  stroke: var(--fx-ember-hi);
+  stroke-width: 2.8;
+  filter: drop-shadow(0 0 4px rgb(217 141 82 / 0.65));
+}
+
+.aimOrigin {
+  fill: var(--fx-ember-hi);
+}
+
+.aimRing {
+  fill: none;
+  stroke: var(--fx-ember);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 5px rgb(217 141 82 / 0.5));
+}
+
+/* Preview: a dim dashed hint while a menu option is hovered. */
+.aim[data-mode="preview"] .aimLine {
+  stroke-width: 1.8;
+  stroke-dasharray: 3 8;
+  opacity: 0.55;
+  filter: none;
+}
+
+.aim[data-mode="preview"] .aimHead {
+  stroke-width: 2;
+  opacity: 0.55;
+  filter: none;
+}
+
+.aim[data-mode="preview"] .aimShadow {
+  display: none;
+}
+
+.aim[data-mode="preview"] .aimOrigin {
+  opacity: 0.55;
+}
+
+/* Aim: hovering a legal target, the dashes march toward it. */
+.aim[data-mode="aim"] .aimLine {
+  stroke-dasharray: 10 6;
+  animation: fx-march 900ms linear infinite;
+}
+
+.aim[data-mode="aim"] .aimRing {
+  stroke-dasharray: 5 4;
+}
+
+/* Locked: a solid arrow, the confirm is open. */
+.aim[data-mode="locked"] .aimLine {
+  stroke-width: 3;
+}
+
+.aim[data-mode="locked"] .aimHead {
+  stroke-width: 3.4;
+}
+
+@keyframes fx-march {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+.svg[data-reduced="true"] .aim,
+.svg[data-reduced="true"] .aimLine {
+  animation: none;
+}
+
+/* ---------- attack confirm (portal, anchored to the target) ---------- */
+
+.confirm {
+  position: fixed;
+  z-index: 110;
+  display: grid;
+  gap: calc(6 * var(--fx-unit));
+  width: max-content;
+  max-width: min(calc(300 * var(--fx-unit)), calc(100vw - 16px));
+  padding: calc(7 * var(--fx-unit));
+  border: 1px solid var(--fx-rule);
+  border-radius: 8px;
+  background: var(--fx-panel);
+  box-shadow: 0 14px 30px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.4);
+  color: var(--fx-ink);
+  font-family: var(--fx-f-ui);
+  font-size: max(13px, calc(13 * var(--fx-unit)));
+  font-weight: 400;
+  line-height: 1.3;
+  pointer-events: auto;
+  animation: fx-confirm-in 150ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+@keyframes fx-confirm-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+.confirm::after {
+  content: "";
+  position: absolute;
+  left: var(--ax, 50%);
+  width: 10px;
+  height: 10px;
+  translate: -50% 0;
+  rotate: 45deg;
+  background: var(--fx-panel);
+}
+
+.confirm[data-side="above"]::after {
+  bottom: -6px;
+  border-right: 1px solid var(--fx-rule);
+  border-bottom: 1px solid var(--fx-rule);
+}
+
+.confirm[data-side="below"]::after {
+  top: -6px;
+  border-top: 1px solid var(--fx-rule);
+  border-left: 1px solid var(--fx-rule);
+}
+
+.confirmRow {
+  display: flex;
+  gap: calc(6 * var(--fx-unit));
+  align-items: stretch;
+}
+
+.confirmRow button {
+  min-height: calc(34 * var(--fx-unit));
+  padding: calc(5 * var(--fx-unit)) calc(12 * var(--fx-unit));
+  border-radius: 5px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.confirmGo {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid transparent;
+  background: var(--fx-pen-fill);
+  color: #fff;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.confirmGo:hover:not(:disabled) {
+  background: #6440e0;
+}
+
+.confirmBack {
+  border: 1px solid var(--fx-rule);
+  background: transparent;
+  color: var(--fx-pen-ink);
+}
+
+.confirmBack:hover:not(:disabled) {
+  background: rgb(155 126 255 / 0.13);
+  color: #fff;
+}
+
+.confirm button:focus-visible {
+  outline: 2px solid var(--fx-ink);
+  outline-offset: 2px;
+}
+
+.confirm button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.confirmHint {
+  padding: 0 calc(2 * var(--fx-unit));
+  color: var(--fx-ink-3);
+  font-size: max(11px, calc(11 * var(--fx-unit)));
+}
+
+.confirmHint kbd {
+  padding: 0 4px;
+  border: 1px solid var(--fx-rule);
+  border-radius: 3px;
+  color: var(--fx-ink);
+  font: inherit;
+}
+
+/* ---------- Options pane: screen shake ---------- */
+
+.shakeRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--fx-f-ui);
+}
+
+.segment {
+  display: inline-flex;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--duel-rule-hi, var(--fx-rule));
+  border-radius: 6px;
+}
+
+.segment button {
+  flex: 1 1 0;
+  min-height: 32px;
+  padding: 4px 6px;
+  border: 0;
+  border-left: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.2));
+  background: transparent;
+  color: var(--duel-ink-2, #c3bba8);
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.segment button:first-child {
+  border-left: 0;
+}
+
+.segment button:hover {
+  background: var(--duel-pen-soft, rgb(155 126 255 / 0.13));
+  color: #fff;
+}
+
+.segment button[aria-pressed="true"] {
+  background: var(--duel-pen-fill, #5733d1);
+  color: #fff;
+  font-weight: 500;
+}
+
+.segment button:focus-visible {
+  outline: 2px solid var(--duel-ink, #efe7d5);
+  outline-offset: -2px;
+}
+
+.shakeNote {
+  margin: 0;
+  color: var(--duel-ink-3, #958f81);
+  font-size: 12px;
+}

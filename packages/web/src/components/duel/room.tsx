@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Circle, Diamond, Eye, Link2, Radio, Settings, Volume2, VolumeX, Waves } from "lucide-react";
+import { Circle, Diamond, Eye, Link2, Radio, Settings, Volume2, VolumeX } from "lucide-react";
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelChainLink, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -25,147 +25,35 @@ import {
   startDuel,
   surrenderDuel,
 } from "./api";
-import { DeckEditor } from "./deck-editor";
+import { RoomLobby } from "./room-lobby";
 import { DeckMasterRail, DuelField } from "./field";
 import styles from "./room.module.css";
-import { CardActionMenu, CardHoverInfo } from "./card-interactions";
+import { AttackConfirm, CardActionMenu, CardHoverInfo } from "./card-interactions";
+import { BattleFx, type BattleAim } from "./battle-fx";
+import fxStyles from "./battle-fx.module.css";
 import { DuelFeedback } from "./feedback";
 import { duelFontClasses } from "./fonts";
-import { useDuelPreferences } from "./preferences";
+import { DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
 import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
+  isAttackTargetPrompt,
+  isDirectAttackPrompt,
   optionsForCard,
+  optionZoneKeys,
   PromptTray,
   promptLegalKeys,
   promptSelectedKeys,
   usePromptDraft,
+  type PromptAim,
 } from "./prompts";
 import { cardArtUrl, isBattlePhase, phaseLabel, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { DuelClockDisplay, DuelSettingsSummary, RoomInvite } from "./room-settings";
 import { StationTrack } from "./station-track";
+import { SummonFx } from "./summon-fx";
+import { DuelHistoryRail } from "./history-rail";
 
-
-function RoomLobby({
-  room,
-  slug,
-  busy,
-  actionError,
-  onJoin,
-  onAddBot,
-  onReady,
-  onStart,
-  onCancel,
-  onLeave,
-}: {
-  room: DuelRoom;
-  slug: string;
-  busy: boolean;
-  actionError: string | null;
-  onJoin: () => void;
-  onAddBot: () => void;
-  onReady: (deck: DuelDeck) => void;
-  onStart: () => void;
-  onCancel: () => void;
-  onLeave: () => void;
-}) {
-  const session = room.session;
-  const mySeat = room.mySeat;
-  const occupied = session.seats.length;
-  const readyCount = session.seats.filter((seat) => seat.ready).length;
-  const myMeta = mySeat != null ? session.seats.find((seat) => seat.seat === mySeat) : undefined;
-  const isOrganizer = myMeta?.playerId === session.organizerPlayerId;
-  const canStart = isOrganizer && occupied >= 2 && readyCount >= 2 && session.status === "lobby";
-
-  return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-text-muted">
-            {session.mode === "domain" ? isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain 1v1 · singleton" : `Master Rule ${session.masterRule}`} · Lobby
-          </p>
-          <h1 className="font-display text-2xl text-text-primary">{session.name}</h1>
-        </div>
-        <div className="flex gap-2">
-          <RoomInvite room={room} slug={slug} />
-          <Link href="/duels" className="inline-flex h-8 items-center px-3 text-sm text-text-secondary">
-            All tables
-          </Link>
-        </div>
-      </div>
-
-      <ul className="divide-y divide-border border border-border">
-        {[0, 1].map((seat) => {
-          const taken = session.seats.find((item) => item.seat === seat);
-          return (
-            <li key={seat} className="flex items-center justify-between px-3 py-3 text-sm">
-              <span>
-                Seat {seat + 1}
-                {taken ? ` · ${taken.displayName}` : " · open"}
-              </span>
-              <span className="text-xs uppercase tracking-wide text-text-muted">
-                {taken?.ready ? "Ready" : taken ? "Deck needed" : "Waiting"}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-
-      <DuelSettingsSummary session={session} />
-
-      {isOrganizer && occupied < 2 ? (
-        <div className="space-y-2">
-          <Button type="button" variant="secondary" loading={busy} disabled={busy} onClick={onAddBot}>
-            Add practice bot
-          </Button>
-          <p className="text-sm text-text-secondary">
-            Play solo against a basic bot with a supplied {session.mode === "domain" ? "Domain" : "40-card"} deck.
-            It makes legal moves automatically; it is not a competitive AI.
-          </p>
-        </div>
-      ) : null}
-
-      {mySeat != null ? (
-        <p className="text-sm text-text-secondary" role="status">
-          {myMeta?.ready
-            ? "Your deck is ready. Both seats must be ready before the organizer starts."
-            : "Import your deck, then click Ready with this deck. Deck needed means no valid deck has been submitted yet."}
-        </p>
-      ) : null}
-      {actionError ? <p role="alert" className="text-sm text-accent-cta">{actionError}</p> : null}
-
-      {mySeat == null ? (
-        <Button type="button" loading={busy} disabled={busy || occupied >= 2} onClick={onJoin}>
-          Join table
-        </Button>
-      ) : (
-        <DeckEditor
-          slug={slug}
-          mode={session.mode}
-          settings={session.settings}
-          initial={room.myDeck}
-          busy={busy}
-          onReady={onReady}
-        />
-      )}
-
-      {canStart ? (
-        <Button type="button" loading={busy} disabled={busy} onClick={onStart}>
-          Start duel
-        </Button>
-      ) : isOrganizer ? (
-        <p className="text-sm text-text-secondary">Start unlocks when both seats are ready.</p>
-      ) : null}
-      {isOrganizer ? (
-        <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>Cancel table</Button>
-      ) : mySeat != null ? (
-        <Button type="button" variant="ghost" disabled={busy} onClick={onLeave}>Leave table</Button>
-      ) : null}
-
-    </div>
-  );
-}
 
 type CardMenuState = {
   anchor: HTMLElement;
@@ -177,6 +65,30 @@ type CardMenuState = {
 };
 
 type Pane = "card" | "log" | "options" | "masters";
+
+/** The attack target the player pointed at; only the confirm submits it. */
+type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLElement; name: string };
+
+const SHAKE_LABEL = { off: "Off", low: "Low", medium: "Medium", high: "High" } as const;
+
+/** A face-down or unnamed target reads as "face-down monster" in the confirm. */
+function targetName(option: DuelPromptOption): string {
+  const name = option.card?.name?.trim();
+  if (name) return name;
+  return !option.label || /^Card \d+$/.test(option.label) ? "face-down monster" : option.label;
+}
+
+function zoneAnchor(key: string): HTMLElement | null {
+  const zone = document.querySelector<HTMLElement>(`[data-zones~="${key}"]`);
+  return zone?.querySelector<HTMLElement>("button") ?? zone;
+}
+
+/** Put the confirm on the side of the target away from the attacker, so it never covers the arrow. */
+function confirmSide(attackerKey: string | null, anchor: HTMLElement): "above" | "below" {
+  const from = attackerKey ? document.querySelector(`[data-zones~="${attackerKey}"]`) : null;
+  if (!from) return "above";
+  return from.getBoundingClientRect().top > anchor.getBoundingClientRect().top ? "above" : "below";
+}
 
 // Action ids the engine sends that never change the board: phase moves and a
 // hand shuffle. When the local action prompt offers nothing else, the player has
@@ -208,8 +120,6 @@ function phaseTitle(phase: string | null | undefined): string {
   }
 }
 
-const MOTION_CYCLE = { system: "reduced", reduced: "full", full: "system" } as const;
-const MOTION_TEXT = { system: "Device", reduced: "Reduced", full: "Full" } as const;
 
 const LOG_PHASE_KEYS: ReadonlySet<string> = new Set([
   "draw", "standby", "main1", "battle_start", "battle_step", "damage", "damage_cal", "battle", "main2", "end",
@@ -242,12 +152,15 @@ function MatchSheetLog({
   playerName: (seat: number) => string;
   players: string;
 }) {
-  const endRef = useRef<HTMLLIElement>(null);
+  const listRef = useRef<HTMLOListElement>(null);
   const count = entries.length;
   // Follow the newest entry id: the engine caps the log at 400 lines, so the length stops changing.
   const lastId = entries[count - 1]?.id;
   useEffect(() => {
-    endRef.current?.scrollIntoView?.({ block: "nearest" });
+    // Scroll only the sheet's own list; scrollIntoView would also scroll the side pane
+    // and push the history rail above it out of view.
+    const list = listRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
   }, [lastId, count]);
   return (
     <div className={styles.sheet}>
@@ -255,11 +168,11 @@ function MatchSheetLog({
         <h2>Match sheet</h2>
         <span>{players}</span>
       </div>
-      <ol className={styles.log} aria-label="Duel log">
-        {entries.map((entry, index) => {
+      <ol ref={listRef} className={styles.log} aria-label="Duel log">
+        {entries.map((entry) => {
           const kind = logKind(entry.text);
           return (
-            <li key={entry.id} data-kind={kind} ref={index === count - 1 ? endRef : undefined}>
+            <li key={entry.id} data-kind={kind}>
               {logText(entry.text, kind, playerName)}
             </li>
           );
@@ -357,10 +270,65 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
   const activeMenu = !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
     menu?.revision === data?.engine?.revision ? menu : null;
 
+  // Human attack flow: pick the attacker in the menu (preview arrow), aim at a target, confirm.
+  const [pendingAttack, setPendingAttack] = useState<{ key: string; direct: boolean } | null>(null);
+  const [actionPreview, setActionPreview] = useState<{ from: string; direct: boolean } | null>(null);
+  const [aimHoverKey, setAimHoverKey] = useState<string | null>(null);
+  const [aimLock, setAimLock] = useState<AimLock | null>(null);
+  const myPrompt = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat &&
+    data.session.status === "active";
+  const attackTargetActive = myPrompt && isAttackTargetPrompt(prompt, pendingAttack != null);
+  const directPromptActive = myPrompt && isDirectAttackPrompt(prompt);
+  const attackTargets = useMemo(() => {
+    const map = new Map<string, DuelPromptOption>();
+    if (!attackTargetActive || !prompt) return map;
+    for (const option of prompt.options) {
+      const [key] = optionZoneKeys(option);
+      if (key) map.set(key, option);
+    }
+    return map;
+  }, [attackTargetActive, prompt]);
+
   useEffect(() => {
     setMenu(null);
     setHover(null);
+    setAimLock(null);
+    setAimHoverKey(null);
   }, [prompt?.id, data?.engine?.revision, realtime.recovering]);
+
+  useEffect(() => {
+    if (!activeMenu) setActionPreview(null);
+  }, [activeMenu]);
+
+  // Hovering or focusing a legal target on the board aims the arrow at it.
+  useEffect(() => {
+    if (!attackTargetActive) {
+      setAimHoverKey(null);
+      return;
+    }
+    const keyOf = (target: EventTarget | null): string | null => {
+      const zone = target instanceof Element ? target.closest("[data-zones]") : null;
+      const keys = zone?.getAttribute("data-zones")?.split(" ") ?? [];
+      return keys.find((key) => attackTargets.has(key)) ?? null;
+    };
+    const enter = (event: Event) => {
+      const key = keyOf(event.target);
+      if (key) setAimHoverKey(key);
+    };
+    const leave = (event: Event) => {
+      if (keyOf(event.target) && keyOf((event as PointerEvent | FocusEvent).relatedTarget) == null) setAimHoverKey(null);
+    };
+    document.addEventListener("pointerover", enter);
+    document.addEventListener("pointerout", leave);
+    document.addEventListener("focusin", enter);
+    document.addEventListener("focusout", leave);
+    return () => {
+      document.removeEventListener("pointerover", enter);
+      document.removeEventListener("pointerout", leave);
+      document.removeEventListener("focusin", enter);
+      document.removeEventListener("focusout", leave);
+    };
+  }, [attackTargetActive, attackTargets]);
 
   useEffect(() => {
     setInspect(null);
@@ -398,6 +366,12 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
       if (!data?.engine || !prompt || error || catchingUp || data.mySeat !== prompt.seat ||
           data.session.status !== "active" || inFlight.current) return;
       const command = { promptId: prompt.id, revision: data.engine.revision, answer };
+      // Remember the declared attacker so the target step can draw the arrow from it.
+      const attack = prompt.context?.type === "action" && answer.choice?.startsWith("attack:")
+        ? prompt.options.find((option) => option.id === answer.choice) : undefined;
+      setPendingAttack(attack && attack.controller != null && attack.location != null && attack.sequence != null
+        ? { key: zoneKey(attack.controller, attack.location, attack.sequence), direct: /directly/i.test(attack.label) }
+        : null);
       void run(() => sendDuelAction(slug, command));
     },
     [data, prompt, error, catchingUp, run, slug],
@@ -407,6 +381,36 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
     setInspect(target);
     setPane("card");
     if (mobile && window.matchMedia("(max-width: 900px)").matches) setMobileInspect(true);
+  }
+
+  /** Point the arrow at a legal target and open the confirm. Nothing is submitted yet. */
+  function lockTarget(option: DuelPromptOption, anchor: HTMLElement | null) {
+    if (!prompt) return;
+    const [key] = optionZoneKeys(option);
+    const el = anchor ?? (key ? zoneAnchor(key) : null);
+    if (!key || !el) {
+      onSubmitAnswer({ selected: [option.id] });
+      return;
+    }
+    setMenu(null);
+    setHover(null);
+    setAimLock({ promptId: prompt.id, optionId: option.id, key, anchor: el, name: targetName(option) });
+  }
+
+  function confirmAim() {
+    if (!aimLock || aimLock.promptId !== prompt?.id) return;
+    const { optionId } = aimLock;
+    setAimLock(null);
+    onSubmitAnswer({ selected: [optionId] });
+  }
+
+  function onMenuOptionHover(option: DuelPromptOption | null) {
+    if (!option || !option.id.startsWith("attack:") || option.controller == null || option.location == null ||
+        option.sequence == null) {
+      setActionPreview(null);
+      return;
+    }
+    setActionPreview({ from: zoneKey(option.controller, option.location, option.sequence), direct: /directly/i.test(option.label) });
   }
 
   function onHoverCard(card: DuelCard | null, anchor: HTMLElement | null) {
@@ -438,6 +442,13 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
           revision: data.engine.revision,
           tone: prompt.context?.type === "chain" ? "chain" : "action",
         });
+        return;
+      }
+    }
+    if (mine && isAttackTargetPrompt(prompt, pendingAttack != null)) {
+      const targets = optionsForCard(prompt, card, keys);
+      if (targets.length === 1) {
+        lockTarget(targets[0], anchor);
         return;
       }
     }
@@ -501,7 +512,6 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
   const myTurn = !spectator && turnSeat === data.mySeat;
   const turnText = turnSeat == null ? null : myTurn ? "Your turn" : `${playerName(turnSeat)}'s turn`;
   const soundLabel = preferences.soundEnabled ? "On" : "Off";
-  const motionLabel = MOTION_TEXT[preferences.motion];
 
   const isActionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
   const promptMine = prompt != null && data.mySeat != null && prompt.seat === data.mySeat && data.session.status === "active";
@@ -516,6 +526,30 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
   const trackCaption = data.session.status !== "active" ? "Duel finished" : prompt == null ? null
     : promptMine ? (isActionPrompt ? null : prompt.title)
       : `${playerName(prompt.seat)} is choosing…`;
+
+  // The arrow the player is steering: a dim preview from the menu, the aimed arrow, or a locked one.
+  const oppSeat = top?.seat ?? 1 - localSeat;
+  const attackerKey = pendingAttack?.key ?? null;
+  let battleAim: BattleAim | null = null;
+  if (attackTargetActive && attackerKey) {
+    const key = aimLock?.key ?? aimHoverKey;
+    if (key) battleAim = { mode: aimLock ? "locked" : "aim", from: attackerKey, to: { zones: [key] } };
+  } else if (directPromptActive && attackerKey) {
+    battleAim = { mode: "aim", from: attackerKey, to: { lpSeat: oppSeat } };
+  } else if (actionPreview && activeMenu) {
+    const foes = (top?.monsters ?? []).filter((card): card is DuelCard => card != null)
+      .map((card) => zoneKey(card.controller, card.location, card.sequence));
+    battleAim = actionPreview.direct
+      ? { mode: "preview", from: actionPreview.from, to: { lpSeat: oppSeat } }
+      : { mode: "preview", from: actionPreview.from, to: { zones: foes } };
+  }
+  const promptAim: PromptAim | undefined = attackTargetActive
+    ? {
+        lockedId: aimLock?.optionId ?? null,
+        onAim: (option) => lockTarget(option, null),
+        onHover: (option) => setAimHoverKey(option ? optionZoneKeys(option)[0] ?? null : null),
+      }
+    : undefined;
 
   const inspector = (
     <CardInspector target={inspect}
@@ -539,8 +573,13 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
       onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
   ) : null;
   const sideContent = pane === "card" ? inspector : pane === "log" ? (
-    <MatchSheetLog entries={engine?.log ?? []} playerName={playerName}
-      players={data.session.seats.map((seat) => seat.displayName).join(" v ")} />
+    <div className={styles.logPane}>
+      {engine ? <DuelHistoryRail events={engine.events} engine={engine} mySeat={data.mySeat} playerName={playerName}
+        onInspectCard={(card) => showInspector("location" in card ? { type: "card", card } : { type: "info", card })}
+        reducedMotion={preferences.reducedMotion} /> : null}
+      <MatchSheetLog entries={engine?.log ?? []} playerName={playerName}
+        players={data.session.seats.map((seat) => seat.displayName).join(" v ")} />
+    </div>
   ) : pane === "masters" ? (
     <div className={styles.mastersSheet}>{masterRail}</div>
   ) : (
@@ -561,6 +600,16 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
           <option value="full">Full motion</option>
         </select>
       </label>
+      <div className={`${fxStyles.shakeRow} ${duelFontClasses}`}>
+        <span>Screen shake</span>
+        <div className={fxStyles.segment} role="group" aria-label="Screen shake">
+          {DUEL_SHAKE_LEVELS.map((level) => (
+            <button key={level} type="button" aria-pressed={preferences.shake === level}
+              onClick={() => preferences.setShake(level)}>{SHAKE_LABEL[level]}</button>
+          ))}
+        </div>
+        <p className={fxStyles.shakeNote}>How hard heavy summons rattle the field.</p>
+      </div>
       <p>Effects never pause the duel or submit a response.</p>
       {actionOptions.filter((option) => option.id === "shuffle").map((option) => (
         <Button key={option.id} type="button" size="sm" variant="secondary" disabled={!canAct}
@@ -633,7 +682,7 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
         <div className={styles.identity}>
           <Link href="/duels">Yugidraft</Link>
           {spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
-            <Eye size={14} strokeWidth={1.75} aria-hidden /> Spectator
+            <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
           </strong> : null}
           <span className={styles.format}>{domain ? isCustomDomain(data.session.masterRule, data.session.settings) ? "Custom Domain" : "Domain" : `MR${data.session.masterRule}`} · 1v1</span>
         </div>
@@ -650,20 +699,14 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
         </div>
         <div className={styles.status}>
           <span className={styles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
-            <Radio size={15} strokeWidth={1.75} aria-hidden />
-            {connectionLabel}
+            {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
+            {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
           </span>
           <button type="button" className={`${styles.tool} ${styles.pref}`}
             aria-label={`Sound effects ${soundLabel.toLowerCase()}`}
             onClick={() => preferences.setSoundEnabled(!preferences.soundEnabled)}>
             {preferences.soundEnabled ? <Volume2 size={16} strokeWidth={1.75} aria-hidden /> : <VolumeX size={16} strokeWidth={1.75} aria-hidden />}
             <span>Sound <b>{soundLabel}</b></span>
-          </button>
-          <button type="button" className={`${styles.tool} ${styles.pref}`}
-            aria-label={`Motion ${motionLabel.toLowerCase()}, change`}
-            onClick={() => preferences.setMotion(MOTION_CYCLE[preferences.motion])}>
-            <Waves size={16} strokeWidth={1.75} aria-hidden />
-            <span>Motion <b>{motionLabel}</b></span>
           </button>
           <button
             type="button"
@@ -697,7 +740,7 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
         >
           <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
             draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu)}
-            active={data.session.status === "active"} />
+            active={data.session.status === "active"} aim={promptAim} />
         </div>
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board}>
@@ -711,6 +754,10 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
                   topName={playerName(top?.seat ?? 1 - localSeat)} />
                 {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug}
                   soundEnabled={preferences.soundEnabled} reducedMotion={preferences.reducedMotion} /> : null}
+                {!error && !realtime.recovering ? <SummonFx events={engine.events} duelKey={slug}
+                  reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
+                <BattleFx key={`battle-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
+                  active={!error && !realtime.recovering} aim={battleAim} />
               </>
             ) : <p className="p-4">{data.session.status === "active" ? "Waiting for engine view…" : "No saved final board is available for this record."}</p>}
           </div>
@@ -737,11 +784,17 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
       {activeMenu ? <CardActionMenu anchor={activeMenu.anchor} title={activeMenu.title}
         options={activeMenu.options} busy={busy} onClose={closeMenu}
         tone={activeMenu.tone}
+        onOptionHover={onMenuOptionHover}
         onChoose={(option) => {
           if (activeMenu.promptId !== prompt?.id || activeMenu.revision !== engine?.revision) return;
           closeMenu();
           onSubmitAnswer({ choice: option.id });
         }} /> : null}
+      {attackTargetActive && aimLock && aimLock.promptId === prompt?.id && !busy && !error && !catchingUp ? (
+        <AttackConfirm anchor={aimLock.anchor} targetName={aimLock.name} busy={busy}
+          prefer={confirmSide(attackerKey, aimLock.anchor)} onConfirm={confirmAim}
+          onBack={() => setAimLock(null)} />
+      ) : null}
       {hover && !activeMenu && !mobileInspect ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
         title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Options"}>

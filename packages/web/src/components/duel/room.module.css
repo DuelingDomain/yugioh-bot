@@ -57,8 +57,9 @@
 }
 
 .shell {
-  --duel-insp-w: clamp(264px, calc(288 * var(--duel-unit)), 420px);
-  --duel-dock-w: clamp(228px, calc(246 * var(--duel-unit)), 360px);
+  /* Side columns stay slim so the board gets the width: it is the thing you look at. */
+  --duel-insp-w: clamp(236px, calc(250 * var(--duel-unit)), 400px);
+  --duel-dock-w: clamp(206px, calc(212 * var(--duel-unit)), 340px);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -92,7 +93,7 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: calc(12 * var(--duel-unit));
-  height: calc(44 * var(--duel-unit));
+  height: calc(38 * var(--duel-unit));
   padding: 0 max(calc(12 * var(--duel-unit)), env(safe-area-inset-right)) 0 max(calc(16 * var(--duel-unit)), env(safe-area-inset-left));
   border-bottom: 1px solid var(--duel-rule);
   background: linear-gradient(180deg, rgb(12 19 36 / 0.95), rgb(8 13 25 / 0.95));
@@ -132,21 +133,51 @@
 .shell[data-phase="battle"] .whoPill { border-color: rgb(var(--duel-ember-rgb) / 0.6); }
 .status { display: flex; align-items: center; justify-content: flex-end; gap: calc(4 * var(--duel-unit)); min-width: 0; color: var(--duel-ink-2); font-size: var(--duel-t-body); }
 .pref { white-space: nowrap; }
+/* Spectating: light purple type with a soft glow, so the viewer knows they only watch. */
 .viewerRole {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 1px 9px 1px 7px;
-  border: 1px solid var(--duel-pen);
+  gap: 6px;
+  padding: 2px 12px 2px 9px;
+  border: 1px solid rgb(155 126 255 / 0.6);
   border-radius: 999px;
-  color: var(--duel-pen-ink);
-  background: #0c1224;
-  font-size: var(--duel-t-xs);
-  font-weight: 500;
+  color: #d4c8ff;
+  background: rgb(87 51 209 / 0.12);
+  box-shadow: 0 0 14px 1px rgb(155 126 255 / 0.28);
+  text-shadow: 0 0 10px rgb(170 145 255 / 0.75);
+  font-size: var(--duel-t-body);
+  font-weight: 300;
+  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 .connectionStatus { display: inline-flex; align-items: center; gap: 6px; padding: 0 calc(9 * var(--duel-unit)); white-space: nowrap; color: var(--duel-chain-ink); }
-.connectionStatus[data-live="true"] { color: var(--duel-ink-2); }
+/* A live duel reads at a glance: red lamp, larger label. */
+.connectionStatus[data-live="true"] {
+  gap: 8px;
+  margin-right: calc(6 * var(--duel-unit));
+  padding: 3px 12px 3px 10px;
+  border: 1px solid rgb(255 84 72 / 0.55);
+  border-radius: 999px;
+  background: rgb(255 84 72 / 0.08);
+  color: #ff8a80;
+  font-size: calc(var(--duel-t-body) * 1.15);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.liveDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ff4a3d;
+  box-shadow: 0 0 0 0 rgb(255 74 61 / 0.6);
+  animation: livePulse 1.8s ease-out infinite;
+}
+@keyframes livePulse {
+  0% { box-shadow: 0 0 0 0 rgb(255 74 61 / 0.55); }
+  70% { box-shadow: 0 0 0 7px rgb(255 74 61 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(255 74 61 / 0); }
+}
+@media (prefers-reduced-motion: reduce) { .liveDot { animation: none; } }
 .tool {
   display: inline-flex;
   align-items: center;
@@ -248,7 +279,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: calc(8 * var(--duel-unit)) calc(10 * var(--duel-unit));
+  padding: calc(4 * var(--duel-unit)) calc(6 * var(--duel-unit));
   border-left: 1px solid var(--duel-rule);
 }
 /* The field measures this box: it must stay definite and never scroll. */
@@ -700,3 +731,10 @@
   .cardTooltip { display: none; }
   .log li { font-size: 13px; }
 }
+
+/* Log tab: history rail above the match sheet; the sheet keeps the remaining height. */
+.logPane { display: flex; flex-direction: column; gap: 10px; min-height: 0; height: 100%; overflow: hidden; }
+.logPane > :first-child { flex: none; }
+/* The sheet fills the rest of the pane and scrolls its own list, so the history rail stays in view. */
+.logPane > .sheet { flex: 1; min-height: 0; }
+.logPane > .sheet .log { min-height: 0; overflow-y: auto; justify-content: flex-start; }

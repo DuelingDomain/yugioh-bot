@@ -1,0 +1,19 @@
+/* Settings summary and invite control. Read the duel tokens from whichever shell
+   renders them (the table lobby or the in-room options pane). */
+.settings { display: grid; gap: 12px; min-width: 0; }
+.settingsHead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.settingsTitle { color: var(--duel-ink, #efe7d5); font-size: 16px; font-weight: 450; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); border-top: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.16)); }
+.row { display: grid; gap: 2px; min-width: 0; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.16)); }
+.row dt { color: var(--duel-ink-3, #958f81); font-size: 12px; font-weight: 400; }
+.row dd { margin: 0; color: var(--duel-ink, #efe7d5); font-size: 13.5px; font-weight: 400; line-height: 1.35; overflow-wrap: anywhere; }
+.note { color: var(--duel-ink-3, #958f81); font-size: 12.5px; }
+
+.invite { display: grid; gap: 8px; min-width: 0; }
+.manual { display: grid; gap: 6px; color: var(--duel-ink-3, #958f81); font-size: 12.5px; }
+.manual input {
+  width: 100%; height: 36px; padding: 0 10px;
+  border: 1px solid var(--duel-rule-lo, rgb(181 153 99 / 0.16)); border-radius: 7px;
+  background: var(--duel-panel-2, #0e1729); color: var(--duel-ink, #efe7d5); font: inherit; font-size: 13px;
+}
+.manual input:focus-visible { outline: none; border-color: var(--duel-pen, #9b7eff); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.22); }

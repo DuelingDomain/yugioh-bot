@@ -1,4 +1,4 @@
-import type { DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelPrompt, DuelPromptOption, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   OcgLocation,
   OcgMessageType,
@@ -262,6 +262,110 @@ export interface StoredDuelEvent {
   publicText: string;
   description?: string;
   revealCardTo: "all" | number;
+  /** Board positions are public information; only `card` and `text` are audience-gated. */
+  zone?: DuelZoneRef;
+  target?: DuelZoneRef;
+  amount?: number;
+  cause?: DuelEvent["cause"];
+  summonKind?: DuelEvent["summonKind"];
+}
+
+/**
+ * Prefix of the Debug.Message line the engine's startup script prints when a card is destroyed.
+ * ocgcore-wasm drops the MOVE reason from its parsed messages, so this is the only way to tell
+ * destruction apart from a release, a cost or a send-to-GY effect.
+ */
+export const DESTROY_NOTE_PREFIX = "YGD:DESTROY:";
+
+/** Startup script that reports destroyed cards. Registers one global continuous effect and changes no game state. */
+export const DESTROY_NOTE_SCRIPT = `
+local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_DESTROYED)
+e:SetOperation(function(e,tp,eg)
+  for tc in aux.Next(eg) do
+    Debug.Message("${DESTROY_NOTE_PREFIX}"..tc:GetPreviousControler()..":"..tc:GetPreviousLocation()..":"..tc:GetPreviousSequence())
+  end
+end)
+Duel.RegisterEffect(e,0)
+`;
+
+interface PendingMove {
+  code: number;
+  from: { controller: number; location: number; sequence: number; position: number };
+}
+
+/** Mutable per-duel state the event observer needs across messages. */
+export interface EventContext {
+  /** Between a BATTLE message and the end of the damage step, DAMAGE is battle damage. */
+  battle: boolean;
+  /** Monsters that left the field for the graveyard/banish without being destroyed, per controller, this batch. */
+  released: [number, number];
+  /** Destruction notes printed by the startup script and not yet matched to a MOVE. */
+  destroyNotes: string[];
+  /** Field departures seen before their destruction note arrived. */
+  pendingMoves: PendingMove[];
+}
+
+export function createEventContext(): EventContext {
+  return { battle: false, released: [0, 0], destroyNotes: [], pendingMoves: [] };
+}
+
+/** Feed an engine log line to the context; returns true when it was a destruction note. */
+export function noteDestroyLog(ctx: EventContext, text: string): boolean {
+  if (!text.startsWith(DESTROY_NOTE_PREFIX)) return false;
+  ctx.destroyNotes.push(text.slice(DESTROY_NOTE_PREFIX.length));
+  return true;
+}
+
+function takeDestroyNote(ctx: EventContext, from: { controller: number; location: number; sequence: number }): boolean {
+  const key = `${from.controller}:${from.location}:${from.sequence}`;
+  const index = ctx.destroyNotes.indexOf(key);
+  if (index < 0) return false;
+  ctx.destroyNotes.splice(index, 1);
+  return true;
+}
+
+function isFieldLocation(location: number): boolean {
+  return location === OcgLocation.MZONE || location === OcgLocation.SZONE;
+}
+
+function destroyEvent(id: number, code: number, from: PendingMove["from"], cards: CardDatabase): StoredDuelEvent {
+  const info = code ? cards.get(code) : undefined;
+  const name = info?.name ?? (code ? `Card ${code}` : "A card");
+  const hidden = isFacedownPosition(from.position);
+  const text = `${name} was destroyed`;
+  return {
+    id,
+    kind: "destroy",
+    seat: from.controller,
+    card: info,
+    text,
+    publicText: hidden ? "A face-down card was destroyed" : text,
+    revealCardTo: hidden ? from.controller : "all",
+    zone: { controller: from.controller, location: from.location, sequence: from.sequence },
+  };
+}
+
+/** Destroy events whose note arrived after their MOVE message (they were split across engine batches). */
+export function drainDeferredDestroys(ctx: EventContext, cards: CardDatabase, firstId: number): StoredDuelEvent[] {
+  const out: StoredDuelEvent[] = [];
+  const remaining: PendingMove[] = [];
+  for (const move of ctx.pendingMoves) {
+    if (takeDestroyNote(ctx, move.from)) {
+      if (move.from.location === OcgLocation.MZONE) ctx.released[move.from.controller === 1 ? 1 : 0] -= 1;
+      out.push(destroyEvent(firstId + out.length, move.code, move.from, cards));
+    } else remaining.push(move);
+  }
+  ctx.pendingMoves = remaining;
+  return out;
+}
+
+/** Called when the engine reaches a prompt: whatever is still unmatched was not a destruction. */
+export function resetEventBatch(ctx: EventContext): void {
+  ctx.destroyNotes.length = 0;
+  ctx.pendingMoves.length = 0;
+  ctx.released = [0, 0];
 }
 
 export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null): DuelEvent {
@@ -273,6 +377,11 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   };
   if (event.seat != null) projected.seat = event.seat;
   if (event.chainIndex != null) projected.chainIndex = event.chainIndex;
+  if (event.zone) projected.zone = { ...event.zone };
+  if (event.target) projected.target = { ...event.target };
+  if (event.amount != null) projected.amount = event.amount;
+  if (event.cause) projected.cause = event.cause;
+  if (event.summonKind) projected.summonKind = event.summonKind;
   if (reveal && event.card) projected.card = event.card;
   if (reveal && event.description) projected.description = event.description;
   return projected;
@@ -303,7 +412,32 @@ function chainLinkEvent(
   };
 }
 
-export function observeDuelEvent(message: OcgMessage, cards: CardDatabase, chain: StoredChainLink[], id: number): StoredDuelEvent | null {
+function zoneOf(place: { controller: number; location: number; sequence: number }): DuelZoneRef {
+  return { controller: place.controller, location: place.location, sequence: place.sequence };
+}
+
+export function observeDuelEvent(
+  message: OcgMessage,
+  cards: CardDatabase,
+  chain: StoredChainLink[],
+  id: number,
+  ctx?: EventContext,
+): StoredDuelEvent | null {
+  if (ctx) {
+    switch (message.type) {
+      case OcgMessageType.BATTLE:
+        ctx.battle = true;
+        break;
+      case OcgMessageType.DAMAGE_STEP_END:
+      case OcgMessageType.NEW_PHASE:
+      case OcgMessageType.CHAINING:
+      case OcgMessageType.ATTACK:
+        ctx.battle = false;
+        break;
+      default:
+        break;
+    }
+  }
   switch (message.type) {
     case OcgMessageType.SUMMONING:
     case OcgMessageType.SPSUMMONING:
@@ -317,17 +451,26 @@ export function observeDuelEvent(message: OcgMessage, cards: CardDatabase, chain
       const info = cards.get(message.code);
       const text = `Player ${message.controller + 1} ${verb} ${info?.name ?? `Card ${message.code}`}`;
       const hidden = (message.position & OcgPosition.FACEDOWN) !== 0;
+      let summonKind: NonNullable<DuelEvent["summonKind"]> =
+        message.type === OcgMessageType.SUMMONING ? "normal" : message.type === OcgMessageType.SPSUMMONING ? "special" : "flip";
+      if (summonKind === "normal") {
+        const released = ctx?.released[message.controller === 1 ? 1 : 0] ?? 0;
+        if (released > 0 || (info?.level ?? 0) >= 5) summonKind = "tribute";
+        if (ctx) ctx.released[message.controller === 1 ? 1 : 0] = 0;
+      }
       return {
         id, kind: "summon", seat: message.controller, card: info, text,
         publicText: hidden ? `Player ${message.controller + 1} ${verb} a face-down monster` : text,
         revealCardTo: hidden ? message.controller : "all",
+        zone: zoneOf(message),
+        summonKind,
       };
     }
     case OcgMessageType.SET: {
       const info = cards.get(message.code);
       const publicText = `Player ${message.controller + 1} Sets a card`;
       const text = info ? `Player ${message.controller + 1} Sets ${info.name}` : publicText;
-      return { id, kind: "set", seat: message.controller, card: info, text, publicText, revealCardTo: message.controller };
+      return { id, kind: "set", seat: message.controller, card: info, text, publicText, revealCardTo: message.controller, zone: zoneOf(message) };
     }
     case OcgMessageType.CHAINING: {
       const info = cards.get(message.code);
@@ -350,6 +493,7 @@ export function observeDuelEvent(message: OcgMessage, cards: CardDatabase, chain
         publicText: text,
         description,
         revealCardTo: "all",
+        zone: zoneOf(message),
       };
     }
     case OcgMessageType.CHAIN_SOLVING:
@@ -368,7 +512,40 @@ export function observeDuelEvent(message: OcgMessage, cards: CardDatabase, chain
       const text = message.target
         ? `Player ${seat + 1} declares an attack`
         : `Player ${seat + 1} declares a direct attack`;
-      return { id, kind: "attack", seat, text, publicText: text, revealCardTo: "all" };
+      const event: StoredDuelEvent = { id, kind: "attack", seat, text, publicText: text, revealCardTo: "all", zone: zoneOf(message.card) };
+      if (message.target) event.target = zoneOf(message.target);
+      return event;
+    }
+    case OcgMessageType.DAMAGE: {
+      if (message.amount <= 0) return null;
+      const text = `Player ${message.player + 1} takes ${message.amount} damage`;
+      return {
+        id, kind: "damage", seat: message.player, text, publicText: text, revealCardTo: "all",
+        amount: message.amount, cause: ctx?.battle ? "battle" : "effect",
+      };
+    }
+    case OcgMessageType.PAY_LPCOST: {
+      if (message.amount <= 0) return null;
+      const text = `Player ${message.player + 1} pays ${message.amount} LP`;
+      return {
+        id, kind: "damage", seat: message.player, text, publicText: text, revealCardTo: "all",
+        amount: message.amount, cause: "cost",
+      };
+    }
+    case OcgMessageType.MOVE: {
+      if (!ctx) return null;
+      if (!isFieldLocation(message.from.location) || isFieldLocation(message.to.location)) return null;
+      if ((message.to.location as number) === LOCATION_DECKMASTER) return null;
+      const from = {
+        controller: message.from.controller,
+        location: message.from.location,
+        sequence: message.from.sequence,
+        position: message.from.position,
+      };
+      if (takeDestroyNote(ctx, from)) return destroyEvent(id, message.card, from, cards);
+      if (message.from.location === OcgLocation.MZONE) ctx.released[from.controller === 1 ? 1 : 0] += 1;
+      ctx.pendingMoves.push({ code: message.card, from });
+      return null;
     }
     case OcgMessageType.NEW_PHASE: {
       const text = announcedPhaseTitle(message.phase);

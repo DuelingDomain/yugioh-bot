@@ -1,12 +1,13 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, ArrowUpFromLine, Layers, RotateCw, Shuffle, Sparkles, Swords, Zap, type LucideIcon } from "lucide-react";
 import type { DuelCard, DuelPromptOption } from "@yugidraft/shared/duels";
 import { cardDetailsText, cardStatsText } from "./constants";
 import { duelFontClasses } from "./fonts";
 import styles from "./room.module.css";
+import fx from "./battle-fx.module.css";
 
 /** Icon for an engine option id; the label always carries the meaning too. */
 function optionIcon(id: string): LucideIcon {
@@ -46,7 +47,7 @@ function optionParts(option: DuelPromptOption, title: string): { main: string; n
   return { main: text, note };
 }
 
-function useAnchoredPosition(anchor: HTMLElement, interactive: boolean) {
+function useAnchoredPosition(anchor: HTMLElement, interactive: boolean, prefer: "above" | "below" = "above") {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 0, top: 0, ready: false, side: "above" as "above" | "below", ax: 0 });
 
@@ -61,7 +62,10 @@ function useAnchoredPosition(anchor: HTMLElement, interactive: boolean) {
       const preferredLeft = interactive ? card.left : card.left + (card.width - width) / 2;
       const left = Math.max(margin, Math.min(preferredLeft, window.innerWidth - width - margin));
       const above = card.top - height - margin;
-      const side = above >= margin ? "above" as const : "below" as const;
+      const belowRoom = window.innerHeight - (card.bottom + margin + height);
+      const side = prefer === "below"
+        ? (belowRoom >= margin || above < margin ? "below" as const : "above" as const)
+        : (above >= margin ? "above" as const : "below" as const);
       const preferredTop = side === "above" ? above : card.bottom + margin;
       const top = Math.max(margin, Math.min(preferredTop, window.innerHeight - height - margin));
       // The pointer notch tracks the card centre, kept inside the rounded corners.
@@ -75,7 +79,7 @@ function useAnchoredPosition(anchor: HTMLElement, interactive: boolean) {
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [anchor, interactive]);
+  }, [anchor, interactive, prefer]);
 
   const style = {
     left: position.left,
@@ -94,6 +98,7 @@ export function CardActionMenu({
   tone = "action",
   onChoose,
   onClose,
+  onOptionHover,
 }: {
   anchor: HTMLElement;
   title: string;
@@ -103,6 +108,8 @@ export function CardActionMenu({
   tone?: "action" | "chain";
   onChoose: (option: DuelPromptOption) => void;
   onClose: () => void;
+  /** Hover or keyboard focus on an option (null when it leaves). Drives the attack arrow preview. */
+  onOptionHover?: (option: DuelPromptOption | null) => void;
 }) {
   const { ref, style, visibility, side } = useAnchoredPosition(anchor, true);
 
@@ -168,6 +175,10 @@ export function CardActionMenu({
             data-primary={index === 0 ? "true" : undefined}
             disabled={busy}
             onClick={() => onChoose(option)}
+            onMouseEnter={onOptionHover ? () => onOptionHover(option) : undefined}
+            onMouseLeave={onOptionHover ? () => onOptionHover(null) : undefined}
+            onFocus={onOptionHover ? () => onOptionHover(option) : undefined}
+            onBlur={onOptionHover ? () => onOptionHover(null) : undefined}
           >
             <Icon size={16} strokeWidth={1.75} aria-hidden />
             <span className={styles.menuLabel}>
@@ -194,6 +205,99 @@ export function CardHoverInfo({ card, anchor }: { card: DuelCard; anchor: HTMLEl
       <strong>{card.name ?? `Card ${card.code}`}</strong>
       {stats ? <span className={styles.tooltipStats}>{stats}</span> : null}
       {details ? <span>{details}</span> : null}
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * The "yes" step of a human attack: a small confirm anchored to the locked target.
+ * Only its primary button submits the attack. Enter confirms and Esc backs out, whether or
+ * not the popover holds focus; clicking away (except on another legal target) also backs out.
+ */
+export function AttackConfirm({
+  anchor,
+  targetName,
+  busy,
+  prefer,
+  onConfirm,
+  onBack,
+}: {
+  anchor: HTMLElement;
+  targetName: string;
+  busy: boolean;
+  prefer: "above" | "below";
+  onConfirm: () => void;
+  onBack: () => void;
+}) {
+  const { ref, style, visibility, side } = useAnchoredPosition(anchor, false, prefer);
+  const confirmRef = useRef(onConfirm);
+  const backRef = useRef(onBack);
+  const busyRef = useRef(busy);
+  confirmRef.current = onConfirm;
+  backRef.current = onBack;
+  busyRef.current = busy;
+
+  useLayoutEffect(() => {
+    // The first layout pass measures a hidden popover; hidden buttons cannot focus.
+    if (visibility !== "visible") return;
+    ref.current?.querySelector<HTMLButtonElement>("button[data-go]")?.focus({ preventScroll: true });
+  }, [ref, visibility]);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Enter" && event.key !== "Escape") return;
+      if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        backRef.current();
+        return;
+      }
+      const target = event.target instanceof Element ? event.target : null;
+      // Inside the popover a button activates natively; on a zone, Enter re-aims at that zone.
+      if (target?.closest("[data-attack-confirm],[data-zones],input,textarea,select,[contenteditable='true']")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat && !busyRef.current) confirmRef.current();
+    }
+    function onPointer(event: PointerEvent) {
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("[data-attack-confirm]") || anchor.contains(target)) return;
+      if (target?.closest('[data-zones][data-legal="true"]')) return;
+      backRef.current();
+    }
+    window.addEventListener("keydown", onKey, true);
+    document.addEventListener("pointerdown", onPointer, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("pointerdown", onPointer, true);
+      const active = document.activeElement;
+      if (anchor.isConnected && (active === document.body || active == null || ref.current?.contains(active))) {
+        anchor.focus({ preventScroll: true });
+      }
+    };
+  }, [anchor, ref]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      className={`${fx.confirm} ${duelFontClasses}`}
+      data-attack-confirm
+      data-side={side}
+      style={style}
+      role="dialog"
+      aria-label={`Confirm attack on ${targetName}`}
+    >
+      <div className={fx.confirmRow}>
+        <button type="button" className={fx.confirmGo} data-go disabled={busy} aria-keyshortcuts="Enter" onClick={onConfirm}>
+          Attack {targetName}
+        </button>
+        <button type="button" className={fx.confirmBack} disabled={busy} aria-keyshortcuts="Escape" onClick={onBack}>
+          Back
+        </button>
+      </div>
+      <span className={fx.confirmHint}><kbd>Enter</kbd> attack · <kbd>Esc</kbd> back</span>
     </div>,
     document.body,
   );

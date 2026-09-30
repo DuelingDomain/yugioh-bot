@@ -252,6 +252,7 @@ function ZoneSlot({
   return (
     <div
       className={styles.zone}
+      data-zones={keys.join(" ")}
       data-kind={kind}
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
@@ -364,6 +365,7 @@ function PileSlot({
   return (
     <div
       className={styles.zone}
+      data-zones={keys.join(" ")}
       data-kind={kind}
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
@@ -436,7 +438,7 @@ function Tally({
   reducedMotion: boolean;
 }) {
   return (
-    <div className={styles.tally} data-side={side} data-active={active ? "true" : "false"}>
+    <div className={styles.tally} data-side={side} data-lp-seat={seatKey} data-active={active ? "true" : "false"}>
       <div className={styles.tHead}>
         <span className={styles.tWho}>{name}</span>
         {active ? (

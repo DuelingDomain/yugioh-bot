@@ -139,14 +139,37 @@ export interface DuelSeatView {
   deckMaster?: { card: DuelCardInfo; inZone: boolean; returns: number; nextCost: number };
 }
 
+/** A board position, in the same terms as DuelCard (controller, location bitmask, sequence). */
+export interface DuelZoneRef {
+  controller: number;
+  location: number;
+  sequence: number;
+}
+
 export interface DuelEvent {
   id: number;
-  kind: "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end" | "attack" | "phase";
+  kind:
+    | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
+    | "attack" | "phase" | "damage" | "destroy";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
   text: string;
   description?: string;
+  /**
+   * summon / set / activate: the zone the card is in.
+   * attack: the attacking monster's zone.
+   * destroy: the zone the card left.
+   */
+  zone?: DuelZoneRef;
+  /** attack: the attacked monster's zone; absent for a direct attack. */
+  target?: DuelZoneRef;
+  /** damage: LP lost by `seat` (positive number). */
+  amount?: number;
+  /** damage: "battle" for battle damage, "effect" for effect damage, "cost" for paid LP. */
+  cause?: "battle" | "effect" | "cost";
+  /** summon: how the monster arrived. "tribute" is a Normal Summon that used Tributes. */
+  summonKind?: "normal" | "tribute" | "special" | "flip";
 }
 
 export interface DuelChainLink {

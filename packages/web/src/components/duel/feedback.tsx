@@ -6,6 +6,10 @@ import { CardBack } from "./card-face";
 import { cardArtUrl } from "./constants";
 import {
   collectFreshEvents,
+  DUEL_FX_CUE_EVENT,
+  type DuelFxCueDetail,
+  isDrawnOnBoard,
+  isHeavySummon,
   maxEventId,
   pacedCueDuration,
 } from "./event-queue";
@@ -29,6 +33,8 @@ const KIND_LABEL: Record<DuelEvent["kind"], string> = {
   "chain-end": "Chain end",
   attack: "Attack",
   phase: "Phase",
+  damage: "Damage",
+  destroy: "Destroyed",
 };
 
 function publicCard(event: DuelEvent): DuelCardInfo | null {
@@ -56,6 +62,21 @@ function cueBlurb(event: DuelEvent, card: DuelCardInfo | null): string | undefin
   return undefined;
 }
 
+/** Entrance and exit lengths for a cue that lives `durationMs`: in about a fifth, out a little less. */
+function cueTiming(durationMs: number, reducedMotion: boolean): CSSProperties {
+  const enter = reducedMotion ? Math.min(140, durationMs * 0.3) : clampMs(durationMs * 0.34, 80, 260);
+  const leave = reducedMotion ? Math.min(140, durationMs * 0.3) : clampMs(durationMs * 0.24, 70, 180);
+  return {
+    "--cue-total": `${Math.round(durationMs)}ms`,
+    "--cue-in": `${Math.round(enter)}ms`,
+    "--cue-out": `${Math.round(leave)}ms`,
+  } as CSSProperties;
+}
+
+function clampMs(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 function FeedbackCue({
   event,
   reducedMotion,
@@ -65,6 +86,7 @@ function FeedbackCue({
   reducedMotion: boolean;
   durationMs: number;
 }) {
+  const timing = cueTiming(durationMs, reducedMotion);
   if (event.kind === "phase") {
     const title = event.text.trim() || KIND_LABEL.phase;
     return (
@@ -72,9 +94,26 @@ function FeedbackCue({
         className={styles.phaseRibbon}
         data-kind="phase"
         data-reduced={reducedMotion ? "true" : "false"}
-        style={reducedMotion ? undefined : ({ "--cue-in": `${Math.min(280, durationMs)}ms` } as CSSProperties)}
+        style={timing}
       >
         <p className={styles.phaseTitle}>{title}</p>
+      </div>
+    );
+  }
+
+  if (event.kind === "attack") {
+    // The attack itself is drawn on the board; the cue is a one-line caption.
+    const caption = event.text.trim() || KIND_LABEL.attack;
+    return (
+      <div
+        className={styles.cue}
+        data-kind="attack"
+        data-compact="true"
+        data-reduced={reducedMotion ? "true" : "false"}
+        style={timing}
+      >
+        <span className={styles.kind}>{KIND_LABEL.attack}</span>
+        <p className={styles.title}>{caption}</p>
       </div>
     );
   }
@@ -96,8 +135,9 @@ function FeedbackCue({
     <div
       className={styles.cue}
       data-kind={event.kind}
+      data-chain={event.chainIndex != null ? "true" : "false"}
       data-reduced={reducedMotion ? "true" : "false"}
-      style={reducedMotion ? undefined : ({ "--cue-in": `${Math.min(280, durationMs)}ms` } as CSSProperties)}
+      style={timing}
     >
       {portrait}
       <div className={styles.meta}>
@@ -168,8 +208,15 @@ export function DuelFeedback({
     };
     window.addEventListener("pointerdown", onGesture, true);
     window.addEventListener("keydown", onGesture, true);
+    const onFxCue = (event: Event) => {
+      const detail = (event as CustomEvent<DuelFxCueDetail>).detail;
+      if (!detail || !soundRef.current) return;
+      audioRef.current?.play(detail.cue, detail.strength);
+    };
+    window.addEventListener(DUEL_FX_CUE_EVENT, onFxCue);
 
     return () => {
+      window.removeEventListener(DUEL_FX_CUE_EVENT, onFxCue);
       window.removeEventListener("pointerdown", onGesture, true);
       window.removeEventListener("keydown", onGesture, true);
       if (timerRef.current != null) {
@@ -207,7 +254,20 @@ export function DuelFeedback({
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
-    queueRef.current.push(...fresh);
+    const toasts: DuelEvent[] = [];
+    for (const event of fresh) {
+      // The battle layer draws damage on the life points.
+      if (event.kind === "damage") continue;
+      if (isDrawnOnBoard(event, reducedRef.current)) {
+        // SummonFx draws it on the zone; it also sounds the heavy and destroy cues at their moment.
+        const fxSounds = event.kind === "destroy" || isHeavySummon(event);
+        if (!fxSounds && soundRef.current) audioRef.current?.play(event.kind);
+        continue;
+      }
+      toasts.push(event);
+    }
+    if (toasts.length === 0) return;
+    queueRef.current.push(...toasts);
     startNextRef.current();
   }, [duelKey, events]);
 
@@ -219,6 +279,7 @@ export function DuelFeedback({
     >
       {current ? (
         <FeedbackCue
+          key={current.event.id}
           event={current.event}
           reducedMotion={reducedMotion}
           durationMs={current.durationMs}

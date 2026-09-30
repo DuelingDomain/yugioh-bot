@@ -3,7 +3,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Swords } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Globe, Info, Lock, Swords } from "lucide-react";
 import {
   defaultDuelSettings,
   DUEL_BANLIST_OPTIONS,
@@ -13,31 +13,9 @@ import {
   type DuelSettings,
 } from "@yugidraft/shared/duels";
 import { createDuel } from "./api";
+import { cx, sheetButtonClass, SheetButton, SheetSegmented, SheetSelect, sheetPage, type Choice } from "./sheet-ui";
+import ui from "./sheet-ui.module.css";
 import styles from "./creator.module.css";
-
-type Choice<T> = { value: T; label: string };
-
-function SettingSelect<T extends string | number | boolean>({
-  label, value, choices, onChange, disabled = false,
-}: {
-  label: string;
-  value: T;
-  choices: readonly Choice<T>[];
-  onChange?: (value: T) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className={styles.setting}>
-      <span>{label}</span>
-      <select value={String(value)} disabled={disabled} onChange={(event) => {
-        const selected = choices.find((choice) => String(choice.value) === event.target.value);
-        if (selected) onChange?.(selected.value);
-      }}>
-        {choices.map((choice) => <option key={String(choice.value)} value={String(choice.value)}>{choice.label}</option>)}
-      </select>
-    </label>
-  );
-}
 
 const MASTER_RULES: readonly Choice<DuelMasterRule>[] = [
   { value: 5, label: "Master Rules 5 (2020)" },
@@ -47,17 +25,17 @@ const MASTER_RULES: readonly Choice<DuelMasterRule>[] = [
   { value: 1, label: "Master Rules 1 (2008)" },
 ];
 const VISIBILITY: readonly Choice<DuelSettings["visibility"]>[] = [
-  { value: "public", label: "Public game" },
-  { value: "private", label: "Private game · invite only" },
+  { value: "public", label: "Public", icon: <Globe size={15} strokeWidth={1.6} aria-hidden /> },
+  { value: "private", label: "Private", icon: <Lock size={15} strokeWidth={1.6} aria-hidden /> },
 ];
 const FORMATS: readonly Choice<DuelMode>[] = [
-  { value: "normal", label: "Duel (1v1, single duel)" },
-  { value: "domain", label: "Domain (1v1, single duel)" },
+  { value: "normal", label: "Standard duel" },
+  { value: "domain", label: "Domain" },
 ];
 const CARD_POOLS: readonly Choice<DuelSettings["cardPool"]>[] = [
-  { value: "both", label: "Both TCG and OCG cards" },
-  { value: "tcg", label: "TCG cards only" },
-  { value: "ocg", label: "OCG cards only" },
+  { value: "both", label: "TCG + OCG" },
+  { value: "tcg", label: "TCG only" },
+  { value: "ocg", label: "OCG only" },
 ];
 const TIMERS = [0, 60, 120, 180, 240, 300, 600].map((value) => ({
   value, label: value === 0 ? "No turn timer" : `${value / 60} ${value === 60 ? "minute" : "minutes"} per turn`,
@@ -66,11 +44,11 @@ const LIFE_POINTS = [1000, 2000, 4000, 8000, 16000, 32000].map((value) => ({ val
 const OPENING_HANDS = Array.from({ length: 11 }, (_, value) => ({ value, label: `${value} ${value === 1 ? "card" : "cards"} in Starting Hand` }));
 const DRAWS = Array.from({ length: 6 }, (_, value) => ({ value, label: `${value} ${value === 1 ? "card" : "cards"} per Draw Phase` }));
 const TIMEOUTS: readonly Choice<DuelSettings["timeout"]>[] = [
-  { value: "loss", label: "Lose when timer runs out" },
-  { value: "continue", label: "Continue when timer runs out" },
+  { value: "loss", label: "Lose the duel" },
+  { value: "continue", label: "Play on" },
 ];
-const VALIDATION = [{ value: true, label: "Invalid decks forbidden" }, { value: false, label: "Invalid decks allowed" }];
-const SHUFFLE = [{ value: true, label: "Starting deck shuffled" }, { value: false, label: "Starting deck not shuffled" }];
+const VALIDATION: readonly Choice<boolean>[] = [{ value: true, label: "Forbid invalid decks" }, { value: false, label: "Allow invalid decks" }];
+const SHUFFLE: readonly Choice<boolean>[] = [{ value: true, label: "Shuffled" }, { value: false, label: "Not shuffled" }];
 const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label: `Banlist: ${label}` }));
 
 export function DuelCreator() {
@@ -104,64 +82,166 @@ export function DuelCreator() {
     }
   }
 
+  const timerShort = settings.turnSeconds === 0 ? "No timer" : `${settings.turnSeconds / 60} min`;
+  const formatName = mode === "domain" ? (customDomain ? "Custom Domain" : "Domain") : "Standard";
+  const banlistLabel = DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist;
+  const summaryRows: [string, string][] = [
+    ["Visibility", settings.visibility === "private" ? "Invite only" : "Public"],
+    ["Banlist", banlistLabel],
+    ["Card pool", settings.cardPool === "both" ? "TCG + OCG" : settings.cardPool.toUpperCase()],
+    ["Turn clock", settings.turnSeconds === 0 ? "Off" : settings.timeout === "loss" ? "Lose on timeout" : "Play on at zero"],
+    ["Deck check", settings.validateDeck ? "Enforced" : "Off"],
+    ["Opening order", settings.shuffleDeck ? "Shuffled" : "Not shuffled"],
+  ];
+
   return (
-    <form className={styles.panel} onSubmit={onCreate} aria-busy={creating}>
-      <header className={styles.heading}>
-        <h1>Custom game creator</h1>
-        <label className={styles.name}>
-          <span>Table name</span>
-          <input value={name} onChange={(event) => setName(event.target.value)} required maxLength={100} disabled={creating} />
-        </label>
-      </header>
-      <fieldset disabled={creating} className={styles.section}>
-        <legend className="sr-only">Game setup</legend>
-        <div className={styles.grid}>
-          <SettingSelect label="Visibility" value={settings.visibility} choices={VISIBILITY} onChange={(value) => update("visibility", value)} />
-          <SettingSelect label="Duel type" value={mode} choices={FORMATS} onChange={(value) => {
-            setMode(value);
-            setMasterRule(5);
-            // Visibility is the organizer's choice, not part of a format preset.
-            setSettings((current) => ({ ...defaultDuelSettings(value), visibility: current.visibility }));
-          }} />
-          <SettingSelect label="Game engine" value="automatic" choices={[{ value: "automatic", label: "Automatic" }]} disabled />
-          <SettingSelect label="Master Rules" value={masterRule} choices={MASTER_RULES} onChange={setMasterRule} />
+    <form className={cx(sheetPage, styles.form)} onSubmit={onCreate} aria-busy={creating}>
+      <div className={styles.wrap}>
+        <header className={styles.head}>
+          <Link href="/duels" className={cx(sheetButtonClass("quiet", "sm"), styles.crumb)}>
+            <ArrowLeft size={15} strokeWidth={1.6} aria-hidden /> All tables
+          </Link>
+          <h1 className={ui.title}>Custom game creator</h1>
+          <p className={ui.lede}>Set the rules once. They lock when the table opens and stay in match history.</p>
+        </header>
+
+        <div className={styles.layout}>
+          <fieldset disabled={creating} className={styles.sections}>
+            <legend className={ui.srOnly}>Game setup</legend>
+
+            <section className={styles.section} aria-labelledby="creator-table">
+              <div className={styles.side}>
+                <h2 id="creator-table" className={ui.sectionTitle}>Table</h2>
+                <p className={ui.hint}>Who can find and join the game.</p>
+              </div>
+              <div className={styles.fields}>
+                <label>
+                  <span className={ui.label}>Table name</span>
+                  <input className={ui.input} value={name} onChange={(event) => setName(event.target.value)} required maxLength={100} disabled={creating} />
+                </label>
+                <SheetSegmented label="Visibility" value={settings.visibility} choices={VISIBILITY} onChange={(value) => update("visibility", value)} full />
+                <p className={cx(ui.hint, styles.wide)}>
+                  {settings.visibility === "private" ? "Only invited server members can enter or watch. Your invite is available inside the room." : "Visible to members of this Discord server. Players and spectators must sign in."}
+                </p>
+              </div>
+            </section>
+
+            <section className={styles.section} aria-labelledby="creator-format">
+              <div className={styles.side}>
+                <h2 id="creator-format" className={ui.sectionTitle}>Format</h2>
+                <p className={ui.hint}>Both are 1v1, single duel.</p>
+              </div>
+              <div className={styles.fields}>
+                <div className={styles.wide}>
+                  <SheetSegmented label="Duel type" value={mode} choices={FORMATS} onChange={(value) => {
+                    setMode(value);
+                    setMasterRule(5);
+                    // Visibility is the organizer's choice, not part of a format preset.
+                    setSettings((current) => ({ ...defaultDuelSettings(value), visibility: current.visibility }));
+                  }} />
+                </div>
+                <SheetSelect label="Master Rules" value={masterRule} choices={MASTER_RULES} onChange={setMasterRule} />
+                <SheetSelect label="Game engine" value="automatic" choices={[{ value: "automatic", label: "Automatic" }]} disabled />
+              </div>
+            </section>
+
+            <section className={styles.section} aria-labelledby="creator-rules">
+              <div className={styles.side}>
+                <h2 id="creator-rules" className={ui.sectionTitle}>Rules</h2>
+                <p className={ui.hint}>Card legality and how the duel opens.</p>
+              </div>
+              <div className={styles.fields}>
+                <SheetSelect label="Forbidden & Limited list" value={settings.banlist} choices={BANLISTS} onChange={(value) => update("banlist", value)} />
+                <SheetSegmented label="Card pool" value={settings.cardPool} choices={CARD_POOLS} onChange={(value) => update("cardPool", value)} full />
+                <SheetSelect label="Starting hand" value={settings.startingHand} choices={OPENING_HANDS} onChange={(value) => update("startingHand", value)} />
+                <SheetSelect label="Draw Phase" value={settings.drawPerTurn} choices={DRAWS} onChange={(value) => update("drawPerTurn", value)} />
+                <div className={styles.wide}>
+                  <SheetSegmented label="Opening deck order" value={settings.shuffleDeck} choices={SHUFFLE} onChange={(value) => update("shuffleDeck", value)} />
+                </div>
+              </div>
+            </section>
+
+            <section className={styles.section} aria-labelledby="creator-clock">
+              <div className={styles.side}>
+                <h2 id="creator-clock" className={ui.sectionTitle}>Clock &amp; life points</h2>
+                <p className={ui.hint}>Pace of the duel and where both players start.</p>
+              </div>
+              <div className={styles.fields}>
+                <SheetSelect label="Starting Life Points" value={settings.startingLP} choices={LIFE_POINTS} onChange={(value) => update("startingLP", value)} />
+                <SheetSelect label="Turn timer" value={settings.turnSeconds} choices={TIMERS} onChange={(value) => update("turnSeconds", value)} />
+                <div className={styles.wide}>
+                  <SheetSegmented label="When the timer runs out" value={settings.timeout} choices={TIMEOUTS} onChange={(value) => update("timeout", value)} disabled={settings.turnSeconds === 0} />
+                  {settings.turnSeconds > 0 ? (
+                    <p className={cx(ui.hint, styles.below)}>The clock runs while a player must answer, including during disconnects. Each new turn refreshes both players’ time.</p>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+
+            <section className={styles.section} aria-labelledby="creator-deck">
+              <div className={styles.side}>
+                <h2 id="creator-deck" className={ui.sectionTitle}>Deck rules</h2>
+                <p className={ui.hint}>What players may bring to the table.</p>
+              </div>
+              <div className={styles.fields}>
+                <div className={styles.wide}>
+                  <SheetSegmented label="Deck validation" value={settings.validateDeck} choices={VALIDATION} onChange={(value) => update("validateDeck", value)} />
+                </div>
+                <div className={cx(styles.wide, styles.notes)}>
+                  {mode === "domain" ? (
+                    <p className={cx(styles.note, customDomain && styles.noteWarn)} role="status">
+                      {customDomain ? <AlertTriangle size={16} strokeWidth={1.6} aria-hidden /> : <Info size={16} strokeWidth={1.6} aria-hidden />}
+                      <span>
+                        <strong>{customDomain ? "Custom Domain" : "Domain preset"}</strong>
+                        {customDomain ? " — these overrides differ from official Domain rules." : " — 60 singleton Main Deck cards, a separate Deck Master, up to 15 Extra Deck cards, no Side Deck."}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className={styles.note}>
+                      <Info size={16} strokeWidth={1.6} aria-hidden />
+                      <span>Master Rules use the current card catalog, not a historical card pool. First-turn draws follow the selected Master Rule.</span>
+                    </p>
+                  )}
+                  {!settings.validateDeck ? (
+                    <p className={cx(styles.note, styles.noteWarn)}>
+                      <AlertTriangle size={16} strokeWidth={1.6} aria-hidden />
+                      <span>Format and copy-limit checks are off. Card-pool restrictions and engine-safety checks still apply.</span>
+                    </p>
+                  ) : null}
+                  <p className={styles.note}>
+                    <Info size={16} strokeWidth={1.6} aria-hidden />
+                    <span>Changing duel type restores its preset. Settings are locked for the game and retained in match history.</span>
+                  </p>
+                </div>
+              </div>
+            </section>
+          </fieldset>
+
+          <aside className={styles.summary} aria-label="Game summary">
+            <div className={styles.card}>
+              <p className={styles.kind}>{formatName} · MR{masterRule} · {settings.startingLP} LP · {timerShort}</p>
+              <p className={styles.name} title={name.trim() || "Untitled table"}>{name.trim() || "Untitled table"}</p>
+              <dl className={styles.tally}>
+                <div><dd className={ui.num}>{settings.startingLP.toLocaleString("en-US")}</dd><dt>Life Points</dt></div>
+                <div><dd className={ui.num}>{settings.startingHand}</dd><dt>Hand</dt></div>
+                <div><dd className={ui.num}>{settings.drawPerTurn}</dd><dt>Draw</dt></div>
+              </dl>
+              <dl className={styles.rows}>
+                {summaryRows.map(([label, value]) => (
+                  <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+                ))}
+              </dl>
+              {error ? <p className={cx(ui.alert, styles.error)} role="alert">{error}</p> : null}
+              <div className={styles.actions}>
+                <SheetButton type="submit" kind="primary" size="lg" block loading={creating} disabled={creating || !name.trim()}>
+                  {creating ? "Creating game…" : <>Create game<Swords size={17} strokeWidth={1.6} aria-hidden /></>}
+                </SheetButton>
+                <Link href="/duels" className={sheetButtonClass("quiet", "md", true)}>Back</Link>
+              </div>
+            </div>
+          </aside>
         </div>
-        <p className={styles.hint}>
-          {settings.visibility === "private" ? "Only invited server members can enter or watch. Your invite is available inside the room." : "Visible to members of this Discord server. Players and spectators must sign in."}
-        </p>
-      </fieldset>
-      <fieldset disabled={creating} className={styles.section}>
-        <legend>Custom settings</legend>
-        <div className={styles.grid}>
-          <SettingSelect label="Forbidden & Limited list" value={settings.banlist} choices={BANLISTS} onChange={(value) => update("banlist", value)} />
-          <SettingSelect label="Card pool" value={settings.cardPool} choices={CARD_POOLS} onChange={(value) => update("cardPool", value)} />
-          <SettingSelect label="Turn timer" value={settings.turnSeconds} choices={TIMERS} onChange={(value) => update("turnSeconds", value)} />
-          <SettingSelect label="Starting Life Points" value={settings.startingLP} choices={LIFE_POINTS} onChange={(value) => update("startingLP", value)} />
-          <SettingSelect label="Starting hand" value={settings.startingHand} choices={OPENING_HANDS} onChange={(value) => update("startingHand", value)} />
-          <SettingSelect label="Draw Phase" value={settings.drawPerTurn} choices={DRAWS} onChange={(value) => update("drawPerTurn", value)} />
-          <SettingSelect label="Timeout behavior" value={settings.timeout} choices={TIMEOUTS} onChange={(value) => update("timeout", value)} disabled={settings.turnSeconds === 0} />
-          <SettingSelect label="Deck validation" value={settings.validateDeck} choices={VALIDATION} onChange={(value) => update("validateDeck", value)} />
-          <SettingSelect label="Opening deck order" value={settings.shuffleDeck} choices={SHUFFLE} onChange={(value) => update("shuffleDeck", value)} />
-        </div>
-      </fieldset>
-      <div className={styles.notes}>
-        {mode === "domain" ? (
-          <p className={customDomain ? styles.warning : styles.hint} role="status">
-            <strong>{customDomain ? "Custom Domain" : "Domain preset"}</strong>
-            {customDomain ? " — these overrides differ from official Domain rules." : " — 60 singleton Main Deck cards, a separate Deck Master, up to 15 Extra Deck cards, no Side Deck."}
-          </p>
-        ) : <p className={styles.hint}>Master Rules use the current card catalog, not a historical card pool. First-turn draws follow the selected Master Rule.</p>}
-        {!settings.validateDeck ? <p className={styles.warning}>Format and copy-limit checks are off. Card-pool restrictions and engine-safety checks still apply.</p> : null}
-        {settings.turnSeconds > 0 ? <p className={styles.hint}>The clock runs while a player must answer, including during disconnects. Each new turn refreshes both players’ time.</p> : null}
-        <p className={styles.hint}>Changing duel type restores its preset. Settings are locked for the game and retained in match history.</p>
       </div>
-      {error ? <p className={styles.error} role="alert">{error}</p> : null}
-      <footer className={styles.actions}>
-        <Link href="/duels" className={styles.back}>Back <ArrowLeft size={23} aria-hidden /></Link>
-        <button type="submit" className={styles.create} disabled={creating || !name.trim()}>
-          {creating ? "Creating game…" : "Create game"}<Swords size={30} aria-hidden />
-        </button>
-      </footer>
     </form>
   );
 }
