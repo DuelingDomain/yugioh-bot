@@ -7,8 +7,10 @@ import { cardArtUrl } from "./constants";
 import { cx, SheetButton, SheetSelect } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./deck-editor.module.css";
-import { applyDomainMaster, parseDeckText, serializeYdk } from "./ydk";
+import { applyDomainMaster, parseDeckText, selectDomainMaster, serializeYdk, type DeckMasterSelection } from "./ydk";
 import { validateDuelDeck } from "./api";
+import { DeckMasterPicker } from "./deck-master-picker";
+import { SavedDeckPicker } from "./saved-deck-picker";
 
 type CardProblem = { name?: string; messages: string[] };
 
@@ -19,6 +21,7 @@ function Section({
   onRemove,
   problems,
   target,
+  onChooseMaster,
 }: {
   title: string;
   section: "main" | "extra" | "side";
@@ -26,6 +29,7 @@ function Section({
   onRemove: (index: number) => void;
   problems: ReadonlyMap<string, CardProblem>;
   target?: string;
+  onChooseMaster?: (code: number) => void;
 }) {
   return (
     <section className={styles.list} aria-label={`${title} deck`}>
@@ -57,6 +61,13 @@ function Section({
                   ) : null}
                   <span className={styles.removeVeil}><X size={16} strokeWidth={1.6} aria-hidden />Remove</span>
                 </button>
+                {onChooseMaster ? (
+                  <button type="button" className={styles.chooseMaster}
+                    aria-label={`Use ${problem?.name ?? code} as Deck Master`}
+                    onClick={() => onChooseMaster(code)}>
+                    Master
+                  </button>
+                ) : null}
               </li>
             );
           })}
@@ -81,12 +92,12 @@ export function DeckEditor({
   busy: boolean;
   onReady: (deck: DuelDeck) => void;
 }) {
-  const [main, setMain] = useState<number[]>(initial?.main ?? []);
-  const [extra, setExtra] = useState<number[]>(initial?.extra ?? []);
-  const [side, setSide] = useState<number[]>(initial?.side ?? []);
-  const [deckMaster, setDeckMaster] = useState<string>(
-    initial?.deckMaster != null ? String(initial.deckMaster) : "",
-  );
+  const [selection, setSelection] = useState<DeckMasterSelection>(() => ({
+    deck: initial ?? { main: [], extra: [], side: [] },
+    masterOrigin: null,
+  }));
+  const { deck } = selection;
+  const { main, extra, side, deckMaster: masterCode } = deck;
   const [paste, setPaste] = useState(initial ? serializeYdk(initial) : "");
   const [addCode, setAddCode] = useState("");
   const [addSection, setAddSection] = useState<"main" | "extra" | "side">("main");
@@ -103,14 +114,6 @@ export function DeckEditor({
   } | null>(null);
   const sideAllowed = mode === "normal" || !settings.validateDeck;
 
-  const masterCode = useMemo(() => {
-    const n = Number(deckMaster);
-    return Number.isInteger(n) && n > 0 ? n : undefined;
-  }, [deckMaster]);
-
-  const deck = useMemo<DuelDeck>(() => (
-    mode === "domain" ? { main, extra, side, deckMaster: masterCode } : { main, extra, side }
-  ), [mode, main, extra, side, masterCode]);
   const currentValidation = validation?.slug === slug && validation.deck === deck ? validation : null;
   const report = currentValidation?.report;
   const showValidation = edited || initial !== null;
@@ -149,17 +152,34 @@ export function DeckEditor({
     };
   }, [slug, deck, retry]);
 
-  function applyImported(raw: DuelDeck) {
-    const deck = mode === "domain" && settings.validateDeck && raw.side.length <= 1
-      ? applyDomainMaster(raw, masterCode)
-      : raw;
-    setMain(deck.main);
-    setExtra(deck.extra);
-    setSide(deck.side);
-    if (mode === "domain" && deck.deckMaster != null) setDeckMaster(String(deck.deckMaster));
-    setPaste(serializeYdk(deck));
+  function commitSelection(next: DeckMasterSelection) {
+    setSelection(next);
+    setPaste(serializeYdk(next.deck));
     setEdited(true);
     setParseError(null);
+  }
+
+  function applyImported(raw: DuelDeck) {
+    const imported = mode === "domain"
+      ? settings.validateDeck && raw.side.length <= 1 ? applyDomainMaster(raw) : raw
+      : { main: raw.main, extra: raw.extra, side: raw.side };
+    const extractedSideMaster = imported.deckMaster !== undefined && raw.deckMaster === undefined
+      && raw.side.length === 1 && imported.side.length === 0;
+    commitSelection({ deck: imported, masterOrigin: extractedSideMaster ? { section: "side", index: 0 } : null });
+  }
+
+  function chooseMaster(code?: number) {
+    commitSelection(selectDomainMaster(selection, code));
+  }
+
+  function removeCard(section: "main" | "extra" | "side", index: number) {
+    const origin = selection.masterOrigin;
+    commitSelection({
+      deck: { ...deck, [section]: deck[section].filter((_, i) => i !== index) },
+      masterOrigin: origin?.section === section && index < origin.index
+        ? { ...origin, index: origin.index - 1 }
+        : origin,
+    });
   }
 
   function onFile(file: File) {
@@ -173,8 +193,8 @@ export function DeckEditor({
   function onPasteApply() {
     try {
       const deck = parseDeckText(paste);
-      if (deck.main.length === 0 && deck.extra.length === 0) {
-        setParseError("No cards found in that YDK.");
+      if (deck.main.length === 0 && deck.extra.length === 0 && deck.side.length === 0 && deck.deckMaster === undefined) {
+        setParseError("No cards found. Paste a YDK deck or a ydke:// link.");
         return;
       }
       applyImported(deck);
@@ -189,12 +209,9 @@ export function DeckEditor({
       setParseError("Enter a positive passcode.");
       return;
     }
-    if (addSection === "extra") setExtra((current) => [...current, code]);
-    else if (addSection === "side" && sideAllowed) setSide((current) => [...current, code]);
-    else setMain((current) => [...current, code]);
+    const section = addSection === "side" && !sideAllowed ? "main" : addSection;
+    commitSelection({ ...selection, deck: { ...deck, [section]: [...deck[section], code] } });
     setAddCode("");
-    setEdited(true);
-    setParseError(null);
   }
 
   function submit() {
@@ -203,7 +220,7 @@ export function DeckEditor({
   }
 
   const rulesNote = !settings.validateDeck
-    ? `Custom deck: format and copy-limit checks are disabled. Card-pool and engine-safety restrictions still apply.${mode === "domain" ? " Enter a separate monster Deck Master passcode." : ""}`
+    ? `Custom deck: format and copy-limit checks are disabled. Card-pool and engine-safety restrictions still apply.${mode === "domain" ? " Choose a separate monster Deck Master." : ""}`
     : mode === "domain"
       ? "Domain: exactly 60 singleton Main Deck cards, up to 15 Extra Deck cards, and one separate Deck Master. The master determines your Domain; there is no separate leader or Domain selection."
       : "Normal: 40–60 Main Deck cards and up to 15 each in Extra and Side. To use a Deck Master, create a Domain table instead.";
@@ -229,6 +246,16 @@ export function DeckEditor({
         </div>
         <p className={styles.rules}><Info size={15} strokeWidth={1.6} aria-hidden /><span>{rulesNote}</span></p>
       </header>
+
+      <SavedDeckPicker mode={mode} disabled={busy} onLoad={(saved) => {
+        const hasCards = main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined;
+        if (hasCards && !window.confirm("Replace the deck currently loaded at this table? Your saved deck is unchanged.")) return;
+        const localDeck = mode === "normal"
+          ? { main: saved.main, extra: saved.extra, side: saved.side }
+          : saved;
+        commitSelection({ deck: localDeck, masterOrigin: null });
+        setFileName(null);
+      }} />
 
       {showValidation ? (
         <div aria-live="polite" role="status">
@@ -304,7 +331,7 @@ export function DeckEditor({
 
         <div className={styles.paste}>
           <label>
-            <span className={ui.label}>Paste YDK</span>
+            <span className={ui.label}>Paste YDK or YDKE</span>
             <textarea
               value={paste}
               onChange={(event) => setPaste(event.target.value)}
@@ -317,6 +344,11 @@ export function DeckEditor({
           <SheetButton size="sm" onClick={onPasteApply}>Load paste</SheetButton>
         </div>
       </div>
+
+      {mode === "domain" ? (
+        <DeckMasterPicker code={masterCode} onChange={chooseMaster}
+          problem={masterProblem?.messages.join(" ")} custom={!settings.validateDeck} />
+      ) : null}
 
       <div className={styles.addRow}>
         <label className={styles.addCode}>
@@ -349,67 +381,13 @@ export function DeckEditor({
 
       {parseError ? <p role="alert" className={ui.alert}>{parseError}</p> : null}
 
-      <Section title="Main" section="main" codes={main} problems={problems} target={mainTarget} onRemove={(index) => {
-        setMain((cards) => cards.filter((_, i) => i !== index));
-        setEdited(true);
-      }} />
-      <Section title="Extra" section="extra" codes={extra} problems={problems} target={extraTarget} onRemove={(index) => {
-        setExtra((cards) => cards.filter((_, i) => i !== index));
-        setEdited(true);
-      }} />
+      <Section title="Main" section="main" codes={main} problems={problems} target={mainTarget}
+        onRemove={(index) => removeCard("main", index)} onChooseMaster={mode === "domain" ? chooseMaster : undefined} />
+      <Section title="Extra" section="extra" codes={extra} problems={problems} target={extraTarget}
+        onRemove={(index) => removeCard("extra", index)} onChooseMaster={mode === "domain" ? chooseMaster : undefined} />
       {sideAllowed || side.length > 0 ? (
-        <Section title="Side" section="side" codes={side} problems={problems} target={sideTarget} onRemove={(index) => {
-          setSide((cards) => cards.filter((_, i) => i !== index));
-          setEdited(true);
-        }} />
-      ) : null}
-
-      {mode === "domain" ? (
-        <div className={styles.master}>
-          <label>
-            <span className={ui.label}>Deck Master passcode</span>
-            <input
-              value={deckMaster}
-              onChange={(event) => {
-                setDeckMaster(event.target.value);
-                setEdited(true);
-                setParseError(null);
-              }}
-              inputMode="numeric"
-              aria-invalid={masterProblem ? true : undefined}
-              aria-describedby={masterProblem ? "deck-master-problem" : undefined}
-              className={cx(ui.input, styles.masterInput)}
-            />
-          </label>
-          {masterProblem ? (
-            <p id="deck-master-problem" className={ui.alert}>
-              {masterProblem.messages.join(" ")}
-            </p>
-          ) : null}
-          <p className={ui.hint}>
-            Enter your chosen monster&apos;s card passcode. Keep it separate from Main and Extra.
-            {settings.validateDeck ? " A Domain Toolbox YDK can supply it as the sole Side card." : " In Custom Domain, the imported Side section is kept as a Side Deck."}{" "}
-            Main Deck Pendulum Masters may also be activated as Pendulum scales.
-          </p>
-          {extra.length > 0 ? (
-            <div className={styles.useRow}>
-              {Array.from(new Set(extra)).map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  className={styles.use}
-                  onClick={() => {
-                    setDeckMaster(String(code));
-                    setEdited(true);
-                    setParseError(null);
-                  }}
-                >
-                  Use {code}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        <Section title="Side" section="side" codes={side} problems={problems} target={sideTarget}
+          onRemove={(index) => removeCard("side", index)} onChooseMaster={mode === "domain" ? chooseMaster : undefined} />
       ) : null}
 
     </div>

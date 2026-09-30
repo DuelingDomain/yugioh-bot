@@ -549,4 +549,18 @@ export function migrate(db: Database.Database) {
     )
     where winner_player_id is not null and winner_seat is null;
   `);
+
+  db.exec(`
+    create table if not exists saved_decks (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      owner_user_id text not null,
+      name text not null,
+      mode text not null,
+      deck_json text not null,
+      created_at text not null default current_timestamp,
+      updated_at text not null default current_timestamp
+    );
+    create index if not exists saved_decks_owner_list_idx on saved_decks (guild_id, owner_user_id, updated_at);
+  `);
 }

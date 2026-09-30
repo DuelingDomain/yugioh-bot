@@ -6,16 +6,31 @@ function parseCode(line: string): number | null {
   return code;
 }
 
+export interface DeckMasterSelection {
+  deck: DuelDeck;
+  masterOrigin: { section: "main" | "extra" | "side"; index: number } | null;
+}
+
 export function parseYdk(text: string): DuelDeck {
   const main: number[] = [];
   const extra: number[] = [];
   const side: number[] = [];
-  let section: "main" | "extra" | "side" | null = null;
+  let deckMaster: number | undefined;
+  let section: "main" | "extra" | "side" | "deckmaster" | null = null;
+  let sawDeckMaster = false;
 
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
     const lower = line.toLowerCase();
+    if (lower === "#deckmaster" || lower.startsWith("#deckmaster")) {
+      if (sawDeckMaster) {
+        throw new Error("YDK contains multiple #deckmaster sections.");
+      }
+      sawDeckMaster = true;
+      section = "deckmaster";
+      continue;
+    }
     if (lower === "#main" || lower.startsWith("#main")) {
       section = "main";
       continue;
@@ -30,12 +45,23 @@ export function parseYdk(text: string): DuelDeck {
     }
     if (line.startsWith("#") || line.startsWith("!")) continue;
     const code = parseCode(line);
+    if (section === "deckmaster") {
+      if (code == null) {
+        throw new Error("Invalid Deck Master id in #deckmaster.");
+      }
+      if (deckMaster != null) {
+        throw new Error("YDK #deckmaster must contain exactly one card id.");
+      }
+      deckMaster = code;
+      continue;
+    }
     if (code == null || section == null) continue;
     if (section === "extra") extra.push(code);
     else if (section === "side") side.push(code);
     else main.push(code);
   }
 
+  if (deckMaster != null) return { main, extra, side, deckMaster };
   return { main, extra, side };
 }
 
@@ -69,27 +95,50 @@ export function parseDeckText(text: string): DuelDeck {
   return parseYdk(trimmed);
 }
 
-export function applyDomainMaster(deck: DuelDeck, explicitMaster?: number): DuelDeck {
+export function applyDomainMaster(deck: DuelDeck): DuelDeck {
+  if (deck.deckMaster != null) return deck;
   if (deck.side.length > 1) {
     throw new Error("Domain has no Side Deck. Only a single Deck Master may be imported from the Side section.");
   }
   if (deck.side.length === 1) {
-    const sideMaster = deck.side[0];
-    if (explicitMaster == null || explicitMaster === sideMaster) {
-      return { main: deck.main, extra: deck.extra, side: [], deckMaster: sideMaster };
-    }
-    return { main: deck.main, extra: deck.extra, side: [], deckMaster: explicitMaster };
+    return { main: deck.main, extra: deck.extra, side: [], deckMaster: deck.side[0] };
   }
-  return {
-    main: deck.main,
-    extra: deck.extra,
-    side: [],
-    deckMaster: explicitMaster ?? deck.deckMaster,
-  };
+  return deck;
+}
+
+export function selectDomainMaster(state: DeckMasterSelection, code?: number): DeckMasterSelection {
+  if (code !== undefined && code === state.deck.deckMaster) return state;
+
+  let restored: DuelDeck;
+  if (state.deck.deckMaster != null && state.masterOrigin != null) {
+    const { section, index } = state.masterOrigin;
+    const next = state.deck[section].slice();
+    next.splice(Math.min(Math.max(0, index), next.length), 0, state.deck.deckMaster);
+    restored = { main: state.deck.main, extra: state.deck.extra, side: state.deck.side, [section]: next };
+  } else if (state.deck.deckMaster !== undefined) {
+    restored = { main: state.deck.main, extra: state.deck.extra, side: state.deck.side };
+  } else {
+    restored = state.deck;
+  }
+
+  if (code === undefined) return { deck: restored, masterOrigin: null };
+
+  for (const section of ["main", "extra", "side"] as const) {
+    const index = restored[section].indexOf(code);
+    if (index < 0) continue;
+    const next = restored[section].slice();
+    next.splice(index, 1);
+    return {
+      deck: { ...restored, [section]: next, deckMaster: code },
+      masterOrigin: { section, index },
+    };
+  }
+
+  return { deck: { ...restored, deckMaster: code }, masterOrigin: null };
 }
 
 export function serializeYdk(deck: DuelDeck): string {
-  return [
+  const lines = [
     "#main",
     ...deck.main.map(String),
     "#extra",
@@ -97,5 +146,7 @@ export function serializeYdk(deck: DuelDeck): string {
     "!side",
     ...deck.side.map(String),
     "",
-  ].join("\n");
+  ];
+  if (deck.deckMaster != null) lines.unshift("#deckmaster", String(deck.deckMaster));
+  return lines.join("\n");
 }

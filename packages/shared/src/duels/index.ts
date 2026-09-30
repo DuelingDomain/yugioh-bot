@@ -31,6 +31,15 @@ export interface DuelDeck {
   deckMaster?: number;
 }
 
+export interface SavedDeck {
+  id: number;
+  name: string;
+  mode: DuelMode;
+  deck: DuelDeck;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DuelDeckCardRef {
   section: "main" | "extra" | "side" | "deckMaster";
   index: number;

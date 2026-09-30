@@ -176,3 +176,11 @@ export async function searchDuelCards(
   if (slug) params.set("slug", slug);
   return parseBody(await fetch(`/api/duels/cards?${params.toString()}`, { cache: "no-store" }));
 }
+
+export async function getDuelCards(codes: number[]): Promise<{ cards: DuelCardInfo[]; missing: number[] }> {
+  return parseBody(await fetch("/api/duels/cards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ codes }),
+  }));
+}

@@ -19,6 +19,7 @@ import type {
 import { GameWorker, type DuelGameWorker, type GameOptions } from "./worker-client.js";
 import { inspectDeck, validateDeck } from "./deck-legality.js";
 import { normalizeImportedDeck } from "./deck-import.js";
+import { loadCardDatabase } from "./cards.js";
 import { buildPracticeBotDeck, choosePracticeBotAnswer, PracticeBotError } from "./practice-bot.js";
 import {
   freezeContinueClock,
@@ -748,6 +749,21 @@ export function createDuelHost(options: {
       throw new RequestError("Authenticated guild and player are required", 400);
     }
     const actor = playerId as number;
+    if (op === "card-details") {
+      if (!Array.isArray(body.codes) || body.codes.length > 1000
+        || body.codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {
+        throw new RequestError("Provide at most 1000 positive card passcodes", 400);
+      }
+      const catalog = loadCardDatabase(options.dataDirectory);
+      const cards = [];
+      const missing: number[] = [];
+      for (const code of new Set<number>(body.codes)) {
+        const card = catalog.get(code);
+        if (card) cards.push(card);
+        else missing.push(code);
+      }
+      return { cards, missing };
+    }
     if (op === "cards") {
       if (typeof body.query !== "string" || body.query.length > 200) throw new RequestError("Invalid card search", 400);
       if (typeof body.slug === "string" && body.slug) {

@@ -7,7 +7,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "surrender" | "add-bot" | "archive" | "cancel" | "replay";
+export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "surrender" | "add-bot" | "archive" | "cancel" | "replay";
 
 type DuelActor =
   | { ok: true; guildId: string; playerId: number; duels: DuelService }
@@ -69,6 +69,7 @@ export async function callDuelHost(input: {
   command?: DuelCommand;
   deck?: DuelDeck;
   query?: string;
+  codes?: number[];
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
   const transport = httpTransport({ url: env.duelInternalUrl, secret: env.duelInternalSecret });
   const payload: Record<string, unknown> = {
@@ -80,6 +81,7 @@ export async function callDuelHost(input: {
   if (input.command) payload.command = input.command;
   if (input.deck) payload.deck = input.deck;
   if (input.query !== undefined) payload.query = input.query;
+  if (input.codes !== undefined) payload.codes = input.codes;
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
