@@ -77,6 +77,18 @@ export function CardBrowser({
   latest.current = query;
   const onCatalogRef = useRef(onCatalog);
   onCatalogRef.current = onCatalog;
+  const onHoverRef = useRef(onHover);
+  onHoverRef.current = onHover;
+  const listHover = useRef(false);
+
+  function pointAt(card: DeckCardInfo | null) {
+    listHover.current = card != null;
+    onHoverRef.current(card);
+  }
+  // New results or a new view replace the tiles, and a removed tile never sends pointerleave.
+  function dropHover() {
+    if (listHover.current) pointAt(null);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -88,6 +100,7 @@ export function CardBrowser({
         (result) => {
           setResults({ key, cards: result.cards, total: result.total, error: null });
           setLoading(false);
+          dropHover();
           onCatalogRef.current(result.cards);
           if (scrollRef.current) scrollRef.current.scrollTop = 0;
         },
@@ -95,6 +108,7 @@ export function CardBrowser({
           if (controller.signal.aborted) return;
           setResults({ key, cards: [], total: 0, error: reason instanceof Error ? reason.message : "Could not search cards." });
           setLoading(false);
+          dropHover();
         },
       );
     }, DEBOUNCE_MS);
@@ -248,10 +262,10 @@ export function CardBrowser({
                 : <ArrowDownWideNarrow size={16} strokeWidth={1.6} aria-hidden />}
             </button>
             <div className={styles.viewSwitch} role="group" aria-label="Display">
-              <button type="button" className={styles.iconButton} aria-pressed={view === "grid"} aria-label="Card grid" onClick={() => onViewChange("grid")}>
+              <button type="button" className={styles.iconButton} aria-pressed={view === "grid"} aria-label="Card grid" onClick={() => { dropHover(); onViewChange("grid"); }}>
                 <LayoutGrid size={16} strokeWidth={1.6} aria-hidden />
               </button>
-              <button type="button" className={styles.iconButton} aria-pressed={view === "list"} aria-label="Card list with details" onClick={() => onViewChange("list")}>
+              <button type="button" className={styles.iconButton} aria-pressed={view === "list"} aria-label="Card list with details" onClick={() => { dropHover(); onViewChange("list"); }}>
                 <List size={16} strokeWidth={1.6} aria-hidden />
               </button>
             </div>
@@ -314,8 +328,8 @@ export function CardBrowser({
                   draggable: true,
                   "aria-pressed": inspectCode === card.code,
                   onClick: () => onInspect(card),
-                  onPointerEnter: (event: PointerEvent) => { if (event.pointerType !== "touch") onHover(card); },
-                  onPointerLeave: () => onHover(null),
+                  onPointerEnter: (event: PointerEvent) => { if (event.pointerType !== "touch") pointAt(card); },
+                  onPointerLeave: () => pointAt(null),
                   onDoubleClick: () => onAdd(card),
                   onContextMenu: (event: MouseEvent) => { event.preventDefault(); onAdd(card); },
                   onKeyDown: (event: KeyboardEvent) => onTileKey(event, card),

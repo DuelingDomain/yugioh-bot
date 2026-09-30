@@ -136,6 +136,39 @@ describe("SavedDeckEditor", () => {
     expect(within(details).getByRole("button", { name: "Add one Blue-Eyes White Dragon to Main" })).toBeInTheDocument();
   });
 
+  it("ends the pointer preview when a new search removes the card", async () => {
+    render(<SavedDeckEditor />);
+    fireEvent.click(await screen.findByRole("button", { name: "Blue-Eyes White Dragon" }));
+    const details = screen.getByRole("complementary", { name: "Card details" });
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Pot of Greed" }));
+    expect(await within(details).findByRole("heading", { name: "Pot of Greed" })).toBeInTheDocument();
+
+    // The tile goes away under a still pointer, so it never sends pointerleave.
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "blue" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Pot of Greed" })).toBeNull());
+    expect(await within(details).findByRole("heading", { name: "Blue-Eyes White Dragon" })).toBeInTheDocument();
+    expect(within(details).getByRole("button", { name: "Add one Blue-Eyes White Dragon to Main" })).toBeInTheDocument();
+  });
+
+  it("ends the pointer preview when the test hand closes", async () => {
+    render(<SavedDeckEditor />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pot of Greed" }));
+    fireEvent.doubleClick(screen.getByRole("button", { name: "Blue-Eyes White Dragon" }));
+    await waitFor(() => expect(mainCards()).toHaveLength(1));
+    const details = screen.getByRole("complementary", { name: "Card details" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Test hand" }));
+    const hand = screen.getByRole("region", { name: "Test hand" });
+    fireEvent.pointerEnter(within(hand).getByRole("button", { name: "Blue-Eyes White Dragon" }));
+    expect(await within(details).findByRole("heading", { name: "Blue-Eyes White Dragon" })).toBeInTheDocument();
+
+    // Undo changes the Main Deck, which closes the hand under the pointer.
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.queryByRole("region", { name: "Test hand" })).toBeNull();
+    expect(within(details).getByRole("heading", { name: "Pot of Greed" })).toBeInTheDocument();
+  });
+
   it("undoes a format change", async () => {
     render(<SavedDeckEditor />);
     await screen.findByRole("button", { name: "Pot of Greed" });

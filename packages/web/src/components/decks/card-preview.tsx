@@ -18,8 +18,9 @@ function scaleText(card: DeckCardInfo): string | null {
  * (already cached by the card tiles) shows at once; the full art replaces it when it loads.
  */
 export function CardPreview({ card }: { card: DeckCardInfo }) {
-  const [loaded, setLoaded] = useState<number | null>(null);
-  const [failed, setFailed] = useState<number | null>(null);
+  // Kept for every card shown, so a card shown again does not fade in a second time.
+  const [loaded, setLoaded] = useState<ReadonlySet<number>>(() => new Set());
+  const [failed, setFailed] = useState<ReadonlySet<number>>(() => new Set());
   const details = cardDetailsText(card);
   const kind = cardKindText(card);
   const scale = scaleText(card);
@@ -30,16 +31,16 @@ export function CardPreview({ card }: { card: DeckCardInfo }) {
     <article className={styles.preview}>
       <div className={styles.art}>
         <CardArt code={card.code} name={card.name} />
-        {failed === card.code ? null : (
+        {failed.has(card.code) ? null : (
           <img
             key={card.code}
             className={styles.full}
             src={cardArtUrl(card.code, "full")}
             alt=""
             draggable={false}
-            data-loaded={loaded === card.code ? "true" : undefined}
-            onLoad={() => setLoaded(card.code)}
-            onError={() => setFailed(card.code)}
+            data-loaded={loaded.has(card.code) ? "true" : undefined}
+            onLoad={() => setLoaded((codes) => new Set(codes).add(card.code))}
+            onError={() => setFailed((codes) => new Set(codes).add(card.code))}
           />
         )}
       </div>

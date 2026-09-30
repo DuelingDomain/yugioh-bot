@@ -93,8 +93,23 @@ const HOVER_OUT_MS = 160;
 type Snapshot = { selection: DeckMasterSelection; mode: DuelMode };
 type History = { past: Snapshot[]; future: Snapshot[] };
 type TestHand = { drawn: number[]; pile: number[] };
-/** The card under the pointer. A deck copy is kept by position, so the preview follows the deck when it changes. */
-type HoverTarget = { code: number } | HoveredCopy;
+/**
+ * The card under the pointer. A deck copy is kept by position, so the preview follows the deck when it changes.
+ * A hand card or the Deck Master is kept with its place, so the preview ends when that card goes away.
+ */
+type HoverTarget =
+  | HoveredCopy
+  | { code: number; from: "list" | "master" }
+  | { code: number; from: "hand"; index: number };
+
+/** The code of the hovered card, or null when that card is gone: a removed element never sends pointerleave. */
+function hoveredCode(hover: HoverTarget | null, deck: DuelDeck, hand: TestHand | null, mode: DuelMode): number | null {
+  if (hover == null) return null;
+  if ("section" in hover) return deck[hover.section][hover.index] ?? null;
+  if (hover.from === "hand") return hand?.drawn[hover.index] === hover.code ? hover.code : null;
+  if (hover.from === "master") return mode === "domain" && deck.deckMaster === hover.code ? hover.code : null;
+  return hover.code;
+}
 
 function parseRouteId(raw: string | undefined): number | "new" | "invalid" {
   if (raw == null || raw === "") return "new";
@@ -559,7 +574,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
 
   const notes = guidanceNotes(mode, deck);
   const inspected = inspectCode == null ? undefined : catalog.get(inspectCode);
-  const hoverCode = hover == null ? null : "section" in hover ? deck[hover.section][hover.index] ?? null : hover.code;
+  const hoverCode = hoveredCode(hover, deck, hand, mode);
   const shownCode = hoverCode ?? inspectCode;
   const shown = shownCode == null ? undefined : catalog.get(shownCode);
   // Deck controls belong to the selected card, so they hide while the pane shows another card.
@@ -838,7 +853,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
                       aria-label={cardName(code)}
                       title={cardName(code)}
                       onClick={() => inspect(code)}
-                      onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code }); }}
+                      onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code, from: "hand", index }); }}
                       onPointerLeave={() => pointAt(null)}
                     >
                       <CardArt code={code} name={cardName(code)} />
@@ -878,7 +893,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
                     title={cardName(deck.deckMaster)}
                     draggable
                     onClick={() => inspect(deck.deckMaster!)}
-                    onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster! }); }}
+                    onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }}
                     onPointerLeave={() => pointAt(null)}
                     onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })}
                     onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}
@@ -949,7 +964,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
           onInspect={(card) => { rememberCatalog([card]); inspect(card.code); }}
           onHover={(card) => {
             if (card) rememberCatalog([card]);
-            pointAt(card ? { code: card.code } : null);
+            pointAt(card ? { code: card.code, from: "list" } : null);
           }}
           onAdd={(card) => addFromList(card)}
           onCatalog={rememberCatalog}
