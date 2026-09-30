@@ -292,7 +292,7 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
       }
       case "damage": {
         if (!event.amount || event.amount <= 0 || event.seat == null) break;
-        const cause: DamageCause = event.cause ?? (chain?.current != null ? "effect" : battleKey != null ? "battle" : "effect");
+        const cause: DamageCause = (event.cause === "rule" || event.cause === "other" ? "effect" : event.cause) ?? (chain?.current != null ? "effect" : battleKey != null ? "battle" : "effect");
         const hit: HistoryHit = { seat: event.seat, amount: event.amount, cause };
         const battle = tileAt(battleKey);
         if (cause === "battle" && battle) {

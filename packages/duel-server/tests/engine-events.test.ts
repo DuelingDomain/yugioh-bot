@@ -139,6 +139,7 @@ describe("richer engine events", () => {
       expect(destroy).toMatchObject({ seat: 0, zone: { controller: 0, location: OcgLocation.MZONE, sequence: 0 } });
       expect(destroy!.card?.code).toBe(weak[0]);
       expect(destroy!.text).toBe(`${destroy!.card!.name} was destroyed`);
+      expect(destroy).toMatchObject({ cause: "battle" });
       expect(game.view(0).seats[0].lp).toBe(8000 - damage!.amount!);
       const ids = events.map((event) => event.id);
       expect(ids.indexOf(attack!.id)).toBeLessThan(ids.indexOf(damage!.id));
@@ -504,6 +505,36 @@ describe("event observer messages", () => {
     observeDuelEvent(moveOut(5, at(0, OcgLocation.MZONE, 1)), cards, [], 12, ctx);
     resetEventBatch(ctx);
     expect(drainDeferredDestroys(ctx, cards, 20)).toEqual([]);
+  });
+
+  it("reads cause and source from a detailed destruction note", () => {
+    const ctx = createEventContext();
+    const from = at(0, OcgLocation.MZONE, 0);
+    // reason DESTROY|EFFECT (0x41), Mirror Force (trap 0x4 | 0x20000 continuous-free) activated by seat 1.
+    observeDuelEvent(moveOut(4, from), cards, [], 1, ctx);
+    noteDestroyLog(ctx, `${DESTROY_NOTE_PREFIX}0:${OcgLocation.MZONE}:0:65:44095762:4:1`);
+    const [effect] = drainDeferredDestroys(ctx, cards, 30);
+    expect(effect).toMatchObject({ kind: "destroy", cause: "effect", sourceCode: 44095762, sourceKind: "trap", sourceSeat: 1 });
+    expect(projectStoredEvent(effect!, 0)).toMatchObject({ cause: "effect", sourceCode: 44095762, sourceKind: "trap", sourceSeat: 1 });
+
+    // Battle: reason DESTROY|BATTLE (0x21) with the opposing monster as source.
+    noteDestroyLog(ctx, `${DESTROY_NOTE_PREFIX}0:${OcgLocation.MZONE}:1:33:77:1:1`);
+    const battle = observeDuelEvent(moveOut(5, at(0, OcgLocation.MZONE, 1)), cards, [], 31, ctx)!;
+    expect(battle).toMatchObject({ cause: "battle", sourceCode: 77, sourceKind: "monster" });
+
+    // Old three-part note: no cause fields.
+    noteDestroyLog(ctx, `${DESTROY_NOTE_PREFIX}0:${OcgLocation.MZONE}:2`);
+    const legacy = observeDuelEvent(moveOut(6, at(0, OcgLocation.MZONE, 2)), cards, [], 32, ctx)!;
+    expect(legacy.cause).toBeUndefined();
+  });
+
+  it("falls back to the resolving chain link when the core names no reason card", () => {
+    const ctx = createEventContext();
+    const chain = [{ index: 1, seat: 1, code: 55 }];
+    observeDuelEvent({ type: OcgMessageType.CHAIN_SOLVING, chain_size: 1 } as OcgMessage, cards, chain, 1, ctx);
+    noteDestroyLog(ctx, `${DESTROY_NOTE_PREFIX}0:${OcgLocation.MZONE}:0:65:0:0:1`);
+    const destroyed = observeDuelEvent(moveOut(4, at(0, OcgLocation.MZONE, 0)), cards, chain, 2, ctx)!;
+    expect(destroyed).toMatchObject({ cause: "effect", sourceCode: 55, sourceSeat: 1 });
   });
 
   it("ignores moves that stay on the field", () => {

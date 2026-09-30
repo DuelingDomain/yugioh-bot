@@ -274,6 +274,9 @@ export interface StoredDuelEvent {
   target?: DuelZoneRef;
   amount?: number;
   cause?: DuelEvent["cause"];
+  sourceCode?: number;
+  sourceKind?: DuelEvent["sourceKind"];
+  sourceSeat?: number;
   summonKind?: DuelEvent["summonKind"];
   fromPosition?: number;
   toPosition?: number;
@@ -354,7 +357,19 @@ e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
 e:SetCode(EVENT_DESTROYED)
 e:SetOperation(function(e,tp,eg)
   for tc in aux.Next(eg) do
-    Debug.Message("${DESTROY_NOTE_PREFIX}"..tc:GetPreviousControler()..":"..tc:GetPreviousLocation()..":"..tc:GetPreviousSequence())
+    local re=tc:GetReasonEffect()
+    local rc=tc:GetReasonCard()
+    local rtype=0
+    if re then
+      rc=re:GetHandler()
+      rtype=re:GetActiveType()
+    elseif rc then
+      rtype=rc:GetType()
+    end
+    local rcode=0
+    if rc then rcode=rc:GetOriginalCode() end
+    Debug.Message("${DESTROY_NOTE_PREFIX}"..tc:GetPreviousControler()..":"..tc:GetPreviousLocation()..":"..tc:GetPreviousSequence()
+      ..":"..tc:GetReason()..":"..rcode..":"..rtype..":"..tc:GetReasonPlayer())
   end
 end)
 Duel.RegisterEffect(e,0)
@@ -373,6 +388,8 @@ export interface EventContext {
   released: [number, number];
   /** Destruction notes printed by the startup script and not yet matched to a MOVE. */
   destroyNotes: string[];
+  /** The chain link currently resolving (CHAIN_SOLVING .. CHAIN_SOLVED); the fallback source of an effect destroy. */
+  resolving: { code: number; seat: number; type: number } | null;
   /** Field departures seen before their destruction note arrived. */
   pendingMoves: PendingMove[];
   /** Move events emitted this batch whose reason a later message may still refine. */
@@ -394,7 +411,7 @@ interface TrackedMove {
 }
 
 export function createEventContext(): EventContext {
-  return { battle: false, released: [0, 0], destroyNotes: [], pendingMoves: [], moves: [], handSize: [0, 0], arrivals: new Map(), pendulumSummon: false };
+  return { battle: false, released: [0, 0], destroyNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], arrivals: new Map(), pendulumSummon: false };
 }
 
 /** Feed an engine log line to the context; returns true when it was a destruction note. */
@@ -404,13 +421,60 @@ export function noteDestroyLog(ctx: EventContext, text: string): boolean {
   return true;
 }
 
-function takeDestroyNote(ctx: EventContext, from: { controller: number; location: number; sequence: number }): boolean {
+interface DestroyDetail {
+  cause: NonNullable<DuelEvent["cause"]>;
+  sourceCode?: number;
+  sourceKind?: NonNullable<DuelEvent["sourceKind"]>;
+  sourceSeat?: number;
+}
+
+const REASON_BATTLE = 0x20;
+const REASON_EFFECT = 0x40;
+const REASON_COST = 0x80;
+const REASON_RULE = 0x400;
+
+/** Read the optional ":reason:rcode:rtype:rplayer" tail of a destruction note. Undefined for old three-part notes. */
+function parseDestroyDetail(ctx: EventContext, tail: string[]): DestroyDetail | undefined {
+  if (tail.length < 4) return undefined;
+  const [reason, code, type, player] = tail.map(Number) as [number, number, number, number];
+  if ([reason, code, type, player].some((value) => !Number.isFinite(value))) return undefined;
+  const cause: DestroyDetail["cause"] =
+    reason & REASON_BATTLE ? "battle" : reason & REASON_EFFECT ? "effect" : reason & REASON_COST ? "cost" : reason & REASON_RULE ? "rule" : "other";
+  const detail: DestroyDetail = { cause };
+  let sourceCode = code;
+  let sourceType = type;
+  let sourceSeat = player === 1 ? 1 : 0;
+  if (!sourceCode && cause === "effect" && ctx.resolving) {
+    // The core gave no reason card: attribute the destroy to the chain link that is resolving.
+    sourceCode = ctx.resolving.code;
+    sourceSeat = ctx.resolving.seat === 1 ? 1 : 0;
+    sourceType = ctx.resolving.type;
+  }
+  if (sourceCode) {
+    detail.sourceCode = sourceCode;
+    detail.sourceSeat = sourceSeat;
+    const kind = sourceType & OcgType.TRAP ? "trap" : sourceType & OcgType.SPELL ? "spell" : sourceType & OcgType.MONSTER ? "monster" : undefined;
+    if (kind) detail.sourceKind = kind;
+  }
+  return detail;
+}
+
+function takeDestroyNote(ctx: EventContext, from: { controller: number; location: number; sequence: number }): DestroyDetail | true | null {
   const key = `${from.controller}:${from.location}:${from.sequence}`;
-  const index = ctx.destroyNotes.indexOf(key);
-  if (index < 0) return false;
-  ctx.destroyNotes.splice(index, 1);
-  settleMove(ctx, (move) => sameZone(move.from, from), "destroy");
-  return true;
+  const index = ctx.destroyNotes.findIndex((note) => note === key || note.startsWith(`${key}:`));
+  if (index < 0) return null;
+  const [note] = ctx.destroyNotes.splice(index, 1);
+  const detail = parseDestroyDetail(ctx, note!.split(":").slice(3));
+  const settled = settleMove(ctx, (move) => sameZone(move.from, from), "destroy");
+  if (detail && settled) applyDestroyDetail(settled, detail);
+  return detail ?? true;
+}
+
+function applyDestroyDetail(event: StoredDuelEvent, detail: DestroyDetail): void {
+  event.cause = detail.cause;
+  if (detail.sourceCode != null) event.sourceCode = detail.sourceCode;
+  if (detail.sourceKind) event.sourceKind = detail.sourceKind;
+  if (detail.sourceSeat != null) event.sourceSeat = detail.sourceSeat;
 }
 
 function isFieldLocation(location: number): boolean {
@@ -439,12 +503,12 @@ function specialSummonKind(ctx: EventContext, message: { controller: number; loc
   return "special";
 }
 
-function destroyEvent(id: number, code: number, from: PendingMove["from"], cards: CardDatabase): StoredDuelEvent {
+function destroyEvent(id: number, code: number, from: PendingMove["from"], cards: CardDatabase, detail?: DestroyDetail | true): StoredDuelEvent {
   const info = code ? cards.get(code) : undefined;
   const name = info?.name ?? (code ? `Card ${code}` : "A card");
   const hidden = isFacedownPosition(from.position);
   const text = `${name} was destroyed`;
-  return {
+  const event: StoredDuelEvent = {
     id,
     kind: "destroy",
     seat: from.controller,
@@ -454,6 +518,8 @@ function destroyEvent(id: number, code: number, from: PendingMove["from"], cards
     revealCardTo: hidden ? from.controller : "all",
     zone: { controller: from.controller, location: from.location, sequence: from.sequence },
   };
+  if (detail && detail !== true) applyDestroyDetail(event, detail);
+  return event;
 }
 
 /** Destroy events whose note arrived after their MOVE message (they were split across engine batches). */
@@ -461,9 +527,10 @@ export function drainDeferredDestroys(ctx: EventContext, cards: CardDatabase, fi
   const out: StoredDuelEvent[] = [];
   const remaining: PendingMove[] = [];
   for (const move of ctx.pendingMoves) {
-    if (takeDestroyNote(ctx, move.from)) {
+    const detail = takeDestroyNote(ctx, move.from);
+    if (detail) {
       if (move.from.location === OcgLocation.MZONE) ctx.released[move.from.controller === 1 ? 1 : 0] -= 1;
-      out.push(destroyEvent(firstId + out.length, move.code, move.from, cards));
+      out.push(destroyEvent(firstId + out.length, move.code, move.from, cards, detail));
     } else remaining.push(move);
   }
   ctx.pendingMoves = remaining;
@@ -497,6 +564,9 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.faceDown != null) projected.faceDown = event.faceDown;
   if (event.amount != null) projected.amount = event.amount;
   if (event.cause) projected.cause = event.cause;
+  if (event.sourceCode != null) projected.sourceCode = event.sourceCode;
+  if (event.sourceKind) projected.sourceKind = event.sourceKind;
+  if (event.sourceSeat != null) projected.sourceSeat = event.sourceSeat;
   if (event.summonKind) projected.summonKind = event.summonKind;
   if (event.fromPosition != null) projected.fromPosition = event.fromPosition;
   if (event.toPosition != null) projected.toPosition = event.toPosition;
@@ -540,14 +610,15 @@ function sameZone(a: DuelZoneRef, b: DuelZoneRef): boolean {
 }
 
 /** Fix the reason of the most recent still-unsettled move this batch that matches `test`. */
-function settleMove(ctx: EventContext, test: (move: TrackedMove) => boolean, reason: DuelMoveReason): void {
+function settleMove(ctx: EventContext, test: (move: TrackedMove) => boolean, reason: DuelMoveReason): StoredDuelEvent | undefined {
   for (let index = ctx.moves.length - 1; index >= 0; index -= 1) {
     const move = ctx.moves[index]!;
     if (move.settled || !test(move)) continue;
     move.settled = true;
     move.event.reason = reason;
-    return;
+    return move.event;
   }
+  return undefined;
 }
 
 /** True when `viewer` may learn a card's identity from this end of a move. */
@@ -678,6 +749,15 @@ export function observeDuelEvent(
     switch (message.type) {
       case OcgMessageType.BATTLE:
         ctx.battle = true;
+        break;
+      case OcgMessageType.CHAIN_SOLVING: {
+        const link = chain[message.chain_size - 1];
+        ctx.resolving = link ? { code: link.code, seat: link.seat, type: cards.get(link.code)?.type ?? 0 } : null;
+        break;
+      }
+      case OcgMessageType.CHAIN_SOLVED:
+      case OcgMessageType.CHAIN_END:
+        ctx.resolving = null;
         break;
       case OcgMessageType.DAMAGE_STEP_END:
       case OcgMessageType.NEW_PHASE:
@@ -834,7 +914,8 @@ export function observeDuelEvent(
         sequence: message.from.sequence,
         position: message.from.position,
       };
-      if (takeDestroyNote(ctx, from)) return destroyEvent(id, message.card, from, cards);
+      const detail = takeDestroyNote(ctx, from);
+      if (detail) return destroyEvent(id, message.card, from, cards, detail);
       if (message.from.location === OcgLocation.MZONE) ctx.released[from.controller === 1 ? 1 : 0] += 1;
       ctx.pendingMoves.push({ code: message.card, from });
       return null;

@@ -70,4 +70,18 @@ describe("battleOutcome", () => {
     const events = [direct, event({ id: 31, kind: "damage", seat: 1, amount: 1000, cause: "battle" })];
     expect(battleOutcome(events, direct)).toEqual({ attacker: false, target: false });
   });
+
+  it("ignores an attacker destroyed by a trap effect (Mirror Force)", () => {
+    const events = [attack, event({ id: 11, kind: "destroy", seat: 0, zone: attackerZone, cause: "effect", sourceCode: 44095762, sourceKind: "trap" })];
+    expect(battleOutcome(events, attack)).toEqual({ attacker: false, target: false });
+  });
+
+  it("counts battle-caused destroys and skips effect ones in the same fight", () => {
+    const events = [
+      attack,
+      event({ id: 11, kind: "destroy", seat: 1, zone: targetZone, cause: "battle", sourceCode: 1 }),
+      event({ id: 12, kind: "destroy", seat: 0, zone: attackerZone, cause: "effect", sourceCode: 56120475 }),
+    ];
+    expect(battleOutcome(events, attack)).toEqual({ attacker: false, target: true });
+  });
 });

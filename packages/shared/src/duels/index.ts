@@ -232,8 +232,19 @@ export interface DuelEvent {
   target?: DuelZoneRef;
   /** damage: LP lost by `seat` (positive number). */
   amount?: number;
-  /** damage: "battle" for battle damage, "effect" for effect damage, "cost" for paid LP. */
-  cause?: "battle" | "effect" | "cost";
+  /**
+   * damage: "battle" for battle damage, "effect" for effect damage, "cost" for paid LP.
+   * destroy / move (reason "destroy"): why the card was destroyed. "battle" = lost a battle,
+   * "effect" = a card effect (see sourceCode), "rule" = a game rule, "cost" = paid as a cost,
+   * "other" = anything else. Absent on events recorded before this field existed.
+   */
+  cause?: "battle" | "effect" | "cost" | "rule" | "other";
+  /** destroy / move: passcode of the card that caused the destruction (the effect's card, or the opposing battler). */
+  sourceCode?: number;
+  /** destroy / move: card type of the source when it activated (monster, spell or trap). */
+  sourceKind?: "monster" | "spell" | "trap";
+  /** destroy / move: seat that controlled the reason (the player the destruction is attributed to). */
+  sourceSeat?: number;
   /** summon: how the monster arrived. */
   summonKind?: DuelSummonKind;
   /**
