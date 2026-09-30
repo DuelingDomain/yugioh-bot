@@ -5,11 +5,10 @@ import { cn } from "@/lib/utils";
 import {
   cardArtUrl,
   cardStatsText,
-  isDefense,
+  isDefenseAt,
   isFacedown,
   LOCATION_EXTRA,
   LOCATION_HAND,
-  LOCATION_MZONE,
 } from "./constants";
 import styles from "./field.module.css";
 
@@ -48,7 +47,7 @@ export function CardFace({
   const setDown = isFacedown(card?.position);
   const inHand = loc === LOCATION_HAND;
   const showArt = known && (inHand || reveal || !setDown);
-  const defensePos = loc === LOCATION_MZONE && isDefense(card?.position);
+  const defensePos = isDefenseAt(loc, card?.position);
   const overlays = showArt ? card?.materials?.length ?? 0 : 0;
 
   return (
