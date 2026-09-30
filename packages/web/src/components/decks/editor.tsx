@@ -34,6 +34,7 @@ import {
   type DeckSection,
   type SelectedStack,
 } from "./model";
+import { deckNameFromFile } from "./import";
 import { DeckSearchPanel } from "./search-panel";
 import { DeckSectionGrid } from "./section-grid";
 import styles from "./editor.module.css";
@@ -205,6 +206,8 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
         if (generation !== importGeneration.current) return;
         try {
           applyImported(parseDeckText(text));
+          // A new deck that still has the default name takes the file's name.
+          if (savedId == null && name.trim() === DEFAULT_NAME) setName(deckNameFromFile(file.name));
         } catch (reason: unknown) {
           setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
         }
