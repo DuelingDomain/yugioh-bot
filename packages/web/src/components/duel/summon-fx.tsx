@@ -23,6 +23,12 @@
  *
  * Everything is a Web Animation on an overlay that never takes pointer input, so the board stays
  * usable. The real card is only hidden (never removed) while its projection lands on top of it.
+ *
+ * When the WebGL layer is ready (see fx3d/), the big summons (heavy and typed) are drawn by it
+ * instead: Summon3dFx below only hides the real card, keeps the item alive, fires the sound cues and
+ * asks the canvas to play the effect; the slam (shake, cracks, aura) still comes from ImpactFx. The
+ * layer is chosen when the effect is planned, never mid-way, and the DOM effects stay the fallback
+ * for reduced motion, missing WebGL, context loss and the moments before the canvas has loaded.
  */
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
@@ -43,6 +49,12 @@ import {
   type SummonStyle,
 } from "./event-queue";
 import { battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
+import { parseRgbTriplet } from "./fx3d/coords";
+import { pickSummonRoute, summon3dKeyOf, summonEffectId } from "./fx3d/routing";
+import { SUMMON3D_TIMELINE, shakeScaleOf, summon3dHitMs, summon3dLockMs, type Summon3dKey } from "./fx3d/timeline";
+import type { Fx3dApi, FxRequest, FxTint } from "./fx3d/types";
+import { useFx3d } from "./fx3d/use-fx3d";
+import { holdPromptReveal } from "./prompt-reveal";
 import { MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } from "./move-plan";
 import type { DuelShakePreference } from "./preferences";
 import styles from "./summon-fx.module.css";
@@ -172,13 +184,16 @@ type FxItem = {
   life: number;
   /** destroy: ms the card cracks in place before it breaks; set when a battle holds the destroy. */
   breakMs?: number;
+  /** Set when the WebGL layer draws this heavy or typed summon. */
+  three?: { key: Summon3dKey; api: Fx3dApi } | null;
 };
 
 /**
  * Milliseconds from the start of a slamming summon to its moment of impact: the drop of a heavy
  * hologram, or the moment a typed summon's real card takes over.
  */
-export function slamHitMs(kind: FxKind, style: SummonStyle | null): number {
+export function slamHitMs(kind: FxKind, style: SummonStyle | null, threeKey?: Summon3dKey | null): number {
+  if (threeKey) return summon3dHitMs(threeKey);
   if (kind === "heavy") return HEAVY_TIMELINE.impact;
   return style ? TYPED_TIMELINE[style].handOver - 60 : 0;
 }
@@ -280,6 +295,7 @@ function emitCue(cue: DuelFxCue, strength = 1): void {
 export class Track {
   readonly anims: Animation[] = [];
   private readonly timers: number[] = [];
+  private readonly cleanups: Array<() => void> = [];
   private origin = 0;
   private scale = 1;
 
@@ -315,6 +331,11 @@ export class Track {
     this.timers.push(window.setTimeout(fn, Math.max(0, this.at(ms))));
   }
 
+  /** Runs `fn` when the track is disposed (an effect that lives outside the DOM stops with it). */
+  onDispose(fn: () => void): void {
+    this.cleanups.push(fn);
+  }
+
   /** Resolves when every animation on the track has finished (a cancel counts as finished). */
   settled(): Promise<unknown> {
     return Promise.allSettled(this.anims.map((anim) => anim.finished));
@@ -322,6 +343,7 @@ export class Track {
 
   dispose(): void {
     for (const timer of this.timers) window.clearTimeout(timer);
+    for (const cleanup of this.cleanups) cleanup();
     for (const anim of this.anims) {
       try {
         anim.cancel();
@@ -333,9 +355,9 @@ export class Track {
 }
 
 /** Keeps the real card invisible for `ms` (fill both), then lets it back on its own. */
-function holdHidden(track: Track, zone: HTMLElement, ms: number): void {
+function holdHidden(track: Track, zone: HTMLElement, ms: number): Animation | null {
   const body = cardBodyOf(zone);
-  track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: Math.min(ms, HIDE_FAILSAFE_MS), fill: "backwards" });
+  return track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: Math.min(ms, HIDE_FAILSAFE_MS), fill: "backwards" });
 }
 
 function shakeFrames(amp: number, seed: number): Keyframe[] {
@@ -1832,10 +1854,71 @@ function TypedFx(props: EffectProps & { style: SummonStyle }) {
   }
 }
 
+/* ---------- WebGL summons ---------- */
+
+/** Aura colours of a plain heavy summon as the 3D tint: the attribute's light, and a paler accent. */
+function auraTint3d(attribute: number | undefined): FxTint {
+  const [main, alt] = auraTintOf(attribute);
+  const m = parseRgbTriplet(main);
+  return { main: m, alt: parseRgbTriplet(alt), accent: [m[0] * 0.4 + 0.6, m[1] * 0.4 + 0.6, m[2] * 0.4 + 0.6] };
+}
+
+/**
+ * A heavy or typed summon drawn by the WebGL layer. The real card stays hidden until the portrait
+ * has shrunk back into it (handOver); the canvas does the rest. Sound cues fire where the DOM
+ * versions fire them: heavy summons "holo" at the start and "slam" at the landing, typed ones
+ * their own cue at the start. The prompt panel waits for the whole effect (it is not a Web
+ * Animation, so prompt-reveal cannot see it).
+ */
+function Summon3dFx({ item, overlay, done }: EffectProps) {
+  const anchor = useAnchor();
+  const three = item.three;
+  useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
+    if (!three) return;
+    const d = item.delayMs;
+    const tl = SUMMON3D_TIMELINE[three.key];
+    const weight = heavyWeight(item.card, item.event.summonKind === "tribute");
+    const hidden = holdHidden(track, zone, d + tl.handOver);
+    // Keeps the item alive until the last light has faded.
+    track.play(anchor.current, [{ opacity: 1 }, { opacity: 1 }], { duration: tl.total, delay: d });
+    holdPromptReveal(d + tl.total);
+    if (item.kind === "heavy") {
+      track.after(d, () => emitCue("holo", weight));
+      track.after(d + tl.handOver, () => emitCue("slam", weight));
+    } else {
+      track.after(d, () => emitCue(three.key as SummonStyle, 1));
+    }
+    const abort = new AbortController();
+    track.onDispose(() => abort.abort());
+    const request: FxRequest = {
+      rect: { x: geo.left, y: geo.top, w: geo.w, h: geo.h },
+      tint: item.style ? undefined : auraTint3d(item.card?.attribute),
+      strength: item.strength || 1,
+      shake: shakeScaleOf(item.shake),
+      side: geo.side,
+      defense: geo.defense,
+      artCode: item.card?.code,
+      seed: item.event.id,
+    };
+    track.after(d, () => {
+      // The canvas can be lost between planning and now: show the real card at once then.
+      if (!three.api.ready) {
+        hidden?.cancel();
+        return;
+      }
+      void three.api.play(summonEffectId(three.key), request, abort.signal);
+    });
+  });
+  return <div ref={anchor} className={styles.anchor} data-fx="summon3d" />;
+}
+
 function FxView({ item, overlay, done }: EffectProps) {
   if (item.reduced) {
     const tone = item.kind === "destroy" ? "red" : item.kind === "activate" && item.event.chainIndex == null ? "violet" : item.style ? "typed" : "gold";
     return <GlowFx item={item} overlay={overlay} done={done} tone={tone} />;
+  }
+  if (item.three && (item.kind === "heavy" || item.kind === "typed")) {
+    return <Summon3dFx item={item} overlay={overlay} done={done} />;
   }
   switch (item.kind) {
     case "heavy":
@@ -1896,6 +1979,8 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
   const seqRef = useRef(0);
   const prefsRef = useRef({ reducedMotion, shake });
   prefsRef.current = { reducedMotion, shake };
+  // The WebGL layer loads while the room is idle; its ref is null until the canvas can draw.
+  const fx3d = useFx3d(overlay, !reducedMotion);
 
   useLayoutEffect(() => {
     setOverlay(overlayRef.current);
@@ -1935,10 +2020,16 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         const at = kind === "destroy" ? plan.startAt - plan.leadMs : plan.landAt;
         delayMs = Math.max(0, at - now);
       }
+      // The layer is picked here and stays: an effect never changes layer half-way.
+      const api = fx3d.current;
+      const threeKey =
+        pickSummonRoute({ kind, reduced: prefsRef.current.reducedMotion, ready: api?.ready === true }) === "three" ? summon3dKeyOf(kind, style) : null;
+      const three = threeKey && api ? { key: threeKey, api } : null;
       if (kind === "heavy" || kind === "typed") {
         delayMs = Math.max(delayMs, heavyFreeAtRef.current - now);
-        heavyFreeAtRef.current = now + delayMs + HEAVY_LOCK_MS;
+        heavyFreeAtRef.current = now + delayMs + (three ? summon3dLockMs(three.key) : HEAVY_LOCK_MS);
       }
+      if (three && event.card && event.card.code > 0) three.api.prefetchArt(event.card.code);
       // A card a fight destroyed keeps standing until the fight has landed its last strike.
       let breakMs: number | undefined;
       if (kind === "destroy") {
@@ -1964,11 +2055,12 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         strength,
         life: 0,
         breakMs,
+        three,
       };
       planned.push(base);
       if (strength > 0 && !base.reduced) {
         // The slam: shake, jolt, cracks and aura, timed to the moment the card lands.
-        const hit = slamHitMs(kind, style);
+        const hit = slamHitMs(kind, style, three?.key);
         seqRef.current += 1;
         planned.push({ ...base, key: `${event.id}-${seqRef.current}`, kind: "impact", delayMs: delayMs + hit, life: impactLifeMs(hit) });
       }
