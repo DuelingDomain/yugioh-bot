@@ -61,6 +61,16 @@ function hostErrorMessage(text: string) {
   return text.trim() || "Duel engine error";
 }
 
+export function duelHostConfigProblem(cfg: { url: string; secret: string }): string | null {
+  const missing = [!cfg.url && "DUEL_INTERNAL_URL", !cfg.secret && "DUEL_INTERNAL_SECRET"].filter(Boolean);
+  if (missing.length === 0) return null;
+  return `The duel engine is not set up on this server: ${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} missing. Ask the server admin to add ${missing.length > 1 ? "them" : "it"} to .env and restart the web and duel services.`;
+}
+
+function unreachableMessage(detail: string) {
+  return `The duel engine did not answer (${detail || "network error"}). It may be restarting. Try again in a moment.`;
+}
+
 export async function callDuelHost(input: {
   op: DuelHostOp;
   slug?: string;
@@ -71,7 +81,13 @@ export async function callDuelHost(input: {
   query?: string;
   codes?: number[];
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
-  const transport = httpTransport({ url: env.duelInternalUrl, secret: env.duelInternalSecret });
+  const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
+  const configProblem = duelHostConfigProblem(cfg);
+  if (configProblem) {
+    console.error(`[duel-host] ${configProblem}`);
+    return { ok: false, response: NextResponse.json({ error: configProblem }, { status: 503 }) };
+  }
+  const transport = httpTransport(cfg);
   const payload: Record<string, unknown> = {
     op: input.op,
     guildId: input.guildId,
@@ -85,10 +101,19 @@ export async function callDuelHost(input: {
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {
-    const status = result.status >= 400 ? result.status : 503;
+    if (result.status < 400) {
+      console.error(`[duel-host] ${input.op} failed: ${result.text || "no response"}`);
+      return { ok: false, response: NextResponse.json({ error: unreachableMessage(result.text) }, { status: 503 }) };
+    }
+    if (result.status === 401) {
+      // The host answers 401 only for a bad signature.
+      const error = "The duel engine refused the web server: their DUEL_INTERNAL_SECRET values do not match. Ask the server admin to fix .env and restart both services.";
+      console.error(`[duel-host] ${error}`);
+      return { ok: false, response: NextResponse.json({ error }, { status: 503 }) };
+    }
     return {
       ok: false,
-      response: NextResponse.json({ error: hostErrorMessage(result.text || "Duel engine is unavailable") }, { status }),
+      response: NextResponse.json({ error: hostErrorMessage(result.text) }, { status: result.status }),
     };
   }
   if (!result.text) {
