@@ -7,8 +7,10 @@
  * memoised per event id, so whichever layer sees a batch first plans it and the others read it.
  *
  * Human pacing: a card placed from the hand takes 420-560 ms, a toss into a pile 360-450 ms, a draw
- * about 380 ms. Moves queue one after another; the next one starts when the previous one is 60%
- * through, and a long burst is sped up so the whole queue never trails more than about 2.5 s.
+ * about 380 ms, a card taken back from a pile (search, salvage) 520 ms. Moves queue one after
+ * another; the next one starts when the previous one is 60% through (never less than minGapMs
+ * later, so two draws stay two cards), and a long burst is sped up so the whole queue never trails
+ * more than about 1.4 s.
  */
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
@@ -28,13 +30,17 @@ export const MOVE_TIMING = {
   tossMax: 450,
   draw: 380,
   ret: 420,
+  /** A card taken from the Graveyard or banished pile into the hand: it lifts out, shows its face, then settles. */
+  search: 520,
   reduced: 150,
   /** The next move starts when the previous one is this far through. */
   overlap: 0.6,
+  /** The next move never starts sooner than this after the previous one (a sped-up burst still reads as separate cards). */
+  minGapMs: 70,
   /** The whole queue should finish within this many ms of the newest batch arriving. */
-  queueCapMs: 2500,
+  queueCapMs: 1400,
   /** Never speed a burst up by more than this factor (1 / minSpeed). */
-  minSpeed: 0.4,
+  minSpeed: 0.3,
   /** Destroy: the card cracks and breaks in place first, then flies off. */
   destroyBreakMs: 150,
   destroyBreakBattleMs: 460,
@@ -42,7 +48,7 @@ export const MOVE_TIMING = {
   heavyHoldMs: 140,
 } as const;
 
-export type MoveStyle = "place" | "toss" | "draw" | "return" | "fade";
+export type MoveStyle = "place" | "toss" | "draw" | "return" | "search" | "fade";
 
 export type MovePlan = {
   /** The move event's id. */
@@ -113,7 +119,7 @@ export function moveStyleOf(event: DuelEvent, reduced: boolean): MoveStyle {
   if (event.reason === "draw") return "draw";
   if (from.location === LOCATION_DECK && to.location === LOCATION_HAND) return "draw";
   if (isPileLocation(to.location)) return "toss";
-  if (to.location === LOCATION_HAND) return "return";
+  if (to.location === LOCATION_HAND) return from.location === LOCATION_GRAVE || from.location === LOCATION_REMOVED ? "search" : "return";
   return "place";
 }
 
@@ -126,6 +132,8 @@ export function baseDuration(style: MoveStyle, distance: number): number {
       return MOVE_TIMING.draw;
     case "return":
       return MOVE_TIMING.ret;
+    case "search":
+      return MOVE_TIMING.search;
     case "toss":
       return clamp(MOVE_TIMING.tossMin + d * 0.1, MOVE_TIMING.tossMin, MOVE_TIMING.tossMax);
     default:
@@ -242,7 +250,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       const dur = item.base * speed;
       const start = cursor + item.lead;
       out.push({ start, dur });
-      cursor = start + dur * MOVE_TIMING.overlap;
+      cursor = start + Math.max(dur * MOVE_TIMING.overlap, MOVE_TIMING.minGapMs);
     }
     return { out, cursor };
   };

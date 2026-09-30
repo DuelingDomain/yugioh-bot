@@ -17,6 +17,8 @@ export type DuelEventKind = DuelEvent["kind"];
 export const HEAVY_SUMMON_LEVEL = 7;
 /** Link Rating at which a Link Summon counts as heavy. */
 export const HEAVY_LINK_RATING = 3;
+/** ATK at which any monster counts as heavy, whatever its Level. */
+export const HEAVY_ATTACK = 2500;
 
 /** The Extra Deck and Ritual/Pendulum summon families that get an animation of their own. */
 export type SummonStyle = "fusion" | "synchro" | "xyz" | "link" | "ritual" | "pendulum";
@@ -31,14 +33,74 @@ function isMonsterCard(event: DuelEvent): boolean {
 
 /**
  * A summon that deserves weight: a Level/Rank 7+ monster, a Link 3+ monster (its `level` carries
- * the Link Rating), or any Tribute Summon. Needs a public card; a hidden or missing card never counts.
+ * the Link Rating), a monster with 2500+ ATK, or any Tribute Summon. Needs a public card; a hidden
+ * or missing card never counts.
  */
 export function isHeavySummon(event: DuelEvent): boolean {
   if (event.kind !== "summon" || !isMonsterCard(event)) return false;
   const card = event.card!;
   if (event.summonKind === "tribute") return true;
+  if (typeof card.attack === "number" && card.attack >= HEAVY_ATTACK) return true;
   if ((card.type & TYPE_LINK) !== 0) return card.level >= HEAVY_LINK_RATING;
   return card.level >= HEAVY_SUMMON_LEVEL;
+}
+
+/* ---------- slam: how hard a strong monster lands ---------- */
+
+export const SLAM_MIN_STRENGTH = 0.6;
+export const SLAM_MAX_STRENGTH = 1.6;
+
+/**
+ * How hard a summon lands on the board, 0 when it does not slam. Every heavy summon slams
+ * (Tribute, Level/Rank 7+, Link 3+, 2500+ ATK) and so does every typed summon (Fusion, Synchro,
+ * Xyz, Link, Ritual, Pendulum). Strength runs from 0.6 to 1.6 and grows with Level/Rank, ATK, a
+ * Tribute Summon and the summon type. It sets the shake, the jolt of the neighbours, the number and
+ * length of the cracks, and the size of the aura.
+ */
+export function slamStrengthOf(event: DuelEvent, fromLocation?: number): number {
+  const heavy = isHeavySummon(event);
+  const typed = summonStyleOf(event, fromLocation) != null;
+  if (!heavy && !typed) return 0;
+  const card = event.card!;
+  let strength = SLAM_MIN_STRENGTH;
+  const level = (card.type & TYPE_LINK) !== 0 ? card.level * 2 + 1 : card.level;
+  if (level >= HEAVY_SUMMON_LEVEL) strength += Math.min(0.45, 0.1 + (level - HEAVY_SUMMON_LEVEL) * 0.08);
+  const attack = typeof card.attack === "number" ? card.attack : 0;
+  if (attack >= HEAVY_ATTACK) strength += Math.min(0.4, 0.1 + ((attack - HEAVY_ATTACK) / 2500) * 0.3);
+  if (event.summonKind === "tribute") strength += 0.05;
+  if (typed) strength += 0.08;
+  return Math.round(Math.min(SLAM_MAX_STRENGTH, Math.max(SLAM_MIN_STRENGTH, strength)) * 100) / 100;
+}
+
+export type SlamTier = 1 | 2 | 3;
+
+export function slamTierOf(strength: number): SlamTier {
+  return strength < 0.85 ? 1 : strength < 1.2 ? 2 : 3;
+}
+
+/** Number of main cracks on the field for a slam of this strength (more and longer as it grows). */
+export function slamCrackCount(strength: number): number {
+  return Math.round(5 + strength * 4);
+}
+
+/** Aura colours by card attribute bit, as "r g b" (main, secondary). */
+const ATTRIBUTE_TINT: Array<[number, [string, string]]> = [
+  [0x01, ["214 164 96", "150 104 58"]],
+  [0x02, ["96 176 255", "50 110 230"]],
+  [0x04, ["255 132 70", "230 60 40"]],
+  [0x08, ["130 236 170", "60 190 130"]],
+  [0x10, ["255 244 184", "244 214 120"]],
+  [0x20, ["184 120 255", "110 60 200"]],
+  [0x40, ["255 216 110", "230 150 40"]],
+];
+
+/** Gold and purple: the aura of a card that has no attribute. */
+export const DEFAULT_AURA_TINT: [string, string] = ["244 214 144", "155 126 255"];
+
+export function auraTintOf(attribute: number | null | undefined): [string, string] {
+  if (!attribute) return DEFAULT_AURA_TINT;
+  const hit = ATTRIBUTE_TINT.find(([bit]) => (attribute & bit) !== 0);
+  return hit ? hit[1] : DEFAULT_AURA_TINT;
 }
 
 /**

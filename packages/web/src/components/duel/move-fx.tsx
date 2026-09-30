@@ -12,6 +12,12 @@
  * appears when the ghost lands, so the card is never seen twice. The timing of every flight comes
  * from move-plan.ts, which SummonFx also reads so its effects start once the card has landed.
  *
+ * The hand slides too: when a card joins or leaves a hand the others glide (FLIP, the individual
+ * `translate` property so the fan rotation and the hover lift are left alone) to their new places,
+ * and a card that appears without a flight fades up into its slot. A flight ends by checking that
+ * its destination did not move while it flew (the hand may have re-centred) and glides the last
+ * few pixels, then the real card takes over under a short cross-fade so nothing snaps or flickers.
+ *
  * Reduced motion: no travel, a 150 ms fade at the destination.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
@@ -41,6 +47,12 @@ const CARD_ASPECT = 0.686;
 const SAMPLES = 18;
 const HIDE_FAILSAFE_MS = 1500;
 const MAX_GHOSTS = 12;
+/** The ghost dissolves over the real card this long after landing. */
+export const LAND_FADE_MS = 110;
+/** A destination that moved during the flight is followed for this long, at the end. */
+const GLIDE_MS = 140;
+/** Moves smaller than this many px are not chased. */
+const GLIDE_MIN_PX = 2;
 
 /* ---------- easing ---------- */
 
@@ -74,12 +86,21 @@ export type Flight = {
   flip: [number, number];
 };
 
+const easeSearch = (t: number) => {
+  // Lifts out of the pile, holds face-up for a beat, then glides to the hand.
+  if (t < 0.3) return 0.22 * easeOutCubic(t / 0.3);
+  if (t < 0.5) return 0.22 + 0.03 * ((t - 0.3) / 0.2);
+  return 0.25 + 0.75 * easeInOutCubic((t - 0.5) / 0.5);
+};
+
 type Tuning = { lift: number; settle: number; arc: number; ease: (t: number) => number; liftPx: number; peak: number; landScale: number };
 
 function tuningFor(style: MoveStyle, cardH: number, dist: number): Tuning {
   switch (style) {
     case "toss":
-      return { lift: 0.1, settle: 0, arc: clamp(dist * 0.22, 16, 96), ease: easeInOutSine, liftPx: cardH * 0.04, peak: 1.05, landScale: 0.9 };
+      return { lift: 0.1, settle: 0, arc: clamp(dist * 0.22, 16, 96), ease: easeInOutSine, liftPx: cardH * 0.04, peak: 1.05, landScale: 1 };
+    case "search":
+      return { lift: 0.1, settle: 0.14, arc: clamp(dist * 0.06, 4, 22), ease: easeSearch, liftPx: cardH * 0.1, peak: 1.14, landScale: 1 };
     case "draw":
       return { lift: 0.06, settle: 0.16, arc: clamp(dist * 0.08, 6, 30), ease: easeOutCubic, liftPx: cardH * 0.03, peak: 1.05, landScale: 1 };
     case "return":
@@ -112,7 +133,7 @@ export function buildFlight(params: FlightParams): Flight {
     let y: number;
     let rot: number;
     let scale: number;
-    let opacity = 1;
+    const opacity = 1;
     let shadeOpacity: number;
     if (u <= liftEnd) {
       const q = easeOutCubic(liftEnd === 0 ? 1 : u / liftEnd);
@@ -129,7 +150,6 @@ export function buildFlight(params: FlightParams): Flight {
       y = at.y;
       rot = lerp(startRot + tilt, endRot, e) + (toss ? spin * e : 0);
       scale = lerp(startScale * tune.peak, toss ? tune.landScale : 1.05, e);
-      if (toss && v > 0.7) opacity = 1 - (v - 0.7) / 0.3;
       shadeOpacity = toss ? lerp(0.6, 0.2, e) : lerp(0.6, 0.5, e);
     } else {
       const w = (u - settleStart) / tune.settle;
@@ -151,9 +171,10 @@ export function buildFlight(params: FlightParams): Flight {
   // Land exactly on the destination.
   const last = card[card.length - 1];
   last.transform = `translate3d(0px, 0px, 0) rotate(${endRot}deg) scale(${toss ? tune.landScale : 1})`;
-  if (!toss) last.opacity = 1;
+  last.opacity = 1;
   shade[shade.length - 1].opacity = 0;
-  const flip: [number, number] = toss ? [0.08, 0.6] : style === "draw" ? [0.12, 0.7] : [liftEnd, Math.max(liftEnd + 0.1, settleStart - 0.12)];
+  const flip: [number, number] =
+    style === "search" ? [0.06, 0.34] : toss ? [0.08, 0.6] : style === "draw" ? [0.12, 0.7] : [liftEnd, Math.max(liftEnd + 0.1, settleStart - 0.12)];
   return { card, shade, flip };
 }
 
@@ -195,6 +216,16 @@ type GhostProps = {
   landed: () => void;
   done: () => void;
 };
+
+/** How far the destination centre moved (in overlay space) since the flight was aimed, or null when it stayed put. */
+export function destinationShift(overlay: HTMLElement, dest: HTMLElement, cx: number, cy: number): { dx: number; dy: number } | null {
+  const o = overlay.getBoundingClientRect();
+  const z = dest.getBoundingClientRect();
+  if (z.width < 4 || z.height < 4) return null;
+  const dx = z.left - o.left + z.width / 2 - cx;
+  const dy = z.top - o.top + z.height / 2 - cy;
+  return Math.hypot(dx, dy) < GLIDE_MIN_PX ? null : { dx, dy };
+}
 
 function seededSign(id: number): number {
   return (id * 2654435761) % 2 === 0 ? 1 : -1;
@@ -287,17 +318,40 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 
     void track.settled().then(() => {
       if (!alive) return;
-      landedRef.current();
-      if (plan.holdMs > 0) {
-        // A heavy summon's hologram rises out of the landed card: let it dissolve as that starts.
-        const fade = new Track();
-        fade.play(el, [{ opacity: 1 }, { opacity: 0 }], { duration: plan.holdMs, easing: "ease-out", fill: "both" });
-        void fade.settled().then(() => {
-          if (alive) doneRef.current();
-        });
-        track.anims.push(...fade.anims);
+      const finish = () => {
+        if (!alive) return;
+        // The real card takes over under the ghost, which dissolves: no pop, no gap between the two.
+        landedRef.current();
+        const tail = plan.style === "fade" || !source ? plan.holdMs : Math.max(plan.holdMs, LAND_FADE_MS);
+        if (tail > 0) {
+          // A heavy summon's hologram rises out of the landed card: it dissolves as that starts.
+          const fade = new Track();
+          fade.play(el, [{ opacity: 1 }, { opacity: 0 }], { duration: tail, easing: "ease-out", fill: "both" });
+          void fade.settled().then(() => {
+            if (alive) doneRef.current();
+          });
+          track.anims.push(...fade.anims);
+        } else {
+          doneRef.current();
+        }
+      };
+      // The destination may have moved while the card flew (a hand re-centres): glide the last pixels.
+      const shift = plan.style === "fade" || !source ? null : destinationShift(overlay, dest, cx, cy);
+      if (shift) {
+        const rest = `translate3d(0px, 0px, 0) rotate(${endDefense ? 90 : 0}deg) scale(1)`;
+        const glide = new Track();
+        glide.play(
+          el,
+          [
+            { transform: rest },
+            { transform: `translate3d(${shift.dx.toFixed(2)}px, ${shift.dy.toFixed(2)}px, 0) rotate(${endDefense ? 90 : 0}deg) scale(1)` },
+          ],
+          { duration: GLIDE_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "both" },
+        );
+        track.anims.push(...glide.anims);
+        void glide.settled().then(finish);
       } else {
-        doneRef.current();
+        finish();
       }
     });
     return () => {
@@ -323,6 +377,174 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   );
 }
 
+/* ---------- the hand slides (FLIP) ---------- */
+
+export const HAND_FLIP_MS = 320;
+export const HAND_ENTER_MS = 260;
+const HAND_FLIP_ID = "duel-hand-flip";
+const HAND_FLIP_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
+
+export type FlipPoint = { left: number; top: number };
+
+/**
+ * Identity of each hand card, in order. A card with a face is known by its picture; sleeves are
+ * anonymous. The n-th copy of the same picture gets its own key, so two copies never swap.
+ */
+export function handCardKeys(ids: ReadonlyArray<string | null>): string[] {
+  const seen = new Map<string, number>();
+  return ids.map((id) => {
+    const base = id ?? "back";
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return `${base}#${n}`;
+  });
+}
+
+export type HandFlipResult = {
+  /** Cards that were in the hand and moved: slide them by (dx, dy) back to rest. */
+  moves: Array<{ key: string; dx: number; dy: number }>;
+  /** Cards that were not in the hand before. */
+  entered: string[];
+};
+
+/** Which hand cards slide, and by how much, between two layouts. Moves under `minPx` are ignored. */
+export function handFlipMoves(
+  prev: ReadonlyMap<string, FlipPoint>,
+  next: ReadonlyMap<string, FlipPoint>,
+  minPx = 1.5,
+): HandFlipResult {
+  const moves: HandFlipResult["moves"] = [];
+  const entered: string[] = [];
+  for (const [key, at] of next) {
+    const before = prev.get(key);
+    if (!before) {
+      entered.push(key);
+      continue;
+    }
+    const dx = before.left - at.left;
+    const dy = before.top - at.top;
+    if (Math.hypot(dx, dy) >= minPx) moves.push({ key, dx, dy });
+  }
+  return { moves, entered };
+}
+
+export type HandState = {
+  hand: HTMLElement;
+  layout: Map<string, FlipPoint>;
+  /** What each card element was last told to do: its key, and the offset it started from. */
+  applied: Map<Element, { key: string; dx: number; dy: number }>;
+};
+
+function isFlipAnimation(anim: Animation): boolean {
+  return anim.id === HAND_FLIP_ID;
+}
+
+/** Where an animated hand card is right now, relative to its resting place: what is left of its slide. */
+function residualOf(el: Element, applied: { dx: number; dy: number }): { dx: number; dy: number } {
+  for (const anim of el.getAnimations()) {
+    if (!isFlipAnimation(anim)) continue;
+    const progress = anim.effect?.getComputedTiming().progress;
+    const left = typeof progress === "number" ? 1 - clamp(progress, 0, 1) : 1;
+    return { dx: applied.dx * left, dy: applied.dy * left };
+  }
+  return { dx: 0, dy: 0 };
+}
+
+/**
+ * One FLIP pass over every hand in `root`: measure where each card rests now, compare with where it
+ * was drawn (plus whatever was left of a slide still running), and slide the difference away.
+ */
+export function flipHands(root: ParentNode, states: Map<string, HandState>, reduced: boolean): void {
+  root.querySelectorAll<HTMLElement>("[data-hand-seat]").forEach((hand) => {
+    const seat = hand.dataset.handSeat ?? "";
+    const cards = Array.from(hand.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+    let state = states.get(seat);
+    if (state && state.hand !== hand) state = undefined;
+
+    // Where each card is on screen right now, before its old slide is cancelled.
+    const visual = new Map<string, FlipPoint>();
+    if (state) {
+      for (const [key, at] of state.layout) visual.set(key, at);
+      for (const card of cards) {
+        const applied = state.applied.get(card);
+        if (!applied) continue;
+        const rest = state.layout.get(applied.key);
+        if (!rest) continue;
+        const res = residualOf(card, applied);
+        visual.set(applied.key, { left: rest.left + res.dx, top: rest.top + res.dy });
+      }
+    }
+    for (const card of cards) {
+      for (const anim of card.getAnimations()) if (isFlipAnimation(anim)) anim.cancel();
+    }
+
+    const keys = handCardKeys(cards.map((card) => card.querySelector("img")?.getAttribute("src") ?? null));
+    const layout = new Map<string, FlipPoint>();
+    cards.forEach((card, index) => {
+      const r = card.getBoundingClientRect();
+      layout.set(keys[index], { left: r.left, top: r.top });
+    });
+    const applied = new Map<Element, { key: string; dx: number; dy: number }>();
+    const next: HandState = { hand, layout, applied };
+    states.set(seat, next);
+    if (!state) return;
+
+    const { moves, entered } = handFlipMoves(visual, layout);
+    const byKey = new Map(keys.map((key, index) => [key, cards[index]] as const));
+    if (!reduced) {
+      for (const move of moves) {
+        const card = byKey.get(move.key);
+        if (!card || typeof card.animate !== "function") continue;
+        applied.set(card, { key: move.key, dx: move.dx, dy: move.dy });
+        card.animate(
+          [{ translate: `${move.dx}px ${move.dy}px` }, { translate: "0px 0px" }],
+          { duration: HAND_FLIP_MS, easing: HAND_FLIP_EASE, id: HAND_FLIP_ID },
+        );
+      }
+    }
+    // A card with no flight (an older server, a missing anchor) still eases into its slot.
+    if (entered.length > 0 && entered.length <= 4) {
+      for (const key of entered) {
+        const card = byKey.get(key);
+        if (!card || typeof card.animate !== "function") continue;
+        if (card.querySelector('[style*="visibility"]')) continue; // a flight is bringing it
+        const rise = reduced ? "0px 0px" : `0px ${Math.round(card.getBoundingClientRect().height * 0.22)}px`;
+        card.animate(
+          [{ opacity: 0, translate: rise }, { opacity: 1, translate: "0px 0px" }],
+          { duration: reduced ? 150 : HAND_ENTER_MS, easing: HAND_FLIP_EASE },
+        );
+      }
+    }
+  });
+}
+
+/** Keeps the hands sliding while the board is showing. */
+function useHandFlip(boardOf: () => HTMLElement | null, reducedRef: { current: boolean }): void {
+  useEffect(() => {
+    const board = boardOf();
+    if (!board || typeof MutationObserver === "undefined") return undefined;
+    const states = new Map<string, HandState>();
+    flipHands(board, states, reducedRef.current);
+    const observer = new MutationObserver((records) => {
+      const inHand = records.some((record) => {
+        const target = record.target;
+        const el = target instanceof Element ? target : target.parentElement;
+        return el?.closest("[data-hand-seat]") != null;
+      });
+      if (inHand) flipHands(board, states, reducedRef.current);
+    });
+    observer.observe(board, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "style", "data-many"] });
+    return () => {
+      observer.disconnect();
+      board.querySelectorAll<HTMLElement>("[data-hand-seat] > *").forEach((card) => {
+        for (const anim of card.getAnimations()) if (isFlipAnimation(anim)) anim.cancel();
+      });
+    };
+    // The board element and the ref are stable for the layer's life.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
 /* ---------- layer ---------- */
 
 export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
@@ -342,6 +564,9 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
 
   // Where cards were, kept fresh so a flight can start from a hand slot that has already closed up.
   useEffect(() => startZoneSnapshots(), []);
+
+  // The hands close up and make room with a slide instead of a jump.
+  useHandFlip(() => overlayRef.current?.parentElement ?? null, reducedRef);
 
   const clearAll = () => {
     for (const timer of timersRef.current) window.clearTimeout(timer);

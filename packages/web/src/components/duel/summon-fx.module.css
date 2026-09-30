@@ -339,19 +339,74 @@
 
 .crackShade {
   stroke: rgb(0 0 0 / 0.65);
-  stroke-width: 5;
+  stroke-width: calc(5px * var(--cw, 1));
 }
 
 .crackCore {
-  stroke: rgb(var(--fx-a) / 0.85);
-  stroke-width: 1.6;
-  filter: drop-shadow(0 0 3px rgb(var(--fx-a) / 0.55));
+  stroke: rgb(var(--au, var(--fx-a)) / 0.9);
+  stroke-width: calc(1.6px * var(--cw, 1));
+  filter: drop-shadow(0 0 3px rgb(var(--au, var(--fx-a)) / 0.65));
 }
 
 .crackGlint {
   stroke: rgb(var(--fx-c) / 0.55);
-  stroke-width: 0.6;
+  stroke-width: calc(0.6px * var(--cw, 1));
   transform: translate(0.8px, -0.8px);
+}
+
+/* ---------- slam: aura and shockwave ---------- */
+
+/* A wide glow centred on the zone, in the card's attribute colour (--au, --au2 set in JS). */
+.aura {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--fx-w, 80px) * 4.4);
+  aspect-ratio: 1;
+  margin: calc(var(--fx-w, 80px) * -2.2) 0 0 calc(var(--fx-w, 80px) * -2.2);
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(
+    closest-side,
+    rgb(var(--au, 244 214 144) / 0.8),
+    rgb(var(--au2, 155 126 255) / 0.32) 42%,
+    rgb(var(--au2, 155 126 255) / 0.08) 72%,
+    transparent 100%
+  );
+  will-change: transform, opacity;
+}
+
+/* The glow hugging the card outline. */
+.auraHalo {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--fx-r, 4px);
+  opacity: 0;
+  box-shadow:
+    0 0 0 1px rgb(var(--au, 244 214 144) / 0.9),
+    0 0 calc(var(--fx-w, 80px) * 0.3) rgb(var(--au, 244 214 144) / 0.85),
+    0 0 calc(var(--fx-w, 80px) * 0.8) rgb(var(--au2, 155 126 255) / 0.55);
+  will-change: transform, opacity;
+}
+
+/* A flat ring that runs out over the field from the landing zone (squashed to an ellipse in JS). */
+.shockRing {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  aspect-ratio: 1;
+  margin: calc(var(--fx-w, 80px) * -0.5) 0 0 calc(var(--fx-w, 80px) * -0.5);
+  border: max(2px, calc(var(--fx-w, 80px) * 0.05)) solid rgb(var(--au, 244 214 144) / 0.85);
+  border-radius: 50%;
+  opacity: 0;
+  box-shadow: 0 0 calc(var(--fx-w, 80px) * 0.2) rgb(var(--au2, 155 126 255) / 0.55);
+  will-change: transform, opacity;
+}
+
+.shockRing[data-thin="true"] {
+  border-width: max(1px, calc(var(--fx-w, 80px) * 0.02));
+  border-color: rgb(var(--au2, 155 126 255) / 0.7);
 }
 
 /* ---------- destroy ---------- */

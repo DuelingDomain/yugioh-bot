@@ -28,11 +28,14 @@ import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_GRAVE, LOCATION_PZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
 import {
+  auraTintOf,
   collectFreshEvents,
   DUEL_FX_CUE_EVENT,
   findZoneElement,
   isHeavySummon,
   maxEventId,
+  slamCrackCount,
+  slamStrengthOf,
   summonCoveredByFlip,
   summonStyleOf,
   type DuelFxCue,
@@ -124,7 +127,16 @@ const MAX_ITEMS = 10;
 const HIDE_FAILSAFE_MS = 4000;
 const GY_LOCATION = LOCATION_GRAVE;
 
-type FxKind = "heavy" | "typed" | "light" | "set" | "activate" | "destroy";
+type FxKind = "heavy" | "typed" | "light" | "set" | "activate" | "destroy" | "impact";
+
+/** Slam strengths are 0.6 to 1.6; the drop's squash scales with them inside this range. */
+const SLAM_LOOK_MIN = 0.6;
+const SLAM_LOOK_MAX = 1.6;
+/** After the impact the field effects (cracks, aura, rings) last at most this long. */
+const IMPACT_LIFE_MAX = 880;
+const IMPACT_LIFE_MIN = 600;
+/** The whole slam (drop, impact and aftermath) stays under about this many ms from the start of the summon. */
+const SLAM_TOTAL_MS = 1650;
 
 type FxItem = {
   key: string;
@@ -138,7 +150,31 @@ type FxItem = {
   shake: DuelShakePreference;
   /** The card flight this effect follows (MoveFx draws it), if the server sent one. */
   plan: MovePlan | null;
+  /** How hard the summon lands, 0.6 to 1.6 (0 when it does not slam). See slamStrengthOf. */
+  strength: number;
+  /** impact: how long the field effects last after the moment of impact. */
+  life: number;
 };
+
+/**
+ * Milliseconds from the start of a slamming summon to its moment of impact: the drop of a heavy
+ * hologram, or the moment a typed summon's real card takes over.
+ */
+export function slamHitMs(kind: FxKind, style: SummonStyle | null): number {
+  if (kind === "heavy") return HEAVY_TIMELINE.impact;
+  return style ? TYPED_TIMELINE[style].handOver - 60 : 0;
+}
+
+/** How long the field effects of an impact last: as long as they can within the ~1.6 s total. */
+export function impactLifeMs(hitMs: number): number {
+  return clamp(SLAM_TOTAL_MS - hitMs, IMPACT_LIFE_MIN, IMPACT_LIFE_MAX);
+}
+
+/** Share of the neighbours' jolt that reaches a zone `dist` card widths from the impact (0 = none). */
+export function joltFalloff(dist: number): number {
+  const f = 1 / (1 + (dist / 1.2) * (dist / 1.2) * 1.1);
+  return f < 0.06 ? 0 : f;
+}
 
 type Geo = {
   left: number;
@@ -285,22 +321,17 @@ function heavyWeight(card: DuelCardInfo | null, tribute: boolean): number {
   return clamp(0.8 + (level - 7) * 0.1, 0.8, 1.25);
 }
 
-function crackCount(card: DuelCardInfo | null): number {
-  const level = card?.level ?? 0;
-  return level >= 7 ? clamp(3 + (level - 7), 3, 6) : 3;
-}
-
 type CrackPath = { d: string; delay: number; span: number };
 
 /** Fissures spreading from the zone across the board. Deterministic per event so a replay looks the same. */
-function buildCracks(geo: Geo, count: number, seed: number): CrackPath[] {
+function buildCracks(geo: Geo, count: number, seed: number, reach = 1): CrackPath[] {
   const rand = mulberry32(seed * 2654435761);
   const out: CrackPath[] = [];
   const base = rand() * Math.PI * 2;
   const start = geo.h * 0.42;
   for (let k = 0; k < count; k += 1) {
     const angle = base + (k / count) * Math.PI * 2 + (rand() - 0.5) * 0.7;
-    const length = geo.h * (1.5 + rand() * 1.5);
+    const length = geo.h * (1.5 + rand() * 1.5) * reach;
     const segs = 5 + Math.floor(rand() * 2);
     let x = geo.cx + Math.cos(angle) * start;
     let y = geo.cy + Math.sin(angle) * start;
@@ -315,7 +346,7 @@ function buildCracks(geo: Geo, count: number, seed: number): CrackPath[] {
       d += ` L${x.toFixed(1)} ${y.toFixed(1)}`;
       points.push([x, y, a]);
     }
-    out.push({ d, delay: k * 14, span: 150 + rand() * 60 });
+    out.push({ d, delay: k * 12, span: 150 + rand() * 60 });
     const branchAt = points[1 + Math.floor(rand() * 2)];
     if (branchAt) {
       const side = rand() > 0.5 ? 1 : -1;
@@ -330,7 +361,7 @@ function buildCracks(geo: Geo, count: number, seed: number): CrackPath[] {
         by += Math.sin(ba) * step;
         bd += ` L${bx.toFixed(1)} ${by.toFixed(1)}`;
       }
-      out.push({ d: bd, delay: k * 14 + 60, span: 110 });
+      out.push({ d: bd, delay: k * 12 + 60, span: 110 });
     }
   }
   return out;
@@ -696,9 +727,6 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
   const burst = useRef<HTMLSpanElement>(null);
   const rays = useRef<HTMLSpanElement>(null);
   const dust = useRef<Array<HTMLSpanElement | null>>([]);
-  const cracksSvg = useRef<SVGSVGElement>(null);
-  const crackPaths = useRef<Array<SVGPathElement | null>>([]);
-  const [cracks, setCracks] = useState<CrackPath[]>([]);
   const tribute = item.event.summonKind === "tribute";
   const cardInfo = item.card;
   const tone: FxTone = item.style ?? "gold";
@@ -709,7 +737,6 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
     const weight = heavyWeight(cardInfo, tribute);
     if (anchor.current) placeAnchor(anchor.current, geo);
     applyTone(anchor.current, tone);
-    applyTone(cracksSvg.current, tone);
     if (stage.current) stage.current.style.perspective = `${Math.round(geo.w * 5)}px`;
 
     // Which way the projection rises: up when there is room, otherwise toward the middle of the board.
@@ -746,14 +773,20 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
     const at = (ms: number) => ms / T.handOver;
     const slamEase = "cubic-bezier(0.62, 0, 0.95, 0.4)";
     const riseEase = "cubic-bezier(0.16, 1, 0.3, 1)";
+    // The drop: it hangs big above the zone, falls hard, stops dead (a squash that scales with the
+    // strength of the slam), springs back a hair and rests.
+    const s = clamp(item.strength || 1, SLAM_LOOK_MIN, SLAM_LOOK_MAX);
+    const hang = 1.2 + 0.08 * s;
+    const squashX = 1 + 0.05 * s;
+    const squashY = 1 - 0.065 * s;
     track.play(
       card.current,
       [
         { opacity: 0, transform: `translate3d(0, 0, 0) rotateX(${tilt * 34}deg) scale(0.74)`, offset: 0, easing: riseEase },
-        { opacity: 1, transform: `translate3d(0, ${rise}px, 0) rotateX(${tilt * 14}deg) scale(1.25)`, offset: at(T.rise) },
-        { opacity: 1, transform: `translate3d(0, ${rise * 1.04}px, 0) rotateX(${tilt * 10}deg) scale(1.26)`, offset: at(T.hoverEnd), easing: slamEase },
-        { opacity: 1, transform: `translate3d(0, 0, 0) rotateX(0deg) scale(1)`, offset: at(T.impact), easing: "cubic-bezier(0.2, 0.9, 0.3, 1)" },
-        { opacity: 1, transform: `translate3d(0, 0, 0) rotateX(0deg) scale(${1 + 0.035}, ${1 - 0.04})`, offset: at(T.impact + 36), easing: "ease-out" },
+        { opacity: 1, transform: `translate3d(0, ${rise}px, 0) rotateX(${tilt * 14}deg) scale(${hang - 0.01})`, offset: at(T.rise) },
+        { opacity: 1, transform: `translate3d(0, ${rise * 1.04}px, 0) rotateX(${tilt * 10}deg) scale(${hang})`, offset: at(T.hoverEnd), easing: slamEase },
+        { opacity: 1, transform: `translate3d(0, 0, 0) rotateX(0deg) scale(${squashX}, ${squashY})`, offset: at(T.impact), easing: "cubic-bezier(0.2, 0.9, 0.3, 1)" },
+        { opacity: 1, transform: `translate3d(0, 0, 0) rotateX(0deg) scale(${1 - 0.012 * s}, ${1 + 0.018 * s})`, offset: at(T.impact + 70), easing: "ease-out" },
         { opacity: 1, transform: "translate3d(0, 0, 0) rotateX(0deg) scale(1)", offset: 1 },
       ],
       { duration: T.handOver, delay: d, fill: "backwards", easing: "linear" },
@@ -892,92 +925,13 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
       );
     });
 
-    // Field shake, scaled by the preference and by how heavy the monster is.
-    const field = document.querySelector<HTMLElement>("[data-duel-field]");
-    const boardScale = clamp(geo.overlayW / 1100, 0.7, 1.4);
-    const amp = SHAKE_AMPLITUDE_PX[item.shake] * weight * boardScale;
-    if (amp > 0 && field) {
-      const frames = shakeFrames(amp, item.event.id);
-      track.play(field, frames, { duration: T.shake, delay: hit, fill: "none", easing: "linear" });
-      track.play(cracksSvg.current, frames, { duration: T.shake, delay: hit, fill: "none", easing: "linear" });
-    }
-    // Keeps the item alive until the cracks have faded.
-    track.play(anchor.current, [{ opacity: 1 }, { opacity: 1 }], { duration: T.total, delay: d });
-
-    // Cracks: drawn on the impact, hold, then fade out before the effect ends.
-    const built = buildCracks(geo, crackCount(cardInfo), item.event.id);
-    setCracks(built);
+    // The shake, the jolt of the neighbours, the cracks and the aura belong to ImpactFx, which SummonFx
+    // starts at the moment of impact. This item lives until its rings and dust are gone.
+    track.play(anchor.current, [{ opacity: 1 }, { opacity: 1 }], { duration: T.raysEnd, delay: d });
   });
-
-  // Crack strokes exist only after setCracks: animate them in a second pass.
-  const cracksKey = cracks.length;
-  useLayoutEffect(() => {
-    if (cracks.length === 0) return undefined;
-    const track = new Track();
-    const hit = item.delayMs + T.impact;
-    crackPaths.current.forEach((el, index) => {
-      const crack = cracks[Math.floor(index / 3)];
-      if (!el || !crack) return;
-      const layer = index % 3;
-      track.play(
-        el,
-        [{ strokeDashoffset: 1, opacity: layer === 2 ? 0.9 : 1 }, { strokeDashoffset: 0, opacity: layer === 2 ? 0.9 : 1 }],
-        { duration: crack.span, delay: hit + crack.delay, fill: "both", easing: "cubic-bezier(0.1, 0.8, 0.2, 1)" },
-      );
-    });
-    track.play(
-      cracksSvg.current,
-      [
-        { opacity: 0, offset: 0 },
-        { opacity: 0, offset: (T.impact - 1) / T.total },
-        { opacity: 1, offset: T.impact / T.total },
-        { opacity: 1, offset: T.crackFadeFrom / T.total },
-        { opacity: 0, offset: 1 },
-      ],
-      { duration: T.total, delay: item.delayMs, fill: "both", easing: "linear" },
-    );
-    return () => track.dispose();
-    // Runs once when the crack geometry arrives.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cracksKey]);
 
   return (
     <>
-      <svg
-        ref={cracksSvg}
-        className={styles.cracks}
-        viewBox={`0 0 ${overlay.clientWidth} ${overlay.clientHeight}`}
-        aria-hidden="true"
-      >
-        {cracks.map((crack, index) => (
-          <g key={index}>
-            <path
-              ref={(el) => {
-                crackPaths.current[index * 3] = el;
-              }}
-              d={crack.d}
-              pathLength={1}
-              className={styles.crackShade}
-            />
-            <path
-              ref={(el) => {
-                crackPaths.current[index * 3 + 1] = el;
-              }}
-              d={crack.d}
-              pathLength={1}
-              className={styles.crackCore}
-            />
-            <path
-              ref={(el) => {
-                crackPaths.current[index * 3 + 2] = el;
-              }}
-              d={crack.d}
-              pathLength={1}
-              className={styles.crackGlint}
-            />
-          </g>
-        ))}
-      </svg>
       <div ref={anchor} className={styles.anchor} data-fx="heavy">
         <span ref={pad} className={styles.pad} />
         <span ref={beam} className={styles.beam} />
@@ -1009,6 +963,228 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
             className={styles.dust}
           />
         ))}
+      </div>
+    </>
+  );
+}
+
+/* ---------- slam: shake, jolt, cracks and aura ---------- */
+
+const IMPACT_DUST = 8;
+
+/** Neighbouring zone frames the slam can shake: everything on the board except hands and the landing zone. */
+function joltTargets(zone: HTMLElement): HTMLElement[] {
+  const field = document.querySelector<HTMLElement>("[data-duel-field]");
+  if (!field) return [];
+  return Array.from(field.querySelectorAll<HTMLElement>("[data-zones]")).filter(
+    (el) => el !== zone && !el.contains(zone) && !zone.contains(el) && el.closest("[data-hand-seat]") == null,
+  );
+}
+
+function joltFrames(dx: number, dy: number, rot: number): Keyframe[] {
+  const at = (k: number, r: number): Keyframe => ({
+    translate: `${(dx * k).toFixed(2)}px ${(dy * k).toFixed(2)}px`,
+    rotate: `${(rot * r).toFixed(3)}deg`,
+  });
+  return [
+    { ...at(0, 0), offset: 0 },
+    { ...at(1, 1), offset: 0.16, easing: "ease-out" },
+    { ...at(-0.45, -0.5), offset: 0.4, easing: "ease-in-out" },
+    { ...at(0.2, 0.22), offset: 0.66, easing: "ease-in-out" },
+    { ...at(0, 0), offset: 1 },
+  ];
+}
+
+/**
+ * The weight of a strong landing, starting at the moment of impact (this item's delay): the whole
+ * board shakes, every other zone frame gets a jolt that falls off with distance (adjacent zones the
+ * most), cracks spread over the field (more and longer as the monster gets stronger), a flat
+ * shockwave ring runs out over the field and an aura in the card's attribute colour pulses and
+ * fades. All transforms and opacity on an overlay: no layout shifts, at any board scale.
+ */
+function ImpactFx({ item, overlay, done }: EffectProps) {
+  const anchor = useAnchor();
+  const aura = useRef<HTMLSpanElement>(null);
+  const halo = useRef<HTMLSpanElement>(null);
+  const shock = useRef<HTMLSpanElement>(null);
+  const shock2 = useRef<HTMLSpanElement>(null);
+  const dust = useRef<Array<HTMLSpanElement | null>>([]);
+  const cracksSvg = useRef<SVGSVGElement>(null);
+  const crackPaths = useRef<Array<SVGPathElement | null>>([]);
+  const [cracks, setCracks] = useState<CrackPath[]>([]);
+  const strength = clamp(item.strength, SLAM_LOOK_MIN, SLAM_LOOK_MAX);
+  const life = item.life;
+  const tone: FxTone = item.style ?? "gold";
+
+  useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
+    const d = item.delayMs;
+    if (anchor.current) placeAnchor(anchor.current, geo);
+    applyTone(anchor.current, tone);
+    applyTone(cracksSvg.current, tone);
+    const [au, au2] = auraTintOf(item.card?.attribute);
+    for (const el of [anchor.current, cracksSvg.current]) {
+      el?.style.setProperty("--au", au);
+      el?.style.setProperty("--au2", au2);
+    }
+    cracksSvg.current?.style.setProperty("--cw", String(clamp(geo.w / 70, 0.7, 1.8)));
+    const mul = SHAKE_AMPLITUDE_PX[item.shake] / SHAKE_AMPLITUDE_PX.medium;
+
+    // Aura: a wide glow and a halo hugging the card, pulsing twice before they fade.
+    const pulse = (peak: number): Keyframe[] => [
+      { opacity: 0, transform: "scale(0.55)", offset: 0 },
+      { opacity: peak, transform: "scale(1.06)", offset: 0.1, easing: "ease-out" },
+      { opacity: peak * 0.5, transform: "scale(0.96)", offset: 0.3, easing: "ease-in-out" },
+      { opacity: peak * 0.85, transform: "scale(1.1)", offset: 0.5, easing: "ease-in-out" },
+      { opacity: peak * 0.3, transform: "scale(1.04)", offset: 0.76 },
+      { opacity: 0, transform: "scale(1.28)", offset: 1 },
+    ];
+    track.play(aura.current, pulse(0.55 + 0.3 * strength), { duration: life, delay: d, easing: "linear" });
+    track.play(halo.current, pulse(0.7 + 0.2 * strength), { duration: life, delay: d, easing: "linear" });
+
+    // Shockwave: a flat ring running out over the field, and a fainter one behind it.
+    const grow = 3 + strength * 1.7;
+    track.play(
+      shock.current,
+      [{ opacity: 0.95, transform: "scale(0.5, 0.2)" }, { opacity: 0, transform: `scale(${grow}, ${grow * 0.42})` }],
+      { duration: 560, delay: d, easing: "cubic-bezier(0.1, 0.7, 0.2, 1)" },
+    );
+    track.play(
+      shock2.current,
+      [{ opacity: 0.55, transform: "scale(0.4, 0.16)" }, { opacity: 0, transform: `scale(${grow * 1.25}, ${grow * 0.52})` }],
+      { duration: 720, delay: d + 90, easing: "cubic-bezier(0.1, 0.7, 0.2, 1)" },
+    );
+    const rand = mulberry32(item.event.id * 7919 + 29);
+    if (item.style) {
+      // Typed summons have no dust of their own: a low cloud thrown out along the ground.
+      dust.current.forEach((el) => {
+        if (!el) return;
+        const angle = rand() * Math.PI * 2;
+        const dist = geo.w * (0.6 + rand() * 0.9) * (0.8 + strength * 0.25);
+        track.play(
+          el,
+          [
+            { opacity: 0.75, transform: "translate(0, 0) scale(1)" },
+            { opacity: 0, transform: `translate(${Math.cos(angle) * dist * 1.25}px, ${Math.sin(angle) * dist * 0.5}px) scale(${0.25 + rand() * 0.3})` },
+          ],
+          { duration: 420 + rand() * 260, delay: d, easing: "cubic-bezier(0.1, 0.6, 0.3, 1)" },
+        );
+      });
+    }
+
+    // The board shakes, the neighbours jolt.
+    const field = document.querySelector<HTMLElement>("[data-duel-field]");
+    const boardScale = clamp(geo.overlayW / 1100, 0.7, 1.4);
+    const amp = SHAKE_AMPLITUDE_PX[item.shake] * strength * 1.15 * boardScale;
+    if (amp > 0 && field) {
+      track.play(field, shakeFrames(amp, item.event.id), { duration: 420, delay: d, fill: "none", easing: "linear" });
+    }
+    if (mul > 0) {
+      const o = overlay.getBoundingClientRect();
+      for (const el of joltTargets(zone)) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 4) continue;
+        const dx = r.left - o.left + r.width / 2 - geo.cx;
+        const dy = r.top - o.top + r.height / 2 - geo.cy;
+        const dist = Math.hypot(dx, dy);
+        const f = joltFalloff(dist / geo.w);
+        if (f === 0) continue;
+        const push = geo.w * 0.09 * strength * f * mul;
+        const ux = dist > 0 ? dx / dist : 0;
+        const uy = dist > 0 ? dy / dist : 1;
+        // Pushed away from the impact, tilted away too, and a little down (into the board).
+        track.play(el, joltFrames(ux * push, uy * push + push * 0.35, (ux >= 0 ? 1 : -1) * 2.4 * strength * f * mul), {
+          duration: 460,
+          delay: d,
+          fill: "none",
+          easing: "linear",
+        });
+      }
+    }
+
+    // Keeps the item alive until the cracks have faded.
+    track.play(anchor.current, [{ opacity: 1 }, { opacity: 1 }], { duration: life, delay: d });
+    setCracks(buildCracks(geo, slamCrackCount(strength), item.event.id, 0.8 + strength * 0.45));
+  });
+
+  // The crack strokes exist only after setCracks: draw them in a second pass.
+  const cracksKey = cracks.length;
+  useLayoutEffect(() => {
+    if (cracks.length === 0) return undefined;
+    const track = new Track();
+    const hit = item.delayMs;
+    crackPaths.current.forEach((el, index) => {
+      const crack = cracks[Math.floor(index / 3)];
+      if (!el || !crack) return;
+      const layer = index % 3;
+      track.play(
+        el,
+        [{ strokeDashoffset: 1, opacity: layer === 2 ? 0.9 : 1 }, { strokeDashoffset: 0, opacity: layer === 2 ? 0.9 : 1 }],
+        { duration: crack.span, delay: hit + crack.delay, fill: "both", easing: "cubic-bezier(0.1, 0.8, 0.2, 1)" },
+      );
+    });
+    track.play(
+      cracksSvg.current,
+      [
+        { opacity: 0, offset: 0 },
+        { opacity: 1, offset: 0.01 },
+        { opacity: 1, offset: 0.62 },
+        { opacity: 0, offset: 1 },
+      ],
+      { duration: life, delay: hit, fill: "both", easing: "linear" },
+    );
+    return () => track.dispose();
+    // Runs once when the crack geometry arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cracksKey]);
+
+  return (
+    <>
+      <svg ref={cracksSvg} className={styles.cracks} viewBox={`0 0 ${overlay.clientWidth} ${overlay.clientHeight}`} aria-hidden="true">
+        {cracks.map((crack, index) => (
+          <g key={index}>
+            <path
+              ref={(el) => {
+                crackPaths.current[index * 3] = el;
+              }}
+              d={crack.d}
+              pathLength={1}
+              className={styles.crackShade}
+            />
+            <path
+              ref={(el) => {
+                crackPaths.current[index * 3 + 1] = el;
+              }}
+              d={crack.d}
+              pathLength={1}
+              className={styles.crackCore}
+            />
+            <path
+              ref={(el) => {
+                crackPaths.current[index * 3 + 2] = el;
+              }}
+              d={crack.d}
+              pathLength={1}
+              className={styles.crackGlint}
+            />
+          </g>
+        ))}
+      </svg>
+      <div ref={anchor} className={styles.anchor} data-fx="impact">
+        <span ref={aura} className={styles.aura} />
+        <span ref={halo} className={styles.auraHalo} />
+        <span ref={shock} className={styles.shockRing} />
+        <span ref={shock2} className={styles.shockRing} data-thin="true" />
+        {item.style
+          ? Array.from({ length: IMPACT_DUST }, (_, index) => (
+              <span
+                key={index}
+                ref={(el) => {
+                  dust.current[index] = el;
+                }}
+                className={styles.dust}
+              />
+            ))
+          : null}
       </div>
     </>
   );
@@ -1631,6 +1807,8 @@ function FxView({ item, overlay, done }: EffectProps) {
       return <ActivateFx item={item} overlay={overlay} done={done} />;
     case "destroy":
       return <DestroyFx item={item} overlay={overlay} done={done} />;
+    case "impact":
+      return <ImpactFx item={item} overlay={overlay} done={done} />;
     default:
       return null;
   }
@@ -1720,7 +1898,8 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
       }
       step += 1;
       seqRef.current += 1;
-      planned.push({
+      const strength = kind === "heavy" || kind === "typed" ? slamStrengthOf(event, plan?.event.from?.location) : 0;
+      const base: FxItem = {
         key: `${event.id}-${seqRef.current}`,
         kind,
         style,
@@ -1730,10 +1909,19 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         reduced: prefsRef.current.reducedMotion,
         shake: prefsRef.current.shake,
         plan,
-      });
+        strength,
+        life: 0,
+      };
+      planned.push(base);
+      if (strength > 0 && !base.reduced) {
+        // The slam: shake, jolt, cracks and aura, timed to the moment the card lands.
+        const hit = slamHitMs(kind, style);
+        seqRef.current += 1;
+        planned.push({ ...base, key: `${event.id}-${seqRef.current}`, kind: "impact", delayMs: delayMs + hit, life: impactLifeMs(hit) });
+      }
     }
     if (planned.length === 0) return;
-    setItems((current) => [...current, ...planned].slice(-MAX_ITEMS));
+    setItems((current) => [...current, ...planned].slice(-MAX_ITEMS - 4));
   }, [duelKey, events]);
 
   const finish = (key: string) => setItems((current) => current.filter((item) => item.key !== key));
