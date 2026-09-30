@@ -1,4 +1,4 @@
-import type { DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelPrompt, DuelPromptOption, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelMoveReason, DuelPrompt, DuelPromptOption, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   OcgLocation,
   OcgMessageType,
@@ -261,9 +261,13 @@ export interface StoredDuelEvent {
   text: string;
   publicText: string;
   description?: string;
-  revealCardTo: "all" | number;
+  /** Seats allowed to see `card`/`text`/`description`: everyone, one seat, or a list (empty = nobody). */
+  revealCardTo: "all" | number | readonly number[];
   /** Board positions are public information; only `card` and `text` are audience-gated. */
   zone?: DuelZoneRef;
+  from?: DuelZoneRef;
+  reason?: DuelMoveReason;
+  faceDown?: boolean;
   target?: DuelZoneRef;
   amount?: number;
   cause?: DuelEvent["cause"];
@@ -305,10 +309,22 @@ export interface EventContext {
   destroyNotes: string[];
   /** Field departures seen before their destruction note arrived. */
   pendingMoves: PendingMove[];
+  /** Move events emitted this batch whose reason a later message may still refine. */
+  moves: TrackedMove[];
+  /** Cards in each hand, so DRAW messages (which carry no sequence) can be given a hand slot. */
+  handSize: [number, number];
+}
+
+interface TrackedMove {
+  event: StoredDuelEvent;
+  from: DuelZoneRef;
+  to: DuelZoneRef;
+  /** A summon/set/activate/destroy signal already fixed the reason. */
+  settled: boolean;
 }
 
 export function createEventContext(): EventContext {
-  return { battle: false, released: [0, 0], destroyNotes: [], pendingMoves: [] };
+  return { battle: false, released: [0, 0], destroyNotes: [], pendingMoves: [], moves: [], handSize: [0, 0] };
 }
 
 /** Feed an engine log line to the context; returns true when it was a destruction note. */
@@ -323,6 +339,7 @@ function takeDestroyNote(ctx: EventContext, from: { controller: number; location
   const index = ctx.destroyNotes.indexOf(key);
   if (index < 0) return false;
   ctx.destroyNotes.splice(index, 1);
+  settleMove(ctx, (move) => sameZone(move.from, from), "destroy");
   return true;
 }
 
@@ -365,11 +382,15 @@ export function drainDeferredDestroys(ctx: EventContext, cards: CardDatabase, fi
 export function resetEventBatch(ctx: EventContext): void {
   ctx.destroyNotes.length = 0;
   ctx.pendingMoves.length = 0;
+  ctx.moves.length = 0;
   ctx.released = [0, 0];
 }
 
 export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null): DuelEvent {
-  const reveal = event.revealCardTo === "all" || (viewer != null && viewer === event.revealCardTo);
+  const audience = event.revealCardTo;
+  const reveal =
+    audience === "all" ||
+    (viewer != null && (typeof audience === "number" ? viewer === audience : audience.includes(viewer)));
   const projected: DuelEvent = {
     id: event.id,
     kind: event.kind,
@@ -379,6 +400,9 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.chainIndex != null) projected.chainIndex = event.chainIndex;
   if (event.zone) projected.zone = { ...event.zone };
   if (event.target) projected.target = { ...event.target };
+  if (event.from) projected.from = { ...event.from };
+  if (event.reason) projected.reason = event.reason;
+  if (event.faceDown != null) projected.faceDown = event.faceDown;
   if (event.amount != null) projected.amount = event.amount;
   if (event.cause) projected.cause = event.cause;
   if (event.summonKind) projected.summonKind = event.summonKind;
@@ -414,6 +438,136 @@ function chainLinkEvent(
 
 function zoneOf(place: { controller: number; location: number; sequence: number }): DuelZoneRef {
   return { controller: place.controller, location: place.location, sequence: place.sequence };
+}
+
+function sameZone(a: DuelZoneRef, b: DuelZoneRef): boolean {
+  return a.controller === b.controller && a.location === b.location && a.sequence === b.sequence;
+}
+
+/** Fix the reason of the most recent still-unsettled move this batch that matches `test`. */
+function settleMove(ctx: EventContext, test: (move: TrackedMove) => boolean, reason: DuelMoveReason): void {
+  for (let index = ctx.moves.length - 1; index >= 0; index -= 1) {
+    const move = ctx.moves[index]!;
+    if (move.settled || !test(move)) continue;
+    move.settled = true;
+    move.event.reason = reason;
+    return;
+  }
+}
+
+/** True when `viewer` may learn a card's identity from this end of a move. */
+function moveEndVisible(viewer: number, place: { controller: number; location: number; position?: number }): boolean {
+  const own = viewer === place.controller;
+  if (place.location === OcgLocation.HAND || place.location === OcgLocation.DECK) return own;
+  return cardIsVisible({
+    viewer,
+    controller: place.controller,
+    location: place.location,
+    position: place.position ?? OcgPosition.FACEUP,
+  });
+}
+
+/**
+ * A card's identity is shown to a viewer only if it is public at the source or destination for
+ * them, or they control the hand/deck it moves from or to. Never widen this without a privacy test.
+ */
+function moveAudience(from: PendingMove["from"], to: { controller: number; location: number; position?: number }): "all" | number | readonly number[] {
+  const seats = [0, 1].filter((seat) => moveEndVisible(seat, from) || moveEndVisible(seat, to));
+  return seats.length === 2 ? "all" : seats.length === 1 ? seats[0]! : [];
+}
+
+function defaultMoveReason(from: number, to: number): DuelMoveReason {
+  if (to === OcgLocation.GRAVE) return from === OcgLocation.HAND ? "discard" : "send";
+  if (to === OcgLocation.REMOVED) return "banish";
+  if (to === OcgLocation.HAND) return from === OcgLocation.DECK ? "draw" : "return";
+  if (to === OcgLocation.DECK || to === OcgLocation.EXTRA) return "return";
+  return "other";
+}
+
+function trackMove(
+  ctx: EventContext,
+  id: number,
+  cards: CardDatabase,
+  code: number,
+  from: PendingMove["from"],
+  to: { controller: number; location: number; sequence: number; position?: number },
+  reason: DuelMoveReason,
+): StoredDuelEvent {
+  const info = code ? cards.get(code) : undefined;
+  const name = info?.name ?? (code ? `Card ${code}` : "A card");
+  const fromZone = zoneOf(from);
+  const toZone = zoneOf(to);
+  const event: StoredDuelEvent = {
+    id,
+    kind: "move",
+    seat: to.controller,
+    card: info,
+    text: `${name} moved`,
+    publicText: "A card moved",
+    revealCardTo: moveAudience(from, to),
+    zone: toZone,
+    from: fromZone,
+    reason,
+  };
+  if (to.location === OcgLocation.MZONE || to.location === OcgLocation.SZONE || to.location === OcgLocation.REMOVED || to.location === LOCATION_DECKMASTER) {
+    event.faceDown = isFacedownPosition(to.position);
+  }
+  ctx.moves.push({ event, from: fromZone, to: toZone, settled: false });
+  return event;
+}
+
+/**
+ * "move" events, emitted in engine order. Called for every message BEFORE observeDuelEvent so a move
+ * precedes the summon/set/activate/destroy event it belongs to. The engine emits MOVE before
+ * SUMMONING/SET/CHAINING, so those messages only refine the reason of the move that just happened:
+ *   ->MZONE then SUMMONING/SPSUMMONING = "summon", ->MZONE/SZONE then SET = "set",
+ *   ->SZONE then CHAINING = "activate", field->GY with a destroy note = "destroy".
+ * Unrefined moves keep the location-based default (see defaultMoveReason). Skipped: moves within one
+ * zone (deck/extra/hand shuffles, zone swaps) and moves to or from the overlay pile.
+ */
+export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx: EventContext, firstId: number): StoredDuelEvent[] {
+  switch (message.type) {
+    case OcgMessageType.DRAW: {
+      const seat = message.player === 1 ? 1 : 0;
+      const out: StoredDuelEvent[] = [];
+      message.drawn.forEach((drawn, index) => {
+        const from = { controller: seat, location: OcgLocation.DECK as number, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE as number };
+        const to = { controller: seat, location: OcgLocation.HAND as number, sequence: ctx.handSize[seat] + index, position: drawn.position as number };
+        out.push(trackMove(ctx, firstId + out.length, cards, drawn.code, from, to, "draw"));
+      });
+      ctx.handSize[seat] += message.drawn.length;
+      return out;
+    }
+    case OcgMessageType.MOVE: {
+      const { from, to } = message;
+      if (from.location === OcgLocation.HAND) ctx.handSize[from.controller === 1 ? 1 : 0] = Math.max(0, ctx.handSize[from.controller === 1 ? 1 : 0] - 1);
+      if (to.location === OcgLocation.HAND) ctx.handSize[to.controller === 1 ? 1 : 0] += 1;
+      const overlay = OcgLocation.OVERLAY as number;
+      if (!from.location || !to.location || from.location === overlay || to.location === overlay) return [];
+      if (from.controller === to.controller && from.location === to.location) return [];
+      const reason = defaultMoveReason(from.location, to.location);
+      const event = trackMove(ctx, firstId, cards, message.card, from, to, reason);
+      return [event];
+    }
+    case OcgMessageType.SUMMONING:
+    case OcgMessageType.SPSUMMONING: {
+      const zone = zoneOf(message);
+      settleMove(ctx, (move) => sameZone(move.to, zone), "summon");
+      return [];
+    }
+    case OcgMessageType.SET: {
+      const zone = zoneOf(message);
+      settleMove(ctx, (move) => sameZone(move.to, zone), "set");
+      return [];
+    }
+    case OcgMessageType.CHAINING: {
+      const zone = zoneOf(message);
+      settleMove(ctx, (move) => sameZone(move.to, zone) && move.to.location === OcgLocation.SZONE, "activate");
+      return [];
+    }
+    default:
+      return [];
+  }
 }
 
 export function observeDuelEvent(

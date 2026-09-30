@@ -51,8 +51,10 @@ import { cardArtUrl, isBattlePhase, phaseLabel, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { DuelClockDisplay, DuelSettingsSummary, RoomInvite } from "./room-settings";
 import { StationTrack } from "./station-track";
+import { MoveFx } from "./move-fx";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
+import { centerKind, PromptCenter } from "./prompt-center";
 
 
 type CardMenuState = {
@@ -515,14 +517,16 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
 
   const isActionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
   const promptMine = prompt != null && data.mySeat != null && prompt.seat === data.mySeat && data.session.status === "active";
-  // idle: nothing to answer (or only the action prompt, which the field and the
-  // station track answer); float: a short prompt over the lower board;
-  // flow: a long selection list that sits below the board.
-  const dockMode = !promptMine || prompt == null ? "idle"
+  // Every prompt except your own action menu is answered in the middle of the board (PromptCenter):
+  // a floating panel for responses, an instruction bar for picks on the field. The left dock keeps
+  // only the action prompt's Cancel / Finish and the live region; unknown kinds fall back to the old tray.
+  const centered = promptMine && centerKind(prompt) != null;
+  // idle: nothing to answer here (the field, the station track or the centre layer answer it);
+  // float: a short action-prompt control over the lower left sheet;
+  // flow: fallback list for a prompt kind the centre layer does not know.
+  const dockMode = !promptMine || prompt == null || centered ? "idle"
     : isActionPrompt ? (prompt.cancelable || prompt.finishable ? "float" : "idle")
-      : prompt.context?.type === "chain" || prompt.context?.type === "position" ||
-        prompt.context?.type === "deck-master-recall" || prompt.kind === "choice" ||
-        prompt.kind === "toggle" || prompt.kind === "number" ? "float" : "flow";
+      : "flow";
   const trackCaption = data.session.status !== "active" ? "Duel finished" : prompt == null ? null
     : promptMine ? (isActionPrompt ? null : prompt.title)
       : `${playerName(prompt.seat)} is choosing…`;
@@ -740,7 +744,7 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
         >
           <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
             draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu)}
-            active={data.session.status === "active"} aim={promptAim} />
+            active={data.session.status === "active"} aim={promptAim} headless={centered} />
         </div>
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board}>
@@ -756,8 +760,14 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
                   soundEnabled={preferences.soundEnabled} reducedMotion={preferences.reducedMotion} /> : null}
                 {!error && !realtime.recovering ? <SummonFx events={engine.events} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
+                {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
                 <BattleFx key={`battle-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
                   active={!error && !realtime.recovering} aim={battleAim} />
+                <PromptCenter prompt={prompt} mySeat={data.mySeat} active={data.session.status === "active"} slug={slug}
+                  busy={busy || Boolean(error) || catchingUp} draft={draft} onSubmit={onSubmitAnswer}
+                  menuOpen={Boolean(activeMenu)} chain={engine.chain} aim={promptAim}
+                  aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
+                  reducedMotion={preferences.reducedMotion} revision={engine.revision} />
               </>
             ) : <p className="p-4">{data.session.status === "active" ? "Waiting for engine view…" : "No saved final board is available for this record."}</p>}
           </div>

@@ -14,7 +14,13 @@ export type {
   DuelVisibility,
 } from "./settings.js";
 export {
+  DUEL_CLOCK_INCREMENT_MS,
+  DUEL_CLOCK_REGAIN_FRACTION,
+  DUEL_CLOCK_REGAIN_MIN_MS,
   defaultDuelSettings,
+  duelClockBankMs,
+  duelClockRegainMs,
+  duelClockRulesText,
   isCustomDomain,
   legacyDuelSettings,
   normalizeDuelSettings,
@@ -146,11 +152,14 @@ export interface DuelZoneRef {
   sequence: number;
 }
 
+export type DuelMoveReason =
+  | "summon" | "set" | "activate" | "destroy" | "send" | "return" | "banish" | "draw" | "discard" | "other";
+
 export interface DuelEvent {
   id: number;
   kind:
     | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "phase" | "damage" | "destroy";
+    | "attack" | "phase" | "damage" | "destroy" | "move";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
@@ -160,8 +169,19 @@ export interface DuelEvent {
    * summon / set / activate: the zone the card is in.
    * attack: the attacking monster's zone.
    * destroy: the zone the card left.
+   * move: the destination zone (the card's controller after the move is `seat`).
    */
   zone?: DuelZoneRef;
+  /** move: the zone the card left. Board positions are public even when the card is hidden. */
+  from?: DuelZoneRef;
+  /**
+   * move: best-effort cause of the move, derived from the engine messages around it.
+   * `card` on a move event is present only when the card is public at the source or destination
+   * for the viewer, or the viewer controls the hand/deck it moved from or to.
+   */
+  reason?: DuelMoveReason;
+  /** move: the card arrived face-down (Set, or banished/returned face-down). */
+  faceDown?: boolean;
   /** attack: the attacked monster's zone; absent for a direct attack. */
   target?: DuelZoneRef;
   /** damage: LP lost by `seat` (positive number). */

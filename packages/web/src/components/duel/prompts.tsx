@@ -133,7 +133,7 @@ function shouldIgnoreKeyboard(event: KeyboardEvent, menuOpen: boolean): boolean 
   );
 }
 
-function needsExplicitConfirm(prompt: DuelPrompt): boolean {
+export function needsExplicitConfirm(prompt: DuelPrompt): boolean {
   switch (prompt.kind) {
     case "choice":
     case "toggle":
@@ -152,7 +152,7 @@ function needsExplicitConfirm(prompt: DuelPrompt): boolean {
   }
 }
 
-function selectionBounds(prompt: DuelPrompt): { min: number; max: number } {
+export function selectionBounds(prompt: DuelPrompt): { min: number; max: number } {
   const fallbackMin =
     prompt.kind === "choice" ||
     prompt.kind === "announce-card" ||
@@ -201,7 +201,7 @@ export function usePromptDraft(prompt: DuelPrompt | null): PromptDraft {
   };
 }
 
-function canConfirm(prompt: DuelPrompt, draft: PromptDraft): boolean {
+export function canConfirm(prompt: DuelPrompt, draft: PromptDraft): boolean {
   const { min, max } = selectionBounds(prompt);
   switch (prompt.kind) {
     case "choice":
@@ -240,7 +240,7 @@ function canConfirm(prompt: DuelPrompt, draft: PromptDraft): boolean {
   }
 }
 
-function toAnswer(prompt: DuelPrompt, draft: PromptDraft): DuelAnswer {
+export function toAnswer(prompt: DuelPrompt, draft: PromptDraft): DuelAnswer {
   switch (prompt.kind) {
     case "choice":
     case "toggle":
@@ -256,7 +256,7 @@ function toAnswer(prompt: DuelPrompt, draft: PromptDraft): DuelAnswer {
   }
 }
 
-function toggleSelected(prompt: DuelPrompt, current: string[], optionId: string): string[] {
+export function toggleSelected(prompt: DuelPrompt, current: string[], optionId: string): string[] {
   if (current.includes(optionId)) {
     if (prompt.mandatory?.includes(optionId)) return current;
     return current.filter((id) => id !== optionId);
@@ -313,7 +313,7 @@ function OptionButton({
   );
 }
 
-function AnnounceSearch({
+export function AnnounceSearch({
   slug,
   cardCode,
   busy,
@@ -498,6 +498,7 @@ export function PromptTray({
   menuOpen,
   active,
   aim,
+  headless,
 }: {
   prompt: DuelPrompt | null;
   mySeat: number | null;
@@ -507,6 +508,11 @@ export function PromptTray({
   onSubmit: (answer: DuelAnswer) => void;
   menuOpen?: boolean;
   active?: boolean;
+  /**
+   * The prompt is drawn by PromptCenter over the board. The tray then only keeps its keyboard
+   * shortcuts (number keys, arrows, Enter, F) and renders nothing while you are answering.
+   */
+  headless?: boolean;
   /** Set while the prompt is the attack-target step: picking a target aims instead of answering. */
   aim?: PromptAim;
 }) {
@@ -655,6 +661,7 @@ export function PromptTray({
       </p>
     );
   }
+  if (headless) return null;
 
   function pickSelectable(option: DuelPromptOption) {
     if (!prompt) return;

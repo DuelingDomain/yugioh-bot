@@ -267,6 +267,7 @@ export function createDuelHost(options: {
       decidedAt,
       now(),
       state.session.settings.timeout,
+      isSeatIndex(seat) ? seat : undefined,
     );
     service.recordCommand(slug, guildId, seat, command, clock);
   }

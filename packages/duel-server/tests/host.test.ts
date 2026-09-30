@@ -774,9 +774,10 @@ describe("duel host clocks", () => {
       command: { promptId: "p1", revision: 1, answer: { choice: "pass" } },
     });
     expect(answered.status).toBe(200);
+    // Seat 0 was charged 400 ms, then earned +3 s back (capped at the 30 s bank); seat 1 is untouched.
     expect(storedClock(duels, session.slug)).toEqual({
       turn: 1,
-      remainingMs: [29_600, 30_000],
+      remainingMs: [30_000, 30_000],
       activeSeat: 1,
       startedAt: 1_400,
     });

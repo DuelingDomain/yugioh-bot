@@ -1,3 +1,5 @@
+import { DUEL_CLOCK_INCREMENT_MS, duelClockBankMs, duelClockRegainMs } from "@yugidraft/shared/duels";
+
 export type SeatIndex = 0 | 1;
 
 /** Matches shared `DuelClockState`; host persists this JSON, never live-subtracted remaining. */
@@ -21,9 +23,14 @@ export function isSeatIndex(value: number | null | undefined): value is SeatInde
   return value === 0 || value === 1;
 }
 
+/** Time bank size (the cap for every seat). Rules constants live in shared `settings.ts`. */
 export function clockBudgetMs(turnSeconds: number): number | null {
-  if (!Number.isFinite(turnSeconds) || turnSeconds <= 0) return null;
-  return turnSeconds * 1000;
+  return duelClockBankMs(turnSeconds);
+}
+
+function addCapped(current: number, add: number, cap: number): number {
+  // A bank already above the cap (room settings changed, old row) is never cut down here.
+  return Math.max(current, Math.min(cap, current + add));
 }
 
 export function liveRemainingMs(clock: DecisionClockState, now: number): [number, number] {
@@ -64,9 +71,14 @@ export function startDecisionClock(
 }
 
 /**
- * After an accepted engine command. Freeze remaining at `decidedAt` (player commit)
- * and start the next prompt owner at `resumeAt` so engine processing is not charged.
- * Does not invent a clock when none was persisted. New duel turns refill both seats.
+ * After an accepted engine command. Time bank rules:
+ * - Freeze remaining at `decidedAt` (player commit) and start the next prompt owner at `resumeAt`,
+ *   so engine processing is not charged. Only the answering seat is charged.
+ * - The deciding seat gets `DUEL_CLOCK_INCREMENT_MS` back, capped at the bank. A seat already at
+ *   zero (continue-timeout freeze) gets nothing until the next turn.
+ * - When the duel turn changes, each seat regains `duelClockRegainMs` (25% of the bank, at least
+ *   30 s), capped at the bank. Clocks saved before this rule simply follow it from their next turn.
+ * Does not invent a clock when none was persisted.
  * Loss clocks that are already due keep their deadline; they are never rewritten into
  * a continue-style zero freeze (`startedAt: null`) that would disable timeout enforcement.
  */
@@ -77,8 +89,10 @@ export function syncDecisionClock(
   decidedAt: number,
   resumeAt: number = decidedAt,
   timeout: "loss" | "continue" = "continue",
+  decidedSeat: SeatIndex | null | undefined = previous?.activeSeat,
 ): DecisionClockState | null {
-  if (clockBudgetMs(turnSeconds) === null) return null;
+  const budget = clockBudgetMs(turnSeconds);
+  if (budget === null) return null;
   if (!previous) return null;
   if (timeout === "loss" && isClockDue(previous, decidedAt)) {
     const remaining = liveRemainingMs(previous, decidedAt);
@@ -89,18 +103,25 @@ export function syncDecisionClock(
       startedAt: previous.startedAt,
     };
   }
-  if (previous.turn !== view.turn) return startDecisionClock(view, turnSeconds, resumeAt);
   const remaining = liveRemainingMs(previous, decidedAt);
+  if (isSeatIndex(decidedSeat) && remaining[decidedSeat] > 0) {
+    remaining[decidedSeat] = addCapped(remaining[decidedSeat], DUEL_CLOCK_INCREMENT_MS, budget);
+  }
+  if (previous.turn !== view.turn) {
+    const regain = duelClockRegainMs(turnSeconds);
+    remaining[0] = addCapped(remaining[0], regain, budget);
+    remaining[1] = addCapped(remaining[1], regain, budget);
+  }
   const nextSeat = isSeatIndex(view.promptSeat) ? view.promptSeat : null;
   return {
-    turn: previous.turn,
+    turn: view.turn,
     remainingMs: remaining,
     activeSeat: nextSeat,
     startedAt: nextSeat !== null && remaining[nextSeat] > 0 ? resumeAt : null,
   };
 }
 
-/** Continue timeout: remaining frozen at zero for the expired seat; not due again until the next turn. */
+/** Continue timeout: remaining frozen at zero for the expired seat; not due again until the next turn (which regains time). */
 export function freezeContinueClock(clock: DecisionClockState, now: number): DecisionClockState {
   return {
     turn: clock.turn,

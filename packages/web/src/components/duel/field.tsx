@@ -480,12 +480,26 @@ function HandStrip({
   const vars: CssVars = { "--hn": cards.length, "--hn1": Math.max(1, cards.length - 1) };
   return (
     <div className={`${styles.handRail}`}>
-      <div className={`${styles.hand} ${mine ? styles.handLocal : ""}`} aria-label={`${ownerLabel} hand`} style={vars}>
+      <div
+        className={`${styles.hand} ${mine ? styles.handLocal : ""}`}
+        role="group"
+        aria-label={`${ownerLabel} hand`}
+        data-hand-seat={seat}
+        data-many={cards.length >= 7 ? "true" : "false"}
+        style={vars}
+      >
         {cards.map((card, index) => {
           const keys = [zoneKey(seat, LOCATION_HAND, card.sequence ?? index)];
-          const label = card.code == null ? `${ownerLabel} card ${index + 1}` : (card.name ?? `Card ${card.code}`);
+          const revealed = card.code != null;
+          const label = !revealed ? `${ownerLabel} card ${index + 1}` : (card.name ?? `Card ${card.code}`);
+          const cardVars: CssVars = { "--i": index };
           return (
-            <div key={`${seat}-hand-${card.sequence ?? index}`} className={styles.handCard}>
+            <div
+              key={`${seat}-hand-${card.sequence ?? index}`}
+              className={styles.handCard}
+              data-revealed={!mine && revealed ? "true" : undefined}
+              style={cardVars}
+            >
               <ZoneSlot
                 card={card}
                 label={label}
@@ -493,7 +507,7 @@ function HandStrip({
                 keys={keys}
                 legalKeys={legalKeys}
                 selectedKeys={selectedKeys}
-                showStats={mine}
+                showStats={mine || revealed}
                 flip={!mine}
                 onActivate={onActivate}
                 onHoverCard={onHoverCard}

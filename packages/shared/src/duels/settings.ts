@@ -21,6 +21,43 @@ const SETTINGS_KEYS = [
   "shuffleDeck",
 ] as const;
 
+/**
+ * Time-bank rules. `turnSeconds` is the bank size (the most a seat can hold). Every accepted decision
+ * by a seat adds the increment back; every new duel turn each seat regains a quarter of the bank
+ * (at least 30 s). Everything is capped at the bank. Single source of truth for server and web.
+ */
+export const DUEL_CLOCK_INCREMENT_MS = 3_000;
+export const DUEL_CLOCK_REGAIN_FRACTION = 0.25;
+export const DUEL_CLOCK_REGAIN_MIN_MS = 30_000;
+
+export function duelClockBankMs(turnSeconds: number): number | null {
+  if (!Number.isFinite(turnSeconds) || turnSeconds <= 0) return null;
+  return turnSeconds * 1000;
+}
+
+/** Time each seat regains at the start of a turn; 0 when the room has no timer. */
+export function duelClockRegainMs(turnSeconds: number): number {
+  const bank = duelClockBankMs(turnSeconds);
+  if (bank === null) return 0;
+  const quarter = Math.round((bank * DUEL_CLOCK_REGAIN_FRACTION) / 1000) * 1000;
+  return Math.min(bank, Math.max(DUEL_CLOCK_REGAIN_MIN_MS, quarter));
+}
+
+function formatClockSpan(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
+}
+
+/** e.g. "4 min bank · +3 s per move · +1 min each turn". Empty string when the room has no timer. */
+export function duelClockRulesText(turnSeconds: number): string {
+  const bank = duelClockBankMs(turnSeconds);
+  if (bank === null) return "";
+  return `${formatClockSpan(bank)} bank · +${formatClockSpan(DUEL_CLOCK_INCREMENT_MS)} per move · +${formatClockSpan(duelClockRegainMs(turnSeconds))} each turn`;
+}
+
 const CLOCK_KEYS = ["turn", "remainingMs", "activeSeat", "startedAt"] as const;
 
 export interface DuelSettings {

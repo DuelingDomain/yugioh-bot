@@ -11,6 +11,7 @@ import {
   drainDeferredDestroys,
   noteDestroyLog,
   observeDuelEvent,
+  observeMoveEvents,
   projectStoredEvent,
   resetEventBatch,
 } from "../src/views.js";
@@ -244,6 +245,87 @@ describe("richer engine events", () => {
   });
 });
 
+describe("move events from a real duel", () => {
+  const moveOf = (events: DuelEvent[], reason: string, code?: number) =>
+    events.find((event) => event.kind === "move" && event.reason === reason && (code == null || event.card?.code === code));
+
+  it("orders moves before summon, set, activate and destroy and keeps hidden cards private", async () => {
+    // Top of deck (draw order): weak[1], RAIGEKI, OOKAZI, weak[0]. Seat 1 draws strong[0] first.
+    const game = await openGame([weak[1]!, RAIGEKI, OOKAZI, weak[0]!], [strong[0]!]);
+    try {
+      const plan: Array<{ seat: number; turn: number; prefix: string; code?: number }> = [
+        { seat: 0, turn: 1, prefix: "mset:", code: weak[1]! },
+        { seat: 0, turn: 1, prefix: "sset:", code: RAIGEKI },
+        { seat: 0, turn: 1, prefix: "activate:", code: OOKAZI },
+        { seat: 1, turn: 2, prefix: "summon:", code: strong[0]! },
+        { seat: 1, turn: 2, prefix: "to_bp" },
+        { seat: 1, turn: 2, prefix: "attack:0" },
+      ];
+      let next = 0;
+      drive(game, (w) => {
+        const step = plan[next];
+        if (!step) return w.seat === 1 && w.view.turn === 2 && w.prompt.options.some((entry) => entry.id === "to_m2") ? "stop" : null;
+        if (step.seat !== w.seat || step.turn !== w.view.turn) return null;
+        const id = w.prompt.options.find((entry) => entry.id.startsWith(step.prefix) && (step.code == null || entry.card?.code === step.code))?.id;
+        if (!id) return null;
+        next += 1;
+        return { choice: id };
+      });
+      expect(next).toBe(plan.length);
+      const own = eventsOf(game, 0);
+      const foe = eventsOf(game, 1);
+      expect(own.map((event) => event.id)).toEqual([...own.map((event) => event.id)].sort((a, b) => a - b));
+      const indexOf = (events: DuelEvent[], test: (event: DuelEvent) => boolean) => events.findIndex(test);
+
+      // Draw: one deck -> hand move per card, the card only for the drawing seat.
+      const draws = own.filter((event) => event.kind === "move" && event.reason === "draw");
+      expect(draws.slice(0, 5).map((event) => event.zone!.sequence)).toEqual([0, 1, 2, 3, 4]);
+      expect(draws[0]).toMatchObject({ seat: 0, from: { controller: 0, location: OcgLocation.DECK }, zone: { controller: 0, location: OcgLocation.HAND } });
+      expect(draws.slice(0, 5).map((event) => event.card?.code)).toEqual([weak[1], RAIGEKI, OOKAZI, weak[0], expect.any(Number)]);
+      const opponentDraws = own.filter((event) => event.kind === "move" && event.reason === "draw" && event.seat === 1);
+      expect(opponentDraws.length).toBeGreaterThanOrEqual(5);
+      for (const event of opponentDraws) expect(event.card).toBeUndefined();
+      for (const event of foe.filter((entry) => entry.kind === "move" && entry.reason === "draw" && entry.seat === 0)) {
+        expect(event.card).toBeUndefined();
+      }
+      expect(foe.find((event) => event.kind === "move" && event.reason === "draw" && event.seat === 1)!.card?.code).toBe(strong[0]);
+
+      // Set: the move to the field is face-down and the opponent never learns the card.
+      const setMove = moveOf(own, "set", weak[1]!)!;
+      expect(setMove).toMatchObject({ seat: 0, faceDown: true, from: { controller: 0, location: OcgLocation.HAND }, zone: { controller: 0, location: OcgLocation.MZONE, sequence: 0 } });
+      expect(indexOf(own, (event) => event === setMove)).toBeLessThan(indexOf(own, (event) => event.kind === "set" && event.zone?.location === OcgLocation.MZONE));
+      const hiddenSet = foe.find((event) => event.kind === "move" && event.reason === "set" && event.zone?.location === OcgLocation.MZONE)!;
+      expect(hiddenSet.card).toBeUndefined();
+      expect(hiddenSet.text).toBe("A card moved");
+      expect(hiddenSet.from).toMatchObject({ location: OcgLocation.HAND });
+      expect(foe.find((event) => event.kind === "move" && event.reason === "set" && event.zone?.location === OcgLocation.SZONE)!.card).toBeUndefined();
+      expect(JSON.stringify(foe)).not.toContain(String(RAIGEKI));
+
+      // Normal Spell: hand -> S/T zone (activate) precedes the activation, the send to the GY follows resolution.
+      const activateMove = moveOf(foe, "activate", OOKAZI)!;
+      expect(activateMove).toMatchObject({ seat: 0, faceDown: false, from: { location: OcgLocation.HAND }, zone: { location: OcgLocation.SZONE } });
+      const at = (events: DuelEvent[], test: (event: DuelEvent) => boolean) => indexOf(events, test);
+      const activation = at(own, (event) => event.kind === "activate" && event.card?.code === OOKAZI);
+      const resolved = at(own, (event) => event.kind === "chain-resolved");
+      const toGrave = at(own, (event) => event.kind === "move" && event.card?.code === OOKAZI && event.zone?.location === OcgLocation.GRAVE);
+      expect(at(own, (event) => event.kind === "move" && event.reason === "activate")).toBeLessThan(activation);
+      expect(toGrave).toBeGreaterThan(resolved);
+      expect(own[toGrave]).toMatchObject({ reason: "send", from: { location: OcgLocation.SZONE } });
+
+      // Summon: the move (reason summon) precedes the summon event.
+      const summonMove = moveOf(foe, "summon", strong[0]!)!;
+      expect(summonMove).toMatchObject({ seat: 1, faceDown: false, from: { controller: 1, location: OcgLocation.HAND }, zone: { controller: 1, location: OcgLocation.MZONE, sequence: 0 } });
+      expect(indexOf(foe, (event) => event === summonMove)).toBeLessThan(indexOf(foe, (event) => event.kind === "summon"));
+
+      // Battle destruction: field -> GY move (destroy) directly before the destroy event.
+      const destroyIndex = at(own, (event) => event.kind === "destroy");
+      expect(own[destroyIndex - 1]).toMatchObject({ kind: "move", reason: "destroy", from: { controller: 0, location: OcgLocation.MZONE }, zone: { location: OcgLocation.GRAVE } });
+    } finally {
+      game.close();
+    }
+  });
+});
+
 describe("event observer messages", () => {
   const info = (code: number): DuelCardInfo => ({
     code, name: `Card ${code}`, description: "", type: 1, attack: 1000, defense: 1000, level: code === 7 ? 7 : 4, attribute: 1, race: "warrior",
@@ -343,5 +425,90 @@ describe("event observer messages", () => {
       type: OcgMessageType.MOVE, card: 4, from: at(0, OcgLocation.MZONE, 0), to: at(0, OcgLocation.MZONE, 1),
     };
     expect(observeDuelEvent(message, cards, [], 1, ctx)).toBeNull();
+  });
+
+  describe("move events", () => {
+    const run = (message: OcgMessage, ctx = createEventContext(), first = 1) => observeMoveEvents(message, cards, ctx, first);
+    const move = (code: number, from: ReturnType<typeof at>, to: ReturnType<typeof at>): OcgMessage => ({ type: OcgMessageType.MOVE, card: code, from, to });
+
+    it("gives each drawn card its own deck to hand move and hides it from the opponent", () => {
+      const ctx = createEventContext();
+      const events = run({ type: OcgMessageType.DRAW, player: 1, drawn: [{ code: 5, position: OcgPosition.FACEDOWN }, { code: 6, position: OcgPosition.FACEDOWN }] }, ctx, 10);
+      expect(events.map((event) => event.id)).toEqual([10, 11]);
+      expect(events.map((event) => event.zone!.sequence)).toEqual([0, 1]);
+      const next = run({ type: OcgMessageType.DRAW, player: 1, drawn: [{ code: 7, position: OcgPosition.FACEDOWN }] }, ctx, 12);
+      expect(next[0]!.zone!.sequence).toBe(2);
+      for (const event of [...events, ...next]) {
+        expect(event).toMatchObject({ kind: "move", reason: "draw", seat: 1, from: { controller: 1, location: OcgLocation.DECK }, zone: { controller: 1, location: OcgLocation.HAND } });
+        const opponent = projectStoredEvent(event, 0);
+        expect(opponent.card).toBeUndefined();
+        expect(opponent.text).toBe("A card moved");
+        expect(opponent.zone).toEqual(event.zone);
+        expect(projectStoredEvent(event, null).card).toBeUndefined();
+        expect(projectStoredEvent(event, 1).card?.code).toBe(event.card!.code);
+      }
+    });
+
+    it("never reveals a face-down Set to the opponent but keeps the zones", () => {
+      const ctx = createEventContext();
+      const [set] = run(move(9, at(0, OcgLocation.HAND, 2, OcgPosition.FACEDOWN), at(0, OcgLocation.SZONE, 3, OcgPosition.FACEDOWN)), ctx);
+      run({ type: OcgMessageType.SET, code: 9, controller: 0, location: OcgLocation.SZONE, sequence: 3, position: OcgPosition.FACEDOWN } as OcgMessage, ctx);
+      const opponent = projectStoredEvent(set!, 1);
+      expect(opponent.card).toBeUndefined();
+      expect(opponent.text).toBe("A card moved");
+      expect(opponent).toMatchObject({ reason: "set", faceDown: true, from: { location: OcgLocation.HAND, sequence: 2 }, zone: { location: OcgLocation.SZONE, sequence: 3 } });
+      expect(projectStoredEvent(set!, 0).card?.code).toBe(9);
+    });
+
+    it("shows a card that becomes public at the destination even when it left a hidden hand", () => {
+      const [discard] = run(move(4, at(0, OcgLocation.HAND, 0, OcgPosition.FACEDOWN), at(0, OcgLocation.GRAVE, 0, OcgPosition.FACEUP)));
+      expect(discard).toMatchObject({ reason: "discard", seat: 0 });
+      expect(projectStoredEvent(discard!, 1).card?.code).toBe(4);
+      const [summon] = run(move(4, at(0, OcgLocation.HAND, 0, OcgPosition.FACEDOWN), at(0, OcgLocation.MZONE, 0, OcgPosition.FACEUP_ATTACK)));
+      expect(projectStoredEvent(summon!, 1).card?.code).toBe(4);
+    });
+
+    it("keeps a hand card private when it moves to the opponent's hidden deck", () => {
+      const [back] = run(move(4, at(0, OcgLocation.HAND, 0, OcgPosition.FACEDOWN), at(1, OcgLocation.DECK, 0, OcgPosition.FACEDOWN)));
+      expect(projectStoredEvent(back!, 0).card?.code).toBe(4);
+      expect(projectStoredEvent(back!, 1).card?.code).toBe(4);
+      const [own] = run(move(4, at(0, OcgLocation.HAND, 0, OcgPosition.FACEDOWN), at(0, OcgLocation.DECK, 0, OcgPosition.FACEDOWN)));
+      expect(own).toMatchObject({ reason: "return", revealCardTo: 0 });
+      expect(projectStoredEvent(own!, 1).card).toBeUndefined();
+    });
+
+    it("derives the default reason from source and destination", () => {
+      const reasonOf = (from: OcgLocation, to: OcgLocation, position = OcgPosition.FACEUP) =>
+        run(move(4, at(0, from, 0), at(0, to, 0, position)))[0]!.reason;
+      expect(reasonOf(OcgLocation.HAND, OcgLocation.GRAVE)).toBe("discard");
+      expect(reasonOf(OcgLocation.MZONE, OcgLocation.GRAVE)).toBe("send");
+      expect(reasonOf(OcgLocation.DECK, OcgLocation.GRAVE)).toBe("send");
+      expect(reasonOf(OcgLocation.MZONE, OcgLocation.REMOVED)).toBe("banish");
+      expect(reasonOf(OcgLocation.MZONE, OcgLocation.HAND)).toBe("return");
+      expect(reasonOf(OcgLocation.SZONE, OcgLocation.DECK)).toBe("return");
+      expect(reasonOf(OcgLocation.DECK, OcgLocation.HAND)).toBe("draw");
+      expect(reasonOf(OcgLocation.EXTRA, OcgLocation.MZONE)).toBe("other");
+    });
+
+    it("upgrades the reason from the message that follows the move", () => {
+      const ctx = createEventContext();
+      const [toField] = run(move(4, at(0, OcgLocation.EXTRA, 0), at(0, OcgLocation.MZONE, 2, OcgPosition.FACEUP_ATTACK)), ctx);
+      run({ type: OcgMessageType.SPSUMMONING, code: 4, controller: 0, location: OcgLocation.MZONE, sequence: 2, position: OcgPosition.FACEUP_ATTACK } as OcgMessage, ctx);
+      expect(toField!.reason).toBe("summon");
+      const [spell] = run(move(8, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.SZONE, 1, OcgPosition.FACEUP)), ctx);
+      run({ type: OcgMessageType.CHAINING, code: 8, controller: 0, location: OcgLocation.SZONE, sequence: 1 } as OcgMessage, ctx);
+      expect(spell!.reason).toBe("activate");
+      const [destroyed] = run(moveOut(2, at(1, OcgLocation.MZONE, 0)), ctx);
+      noteDestroyLog(ctx, `${DESTROY_NOTE_PREFIX}1:${OcgLocation.MZONE}:0`);
+      observeDuelEvent(moveOut(2, at(1, OcgLocation.MZONE, 0)), cards, [], 30, ctx);
+      expect(destroyed!.reason).toBe("destroy");
+    });
+
+    it("skips shuffles, same-zone moves and overlay moves", () => {
+      expect(run(move(4, at(0, OcgLocation.DECK, 0, OcgPosition.FACEDOWN), at(0, OcgLocation.DECK, 7, OcgPosition.FACEDOWN)))).toEqual([]);
+      expect(run(move(4, at(0, OcgLocation.MZONE, 0), at(0, OcgLocation.MZONE, 3)))).toEqual([]);
+      expect(run(move(4, at(0, OcgLocation.MZONE, 0), at(0, OcgLocation.OVERLAY, 0)))).toEqual([]);
+      expect(run(move(4, at(0, OcgLocation.MZONE, 0), at(1, OcgLocation.MZONE, 1)))).toHaveLength(1);
+    });
   });
 });

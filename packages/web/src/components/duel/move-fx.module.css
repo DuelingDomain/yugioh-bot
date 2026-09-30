@@ -1,0 +1,68 @@
+/* Card flights: a ghost of the card travels from where it was to where it lands (hand to zone,
+   zone to Graveyard, deck to hand). Nothing here takes pointer input. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout style;
+}
+
+/* Placed on the destination card outline (left, top, width, height set in JS); animations move it from there. */
+.ghost {
+  position: absolute;
+  pointer-events: none;
+  perspective: 900px;
+  will-change: transform, opacity;
+}
+
+.shade {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--fx-r, 4px);
+  opacity: 0;
+  box-shadow:
+    0 14px 24px rgb(0 0 0 / 0.55),
+    0 3px 6px rgb(0 0 0 / 0.5);
+}
+
+.flipper {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+}
+
+.face,
+.back {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--fx-r, 4px);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.6);
+}
+
+.face {
+  background: #0c0a09;
+}
+
+.art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.back {
+  background: #120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat;
+  border: 1px solid #b08a3e;
+}
+
+.back[data-sleeve="extra"] {
+  background: #140e1c url("/duel/card-back-extra-hd.webp") center / cover no-repeat;
+  border-color: #8a6bb0;
+}

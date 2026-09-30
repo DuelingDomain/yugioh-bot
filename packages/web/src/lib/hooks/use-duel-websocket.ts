@@ -204,12 +204,16 @@ export function useDuelWebsocket(
       request?.abort();
       subscribed = false;
       updateLive(false);
-      patch({
+      // A failed reconnect attempt while already polling is not a new recovery:
+      // raising the flag again on every socket retry closed card menus and blocked answers.
+      patch((current) => ({
+        ...current,
+        slug,
         connected: false,
         presence: null,
-        recovering: true,
+        recovering: current.connected ? true : current.recovering,
         syncing: Boolean(inFlight),
-      });
+      }));
     };
 
     const join = async () => {

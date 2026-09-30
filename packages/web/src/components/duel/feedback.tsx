@@ -14,6 +14,7 @@ import {
   pacedCueDuration,
 } from "./event-queue";
 import { createDuelFeedbackAudio, type DuelFeedbackAudio } from "./feedback-audio";
+import { pairedMovePlan } from "./move-plan";
 import styles from "./feedback.module.css";
 
 export type DuelFeedbackProps = {
@@ -35,6 +36,7 @@ const KIND_LABEL: Record<DuelEvent["kind"], string> = {
   phase: "Phase",
   damage: "Damage",
   destroy: "Destroyed",
+  move: "Move",
 };
 
 function publicCard(event: DuelEvent): DuelCardInfo | null {
@@ -166,6 +168,8 @@ export function DuelFeedback({
   const cursorRef = useRef<number | null>(null);
   const keyRef = useRef(duelKey);
   const timerRef = useRef<number | null>(null);
+  /** Sounds and banners held back until the card flight they belong to lands. */
+  const holdTimersRef = useRef<Set<number>>(new Set());
   const audioRef = useRef<DuelFeedbackAudio | null>(null);
   const soundRef = useRef(soundEnabled);
   const reducedRef = useRef(reducedMotion);
@@ -233,6 +237,14 @@ export function DuelFeedback({
   }, [soundEnabled]);
 
   useEffect(() => {
+    const timers = holdTimersRef.current;
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
+
+  useEffect(() => {
     if (keyRef.current !== duelKey) {
       keyRef.current = duelKey;
       queueRef.current = [];
@@ -243,6 +255,8 @@ export function DuelFeedback({
       }
       currentRef.current = null;
       setCurrent(null);
+      for (const timer of holdTimersRef.current) window.clearTimeout(timer);
+      holdTimersRef.current.clear();
       audioRef.current?.stopAll();
     }
 
@@ -255,13 +269,36 @@ export function DuelFeedback({
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
     const toasts: DuelEvent[] = [];
+    const now = performance.now();
     for (const event of fresh) {
-      // The battle layer draws damage on the life points.
-      if (event.kind === "damage") continue;
+      // The battle layer draws damage on the life points; MoveFx draws card movement.
+      if (event.kind === "damage" || event.kind === "move") continue;
+      // A card flying onto the board is heard and announced when it lands, not when it leaves.
+      const landAt = pairedMovePlan(event.id)?.landAt;
+      const holdMs = landAt != null ? landAt - now : 0;
       if (isDrawnOnBoard(event, reducedRef.current)) {
         // SummonFx draws it on the zone; it also sounds the heavy and destroy cues at their moment.
         const fxSounds = event.kind === "destroy" || isHeavySummon(event);
-        if (!fxSounds && soundRef.current) audioRef.current?.play(event.kind);
+        if (!fxSounds && soundRef.current) {
+          if (holdMs > 30) {
+            const timer = window.setTimeout(() => {
+              holdTimersRef.current.delete(timer);
+              if (soundRef.current) audioRef.current?.play(event.kind);
+            }, holdMs);
+            holdTimersRef.current.add(timer);
+          } else {
+            audioRef.current?.play(event.kind);
+          }
+        }
+        continue;
+      }
+      if (holdMs > 30) {
+        const timer = window.setTimeout(() => {
+          holdTimersRef.current.delete(timer);
+          queueRef.current.push(event);
+          startNextRef.current();
+        }, holdMs);
+        holdTimersRef.current.add(timer);
         continue;
       }
       toasts.push(event);

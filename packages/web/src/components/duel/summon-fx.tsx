@@ -9,6 +9,14 @@
  * before they fade. Lighter summons get a quick develop pop, sets settle face-down, activations
  * flip and light up, and destroyed cards break into shards that drift to the Graveyard.
  *
+ * Card movement itself (hand to zone, zone to Graveyard, draws) is MoveFx's job. When a "move"
+ * event carries the card to the zone (see move-plan.ts), this layer does not animate the same
+ * travel twice: a light summon or a set is only the landing of that flight (no pop of its own), a
+ * heavy summon and an activation start when the flight lands, an activated card keeps its ring but
+ * not its flip (the flight already brought it face-up), and a destroyed card cracks in place and
+ * hands over to the flight to the Graveyard instead of scattering shards. Without a paired move
+ * (older servers, missing anchors) every effect plays as before.
+ *
  * Everything is a Web Animation on an overlay that never takes pointer input, so the board stays
  * usable. The real card is only hidden (never removed) while its projection lands on top of it.
  */
@@ -24,6 +32,7 @@ import {
   type DuelFxCue,
   type DuelFxCueDetail,
 } from "./event-queue";
+import { MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } from "./move-plan";
 import type { DuelShakePreference } from "./preferences";
 import styles from "./summon-fx.module.css";
 
@@ -74,6 +83,8 @@ type FxItem = {
   delayMs: number;
   reduced: boolean;
   shake: DuelShakePreference;
+  /** The card flight this effect follows (MoveFx draws it), if the server sent one. */
+  plan: MovePlan | null;
 };
 
 type Geo = {
@@ -159,7 +170,7 @@ function emitCue(cue: DuelFxCue, strength = 1): void {
 }
 
 /** Collects animations and timers for one effect so cleanup is one call. */
-class Track {
+export class Track {
   readonly anims: Animation[] = [];
   private readonly timers: number[] = [];
 
@@ -452,7 +463,9 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
       { filter: "brightness(1.6)", transform: flat ? "perspective(520px) rotateY(-6deg)" : "none", opacity: 1, offset: 0.55 },
       { filter: "brightness(1)", transform: flat ? "perspective(520px) rotateY(0deg)" : "none", opacity: 1 },
     ];
-    if (art) {
+    if (item.plan) {
+      // The flight already brought the card face-up onto the zone: only the ring marks the activation.
+    } else if (art) {
       track.play(art, frames, { duration: 420, delay: item.delayMs, easing: "cubic-bezier(0.25, 0.8, 0.3, 1)" });
     } else if (ghost.current) {
       // The card already left the zone (it resolved): flip a copy in place so the activation still reads.
@@ -467,7 +480,7 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
   return (
     <div ref={anchor} className={styles.anchor}>
       <span ref={edge} className={styles.ring} data-tone={chain ? "gold" : "violet"} data-strong="true" />
-      {item.card ? (
+      {item.card && !item.plan ? (
         <div ref={ghost} className={styles.flipGhost}>
           <img className={styles.ghostArt} src={cardArtUrl(item.card.code, "small")} alt="" draggable={false} />
         </div>
@@ -485,11 +498,13 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
   const flash = useRef<HTMLSpanElement>(null);
   const card = item.card;
   const seed = item.event.id;
+  const handoff = item.plan != null;
   useEffectSetup(overlay, item, done, ({ track, geo }) => {
     if (anchor.current) placeAnchor(anchor.current, geo);
     const d = item.delayMs;
-    const breakAt = item.event.cause === "battle" ? 460 : 150;
-    const burst = 520;
+    const breakAt = item.event.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs;
+    // With a flight to the Graveyard the card ends here and MoveFx picks it up at the break.
+    const burst = handoff ? 60 : 520;
     const total = breakAt + burst;
     track.after(d + breakAt, () => emitCue("shatter", 1));
 
@@ -529,7 +544,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
     const rand = mulberry32(seed * 40503 + 7);
     shards.current.forEach((el, index) => {
       const shard = SHARDS[index];
-      if (!el || !shard) return;
+      if (!el || !shard || handoff) return;
       const ox = (shard.cx - 50) / 50;
       const oy = (shard.cy - 50) / 50;
       const burstX = ox * geo.w * (0.32 + rand() * 0.22);
@@ -584,7 +599,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
           ))}
         </svg>
       </div>
-      {SHARDS.map((shard, index) => (
+      {(handoff ? [] : SHARDS).map((shard, index) => (
         <span
           key={index}
           ref={(el) => {
@@ -1004,12 +1019,22 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     if (typeof document !== "undefined" && document.hidden) return;
 
     const now = typeof performance !== "undefined" ? performance.now() : 0;
+    // Idempotent: MoveFx plans the same batch; whichever layer runs first fixes the timing.
+    planMoves(fresh, { now, reduced: prefsRef.current.reducedMotion, duelKey });
     const planned: FxItem[] = [];
     let step = 0;
     for (const event of fresh) {
       const kind = planKind(event);
       if (!kind || !findZoneElement(event.zone)) continue;
+      const plan = pairedMovePlan(event.id);
+      // A light summon or a set is the landing of its flight: no second animation of the same move.
+      if (plan && (kind === "light" || kind === "set")) continue;
       let delayMs = Math.min(step, MAX_STAGGER_STEPS) * STAGGER_MS;
+      if (plan) {
+        // Effects that belong after the card has landed wait for it; a destroy leads the flight.
+        const at = kind === "destroy" ? plan.startAt - plan.leadMs : plan.landAt;
+        delayMs = Math.max(0, at - now);
+      }
       if (kind === "heavy") {
         delayMs = Math.max(delayMs, heavyFreeAtRef.current - now);
         heavyFreeAtRef.current = now + delayMs + HEAVY_LOCK_MS;
@@ -1024,6 +1049,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         delayMs,
         reduced: prefsRef.current.reducedMotion,
         shake: prefsRef.current.shake,
+        plan,
       });
     }
     if (planned.length === 0) return;

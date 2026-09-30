@@ -7,6 +7,7 @@ import { AlertTriangle, ArrowLeft, Globe, Info, Lock, Swords } from "lucide-reac
 import {
   defaultDuelSettings,
   DUEL_BANLIST_OPTIONS,
+  duelClockRulesText,
   isCustomDomain,
   type DuelMasterRule,
   type DuelMode,
@@ -172,7 +173,7 @@ export function DuelCreator() {
                 <div className={styles.wide}>
                   <SheetSegmented label="When the timer runs out" value={settings.timeout} choices={TIMEOUTS} onChange={(value) => update("timeout", value)} disabled={settings.turnSeconds === 0} />
                   {settings.turnSeconds > 0 ? (
-                    <p className={cx(ui.hint, styles.below)}>The clock runs while a player must answer, including during disconnects. Each new turn refreshes both players’ time.</p>
+                    <p className={cx(ui.hint, styles.below)}>The clock is a time bank that runs while a player must answer, including during disconnects. {duelClockRulesText(settings.turnSeconds)}, up to the full bank.</p>
                   ) : null}
                 </div>
               </div>

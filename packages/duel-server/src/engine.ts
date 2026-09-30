@@ -28,6 +28,7 @@ import {
   noteDestroyLog,
   noteReveal,
   observeDuelEvent,
+  observeMoveEvents,
   phaseName,
   projectView,
   resetEventBatch,
@@ -286,11 +287,14 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   };
 
   const recordEvent = (message: OcgMessage) => {
+    // Moves first: a card's move precedes the summon/set/activate/destroy event it belongs to.
+    for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
     if (stored) pushEvent(stored);
   };
 
   const pushEvent = (stored: StoredDuelEvent) => {
+    stored.id = nextEventId;
     nextEventId += 1;
     events.push(stored);
     if (events.length > 400) events.splice(0, events.length - 400);
