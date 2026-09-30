@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Circle, Diamond, Eye, Link2, Radio, Settings, Volume2, VolumeX } from "lucide-react";
+import { Circle, Diamond, ExternalLink, Eye, Link2, Radio, Settings, Volume2, VolumeX } from "lucide-react";
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelChainLink, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -49,6 +49,8 @@ import {
 } from "./prompts";
 import { cardArtUrl, isBattlePhase, phaseLabel, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
+import { exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
+import { SheetButton } from "./sheet-ui";
 import { DuelClockDisplay, DuelSettingsSummary, RoomInvite } from "./room-settings";
 import { battleStepLabel, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
 import { MoveFx } from "./move-fx";
@@ -231,7 +233,7 @@ function ChainBlock({
   );
 }
 
-export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: string }) {
+export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: string; inviteCode?: string; windowed?: boolean }) {
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   const { data, error, isLoading, mutate } = useSWR(
@@ -278,6 +280,17 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [hideResult, setHideResult] = useState(false);
+  // Read after mount: the server render cannot know whether this is the duel window.
+  const [inDuelWindow, setInDuelWindow] = useState(windowed);
+  const [playHere, setPlayHere] = useState(false);
+  const [windowBlocked, setWindowBlocked] = useState(false);
+  const [windowOpened, setWindowOpened] = useState(false);
+  const openWindow = () => {
+    const opened = openDuelWindow(slug) != null;
+    setWindowOpened(opened);
+    setWindowBlocked(!opened);
+  };
+  useEffect(() => { if (isDuelWindow(slug)) setInDuelWindow(true); }, [slug]);
   const [menu, setMenu] = useState<CardMenuState | null>(null);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
   const [pile, setPile] = useState<PileView | null>(null);
@@ -530,11 +543,15 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
         onJoin={() => void run(() => joinDuel(slug))}
         onAddBot={() => void run(() => addPracticeBot(slug))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
-        onStart={() => void run(() => startDuel(slug))}
+        onStart={() => {
+          // Inside the click, so pop-up blockers allow it. Seated players on other devices get the prompt below.
+          if (!inDuelWindow) openWindow();
+          void run(() => startDuel(slug));
+        }}
         onCancel={() => void run(() => cancelDuel(slug))}
         onLeave={() => void run(async () => {
           await leaveDuel(slug);
-          router.push("/duels");
+          router.replace("/duels");
         })}
       />
     );
@@ -552,6 +569,29 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
     seat.seat === data.mySeat && seat.playerId === data.session.organizerPlayerId);
   const canArchive = terminal && isOrganizer && !data.session.archivedAt;
   const showResult = !hideResult && (engine?.result != null || terminal);
+  const hasResult = engine?.result != null || terminal;
+  const exitDuel = () => {
+    if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
+    else router.replace("/duels");
+  };
+  if (data.session.status === "active" && data.mySeat != null && !inDuelWindow && !playHere && !engine?.result) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 text-center"
+        data-testid="duel-window-gate">
+        <h1 className="text-xl font-semibold text-text-primary">{windowOpened ? "Duel is open in its own window" : "Your duel is live"}</h1>
+        <p className="text-sm text-text-secondary">
+          {windowOpened ? "" : "Open it in its own window. "}The duel runs in a separate window so Back and Forward cannot pull you out of it.
+          {windowBlocked ? " Your browser blocked the window. Click the button to open it." : ""}
+        </p>
+        <div className="flex flex-wrap justify-center gap-2">
+          <SheetButton kind="primary" size="lg" onClick={openWindow}>
+            <ExternalLink size={16} strokeWidth={1.6} aria-hidden />{windowOpened ? "Focus window" : "Open duel window"}
+          </SheetButton>
+          <SheetButton kind="quiet" onClick={() => setPlayHere(true)}>Open here instead</SheetButton>
+        </div>
+      </div>
+    );
+  }
   const connectionLabel = terminal ? "Finished" : realtime.syncing ? "Catching up…" :
     error || realtime.recovering ? "Reconnecting" : realtime.connected ? "Live" : "Polling";
   const domain = data.session.mode === "domain";
@@ -733,7 +773,7 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
       data-reduced={preferences.reducedMotion ? "true" : "false"}>
       <header className={styles.header}>
         <div className={styles.identity}>
-          <Link href="/duels">Yugidraft</Link>
+          <Link href="/duels" replace={inDuelWindow}>Yugidraft</Link>
           {spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
             <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
           </strong> : null}
@@ -755,6 +795,16 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
             {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
             {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
           </span>
+          {hasResult && hideResult ? (
+            <button type="button" className={styles.tool} onClick={() => setHideResult(false)}>
+              <span>Show result</span>
+            </button>
+          ) : null}
+          {hasResult ? (
+            <button type="button" className={styles.tool} onClick={exitDuel}>
+              <span>Exit duel</span>
+            </button>
+          ) : null}
           <button type="button" className={`${styles.tool} ${styles.pref}`}
             aria-label={`Sound effects ${soundLabel.toLowerCase()}`}
             onClick={() => preferences.setSoundEnabled(!preferences.soundEnabled)}>
@@ -811,7 +861,7 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
                   reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
                 {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
                 {!error && !realtime.recovering ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
-                <BattleFx key={`battle-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
+                <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
                   active={!error && !realtime.recovering} aim={battleAim} />
                 <PromptCenter prompt={prompt} mySeat={data.mySeat} active={data.session.status === "active"} slug={slug}
                   busy={busy || Boolean(error) || catchingUp} draft={draft} onSubmit={onSubmitAnswer}
@@ -883,7 +933,7 @@ export function DuelRoomView({ slug, inviteCode }: { slug: string; inviteCode?: 
       </Modal>
       {showResult ? (
         <DuelResultScreen room={data} slug={slug} reducedMotion={preferences.reducedMotion}
-          soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} />
+          soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel} />
       ) : null}
     </div>
   );

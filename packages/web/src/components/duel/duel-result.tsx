@@ -28,6 +28,8 @@ export type DuelResultScreenProps = {
   soundEnabled: boolean;
   /** Dismiss the screen and keep viewing the final board. */
   onClose: () => void;
+  /** Leave the duel (closes the duel window, or returns to the tables list). */
+  onExit?: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -236,7 +238,7 @@ const subscribeNever = () => () => undefined;
 const readBody = () => document.body;
 const readNoBody = () => null;
 
-export function DuelResultScreen({ room, slug, reducedMotion, onClose }: DuelResultScreenProps) {
+export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit }: DuelResultScreenProps) {
   const model = useMemo(() => describeDuelResult(room), [room]);
   const { outcome } = model;
   const host = useSyncExternalStore(subscribeNever, readBody, readNoBody);
@@ -401,7 +403,11 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose }: DuelRes
         ) : null}
 
         <div className={styles.actions}>
-          <Link href="/duels" className={styles.btn} data-kind="primary">Back to tables</Link>
+          {onExit ? (
+            <button type="button" className={styles.btn} data-kind="primary" onClick={onExit}>Exit duel</button>
+          ) : (
+            <Link href="/duels" className={styles.btn} data-kind="primary">Back to tables</Link>
+          )}
           {canReplay ? (
             <Link href={`/duels/${slug}/replay`} className={styles.btn} data-kind="secondary">Watch replay</Link>
           ) : null}

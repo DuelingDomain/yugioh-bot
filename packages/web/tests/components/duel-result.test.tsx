@@ -209,6 +209,17 @@ describe("DuelResultScreen", () => {
     return { onClose, room, ...view };
   }
 
+  it("shows an Exit duel button that calls onExit instead of the tables link", () => {
+    const onExit = vi.fn();
+    const room = makeRoom({ mySeat: 0, winner: 1, reason: "LP reached 0", lp: [0, 100] });
+    render(
+      <DuelResultScreen room={room} slug="abc" reducedMotion soundEnabled={false} onClose={vi.fn()} onExit={onExit} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Exit duel" }));
+    expect(onExit).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("link", { name: "Back to tables" })).toBeNull();
+  });
+
   it("is a labelled modal dialog that takes focus", () => {
     setup();
     const dialog = screen.getByRole("dialog");
