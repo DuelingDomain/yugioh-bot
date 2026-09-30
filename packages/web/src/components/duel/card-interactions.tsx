@@ -47,9 +47,24 @@ function optionParts(option: DuelPromptOption, title: string): { main: string; n
   return { main: text, note };
 }
 
-function useAnchoredPosition(anchor: HTMLElement, interactive: boolean, prefer: "above" | "below" = "above") {
+/** Selector for surfaces a passive tooltip must never cover: open prompt panels and pile viewers. */
+const AVOID_SURFACES = "[data-prompt-panel],[data-pile-viewer]";
+
+type Rect = { left: number; top: number; width: number; height: number };
+
+function intersects(a: Rect, b: Rect): boolean {
+  return a.left < b.left + b.width && a.left + a.width > b.left && a.top < b.top + b.height && a.top + a.height > b.top;
+}
+
+function useAnchoredPosition(
+  anchor: HTMLElement,
+  interactive: boolean,
+  prefer: "above" | "below" = "above",
+  /** Keep clear of the surfaces matching AVOID_SURFACES; hide when no placement is clear. */
+  avoid = false,
+) {
   const ref = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ left: 0, top: 0, ready: false, side: "above" as "above" | "below", ax: 0 });
+  const [position, setPosition] = useState({ left: 0, top: 0, ready: false, side: "above" as "above" | "below", ax: 0, hidden: false });
 
   useLayoutEffect(() => {
     function place() {
@@ -63,14 +78,43 @@ function useAnchoredPosition(anchor: HTMLElement, interactive: boolean, prefer: 
       const left = Math.max(margin, Math.min(preferredLeft, window.innerWidth - width - margin));
       const above = card.top - height - margin;
       const belowRoom = window.innerHeight - (card.bottom + margin + height);
-      const side = prefer === "below"
+      let side = prefer === "below"
         ? (belowRoom >= margin || above < margin ? "below" as const : "above" as const)
         : (above >= margin ? "above" as const : "below" as const);
       const preferredTop = side === "above" ? above : card.bottom + margin;
-      const top = Math.max(margin, Math.min(preferredTop, window.innerHeight - height - margin));
+      let top = Math.max(margin, Math.min(preferredTop, window.innerHeight - height - margin));
+      let finalLeft = left;
+      let hidden = false;
+      if (avoid) {
+        const blocks: Rect[] = [];
+        document.querySelectorAll<HTMLElement>(AVOID_SURFACES).forEach((el) => {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) blocks.push(rect);
+        });
+        if (blocks.length) {
+          const clear = (rect: Rect) =>
+            rect.left >= margin && rect.top >= margin && rect.left + rect.width <= window.innerWidth - margin &&
+            rect.top + rect.height <= window.innerHeight - margin && !blocks.some((block) => intersects(rect, block));
+          const centreTop = Math.max(margin, Math.min(card.top + (card.height - height) / 2, window.innerHeight - height - margin));
+          const candidates: Array<{ left: number; top: number; side: "above" | "below" }> = [
+            { left, top, side },
+            { left, top: side === "above" ? card.bottom + margin : above, side: side === "above" ? "below" : "above" },
+            { left: card.left - width - margin, top: centreTop, side: "above" },
+            { left: card.right + margin, top: centreTop, side: "above" },
+          ];
+          const pick = candidates.find((candidate) => clear({ ...candidate, width, height }));
+          if (pick) {
+            finalLeft = pick.left;
+            top = pick.top;
+            side = pick.side;
+          } else {
+            hidden = true;
+          }
+        }
+      }
       // The pointer notch tracks the card centre, kept inside the rounded corners.
-      const ax = Math.max(16, Math.min(card.left + card.width / 2 - left, width - 16));
-      setPosition({ left, top, ready: true, side, ax });
+      const ax = Math.max(16, Math.min(card.left + card.width / 2 - finalLeft, width - 16));
+      setPosition({ left: finalLeft, top, ready: true, side, ax, hidden });
     }
     place();
     window.addEventListener("resize", place);
@@ -79,12 +123,12 @@ function useAnchoredPosition(anchor: HTMLElement, interactive: boolean, prefer: 
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [anchor, interactive, prefer]);
+  }, [anchor, interactive, prefer, avoid]);
 
   const style = {
     left: position.left,
     top: position.top,
-    visibility: position.ready ? "visible" : "hidden",
+    visibility: position.ready && !position.hidden ? "visible" : "hidden",
     "--ax": `${position.ax}px`,
   } as CSSProperties;
   return { ref, style, visibility: style.visibility, side: position.side };
@@ -194,8 +238,12 @@ export function CardActionMenu({
   );
 }
 
+/**
+ * Passive card tooltip. It never covers an open prompt panel or pile viewer: it moves to a clear
+ * side of the card, and hides when there is none.
+ */
 export function CardHoverInfo({ card, anchor }: { card: DuelCard; anchor: HTMLElement }) {
-  const { ref, style } = useAnchoredPosition(anchor, false);
+  const { ref, style } = useAnchoredPosition(anchor, false, "above", true);
   const stats = cardStatsText(card);
   const details = cardDetailsText(card);
   if (card.code == null) return null;

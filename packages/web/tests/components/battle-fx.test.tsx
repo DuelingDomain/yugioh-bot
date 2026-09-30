@@ -113,15 +113,50 @@ describe("BattleFx", () => {
     expect(layerPaths()).toHaveLength(0);
   });
 
-  it("plays a fresh attack and arms the LP hold for the damage that follows it", () => {
+  const cutRoles = () => Array.from(document.body.querySelectorAll("[data-role]")).map((el) => el.getAttribute("data-role"));
+  const halves = () => document.body.querySelectorAll("div[style*='clip-path']");
+
+  it("plays a fresh attack, cuts the destroyed target and arms the LP hold for the damage that follows it", () => {
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} />);
     act(() => undefined);
     const damage: DuelEvent = { id: 3, kind: "damage", seat: 1, amount: 800, cause: "battle", text: "" };
-    rerender(<BattleFx events={[phase, attack, damage]} reducedMotion={false} />);
+    const destroyed: DuelEvent = { id: 4, kind: "destroy", seat: 1, text: "", zone: { controller: 1, location: 4, sequence: 0 } };
+    rerender(<BattleFx events={[phase, attack, damage, destroyed]} reducedMotion={false} />);
     expect(layerPaths().length).toBeGreaterThan(0);
     // The target card is copied into two clipped halves for the cut.
-    expect(document.body.querySelectorAll("div[style*='clip-path']")).toHaveLength(2);
+    expect(halves()).toHaveLength(2);
+    expect(cutRoles()).toEqual(["target"]);
     expect(takeLpHold(1)).toBeGreaterThan(0);
+  });
+
+  it("cuts the attacker when a weaker monster attacks into a stronger one", () => {
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} />);
+    act(() => undefined);
+    const damage: DuelEvent = { id: 3, kind: "damage", seat: 0, amount: 500, cause: "battle", text: "" };
+    const destroyed: DuelEvent = { id: 4, kind: "destroy", seat: 0, text: "", zone: { controller: 0, location: 4, sequence: 0 } };
+    rerender(<BattleFx events={[phase, attack, damage, destroyed]} reducedMotion={false} />);
+    expect(halves()).toHaveLength(2);
+    expect(cutRoles()).toEqual(["attacker"]);
+    // The slash still lands on the target, so the attacker's LP roll waits for the impact too.
+    expect(takeLpHold(0)).toBeGreaterThan(0);
+  });
+
+  it("cuts both cards on equal ATK and neither when the defender holds", () => {
+    const { rerender, unmount } = render(<BattleFx events={[phase]} reducedMotion={false} />);
+    act(() => undefined);
+    const lostA: DuelEvent = { id: 3, kind: "destroy", seat: 0, text: "", zone: { controller: 0, location: 4, sequence: 0 } };
+    const lostB: DuelEvent = { id: 4, kind: "destroy", seat: 1, text: "", zone: { controller: 1, location: 4, sequence: 0 } };
+    rerender(<BattleFx events={[phase, attack, lostA, lostB]} reducedMotion={false} />);
+    expect(halves()).toHaveLength(4);
+    expect(cutRoles().sort()).toEqual(["attacker", "target"]);
+    unmount();
+
+    const { rerender: again } = render(<BattleFx events={[phase]} reducedMotion={false} />);
+    act(() => undefined);
+    const damage: DuelEvent = { id: 3, kind: "damage", seat: 0, amount: 300, cause: "battle", text: "" };
+    again(<BattleFx events={[phase, attack, damage]} reducedMotion={false} />);
+    expect(layerPaths().length).toBeGreaterThan(0);
+    expect(halves()).toHaveLength(0);
   });
 
   it("plays only the newest attack of a burst", () => {

@@ -499,6 +499,7 @@ export function PromptTray({
   active,
   aim,
   headless,
+  suspended,
 }: {
   prompt: DuelPrompt | null;
   mySeat: number | null;
@@ -513,6 +514,8 @@ export function PromptTray({
    * shortcuts (number keys, arrows, Enter, F) and renders nothing while you are answering.
    */
   headless?: boolean;
+  /** The centred panel is still hidden behind its human beat: no keyboard shortcut answers yet. */
+  suspended?: boolean;
   /** Set while the prompt is the attack-target step: picking a target aims instead of answering. */
   aim?: PromptAim;
 }) {
@@ -528,7 +531,9 @@ export function PromptTray({
   const menuOpenRef = useRef(Boolean(menuOpen));
   const confirmableRef = useRef(confirmable);
   const aimRef = useRef(aim);
+  const suspendedRef = useRef(Boolean(suspended));
   aimRef.current = aim;
+  suspendedRef.current = Boolean(suspended);
   promptRef.current = prompt;
   draftRef.current = draft;
   busyRef.current = busy;
@@ -549,6 +554,7 @@ export function PromptTray({
 
     function onKey(event: KeyboardEvent) {
       if (shouldIgnoreKeyboard(event, menuOpenRef.current)) return;
+      if (suspendedRef.current) return;
       const current = promptRef.current;
       const currentDraft = draftRef.current;
       if (!current || !answeringRef.current) return;

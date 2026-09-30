@@ -50,6 +50,7 @@ export function takeLpHold(seat: number): number {
 
 export function clearLpHolds(): void {
   lpHolds.clear();
+  lpHoldKeys.clear();
 }
 
 type Tone = "loss" | "gain";

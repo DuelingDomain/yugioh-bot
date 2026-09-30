@@ -331,6 +331,104 @@ button.plate[data-next="true"]:hover {
   color: var(--gold-ink);
 }
 
+/* ---------- Battle Phase steps (replace the caption while the Battle station is current) ---------- */
+
+.steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.stepList {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 7px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 999px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background-color 0.3s, border-color 0.3s, color 0.3s;
+}
+/* A short rail segment joins the chips. */
+.step + .step::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 50%;
+  width: 3px;
+  height: 1px;
+  background: var(--rule);
+}
+.stepDot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--rule);
+}
+.step[data-state="done"] {
+  border-color: rgb(var(--rule-rgb) / 0.45);
+  color: var(--ink-2);
+}
+.step[data-state="done"] .stepDot {
+  background: var(--gold);
+}
+/* The current step: ember on either side's turn, since the Battle Phase is the ember phase. */
+.step[data-state="current"] {
+  border-color: rgb(var(--ember-rgb) / 0.9);
+  background: rgb(var(--ember-rgb) / 0.16);
+  color: #fff;
+  box-shadow: 0 0 12px -2px rgb(var(--ember-rgb) / 0.6);
+}
+.step[data-state="current"] .stepDot {
+  background: rgb(var(--ember-rgb));
+  box-shadow: 0 0 6px rgb(var(--ember-rgb));
+}
+.steps[data-tone="mine"] .step[data-state="current"] {
+  border-color: var(--pen);
+  background: rgb(155 126 255 / 0.18);
+  box-shadow: 0 0 12px -2px rgb(155 126 255 / 0.7);
+}
+.steps[data-tone="mine"] .step[data-state="current"] .stepDot {
+  background: var(--pen-ink);
+  box-shadow: 0 0 6px var(--pen);
+}
+.stepHint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.stepNow {
+  font-weight: 500;
+  color: rgb(var(--ember-rgb));
+}
+.steps[data-tone="mine"] .stepNow {
+  color: var(--pen-ink);
+}
+.root[data-reduced="true"] .step {
+  transition: none;
+}
+
 /* ---------- actions ---------- */
 
 .actions {
@@ -552,6 +650,34 @@ button.plate[data-next="true"]:hover {
   /* Row 1 keeps only the station and what comes next; the long hint stays on desktop. */
   .capBody {
     display: none;
+  }
+  /* Battle steps on phones: dots plus the current step's name; the explanation stays in the title. */
+  .steps {
+    gap: 6px;
+  }
+  .step {
+    height: 12px;
+    padding: 0 3px;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+  .step + .step::before {
+    display: none;
+  }
+  .stepName {
+    display: none;
+  }
+  .step[data-state="current"] .stepDot {
+    width: 7px;
+    height: 7px;
+  }
+  .stepText,
+  .stepSep {
+    display: none;
+  }
+  .stepHint {
+    font-size: 12px;
   }
 
   .stack {

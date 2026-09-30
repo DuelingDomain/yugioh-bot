@@ -1,0 +1,489 @@
+/* Pile viewer: a Match Sheet for the Graveyard, Banished and Extra Deck, centred over the board.
+   Mounted inside the board box: the scrim dims the board, the panel sits in the middle (on phones too,
+   fixed to the viewport). Newest card first, a compact preview of the hovered or focused card pinned
+   above the grid; the left inspector shows the full text. Purple = yours (legal ring and tag); gold hairlines. */
+
+.root {
+  --pv-ink: var(--duel-ink, #efe7d5);
+  --pv-ink-2: var(--duel-ink-2, #c3bba8);
+  --pv-ink-3: var(--duel-ink-3, #958f81);
+  --pv-rule: var(--duel-rule, rgb(181 153 99 / 0.34));
+  --pv-rule-hi: var(--duel-rule-hi, rgb(181 153 99 / 0.66));
+  --pv-rule-lo: var(--duel-rule-lo, rgb(181 153 99 / 0.17));
+  --pv-pen: var(--duel-pen, #9b7eff);
+  --pv-pen-ink: var(--duel-pen-ink, #c6b6ff);
+  --pv-pen-fill: var(--duel-pen-fill, #5733d1);
+  --pv-panel: var(--duel-panel-2, #0e1729);
+  --pv-f-ui: var(--duel-f-ui, var(--font-duel-ui, "Sofia Sans Semi Condensed"), "Arial Narrow", sans-serif);
+  --pv-f-num: var(--duel-f-num, var(--font-duel-num, "Sofia Sans Extra Condensed"), "Arial Narrow", sans-serif);
+  --pv-u: var(--duel-unit, 1px);
+  --pv-t-xs: var(--duel-t-xs, 11px);
+  --pv-t-sm: var(--duel-t-sm, 12px);
+  --pv-t-body: var(--duel-t-body, 13px);
+  --pv-t-head: var(--duel-t-head, 15px);
+  --pv-t-name: var(--duel-t-name, 18px);
+  --pv-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --pv-w: min(720px, 100%);
+  --pv-pad: 12px;
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: var(--pv-pad);
+  color: var(--pv-ink);
+  font-family: var(--pv-f-ui);
+  font-size: var(--pv-t-body);
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  pointer-events: none;
+}
+
+/* The scrim dims the board under the panel; the panel is modal until it closes. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(3 6 12 / 0.55);
+  animation: pvFade 0.2s ease-out both;
+  pointer-events: auto;
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: var(--pv-w);
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--pv-rule-hi);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(12 19 36 / 0.985), rgb(8 13 25 / 0.985));
+  box-shadow:
+    inset 0 1px 0 rgb(239 231 213 / 0.08),
+    0 0 0 1px rgb(0 0 0 / 0.55),
+    0 22px 56px rgb(0 0 0 / 0.6);
+  container-type: inline-size;
+  animation: pvRise 0.24s var(--pv-ease) both;
+  pointer-events: auto;
+}
+
+.root[data-owner="you"] .panel {
+  border-color: rgb(155 126 255 / 0.6);
+}
+
+.root[data-reduced="true"] .panel,
+.root[data-reduced="true"] .scrim {
+  animation: none;
+}
+
+@keyframes pvRise {
+  from { transform: translateY(10px) scale(0.975); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes pvFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---------- header ---------- */
+
+.head {
+  display: flex;
+  flex: none;
+  gap: calc(10 * var(--pv-u));
+  align-items: flex-start;
+  padding: calc(12 * var(--pv-u)) calc(10 * var(--pv-u)) calc(9 * var(--pv-u)) calc(16 * var(--pv-u));
+  border-bottom: 3px double var(--pv-rule-hi);
+}
+
+.root[data-owner="you"] .head {
+  border-bottom-color: rgb(155 126 255 / 0.55);
+}
+
+.headText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--pv-ink);
+  font-size: var(--pv-t-name);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  color: var(--pv-ink-2);
+  font-size: var(--pv-t-sm);
+}
+
+.count b {
+  color: var(--pv-ink);
+  font-family: var(--pv-f-num);
+  font-size: var(--pv-t-head);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.order {
+  color: var(--pv-ink-3);
+}
+
+.close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: calc(32 * var(--pv-u));
+  height: calc(32 * var(--pv-u));
+  margin: -4px 0 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pv-ink-2);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.close:hover {
+  border-color: var(--pv-rule);
+  color: var(--pv-ink);
+}
+
+.close:focus {
+  outline: none;
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--pv-ink);
+  outline-offset: 2px;
+}
+
+/* ---------- preview: the card under the pointer, large ---------- */
+
+.preview {
+  --pv-art-h: clamp(96px, 16vh, 150px);
+  display: grid;
+  flex: none;
+  grid-template-columns: calc(var(--pv-art-h) * 59 / 86) minmax(0, 1fr);
+  gap: calc(12 * var(--pv-u));
+  min-height: 0;
+  padding: calc(12 * var(--pv-u)) calc(14 * var(--pv-u)) calc(12 * var(--pv-u)) calc(16 * var(--pv-u));
+  border-bottom: 1px solid var(--pv-rule);
+  background: linear-gradient(180deg, rgb(9 15 29 / 0.6), transparent);
+}
+
+.previewArt {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--pv-art-h);
+  overflow: hidden;
+  border-radius: 6px;
+  background: #06080e;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.5);
+}
+
+.previewArt img,
+.previewBack {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Crop the printed card border, as the field and inspector do. */
+.previewArt img {
+  transform: scale(1.075);
+}
+
+.previewBody {
+  display: flex;
+  flex-direction: column;
+  gap: calc(3 * var(--pv-u));
+  min-width: 0;
+  max-height: var(--pv-art-h);
+}
+
+.previewPos {
+  color: var(--pv-ink-3);
+  font-size: var(--pv-t-xs);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.previewName {
+  margin: 0 0 2px;
+  color: var(--pv-ink);
+  font-size: var(--pv-t-head);
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.previewDetails {
+  margin: 0;
+  color: var(--pv-ink-2);
+  font-size: var(--pv-t-sm);
+  line-height: 1.3;
+}
+
+.previewCombat {
+  margin: 2px 0 0;
+  color: var(--pv-ink);
+  font-family: var(--pv-f-num);
+  font-size: calc(var(--pv-t-head) * 1.2);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 450;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+
+.previewText {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: calc(5 * var(--pv-u));
+  padding-top: calc(6 * var(--pv-u));
+  overflow-y: auto;
+  border-top: 1px solid var(--pv-rule-lo);
+  color: var(--pv-ink-2);
+  font-size: var(--pv-t-sm);
+  line-height: 1.45;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.previewText p {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: calc(16 * var(--pv-u)) 0;
+  color: var(--pv-ink-3);
+  text-align: center;
+}
+
+/* ---------- the grid ---------- */
+
+.grid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: calc(10 * var(--pv-u)) calc(8 * var(--pv-u));
+  align-content: start;
+  min-height: 0;
+  margin: 0;
+  padding: calc(12 * var(--pv-u)) calc(14 * var(--pv-u)) calc(16 * var(--pv-u)) calc(16 * var(--pv-u));
+  overflow-x: hidden;
+  overflow-y: auto;
+  list-style: none;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(181 153 99 / 0.45) transparent;
+}
+
+.cell {
+  min-width: 0;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.card:focus {
+  outline: none;
+}
+
+.art {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  aspect-ratio: 59 / 86;
+  overflow: visible;
+  border-radius: 4px;
+  background: #06080e;
+  box-shadow: 0 4px 10px rgb(0 0 0 / 0.5);
+  transition: transform 0.18s var(--pv-ease), box-shadow 0.18s;
+}
+
+.art img,
+.artBack {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.art img {
+  transform: scale(1.075);
+  clip-path: inset(0 round 4px);
+}
+
+.art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  transition: border-color 0.15s;
+  pointer-events: none;
+}
+
+.card:hover .art,
+.card[data-active="true"] .art {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 0.55);
+}
+
+.card:hover .art::after,
+.card[data-active="true"] .art::after {
+  border-color: var(--pv-rule-hi);
+}
+
+.card:focus-visible .art::after {
+  border: 2px solid var(--pv-ink);
+}
+
+.root[data-reduced="true"] .art,
+.root[data-reduced="true"] .art::after {
+  transition: none;
+}
+
+.name {
+  display: block;
+  overflow: hidden;
+  color: var(--pv-ink-2);
+  font-size: var(--pv-t-xs);
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card:hover .name,
+.card[data-active="true"] .name {
+  color: var(--pv-ink);
+}
+
+/* Legal and selected: the field's outline shape and tag, never colour alone. */
+.ring {
+  position: absolute;
+  inset: -4px;
+  z-index: 2;
+  border: 1px dashed var(--pv-pen);
+  border-radius: 7px;
+  pointer-events: none;
+}
+
+.card[data-selected="true"] .ring {
+  inset: -5px;
+  border: 2px solid var(--pv-pen);
+}
+
+.mark {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 15px;
+  padding: 0 5px;
+  border: 1px solid var(--pv-pen);
+  border-radius: 999px;
+  background: #0c1224;
+  color: var(--pv-pen-ink);
+  pointer-events: none;
+}
+
+.mark svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card[data-selected="true"] .mark {
+  background: var(--pv-pen-fill);
+  color: #fff;
+}
+
+/* ---------- phones: still centred, over the whole viewport ---------- */
+
+@media (max-width: 900px) {
+  .root {
+    position: fixed;
+    z-index: 40;
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .panel {
+    width: 100%;
+    max-height: min(100%, 88dvh);
+  }
+
+  .head {
+    padding: 12px 8px 8px 14px;
+  }
+
+  .preview {
+    --pv-art-h: clamp(120px, 24cqh, 170px);
+    gap: 10px;
+    padding: 10px 14px;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+    gap: 8px 6px;
+    padding: 10px 14px 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .scrim {
+    animation: none;
+  }
+
+  .art,
+  .art::after {
+    transition: none;
+  }
+}

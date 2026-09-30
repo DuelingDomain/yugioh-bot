@@ -71,6 +71,12 @@ const SUMMON_VERB = {
   tribute: "Tribute Summon",
   special: "Special Summon",
   flip: "Flip Summon",
+  fusion: "Fusion Summon",
+  synchro: "Synchro Summon",
+  xyz: "Xyz Summon",
+  link: "Link Summon",
+  ritual: "Ritual Summon",
+  pendulum: "Pendulum Summon",
 } as const;
 
 const SUMMON_PAST = {
@@ -78,6 +84,12 @@ const SUMMON_PAST = {
   tribute: "Tribute Summoned",
   special: "Special Summoned",
   flip: "Flip Summoned",
+  fusion: "Fusion Summoned",
+  synchro: "Synchro Summoned",
+  xyz: "Xyz Summoned",
+  link: "Link Summoned",
+  ritual: "Ritual Summoned",
+  pendulum: "Pendulum Summoned",
 } as const;
 
 const CAUSE_LABEL = { battle: "battle damage", effect: "effect damage", cost: "LP paid" } as const;

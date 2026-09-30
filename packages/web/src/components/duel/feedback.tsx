@@ -8,8 +8,9 @@ import {
   collectFreshEvents,
   DUEL_FX_CUE_EVENT,
   type DuelFxCueDetail,
+  fxSoundsItself,
   isDrawnOnBoard,
-  isHeavySummon,
+  isPositionEvent,
   maxEventId,
   pacedCueDuration,
 } from "./event-queue";
@@ -24,7 +25,7 @@ export type DuelFeedbackProps = {
   reducedMotion: boolean;
 };
 
-const KIND_LABEL: Record<DuelEvent["kind"], string> = {
+const KIND_LABEL: Record<string, string> = {
   summon: "Summon",
   set: "Set",
   activate: "Activate",
@@ -37,6 +38,7 @@ const KIND_LABEL: Record<DuelEvent["kind"], string> = {
   damage: "Damage",
   destroy: "Destroyed",
   move: "Move",
+  position: "Position",
 };
 
 function publicCard(event: DuelEvent): DuelCardInfo | null {
@@ -49,9 +51,9 @@ function cueTitle(event: DuelEvent, card: DuelCardInfo | null): string {
   const text = event.text.trim();
   if (!card) {
     if (event.kind === "set") return text || "Set";
-    return text || KIND_LABEL[event.kind];
+    return text || KIND_LABEL[event.kind] || event.kind;
   }
-  return text || card.name || KIND_LABEL[event.kind];
+  return text || card.name || KIND_LABEL[event.kind] || event.kind;
 }
 
 function cueBlurb(event: DuelEvent, card: DuelCardInfo | null): string | undefined {
@@ -271,14 +273,15 @@ export function DuelFeedback({
     const toasts: DuelEvent[] = [];
     const now = performance.now();
     for (const event of fresh) {
-      // The battle layer draws damage on the life points; MoveFx draws card movement.
-      if (event.kind === "damage" || event.kind === "move") continue;
+      // The battle layer draws damage on the life points; MoveFx draws card movement and
+      // PositionFx the turn or flip of a monster: none of them get a toast.
+      if (event.kind === "damage" || event.kind === "move" || isPositionEvent(event)) continue;
       // A card flying onto the board is heard and announced when it lands, not when it leaves.
       const landAt = pairedMovePlan(event.id)?.landAt;
       const holdMs = landAt != null ? landAt - now : 0;
       if (isDrawnOnBoard(event, reducedRef.current)) {
-        // SummonFx draws it on the zone; it also sounds the heavy and destroy cues at their moment.
-        const fxSounds = event.kind === "destroy" || isHeavySummon(event);
+        // SummonFx draws it on the zone; heavy, typed and destroy effects sound their own cues at their moment.
+        const fxSounds = fxSoundsItself(event);
         if (!fxSounds && soundRef.current) {
           if (holdMs > 30) {
             const timer = window.setTimeout(() => {

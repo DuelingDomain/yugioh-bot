@@ -209,6 +209,67 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
         burst(audio, dest, { start: t, duration: 0.2, peak: 0.05, filter: "highpass", freq: 2200, freqEnd: 5200 });
         tone(audio, dest, { freq: 880, freqEnd: 260, type: "triangle", start: t, duration: 0.16, peak: 0.02, attack: 0.003 });
         break;
+      case "turn":
+        // A card sliding a quarter turn on the mat: a short brush and a soft tap as it settles.
+        burst(audio, dest, { start: t, duration: 0.12, peak: 0.02, filter: "bandpass", freq: 1400, freqEnd: 700 });
+        tone(audio, dest, { freq: 220, type: "triangle", start: t + 0.2, duration: 0.07, peak: 0.02, attack: 0.004 });
+        break;
+      case "flip":
+        // The card turns over: a quick brush, then a small bright chime as the face shows.
+        burst(audio, dest, { start: t, duration: 0.1, peak: 0.024, filter: "bandpass", freq: 1800, freqEnd: 900 });
+        tone(audio, dest, { freq: 987.77, type: "sine", start: t + 0.16, duration: 0.16, peak: 0.028 });
+        tone(audio, dest, { freq: 1318.5, type: "sine", start: t + 0.2, duration: 0.18, peak: 0.018 });
+        break;
+      case "fusion":
+        // Two voices swirl toward each other and merge into one bright chord.
+        tone(audio, dest, { freq: 330, freqEnd: 494, type: "sine", start: t, duration: 0.5, peak: 0.028, attack: 0.08 });
+        tone(audio, dest, { freq: 660, freqEnd: 494, type: "triangle", start: t, duration: 0.5, peak: 0.016, attack: 0.08 });
+        tone(audio, dest, { freq: 494, type: "sine", start: t + 0.55, duration: 0.3, peak: 0.04, attack: 0.006 });
+        tone(audio, dest, { freq: 740, type: "sine", start: t + 0.56, duration: 0.26, peak: 0.024, attack: 0.006 });
+        burst(audio, dest, { start: t + 0.55, duration: 0.16, peak: 0.03, filter: "lowpass", freq: 1600, freqEnd: 300 });
+        break;
+      case "synchro":
+        // Tuning rings: a rising ladder of clear tones, then a white flash of noise.
+        for (let i = 0; i < 4; i += 1) {
+          tone(audio, dest, { freq: 880 * Math.pow(2, i / 4), type: "sine", start: t + i * 0.09, duration: 0.2, peak: 0.02, attack: 0.008 });
+        }
+        tone(audio, dest, { freq: 1760, freqEnd: 2637, type: "sine", start: t + 0.4, duration: 0.3, peak: 0.02, attack: 0.03 });
+        burst(audio, dest, { start: t + 0.56, duration: 0.22, peak: 0.035, filter: "highpass", freq: 1200, freqEnd: 4000 });
+        tone(audio, dest, { freq: 1046.5, type: "sine", start: t + 0.58, duration: 0.3, peak: 0.03, attack: 0.005 });
+        break;
+      case "xyz":
+        // A dark swirl underneath, gold orbs circling, then a rising thump as the monster comes up.
+        tone(audio, dest, { freq: 70, freqEnd: 52, type: "sine", start: t, duration: 0.7, peak: 0.05, attack: 0.1 });
+        for (let i = 0; i < 3; i += 1) {
+          tone(audio, dest, { freq: 1568 + i * 220, type: "sine", start: t + 0.15 + i * 0.16, duration: 0.12, peak: 0.014, attack: 0.004 });
+        }
+        tone(audio, dest, { freq: 90, freqEnd: 160, type: "sine", start: t + 0.72, duration: 0.24, peak: 0.08, attack: 0.006 });
+        tone(audio, dest, { freq: 1244.5, type: "triangle", start: t + 0.76, duration: 0.2, peak: 0.02, attack: 0.004 });
+        break;
+      case "link":
+        // Circuit: a run of short digital blips, then a data sweep and a lock-in tone.
+        for (let i = 0; i < 6; i += 1) {
+          tone(audio, dest, { freq: 1200 + (i % 3) * 300, type: "square", start: t + 0.1 + i * 0.05, duration: 0.03, peak: 0.006, attack: 0.002 });
+        }
+        tone(audio, dest, { freq: 2400, freqEnd: 600, type: "sawtooth", start: t + 0.28, duration: 0.28, peak: 0.008, attack: 0.01 });
+        tone(audio, dest, { freq: 587.33, type: "sine", start: t + 0.58, duration: 0.24, peak: 0.032, attack: 0.005 });
+        tone(audio, dest, { freq: 880, type: "sine", start: t + 0.6, duration: 0.2, peak: 0.02, attack: 0.005 });
+        break;
+      case "ritual":
+        // A low swell like a held chord, blue flames hissing, then a bell as the monster rises.
+        tone(audio, dest, { freq: 110, type: "sine", start: t, duration: 0.8, peak: 0.04, attack: 0.2 });
+        tone(audio, dest, { freq: 164.81, type: "triangle", start: t + 0.05, duration: 0.75, peak: 0.018, attack: 0.22 });
+        burst(audio, dest, { start: t + 0.1, duration: 0.5, peak: 0.012, filter: "bandpass", freq: 600, freqEnd: 1800 });
+        tone(audio, dest, { freq: 659.25, type: "sine", start: t + 0.64, duration: 0.36, peak: 0.03, attack: 0.006 });
+        tone(audio, dest, { freq: 1318.5, type: "sine", start: t + 0.66, duration: 0.3, peak: 0.014, attack: 0.006 });
+        break;
+      case "pendulum":
+        // The pendulum swings: a slow whoosh across, then a chime as the light drops.
+        burst(audio, dest, { start: t, duration: 0.5, peak: 0.016, filter: "bandpass", freq: 400, freqEnd: 1600 });
+        tone(audio, dest, { freq: 392, freqEnd: 587.33, type: "sine", start: t + 0.05, duration: 0.5, peak: 0.016, attack: 0.1 });
+        tone(audio, dest, { freq: 1567.98, type: "sine", start: t + 0.9, duration: 0.3, peak: 0.028, attack: 0.005 });
+        tone(audio, dest, { freq: 2093, type: "sine", start: t + 0.94, duration: 0.24, peak: 0.014, attack: 0.005 });
+        break;
       default:
         break;
     }

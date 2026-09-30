@@ -282,13 +282,16 @@
   padding: calc(4 * var(--duel-unit)) calc(6 * var(--duel-unit));
   border-left: 1px solid var(--duel-rule);
 }
-/* The field measures this box: it must stay definite and never scroll. */
+/* The field measures this box: it must stay definite and never scroll. Overflow stays visible and the
+   box sits above the header and station track, so a hovered hand card can grow outward over them
+   instead of over the board (the field's fx layers clip themselves). */
 .board {
   position: relative;
+  z-index: 1;
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .board::after {
   content: "";

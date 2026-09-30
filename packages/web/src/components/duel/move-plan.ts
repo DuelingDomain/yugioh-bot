@@ -19,7 +19,7 @@ import {
   LOCATION_REMOVED,
   zoneKey,
 } from "./constants";
-import { findZoneElement, isHeavySummon } from "./event-queue";
+import { findZoneElement, isHeavySummon, summonStyleOf } from "./event-queue";
 
 export const MOVE_TIMING = {
   placeMin: 420,
@@ -38,7 +38,7 @@ export const MOVE_TIMING = {
   /** Destroy: the card cracks and breaks in place first, then flies off. */
   destroyBreakMs: 150,
   destroyBreakBattleMs: 460,
-  /** A heavy summon's ghost stays this long after landing so the hologram can rise out of it. */
+  /** A heavy or typed summon's ghost stays this long after landing so the effect can take over from it. */
   heavyHoldMs: 140,
 } as const;
 
@@ -217,7 +217,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       if ((next.kind === "summon" || next.kind === "set" || next.kind === "activate") && sameZone(next.zone, to)) {
         paired.push(next.id);
         claimed.add(next.id);
-        if (isHeavySummon(next) && !reduced) hold = MOVE_TIMING.heavyHoldMs;
+        if ((isHeavySummon(next) || summonStyleOf(next, from.location) != null) && !reduced) hold = MOVE_TIMING.heavyHoldMs;
         break;
       }
     }

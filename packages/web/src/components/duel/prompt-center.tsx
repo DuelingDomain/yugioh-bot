@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Check, EyeOff, Link2 } from "lucide-react";
-import type { DuelAnswer, DuelChainLink, DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelChainLink, DuelPrompt, DuelPromptOption, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   AnnounceSearch,
   canConfirm,
@@ -17,11 +17,23 @@ import {
 import {
   cardArtUrl,
   LOCATION_DECK,
+  LOCATION_DMZONE,
   LOCATION_EXTRA,
+  LOCATION_FZONE,
   LOCATION_GRAVE,
+  LOCATION_HAND,
+  LOCATION_MZONE,
   LOCATION_OVERLAY,
+  LOCATION_PZONE,
   LOCATION_REMOVED,
+  LOCATION_SZONE,
+  POS_FACEDOWN_ATTACK,
+  POS_FACEDOWN_DEFENSE,
+  POS_FACEUP_ATTACK,
+  POS_FACEUP_DEFENSE,
 } from "./constants";
+import { CardBack } from "./card-face";
+import { battleStepLabel, type BattleStep } from "./station-track";
 import base from "./prompts.module.css";
 import styles from "./prompt-center.module.css";
 
@@ -60,6 +72,123 @@ export function centerKind(prompt: DuelPrompt | null): CenterKind | null {
     default:
       return null;
   }
+}
+
+/* ------------------------------------------------------------ contract (round 4) */
+
+/**
+ * The card an effect prompt is about (DuelPrompt.source) and the per-option texts
+ * (DuelPromptOption.cardText / effectText). Typed here as optional intersections so the room compiles
+ * against a shared build with or without the fields.
+ */
+export interface PromptSource {
+  code: number;
+  name: string;
+  seat: number;
+  zone?: DuelZoneRef;
+  /** Full printed card text. */
+  text: string;
+}
+type SourcedPrompt = DuelPrompt & { source?: PromptSource | null };
+type TextedOption = DuelPromptOption & { cardText?: string | null; effectText?: string | null };
+
+export function promptSource(prompt: DuelPrompt | null | undefined): PromptSource | null {
+  const source = (prompt as SourcedPrompt | null | undefined)?.source;
+  return source && source.name ? source : null;
+}
+
+function optionTexts(option: DuelPromptOption): { cardText: string; effectText: string } {
+  const texted = option as TextedOption;
+  return {
+    cardText: (texted.cardText ?? option.card?.description ?? "").trim(),
+    effectText: (texted.effectText ?? "").trim(),
+  };
+}
+
+/**
+ * Engine strings are printf templates ("Activate the Trigger Effect of \"%ls\" from [%ls]?"). The server
+ * fills them; this guard catches any that slip through so the player never reads a placeholder.
+ * The first %ls names the card, a bracketed [%ls] is a location, numbers become an em dash.
+ */
+export function fillPlaceholders(text: string, name?: string | null, place?: string | null): string {
+  if (!text || !text.includes("%")) return text;
+  let out = text.replace(/\[%l?s\]/g, () => (place ? `[${place}]` : "[—]"));
+  out = out.replace(/%l?s/g, () => name?.trim() || "—");
+  out = out.replace(/%(?:l?[diu]|ld|lu)/g, "—");
+  // "from [—]" says nothing; drop it rather than show a dash in brackets.
+  return out.replace(/\s+(?:from|in|on)\s+\[—\]/g, "").replace(/\[—\]/g, "—");
+}
+
+const POSITION_LABELS: Record<string, string> = {
+  faceup_attack: "Face-up Attack",
+  facedown_attack: "Face-down Attack",
+  faceup_defense: "Face-up Defense",
+  facedown_defense: "Face-down Defense",
+  faceup: "Face-up",
+  facedown: "Face-down",
+  attack: "Attack Position",
+  defense: "Defense Position",
+};
+
+/** Raw snake_case option labels ("faceup_attack") read as words ("Face-up Attack"). Other labels pass through. */
+export function humanizeLabel(label: string): string {
+  const key = label.trim().toLowerCase();
+  if (POSITION_LABELS[key]) return POSITION_LABELS[key];
+  if (!/^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(key)) return label;
+  return key
+    .split("_")
+    .map((word) => (word === "faceup" ? "Face-up" : word === "facedown" ? "Face-down" : word[0].toUpperCase() + word.slice(1)))
+    .join(" ");
+}
+
+/** The POS_* bit a position option stands for, from its values, its id ("pos:4") or its label. */
+export function positionOf(option: DuelPromptOption): number | null {
+  const value = option.values?.[0];
+  if (value != null && value > 0) return value;
+  const id = /^pos:(\d+)$/.exec(option.id);
+  if (id) return Number(id[1]);
+  const key = option.label.trim().toLowerCase();
+  const facedown = key.includes("facedown") || key.includes("face-down");
+  if (key.includes("def")) return facedown ? POS_FACEDOWN_DEFENSE : POS_FACEUP_DEFENSE;
+  if (key.includes("att")) return facedown ? POS_FACEDOWN_ATTACK : POS_FACEUP_ATTACK;
+  return null;
+}
+
+function zonePlace(zone: DuelZoneRef | undefined, mySeat: number | null): string | null {
+  if (!zone) return null;
+  const whose = mySeat == null ? "" : zone.controller === mySeat ? "your " : "opponent's ";
+  const location = zone.location;
+  let name: string | null = null;
+  if (location & LOCATION_HAND) name = "hand";
+  else if (location & LOCATION_MZONE) name = "Monster Zone";
+  else if (location & LOCATION_SZONE) name = "Spell & Trap Zone";
+  else if (location & LOCATION_FZONE) name = "Field Zone";
+  else if (location & LOCATION_PZONE) name = "Pendulum Zone";
+  else if (location & LOCATION_GRAVE) name = "Graveyard";
+  else if (location & LOCATION_REMOVED) name = "banished cards";
+  else if (location & LOCATION_EXTRA) name = "Extra Deck";
+  else if (location & LOCATION_DECK) name = "Deck";
+  else if (location & LOCATION_OVERLAY) name = "Xyz Materials";
+  else if (location & LOCATION_DMZONE) name = "Deck Master Zone";
+  return name ? `${whose}${name}` : null;
+}
+
+type EffectKind = "trigger" | "quick" | "ignition" | "flip" | "";
+
+function effectKind(prompt: DuelPrompt): EffectKind {
+  const text = `${prompt.title} ${prompt.description ?? ""}`;
+  if (/trigger/i.test(text)) return "trigger";
+  if (/quick/i.test(text)) return "quick";
+  if (/ignition/i.test(text)) return "ignition";
+  if (/\bflip\b/i.test(text)) return "flip";
+  if (prompt.context?.type === "chain") return "quick";
+  return "";
+}
+
+function ownerWord(seat: number | undefined, mySeat: number | null, form: "your" | "you"): string {
+  if (seat == null || mySeat == null) return form === "your" ? "Your" : "You";
+  if (seat === mySeat) return form === "your" ? "Your" : "You";
+  return form === "your" ? "Opponent's" : "Opponent";
 }
 
 function isYesNo(prompt: DuelPrompt): boolean {
@@ -102,8 +231,10 @@ function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
   });
 }
 
-function effectText(option: DuelPromptOption): { name: string; effect: string } {
-  let text = option.label.trim().replace(/^Activate\s+/i, "");
+/** Name + effect line for a chain option, from the resolved texts when the server sends them, else the label. */
+function effectText(option: DuelPromptOption): { name: string; effect: string; cardText: string } {
+  const texts = optionTexts(option);
+  let text = fillPlaceholders(option.label, option.card?.name).trim().replace(/^Activate\s+/i, "");
   const cardName = option.card?.name?.trim();
   let name = cardName ?? "";
   if (cardName && text.startsWith(cardName)) {
@@ -118,13 +249,31 @@ function effectText(option: DuelPromptOption): { name: string; effect: string } 
       text = "";
     }
   }
-  const effect = text.trim() || (option.card?.description ?? "").trim();
-  return { name: name || option.label, effect };
+  const effect = texts.effectText || text.trim() || texts.cardText;
+  return { name: name || option.label, effect, cardText: texts.cardText };
 }
 
 function CardArt({ option, className }: { option: DuelPromptOption; className: string }) {
   if (!option.card) return <span className={`${className} ${styles.noArt}`} aria-hidden />;
   return <img src={cardArtUrl(option.card.code, "small")} alt="" className={className} draggable={false} />;
+}
+
+/** Printed card text: clamped to a few lines with a toggle when long, scrollable when open. */
+function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: string; label?: string; open?: boolean }) {
+  const [open, setOpen] = useState(Boolean(forceOpen));
+  const long = text.length > 200 || text.split(/\r?\n/).length > 3;
+  const shown = open || !long;
+  return (
+    <div className={styles.cardText} data-open={shown ? "true" : "false"}>
+      <span className={styles.cardTextLabel}>{label}</span>
+      <p className={styles.cardTextBody} data-clamped={shown ? "false" : "true"}>{text}</p>
+      {long && !forceOpen ? (
+        <button type="button" className={styles.cardTextMore} aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+          {open ? "Show less" : "Show full text"}
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function selectionStatus(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean): string {
@@ -145,6 +294,9 @@ function selectionStatus(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean
   if (min === max) return `${count} of ${min} selected`;
   return `${count} selected · ${min} to ${max}`;
 }
+
+/** Hovering or focusing a card tile shows that card in the left inspector, as board cards do. */
+export type InspectCardHandler = (card: DuelCardInfo) => void;
 
 /* ------------------------------------------------------------------ actions */
 
@@ -215,23 +367,152 @@ function ChainStrip({ chain }: { chain: readonly DuelChainLink[] }) {
   );
 }
 
+function ChainRows({
+  prompt,
+  draft,
+  busy,
+  mySeat,
+  choose,
+  onInspectCard,
+}: {
+  prompt: DuelPrompt;
+  draft: PromptDraft;
+  busy: boolean;
+  mySeat: number | null;
+  choose: (id: string) => void;
+  onInspectCard?: InspectCardHandler;
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  return (
+    <div className={styles.rows}>
+      {prompt.options.map((option, index) => {
+        const { name, effect, cardText } = effectText(option);
+        const owner = ownerWord(option.controller ?? prompt.seat, mySeat, "you");
+        const open = Boolean(expanded[option.id]);
+        const showMore = cardText.length > 0 && cardText !== effect;
+        // A short effect label ("Take control") says too little on its own: the printed text follows it.
+        const detail = showMore && effect.length < 48 ? cardText : "";
+        return (
+          <div key={option.id} className={styles.row} data-active={draft.highlight === index} data-open={open ? "true" : "false"}>
+            <button
+              type="button"
+              className={styles.rowMain}
+              data-primary={index === draft.highlight ? true : undefined}
+              data-index={index}
+              disabled={busy}
+              aria-label={fillPlaceholders(option.label, option.card?.name)}
+              onClick={() => choose(option.id)}
+              onMouseEnter={() => {
+                draft.setHighlight(index);
+                if (option.card) onInspectCard?.(option.card);
+              }}
+              onFocus={() => {
+                if (option.card) onInspectCard?.(option.card);
+              }}
+            >
+              <span className={styles.rowNum}>{index + 1}</span>
+              <CardArt option={option} className={styles.rowArt} />
+              <span className={styles.rowText}>
+                <b>
+                  {name}
+                  <span className={styles.rowOwner} data-owner={owner === "You" ? "you" : "opp"}>{owner}</span>
+                </b>
+                {effect ? <small>{effect}</small> : null}
+                {detail ? <small className={styles.rowDetail}>{detail}</small> : null}
+              </span>
+              <span className={styles.rowGo}>Activate</span>
+            </button>
+            {showMore ? (
+              <button
+                type="button"
+                className={styles.rowMore}
+                aria-expanded={open}
+                aria-label={`${open ? "Hide" : "Show"} full text of ${name}`}
+                disabled={busy}
+                onClick={() => setExpanded((current) => ({ ...current, [option.id]: !open }))}
+              >
+                {open ? "Hide card text" : "Full card text"}
+              </button>
+            ) : null}
+            {showMore && open ? <CardTextBlock text={cardText} open /> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PositionTiles({
+  prompt,
+  draft,
+  busy,
+  choose,
+}: {
+  prompt: DuelPrompt;
+  draft: PromptDraft;
+  busy: boolean;
+  choose: (id: string) => void;
+}) {
+  return (
+    <div className={styles.positions}>
+      {prompt.options.map((option, index) => {
+        const position = positionOf(option) ?? 0;
+        const defense = (position & (POS_FACEUP_DEFENSE | POS_FACEDOWN_DEFENSE)) !== 0;
+        const facedown = (position & (POS_FACEDOWN_ATTACK | POS_FACEDOWN_DEFENSE)) !== 0;
+        const label = humanizeLabel(option.label);
+        return (
+          <button
+            key={option.id}
+            type="button"
+            className={styles.posTile}
+            data-kind={index === 0 ? "primary" : undefined}
+            data-primary={index === 0 ? true : undefined}
+            data-active={draft.highlight === index}
+            data-index={index}
+            disabled={busy}
+            aria-label={label}
+            onClick={() => choose(option.id)}
+            onMouseEnter={() => draft.setHighlight(index)}
+          >
+            <span className={styles.posArt} data-defense={defense ? "true" : "false"} data-facedown={facedown ? "true" : "false"}>
+              <span className={styles.posCard}>
+                {facedown || !option.card ? (
+                  <CardBack className={styles.posBack} />
+                ) : (
+                  <img src={cardArtUrl(option.card.code, "small")} alt="" draggable={false} />
+                )}
+              </span>
+            </span>
+            <span className={styles.posLabel}>{label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ResponseBody({
   prompt,
   draft,
   busy,
   slug,
   chain,
+  mySeat,
   onSubmit,
+  onInspectCard,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
   busy: boolean;
   slug: string;
   chain: readonly DuelChainLink[];
+  mySeat: number | null;
   onSubmit: (answer: DuelAnswer) => void;
+  onInspectCard?: InspectCardHandler;
 }) {
   const context = prompt.context;
   const choose = (id: string) => onSubmit({ choice: id });
+  const source = promptSource(prompt);
 
   if (prompt.kind === "announce-card") {
     return (
@@ -275,33 +556,7 @@ function ResponseBody({
     return (
       <>
         <ChainStrip chain={chain} />
-        <div className={styles.rows}>
-          {prompt.options.map((option, index) => {
-            const { name, effect } = effectText(option);
-            return (
-              <button
-                key={option.id}
-                type="button"
-                className={styles.row}
-                data-active={draft.highlight === index}
-                data-primary={index === draft.highlight ? true : undefined}
-                data-index={index}
-                disabled={busy}
-                aria-label={option.label}
-                onClick={() => choose(option.id)}
-                onMouseEnter={() => draft.setHighlight(index)}
-              >
-                <span className={styles.rowNum}>{index + 1}</span>
-                <CardArt option={option} className={styles.rowArt} />
-                <span className={styles.rowText}>
-                  <b>{name}</b>
-                  {effect ? <small>{effect}</small> : null}
-                </span>
-                <span className={styles.rowGo}>Activate</span>
-              </button>
-            );
-          })}
-        </div>
+        <ChainRows prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} choose={choose} onInspectCard={onInspectCard} />
       </>
     );
   }
@@ -327,54 +582,68 @@ function ResponseBody({
     );
   }
 
-  if (isYesNo(prompt)) return <YesNo prompt={prompt} draft={draft} busy={busy} choose={choose} />;
+  if (isYesNo(prompt)) {
+    const yes = prompt.options.find((option) => option.id === "yes");
+    const place = zonePlace(source?.zone, mySeat);
+    const title = fillPlaceholders(prompt.title, source?.name, place).trim();
+    const description = prompt.description ? fillPlaceholders(prompt.description, source?.name, place).trim() : "";
+    const effect = (yes ? optionTexts(yes).effectText : "") || (description && description !== title ? description : "");
+    return (
+      <>
+        {effect ? <p className={styles.effect}>{effect}</p> : null}
+        {source?.text ? <CardTextBlock text={source.text} /> : null}
+        <YesNo prompt={prompt} draft={draft} busy={busy} choose={choose} />
+      </>
+    );
+  }
 
   if (context?.type === "position") {
-    return (
-      <div className={styles.pills}>
-        {prompt.options.map((option, index) => (
-          <button
-            key={option.id}
-            type="button"
-            className={styles.btn}
-            data-kind={index === 0 ? "primary" : undefined}
-            data-primary={index === 0 ? true : undefined}
-            data-active={draft.highlight === index}
-            disabled={busy}
-            onClick={() => choose(option.id)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-    );
+    return <PositionTiles prompt={prompt} draft={draft} busy={busy} choose={choose} />;
   }
 
   // Any other list of options: numbered rows, with art when the option names a card.
   return (
-    <div className={styles.rows}>
-      {prompt.options.map((option, index) => (
-        <button
-          key={option.id}
-          type="button"
-          className={styles.row}
-          data-plain={option.card ? undefined : "true"}
-          data-active={draft.highlight === index}
-          data-selected={prompt.kind === "toggle" ? Boolean(option.selected) : undefined}
-          data-primary={index === draft.highlight ? true : undefined}
-          data-index={index}
-          disabled={busy}
-          onClick={() => choose(option.id)}
-          onMouseEnter={() => draft.setHighlight(index)}
-        >
-          <span className={styles.rowNum}>{index + 1}</span>
-          {option.card ? <CardArt option={option} className={styles.rowArt} /> : null}
-          <span className={styles.rowText}>
-            <b>{option.label}</b>
-          </span>
-        </button>
-      ))}
-    </div>
+    <>
+      {source?.text ? <CardTextBlock text={source.text} /> : null}
+      <div className={styles.rows}>
+        {prompt.options.map((option, index) => {
+          const { effectText: optionEffect } = optionTexts(option);
+          const label = humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));
+          return (
+            <div
+              key={option.id}
+              className={styles.row}
+              data-plain={option.card ? undefined : "true"}
+              data-active={draft.highlight === index}
+              data-selected={prompt.kind === "toggle" ? Boolean(option.selected) : undefined}
+            >
+              <button
+                type="button"
+                className={styles.rowMain}
+                data-primary={index === draft.highlight ? true : undefined}
+                data-index={index}
+                disabled={busy}
+                onClick={() => choose(option.id)}
+                onMouseEnter={() => {
+                  draft.setHighlight(index);
+                  if (option.card) onInspectCard?.(option.card);
+                }}
+                onFocus={() => {
+                  if (option.card) onInspectCard?.(option.card);
+                }}
+              >
+                <span className={styles.rowNum}>{index + 1}</span>
+                {option.card ? <CardArt option={option} className={styles.rowArt} /> : null}
+                <span className={styles.rowText}>
+                  <b>{label}</b>
+                  {optionEffect && optionEffect !== label ? <small>{optionEffect}</small> : null}
+                </span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -403,7 +672,7 @@ function YesNo({
         disabled={busy}
         onClick={() => choose(yes.id)}
       >
-        {yes.label}
+        {humanizeLabel(yes.label)}
       </button>
       <button
         type="button"
@@ -412,25 +681,46 @@ function YesNo({
         disabled={busy}
         onClick={() => choose(no.id)}
       >
-        {no.label}
+        {humanizeLabel(no.label)}
       </button>
     </div>
   );
 }
 
-function responseTitle(prompt: DuelPrompt, chain: readonly DuelChainLink[]): { title: string; sub?: string } {
+/** Header copy for the response panel: who is asking, about which card, and what kind of effect. */
+export function responseTitle(
+  prompt: DuelPrompt,
+  chain: readonly DuelChainLink[],
+  mySeat: number | null = null,
+): { title: string; sub?: string; source: PromptSource | null } {
   const context = prompt.context;
+  const source = promptSource(prompt);
+  const place = zonePlace(source?.zone, mySeat);
+  const kind = effectKind(prompt);
+  const sourceLine = source
+    ? [source.name, `${ownerWord(source.seat, mySeat, "your")} ${kind ? `${kind} effect` : "effect"}`, place]
+        .filter(Boolean)
+        .join(" · ")
+    : undefined;
   if (context?.type === "chain") {
     const last = chain[chain.length - 1];
     const target = last?.name ? ` to ${last.name}` : "";
-    const generic = /^select a (mandatory effect|chain link or pass)$/i.test(prompt.title.trim());
+    const filled = fillPlaceholders(prompt.title, source?.name, place).trim();
+    const generic = /^select a (mandatory effect|chain link or pass)$/i.test(filled);
     return {
       title: context.forced ? `You must respond${target}` : `You can respond${target}`,
-      sub: generic ? undefined : prompt.title,
+      sub: sourceLine ?? (generic ? undefined : filled),
+      source,
     };
   }
-  if (context?.type === "deck-master-recall") return { title: prompt.title };
-  return { title: prompt.title, sub: prompt.description };
+  if (context?.type === "deck-master-recall") return { title: prompt.title, source };
+  const title = fillPlaceholders(prompt.title, source?.name, place).trim();
+  const description = prompt.description ? fillPlaceholders(prompt.description, source?.name, place).trim() : undefined;
+  if (source && isYesNo(prompt)) {
+    return { title: `Activate ${source.name}'s effect?`, sub: sourceLine, source };
+  }
+  if (source) return { title, sub: sourceLine, source };
+  return { title, sub: description && description !== title ? description : undefined, source };
 }
 
 /* -------------------------------------------------------------- grid picker */
@@ -442,6 +732,7 @@ function GridPicker({
   aim,
   onSubmit,
   onCollapse,
+  onInspectCard,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
@@ -449,6 +740,7 @@ function GridPicker({
   aim?: PromptAim;
   onSubmit: (answer: DuelAnswer) => void;
   onCollapse: () => void;
+  onInspectCard?: InspectCardHandler;
 }) {
   const counters = prompt.kind === "counters";
   const { min, max } = selectionBounds(prompt);
@@ -460,6 +752,9 @@ function GridPicker({
       ? `${total} of ${prompt.target} placed`
       : `${total} placed`
     : selectionStatus(prompt, draft, Boolean(aim));
+  const source = promptSource(prompt);
+  const title = fillPlaceholders(prompt.title, source?.name);
+  const description = prompt.description ? fillPlaceholders(prompt.description, source?.name) : "";
 
   function pick(option: DuelPromptOption, index: number) {
     draft.setHighlight(index);
@@ -481,8 +776,8 @@ function GridPicker({
     <>
       <header className={styles.head}>
         <div className={styles.titles}>
-          <h2>{prompt.title}</h2>
-          <p>{prompt.description ? `${prompt.description} · ${status}` : status}</p>
+          <h2>{title}</h2>
+          <p>{description ? `${description} · ${status}` : status}</p>
         </div>
         <button type="button" className={styles.hide} aria-label="Hide to look at the board" title="Hide to look at the board" onClick={onCollapse}>
           <EyeOff size={16} strokeWidth={1.75} aria-hidden />
@@ -492,6 +787,7 @@ function GridPicker({
         {prompt.options.map((option, index) => {
           const selected = counters ? (draft.counts[option.id] ?? 0) > 0 : draft.selected.includes(option.id);
           const orderIndex = prompt.kind === "order" ? draft.selected.indexOf(option.id) : -1;
+          const label = humanizeLabel(option.label);
           return (
             <li key={option.id}>
               <div
@@ -505,19 +801,25 @@ function GridPicker({
                   data-primary={index === 0 ? true : undefined}
                   aria-pressed={selected}
                   disabled={busy || counters}
-                  title={option.label}
+                  title={label}
                   onClick={() => pick(option, index)}
                   onDoubleClick={() => {
                     if (single && !aim && !busy) onSubmit({ selected: [option.id] });
                   }}
-                  onMouseEnter={aim ? () => aim.onHover(option) : undefined}
+                  onMouseEnter={() => {
+                    aim?.onHover(option);
+                    if (option.card) onInspectCard?.(option.card);
+                  }}
                   onMouseLeave={aim ? () => aim.onHover(null) : undefined}
+                  onFocus={() => {
+                    if (option.card) onInspectCard?.(option.card);
+                  }}
                 >
                   <span className={styles.tileArt}>
                     {option.card ? (
                       <img src={cardArtUrl(option.card.code, "small")} alt="" draggable={false} />
                     ) : (
-                      <span className={styles.tileZone}>{option.label}</span>
+                      <span className={styles.tileZone}>{label}</span>
                     )}
                     {selected && !counters ? (
                       <span className={styles.tileMark} aria-hidden>
@@ -525,18 +827,18 @@ function GridPicker({
                       </span>
                     ) : null}
                   </span>
-                  <span className={styles.tileLabel}>{option.card ? option.label : ""}</span>
+                  <span className={styles.tileLabel}>{option.card ? label : ""}</span>
                   {valueDetail && option.values?.length ? (
                     <span className={styles.tileValue}>{option.values.join(" / ")}</span>
                   ) : null}
                 </button>
                 {counters ? (
                   <div className={styles.stepper}>
-                    <button type="button" aria-label={`Decrease ${option.label}`} disabled={busy} onClick={() => bump(option, -1)}>
+                    <button type="button" aria-label={`Decrease ${label}`} disabled={busy} onClick={() => bump(option, -1)}>
                       −
                     </button>
                     <span>{draft.counts[option.id] ?? 0}</span>
-                    <button type="button" aria-label={`Increase ${option.label}`} disabled={busy} onClick={() => bump(option, 1)}>
+                    <button type="button" aria-label={`Increase ${label}`} disabled={busy} onClick={() => bump(option, 1)}>
                       +
                     </button>
                   </div>
@@ -580,14 +882,25 @@ export interface PromptCenterProps {
   reducedMotion: boolean;
   /** Bumps whenever the engine view changes; re-checks what is on the board. */
   revision: number;
+  /** Battle Phase sub-step while the prompt is open (engine.battleStep), so a response says when it is. */
+  battleStep?: BattleStep | null;
+  /**
+   * False while the panel waits its human beat after an action (see usePromptReveal). Nothing is
+   * drawn and nothing answers the prompt: not right-click, Esc nor Enter. Default true.
+   */
+  revealed?: boolean;
+  /** Hovering or focusing a card in a grid or a response row shows it in the left inspector. */
+  onInspectCard?: InspectCardHandler;
 }
 
 /**
  * Mount inside the board box (position: relative; overflow: hidden). It fills the box but only its own
  * panel takes pointer events, so the field underneath stays clickable.
+ * Panels carry `data-prompt-panel`: hover tooltips read it to stay clear of an open prompt.
  */
 export function PromptCenter(props: PromptCenterProps) {
-  const { prompt, mySeat, active, draft, busy, onSubmit, chain, aim, reducedMotion, revision, slug } = props;
+  const { prompt, mySeat, active, draft, busy, onSubmit, chain, aim, reducedMotion, revision, slug, battleStep, onInspectCard } = props;
+  const revealed = props.revealed ?? true;
   const answering = prompt != null && mySeat != null && prompt.seat === mySeat && active;
   const kind = answering ? centerKind(prompt) : null;
 
@@ -604,7 +917,9 @@ export function PromptCenter(props: PromptCenterProps) {
   const menuRef = useRef(props.menuOpen);
   const lockedRef = useRef(props.aimLocked);
   const collapsedRef = useRef(collapsed);
+  const revealedRef = useRef(revealed);
   const barRef = useRef(false);
+  revealedRef.current = revealed;
   promptRef.current = prompt;
   kindRef.current = kind;
   busyRef.current = busy;
@@ -655,13 +970,13 @@ export function PromptCenter(props: PromptCenterProps) {
 
   // Focus moves into the panel so Enter takes the primary answer.
   useEffect(() => {
-    if (!kind || (kind === "select" && onBoard !== false) || collapsed) return;
+    if (!kind || !revealed || (kind === "select" && onBoard !== false) || collapsed) return;
     const panel = panelRef.current;
     // Card grids focus the panel itself: Enter then confirms through the tray's shortcut.
     const target = kind === "response" ? panel?.querySelector<HTMLElement>("[data-primary]:not(:disabled)") : panel;
     target?.focus({ preventScroll: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promptId, collapsed, kind, onBoard]);
+  }, [promptId, collapsed, kind, onBoard, revealed]);
 
   // Arrow keys (handled by the tray) move the highlight; the focused row follows it.
   const highlight = draft.highlight;
@@ -680,6 +995,8 @@ export function PromptCenter(props: PromptCenterProps) {
     const context = (event: MouseEvent) => {
       const current = promptRef.current;
       if (!current) return;
+      // Hidden behind its human beat: a right-click answers nothing yet.
+      if (!revealedRef.current) return;
       const target = event.target instanceof Element ? event.target : null;
       if (target?.closest("input,textarea,select,[contenteditable='true'],[data-duel-menu],[role='menu'],[role='dialog']")) return;
       if (swallow) {
@@ -705,7 +1022,7 @@ export function PromptCenter(props: PromptCenterProps) {
       if (event.metaKey || event.ctrlKey || event.altKey || menuRef.current) return;
       if (kindRef.current == null || barRef.current) return;
       const current = promptRef.current;
-      if (!current) return;
+      if (!current || !revealedRef.current) return;
       event.preventDefault();
       if (collapsedRef.current) {
         setCollapsed(false);
@@ -728,12 +1045,19 @@ export function PromptCenter(props: PromptCenterProps) {
     };
   }, [kind, promptId]);
 
-  if (!prompt || !kind) return <div ref={layerRef} className={styles.layer} aria-hidden hidden />;
+  if (!prompt || !kind || !revealed) return <div ref={layerRef} className={styles.layer} aria-hidden hidden />;
 
   const optional = declineAnswer(prompt) != null;
   const chainKind = prompt.context?.type === "chain";
   const tone = chainKind ? "chain" : "action";
   const dataReduced = reducedMotion ? "true" : "false";
+  const stepName = battleStepLabel(battleStep);
+  const stepLine = stepName ? (
+    <span className={styles.stepChip} data-tone={tone}>
+      <i aria-hidden />
+      Battle Phase · {stepName}{chainKind ? " · respond?" : ""}
+    </span>
+  ) : null;
 
   let body: ReactNode = null;
 
@@ -742,16 +1066,18 @@ export function PromptCenter(props: PromptCenterProps) {
     const aiming = Boolean(aim);
     const explicit = needsExplicitConfirm(prompt);
     const ok = canConfirm(prompt, draft);
+    const source = promptSource(prompt);
+    const barTitle = fillPlaceholders(prompt.title, source?.name);
     body = (
       <div
         className={styles.bar}
         data-reduced={dataReduced}
         style={{ top: barTop }}
         role="group"
-        aria-label={prompt.title}
+        aria-label={barTitle}
       >
-        <div className={styles.barText} title={prompt.description}>
-          <b>{prompt.title}</b>
+        <div className={styles.barText} title={prompt.description ? fillPlaceholders(prompt.description, source?.name) : undefined}>
+          <b>{barTitle}</b>
           <span>{selectionStatus(prompt, draft, aiming)}</span>
         </div>
         <div className={styles.barBtns}>
@@ -820,7 +1146,7 @@ export function PromptCenter(props: PromptCenterProps) {
   );
 
   if (kind === "response") {
-    const { title, sub } = responseTitle(prompt, chain);
+    const { title, sub, source } = responseTitle(prompt, chain, mySeat);
     const actions = prompt.kind === "choice" && isYesNo(prompt) ? null : (
       <Actions prompt={prompt} draft={draft} busy={busy} onSubmit={onSubmit} />
     );
@@ -829,6 +1155,7 @@ export function PromptCenter(props: PromptCenterProps) {
       <div
         ref={panelRef}
         className={styles.panel}
+        data-prompt-panel
         data-tone={tone}
         data-forced={prompt.context?.type === "chain" && prompt.context.forced ? "true" : "false"}
         data-reduced={dataReduced}
@@ -836,8 +1163,12 @@ export function PromptCenter(props: PromptCenterProps) {
         aria-label={title}
         aria-live="polite"
       >
-        <header className={styles.head}>
+        <header className={styles.head} data-source={source ? "true" : "false"}>
+          {source ? (
+            <img src={cardArtUrl(source.code, "small")} alt="" className={styles.sourceArt} draggable={false} />
+          ) : null}
           <div className={styles.titles}>
+            {stepLine}
             <h2>{title}</h2>
             {sub ? <p>{sub}</p> : null}
           </div>
@@ -846,7 +1177,8 @@ export function PromptCenter(props: PromptCenterProps) {
           </span>
           {hide}
         </header>
-        <ResponseBody prompt={prompt} draft={draft} busy={busy} slug={slug} chain={chain} onSubmit={onSubmit} />
+        <ResponseBody prompt={prompt} draft={draft} busy={busy} slug={slug} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
+          onInspectCard={onInspectCard} />
         {hasActions || optional ? (
           <footer className={styles.foot}>
             {optional ? <span className={styles.hint}>Right-click to pass</span> : null}
@@ -861,14 +1193,17 @@ export function PromptCenter(props: PromptCenterProps) {
       <div
         ref={panelRef}
         className={styles.panel}
+        data-prompt-panel
         tabIndex={-1}
         data-tone="action"
         data-wide="true"
         data-reduced={dataReduced}
         role="group"
-        aria-label={prompt.title}
+        aria-label={fillPlaceholders(prompt.title, promptSource(prompt)?.name)}
       >
-        <GridPicker prompt={prompt} draft={draft} busy={busy} aim={aim} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)} />
+        {stepLine ? <div className={styles.stepRow}>{stepLine}</div> : null}
+        <GridPicker prompt={prompt} draft={draft} busy={busy} aim={aim} onSubmit={onSubmit} onCollapse={() => setCollapsed(true)}
+          onInspectCard={onInspectCard} />
       </div>
     );
   }

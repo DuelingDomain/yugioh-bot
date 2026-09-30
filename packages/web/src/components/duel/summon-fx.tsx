@@ -3,11 +3,15 @@
 /**
  * Board effects for summons, sets, activations and destruction.
  *
- * Heavy summons (Level/Rank 7+ or a Tribute Summon) get the full treatment: a holographic
- * projection of the card rises above its zone, drops onto it with weight, rings and dust burst,
- * the field shakes (strength set by the shake preference) and a few cracks spread over the board
- * before they fade. Lighter summons get a quick develop pop, sets settle face-down, activations
- * flip and light up, and destroyed cards break into shards that drift to the Graveyard.
+ * Heavy summons (Level/Rank 7+, Link 3+ or a Tribute Summon) get the full treatment: a holographic
+ * projection of the card rises above its zone, drops onto it with weight, rings, rays and dust
+ * burst in the colour of its summon type, the field shakes a little (strength set by the shake
+ * preference) and a few cracks spread over the board before they fade. Fusion, Synchro, Xyz, Link,
+ * Ritual and Pendulum Summons below that weight each have an animation of their own (vortex,
+ * tuning rings, galaxy and overlay orbs, circuit grid, blue flames, pendulum arc), all under 1.6 s
+ * and never blocking input. A plain Normal or Special Summon keeps its quick develop pop, sets
+ * settle face-down, activations flip and light up, and destroyed cards break into shards that
+ * drift to the Graveyard.
  *
  * Card movement itself (hand to zone, zone to Graveyard, draws) is MoveFx's job. When a "move"
  * event carries the card to the zone (see move-plan.ts), this layer does not animate the same
@@ -22,15 +26,18 @@
  */
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl, LOCATION_GRAVE, TYPE_XYZ } from "./constants";
+import { cardArtUrl, LOCATION_GRAVE, LOCATION_PZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
 import {
   collectFreshEvents,
   DUEL_FX_CUE_EVENT,
   findZoneElement,
   isHeavySummon,
   maxEventId,
+  summonCoveredByFlip,
+  summonStyleOf,
   type DuelFxCue,
   type DuelFxCueDetail,
+  type SummonStyle,
 } from "./event-queue";
 import { MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } from "./move-plan";
 import type { DuelShakePreference } from "./preferences";
@@ -51,19 +58,63 @@ export const HEAVY_TIMELINE = {
   hoverEnd: 580,
   impact: 720,
   handOver: 800,
-  shake: 420,
+  shake: 320,
   crackDraw: 150,
   crackFadeFrom: 1040,
+  /** Rays of light from the impact are gone by here. */
+  raysEnd: 1240,
   total: 1600,
 } as const;
 
-/** Peak vertical field shake in px for a Level 8 monster on a 1100px-wide board (horizontal is 0.45x). */
+/**
+ * Peak vertical field shake in px for a Level 8 monster on a 1100px-wide board (horizontal is 0.45x).
+ * Kept small on purpose: the weight is in the slam, the rings and the light, not in the shake.
+ */
 export const SHAKE_AMPLITUDE_PX: Record<DuelShakePreference, number> = {
   off: 0,
-  low: 3,
-  medium: 7,
-  high: 13,
+  low: 1.5,
+  medium: 3.5,
+  high: 7,
 };
+
+/** Milliseconds from the start of a typed summon: when the real card takes over, and when the effect is gone. */
+export const TYPED_TIMELINE: Record<SummonStyle, { handOver: number; total: number }> = {
+  fusion: { handOver: 780, total: 1300 },
+  synchro: { handOver: 800, total: 1350 },
+  xyz: { handOver: 900, total: 1400 },
+  link: { handOver: 720, total: 1250 },
+  ritual: { handOver: 820, total: 1350 },
+  pendulum: { handOver: 1080, total: 1500 },
+};
+
+/** Light colours per summon type as "r g b" triplets: main light, secondary, accent. */
+export type FxTone = "gold" | SummonStyle;
+export const TONE_RGB: Record<FxTone, [string, string, string]> = {
+  gold: ["244 226 180", "155 126 255", "130 200 255"],
+  fusion: ["198 168 255", "255 150 70", "155 126 255"],
+  synchro: ["240 244 255", "200 212 235", "255 255 255"],
+  xyz: ["244 214 144", "120 90 200", "40 24 80"],
+  link: ["120 190 255", "70 140 255", "150 240 255"],
+  ritual: ["150 200 255", "70 120 255", "210 235 255"],
+  pendulum: ["120 230 220", "244 214 144", "200 255 250"],
+};
+
+const TONE_LABEL: Record<SummonStyle, string> = {
+  fusion: "Fusion",
+  synchro: "Synchro",
+  xyz: "Xyz",
+  link: "Link",
+  ritual: "Ritual",
+  pendulum: "Pendulum",
+};
+
+function applyTone(el: HTMLElement | SVGElement | null, tone: FxTone): void {
+  if (!el) return;
+  const [a, b, c] = TONE_RGB[tone];
+  el.style.setProperty("--fx-a", a);
+  el.style.setProperty("--fx-b", b);
+  el.style.setProperty("--fx-c", c);
+}
 
 const CARD_ASPECT = 0.686;
 const STAGGER_MS = 140;
@@ -73,11 +124,13 @@ const MAX_ITEMS = 10;
 const HIDE_FAILSAFE_MS = 4000;
 const GY_LOCATION = LOCATION_GRAVE;
 
-type FxKind = "heavy" | "light" | "set" | "activate" | "destroy";
+type FxKind = "heavy" | "typed" | "light" | "set" | "activate" | "destroy";
 
 type FxItem = {
   key: string;
   kind: FxKind;
+  /** Fusion/Synchro/Xyz/Link/Ritual/Pendulum: colours a heavy summon and picks the typed effect. */
+  style: SummonStyle | null;
   event: DuelEvent;
   card: DuelCardInfo | null;
   delayMs: number;
@@ -310,10 +363,12 @@ const SHARDS: Shard[] = (() => {
   return shards;
 })();
 
-function levelLabel(card: DuelCardInfo | null, tribute: boolean): string {
+function levelLabel(card: DuelCardInfo | null, tribute: boolean, style: SummonStyle | null): string {
   if (tribute) return "Tribute Summon";
   if (!card) return "";
-  return `${(card.type & TYPE_XYZ) !== 0 ? "Rank" : "Level"} ${card.level}`;
+  const scale = (card.type & TYPE_LINK) !== 0 ? "Link" : (card.type & TYPE_XYZ) !== 0 ? "Rank" : "Level";
+  const level = `${scale} ${card.level}`;
+  return style ? `${TONE_LABEL[style]} · ${level}` : level;
 }
 
 /* ---------- effect components ---------- */
@@ -375,11 +430,12 @@ function pulseRing(track: Track, el: HTMLElement | null, delay: number, opts: { 
 }
 
 /** Reduced motion: no travel, just a short glow on the zone. */
-function GlowFx({ item, overlay, done, tone }: EffectProps & { tone: "gold" | "violet" | "red" }) {
+function GlowFx({ item, overlay, done, tone }: EffectProps & { tone: "gold" | "violet" | "red" | "typed" }) {
   const anchor = useAnchor();
   const glow = useRef<HTMLSpanElement>(null);
   useEffectSetup(overlay, item, done, ({ track, geo }) => {
     if (anchor.current) placeAnchor(anchor.current, geo);
+    if (tone === "typed") applyTone(anchor.current, item.style ?? "gold");
     track.play(glow.current, [{ opacity: 0 }, { opacity: 0.95, offset: 0.25 }, { opacity: 0 }], {
       duration: 460,
       delay: item.delayMs,
@@ -638,18 +694,22 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
   const ring = useRef<HTMLSpanElement>(null);
   const ring2 = useRef<HTMLSpanElement>(null);
   const burst = useRef<HTMLSpanElement>(null);
+  const rays = useRef<HTMLSpanElement>(null);
   const dust = useRef<Array<HTMLSpanElement | null>>([]);
   const cracksSvg = useRef<SVGSVGElement>(null);
   const crackPaths = useRef<Array<SVGPathElement | null>>([]);
   const [cracks, setCracks] = useState<CrackPath[]>([]);
   const tribute = item.event.summonKind === "tribute";
   const cardInfo = item.card;
+  const tone: FxTone = item.style ?? "gold";
   const T = HEAVY_TIMELINE;
 
   useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
     const d = item.delayMs;
     const weight = heavyWeight(cardInfo, tribute);
     if (anchor.current) placeAnchor(anchor.current, geo);
+    applyTone(anchor.current, tone);
+    applyTone(cracksSvg.current, tone);
     if (stage.current) stage.current.style.perspective = `${Math.round(geo.w * 5)}px`;
 
     // Which way the projection rises: up when there is room, otherwise toward the middle of the board.
@@ -675,8 +735,8 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
         ? "polygon(24% 0, 76% 0, 100% 100%, 0 100%)"
         : "polygon(0 0, 100% 0, 76% 100%, 24% 100%)";
       beam.current.style.background = up
-        ? "linear-gradient(to top, rgb(130 190 255 / 0.3), rgb(155 126 255 / 0.05) 78%, transparent)"
-        : "linear-gradient(to bottom, rgb(130 190 255 / 0.3), rgb(155 126 255 / 0.05) 78%, transparent)";
+        ? "linear-gradient(to top, rgb(var(--fx-c) / 0.3), rgb(var(--fx-b) / 0.05) 78%, transparent)"
+        : "linear-gradient(to bottom, rgb(var(--fx-c) / 0.3), rgb(var(--fx-b) / 0.05) 78%, transparent)";
     }
 
     // The real card waits underneath until the projection has landed.
@@ -798,12 +858,22 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
       fill: "forwards",
       easing: "cubic-bezier(0.1, 0.7, 0.2, 1)",
     });
-    track.play(burst.current, [{ opacity: 0.7, transform: "scale(0.6)" }, { opacity: 0, transform: "scale(1.25)" }], {
-      duration: 260,
+    track.play(burst.current, [{ opacity: 0.85, transform: "scale(0.6)" }, { opacity: 0, transform: "scale(1.35)" }], {
+      duration: 300,
       delay: hit,
       fill: "forwards",
       easing: "ease-out",
     });
+    // Light radiating from the impact in the type's colour, gone within about half a second.
+    track.play(
+      rays.current,
+      [
+        { opacity: 0, transform: "rotate(0deg) scale(0.3)", easing: "cubic-bezier(0.1, 0.8, 0.2, 1)" },
+        { opacity: 0.95, transform: "rotate(4deg) scale(0.9)", offset: 0.18 },
+        { opacity: 0, transform: "rotate(9deg) scale(1.5)" },
+      ],
+      { duration: T.raysEnd - T.impact, delay: hit, fill: "forwards", easing: "cubic-bezier(0.2, 0.6, 0.3, 1)" },
+    );
     const rand = mulberry32(item.event.id * 7919 + 11);
     dust.current.forEach((el) => {
       if (!el) return;
@@ -912,6 +982,7 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
         <span ref={pad} className={styles.pad} />
         <span ref={beam} className={styles.beam} />
         <span ref={shadow} className={styles.shadow} />
+        <span ref={rays} className={styles.rays} />
         <span ref={burst} className={styles.burst} />
         <div ref={stage} className={styles.stage}>
           <div ref={card} className={styles.holoCard}>
@@ -923,7 +994,7 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
             <i ref={edge} className={styles.holoEdge} />
             <span ref={plate} className={styles.plate}>
               <b>{cardInfo?.name}</b>
-              <em>{levelLabel(cardInfo, tribute)}</em>
+              <em>{levelLabel(cardInfo, tribute, item.style)}</em>
             </span>
           </div>
         </div>
@@ -943,14 +1014,615 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
   );
 }
 
+/* ---------- typed summons: Fusion, Synchro, Xyz, Link, Ritual, Pendulum ---------- */
+
+type TypedCtx = {
+  track: Track;
+  zone: HTMLElement;
+  geo: Geo;
+  /** Start of the effect, ms from now (the flight has landed by then). */
+  d: number;
+  handOver: number;
+  total: number;
+  /** A copy of the card that stands in for the real one until `handOver`. */
+  copy: HTMLDivElement | null;
+  copyArt: HTMLImageElement | null;
+};
+
+type TypedRefs = {
+  anchor: React.RefObject<HTMLDivElement | null>;
+  copy: React.RefObject<HTMLDivElement | null>;
+  /** The card body inside the copy: turned sideways for a Defense Position monster. */
+  copyBody: React.RefObject<HTMLDivElement | null>;
+  copyArt: React.RefObject<HTMLImageElement | null>;
+};
+
+/**
+ * Shared frame for every typed summon: the anchor on the zone, the type's colours, the real card
+ * hidden until the effect hands over, a card copy that starts exactly where the flight left it, the
+ * sound cue, and a keep-alive so the item lives until the last light has faded.
+ */
+function useTypedSetup(
+  props: EffectProps,
+  style: SummonStyle,
+  refs: TypedRefs,
+  setup: (ctx: TypedCtx) => void,
+): void {
+  const { item, overlay, done } = props;
+  useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
+    const d = item.delayMs;
+    const { handOver, total } = TYPED_TIMELINE[style];
+    if (refs.anchor.current) placeAnchor(refs.anchor.current, geo);
+    applyTone(refs.anchor.current, style);
+    if (refs.copyBody.current && geo.defense) refs.copyBody.current.style.rotate = "90deg";
+    holdHidden(track, zone, d + handOver);
+    // The copy stands until the real card is back, then goes in a blink so nothing shows twice for long.
+    track.play(refs.copy.current, [{ opacity: 1, offset: 0 }, { opacity: 1, offset: handOver / total }, { opacity: 0, offset: Math.min(0.999, (handOver + 90) / total) }, { opacity: 0 }], {
+      duration: total,
+      delay: d,
+      fill: "backwards",
+      easing: "linear",
+    });
+    track.after(d, () => emitCue(style, 1));
+    track.play(refs.anchor.current, [{ opacity: 1 }, { opacity: 1 }], { duration: total, delay: d });
+    setup({ track, zone, geo, d, handOver, total, copy: refs.copy.current, copyArt: refs.copyArt.current });
+  });
+}
+
+function useTypedRefs(): TypedRefs {
+  return { anchor: useAnchor(), copy: useRef<HTMLDivElement>(null), copyBody: useRef<HTMLDivElement>(null), copyArt: useRef<HTMLImageElement>(null) };
+}
+
+function CardCopy({ card, refs, tint }: { card: DuelCardInfo | null; refs: TypedRefs; tint?: React.RefObject<HTMLSpanElement | null> }) {
+  return (
+    <div ref={refs.copy} className={styles.copy}>
+      <div ref={refs.copyBody} className={styles.copyBody}>
+        {card ? <img ref={refs.copyArt} className={styles.ghostArt} src={cardArtUrl(card.code, "small")} alt="" draggable={false} /> : null}
+        {tint ? <span ref={tint} className={styles.copyTint} /> : null}
+      </div>
+    </div>
+  );
+}
+
+/** A soft flash of the type's light over the zone. */
+function flash(track: Track, el: Element | null, at: number, opts: { peak?: number; grow?: number; duration?: number } = {}): void {
+  track.play(
+    el,
+    [
+      { opacity: 0, transform: "scale(0.5)" },
+      { opacity: opts.peak ?? 0.9, transform: "scale(0.9)", offset: 0.15 },
+      { opacity: 0, transform: `scale(${opts.grow ?? 1.6})` },
+    ],
+    { duration: opts.duration ?? 420, delay: at, fill: "forwards", easing: "cubic-bezier(0.1, 0.7, 0.2, 1)" },
+  );
+}
+
+/** Fusion: two vortices, violet and orange, spin in from either side and merge into the card. */
+function FusionFx(props: EffectProps) {
+  const refs = useTypedRefs();
+  const vortexA = useRef<HTMLSpanElement>(null);
+  const vortexB = useRef<HTMLSpanElement>(null);
+  const burst = useRef<HTMLSpanElement>(null);
+  const halo = useRef<HTMLSpanElement>(null);
+  useTypedSetup(props, "fusion", refs, ({ track, geo, d, handOver, copy }) => {
+    const side = geo.side === "opp" ? -1 : 1;
+    const far = geo.w * 0.95;
+    const spin = (el: HTMLElement | null, dir: number) =>
+      track.play(
+        el,
+        [
+          { opacity: 0, transform: `translate(${dir * far * 1.1}px, ${side * geo.h * 0.12}px) rotate(0deg) scale(0.4)`, easing: "cubic-bezier(0.2, 0.7, 0.3, 1)" },
+          { opacity: 0.95, transform: `translate(${dir * far * 0.7}px, ${side * geo.h * 0.06}px) rotate(${dir * 200}deg) scale(1)`, offset: 0.22, easing: "cubic-bezier(0.5, 0, 0.7, 0.4)" },
+          { opacity: 1, transform: `translate(0px, 0px) rotate(${dir * 620}deg) scale(0.85)`, offset: 0.62, easing: "ease-out" },
+          { opacity: 0, transform: `translate(0px, 0px) rotate(${dir * 760}deg) scale(0.25)` },
+        ],
+        { duration: 760, delay: d, fill: "forwards", easing: "linear" },
+      );
+    spin(vortexA.current, -1);
+    spin(vortexB.current, 1);
+    // The landed card is drawn into the swirl, goes dark, and re-forms in a violet-orange flash.
+    track.play(
+      copy,
+      [
+        { filter: "brightness(1) saturate(1)", scale: "1", offset: 0 },
+        { filter: "brightness(0.25) saturate(0.4)", scale: "0.9", offset: 0.4, easing: "ease-in-out" },
+        { filter: "brightness(0.15) saturate(0.2)", scale: "0.86", offset: 0.62, easing: "cubic-bezier(0.1, 0.8, 0.2, 1)" },
+        { filter: "brightness(2.4) saturate(1.5)", scale: "1.08", offset: 0.8, easing: "ease-out" },
+        { filter: "brightness(1) saturate(1)", scale: "1", offset: 1 },
+      ],
+      { duration: handOver, delay: d, fill: "backwards", easing: "linear" },
+    );
+    flash(track, burst.current, d + 470, { peak: 1, grow: 1.7, duration: 460 });
+    track.play(halo.current, [{ opacity: 0.9, transform: "scale(0.6)" }, { opacity: 0, transform: "scale(2.1)" }], {
+      duration: 640,
+      delay: d + 500,
+      fill: "forwards",
+      easing: "cubic-bezier(0.1, 0.7, 0.2, 1)",
+    });
+  });
+  return (
+    <div ref={refs.anchor} className={styles.anchor} data-fx="fusion">
+      <span ref={halo} className={styles.impactRing} />
+      <span ref={vortexA} className={styles.vortex} data-hue="a" />
+      <span ref={vortexB} className={styles.vortex} data-hue="b" />
+      <CardCopy card={props.item.card} refs={refs} />
+      <span ref={burst} className={styles.burst} />
+    </div>
+  );
+}
+
+const TUNE_RINGS = 4;
+
+/** Synchro: tuning rings with star points drop and stack into a column of white light, then a white burst. */
+function SynchroFx(props: EffectProps) {
+  const refs = useTypedRefs();
+  const column = useRef<HTMLSpanElement>(null);
+  const rings = useRef<Array<HTMLSpanElement | null>>([]);
+  const burst = useRef<HTMLSpanElement>(null);
+  useTypedSetup(props, "synchro", refs, ({ track, geo, d, handOver, copy }) => {
+    const side = geo.side === "opp" ? -1 : 1;
+    track.play(
+      column.current,
+      [
+        { opacity: 0, transform: "scaleX(0.15)" },
+        { opacity: 0.85, transform: "scaleX(1)", offset: 0.3 },
+        { opacity: 1, transform: "scaleX(1.05)", offset: 0.62 },
+        { opacity: 0, transform: "scaleX(1.7)" },
+      ],
+      { duration: 880, delay: d, fill: "forwards", easing: "cubic-bezier(0.2, 0.7, 0.3, 1)" },
+    );
+    rings.current.forEach((el, index) => {
+      if (!el) return;
+      const from = -side * geo.h * 1.15;
+      const rest = side * geo.h * (0.36 - index * 0.24);
+      track.play(
+        el,
+        [
+          { opacity: 0, transform: `translateY(${from}px) scale(1.25)`, easing: "cubic-bezier(0.3, 0, 0.6, 1)" },
+          { opacity: 1, transform: `translateY(${rest}px) scale(1)`, offset: 0.34, easing: "ease-in-out" },
+          { opacity: 1, transform: `translateY(${rest}px) scale(1)`, offset: 0.6, easing: "cubic-bezier(0.5, 0, 0.8, 0.4)" },
+          { opacity: 0, transform: `translateY(${from * 1.4}px) scale(0.6)` },
+        ],
+        { duration: 900, delay: d + index * 70, fill: "forwards", easing: "linear" },
+      );
+    });
+    // The card whitens inside the column and resolves back to colour at the burst.
+    track.play(
+      copy,
+      [
+        { filter: "brightness(1) contrast(1)", offset: 0 },
+        { filter: "brightness(2.6) contrast(0.5)", offset: 0.45, easing: "linear" },
+        { filter: "brightness(3.2) contrast(0.3)", offset: 0.72, easing: "ease-out" },
+        { filter: "brightness(1) contrast(1)", offset: 1 },
+      ],
+      { duration: handOver, delay: d, fill: "backwards", easing: "linear" },
+    );
+    flash(track, burst.current, d + 560, { peak: 1, grow: 2.2, duration: 520 });
+  });
+  return (
+    <div ref={refs.anchor} className={styles.anchor} data-fx="synchro">
+      <span ref={column} className={styles.column} />
+      {Array.from({ length: TUNE_RINGS }, (_, index) => (
+        <span
+          key={index}
+          ref={(el) => {
+            rings.current[index] = el;
+          }}
+          className={styles.tuneRing}
+        >
+          <i /><i /><i /><i />
+        </span>
+      ))}
+      <CardCopy card={props.item.card} refs={refs} />
+      <span ref={burst} className={styles.burst} data-white="true" />
+    </div>
+  );
+}
+
+const XYZ_ORBS = 3;
+
+/** Xyz: a dark galaxy opens under the card, gold overlay units orbit and gather, and the monster rises. */
+function XyzFx(props: EffectProps) {
+  const refs = useTypedRefs();
+  const galaxy = useRef<HTMLSpanElement>(null);
+  const orbits = useRef<Array<HTMLSpanElement | null>>([]);
+  const orbs = useRef<Array<HTMLSpanElement | null>>([]);
+  const burst = useRef<HTMLSpanElement>(null);
+  useTypedSetup(props, "xyz", refs, ({ track, geo, d, handOver, copy }) => {
+    const side = geo.side === "opp" ? -1 : 1;
+    track.play(
+      galaxy.current,
+      [
+        { opacity: 0, transform: "rotate(0deg) scale(0.3)", easing: "cubic-bezier(0.2, 0.7, 0.3, 1)" },
+        { opacity: 0.95, transform: "rotate(120deg) scale(1)", offset: 0.2, easing: "linear" },
+        { opacity: 0.9, transform: "rotate(330deg) scale(1.04)", offset: 0.62, easing: "ease-in" },
+        { opacity: 0, transform: "rotate(450deg) scale(1.35)" },
+      ],
+      { duration: 1180, delay: d, fill: "forwards", easing: "linear" },
+    );
+    const radius = geo.w * 0.95;
+    orbits.current.forEach((el, index) => {
+      const base = (index / XYZ_ORBS) * 360;
+      track.play(el, [{ transform: `rotate(${base}deg)` }, { transform: `rotate(${base + 560}deg)` }], {
+        duration: 820,
+        delay: d,
+        fill: "forwards",
+        easing: "cubic-bezier(0.4, 0, 0.6, 1)",
+      });
+      track.play(
+        orbs.current[index],
+        [
+          { opacity: 0, transform: `translate(${radius * 1.1}px, 0) scale(0.4)`, easing: "ease-out" },
+          { opacity: 1, transform: `translate(${radius}px, 0) scale(1)`, offset: 0.18, easing: "linear" },
+          { opacity: 1, transform: `translate(${radius * 0.9}px, 0) scale(1)`, offset: 0.62, easing: "cubic-bezier(0.6, 0, 0.9, 0.5)" },
+          { opacity: 1, transform: "translate(0px, 0) scale(0.5)", offset: 0.9, easing: "ease-out" },
+          { opacity: 0, transform: "translate(0px, 0) scale(0.2)" },
+        ],
+        { duration: 860, delay: d + index * 40, fill: "forwards", easing: "linear" },
+      );
+    });
+    // The card sinks dark into the galaxy, then rises up and out of it in a gold flash.
+    const sink = side * geo.h * 0.16;
+    track.play(
+      copy,
+      [
+        { filter: "brightness(1)", transform: "translateY(0) scale(1)", offset: 0 },
+        { filter: "brightness(0.3) saturate(0.5)", transform: `translateY(${sink}px) scale(0.84)`, offset: 0.42, easing: "ease-in-out" },
+        { filter: "brightness(0.4) saturate(0.5)", transform: `translateY(${sink * 1.1}px) scale(0.82)`, offset: 0.7, easing: "cubic-bezier(0.1, 0.8, 0.2, 1)" },
+        { filter: "brightness(1.8) saturate(1.2)", transform: `translateY(${-side * geo.h * 0.06}px) scale(1.06)`, offset: 0.88, easing: "ease-out" },
+        { filter: "brightness(1)", transform: "translateY(0) scale(1)", offset: 1 },
+      ],
+      { duration: handOver, delay: d, fill: "backwards", easing: "linear" },
+    );
+    flash(track, burst.current, d + 720, { peak: 0.95, grow: 1.8, duration: 480 });
+  });
+  return (
+    <div ref={refs.anchor} className={styles.anchor} data-fx="xyz">
+      <span ref={galaxy} className={styles.galaxy} />
+      <CardCopy card={props.item.card} refs={refs} />
+      {Array.from({ length: XYZ_ORBS }, (_, index) => (
+        <span
+          key={index}
+          ref={(el) => {
+            orbits.current[index] = el;
+          }}
+          className={styles.orbit}
+        >
+          <i
+            ref={(el) => {
+              orbs.current[index] = el;
+            }}
+            className={styles.orb}
+          />
+        </span>
+      ))}
+      <span ref={burst} className={styles.burst} />
+    </div>
+  );
+}
+
+const LINK_ARROWS = 8;
+
+/** Link: a blue circuit grid, the eight link arrows lighting around the zone, and a data-line sweep that fills the card in. */
+function LinkFx(props: EffectProps) {
+  const refs = useTypedRefs();
+  const grid = useRef<HTMLSpanElement>(null);
+  const sweep = useRef<HTMLSpanElement>(null);
+  const fill = useRef<HTMLDivElement>(null);
+  const arrows = useRef<Array<HTMLSpanElement | null>>([]);
+  const burst = useRef<HTMLSpanElement>(null);
+  const tint = useRef<HTMLSpanElement>(null);
+  useTypedSetup(props, "link", refs, ({ track, geo, d, handOver, copy, copyArt }) => {
+    track.play(grid.current, [{ opacity: 0 }, { opacity: 0.9, offset: 0.18 }, { opacity: 0.8, offset: 0.62 }, { opacity: 0 }], {
+      duration: 1000,
+      delay: d,
+      fill: "forwards",
+      easing: "linear",
+    });
+    const rx = geo.w * 0.66;
+    const ry = geo.h * 0.62;
+    arrows.current.forEach((el, index) => {
+      if (!el) return;
+      const angle = (index / LINK_ARROWS) * 360;
+      const rad = (angle * Math.PI) / 180;
+      el.style.left = `${geo.w / 2 + Math.sin(rad) * rx}px`;
+      el.style.top = `${geo.h / 2 - Math.cos(rad) * ry}px`;
+      el.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+      track.play(
+        el,
+        [
+          { opacity: 0, scale: "0.5" },
+          { opacity: 1, scale: "1.25", offset: 0.12, easing: "ease-out" },
+          { opacity: 1, scale: "1", offset: 0.6 },
+          { opacity: 0, scale: "1" },
+        ],
+        { duration: 820, delay: d + 100 + index * 42, fill: "forwards", easing: "linear" },
+      );
+    });
+    // The data line runs down the card; above it the true art is filled in, below it a blue wireframe waits.
+    const sweepStart = 260;
+    const sweepEnd = 600;
+    track.play(
+      sweep.current,
+      [
+        { opacity: 0, transform: `translateY(${-geo.h * 0.55}px)`, offset: 0 },
+        { opacity: 1, transform: `translateY(${-geo.h * 0.5}px)`, offset: 0.08 },
+        { opacity: 1, transform: `translateY(${geo.h * 0.5}px)`, offset: 0.92 },
+        { opacity: 0, transform: `translateY(${geo.h * 0.55}px)`, offset: 1 },
+      ],
+      { duration: sweepEnd - sweepStart, delay: d + sweepStart, fill: "forwards", easing: "cubic-bezier(0.4, 0, 0.6, 1)" },
+    );
+    track.play(fill.current, [{ clipPath: "inset(0 0 100% 0)" }, { clipPath: "inset(0 0 0% 0)" }], {
+      duration: sweepEnd - sweepStart,
+      delay: d + sweepStart,
+      fill: "both",
+      easing: "cubic-bezier(0.4, 0, 0.6, 1)",
+    });
+    if (fill.current && geo.defense) fill.current.style.rotate = "90deg";
+    track.play(copyArt, [{ filter: "brightness(1) saturate(1)" }, { filter: "brightness(0.35) saturate(0.4) sepia(1) hue-rotate(170deg)", offset: 0.35 }, { filter: "brightness(0.35) saturate(0.4) sepia(1) hue-rotate(170deg)" }], {
+      duration: sweepStart,
+      delay: d,
+      fill: "forwards",
+      easing: "ease-in-out",
+    });
+    track.play(tint.current, [{ opacity: 0 }, { opacity: 0.7, offset: 0.4 }, { opacity: 0.7 }], { duration: sweepStart, delay: d, fill: "forwards", easing: "ease-in-out" });
+    track.play(copy, [{ filter: "brightness(1)", offset: 0 }, { filter: "brightness(1)", offset: (sweepEnd - 20) / handOver }, { filter: "brightness(1.9)", offset: (sweepEnd + 40) / handOver }, { filter: "brightness(1)", offset: 1 }], {
+      duration: handOver,
+      delay: d,
+      fill: "backwards",
+      easing: "linear",
+    });
+    flash(track, burst.current, d + sweepEnd, { peak: 0.75, grow: 1.5, duration: 380 });
+  });
+  const card = props.item.card;
+  return (
+    <div ref={refs.anchor} className={styles.anchor} data-fx="link">
+      <span ref={grid} className={styles.linkGrid} />
+      <CardCopy card={card} refs={refs} tint={tint} />
+      <div ref={fill} className={styles.linkFill}>
+        {card ? <img className={styles.ghostArt} src={cardArtUrl(card.code, "small")} alt="" draggable={false} /> : null}
+      </div>
+      <span ref={sweep} className={styles.linkSweep} />
+      {Array.from({ length: LINK_ARROWS }, (_, index) => (
+        <span
+          key={index}
+          ref={(el) => {
+            arrows.current[index] = el;
+          }}
+          className={styles.linkArrow}
+        />
+      ))}
+      <span ref={burst} className={styles.burst} />
+    </div>
+  );
+}
+
+const FLAMES = 7;
+
+/** Ritual: a pillar of blue light with blue flames licking up around the card, which rises out of them. */
+function RitualFx(props: EffectProps) {
+  const refs = useTypedRefs();
+  const pillar = useRef<HTMLSpanElement>(null);
+  const flames = useRef<Array<HTMLSpanElement | null>>([]);
+  const tint = useRef<HTMLSpanElement>(null);
+  const burst = useRef<HTMLSpanElement>(null);
+  useTypedSetup(props, "ritual", refs, ({ track, geo, d, handOver, copy }) => {
+    const side = geo.side === "opp" ? -1 : 1;
+    if (pillar.current) pillar.current.style.transformOrigin = side > 0 ? "50% 100%" : "50% 0%";
+    track.play(
+      pillar.current,
+      [
+        { opacity: 0, transform: "scaleY(0.1) scaleX(0.6)", easing: "cubic-bezier(0.2, 0.7, 0.3, 1)" },
+        { opacity: 1, transform: "scaleY(1) scaleX(1)", offset: 0.24, easing: "linear" },
+        { opacity: 0.9, transform: "scaleY(1) scaleX(1)", offset: 0.66, easing: "ease-in" },
+        { opacity: 0, transform: "scaleY(1.1) scaleX(1.6)" },
+      ],
+      { duration: 980, delay: d, fill: "forwards", easing: "linear" },
+    );
+    const rand = mulberry32(props.item.event.id * 131 + 5);
+    flames.current.forEach((el, index) => {
+      if (!el) return;
+      const x = ((index + 0.5) / FLAMES - 0.5) * geo.w * 1.5;
+      el.style.left = `${geo.w / 2 + x}px`;
+      el.style.top = side > 0 ? "70%" : "10%";
+      const rise = side * -geo.h * (0.7 + rand() * 0.5);
+      const life = 520 + rand() * 260;
+      for (const wave of [0, 1]) {
+        track.play(
+          el,
+          [
+            { opacity: 0, transform: "translate(-50%, 0) scale(0.5)", easing: "ease-out" },
+            { opacity: 0.9, transform: `translate(-50%, ${rise * 0.35}px) scale(1.2)`, offset: 0.3, easing: "ease-in" },
+            { opacity: 0, transform: `translate(-50%, ${rise}px) scale(0.4)` },
+          ],
+          { duration: life, delay: d + 80 + wave * 360 + index * 34, fill: "forwards", easing: "linear", composite: wave === 0 ? "replace" : "add" },
+        );
+      }
+    });
+    // The card sits low and blue in the flames, then rises out of them into its own colours.
+    const low = side * geo.h * 0.14;
+    track.play(
+      copy,
+      [
+        { filter: "brightness(1) saturate(1)", transform: "translateY(0) scale(1)", offset: 0 },
+        { filter: "brightness(0.55) saturate(0.6)", transform: `translateY(${low}px) scale(0.94)`, offset: 0.4, easing: "ease-in-out" },
+        { filter: "brightness(0.6) saturate(0.6)", transform: `translateY(${low}px) scale(0.94)`, offset: 0.62, easing: "cubic-bezier(0.1, 0.8, 0.2, 1)" },
+        { filter: "brightness(1.9) saturate(1.1)", transform: `translateY(${-side * geo.h * 0.04}px) scale(1.05)`, offset: 0.84, easing: "ease-out" },
+        { filter: "brightness(1) saturate(1)", transform: "translateY(0) scale(1)", offset: 1 },
+      ],
+      { duration: handOver, delay: d, fill: "backwards", easing: "linear" },
+    );
+    track.play(tint.current, [{ opacity: 0 }, { opacity: 0.65, offset: 0.4 }, { opacity: 0.65, offset: 0.68 }, { opacity: 0 }], {
+      duration: handOver,
+      delay: d,
+      fill: "forwards",
+      easing: "linear",
+    });
+    flash(track, burst.current, d + 640, { peak: 0.9, grow: 1.6, duration: 460 });
+  });
+  return (
+    <div ref={refs.anchor} className={styles.anchor} data-fx="ritual">
+      <span ref={pillar} className={styles.pillar} />
+      {Array.from({ length: FLAMES }, (_, index) => (
+        <span
+          key={index}
+          ref={(el) => {
+            flames.current[index] = el;
+          }}
+          className={styles.flame}
+        />
+      ))}
+      <CardCopy card={props.item.card} refs={refs} tint={tint} />
+      <span ref={burst} className={styles.burst} />
+    </div>
+  );
+}
+
+/** Points along a quadratic curve from `p0` over `ctrl` to `p2`. */
+function quad(p0: [number, number], ctrl: [number, number], p2: [number, number], t: number): [number, number] {
+  const m = 1 - t;
+  return [m * m * p0[0] + 2 * m * t * ctrl[0] + t * t * p2[0], m * m * p0[1] + 2 * m * t * ctrl[1] + t * t * p2[1]];
+}
+
+/** Pendulum: an arc of light swings between the two Pendulum Zones, then a beam drops the monster onto its zone. */
+function PendulumFx(props: EffectProps) {
+  const refs = useTypedRefs();
+  const svg = useRef<SVGSVGElement>(null);
+  const arcGlow = useRef<SVGPathElement>(null);
+  const arcLine = useRef<SVGPathElement>(null);
+  const beam = useRef<SVGLineElement>(null);
+  const orb = useRef<SVGCircleElement>(null);
+  const burst = useRef<HTMLSpanElement>(null);
+  const [arc, setArc] = useState<{ d: string; beam: [number, number, number, number] } | null>(null);
+  const geoRef = useRef<{ p0: [number, number]; ctrl: [number, number]; p2: [number, number]; d: number } | null>(null);
+  const { overlay, item } = props;
+  useTypedSetup(props, "pendulum", refs, ({ track, geo, d, handOver, copy }) => {
+    const controller = item.event.zone?.controller ?? 0;
+    const pz = [0, 1].map((sequence) => {
+      const el = findZoneElement({ controller, location: LOCATION_PZONE, sequence });
+      return el ? measure(overlay, el) : null;
+    });
+    const left = pz[0];
+    const right = pz[1];
+    const fallback = !left || !right;
+    const p0: [number, number] = fallback ? [geo.cx - geo.w * 1.8, geo.cy] : [left.cx, left.cy];
+    const p2: [number, number] = fallback ? [geo.cx + geo.w * 1.8, geo.cy] : [right.cx, right.cy];
+    // The swing arcs over the monster row, away from the Pendulum Zones.
+    const towardBoard = fallback ? (geo.side === "opp" ? 1 : -1) : Math.sign(geo.cy - (p0[1] + p2[1]) / 2) || -1;
+    const apexY = geo.cy + towardBoard * geo.h * 0.62;
+    const ctrl: [number, number] = [(p0[0] + p2[0]) / 2, 2 * apexY - (p0[1] + p2[1]) / 2];
+    geoRef.current = { p0, ctrl, p2, d };
+    const top = quad(p0, ctrl, p2, 0.5);
+    setArc({ d: `M${p0[0].toFixed(1)} ${p0[1].toFixed(1)} Q${ctrl[0].toFixed(1)} ${ctrl[1].toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`, beam: [top[0], top[1], geo.cx, geo.cy] });
+
+    // The card waits in the dark on its zone; the beam lights it up when the pendulum drops.
+    track.play(
+      copy,
+      [
+        { filter: "brightness(1)", transform: "scale(1)", offset: 0 },
+        { filter: "brightness(0.35) saturate(0.5)", transform: "scale(0.92)", offset: 0.3, easing: "linear" },
+        { filter: "brightness(0.35) saturate(0.5)", transform: "scale(0.92)", offset: 0.8, easing: "cubic-bezier(0.1, 0.8, 0.2, 1)" },
+        { filter: "brightness(2.2) saturate(1.3)", transform: "scale(1.07)", offset: 0.9, easing: "ease-out" },
+        { filter: "brightness(1)", transform: "scale(1)", offset: 1 },
+      ],
+      { duration: handOver, delay: d, fill: "backwards", easing: "linear" },
+    );
+    flash(track, burst.current, d + 940, { peak: 0.95, grow: 1.7, duration: 480 });
+  });
+
+  // The arc, orb and beam exist only after the geometry is measured: animate them in a second pass.
+  useLayoutEffect(() => {
+    const g = geoRef.current;
+    if (!arc || !g) return undefined;
+    const track = new Track();
+    const { p0, ctrl, p2, d } = g;
+    const draw = (el: Element | null) =>
+      track.play(el, [{ strokeDashoffset: 1, opacity: 0 }, { strokeDashoffset: 0.6, opacity: 1, offset: 0.2 }, { strokeDashoffset: 0, opacity: 1, offset: 0.62 }, { strokeDashoffset: 0, opacity: 0.9, offset: 0.78 }, { strokeDashoffset: 0, opacity: 0 }], {
+        duration: 1180,
+        delay: d,
+        fill: "both",
+        easing: "linear",
+      });
+    draw(arcGlow.current);
+    draw(arcLine.current);
+    // Swing left to right, back to the top, then drop straight to the zone.
+    const frames: Keyframe[] = [];
+    const steps = 16;
+    for (let i = 0; i <= steps; i += 1) {
+      const u = i / steps;
+      const [x, y] = quad(p0, ctrl, p2, -(Math.cos(Math.PI * u) - 1) / 2);
+      frames.push({ offset: u * 0.52, transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`, opacity: i === 0 ? 0 : 1 });
+    }
+    for (let i = 1; i <= 8; i += 1) {
+      const u = i / 8;
+      const [x, y] = quad(p0, ctrl, p2, 1 - 0.5 * (-(Math.cos(Math.PI * u) - 1) / 2));
+      frames.push({ offset: 0.52 + u * 0.3, transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`, opacity: 1 });
+    }
+    const [bx, by, cx, cy] = arc.beam;
+    frames.push({ offset: 0.84, transform: `translate(${bx.toFixed(1)}px, ${by.toFixed(1)}px)`, opacity: 1, easing: "cubic-bezier(0.6, 0, 0.9, 0.4)" });
+    frames.push({ offset: 0.98, transform: `translate(${cx.toFixed(1)}px, ${cy.toFixed(1)}px)`, opacity: 1 });
+    frames.push({ offset: 1, transform: `translate(${cx.toFixed(1)}px, ${cy.toFixed(1)}px)`, opacity: 0 });
+    track.play(orb.current, frames, { duration: 980, delay: d, fill: "both", easing: "linear" });
+    track.play(beam.current, [{ opacity: 0, strokeDashoffset: 1 }, { opacity: 1, strokeDashoffset: 0, offset: 0.4 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }], {
+      duration: 420,
+      delay: d + 820,
+      fill: "both",
+      easing: "ease-out",
+    });
+    return () => track.dispose();
+    // Runs once when the arc geometry arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arc != null]);
+
+  return (
+    <>
+      <svg ref={svg} className={styles.pendulumSvg} viewBox={`0 0 ${overlay.clientWidth} ${overlay.clientHeight}`} aria-hidden="true" style={{ "--fx-a": TONE_RGB.pendulum[0], "--fx-b": TONE_RGB.pendulum[1] } as CSSProperties}>
+        {arc ? (
+          <>
+            <path ref={arcGlow} className={styles.arcGlow} d={arc.d} pathLength={1} />
+            <path ref={arcLine} className={styles.arcLine} d={arc.d} pathLength={1} />
+            <line ref={beam} className={styles.arcBeam} x1={arc.beam[0]} y1={arc.beam[1]} x2={arc.beam[2]} y2={arc.beam[3]} pathLength={1} />
+            <circle ref={orb} className={styles.arcOrb} cx={0} cy={0} r={Math.max(3, overlay.clientWidth * 0.006)} />
+          </>
+        ) : null}
+      </svg>
+      <div ref={refs.anchor} className={styles.anchor} data-fx="pendulum">
+        <CardCopy card={item.card} refs={refs} />
+        <span ref={burst} className={styles.burst} />
+      </div>
+    </>
+  );
+}
+
+function TypedFx(props: EffectProps & { style: SummonStyle }) {
+  switch (props.style) {
+    case "fusion":
+      return <FusionFx {...props} />;
+    case "synchro":
+      return <SynchroFx {...props} />;
+    case "xyz":
+      return <XyzFx {...props} />;
+    case "link":
+      return <LinkFx {...props} />;
+    case "ritual":
+      return <RitualFx {...props} />;
+    case "pendulum":
+      return <PendulumFx {...props} />;
+    default:
+      return null;
+  }
+}
+
 function FxView({ item, overlay, done }: EffectProps) {
   if (item.reduced) {
-    const tone = item.kind === "destroy" ? "red" : item.kind === "activate" && item.event.chainIndex == null ? "violet" : "gold";
+    const tone = item.kind === "destroy" ? "red" : item.kind === "activate" && item.event.chainIndex == null ? "violet" : item.style ? "typed" : "gold";
     return <GlowFx item={item} overlay={overlay} done={done} tone={tone} />;
   }
   switch (item.kind) {
     case "heavy":
       return <HeavyFx item={item} overlay={overlay} done={done} />;
+    case "typed":
+      return item.style ? <TypedFx item={item} overlay={overlay} done={done} style={item.style} /> : <LightFx item={item} overlay={overlay} done={done} />;
     case "light":
       return <LightFx item={item} overlay={overlay} done={done} />;
     case "set":
@@ -971,17 +1643,23 @@ function visibleCard(event: DuelEvent): DuelCardInfo | null {
   return card != null && card.code > 0 ? card : null;
 }
 
-function planKind(event: DuelEvent): FxKind | null {
+function planKind(event: DuelEvent, fresh: readonly DuelEvent[]): { kind: FxKind; style: SummonStyle | null } | null {
   if (!event.zone) return null;
   switch (event.kind) {
-    case "summon":
-      return isHeavySummon(event) ? "heavy" : "light";
+    case "summon": {
+      // A Flip Summon's reveal is drawn by PositionFx; the light pop would only double it.
+      if (summonCoveredByFlip(fresh, event)) return null;
+      const plan = pairedMovePlan(event.id);
+      const style = summonStyleOf(event, plan?.event.from?.location);
+      if (isHeavySummon(event)) return { kind: "heavy", style };
+      return { kind: style ? "typed" : "light", style };
+    }
     case "set":
-      return "set";
+      return { kind: "set", style: null };
     case "activate":
-      return "activate";
+      return { kind: "activate", style: null };
     case "destroy":
-      return visibleCard(event) ? "destroy" : null;
+      return visibleCard(event) ? { kind: "destroy", style: null } : null;
     default:
       return null;
   }
@@ -1024,8 +1702,9 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     const planned: FxItem[] = [];
     let step = 0;
     for (const event of fresh) {
-      const kind = planKind(event);
-      if (!kind || !findZoneElement(event.zone)) continue;
+      const planned_ = planKind(event, fresh);
+      if (!planned_ || !findZoneElement(event.zone)) continue;
+      const { kind, style } = planned_;
       const plan = pairedMovePlan(event.id);
       // A light summon or a set is the landing of its flight: no second animation of the same move.
       if (plan && (kind === "light" || kind === "set")) continue;
@@ -1035,7 +1714,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         const at = kind === "destroy" ? plan.startAt - plan.leadMs : plan.landAt;
         delayMs = Math.max(0, at - now);
       }
-      if (kind === "heavy") {
+      if (kind === "heavy" || kind === "typed") {
         delayMs = Math.max(delayMs, heavyFreeAtRef.current - now);
         heavyFreeAtRef.current = now + delayMs + HEAVY_LOCK_MS;
       }
@@ -1044,6 +1723,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
       planned.push({
         key: `${event.id}-${seqRef.current}`,
         kind,
+        style,
         event,
         card: visibleCard(event),
         delayMs,

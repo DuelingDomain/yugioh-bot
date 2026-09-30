@@ -77,7 +77,8 @@
   min-width: 0;
   min-height: 0;
   padding: 0;
-  overflow: hidden;
+  /* Visible: a hovered hand card grows outward (over the station track or the header), never over the board. */
+  overflow: visible;
   font-size: 13px;
   /* The ground (obsidian navy) belongs to the shell; the field only adds soft lamp glows on top of it. */
   background:
@@ -130,15 +131,24 @@
   --ohk: 0.71;
   /* Breathing room above the opponent's hand and below yours (marks and rings sit outside the cards). */
   --hpad: 5px;
+  /* Lift reserve: the board-side edge of each hand strip keeps room for a lifted (legal 5%, selected 12%)
+     or fanned card, its dashed ring (5px) and, on your side, the nib tag above the card (8.5% of --z).
+     So a hand card can never cross into the Spell/Trap row, whatever its state. */
+  --lift-k: 0.16;
+  --mark-k: 0.085;
+  --res-top-px: 6px;
+  --res-bot-px: 2px;
+  --lkr: calc(var(--lk) * (1 + var(--lift-k)) + var(--mark-k));
+  --ohkr: calc(var(--ohk) * (1 + var(--lift-k)));
 
   --avail-w: calc(100cqw - var(--pl) - var(--pr) - 2px);
   --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
   --zw: calc(var(--avail-w) / var(--wk));
   --zh: min(
     calc((var(--avail-h) - 2 * var(--tally-h)) / var(--hk)),
-    calc((var(--avail-h) - var(--tally-h)) / (var(--hk) + var(--lk))),
-    calc((var(--avail-h) - var(--tally-h)) / (var(--hk) + var(--ohk))),
-    calc(var(--avail-h) / (var(--hk) + var(--ohk) + var(--lk)))
+    calc((var(--avail-h) - var(--tally-h) - var(--res-bot-px)) / (var(--hk) + var(--lkr))),
+    calc((var(--avail-h) - var(--tally-h) - var(--res-top-px)) / (var(--hk) + var(--ohkr))),
+    calc((var(--avail-h) - var(--res-top-px) - var(--res-bot-px)) / (var(--hk) + var(--ohkr) + var(--lkr)))
   );
   --z: clamp(30px, min(var(--zw), var(--zh)), 320px);
 
@@ -149,18 +159,21 @@
   --pk: 0.86;
   --pile-col: var(--cw);
 
-  /* Both hands are whole rows beside the LP tallies. Spare height (tall or narrow boards) grows them. */
-  --top-min: max(var(--tally-h), calc(var(--z) * var(--ohk)));
-  --bot-min: max(var(--tally-h), calc(var(--z) * var(--lk)));
+  /* Both hands are whole rows beside the LP tallies. Spare height (tall or narrow boards) grows them
+     (the growth shares are divided by 1 + --lift-k so the reserve grows with the card and still fits). */
+  --top-min: max(var(--tally-h), calc(var(--z) * var(--ohkr) + var(--res-top-px)));
+  --bot-min: max(var(--tally-h), calc(var(--z) * var(--lkr) + var(--res-bot-px)));
   --spare: max(0px, calc(var(--avail-h) - var(--hk) * var(--z) - var(--top-min) - var(--bot-min)));
-  --oh: min(calc(var(--z) * var(--ohk) + var(--spare) * 0.4), calc(var(--z) * 1.05));
+  --oh: min(calc(var(--z) * var(--ohk) + var(--spare) * 0.345), calc(var(--z) * 1.05));
   --ohcw: calc(var(--oh) * 0.686);
   --ohg: calc(var(--ohcw) * 0.06);
-  --top-h: max(var(--tally-h), calc(var(--oh) + var(--hpad)));
-  --lh: min(calc(var(--z) * var(--lk) + var(--spare) * 0.6), calc(var(--z) * 1.15), 260px);
+  --top-res: calc(var(--oh) * var(--lift-k) + var(--res-top-px));
+  --top-h: max(var(--tally-h), calc(var(--oh) + var(--top-res) + var(--hpad)));
+  --lh: min(calc(var(--z) * var(--lk) + var(--spare) * 0.517), calc(var(--z) * 1.15), 260px);
   --lhcw: calc(var(--lh) * 0.686);
   --lhg: calc(var(--z) * 0.07);
-  --bot-h: max(var(--tally-h), calc(var(--lh) + var(--hpad)));
+  --bot-res: calc(var(--lh) * var(--lift-k) + var(--z) * var(--mark-k) + var(--res-bot-px));
+  --bot-h: max(var(--tally-h), calc(var(--lh) + var(--bot-res) + var(--hpad)));
   --hw-top: calc(var(--z) * var(--wk) - var(--tally-w) - var(--sg));
   --hw-bot: var(--hw-top);
 
@@ -247,7 +260,7 @@
 }
 
 /* The opponent's hand is a whole row (never clipped): revealed cards must be readable and any card
-   may have to be picked. Cards hang from the top edge; hovering one grows it toward the board. */
+   may have to be picked. Cards hang from the top edge; the lift reserve sits below them. */
 .stripTop .hand {
   align-items: flex-start;
   padding-top: var(--hpad);
@@ -446,34 +459,46 @@
   transform: translateY(calc(var(--lh) * -0.12));
 }
 
-/* The card under the pointer grows toward the board so you can read it (the inspector shows it in full too). */
+/* The card under the pointer grows so you can read it, AWAY from the board: yours grows down over the
+   station track, theirs grows up over the header. The board-side edge (and any lift) stays inside the
+   strip's lift reserve, so a grown card never covers a Spell/Trap zone. */
 @media (hover: hover) {
   .hand:not(.handLocal) .handCard .zone .frame {
-    transform-origin: 50% 0%;
+    transform-origin: 50% 100%;
   }
 
   .hand:not(.handLocal) .handCard .zone:hover .frame,
   .hand:not(.handLocal) .handCard .zone:focus-within .frame {
-    transform: translateY(calc(var(--oh) * 0.02)) scale(1.35);
+    transform: scale(1.35);
+  }
+
+  .hand:not(.handLocal) .handCard .zone[data-legal="true"]:hover .frame,
+  .hand:not(.handLocal) .handCard .zone[data-legal="true"]:focus-within .frame {
+    transform: translateY(calc(var(--oh) * 0.05)) scale(1.35);
   }
 
   .hand:not(.handLocal) .handCard .zone[data-selected="true"]:hover .frame,
   .hand:not(.handLocal) .handCard .zone[data-selected="true"]:focus-within .frame {
-    transform: translateY(calc(var(--oh) * 0.1)) scale(1.35);
+    transform: translateY(calc(var(--oh) * 0.12)) scale(1.35);
   }
 
   .handLocal .handCard .zone .frame {
-    transform-origin: 50% 100%;
+    transform-origin: 50% 0%;
   }
 
   .handLocal .handCard .zone:hover .frame,
   .handLocal .handCard .zone:focus-within .frame {
-    transform: translateY(calc(var(--lh) * -0.02)) scale(1.35);
+    transform: scale(1.35);
+  }
+
+  .handLocal .handCard .zone[data-legal="true"]:hover .frame,
+  .handLocal .handCard .zone[data-legal="true"]:focus-within .frame {
+    transform: translateY(calc(var(--lh) * -0.05)) scale(1.35);
   }
 
   .handLocal .handCard .zone[data-selected="true"]:hover .frame,
   .handLocal .handCard .zone[data-selected="true"]:focus-within .frame {
-    transform: translateY(calc(var(--lh) * -0.1)) scale(1.35);
+    transform: translateY(calc(var(--lh) * -0.12)) scale(1.35);
   }
 }
 
@@ -1355,15 +1380,16 @@
     --pk: 0.8;
     --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
     /* Both tallies sit above their hands (full width rows), so the hands can be wide and barely overlap. */
-    --zh: calc((var(--avail-h) - 2 * var(--tally-h) - 2 * var(--gs)) / (var(--hk) + var(--lk) + var(--ohk)));
+    --fixed-h: calc(2 * var(--tally-h) + 2 * var(--gs) + var(--res-top-px) + var(--res-bot-px));
+    --zh: calc((var(--avail-h) - var(--fixed-h)) / (var(--hk) + var(--lkr) + var(--ohkr)));
     --spare: max(
       0px,
-      calc(var(--avail-h) - 2 * var(--tally-h) - 2 * var(--gs) - var(--z) * (var(--hk) + var(--lk) + var(--ohk)))
+      calc(var(--avail-h) - var(--fixed-h) - var(--z) * (var(--hk) + var(--lkr) + var(--ohkr)))
     );
-    --oh: min(calc(var(--z) * var(--ohk) + var(--spare) * 0.35), calc(var(--z) * 1.5));
-    --lh: min(calc(var(--z) * var(--lk) + var(--spare) * 0.65), calc(var(--z) * 1.9), 120px);
-    --top-h: calc(var(--tally-h) + var(--gs) + var(--oh) + var(--hpad));
-    --bot-h: calc(var(--tally-h) + var(--gs) + var(--lh) + var(--hpad));
+    --oh: min(calc(var(--z) * var(--ohk) + var(--spare) * 0.3), calc(var(--z) * 1.5));
+    --lh: min(calc(var(--z) * var(--lk) + var(--spare) * 0.56), calc(var(--z) * 1.9), 120px);
+    --top-h: calc(var(--tally-h) + var(--gs) + var(--oh) + var(--top-res) + var(--hpad));
+    --bot-h: calc(var(--tally-h) + var(--gs) + var(--lh) + var(--bot-res) + var(--hpad));
     --hw-top: calc(var(--z) * var(--wk));
     --hw-bot: calc(var(--z) * var(--wk));
     --fs-name: 13px;
@@ -1385,11 +1411,11 @@
   }
 
   .stripTop {
-    grid-template-rows: var(--tally-h) calc(var(--oh) + var(--hpad));
+    grid-template-rows: var(--tally-h) calc(var(--oh) + var(--top-res) + var(--hpad));
   }
 
   .stripBottom {
-    grid-template-rows: var(--tally-h) calc(var(--lh) + var(--hpad));
+    grid-template-rows: var(--tally-h) calc(var(--lh) + var(--bot-res) + var(--hpad));
   }
 
   .stripTop .tally,

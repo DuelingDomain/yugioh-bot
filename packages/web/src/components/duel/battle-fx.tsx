@@ -4,6 +4,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from "react-dom";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { zoneKey } from "./constants";
+import { battleOutcome, type BattleOutcome } from "./battle-outcome";
+import { holdPromptReveal } from "./prompt-reveal";
 import { collectFreshEvents, maxEventId } from "./event-queue";
 import { duelFontClasses } from "./fonts";
 import { armLpHold } from "./life-points";
@@ -14,7 +16,9 @@ import styles from "./battle-fx.module.css";
  *
  *  - Attack playback: engine "attack" events, for both players and the bot. An arrow draws from
  *    the attacker's zone to the target's zone (or the defender's LP tally for a direct attack),
- *    a sword slash sweeps across the target, the card is visibly cut in two, then it all fades.
+ *    a sword slash sweeps across the target, and the card(s) the battle destroyed are visibly cut
+ *    in two: the target, the attacker (a weaker monster attacking into a stronger one), both on
+ *    equal ATK, or neither when a defender holds (see battle-outcome.ts). Then it all fades.
  *  - Aim layer: the arrow you steer while choosing an attack (preview, aim, locked).
  *
  * Nothing here blocks input or answers. Anchors are found with
@@ -139,40 +143,57 @@ function slashThroughCounter(box: Box): Slash {
 /* ---------- capture (before the new snapshot reaches the DOM) ---------- */
 
 type CutSource = { box: Box; innerW: number; innerH: number; html: string };
-type AttackCapture = { from: Box; to: Box; direct: boolean; cut: CutSource | null };
+type AttackCapture = {
+  from: Box;
+  to: Box;
+  direct: boolean;
+  /** The attacker's art, captured before the board updates (it may be the one that dies). */
+  attacker: CutSource | null;
+  /** The target's art, captured the same way. */
+  target: CutSource | null;
+};
 
 function keyOfZone(zone: { controller: number; location: number; sequence: number }): string {
   return zoneKey(zone.controller, zone.location, zone.sequence);
 }
 
+function cutSourceOf(node: HTMLElement): CutSource | null {
+  const art = node.querySelector<HTMLElement>("[data-card-art]");
+  if (!art) return null;
+  const box = boxOf(art);
+  if (box.width <= 0 || box.height <= 0) return null;
+  return { box, innerW: art.offsetWidth || box.width, innerH: art.offsetHeight || box.height, html: art.outerHTML };
+}
+
 /**
  * Reads the board for one attack event. Called while React renders the snapshot that carries the
  * event, which is BEFORE the DOM shows the battle result, so a card that dies still has its art.
+ * Both the attacker's and the target's art are kept: which one is cut is decided at play time.
  */
 function captureAttack(event: DuelEvent): AttackCapture | null {
   const zone = event.zone;
   if (!zone) return null;
-  const from = zoneBox(keyOfZone(zone));
-  if (!from) return null;
+  const fromNode = zoneNode(keyOfZone(zone));
+  const from = fromNode ? zoneBox(keyOfZone(zone)) : null;
+  if (!fromNode || !from) return null;
+  const attacker = cutSourceOf(fromNode);
   if (event.target) {
     const node = zoneNode(keyOfZone(event.target));
     if (!node) return null;
-    const art = node.querySelector<HTMLElement>("[data-card-art]");
-    const to = boxOf(art ?? node);
+    const target = cutSourceOf(node);
+    const to = target?.box ?? boxOf(node);
     if (to.width <= 0 || to.height <= 0) return null;
-    const cut: CutSource | null = art
-      ? { box: to, innerW: art.offsetWidth || to.width, innerH: art.offsetHeight || to.height, html: art.outerHTML }
-      : null;
-    return { from, to, direct: false, cut };
+    return { from, to, direct: false, attacker, target };
   }
   const to = lpBox(1 - zone.controller);
   if (!to) return null;
-  return { from, to, direct: true, cut: null };
+  return { from, to, direct: true, attacker, target: null };
 }
 
 /* ---------- playback model ---------- */
 
 type Half = { clip: string; nx: number; ny: number; rot: number };
+type Cut = CutSource & { role: "attacker" | "target"; halves: [Half, Half]; sep: number };
 
 type Play = {
   seq: number;
@@ -182,10 +203,28 @@ type Play = {
   center: Pt;
   slash: Slash;
   direct: boolean;
-  cut: (CutSource & { halves: [Half, Half]; sep: number }) | null;
+  /** The card(s) the battle destroyed, each cut in two along the slash's diagonal. */
+  cuts: Cut[];
 };
 
-function buildPlay(seq: number, capture: AttackCapture, reduced: boolean): Play | null {
+function cutOf(source: CutSource, role: Cut["role"], mirror: boolean): Cut {
+  const { width: w, height: h } = source.box;
+  const len = Math.hypot(w, h) || 1;
+  // Two halves of the card on either side of the diagonal the slash follows.
+  const halves: [Half, Half] = mirror
+    ? [
+        // The first half runs 1px past the diagonal so the pair leaves no hairline seam at rest.
+        { clip: "polygon(0 0, 100% 0, 100% calc(100% + 1px), 0 1px)", nx: h / len, ny: -w / len, rot: 1.6 },
+        { clip: "polygon(0 0, 100% 100%, 0 100%)", nx: -h / len, ny: w / len, rot: -1.6 },
+      ]
+    : [
+        { clip: "polygon(0 0, 100% 0, 100% 1px, 0 calc(100% + 1px))", nx: -h / len, ny: -w / len, rot: -1.6 },
+        { clip: "polygon(100% 0, 100% 100%, 0 100%)", nx: h / len, ny: w / len, rot: 1.6 },
+      ];
+  return { ...source, role, halves, sep: Math.max(3, Math.min(7, w * 0.07)) };
+}
+
+function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, outcome: BattleOutcome): Play | null {
   const arrow = arrowBetween(capture.from, capture.to);
   if (!arrow) return null;
   const hit = capture.to;
@@ -193,24 +232,10 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean): Play 
   const dx = center.x - centerOf(capture.from).x;
   const mirror = dx < 0;
   const slash = capture.direct ? slashThroughCounter(hit) : slashAcross(hit, mirror);
-  let cut: Play["cut"] = null;
-  if (capture.cut) {
-    const { width: w, height: h } = capture.cut.box;
-    const len = Math.hypot(w, h) || 1;
-    // Two halves of the card on either side of the diagonal the slash follows.
-    const halves: [Half, Half] = mirror
-      ? [
-          // The first half runs 1px past the diagonal so the pair leaves no hairline seam at rest.
-          { clip: "polygon(0 0, 100% 0, 100% calc(100% + 1px), 0 1px)", nx: h / len, ny: -w / len, rot: 1.6 },
-          { clip: "polygon(0 0, 100% 100%, 0 100%)", nx: -h / len, ny: w / len, rot: -1.6 },
-        ]
-      : [
-          { clip: "polygon(0 0, 100% 0, 100% 1px, 0 calc(100% + 1px))", nx: -h / len, ny: -w / len, rot: -1.6 },
-          { clip: "polygon(100% 0, 100% 100%, 0 100%)", nx: h / len, ny: w / len, rot: 1.6 },
-        ];
-    cut = { ...capture.cut, halves, sep: Math.max(3, Math.min(7, w * 0.07)) };
-  }
-  return { seq, reduced, arrow, hit, center, slash, direct: capture.direct, cut };
+  const cuts: Cut[] = [];
+  if (outcome.target && capture.target) cuts.push(cutOf(capture.target, "target", mirror));
+  if (outcome.attacker && capture.attacker) cuts.push(cutOf(capture.attacker, "attacker", mirror));
+  return { seq, reduced, arrow, hit, center, slash, direct: capture.direct, cuts };
 }
 
 const SPARK_ANGLES = [-70, -28, 14, 52, 98, 146, 200, 250];
@@ -218,15 +243,17 @@ const SPARK_ANGLES = [-70, -28, 14, 52, 98, 146, 200, 250];
 /* ---------- attack playback ---------- */
 
 function AttackPlay({ play }: { play: Play }) {
-  const { arrow, hit, center, slash, cut } = play;
+  const { arrow, hit, center, slash, cuts } = play;
   const total = play.reduced ? BATTLE_REDUCED_MS : BATTLE_TOTAL_MS;
   const origin = (p: Pt): CSSProperties => ({ transformOrigin: `${p.x.toFixed(1)}px ${p.y.toFixed(1)}px` });
   const ringPad = play.direct ? 6 : 5;
   return (
     <div className={styles.play} data-reduced={play.reduced ? "true" : "false"} style={{ "--total": `${total}ms` } as CSSProperties}>
-      {cut ? (
+      {cuts.map((cut) => (
         <div
+          key={cut.role}
           className={styles.cut}
+          data-role={cut.role}
           style={{
             left: cut.box.left,
             top: cut.box.top,
@@ -253,7 +280,7 @@ function AttackPlay({ play }: { play: Play }) {
             </div>
           ))}
         </div>
-      ) : null}
+      ))}
       <svg className={styles.svg} aria-hidden>
         <rect
           className={styles.hitRing}
@@ -442,8 +469,12 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null }: B
     if (!latest) return;
     const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest);
     capturesRef.current.delete(latest.id);
-    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current) : null;
-    if (next) setPlay(next);
+    // The destroy events after the attack (in this snapshot) say which card(s) the battle took.
+    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, battleOutcome(events, latest)) : null;
+    if (next) {
+      holdPromptReveal(next.reduced ? BATTLE_REDUCED_MS : BATTLE_TOTAL_MS);
+      setPlay(next);
+    }
   }, [events, active]);
 
   useEffect(() => {

@@ -11,11 +11,11 @@
 //   summon / set   one tile each.
 //   damage / destroy that belong to no open attack or chain become their own tile.
 //   phase    a thin separator (not a tile). "Main Phase 1" also marks the turn start.
-import type { DuelCard, DuelCardInfo, DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo, DuelEvent, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels";
 import { LOCATION_MZONE, LOCATION_SZONE, phaseLabel, zoneKey } from "./constants";
 
 export type HistoryCard = DuelCard | DuelCardInfo;
-export type SummonKind = "normal" | "tribute" | "special" | "flip";
+export type SummonKind = DuelSummonKind;
 export type DamageCause = "battle" | "effect" | "cost";
 export type ChainStatus = "pending" | "resolving" | "resolved" | "negated";
 

@@ -8,9 +8,63 @@ import { duelFontClasses } from "./fonts";
 import styles from "./station-track.module.css";
 
 
+/* ---------- Battle Phase steps ---------- */
+
+/** Sub-steps of the Battle Phase, as the engine reports them (DuelEngineView.battleStep). */
+export type BattleStep = "start" | "battle" | "damage" | "damage-calculation" | "end";
+
+export const BATTLE_STEPS: ReadonlyArray<{ id: BattleStep; name: string; short: string; hint: string }> = [
+  { id: "start", name: "Start Step", short: "Start", hint: "Battle Phase begins — Quick Effects and Traps can be activated before any attack" },
+  { id: "battle", name: "Battle Step", short: "Battle", hint: "Attack declared — you can respond with Quick Effects and Traps" },
+  { id: "damage", name: "Damage Step", short: "Damage", hint: "Only cards that change ATK/DEF or Counter Traps can be activated" },
+  { id: "damage-calculation", name: "Damage Calculation", short: "Calc", hint: "Damage is being calculated; only damage-calculation effects apply" },
+  { id: "end", name: "End Step", short: "End", hint: "Battle done — respond before the next attack or the end of the Battle Phase" },
+];
+
+/** Raw engine phase strings that already name a battle step (used when the view carries no battleStep). */
+const PHASE_STEP: Record<string, BattleStep> = {
+  battle_start: "start",
+  battle_step: "battle",
+  damage: "damage",
+  damage_cal: "damage-calculation",
+  damagecal: "damage-calculation",
+  damagecalculation: "damage-calculation",
+};
+
+/**
+ * The battle step to show: the engine's `battleStep` first, else what the raw phase string says.
+ * A plain "battle" phase without a step is unknown (null): the strip shows with nothing lit.
+ */
+export function resolveBattleStep(
+  phase: string | null | undefined,
+  battleStep: BattleStep | null | undefined,
+): BattleStep | null {
+  if (battleStep) return battleStep;
+  if (phase == null) return null;
+  const key = String(phase).trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (PHASE_STEP[key]) return PHASE_STEP[key];
+  const label = phaseLabel(phase);
+  if (label === "Damage") return "damage";
+  if (label === "Damage calculation") return "damage-calculation";
+  return null;
+}
+
+export function battleStepInfo(step: BattleStep | null | undefined): (typeof BATTLE_STEPS)[number] | null {
+  if (!step) return null;
+  return BATTLE_STEPS.find((entry) => entry.id === step) ?? null;
+}
+
+export function battleStepLabel(step: BattleStep | null | undefined): string | null {
+  return battleStepInfo(step)?.name ?? null;
+}
+
+/* ---------- Station track ---------- */
+
 export type StationTrackProps = {
   /** Raw engine phase (engine.phase). Use phaseLabel() from ./constants to normalise. */
   phase: string | null | undefined;
+  /** Battle Phase sub-step from the engine view (engine.battleStep); null outside the Battle Phase. */
+  battleStep?: BattleStep | null;
   turn: number | null | undefined;
   /** Seat whose turn it is (engine.turnSeat). */
   turnSeat: number | null | undefined;
@@ -81,8 +135,42 @@ const PRIMARY_LABEL: Record<PhaseMove, string> = {
 
 type CaptionParts = { at?: string; body?: string; next?: string; note?: string };
 
+function BattleSteps({ step, mine }: { step: BattleStep | null; mine: boolean }) {
+  const currentIndex = step ? BATTLE_STEPS.findIndex((entry) => entry.id === step) : -1;
+  const info = battleStepInfo(step);
+  return (
+    <div className={styles.steps} data-tone={mine ? "mine" : "theirs"} aria-label="Battle Phase steps">
+      <ol className={styles.stepList} role="list">
+        {BATTLE_STEPS.map((entry, index) => {
+          const state = currentIndex < 0 ? "unknown" : index < currentIndex ? "done" : index === currentIndex ? "current" : "ahead";
+          return (
+            <li key={entry.id} className={styles.step} data-state={state} aria-current={state === "current" ? "step" : undefined}
+              title={entry.name}>
+              <i className={styles.stepDot} aria-hidden="true" />
+              <span className={styles.stepName}>{entry.short}</span>
+              <span className={styles.srOnly}>{entry.name}{state === "current" ? ", current step" : state === "done" ? ", done" : ""}</span>
+            </li>
+          );
+        })}
+      </ol>
+      <span className={styles.stepHint}>
+        {info ? (
+          <>
+            <b className={styles.stepNow}>{info.name}</b>
+            <span className={styles.stepSep} aria-hidden="true"> · </span>
+            <span className={styles.stepText}>{info.hint}</span>
+          </>
+        ) : (
+          <span className={styles.stepText}>Battle Phase · Quick Effects and Traps can respond between steps</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 export function StationTrack({
   phase,
+  battleStep,
   turn,
   turnSeat,
   mySeat,
@@ -100,6 +188,8 @@ export function StationTrack({
   const myTurn = !spectator && turnSeat === mySeat;
   const tone = myTurn ? "mine" : "theirs";
   const turnName = turnSeat != null ? playerName(turnSeat) : "—";
+  const inBattle = current === BATTLE;
+  const step = inBattle ? resolveBattleStep(phase, battleStep) : null;
 
   // Phase moves the local seat may take right now.
   const offered = new Map<string, DuelPromptOption>();
@@ -139,6 +229,7 @@ export function StationTrack({
       className={`${styles.root} ${duelFontClasses}`}
       data-tone={tone}
       data-phase={STATIONS[current]?.code ?? "none"}
+      data-step={step ?? undefined}
       data-reduced={reducedMotion ? "true" : "false"}
     >
       <div className={styles.seat}>
@@ -197,22 +288,29 @@ export function StationTrack({
             })}
           </ol>
         </div>
-        <p className={styles.caption} aria-live="polite" aria-atomic="true" title={captionText}>
-          {parts.note ? <span className={styles.capNote}>{parts.note}</span> : null}
-          {parts.at ? <b className={styles.capAt}>{parts.at}</b> : null}
-          {parts.body ? (
-            <span className={styles.capBody}>
-              {parts.at ? <span aria-hidden="true"> · </span> : null}
-              <span>{parts.body}</span>
-            </span>
-          ) : null}
-          {parts.next ? (
-            <span className={styles.capNext}>
-              <span aria-hidden="true"> · </span>
-              <span>Next: {parts.next}</span>
-            </span>
-          ) : null}
-        </p>
+        {inBattle ? (
+          <div className={styles.caption} aria-live="polite" aria-atomic="true" title={captionText}>
+            {parts.note ? <span className={styles.capNote}>{parts.note}<span aria-hidden="true"> · </span></span> : null}
+            <BattleSteps step={step} mine={myTurn} />
+          </div>
+        ) : (
+          <p className={styles.caption} aria-live="polite" aria-atomic="true" title={captionText}>
+            {parts.note ? <span className={styles.capNote}>{parts.note}</span> : null}
+            {parts.at ? <b className={styles.capAt}>{parts.at}</b> : null}
+            {parts.body ? (
+              <span className={styles.capBody}>
+                {parts.at ? <span aria-hidden="true"> · </span> : null}
+                <span>{parts.body}</span>
+              </span>
+            ) : null}
+            {parts.next ? (
+              <span className={styles.capNext}>
+                <span aria-hidden="true"> · </span>
+                <span>Next: {parts.next}</span>
+              </span>
+            ) : null}
+          </p>
+        )}
       </div>
 
       <div className={styles.actions}>
