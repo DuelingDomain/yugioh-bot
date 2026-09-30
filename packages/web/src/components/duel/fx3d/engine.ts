@@ -109,7 +109,8 @@ export class Fx3dEngine implements Fx3dApi {
     }
     if (request.artCode) this.art.prefetch(request.artCode);
     return new Promise<void>((resolve) => {
-      const run: Running = { instance, start: performance.now(), resolve };
+      const late = Math.min(600, Math.max(0, request.skipMs ?? 0));
+      const run: Running = { instance, start: performance.now() - late, resolve };
       this.running.add(run);
       signal?.addEventListener(
         "abort",

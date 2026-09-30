@@ -22,7 +22,7 @@ import {
   LOCATION_REMOVED,
   zoneKey,
 } from "./constants";
-import { battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
+import { battleBreakIs3d, battleDestroyAt, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
 import { findZoneElement, isHeavySummon, summonStyleOf } from "./event-queue";
 
 export const MOVE_TIMING = {
@@ -217,7 +217,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     if (sameZone(from, to)) continue;
     const geo = geometry(event);
     if (!geo) continue;
-    const style = moveStyleOf(event, reduced);
+    let style = moveStyleOf(event, reduced);
     const paired: number[] = [];
     let lead = 0;
     let hold = 0;
@@ -244,6 +244,12 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       // A fight that killed the card is still playing: it breaks only after the last strike landed.
       notBefore = battleDestroyAt(other.zone, now);
       if (notBefore > 0) lead = reduced ? 0 : HELD_CRACK_MS;
+      // The 3D layer breaks the card into shards: the pile receives it after they fell, no flight.
+      if (notBefore > 0 && battleBreakIs3d(other.zone, now)) {
+        notBefore += BREAK_SETTLE_MS;
+        lead = 0;
+        style = "fade";
+      }
       break;
     }
     candidates.push({ event, style, base: baseDuration(style, geo.distance), lead, hold, notBefore, paired, source: resolveSource(from) });

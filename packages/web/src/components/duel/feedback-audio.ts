@@ -1,4 +1,5 @@
 import { scheduleBattleSound, shatter, type BattleSoundPlan, type BurstOpts, type Synth, type ToneOpts } from "./attack-audio";
+import { sceneSound, SCENE_CUES } from "./scene-audio";
 import type { DuelEventKind, DuelFxCue } from "./event-queue";
 
 type Voice = {
@@ -269,6 +270,10 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     if (!audio || !dest || audio.state !== "running") return;
     const t = audio.currentTime;
 
+    if ((SCENE_CUES as readonly string[]).includes(kind)) {
+      sceneSound(synthFor(audio, dest), kind as (typeof SCENE_CUES)[number], t, strength, Math.random);
+      return;
+    }
     switch (kind) {
       case "summon":
         tone(audio, dest, { freq: 392, type: "triangle", start: t, duration: 0.14, peak: 0.045 });

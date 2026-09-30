@@ -23,7 +23,86 @@ export type Fx3dEffectId =
   | "summon:heavy"
   | "shockwave"
   | "burst"
-  | "pillar";
+  | "pillar"
+  | "battle"
+  | "scene";
+
+/** The seven attack styles (same ids as attack-styles.ts; repeated here so this file stays standalone). */
+export type FxAttackStyle = "slash" | "claw" | "beam" | "arcane" | "lightning" | "flame" | "impact";
+
+/** One strike of a fight: the attacker's, or the defender's counter strike. Times are ms from the start of the fight. */
+export type FxStrike = {
+  style: FxAttackStyle;
+  /** Passcode of a signature attack (Blue-Eyes, Dark Magician...), else null. */
+  signature: number | null;
+  tint: FxTint;
+  /** Where it starts and where it lands (overlay CSS px, y down). */
+  from: FxRect;
+  to: FxRect;
+  /** The strike starts here... */
+  startMs: number;
+  /** ...and lands here (absolute, from the start of the fight). The picture is drawn to meet this time exactly. */
+  impactMs: number;
+  /** Speed of the counter strike (1 = the attacker's). Sizes of some parts shrink with it. */
+  scale: number;
+  /** The strike lands on a player (no card): a direct attack. */
+  direct: boolean;
+};
+
+/** A card that breaks into shards at `atMs` (from the start of the effect). */
+export type FxBreak = {
+  rect: FxRect;
+  /** Card passcode: the shards are cut from its picture. 0 = unknown (a flat colour). */
+  code: number;
+  defense: boolean;
+  atMs: number;
+  /** The way the blow came (unit vector, y down): shards fly away along it. */
+  dir: { x: number; y: number };
+  style: FxAttackStyle;
+  tint: FxTint;
+};
+
+/** A whole fight for the 3D layer. */
+export type FxBattle = {
+  strikes: FxStrike[];
+  breaks: FxBreak[];
+  /** Length of the whole fight (`battleTiming.totalMs`); the effect lives a little longer for falling shards. */
+  totalMs: number;
+};
+
+/** The set pieces for trap and effect destroys (see scene-plan.ts). */
+export type FxScenePiece =
+  | "mirror-force"
+  | "sakuretsu"
+  | "torrential"
+  | "dark-hole"
+  | "raigeki"
+  | "bottomless"
+  | "trap-hole"
+  | "trap"
+  | "spell"
+  | "monster";
+
+export type FxVictim = { rect: FxRect; code: number; defense: boolean; atMs: number };
+
+export type FxScene = {
+  piece: FxScenePiece;
+  victims: FxVictim[];
+  /** The zone of the card that caused it (a trap or spell zone, or a monster), when it is on the board. */
+  source: FxRect | null;
+  /** The card that attacked (Mirror Force, Sakuretsu Armor, Trap Hole). */
+  attacker: FxRect | null;
+  /** The bounds of the monster row(s) the piece works on. */
+  field: FxRect;
+  /** Where the effect's owner stands: it decides which way waves and barriers face. */
+  ownerSide: "you" | "opp";
+  tint: FxTint;
+  /** Mirror Force: when the attack (or its own projectile) meets the barrier, ms from the start. */
+  hitMs: number;
+  /** Mirror Force: the attack in the same snapshot is the one it stops (no projectile of its own). */
+  incoming: boolean;
+  totalMs: number;
+};
 
 export type FxRequest = {
   /** The card zone (or card) the effect lands on. Same pixel space as the SummonFx overlay. */
@@ -42,6 +121,12 @@ export type FxRequest = {
   artCode?: number;
   /** Seed for the random parts, so a replay looks the same. */
   seed?: number;
+  /** The effect is already this many ms late (it was planned earlier than it started): it starts advanced by this much. */
+  skipMs?: number;
+  /** id "battle": the fight. */
+  battle?: FxBattle;
+  /** id "scene": the trap or effect set piece. */
+  scene?: FxScene;
 };
 
 export interface Fx3dApi {

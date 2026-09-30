@@ -7,7 +7,11 @@ import { LOCATION_DMZONE, isDefense, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
-import { armBattleDestroy } from "./battle-hold";
+import { armBattleDestroy, attackImpactAt, noteAttackImpact } from "./battle-hold";
+import { planBattle } from "./fx3d/battle-plan";
+import { pickBattleRoute } from "./fx3d/routing";
+import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
+import type { FxRect } from "./fx3d/types";
 import { holdPromptReveal } from "./prompt-reveal";
 import type { BattleSoundPlan } from "./attack-audio";
 import { collectFreshEvents, emitDuelFxCue, maxEventId } from "./event-queue";
@@ -303,7 +307,7 @@ function damageDelay(event: DuelEvent, attack: DuelEvent, direct: boolean, timin
   return !direct && event.seat === attack.zone?.controller ? timing.attackerDamageMs : timing.impactMs;
 }
 
-function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events: readonly DuelEvent[], attack: DuelEvent): Play | null {
+function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events: readonly DuelEvent[], attack: DuelEvent, layer3d = false): Play | null {
   const resolved = resolveBattle(capture, events, attack, reduced);
   const { kind, timing, attackerStyle, defenderStyle } = resolved;
   const attacker: FxSide = {
@@ -325,7 +329,7 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events
   }
   const fx: AttackFxPlan = {
     reduced, kind, attacker, defender, hit: capture.to, defenderInDefense: capture.targetInDefense,
-    lpHits, seed: (attack.id * 2654435761) >>> 0, timing,
+    lpHits, seed: (attack.id * 2654435761) >>> 0, timing, layer3d,
   };
   const sound: BattleSoundPlan = {
     kind, reduced, timing, seed: fx.seed, lpAt: lpHits.map((hit) => hit.at),
@@ -466,14 +470,14 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
  * when the attacker loses) has landed and its damage shows; SummonFx and MoveFx read the hold when
  * they plan the destroy (see battle-hold.ts). Keyed by the attack and zone, so a repeat render is a no-op.
  */
-function armBattleDestroys(events: readonly DuelEvent[], attack: DuelEvent, capture: AttackCapture | null, reduced: boolean): void {
+function armBattleDestroys(events: readonly DuelEvent[], attack: DuelEvent, capture: AttackCapture | null, reduced: boolean, claim3d = false): void {
   if (!capture || !attack.zone) return;
   const { timing, outcome } = resolveBattle(capture, events, attack, reduced);
   if (outcome.target && attack.target && timing.targetBreakMs != null) {
-    armBattleDestroy(`${attack.id}:target`, attack.target, timing.targetBreakMs);
+    armBattleDestroy(`${attack.id}:target`, attack.target, timing.targetBreakMs, undefined, claim3d);
   }
   if (outcome.attacker && timing.attackerBreakMs != null) {
-    armBattleDestroy(`${attack.id}:attacker`, attack.zone, timing.attackerBreakMs);
+    armBattleDestroy(`${attack.id}:attacker`, attack.zone, timing.attackerBreakMs, undefined, claim3d);
   }
 }
 
@@ -486,6 +490,34 @@ function armBattleDamage(events: readonly DuelEvent[], attack: DuelEvent, captur
   }
 }
 
+/** The fight as the 3D layer plays it, in the canvas space (relative to the host). */
+function startBattle3d(capture: AttackCapture, play: Play, skipMs: number, controllers: Set<AbortController>): void {
+  const shared = getSharedFx3d();
+  if (!shared) return;
+  const host = shared.host.getBoundingClientRect();
+  const to = (box: Box): FxRect => viewportToHost(box, host);
+  const attackerCard = capture.attackerCard;
+  const targetCard = capture.targetCard;
+  const { fx } = play;
+  const attackerSide = {
+    rect: to(fx.attacker.box), code: attackerCard.code ?? 0, style: fx.attacker.style, tint: fx.attacker.tint,
+    signature: play.sound.attacker.signature, defense: false,
+  };
+  const defenderSide = fx.defender
+    ? {
+        rect: to(fx.defender.box), code: targetCard?.code ?? 0, style: fx.defender.style, tint: fx.defender.tint,
+        signature: play.sound.defender?.signature ?? null, defense: capture.targetInDefense,
+      }
+    : null;
+  const battle = planBattle({ kind: fx.kind, timing: fx.timing, attacker: attackerSide, defender: defenderSide, hit: to(fx.hit) });
+  for (const code of [attackerSide.code, defenderSide?.code ?? 0]) if (code > 0) shared.api.prefetchArt(code);
+  const controller = new AbortController();
+  controllers.add(controller);
+  void shared.api
+    .play("battle", { rect: { x: 0, y: 0, w: host.width, h: host.height }, battle, seed: fx.seed, skipMs, artCode: attackerSide.code || undefined }, controller.signal)
+    .finally(() => controllers.delete(controller));
+}
+
 export function BattleFx({ events, reducedMotion, active = true, aim = null, seats }: BattleFxProps) {
   const [mounted, setMounted] = useState(false);
   const [play, setPlay] = useState<Play | null>(null);
@@ -493,6 +525,9 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const processedRef = useRef(0);
   const capturesRef = useRef(new Map<number, AttackCapture | null>());
   const seqRef = useRef(0);
+  // Per attack: which layer draws it (chosen once, in the render phase) and when it was captured.
+  const routeRef = useRef(new Map<number, { three: boolean; at: number }>());
+  const controllersRef = useRef(new Set<AbortController>());
   const reducedRef = useRef(reducedMotion);
   reducedRef.current = reducedMotion;
   // The board's monsters as of the last commit, and as of this render: an attack's cards are read
@@ -515,11 +550,29 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     if (latest && typeof document !== "undefined") {
       if (!capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
       if (!reducedMotion) armBattleDamage(events, latest, capturesRef.current.get(latest.id) ?? null);
-      armBattleDestroys(events, latest, capturesRef.current.get(latest.id) ?? null, reducedMotion);
+      let route = routeRef.current.get(latest.id);
+      if (!route) {
+        const three = pickBattleRoute({ reduced: reducedMotion, ready: getSharedFx3d() != null }) === "three" && capturesRef.current.get(latest.id) != null;
+        route = { three, at: performance.now() };
+        routeRef.current.set(latest.id, route);
+        if (routeRef.current.size > 20) routeRef.current.delete(routeRef.current.keys().next().value as number);
+      }
+      const cap = capturesRef.current.get(latest.id) ?? null;
+      if (!reducedMotion && cap && attackImpactAt(latest.id) === 0) {
+        noteAttackImpact(latest.id, route.at + resolveBattle(cap, events, latest, false).timing.impactMs);
+      }
+      armBattleDestroys(events, latest, cap, reducedMotion, route.three);
     }
   }
 
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    const controllers = controllersRef.current;
+    return () => {
+      for (const controller of controllers) controller.abort();
+      controllers.clear();
+    };
+  }, []);
   useEffect(() => {
     prevIndexRef.current = nowIndex;
   });
@@ -539,8 +592,11 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest, prevIndexRef.current, indexSeats(seats));
     capturesRef.current.delete(latest.id);
     // The destroy events after the attack (in this snapshot) say which card(s) the battle took.
-    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, latest) : null;
-    if (next) {
+    const route = routeRef.current.get(latest.id);
+    const three = route?.three === true && !reducedRef.current && getSharedFx3d() != null;
+    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, latest, three) : null;
+    if (next && capture) {
+      if (three) startBattle3d(capture, next, Math.min(120, Math.max(0, performance.now() - (route?.at ?? performance.now()))), controllersRef.current);
       holdPromptReveal(next.totalMs);
       emitDuelFxCue({ cue: "battle", strength: 1, battle: next.sound });
       setPlay(next);

@@ -58,6 +58,8 @@ export type AttackFxPlan = {
   lpHits: FxLpHit[];
   seed: number;
   timing: BattleTiming;
+  /** The 3D layer draws the strike, the counter strike and the breaks: the DOM keeps captions, jolts, clashes and LP flashes. */
+  layer3d?: boolean;
 };
 
 export type FxClasses = { veil: string; frags: string; piece: string; inner: string; caption: string; lpFlash: string };
@@ -1033,6 +1035,53 @@ export function runAttackFx(html: HTMLElement, svg: SVGSVGElement, plan: AttackF
   };
 }
 
+/** When the attacker leans in, per style (the same beats the DOM strikes use). */
+const LUNGE_AT: Record<AttackStyleId, number> = { slash: 120, claw: 220, beam: 240, arcane: 240, lightning: 220, flame: 220, impact: 220 };
+
+/**
+ * The 3D layer draws the strikes and the breaks. What stays in the DOM: the lean of the attacker
+ * card, the jolt of the card that is hit (at the exact impact time), the clash or shield of a held
+ * fight, the recoil flash of a tie, and the LP flashes.
+ */
+function playBeats3d(cx: Ctx, plan: AttackFxPlan, gA: Geo, geo: typeof geoFor): void {
+  const { attacker, defender } = plan;
+  const u = cx.u;
+  const impact = plan.timing.impactMs;
+  lunge(cx, gA, LUNGE_AT[attacker.style], 1);
+  if (defender) shake(cx, defender.el, impact, 3.5 * u, 240);
+  switch (plan.kind) {
+    case "held":
+      if (defender) {
+        if (plan.defenderInDefense) shield(cx, gA, defender.box, impact);
+        else clash(cx, defender.box, impact, attacker.tint);
+      }
+      break;
+    case "tie":
+      if (defender) {
+        clash(cx, defender.box, impact, attacker.tint);
+        flashDisc(cx, centre(attacker.box), impact + 180, defender.tint.hi, Math.min(attacker.box.width, attacker.box.height) * 0.6, 300);
+        hitRing(cx, attacker.box, impact + 180, defender.tint.main);
+      }
+      break;
+    case "lose":
+      if (defender) {
+        clash(cx, defender.box, impact, attacker.tint);
+        const gD = geo(defender, attacker.box, attacker.el, defender.tint, plan.seed + 100, false, u);
+        const t0 = impact + COUNTER_GAP_MS;
+        if (defender.caption) caption(cx, gD, defender.caption, defender.tint, t0);
+        lunge(cx, gD, t0 + LUNGE_AT[defender.style] * COUNTER_SCALE, COUNTER_SCALE);
+        shake(cx, attacker.el, plan.timing.attackerDamageMs, 3.5 * u, 240);
+      }
+      break;
+    default:
+      break;
+  }
+  for (const lp of plan.lpHits) {
+    lpFlash(cx, lp.box, lp.at);
+    if (lp.toAttacker && defender && plan.kind !== "lose") reflectPulse(cx, defender.box, lp.box, Math.max(0, lp.at - 140));
+  }
+}
+
 function playFull(cx: Ctx, plan: AttackFxPlan): void {
   const { attacker, defender, hit } = plan;
   const u = cx.u;
@@ -1040,6 +1089,10 @@ function playFull(cx: Ctx, plan: AttackFxPlan): void {
   const gA = geoFor(attacker, hit, defender?.el ?? null, attacker.tint, plan.seed, !defender, u);
   const styleA = STYLES[attacker.style];
   if (attacker.caption) caption(cx, gA, attacker.caption, attacker.tint, 0);
+  if (plan.layer3d) {
+    playBeats3d(cx, plan, gA, geoFor);
+    return;
+  }
   styleA.strike(cx, gA, 0, 1);
 
   switch (plan.kind) {

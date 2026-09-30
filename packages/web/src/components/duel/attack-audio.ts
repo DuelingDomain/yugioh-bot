@@ -89,23 +89,23 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-type Rng = () => number;
+export type Rng = () => number;
 
 /* ---------- building blocks ---------- */
 
 /** Sub-bass thump with a short muffled knock on top. */
-function thump(s: Synth, t: number, peak: number, f0 = 120, f1 = 36, dur = 0.32): void {
+export function thump(s: Synth, t: number, peak: number, f0 = 120, f1 = 36, dur = 0.32): void {
   s.tone({ freq: f0, freqEnd: f1, type: "sine", start: t, duration: dur, peak, attack: 0.003 });
   s.burst({ start: t, duration: 0.12, peak: peak * 0.45, filter: "lowpass", freq: 800, freqEnd: 120 });
 }
 
 /** Filtered noise that swells and dies: a whoosh. */
-function whoosh(s: Synth, t: number, dur: number, f0: number, f1: number, peak: number, q = 1.2): void {
+export function whoosh(s: Synth, t: number, dur: number, f0: number, f1: number, peak: number, q = 1.2): void {
   s.burst({ start: t, duration: dur, peak, filter: "bandpass", freq: f0, freqEnd: f1, q, attack: dur * 0.6 });
 }
 
 /** Inharmonic partials with a bright strike on top: a blade or armour ringing. */
-function clang(s: Synth, t: number, peak: number, f: number): void {
+export function clang(s: Synth, t: number, peak: number, f: number): void {
   const partials: Array<[number, number, number]> = [[1, 1, 0.45], [2.76, 0.6, 0.3], [5.4, 0.35, 0.2], [8.93, 0.2, 0.12]];
   for (const [ratio, level, life] of partials) {
     s.tone({ freq: f * ratio, type: "sine", start: t, duration: life, peak: peak * level, attack: 0.002, send: 0.4 });
@@ -114,7 +114,7 @@ function clang(s: Synth, t: number, peak: number, f: number): void {
 }
 
 /** Electric crackle: short bright pops at random gaps, fading (or, with `rise`, building). */
-function crackle(s: Synth, t: number, dur: number, peak: number, rng: Rng, rise = false): void {
+export function crackle(s: Synth, t: number, dur: number, peak: number, rng: Rng, rise = false): void {
   let x = 0;
   while (x < dur) {
     const shape = rise ? x / dur : 1 - x / dur;
@@ -125,20 +125,20 @@ function crackle(s: Synth, t: number, dur: number, peak: number, rng: Rng, rise 
 }
 
 /** A stack of sines: a shimmer or a chord, optionally wobbling. */
-function shimmer(s: Synth, t: number, dur: number, base: number, ratios: readonly number[], peak: number, attack: number, hz = 6): void {
+export function shimmer(s: Synth, t: number, dur: number, base: number, ratios: readonly number[], peak: number, attack: number, hz = 6): void {
   for (const ratio of ratios) {
     s.tone({ freq: base * ratio, type: "sine", start: t, duration: dur, peak, attack, send: 0.6, vibrato: { hz, cents: 14 } });
   }
 }
 
 /** A growl or roar: a wobbling saw through a low-pass, with formant noise for the throat. */
-function growl(s: Synth, t: number, dur: number, f0: number, f1: number, peak: number, hz = 9, cents = 80): void {
+export function growl(s: Synth, t: number, dur: number, f0: number, f1: number, peak: number, hz = 9, cents = 80): void {
   s.tone({ freq: f0, freqEnd: f1, type: "sawtooth", start: t, duration: dur, peak, attack: Math.min(0.12, dur * 0.4), vibrato: { hz, cents }, lowpass: 900 });
   s.burst({ start: t, duration: dur, peak: peak * 0.9, filter: "bandpass", freq: f0 * 4, freqEnd: f1 * 8, q: 4, attack: dur * 0.5 });
 }
 
 /** A run of scattered short pops: embers, debris, sparks. */
-function pops(s: Synth, t: number, count: number, span: number, peak: number, lo: number, hi: number, rng: Rng): void {
+export function pops(s: Synth, t: number, count: number, span: number, peak: number, lo: number, hi: number, rng: Rng): void {
   for (let i = 0; i < count; i += 1) {
     const at = t + rng() * span;
     s.burst({ start: at, duration: 0.02 + rng() * 0.02, peak: peak * (1 - (at - t) / (span * 1.4)), filter: "bandpass", freq: lo + rng() * (hi - lo), q: 2 });

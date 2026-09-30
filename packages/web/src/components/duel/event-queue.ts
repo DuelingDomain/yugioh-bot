@@ -1,3 +1,4 @@
+import type { SceneCueName } from "./fx3d/scene-plan";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import type { BattleSoundPlan } from "./attack-audio";
 import {
@@ -212,7 +213,7 @@ export function fxSoundsItself(event: DuelEvent): boolean {
 
 /** SummonFx and PositionFx tell the audio layer when their moments land. */
 export const DUEL_FX_CUE_EVENT = "yugidraft:duel-fx-cue";
-export type DuelFxCue = "holo" | "slam" | "shatter" | "turn" | "flip" | "battle" | SummonStyle;
+export type DuelFxCue = "holo" | "slam" | "shatter" | "turn" | "flip" | "battle" | SceneCueName | SummonStyle;
 /** `battle` carries the plan of the fight (BattleFx sends it when a fight starts playing). */
 export type DuelFxCueDetail = { cue: DuelFxCue; strength: number; battle?: BattleSoundPlan };
 

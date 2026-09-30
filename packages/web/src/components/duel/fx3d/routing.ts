@@ -26,3 +26,11 @@ export function summon3dKeyOf(kind: string, style: SummonStyle | null): Summon3d
 export function summonEffectId(key: Summon3dKey): Fx3dEffectId {
   return `summon:${key}`;
 }
+
+/**
+ * Attacks and set-piece destroys: the 3D layer draws them when the canvas is ready and motion is
+ * allowed. Same rule as the summons: chosen once when the effect is planned, never switched half-way.
+ */
+export function pickBattleRoute(input: { reduced: boolean; ready: boolean }): SummonRoute {
+  return input.reduced || !input.ready ? "dom" : "three";
+}

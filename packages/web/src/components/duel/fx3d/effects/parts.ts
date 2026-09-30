@@ -69,17 +69,22 @@ export function burst(
     /** Only fly upward-ish (a fountain) instead of all around. */
     fountain?: boolean;
     seed?: number;
+    /** Where it starts, px from the effect origin, y up. */
+    x?: number;
+    y?: number;
+    /** A fixed direction (rad, y up) and spread (rad) instead of all around. */
+    cone?: [number, number];
   },
 ): FxPart {
   const rand = mulberry32((rig.request.seed ?? 1) * 7919 + (o.seed ?? 0));
   return particles(rig, o.count, { shape: o.shape, kind: o.kind, gravity: o.gravity, shrink: o.kind === "solid" ? 0.2 : 1 }, (add, n) => {
     for (let i = 0; i < n; i += 1) {
-      const angle = o.fountain ? Math.PI / 2 + (rand() - 0.5) * 2.2 : rand() * Math.PI * 2;
+      const angle = o.cone ? o.cone[0] + (rand() - 0.5) * o.cone[1] : o.fountain ? Math.PI / 2 + (rand() - 0.5) * 2.2 : rand() * Math.PI * 2;
       const speed = o.speed[0] + rand() * (o.speed[1] - o.speed[0]);
       const r = o.radius ?? 0;
       add({
-        x: Math.cos(angle) * r,
-        y: Math.sin(angle) * r,
+        x: (o.x ?? 0) + Math.cos(angle) * r,
+        y: (o.y ?? 0) + Math.sin(angle) * r,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         birth: o.at + rand() * 0.04,

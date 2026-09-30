@@ -30,7 +30,7 @@
  * layer is chosen when the effect is planned, never mid-way, and the DOM effects stay the fallback
  * for reduced motion, missing WebGL, context loss and the moments before the canvas has loaded.
  */
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_GRAVE, LOCATION_PZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
 import {
@@ -48,7 +48,8 @@ import {
   type DuelFxCueDetail,
   type SummonStyle,
 } from "./event-queue";
-import { battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
+import { battleBreakIs3d, battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
+import { setSharedFx3d } from "./fx3d/shared";
 import { parseRgbTriplet } from "./fx3d/coords";
 import { pickSummonRoute, summon3dKeyOf, summonEffectId } from "./fx3d/routing";
 import { SUMMON3D_TIMELINE, shakeScaleOf, summon3dHitMs, summon3dLockMs, type Summon3dKey } from "./fx3d/timeline";
@@ -184,6 +185,8 @@ type FxItem = {
   life: number;
   /** destroy: ms the card cracks in place before it breaks; set when a battle holds the destroy. */
   breakMs?: number;
+  /** The 3D layer draws the break of this card (shards and flash), so the DOM only holds the ghost. */
+  claim3d?: boolean;
   /** Set when the WebGL layer draws this heavy or typed summon. */
   three?: { key: Summon3dKey; api: Fx3dApi } | null;
 };
@@ -649,12 +652,13 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
   const card = item.card;
   const seed = item.event.id;
   const handoff = item.plan != null;
+  const noShards = handoff || item.claim3d === true;
   useEffectSetup(overlay, item, done, ({ track, geo }) => {
     if (anchor.current) placeAnchor(anchor.current, geo);
     const d = item.delayMs;
     const breakAt = item.breakMs ?? (item.event.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs);
     // With a flight to the Graveyard the card ends here and MoveFx picks it up at the break.
-    const burst = handoff ? 60 : 560;
+    const burst = noShards ? 60 : 560;
     const total = breakAt + burst;
     track.after(d + breakAt, () => emitCue("shatter", 1));
 
@@ -685,16 +689,18 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
       [{ opacity: 0 }, { opacity: 0, offset: Math.max(0, breakAt - 190) / total }, { opacity: 1, offset: Math.max(0, breakAt - 90) / total }, { opacity: 1, offset: Math.min(0.999, breakAt / total) }, { opacity: 0 }],
       { duration: total, delay: d, easing: "linear" },
     );
-    track.play(flash.current, [{ opacity: 0 }, { opacity: 0.8, offset: 0.35 }, { opacity: 0 }], {
-      duration: 280,
-      delay: d + breakAt - 20,
-      easing: "ease-out",
-    });
+    if (!item.claim3d) {
+      track.play(flash.current, [{ opacity: 0 }, { opacity: 0.8, offset: 0.35 }, { opacity: 0 }], {
+        duration: 280,
+        delay: d + breakAt - 20,
+        easing: "ease-out",
+      });
+    }
 
     const rand = mulberry32(seed * 40503 + 7);
     shards.current.forEach((el, index) => {
       const shard = SHARDS[index];
-      if (!el || !shard || handoff) return;
+      if (!el || !shard || noShards) return;
       const ox = (shard.cx - 50) / 50;
       const oy = (shard.cy - 50) / 50;
       const burstX = ox * geo.w * (0.32 + rand() * 0.22);
@@ -749,7 +755,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
           ))}
         </svg>
       </div>
-      {(handoff ? [] : SHARDS).map((shard, index) => (
+      {(noShards ? [] : SHARDS).map((shard, index) => (
         <span
           key={index}
           ref={(el) => {
@@ -1981,6 +1987,12 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
   prefsRef.current = { reducedMotion, shake };
   // The WebGL layer loads while the room is idle; its ref is null until the canvas can draw.
   const fx3d = useFx3d(overlay, !reducedMotion);
+  // The battle and scene layers draw into this canvas: publish it while it can draw.
+  useEffect(() => {
+    const api = fx3d.current;
+    setSharedFx3d(overlay && api?.ready ? { api, host: overlay } : null);
+    return () => setSharedFx3d(null);
+  });
 
   useLayoutEffect(() => {
     setOverlay(overlayRef.current);
@@ -2032,7 +2044,9 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
       if (three && event.card && event.card.code > 0) three.api.prefetchArt(event.card.code);
       // A card a fight destroyed keeps standing until the fight has landed its last strike.
       let breakMs: number | undefined;
+      let claim3d = false;
       if (kind === "destroy") {
+        claim3d = battleBreakIs3d(event.zone, now);
         const heldAt = battleDestroyAt(event.zone, now);
         if (heldAt > 0) {
           breakMs = HELD_CRACK_MS;
@@ -2055,6 +2069,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         strength,
         life: 0,
         breakMs,
+        claim3d,
         three,
       };
       planned.push(base);

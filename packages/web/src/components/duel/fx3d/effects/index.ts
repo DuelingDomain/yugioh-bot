@@ -1,6 +1,8 @@
 import type { Fx3dEffectId } from "../types";
 import { compose, Rig, type FxFactory } from "./base";
 import { burst, flash, pillar, shockwave } from "./parts";
+import { battleEffect } from "./battle";
+import { sceneEffect } from "./scene";
 import { summonFactory } from "./summon";
 
 /** A ground ripple with a ring and a flash; the building block of every impact. */
@@ -51,4 +53,6 @@ export const EFFECTS: Record<Fx3dEffectId, FxFactory> = {
   shockwave: shockwaveEffect,
   burst: burstEffect,
   pillar: pillarEffect,
+  battle: battleEffect,
+  scene: sceneEffect,
 };
