@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import type { DuelEvent, DuelPrompt } from "@yugidraft/shared/duels";
+import type { DuelEvent, DuelPrompt, DuelSeatView } from "@yugidraft/shared/duels";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ className: "font", variable: "font-var", style: {} });
@@ -106,6 +106,21 @@ describe("BattleFx", () => {
   };
   const direct: DuelEvent = { ...attack, id: 4, target: undefined };
   const layerPaths = () => document.body.querySelectorAll("svg path");
+  const playLayer = () => document.body.querySelector("[data-style]");
+
+  /** Engine-view seats with one monster per side (attacker seat 0, defender seat 1). */
+  const seatsOf = (
+    attacker: { code?: number; name?: string; race?: string; attribute?: number },
+    defender: { code?: number; name?: string; race?: string; attribute?: number },
+    defenderPosition = 1,
+  ): DuelSeatView[] =>
+    [
+      { seat: 0, monsters: [{ controller: 0, location: 4, sequence: 0, position: 1, ...attacker }] },
+      { seat: 1, monsters: [{ controller: 1, location: 4, sequence: 0, position: defenderPosition, ...defender }] },
+    ] as unknown as DuelSeatView[];
+  // A Warrior (slash: two halves), a Machine (beam: 24 tiles) and a Spellcaster (arcane: 24 tiles).
+  const warrior = { code: 6368038, name: "Gaia The Fierce Knight", race: "Warrior", attribute: 1 };
+  const machine = { code: 77585513, name: "Jinzo", race: "Machine", attribute: 32 };
 
   it("does not replay events that were already in the first snapshot", () => {
     render(<BattleFx events={[phase, attack]} reducedMotion={false} />);
@@ -117,37 +132,44 @@ describe("BattleFx", () => {
   const halves = () => document.body.querySelectorAll("div[style*='clip-path']");
 
   it("plays a fresh attack, cuts the destroyed target and arms the LP hold for the damage that follows it", () => {
-    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} />);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seatsOf(warrior, machine)} />);
     act(() => undefined);
     const damage: DuelEvent = { id: 3, kind: "damage", seat: 1, amount: 800, cause: "battle", text: "" };
     const destroyed: DuelEvent = { id: 4, kind: "destroy", seat: 1, text: "", zone: { controller: 1, location: 4, sequence: 0 } };
-    rerender(<BattleFx events={[phase, attack, damage, destroyed]} reducedMotion={false} />);
+    rerender(<BattleFx events={[phase, attack, damage, destroyed]} reducedMotion={false} seats={seatsOf(warrior, machine)} />);
     expect(layerPaths().length).toBeGreaterThan(0);
-    // The target card is copied into two clipped halves for the cut.
+    // The attacker is a Warrior: the target card is copied into two clipped halves for the slash.
+    expect(playLayer()?.getAttribute("data-style")).toBe("slash");
     expect(halves()).toHaveLength(2);
     expect(cutRoles()).toEqual(["target"]);
     expect(takeLpHold(1)).toBeGreaterThan(0);
   });
 
   it("cuts the attacker when a weaker monster attacks into a stronger one", () => {
-    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} />);
+    const seats = seatsOf(warrior, machine);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
     act(() => undefined);
     const damage: DuelEvent = { id: 3, kind: "damage", seat: 0, amount: 500, cause: "battle", text: "" };
     const destroyed: DuelEvent = { id: 4, kind: "destroy", seat: 0, text: "", zone: { controller: 0, location: 4, sequence: 0 } };
-    rerender(<BattleFx events={[phase, attack, damage, destroyed]} reducedMotion={false} />);
-    expect(halves()).toHaveLength(2);
+    rerender(<BattleFx events={[phase, attack, damage, destroyed]} reducedMotion={false} seats={seats} />);
+    // The defender (a Machine) strikes back in its own style, and it is the attacker that breaks up.
+    expect(playLayer()?.getAttribute("data-style")).toBe("slash");
+    expect(playLayer()?.getAttribute("data-counter-style")).toBe("beam");
+    expect(halves()).toHaveLength(24);
     expect(cutRoles()).toEqual(["attacker"]);
     // The slash still lands on the target, so the attacker's LP roll waits for the impact too.
     expect(takeLpHold(0)).toBeGreaterThan(0);
   });
 
   it("cuts both cards on equal ATK and neither when the defender holds", () => {
-    const { rerender, unmount } = render(<BattleFx events={[phase]} reducedMotion={false} />);
+    const seats = seatsOf(warrior, machine);
+    const { rerender, unmount } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
     act(() => undefined);
     const lostA: DuelEvent = { id: 3, kind: "destroy", seat: 0, text: "", zone: { controller: 0, location: 4, sequence: 0 } };
     const lostB: DuelEvent = { id: 4, kind: "destroy", seat: 1, text: "", zone: { controller: 1, location: 4, sequence: 0 } };
-    rerender(<BattleFx events={[phase, attack, lostA, lostB]} reducedMotion={false} />);
-    expect(halves()).toHaveLength(4);
+    rerender(<BattleFx events={[phase, attack, lostA, lostB]} reducedMotion={false} seats={seats} />);
+    // The target breaks in the attacker's style (2 halves), the attacker in the defender's (24 tiles).
+    expect(halves()).toHaveLength(26);
     expect(cutRoles().sort()).toEqual(["attacker", "target"]);
     unmount();
 
@@ -166,6 +188,63 @@ describe("BattleFx", () => {
     // The newest attack is the direct one: there is no card to cut.
     expect(layerPaths().length).toBeGreaterThan(0);
     expect(document.body.querySelectorAll("div[style*='clip-path']")).toHaveLength(0);
+  });
+
+  it("reads a signature attacker from the art's image URL when no view is given", () => {
+    board.querySelector('[data-zones="0:4:0"] [data-card-art]')!.innerHTML = '<img src="/api/cards/89631139/image?size=small" alt="">';
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} />);
+    act(() => undefined);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={false} />);
+    expect(playLayer()?.getAttribute("data-style")).toBe("lightning");
+    // The signature's name shows at the attacker.
+    expect(document.body.textContent).toContain("White Lightning");
+  });
+
+  it("picks the style from the card that attacked, using the board as it was before the snapshot", () => {
+    const before = seatsOf(machine, warrior);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={before} />);
+    act(() => undefined);
+    // The new snapshot has already lost the destroyed target; the attack still resolves both cards.
+    const after = [before[0], { ...before[1], monsters: [null] }] as unknown as DuelSeatView[];
+    const destroyed: DuelEvent = { id: 3, kind: "destroy", seat: 1, text: "", zone: { controller: 1, location: 4, sequence: 0 } };
+    rerender(<BattleFx events={[phase, attack, destroyed]} reducedMotion={false} seats={after} />);
+    expect(playLayer()?.getAttribute("data-style")).toBe("beam");
+    expect(playLayer()?.getAttribute("data-kind")).toBe("win");
+    expect(halves()).toHaveLength(24);
+  });
+
+  it("falls back to the default impact style for an unknown card", () => {
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} />);
+    act(() => undefined);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={false} />);
+    expect(playLayer()?.getAttribute("data-style")).toBe("impact");
+    expect(playLayer()?.getAttribute("data-kind")).toBe("held");
+  });
+
+  it("waits for the counter strike before rolling the attacker's LP, and keeps a normal attack under 1.6 s", () => {
+    const seats = seatsOf(warrior, machine);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
+    act(() => undefined);
+    const damage: DuelEvent = { id: 3, kind: "damage", seat: 0, amount: 500, cause: "battle", text: "" };
+    const destroyed: DuelEvent = { id: 4, kind: "destroy", seat: 0, text: "", zone: { controller: 0, location: 4, sequence: 0 } };
+    rerender(<BattleFx events={[phase, attack, damage, destroyed]} reducedMotion={false} seats={seats} />);
+    // slash lands at 520 ms; the counter (beam, 440 ms at 0.7 speed) starts 100 ms later.
+    expect(takeLpHold(0)).toBe(Math.round(520 + 100 + 440 * 0.7));
+    const total = Number.parseFloat((playLayer() as HTMLElement).style.getPropertyValue("--total"));
+    expect(total).toBeGreaterThan(1150);
+    expect(total).toBeLessThanOrEqual(1600);
+  });
+
+  it("uses flashes and fades only under reduced motion", () => {
+    const seats = seatsOf(warrior, machine);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={seats} />);
+    act(() => undefined);
+    const destroyed: DuelEvent = { id: 3, kind: "destroy", seat: 1, text: "", zone: { controller: 1, location: 4, sequence: 0 } };
+    rerender(<BattleFx events={[phase, attack, destroyed]} reducedMotion seats={seats} />);
+    expect(playLayer()?.getAttribute("data-reduced")).toBe("true");
+    // The target fades whole (one piece), with no bolt, beam or slash paths.
+    expect(halves()).toHaveLength(1);
+    expect(document.body.querySelectorAll("svg path[stroke-linecap]")).toHaveLength(0);
   });
 
   it("does not arm the LP hold under reduced motion", () => {

@@ -2,9 +2,11 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type { DuelEvent } from "@yugidraft/shared/duels";
-import { zoneKey } from "./constants";
+import type { DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
+import { LOCATION_DMZONE, isDefense, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
+import { attackStyleFor, battleKind, battleTiming, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
+import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { holdPromptReveal } from "./prompt-reveal";
 import { collectFreshEvents, maxEventId } from "./event-queue";
 import { duelFontClasses } from "./fonts";
@@ -14,22 +16,28 @@ import styles from "./battle-fx.module.css";
 /**
  * Battle effects, drawn in one fixed overlay above the board (pointer-events: none).
  *
- *  - Attack playback: engine "attack" events, for both players and the bot. An arrow draws from
- *    the attacker's zone to the target's zone (or the defender's LP tally for a direct attack),
- *    a sword slash sweeps across the target, and the card(s) the battle destroyed are visibly cut
- *    in two: the target, the attacker (a weaker monster attacking into a stronger one), both on
- *    equal ATK, or neither when a defender holds (see battle-outcome.ts). Then it all fades.
+ *  - Attack playback: engine "attack" events, for both players and the bot. The attacker's
+ *    monster plays its own attack style (attack-styles.ts picks it from the card's passcode,
+ *    name and race; attack-fx.ts draws it): a slash, claw rakes, a beam, an arcane orb, a
+ *    lightning bolt, a fireball or a heavy smash, tinted by its attribute. The card(s) the
+ *    battle destroyed break up in the style that killed them: the target in the attacker's style,
+ *    or, when a weaker attacker loses, the attacker in the DEFENDER's style after its counter
+ *    strike; both on equal ATK, neither when a defender holds (see battle-outcome.ts).
  *  - Aim layer: the arrow you steer while choosing an attack (preview, aim, locked).
+ *
+ * Which cards fight: `seats` (the engine view) is indexed by zone before each snapshot lands, so a
+ * card that dies still has its identity. Without `seats` the passcode is read from the art's image
+ * URL; an unknown card gets the default "impact" style in a light tint.
  *
  * Nothing here blocks input or answers. Anchors are found with
  * `[data-zones~="<zoneKey>"]` and `[data-lp-seat="<seat>"]`.
  */
 
-/** Whole attack sequence, ms. */
+/** Reference timings (ms) for an average attack. Each play's real timing comes from its styles (attack-styles.ts). */
 export const BATTLE_TOTAL_MS = 1250;
-/** Reduced motion: a static arrow that flashes in and fades. */
+/** Reduced motion: flashes and fades only. */
 export const BATTLE_REDUCED_MS = 800;
-/** When the slash lands, ms after the attack starts. The LP roll for its damage starts here. */
+/** Reference impact time. Each style lands between 440 and 560 ms; the LP roll waits for the real one. */
 export const BATTLE_IMPACT_MS = 490;
 
 export type BattleAim = {
@@ -47,6 +55,8 @@ export type BattleFxProps = {
   /** false pauses playback (reconnecting): events that arrive meanwhile are treated as seen. Default true. */
   active?: boolean;
   aim?: BattleAim | null;
+  /** The engine view's seats: names the fighting cards so each plays its own attack style. Optional. */
+  seats?: readonly DuelSeatView[];
 };
 
 /* ---------- geometry ---------- */
@@ -121,28 +131,48 @@ function arrowBetween(from: Box, to: Box): Arrow | null {
   };
 }
 
-type Slash = { x1: number; y1: number; x2: number; y2: number };
+/* ---------- which cards fight ---------- */
 
-/** A diagonal across the box, running a little past both corners. */
-function slashAcross(box: Box, mirror: boolean): Slash {
-  const ext = 0.16;
-  const p = mirror ? { x: box.left, y: box.top } : { x: box.left + box.width, y: box.top };
-  const q = mirror ? { x: box.left + box.width, y: box.top + box.height } : { x: box.left, y: box.top + box.height };
-  const vx = q.x - p.x;
-  const vy = q.y - p.y;
-  return { x1: p.x - vx * ext, y1: p.y - vy * ext, x2: q.x + vx * ext, y2: q.y + vy * ext };
+/** What the style resolver needs, plus the position (a Defense Position target shows a shield when it holds). */
+type BattleCard = AttackCardLike & { position?: number };
+type CardIndex = Map<string, BattleCard>;
+
+/** The monsters of the engine view, by zone key. */
+function indexSeats(seats: readonly DuelSeatView[] | undefined): CardIndex {
+  const index: CardIndex = new Map();
+  for (const seat of seats ?? []) {
+    for (const card of seat.monsters) {
+      if (!card) continue;
+      index.set(zoneKey(card.controller, card.location, card.sequence), {
+        code: card.code, name: card.name, race: card.race, attribute: card.attribute, position: card.position,
+      });
+    }
+    const master = seat.deckMaster;
+    if (master?.inZone) {
+      index.set(zoneKey(seat.seat, LOCATION_DMZONE, 0), {
+        code: master.card.code, name: master.card.name, race: master.card.race, attribute: master.card.attribute,
+      });
+    }
+  }
+  return index;
 }
 
-/** A steeper, LP-sized slash through the counter, so it reads as a diagonal cut, not a scratch. */
-function slashThroughCounter(box: Box): Slash {
-  const c = centerOf(box);
-  const h = Math.max(box.height * 0.9, 28);
-  return { x1: c.x + h * 0.85, y1: c.y - h, x2: c.x - h * 0.85, y2: c.y + h };
+/** The passcode in a card image URL (`/api/cards/<code>/image`): the fallback when no view is given. */
+function codeFromArt(art: Element | null): number | undefined {
+  const src = art?.querySelector("img")?.getAttribute("src") ?? "";
+  const match = /\/cards\/(\d+)\/image/.exec(src);
+  return match ? Number(match[1]) : undefined;
+}
+
+function readCard(key: string, node: HTMLElement, prev: CardIndex, now: CardIndex): BattleCard {
+  const known = prev.get(key) ?? now.get(key) ?? {};
+  const art = node.querySelector("[data-card-art]");
+  return { ...known, code: known.code ?? codeFromArt(art) };
 }
 
 /* ---------- capture (before the new snapshot reaches the DOM) ---------- */
 
-type CutSource = { box: Box; innerW: number; innerH: number; html: string };
+type CutSource = FxCut;
 type AttackCapture = {
   from: Box;
   to: Box;
@@ -151,6 +181,13 @@ type AttackCapture = {
   attacker: CutSource | null;
   /** The target's art, captured the same way. */
   target: CutSource | null;
+  fromEl: Element | null;
+  toEl: Element | null;
+  attackerCard: BattleCard;
+  targetCard: BattleCard | null;
+  targetInDefense: boolean;
+  /** LP tally boxes by seat, for the damage flash. */
+  lp: Record<number, Box | undefined>;
 };
 
 function keyOfZone(zone: { controller: number; location: number; sequence: number }): string {
@@ -170,158 +207,145 @@ function cutSourceOf(node: HTMLElement): CutSource | null {
  * event, which is BEFORE the DOM shows the battle result, so a card that dies still has its art.
  * Both the attacker's and the target's art are kept: which one is cut is decided at play time.
  */
-function captureAttack(event: DuelEvent): AttackCapture | null {
+function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): AttackCapture | null {
   const zone = event.zone;
   if (!zone) return null;
-  const fromNode = zoneNode(keyOfZone(zone));
-  const from = fromNode ? zoneBox(keyOfZone(zone)) : null;
+  const fromKey = keyOfZone(zone);
+  const fromNode = zoneNode(fromKey);
+  const from = fromNode ? zoneBox(fromKey) : null;
   if (!fromNode || !from) return null;
-  const attacker = cutSourceOf(fromNode);
+  const lp: Record<number, Box | undefined> = { 0: lpBox(0) ?? undefined, 1: lpBox(1) ?? undefined };
+  const base = {
+    from,
+    attacker: cutSourceOf(fromNode),
+    fromEl: fromNode.querySelector("[data-card-art]"),
+    attackerCard: readCard(fromKey, fromNode, prev, now),
+    lp,
+  };
   if (event.target) {
-    const node = zoneNode(keyOfZone(event.target));
+    const targetKey = keyOfZone(event.target);
+    const node = zoneNode(targetKey);
     if (!node) return null;
     const target = cutSourceOf(node);
     const to = target?.box ?? boxOf(node);
     if (to.width <= 0 || to.height <= 0) return null;
-    return { from, to, direct: false, attacker, target };
+    const targetCard = readCard(targetKey, node, prev, now);
+    const targetInDefense = node.getAttribute("data-defense") === "true" || isDefense(prev.get(targetKey)?.position ?? now.get(targetKey)?.position);
+    return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense };
   }
   const to = lpBox(1 - zone.controller);
   if (!to) return null;
-  return { from, to, direct: true, attacker, target: null };
+  return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false };
 }
 
 /* ---------- playback model ---------- */
 
-type Half = { clip: string; nx: number; ny: number; rot: number };
-type Cut = CutSource & { role: "attacker" | "target"; halves: [Half, Half]; sep: number };
-
 type Play = {
   seq: number;
   reduced: boolean;
-  arrow: Arrow;
-  hit: Box;
-  center: Pt;
-  slash: Slash;
-  direct: boolean;
-  /** The card(s) the battle destroyed, each cut in two along the slash's diagonal. */
-  cuts: Cut[];
+  fx: AttackFxPlan;
+  style: AttackStyleId;
+  /** The defender's style when it strikes back (the attacker lost), else null. */
+  counterStyle: AttackStyleId | null;
+  kind: BattleKind;
+  totalMs: number;
 };
 
-function cutOf(source: CutSource, role: Cut["role"], mirror: boolean): Cut {
-  const { width: w, height: h } = source.box;
-  const len = Math.hypot(w, h) || 1;
-  // Two halves of the card on either side of the diagonal the slash follows.
-  const halves: [Half, Half] = mirror
-    ? [
-        // The first half runs 1px past the diagonal so the pair leaves no hairline seam at rest.
-        { clip: "polygon(0 0, 100% 0, 100% calc(100% + 1px), 0 1px)", nx: h / len, ny: -w / len, rot: 1.6 },
-        { clip: "polygon(0 0, 100% 100%, 0 100%)", nx: -h / len, ny: w / len, rot: -1.6 },
-      ]
-    : [
-        { clip: "polygon(0 0, 100% 0, 100% 1px, 0 calc(100% + 1px))", nx: -h / len, ny: -w / len, rot: -1.6 },
-        { clip: "polygon(100% 0, 100% 100%, 0 100%)", nx: h / len, ny: w / len, rot: 1.6 },
-      ];
-  return { ...source, role, halves, sep: Math.max(3, Math.min(7, w * 0.07)) };
+type Resolved = {
+  kind: BattleKind;
+  outcome: BattleOutcome;
+  attackerStyle: ReturnType<typeof attackStyleFor>;
+  defenderStyle: ReturnType<typeof attackStyleFor> | null;
+  timing: BattleTiming;
+};
+
+/** Reduced motion: one flash on each side, the loser fades; no travel. */
+function reducedTiming(kind: BattleKind): BattleTiming {
+  return { impactMs: 260, attackerDamageMs: kind === "lose" ? 520 : 400, totalMs: BATTLE_REDUCED_MS };
 }
 
-function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, outcome: BattleOutcome): Play | null {
-  const arrow = arrowBetween(capture.from, capture.to);
-  if (!arrow) return null;
-  const hit = capture.to;
-  const center = centerOf(hit);
-  const dx = center.x - centerOf(capture.from).x;
-  const mirror = dx < 0;
-  const slash = capture.direct ? slashThroughCounter(hit) : slashAcross(hit, mirror);
-  const cuts: Cut[] = [];
-  if (outcome.target && capture.target) cuts.push(cutOf(capture.target, "target", mirror));
-  if (outcome.attacker && capture.attacker) cuts.push(cutOf(capture.attacker, "attacker", mirror));
-  return { seq, reduced, arrow, hit, center, slash, direct: capture.direct, cuts };
+/** Pure: who fights, how it ends, and when things land. Called at capture (LP holds) and at play time. */
+function resolveBattle(capture: AttackCapture, events: readonly DuelEvent[], attack: DuelEvent, reduced: boolean): Resolved {
+  const outcome = battleOutcome(events, attack);
+  const kind = battleKind(capture.direct, outcome);
+  const attackerStyle = attackStyleFor(capture.attackerCard);
+  const defenderStyle = capture.direct ? null : attackStyleFor(capture.targetCard);
+  const timing = reduced ? reducedTiming(kind) : battleTiming(kind, attackerStyle.style, defenderStyle?.style ?? null);
+  return { kind, outcome, attackerStyle, defenderStyle, timing };
 }
 
-const SPARK_ANGLES = [-70, -28, 14, 52, 98, 146, 200, 250];
+/** Damage that follows an attack in the same snapshot (battle or effect). */
+function battleDamageEvents(events: readonly DuelEvent[], attack: DuelEvent): DuelEvent[] {
+  return events.filter((event) => {
+    if (event.kind !== "damage" || event.id <= attack.id || event.seat == null) return false;
+    return event.cause == null || event.cause === "battle" || event.cause === "effect";
+  });
+}
+
+/** When the LP roll for `event` starts: the counter's impact for damage to the attacker, else the strike's impact. */
+function damageDelay(event: DuelEvent, attack: DuelEvent, direct: boolean, timing: BattleTiming): number {
+  return !direct && event.seat === attack.zone?.controller ? timing.attackerDamageMs : timing.impactMs;
+}
+
+function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events: readonly DuelEvent[], attack: DuelEvent): Play | null {
+  const resolved = resolveBattle(capture, events, attack, reduced);
+  const { kind, timing, attackerStyle, defenderStyle } = resolved;
+  const attacker: FxSide = {
+    box: capture.from, el: capture.fromEl, style: attackerStyle.style, tint: attackerStyle.tint,
+    caption: attackerStyle.caption, cut: capture.attacker,
+  };
+  const defender: FxSide | null = defenderStyle
+    ? {
+        box: capture.target?.box ?? capture.to, el: capture.toEl, style: defenderStyle.style, tint: defenderStyle.tint,
+        caption: defenderStyle.caption, cut: capture.target,
+      }
+    : null;
+  const lpHits: FxLpHit[] = [];
+  for (const event of battleDamageEvents(events, attack)) {
+    const seat = event.seat as number;
+    const box = capture.lp[seat];
+    if (!box) continue;
+    lpHits.push({ box, at: damageDelay(event, attack, capture.direct, timing), toAttacker: !capture.direct && seat === attack.zone?.controller });
+  }
+  const fx: AttackFxPlan = {
+    reduced, kind, attacker, defender, hit: capture.to, defenderInDefense: capture.targetInDefense,
+    lpHits, seed: (attack.id * 2654435761) >>> 0, timing,
+  };
+  return {
+    seq, reduced, fx, style: attackerStyle.style,
+    counterStyle: kind === "lose" && defenderStyle ? defenderStyle.style : null,
+    kind, totalMs: timing.totalMs,
+  };
+}
 
 /* ---------- attack playback ---------- */
 
 function AttackPlay({ play }: { play: Play }) {
-  const { arrow, hit, center, slash, cuts } = play;
-  const total = play.reduced ? BATTLE_REDUCED_MS : BATTLE_TOTAL_MS;
-  const origin = (p: Pt): CSSProperties => ({ transformOrigin: `${p.x.toFixed(1)}px ${p.y.toFixed(1)}px` });
-  const ringPad = play.direct ? 6 : 5;
+  const htmlRef = useRef<HTMLDivElement | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  // Builds every node up front; each animates on its own delay (no render loop). Cleanup removes them.
+  useLayoutEffect(() => {
+    const html = htmlRef.current;
+    const svg = svgRef.current;
+    if (!html || !svg) return;
+    return runAttackFx(html, svg, play.fx, {
+      veil: styles.veil, frags: styles.frags, piece: styles.piece, inner: styles.inner,
+      caption: styles.caption, lpFlash: styles.lpFlash,
+    });
+  }, [play]);
+
   return (
-    <div className={styles.play} data-reduced={play.reduced ? "true" : "false"} style={{ "--total": `${total}ms` } as CSSProperties}>
-      {cuts.map((cut) => (
-        <div
-          key={cut.role}
-          className={styles.cut}
-          data-role={cut.role}
-          style={{
-            left: cut.box.left,
-            top: cut.box.top,
-            width: cut.box.width,
-            height: cut.box.height,
-            "--iw": `${cut.innerW}px`,
-            "--ih": `${cut.innerH}px`,
-            "--sep": `${cut.sep}px`,
-          } as CSSProperties}
-        >
-          {(play.reduced ? cut.halves.slice(0, 1) : cut.halves).map((half, index) => (
-            <div
-              key={index}
-              className={`${styles.half} ${index === 0 ? styles.halfA : styles.halfB}`}
-              style={{
-                clipPath: play.reduced ? "none" : half.clip,
-                "--nx": half.nx.toFixed(3),
-                "--ny": half.ny.toFixed(3),
-                "--rot": `${half.rot}deg`,
-              } as CSSProperties}
-            >
-              {/* A copy of the card's own markup, captured before the board updated. */}
-              <div className={styles.inner} dangerouslySetInnerHTML={{ __html: cut.html }} />
-            </div>
-          ))}
-        </div>
-      ))}
-      <svg className={styles.svg} aria-hidden>
-        <rect
-          className={styles.hitRing}
-          x={hit.left - ringPad}
-          y={hit.top - ringPad}
-          width={hit.width + ringPad * 2}
-          height={hit.height + ringPad * 2}
-          rx={play.direct ? 8 : 9}
-        />
-        <g className={styles.arrow}>
-          <path className={styles.arrowShadow} d={arrow.d} pathLength={1} />
-          <path className={styles.arrowLine} d={arrow.d} pathLength={1} />
-          <path className={styles.arrowEnergy} d={arrow.d} pathLength={1} />
-          <circle className={styles.origin} cx={arrow.start.x} cy={arrow.start.y} r={3.6} style={origin(arrow.start)} />
-          <path className={styles.arrowHead} d={arrow.head} style={origin(arrow.tip)} />
-        </g>
-        <g className={styles.slash}>
-          <path className={styles.slashGlow} d={`M${slash.x1},${slash.y1} L${slash.x2},${slash.y2}`} pathLength={1} />
-          <path className={styles.slashLine} d={`M${slash.x1},${slash.y1} L${slash.x2},${slash.y2}`} pathLength={1} />
-        </g>
-        <circle
-          className={styles.flash}
-          cx={center.x}
-          cy={center.y}
-          r={Math.max(18, Math.min(hit.width, hit.height) * (play.direct ? 0.9 : 0.55))}
-          style={origin(center)}
-        />
-      </svg>
-      {play.direct ? (
-        <div
-          className={styles.lpFlash}
-          style={{ left: hit.left - 8, top: hit.top - 4, width: hit.width + 16, height: hit.height + 8 }}
-        />
-      ) : null}
-      {SPARK_ANGLES.map((angle, index) => (
-        <i
-          key={angle}
-          className={styles.spark}
-          style={{ left: center.x, top: center.y, "--a": `${angle}deg`, "--d": `${26 + (index % 3) * 9}px` } as CSSProperties}
-        />
-      ))}
+    <div
+      className={styles.play}
+      data-style={play.style}
+      data-counter-style={play.counterStyle ?? undefined}
+      data-kind={play.kind}
+      data-reduced={play.reduced ? "true" : "false"}
+      style={{ "--total": `${play.totalMs}ms` } as CSSProperties}
+    >
+      <div ref={htmlRef} className={styles.htmlLayer} />
+      <svg ref={svgRef} className={styles.svg} aria-hidden />
     </div>
   );
 }
@@ -416,16 +440,16 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
 
 /* ---------- component ---------- */
 
-/** Damage that follows an attack in the same snapshot (battle or effect) rolls when the slash lands. */
-function armBattleDamage(events: readonly DuelEvent[], attackId: number): void {
-  for (const event of events) {
-    if (event.kind !== "damage" || event.id <= attackId || event.seat == null) continue;
-    if (event.cause != null && event.cause !== "battle" && event.cause !== "effect") continue;
-    armLpHold(event.seat, BATTLE_IMPACT_MS, `damage-${event.id}`);
+/** Damage that follows an attack in the same snapshot rolls when the strike that dealt it lands. */
+function armBattleDamage(events: readonly DuelEvent[], attack: DuelEvent, capture: AttackCapture | null): void {
+  const timing = capture ? resolveBattle(capture, events, attack, false).timing : null;
+  for (const event of battleDamageEvents(events, attack)) {
+    const ms = timing ? damageDelay(event, attack, capture?.direct ?? false, timing) : BATTLE_IMPACT_MS;
+    armLpHold(event.seat as number, ms, `damage-${event.id}`);
   }
 }
 
-export function BattleFx({ events, reducedMotion, active = true, aim = null }: BattleFxProps) {
+export function BattleFx({ events, reducedMotion, active = true, aim = null, seats }: BattleFxProps) {
   const [mounted, setMounted] = useState(false);
   const [play, setPlay] = useState<Play | null>(null);
   const initialRef = useRef<number | null>(null);
@@ -434,6 +458,10 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null }: B
   const seqRef = useRef(0);
   const reducedRef = useRef(reducedMotion);
   reducedRef.current = reducedMotion;
+  // The board's monsters as of the last commit, and as of this render: an attack's cards are read
+  // from the older one, because the newer snapshot may already have taken the card that died.
+  const prevIndexRef = useRef<CardIndex>(new Map());
+  const nowIndex = indexSeats(seats);
 
   // Events already in the first snapshot never play: a reload must not replay the last fight.
   if (initialRef.current == null) initialRef.current = maxEventId(events) ?? 0;
@@ -448,12 +476,15 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null }: B
       if (event.id > after && event.kind === "attack" && event.zone && (!latest || event.id > latest.id)) latest = event;
     }
     if (latest && typeof document !== "undefined") {
-      if (!capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest));
-      if (!reducedMotion) armBattleDamage(events, latest.id);
+      if (!capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
+      if (!reducedMotion) armBattleDamage(events, latest, capturesRef.current.get(latest.id) ?? null);
     }
   }
 
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    prevIndexRef.current = nowIndex;
+  });
 
   useEffect(() => {
     const after = Math.max(initialRef.current ?? 0, processedRef.current);
@@ -467,20 +498,20 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null }: B
     let latest: DuelEvent | null = null;
     for (const event of fresh) if (event.kind === "attack" && event.zone) latest = event;
     if (!latest) return;
-    const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest);
+    const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest, prevIndexRef.current, indexSeats(seats));
     capturesRef.current.delete(latest.id);
     // The destroy events after the attack (in this snapshot) say which card(s) the battle took.
-    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, battleOutcome(events, latest)) : null;
+    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, latest) : null;
     if (next) {
-      holdPromptReveal(next.reduced ? BATTLE_REDUCED_MS : BATTLE_TOTAL_MS);
+      holdPromptReveal(next.totalMs);
       setPlay(next);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `seats` only names cards for a late capture
   }, [events, active]);
 
   useEffect(() => {
     if (!play) return;
-    const ms = (play.reduced ? BATTLE_REDUCED_MS : BATTLE_TOTAL_MS) + 60;
-    const timer = window.setTimeout(() => setPlay((current) => (current?.seq === play.seq ? null : current)), ms);
+    const timer = window.setTimeout(() => setPlay((current) => (current?.seq === play.seq ? null : current)), play.totalMs + 60);
     return () => window.clearTimeout(timer);
   }, [play]);
 
