@@ -1,10 +1,12 @@
-import type { DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelMoveReason, DuelPrompt, DuelPromptOption, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelBattleStep, DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelMode, DuelMoveReason, DuelPrompt, DuelPromptOption, DuelSeatView, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
+  OcgHintType,
   OcgLocation,
   OcgMessageType,
   OcgPhase,
   OcgPosition,
   OcgQueryFlags,
+  OcgType,
   ocgPhaseString,
   type OcgCardQueryInfo,
   type OcgCoreSync,
@@ -14,6 +16,7 @@ import {
   type OcgQueryFlags as OcgQueryFlagsValue,
 } from "ocgcore-wasm";
 import { raceLabel, type CardDatabase } from "./cards.js";
+import { fillPlaceholders, locationLabel } from "./text.js";
 
 export const LOCATION_DECKMASTER = 0x4000;
 export const DOMAIN_LEAVE_TAX_STEP = 500;
@@ -272,6 +275,69 @@ export interface StoredDuelEvent {
   amount?: number;
   cause?: DuelEvent["cause"];
   summonKind?: DuelEvent["summonKind"];
+  fromPosition?: number;
+  toPosition?: number;
+  flip?: true;
+}
+
+/**
+ * Battle Phase step, derived from core messages (the core announces NEW_PHASE only for the Start
+ * Step; the other steps are inferred). Mapping, in message order:
+ *   NEW_PHASE battle_start                    -> "start"
+ *   SELECT_BATTLECMD / ATTACK                 -> "battle"   (the Battle Step: attacks are declared)
+ *   NEW_PHASE battle_step                     -> "battle"
+ *   DAMAGE_STEP_START / NEW_PHASE damage      -> "damage"
+ *   HINT event 40, 41 (start / before calc)   -> "damage"
+ *   BATTLE / NEW_PHASE damage_cal / HINT 42   -> "damage-calculation"
+ *   HINT event 43, 44 (after calc / end)      -> "damage"
+ *   DAMAGE_STEP_END                           -> "battle"
+ *   HINT event 25, 29 / NEW_PHASE battle(end) -> "end"     (the End Step)
+ *   NEW_PHASE main2 / end, NEW_TURN           -> null
+ * Anything else keeps the current step. Outside the Battle Phase only NEW_PHASE battle_start changes it.
+ */
+export function nextBattleStep(step: DuelBattleStep | null, message: OcgMessage): DuelBattleStep | null {
+  switch (message.type) {
+    case OcgMessageType.NEW_PHASE:
+      switch (message.phase) {
+        case OcgPhase.BATTLE_START:
+          return "start";
+        case OcgPhase.BATTLE_STEP:
+          return "battle";
+        case OcgPhase.DAMAGE:
+          return "damage";
+        case OcgPhase.DAMAGE_CAL:
+          return "damage-calculation";
+        case OcgPhase.BATTLE:
+          return "end";
+        default:
+          return null;
+      }
+    case OcgMessageType.NEW_TURN:
+      return null;
+    default:
+      break;
+  }
+  if (step == null) return null;
+  switch (message.type) {
+    case OcgMessageType.SELECT_BATTLECMD:
+    case OcgMessageType.ATTACK:
+    case OcgMessageType.DAMAGE_STEP_END:
+      return "battle";
+    case OcgMessageType.DAMAGE_STEP_START:
+      return "damage";
+    case OcgMessageType.BATTLE:
+      return "damage-calculation";
+    case OcgMessageType.HINT: {
+      if (message.hint_type !== OcgHintType.EVENT) return step;
+      const hint = Number(message.hint);
+      if (hint === 40 || hint === 41 || hint === 43 || hint === 44) return "damage";
+      if (hint === 42) return "damage-calculation";
+      if (hint === 25 || hint === 29) return "end";
+      return step;
+    }
+    default:
+      return step;
+  }
 }
 
 /**
@@ -313,6 +379,10 @@ export interface EventContext {
   moves: TrackedMove[];
   /** Cards in each hand, so DRAW messages (which carry no sequence) can be given a hand slot. */
   handSize: [number, number];
+  /** Location each field zone's current card arrived from (zone key -> location bit), kept across batches. */
+  arrivals: Map<string, number>;
+  /** The answer that started the current summon was a Pendulum Summon (a Pendulum Zone card's summon action). */
+  pendulumSummon: boolean;
 }
 
 interface TrackedMove {
@@ -324,7 +394,7 @@ interface TrackedMove {
 }
 
 export function createEventContext(): EventContext {
-  return { battle: false, released: [0, 0], destroyNotes: [], pendingMoves: [], moves: [], handSize: [0, 0] };
+  return { battle: false, released: [0, 0], destroyNotes: [], pendingMoves: [], moves: [], handSize: [0, 0], arrivals: new Map(), pendulumSummon: false };
 }
 
 /** Feed an engine log line to the context; returns true when it was a destruction note. */
@@ -345,6 +415,28 @@ function takeDestroyNote(ctx: EventContext, from: { controller: number; location
 
 function isFieldLocation(location: number): boolean {
   return location === OcgLocation.MZONE || location === OcgLocation.SZONE;
+}
+
+/**
+ * Refine a Special Summon by where the monster came from and its card type:
+ * Extra Deck (or the Domain Deck Master Zone) + Fusion/Synchro/Xyz/Link type -> that kind;
+ * hand (or Deck Master Zone) + Ritual type -> "ritual"; a Pendulum Summon in progress -> "pendulum".
+ */
+function specialSummonKind(ctx: EventContext, message: { controller: number; location: number; sequence: number }, type: number): DuelSummonKind {
+  if (ctx.pendulumSummon) return "pendulum";
+  const from = ctx.arrivals.get(slotKey(message.controller, message.location, message.sequence));
+  if (from == null) return "special";
+  // The byte-sized MOVE location reports the 0x4000 Deck Master Zone as 0 (no other source is 0).
+  const master = from === LOCATION_DECKMASTER || from === 0;
+  const extra = from === OcgLocation.EXTRA || master;
+  if (extra) {
+    if (type & OcgType.FUSION) return "fusion";
+    if (type & OcgType.SYNCHRO) return "synchro";
+    if (type & OcgType.XYZ) return "xyz";
+    if (type & OcgType.LINK) return "link";
+  }
+  if ((from === OcgLocation.HAND || master) && type & OcgType.RITUAL) return "ritual";
+  return "special";
 }
 
 function destroyEvent(id: number, code: number, from: PendingMove["from"], cards: CardDatabase): StoredDuelEvent {
@@ -406,6 +498,9 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.amount != null) projected.amount = event.amount;
   if (event.cause) projected.cause = event.cause;
   if (event.summonKind) projected.summonKind = event.summonKind;
+  if (event.fromPosition != null) projected.fromPosition = event.fromPosition;
+  if (event.toPosition != null) projected.toPosition = event.toPosition;
+  if (event.flip) projected.flip = true;
   if (reveal && event.card) projected.card = event.card;
   if (reveal && event.description) projected.description = event.description;
   return projected;
@@ -542,6 +637,8 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
       const { from, to } = message;
       if (from.location === OcgLocation.HAND) ctx.handSize[from.controller === 1 ? 1 : 0] = Math.max(0, ctx.handSize[from.controller === 1 ? 1 : 0] - 1);
       if (to.location === OcgLocation.HAND) ctx.handSize[to.controller === 1 ? 1 : 0] += 1;
+      if (isFieldLocation(from.location)) ctx.arrivals.delete(slotKey(from.controller, from.location, from.sequence));
+      if (isFieldLocation(to.location)) ctx.arrivals.set(slotKey(to.controller, to.location, to.sequence), from.location);
       const overlay = OcgLocation.OVERLAY as number;
       if (!from.location || !to.location || from.location === overlay || to.location === overlay) return [];
       if (from.controller === to.controller && from.location === to.location) return [];
@@ -591,6 +688,16 @@ export function observeDuelEvent(
       default:
         break;
     }
+    switch (message.type) {
+      case OcgMessageType.SPSUMMONED:
+      case OcgMessageType.SUMMONING:
+      case OcgMessageType.NEW_PHASE:
+      case OcgMessageType.NEW_TURN:
+        ctx.pendulumSummon = false;
+        break;
+      default:
+        break;
+    }
   }
   switch (message.type) {
     case OcgMessageType.SUMMONING:
@@ -605,12 +712,14 @@ export function observeDuelEvent(
       const info = cards.get(message.code);
       const text = `Player ${message.controller + 1} ${verb} ${info?.name ?? `Card ${message.code}`}`;
       const hidden = (message.position & OcgPosition.FACEDOWN) !== 0;
-      let summonKind: NonNullable<DuelEvent["summonKind"]> =
+      let summonKind: DuelSummonKind =
         message.type === OcgMessageType.SUMMONING ? "normal" : message.type === OcgMessageType.SPSUMMONING ? "special" : "flip";
       if (summonKind === "normal") {
         const released = ctx?.released[message.controller === 1 ? 1 : 0] ?? 0;
         if (released > 0 || (info?.level ?? 0) >= 5) summonKind = "tribute";
         if (ctx) ctx.released[message.controller === 1 ? 1 : 0] = 0;
+      } else if (summonKind === "special" && ctx) {
+        summonKind = specialSummonKind(ctx, message, info?.type ?? 0);
       }
       return {
         id, kind: "summon", seat: message.controller, card: info, text,
@@ -626,9 +735,38 @@ export function observeDuelEvent(
       const text = info ? `Player ${message.controller + 1} Sets ${info.name}` : publicText;
       return { id, kind: "set", seat: message.controller, card: info, text, publicText, revealCardTo: message.controller, zone: zoneOf(message) };
     }
+    case OcgMessageType.POS_CHANGE: {
+      const info = cards.get(message.code);
+      const from = message.prev_position as number;
+      const to = message.position as number;
+      const wasUp = !isFacedownPosition(from);
+      const isUp = !isFacedownPosition(to);
+      const name = info?.name ?? `Card ${message.code}`;
+      const flip = !wasUp && isUp;
+      const text = flip
+        ? `${name} was flipped face-up`
+        : isUp || wasUp
+          ? `${name} changed to ${to & OcgPosition.DEFENSE ? "Defense" : "Attack"} Position`
+          : `${name} changed position`;
+      const event: StoredDuelEvent = {
+        id,
+        kind: "position",
+        seat: message.controller,
+        card: info,
+        text,
+        publicText: wasUp || isUp ? text : "A face-down card changed position",
+        // Same rule as moves: the identity is shown when the card is face-up before or after.
+        revealCardTo: wasUp || isUp ? "all" : message.controller,
+        zone: zoneOf(message),
+        fromPosition: from,
+        toPosition: to,
+      };
+      if (flip) event.flip = true;
+      return event;
+    }
     case OcgMessageType.CHAINING: {
       const info = cards.get(message.code);
-      const description = cards.resolveLabel(message.description) || undefined;
+      const description = fillPlaceholders(cards.resolveLabel(message.description), [info?.name, locationLabel(message.location, message.sequence)]) || undefined;
       chain.length = message.chain_size;
       chain[message.chain_size - 1] = {
         index: message.chain_size,
@@ -774,13 +912,24 @@ function projectPrompt(
   reveals: RevealMap,
 ): DuelPrompt | null {
   if (!prompt || viewer == null || viewer !== promptSeat) return null;
-  return {
+  const projected: DuelPrompt = {
     ...prompt,
     options: prompt.options.map((option) => {
       if (promptOptionVisible(option, viewer, seats, reveals)) return option;
       return redactPromptOption(option, cardAt(seats, option.controller ?? -1, option.location ?? -1, option.sequence ?? -1));
     }),
   };
+  // A located source card must be visible to the answering seat, or the prompt names nothing.
+  if (prompt.source?.zone) {
+    const { controller, location, sequence } = prompt.source.zone;
+    const revealed = slotRevealed(reveals, viewer, controller, location, sequence, prompt.source.code);
+    const board = cardAt(seats, controller, location, sequence);
+    const visible = board
+      ? board.code != null
+      : revealed || viewer === controller || cardIsVisible({ viewer, controller, location, position: OcgPosition.FACEDOWN, revealed });
+    if (!visible) delete projected.source;
+  }
+  return projected;
 }
 
 export function projectView(args: {
@@ -792,6 +941,7 @@ export function projectView(args: {
   turn: number;
   turnSeat: number;
   phase: string;
+  battleStep?: DuelBattleStep | null;
   lp: [number, number];
   prompt: DuelPrompt | null;
   promptSeat: number | null;
@@ -857,7 +1007,7 @@ export function projectView(args: {
 
   const chain = field.chain.map((link, index) => {
     const info = args.cards.get(link.code);
-    const description = args.cards.resolveLabel(link.description) || undefined;
+    const description = fillPlaceholders(args.cards.resolveLabel(link.description), [info?.name, locationLabel(link.location, link.sequence)]) || undefined;
     return {
       index: index + 1,
       seat: link.controller,
@@ -872,6 +1022,7 @@ export function projectView(args: {
     turn: args.turn,
     turnSeat: args.turnSeat,
     phase: args.phase,
+    battleStep: args.battleStep ?? null,
     seats,
     prompt: projectPrompt(args.prompt, args.viewer, args.promptSeat, seats, args.reveals),
     chain,

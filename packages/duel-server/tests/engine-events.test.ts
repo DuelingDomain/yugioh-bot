@@ -21,6 +21,7 @@ const dataDirectory = engineDataDirectory;
 const seed = ["1", "2", "3", "4"];
 const OOKAZI = 19523799;
 const RAIGEKI = 12580477;
+const GIANT_RAT = 97017120;
 
 function monsters(where: string): number[] {
   const db = new Database(`${dataDirectory}/cards.cdb`, { readonly: true });
@@ -74,6 +75,10 @@ function drive(game: EngineGame, policy: (waiting: Waiting) => DuelAnswer | "sto
     const view = game.view(seat);
     const prompt = view.prompt;
     if (!prompt) throw new Error("No prompt is waiting");
+    // Rendered prompt text never carries printf placeholders from strings.conf.
+    for (const text of [prompt.title, prompt.description ?? "", ...prompt.options.flatMap((option) => [option.label, option.effectText ?? ""])]) {
+      expect(text, `placeholder in prompt ${prompt.id}: ${text}`).not.toMatch(/%(ls|d|s)/);
+    }
     const waiting = { seat, view, prompt };
     const chosen = policy(waiting);
     if (chosen === "stop") return waiting;
@@ -239,6 +244,89 @@ describe("richer engine events", () => {
       expect(last.card?.code).toBe(high[0]);
       expect(last.summonKind).toBe("tribute");
       expect(last.zone).toMatchObject({ controller: 1, location: OcgLocation.MZONE });
+    } finally {
+      game.close();
+    }
+  });
+});
+
+describe("prompt text, battle steps and position changes from a real duel", () => {
+  it("renders the Giant Rat trigger prompt with its name and location, tracks the battle step, and reports a position change", async () => {
+    const game = await openGame([GIANT_RAT], [strong[0]!]);
+    try {
+      const steps: Array<[string, DuelEngineView["battleStep"]]> = [];
+      let trigger: DuelPrompt | undefined;
+      let battle = false;
+      drive(game, (w) => {
+        if (w.seat === 0 && w.view.turn === 1) {
+          expect(w.view.battleStep).toBeNull();
+          const summon = option(w, "summon:", GIANT_RAT);
+          return summon ? { choice: summon } : null;
+        }
+        if (w.seat === 1 && w.view.turn === 2) {
+          const summon = option(w, "summon:", strong[0]!);
+          if (summon) return { choice: summon };
+          if (!battle && w.prompt.options.some((entry) => entry.id === "to_bp")) {
+            battle = true;
+            expect(w.view.battleStep).toBeNull();
+            return { choice: "to_bp" };
+          }
+          if (w.prompt.options.some((entry) => entry.id.startsWith("attack:"))) {
+            steps.push(["attack", w.view.battleStep]);
+            return { choice: "attack:0" };
+          }
+          if (w.prompt.options.some((entry) => entry.id === "to_m2")) {
+            steps.push(["after-battle", w.view.battleStep]);
+            return { choice: "to_m2" };
+          }
+          if (w.prompt.options.some((entry) => entry.id === "to_ep")) {
+            steps.push(["main2", w.view.battleStep]);
+            return { choice: "to_ep" };
+          }
+        }
+        if (w.seat === 0 && w.view.turn === 2 && w.prompt.source?.code === GIANT_RAT && w.prompt.options.some((entry) => entry.id === "yes")) {
+          trigger = w.prompt;
+          steps.push(["trigger", w.view.battleStep]);
+          return { choice: "yes" };
+        }
+        if (w.seat === 0 && w.view.turn === 3) {
+          const change = w.prompt.options.find((entry) => entry.id.startsWith("pos:"));
+          if (change) return { choice: change.id };
+          return "stop";
+        }
+        return null;
+      }, 120);
+      expect(trigger).toBeDefined();
+      expect(trigger!.title).toBe('Activate the Trigger Effect of "Giant Rat" from [Graveyard]?');
+      expect(trigger!.description).toBeUndefined();
+      expect(trigger!.source).toEqual({
+        code: GIANT_RAT,
+        name: "Giant Rat",
+        seat: 0,
+        zone: { controller: 0, location: OcgLocation.GRAVE, sequence: 0 },
+        text: expect.stringContaining("Special Summon 1 EARTH monster"),
+      });
+      expect(trigger!.options[0]!.cardText).toContain("destroyed by battle");
+      expect(steps).toEqual([
+        ["attack", "battle"],
+        ["trigger", "damage"],
+        ["after-battle", "battle"],
+        ["main2", null],
+      ]);
+      const events = eventsOf(game);
+      const special = events.filter((event) => event.kind === "summon" && event.summonKind === "special");
+      expect(special).toHaveLength(1);
+      const position = events.find((event) => event.kind === "position");
+      expect(position).toMatchObject({
+        seat: 0,
+        zone: { controller: 0, location: OcgLocation.MZONE, sequence: 0 },
+        fromPosition: OcgPosition.FACEUP_ATTACK,
+        toPosition: OcgPosition.FACEUP_DEFENSE,
+        card: { code: special[0]!.card!.code },
+      });
+      expect(position!.flip).toBeUndefined();
+      expect(position!.text).toBe(`${special[0]!.card!.name} changed to Defense Position`);
+      expect(game.view(0).battleStep).toBeNull();
     } finally {
       game.close();
     }

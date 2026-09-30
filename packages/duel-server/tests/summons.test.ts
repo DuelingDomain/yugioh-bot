@@ -75,6 +75,8 @@ describe("proper effect summons", () => {
       expect(seat.hand.some((card) => materials.includes(card.code!))).toBe(false);
       expect(seat.lp).toBe(8000);
       if (mode === "domain") expect(seat.deckMaster?.inZone).toBe(false);
+      const summons = game.view(0).events.filter((event) => event.kind === "summon" && event.card?.code === master);
+      expect(summons.at(-1)?.summonKind).toBe(scenario.spell === "Polymerization" ? "fusion" : "ritual");
     } finally {
       game.close();
     }

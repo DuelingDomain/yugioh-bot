@@ -1,4 +1,4 @@
-import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelBattleStep, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 import createCore, {
   OcgDuelMode,
   OcgHintType,
@@ -25,6 +25,7 @@ import {
   DESTROY_NOTE_SCRIPT,
   drainDeferredDestroys,
   moveReveals,
+  nextBattleStep,
   noteDestroyLog,
   noteReveal,
   observeDuelEvent,
@@ -38,6 +39,7 @@ import {
   type StoredDuelEvent,
 } from "./views.js";
 import { createDomainCore } from "./domain-core.js";
+import { fillPlaceholders } from "./text.js";
 
 export interface EngineGameOptions {
   mode: DuelMode;
@@ -146,6 +148,18 @@ function addDeck(lib: OcgCoreSync, handle: OcgDuelHandle, team: 0 | 1, deck: Due
       position: OcgPosition.FACEDOWN_DEFENSE,
     });
   }
+}
+
+/**
+ * A Pendulum Summon is offered as the Special Summon action of a card in a Pendulum Zone
+ * (Spell & Trap sequence 6-7, or the LOCATION_PZONE flag). The summons it produces are then "pendulum".
+ */
+export function isPendulumSummonAnswer(pending: PendingPrompt, answer: DuelAnswer): boolean {
+  if (pending.message.type !== OcgMessageType.SELECT_IDLECMD || !answer.choice?.startsWith("spsummon:")) return false;
+  const option = pending.prompt.options.find((entry) => entry.id === answer.choice);
+  if (!option || option.location == null) return false;
+  if ((option.location & OcgLocation.PZONE) !== 0) return true;
+  return option.location === OcgLocation.SZONE && (option.sequence ?? 0) >= 6;
 }
 
 function loadScriptOrThrow(lib: OcgCoreSync, handle: OcgDuelHandle, cards: CardDatabase, name: string) {
@@ -268,6 +282,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let turn = 0;
   let turnSeat = 0;
   let phase = "draw";
+  let battleStep: DuelBattleStep | null = null;
   const lp: [number, number] = [start.startingLP, start.startingLP];
   let pending: PendingPrompt | null = null;
   let result: DuelEngineView["result"] = null;
@@ -279,7 +294,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let nextLogId = 1;
   let nextEventId = 1;
   let lastSelectHint: string | undefined;
+  /** Card named by the core's last HINT_CARD: the card whose effect the following prompts belong to. */
+  let lastHintCard: number | undefined;
   let sawRetry = false;
+  const hintCardName = () => (lastHintCard ? cards.get(lastHintCard)?.name : undefined);
 
   const appendLog = (text: string, audience: "all" | number = "all") => {
     log.push({ id: nextLogId++, text, audience });
@@ -305,19 +323,25 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   };
 
   const applyMessage = (message: OcgMessage) => {
+    battleStep = nextBattleStep(battleStep, message);
     switch (message.type) {
       case OcgMessageType.RETRY:
         sawRetry = true;
         return;
       case OcgMessageType.HINT:
         if (message.hint_type === OcgHintType.SELECTMSG) {
+          // Placeholders are filled when the prompt is built, against the card the prompt names.
           lastSelectHint = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
         } else if (message.hint_type === OcgHintType.EVENT || message.hint_type === OcgHintType.MESSAGE) {
-          const text = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
+          const text = fillPlaceholders(cards.resolveLabel(message.hint) || cards.system(Number(message.hint)) || "", [hintCardName()]);
           if (text) appendLog(text);
-        } else if (message.hint_type === OcgHintType.CODE) {
-          return;
+        } else if (message.hint_type === OcgHintType.CARD) {
+          lastHintCard = Number(message.hint) || undefined;
         }
+        return;
+      case OcgMessageType.CHAIN_SOLVED:
+      case OcgMessageType.CHAIN_END:
+        lastHintCard = undefined;
         return;
       case OcgMessageType.WIN: {
         const winnerSeat = message.player === 0 || message.player === 1 ? message.player : null;
@@ -470,15 +494,18 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
           ? domainState?.[waiting.player]
           : undefined;
       const recall = recallState ? recallPromptContext(recallState, cards) : undefined;
+      // The main action prompts start a new play; a hint card from an earlier effect no longer applies.
+      if (waiting.type === OcgMessageType.SELECT_IDLECMD || waiting.type === OcgMessageType.SELECT_BATTLECMD) lastHintCard = undefined;
       const next = mapPrompt(
         waiting,
         cards,
         `p${revision}-${promptSeq + 1}`,
         lastSelectHint,
-        domainState ? {
+        {
           domain: domainState,
           recall: recall ? { card: recall.card, returns: recall.returns, nextCost: recall.nextCost } : undefined,
-        } : undefined,
+          hintCard: lastHintCard,
+        },
       );
       lastSelectHint = undefined;
       const automated = autoResponse(next);
@@ -514,6 +541,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         turn,
         turnSeat,
         phase,
+        battleStep,
         lp,
         prompt: pending?.prompt ?? null,
         promptSeat: pending?.seat ?? null,
@@ -532,6 +560,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       const response = resolveAnswer(pending, seat, promptId, answer, cards);
       const previous = pending;
       sawRetry = false;
+      // Stays set through the summon's follow-up prompts; observeDuelEvent clears it at SPSUMMONED.
+      if (isPendulumSummonAnswer(pending, answer)) eventContext.pendulumSummon = true;
       lib.duelSetResponse(handle, response);
       processUntilWait();
       if (sawRetry) {

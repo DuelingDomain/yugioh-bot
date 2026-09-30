@@ -97,6 +97,28 @@ export interface DuelPromptOption {
   values?: number[];
   max?: number;
   selected?: boolean;
+  /** Full printed text of the card this option is bound to (absent when the card is hidden from the viewer). */
+  cardText?: string;
+  /**
+   * The specific effect this option activates or applies, resolved from the card's strings
+   * (no printf placeholders). Often a short label such as "Take control"; show `cardText` for the
+   * accurate wording, including costs.
+   */
+  effectText?: string;
+}
+
+/** The card whose effect a prompt is about. `text` is its full printed text. */
+export interface DuelPromptSource {
+  code: number;
+  name: string;
+  /**
+   * Seat that controls the card. When the engine gave no location (a card hint before a yes/no or
+   * option prompt) this is the answering seat, which is the effect's controller in practice.
+   */
+  seat: number;
+  /** Where the card is; absent when the engine only hinted the card code. */
+  zone?: DuelZoneRef;
+  text: string;
 }
 
 export type DuelPromptContext =
@@ -119,6 +141,12 @@ export interface DuelPrompt {
   cancelable?: boolean;
   finishable?: boolean;
   context?: DuelPromptContext;
+  /**
+   * Present for prompts tied to one card: yes/no effect prompts, trigger prompts, option prompts
+   * from an effect, and selections made while that card's effect resolves. Never names a card
+   * the answering seat cannot see.
+   */
+  source?: DuelPromptSource;
 }
 
 export interface DuelAnswer {
@@ -155,11 +183,29 @@ export interface DuelZoneRef {
 export type DuelMoveReason =
   | "summon" | "set" | "activate" | "destroy" | "send" | "return" | "banish" | "draw" | "discard" | "other";
 
+/**
+ * How a monster arrived on the field. "tribute" is a Normal Summon that used Tributes. The Extra
+ * Deck kinds ("fusion", "synchro", "xyz", "link") are Special Summons of a monster of that type
+ * from the Extra Deck (or the Domain Deck Master Zone); "ritual" is a Ritual Monster Special
+ * Summoned from the hand; "pendulum" is a Pendulum Summon started from a Pendulum Zone card.
+ * Everything else is "special".
+ */
+export type DuelSummonKind =
+  | "normal" | "tribute" | "special" | "flip"
+  | "fusion" | "synchro" | "xyz" | "link" | "ritual" | "pendulum";
+
+/**
+ * Where the Battle Phase is. "start" = Start Step, "battle" = Battle Step (attacks are declared
+ * here), "damage" = Damage Step (before or after damage calculation), "damage-calculation" =
+ * damage calculation inside the Damage Step, "end" = End Step. null outside the Battle Phase.
+ */
+export type DuelBattleStep = "start" | "battle" | "damage" | "damage-calculation" | "end";
+
 export interface DuelEvent {
   id: number;
   kind:
     | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "phase" | "damage" | "destroy" | "move";
+    | "attack" | "phase" | "damage" | "destroy" | "move" | "position";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
@@ -188,8 +234,18 @@ export interface DuelEvent {
   amount?: number;
   /** damage: "battle" for battle damage, "effect" for effect damage, "cost" for paid LP. */
   cause?: "battle" | "effect" | "cost";
-  /** summon: how the monster arrived. "tribute" is a Normal Summon that used Tributes. */
-  summonKind?: "normal" | "tribute" | "special" | "flip";
+  /** summon: how the monster arrived. */
+  summonKind?: DuelSummonKind;
+  /**
+   * position: the battle position the card left and the one it is in now (POS_* bitmasks:
+   * 0x1 face-up Attack, 0x2 face-down Attack, 0x4 face-up Defense, 0x8 face-down Defense).
+   * `zone` is the card's zone; `card` follows the move-event rule (present when the card is
+   * face-up before or after the change, or the viewer controls it).
+   */
+  fromPosition?: number;
+  toPosition?: number;
+  /** position: the card turned face-up (a flip reveal). */
+  flip?: true;
 }
 
 export interface DuelChainLink {
@@ -205,6 +261,8 @@ export interface DuelEngineView {
   turn: number;
   turnSeat: number;
   phase: string;
+  /** The current Battle Phase step; null outside the Battle Phase. Best effort from core messages. */
+  battleStep?: DuelBattleStep | null;
   seats: DuelSeatView[];
   prompt: DuelPrompt | null;
   chain: DuelChainLink[];

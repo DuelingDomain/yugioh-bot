@@ -1,4 +1,4 @@
-import type { DuelAnswer, DuelCardInfo, DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   OcgLocation,
   OcgMessageType,
@@ -9,11 +9,8 @@ import {
   SelectIdleCMDAction,
   cardMatchesOpcode,
   ocgAttributeParse,
-  ocgAttributeString,
   ocgPositionParse,
-  ocgPositionString,
   ocgRaceParse,
-  ocgRaceString,
   type OcgAttribute,
   type OcgCardLoc,
   type OcgMessage,
@@ -24,11 +21,41 @@ import {
 } from "ocgcore-wasm";
 import type { CardDatabase } from "./cards.js";
 import { cardInfoLabel } from "./cards.js";
+import { attributeName, fillPlaceholders, locationLabel, positionLabel, raceName, type TemplateValue } from "./text.js";
 import { DOMAIN_LEAVE_TAX_STEP, LOCATION_DECKMASTER, type DomainSeatState } from "./views.js";
 
 export interface MapPromptExtras {
   recall?: { card: DuelCardInfo; returns: number; nextCost: number };
   domain?: readonly DomainSeatState[];
+  /** Card code from the last HINT_CARD the core sent: the card whose effect the next prompts belong to. */
+  hintCard?: number;
+}
+
+/** strings.conf: `Use the effect of "%ls" from [%ls]?` — the core's default for a SELECT_EFFECTYN without a description. */
+const EFFECTYN_DEFAULT_DESC = 200;
+
+/** Card strings are `code << 20 | index`; anything that fits in 32 bits is a card code or a system string. */
+export function cardStringCode(desc: bigint | number): number {
+  const value = typeof desc === "bigint" ? desc : BigInt(desc);
+  return value > 0xffffffffn ? Number(value >> 20n) : 0;
+}
+
+/** Resolve a strings.conf / card string and fill its placeholders (card name, location, number, in that order). */
+export function effectLabel(cards: CardDatabase, desc: bigint | number, values: readonly TemplateValue[] = []): string {
+  return fillPlaceholders(cards.resolveLabel(desc), values);
+}
+
+function sourceOf(cards: CardDatabase, code: number | undefined, seat: number, zone?: DuelZoneRef): DuelPromptSource | undefined {
+  if (!code) return undefined;
+  const info = cards.get(code);
+  if (!info) return undefined;
+  const source: DuelPromptSource = { code, name: info.name, seat, text: info.description };
+  if (zone) source.zone = zone;
+  return source;
+}
+
+function zoneRef(place: { controller: number; location: number; sequence: number }): DuelZoneRef {
+  return { controller: place.controller, location: place.location, sequence: place.sequence };
 }
 
 export function recallPromptContext(
@@ -108,7 +135,7 @@ export function parseFieldPlaces(mask: number, answeringPlayer: number): SelectF
 
 function cardOption(cards: CardDatabase, id: string, code: number, loc: { controller?: number; location?: number; sequence?: number }, extra?: Partial<DuelPromptOption>): DuelPromptOption {
   const info = cards.get(code);
-  return {
+  const option: DuelPromptOption = {
     id,
     label: extra?.label ?? (info?.name ?? `Card ${code}`),
     card: info,
@@ -117,6 +144,13 @@ function cardOption(cards: CardDatabase, id: string, code: number, loc: { contro
     sequence: loc.sequence,
     ...extra,
   };
+  if (info?.description && option.cardText == null) option.cardText = info.description;
+  return option;
+}
+
+/** The effect text of an activatable card entry, with the card's name and location filled in. */
+function activationEffect(cards: CardDatabase, card: OcgCardLoc & { description: bigint | number }): string {
+  return effectLabel(cards, card.description, [cardInfoLabel(cards, card.code), locationLabel(card.location, card.sequence)]);
 }
 
 function sumParamValues(amount: number): number[] {
@@ -130,23 +164,30 @@ function sumParamLabel(cards: CardDatabase, code: number, amount: number): strin
   return `${cardInfoLabel(cards, code)} (${values.join(" or ")})`;
 }
 
-function yesNo(seat: number, id: string, title: string, description: string | undefined, card?: DuelCardInfo): PendingPrompt {
+function yesNo(seat: number, id: string, title: string, description: string | undefined, card?: DuelCardInfo, source?: DuelPromptSource): PendingPrompt {
+  const bound = (choice: "yes" | "no", label: string): DuelPromptOption => {
+    const option: DuelPromptOption = { id: choice, label };
+    if (card) {
+      option.card = card;
+      if (card.description) option.cardText = card.description;
+    }
+    return option;
+  };
+  const prompt: DuelPrompt = {
+    id,
+    seat,
+    kind: "choice",
+    title,
+    options: [bound("yes", "Yes"), bound("no", "No")],
+    min: 1,
+    max: 1,
+  };
+  if (description && description !== title) prompt.description = description;
+  if (source) prompt.source = source;
   return {
     id,
     seat,
-    prompt: {
-      id,
-      seat,
-      kind: "choice",
-      title,
-      description,
-      options: [
-        { id: "yes", label: "Yes", card },
-        { id: "no", label: "No", card },
-      ],
-      min: 1,
-      max: 1,
-    },
+    prompt,
     message: { type: OcgMessageType.SELECT_YESNO, player: seat, description: 0n },
   };
 }
@@ -177,10 +218,11 @@ function idleOptions(message: Extract<OcgMessage, { type: OcgMessageType.SELECT_
   pushLoc("mset", "Set monster", message.monster_sets);
   pushLoc("sset", "Set Spell/Trap", message.spell_sets);
   message.activates.forEach((card, index) => {
-    const effect = cards.resolveLabel(card.description);
+    const effect = activationEffect(cards, card);
     options.push(cardOption(cards, `activate:${index}`, card.code, card, {
       label: effect ? `Activate ${cardInfoLabel(cards, card.code)}: ${effect}` : `Activate ${cardInfoLabel(cards, card.code)}`,
       values: [index],
+      ...(effect ? { effectText: effect } : {}),
     }));
   });
   if (message.to_bp) options.push({ id: "to_bp", label: "Enter Battle Phase" });
@@ -190,7 +232,18 @@ function idleOptions(message: Extract<OcgMessage, { type: OcgMessageType.SELECT_
 }
 
 export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, selectHint?: string, extras?: MapPromptExtras): PendingPrompt {
-  const hint = selectHint?.trim();
+  // The card the prompt is about: named by the message itself, else by the core's last HINT_CARD.
+  const subjectCode = "code" in message && typeof message.code === "number" && message.code ? message.code : extras?.hintCard;
+  const subjectName = subjectCode ? cardInfoLabel(cards, subjectCode) : undefined;
+  const hint = selectHint ? fillPlaceholders(selectHint, [subjectName]).trim() : undefined;
+  // Prompts raised while an effect resolves inherit that effect's card as their source.
+  const hinted = (built: PendingPrompt): PendingPrompt => {
+    if (!built.prompt.source && extras?.hintCard) {
+      const source = sourceOf(cards, extras.hintCard, built.seat);
+      if (source) built.prompt.source = source;
+    }
+    return built;
+  };
   switch (message.type) {
     case OcgMessageType.SELECT_IDLECMD: {
       const options = idleOptions(message, cards);
@@ -223,10 +276,11 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
     case OcgMessageType.SELECT_BATTLECMD: {
       const options: DuelPromptOption[] = [];
       message.chains.forEach((card, index) => {
-        const effect = cards.resolveLabel(card.description);
+        const effect = activationEffect(cards, card);
         options.push(cardOption(cards, `activate:${index}`, card.code, card, {
           label: effect ? `Activate ${cardInfoLabel(cards, card.code)}: ${effect}` : `Activate ${cardInfoLabel(cards, card.code)}`,
           values: [index],
+          ...(effect ? { effectText: effect } : {}),
         }));
       });
       message.attacks.forEach((card, index) => {
@@ -267,38 +321,53 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
         built.prompt.context = { type: "deck-master-recall", card, returns, nextCost };
         return built;
       }
-      const built = yesNo(message.player, id, hint || cards.resolveLabel(message.description) || "Choose yes or no", cards.resolveLabel(message.description));
+      // The core names no card here; the last HINT_CARD (if any) is the effect being resolved.
+      const text = effectLabel(cards, message.description, [subjectName]);
+      const built = yesNo(message.player, id, hint || text || "Choose yes or no", text, subjectCode ? cards.get(subjectCode) : undefined);
       built.message = message;
-      return built;
+      return hinted(built);
     }
     case OcgMessageType.SELECT_EFFECTYN: {
       const info = cards.get(message.code);
-      const title = hint || cards.resolveLabel(message.description) || `Apply the effect of ${cardInfoLabel(cards, message.code)}?`;
-      const built = yesNo(message.player, id, title, cards.resolveLabel(message.description), info);
+      const zone = zoneRef(message);
+      const values: TemplateValue[] = [cardInfoLabel(cards, message.code), locationLabel(message.location, message.sequence), message.sequence + 1];
+      const text = message.description === 0n
+        ? fillPlaceholders(cards.system(EFFECTYN_DEFAULT_DESC) ?? "", values)
+        : effectLabel(cards, message.description, values);
+      const title = hint || text || `Apply the effect of ${cardInfoLabel(cards, message.code)}?`;
+      const built = yesNo(message.player, id, title, text, info, sourceOf(cards, message.code, message.controller, zone));
       built.message = message;
       return built;
     }
-    case OcgMessageType.SELECT_OPTION:
-      return {
+    case OcgMessageType.SELECT_OPTION: {
+      // Options are usually the card's own strings (`code << 20 | index`), which name the card.
+      const optionCodes = message.options.map((option) => cardStringCode(option));
+      const shared = optionCodes.find((code) => code !== 0);
+      const sourceCode = shared && optionCodes.every((code) => code === 0 || code === shared) ? shared : extras?.hintCard;
+      const prompt: DuelPrompt = {
         id,
         seat: message.player,
-        prompt: {
-          id,
-          seat: message.player,
-          kind: "choice",
-          title: hint || "Select an option",
-          options: message.options.map((option, index) => ({
-            id: `opt:${index}`,
-            label: cards.resolveLabel(option) || `Option ${index + 1}`,
-            values: [index],
-          })),
-          min: 1,
-          max: 1,
-        },
-        message,
+        kind: "choice",
+        title: hint || "Select an option",
+        options: message.options.map((option, index) => {
+          const code = optionCodes[index] || sourceCode;
+          const name = code ? cardInfoLabel(cards, code) : subjectName;
+          const effect = effectLabel(cards, option, [name]);
+          const entry: DuelPromptOption = { id: `opt:${index}`, label: effect || `Option ${index + 1}`, values: [index] };
+          if (effect) entry.effectText = effect;
+          const text = code ? cards.get(code)?.description : undefined;
+          if (text) entry.cardText = text;
+          return entry;
+        }),
+        min: 1,
+        max: 1,
       };
+      const source = sourceOf(cards, sourceCode, message.player);
+      if (source) prompt.source = source;
+      return { id, seat: message.player, prompt, message };
+    }
     case OcgMessageType.SELECT_CARD:
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -312,9 +381,9 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           cancelable: message.can_cancel,
         },
         message,
-      };
+      });
     case OcgMessageType.SELECT_TRIBUTE:
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -330,35 +399,36 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           cancelable: message.can_cancel,
         },
         message,
-      };
+      });
     case OcgMessageType.SELECT_CHAIN: {
       const options = message.selects.map((card, index) => {
-        const effect = cards.resolveLabel(card.description);
+        const effect = activationEffect(cards, card);
         return cardOption(cards, `card:${index}`, card.code, card, {
           label: effect ? `${cardInfoLabel(cards, card.code)}: ${effect}` : cardInfoLabel(cards, card.code),
+          ...(effect ? { effectText: effect } : {}),
         });
       });
-      return {
+      const prompt: DuelPrompt = {
         id,
         seat: message.player,
-        prompt: {
-          id,
-          seat: message.player,
-          kind: "choice",
-          title: hint || (message.forced ? "Select a mandatory effect" : "Select a chain link or pass"),
-          options,
-          min: message.forced ? 1 : 0,
-          max: 1,
-          cancelable: !message.forced,
-          context: { type: "chain", forced: message.forced },
-        },
-        message,
+        kind: "choice",
+        title: hint || (message.forced ? "Select a mandatory effect" : "Select a chain link or pass"),
+        options,
+        min: message.forced ? 1 : 0,
+        max: 1,
+        cancelable: !message.forced,
+        context: { type: "chain", forced: message.forced },
       };
+      // A single candidate makes the prompt about that one card (a trigger effect asking to activate).
+      const only = message.selects.length === 1 ? message.selects[0] : undefined;
+      const source = only ? sourceOf(cards, only.code, only.controller, zoneRef(only)) : undefined;
+      if (source) prompt.source = source;
+      return { id, seat: message.player, prompt, message };
     }
     case OcgMessageType.SELECT_PLACE:
     case OcgMessageType.SELECT_DISFIELD: {
       const places = parseFieldPlaces(message.field_mask, message.player);
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -384,11 +454,12 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           max: message.count,
         },
         message,
-      };
+      });
     }
     case OcgMessageType.SELECT_POSITION: {
       const positions = ocgPositionParse(message.positions);
-      return {
+      const info = cards.get(message.code);
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -398,8 +469,9 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           title: hint || `Select a position for ${cardInfoLabel(cards, message.code)}`,
           options: positions.map((position) => ({
             id: `pos:${position}`,
-            label: ocgPositionString.get(position) ?? `Position ${position}`,
-            card: cards.get(message.code),
+            label: positionLabel(position),
+            card: info,
+            ...(info?.description ? { cardText: info.description } : {}),
             values: [position],
           })),
           min: 1,
@@ -407,10 +479,10 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           context: { type: "position" },
         },
         message,
-      };
+      });
     }
     case OcgMessageType.SELECT_COUNTER:
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -426,7 +498,7 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           target: message.count,
         },
         message,
-      };
+      });
     case OcgMessageType.SELECT_SUM: {
       const must = message.selects_must.map((card, index) =>
         cardOption(cards, `must:${index}`, card.code, card, { values: sumParamValues(card.amount), selected: true, label: `${sumParamLabel(cards, card.code, card.amount)}, required` }),
@@ -434,7 +506,7 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
       const optional = message.selects.map((card, index) =>
         cardOption(cards, `card:${index}`, card.code, card, { values: sumParamValues(card.amount), label: sumParamLabel(cards, card.code, card.amount) }),
       );
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -449,12 +521,12 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           mandatory: must.map((option) => option.id),
         },
         message,
-      };
+      });
     }
     case OcgMessageType.SELECT_UNSELECT_CARD: {
       const select = message.select_cards.map((card, index) => cardOption(cards, `select:${index}`, card.code, card, { selected: false }));
       const unselect = message.unselect_cards.map((card, index) => cardOption(cards, `unselect:${index}`, card.code, card, { selected: true }));
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -469,11 +541,11 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           finishable: message.can_finish,
         },
         message,
-      };
+      });
     }
     case OcgMessageType.SORT_CARD:
     case OcgMessageType.SORT_CHAIN:
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -486,10 +558,10 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           max: message.cards.length,
         },
         message,
-      };
+      });
     case OcgMessageType.ANNOUNCE_RACE: {
       const races = ocgRaceParse(message.available);
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -499,18 +571,18 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           title: hint || `Announce ${message.count} monster type(s)`,
           options: races.map((race) => ({
             id: `race:${race.toString()}`,
-            label: ocgRaceString.get(race) ?? race.toString(),
+            label: raceName(race),
             values: [Number(race)],
           })),
           min: message.count,
           max: message.count,
         },
         message,
-      };
+      });
     }
     case OcgMessageType.ANNOUNCE_ATTRIB: {
       const attributes = ocgAttributeParse(message.available);
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -520,17 +592,17 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           title: hint || `Announce ${message.count} attribute(s)`,
           options: attributes.map((attribute) => ({
             id: `attr:${attribute}`,
-            label: ocgAttributeString.get(attribute) ?? String(attribute),
+            label: attributeName(attribute),
             values: [attribute],
           })),
           min: message.count,
           max: message.count,
         },
         message,
-      };
+      });
     }
     case OcgMessageType.ANNOUNCE_CARD:
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -543,9 +615,9 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           max: 1,
         },
         message,
-      };
+      });
     case OcgMessageType.ANNOUNCE_NUMBER:
-      return {
+      return hinted({
         id,
         seat: message.player,
         prompt: {
@@ -562,7 +634,7 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           max: 1,
         },
         message,
-      };
+      });
     case OcgMessageType.ROCK_PAPER_SCISSORS:
       return {
         id,
