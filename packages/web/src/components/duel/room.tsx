@@ -69,7 +69,6 @@ import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
 import { usePickContinuation } from "./pick-continuation";
-import { isCardPickPrompt } from "./pick-glow";
 import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
 import { useResultGate } from "./result-reveal";
 import { PileViewer } from "./pile-viewer";
@@ -939,7 +938,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
             {engine ? (
               <>
                 <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
-                  reducedMotion={preferences.reducedMotion} picking={promptMine && isCardPickPrompt(prompt)}
+                  reducedMotion={preferences.reducedMotion}
                   legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                   onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
                   bottomName={playerName(localSeat)}

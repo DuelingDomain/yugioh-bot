@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -183,12 +183,9 @@ function NibIcon() {
   );
 }
 
-/** True while the player picks cards on the board; a hand card glows only then (see zoneMarkLook). */
-const PickingContext = createContext(false);
-
 /**
- * Legal or selected zones get a signal that is not colour alone: a glow on a card (soft and pulsing when it can
- * be used or picked, steady and stronger when picked) or a dashed outline on an empty zone, plus a tag
+ * Legal or selected zones get a signal that is not colour alone: a glow on a card, in the hand too (soft and
+ * pulsing when it can be used or picked, steady and stronger when picked) or a dashed outline on an empty zone, plus a tag
  * (a nib, or a check once picked).
  * A legal pile with a summoning circle already shows that signal, so it skips the glow and tag until selected.
  */
@@ -197,18 +194,15 @@ function ZoneMarks({
   selected,
   circle = false,
   occupied,
-  hand = false,
 }: {
   legal: boolean;
   selected: boolean;
   circle?: boolean;
   occupied: boolean;
-  hand?: boolean;
 }) {
-  const picking = useContext(PickingContext);
   if (!legal && !selected) return null;
   if (circle && !selected) return null;
-  const look = zoneMarkLook({ occupied, hand, picking });
+  const look = zoneMarkLook({ occupied });
   return (
     <>
       {look === "glow" ? (
@@ -316,7 +310,7 @@ function ZoneSlot({
               ) : null}
             </span>
           ) : null}
-          <ZoneMarks legal={legal} selected={selected} occupied={card != null} hand={kind === "hand"} />
+          <ZoneMarks legal={legal} selected={selected} occupied={card != null} />
         </div>
         {pileCount != null ? <PileLabel kind={kind} count={pileCount} /> : null}
       </button>
@@ -775,7 +769,7 @@ function PileColumn({
  * It fills its parent (width and height 100%) and is a size container: the zone size `--z` is derived
  * from the smaller of the width-bound and height-bound fit, so the whole board is visible without scrolling.
  */
-function DuelFieldBoard({
+export function DuelField({
   engine,
   mySeat,
   masterRule,
@@ -1103,14 +1097,5 @@ export function DeckMasterRail({
         onHoverCard={onHoverCard}
       />
     </div>
-  );
-}
-
-/** The board. `picking` is true while the player picks cards, so a hand card glows then (not while choosing an action). */
-export function DuelField({ picking = false, ...props }: Parameters<typeof DuelFieldBoard>[0] & { picking?: boolean }) {
-  return (
-    <PickingContext.Provider value={picking}>
-      <DuelFieldBoard {...props} />
-    </PickingContext.Provider>
   );
 }

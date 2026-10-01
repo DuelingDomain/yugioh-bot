@@ -129,10 +129,10 @@
   --hk: 5.16;
   --lk: 0.58;
   --ohk: 0.6;
-  /* Breathing room above the opponent's hand and below yours (marks and rings sit outside the cards). */
+  /* Breathing room above the opponent's hand and below yours (marks and glows sit outside the cards). */
   --hpad: 4px;
   /* Lift reserve: the board-side edge of each hand strip keeps room for a lifted (legal 5%, selected 12%)
-     or fanned card, its dashed ring (5px) and, on your side, the nib tag above the card (8.5% of --z).
+     or fanned card, its glow and, on your side, the nib tag on the top edge of the card (at most 9px).
      So a hand card can never cross into the Spell/Trap row, whatever its state. */
   --lift-k: 0.12;
   --mark-k: 0.07;
@@ -1064,7 +1064,7 @@
 
 /* ---------- legal and selected: an outline shape and a tag, never colour alone ---------- */
 
-/* A card you can pick: a 2px dashed outline with a dark underlay so it reads on any card art. */
+/* An empty zone you can pick: a 2px dashed outline (a zone, not a card; a card gets .glow below). */
 .ring {
   position: absolute;
   inset: -5px;
@@ -1078,11 +1078,6 @@
 .zone[data-selected="true"] .ring {
   inset: -5px;
   border: 2px solid var(--pen);
-}
-
-/* Rotated (defense) cards: outline the landscape shape, not the portrait guide. */
-.zone[data-defense="true"] .ring {
-  inset: calc((var(--z) - var(--cw)) / 2 - 5px) calc((var(--z) - var(--cw)) / -2 - 5px);
 }
 
 /* A card you can use or pick: a glow around it, no outline line. The box sits on the card edge and only its
@@ -1133,8 +1128,35 @@
   --gl: 0.5;
 }
 
+/* Hand cards sit close together, so their glow is slim: a thin bright edge on the card rim (the 1px frame border,
+   so the art stays clear) and a tight 7px / 13px halo with no spread. It never reaches the next card. Hovering
+   scales the frame (2x yours, 1.6x theirs), so --gl drops to keep the halo about the same size on screen. */
 .handCard .glow {
-  --gl: 0.6;
+  --gl: 1;
+  box-shadow:
+    inset 0 0 0 1px rgb(214 200 255 / 0.7),
+    0 0 calc(7px * var(--gl)) rgb(155 126 255 / 0.85),
+    0 0 calc(13px * var(--gl)) rgb(155 126 255 / 0.32);
+}
+
+.handCard .glow[data-state="picked"] {
+  box-shadow:
+    inset 0 0 0 1px rgb(244 214 144 / 0.95),
+    0 0 calc(5px * var(--gl)) calc(1px * var(--gl)) rgb(244 214 144 / 0.85),
+    0 0 calc(10px * var(--gl)) calc(2px * var(--gl)) rgb(155 126 255 / 1),
+    0 0 calc(16px * var(--gl)) calc(3px * var(--gl)) rgb(155 126 255 / 0.5);
+}
+
+@media (hover: hover) {
+  .handLocal .handCard .zone:hover .glow,
+  .handLocal .handCard .zone:focus-within .glow {
+    --gl: 0.5;
+  }
+
+  .hand:not(.handLocal) .handCard .zone:hover .glow,
+  .hand:not(.handLocal) .handCard .zone:focus-within .glow {
+    --gl: 0.65;
+  }
 }
 
 @keyframes glow-breathe {
@@ -1206,6 +1228,34 @@
   stroke-width: 1.7;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* Hand tag: small, sitting on the top edge of the card (half above it), in the glow's colours: a soft violet
+   pill with a gold hairline and a gold icon. Once picked it keeps the filled violet and the white check
+   (see .zone[data-selected] .mark) and gets a gold edge. Their hand keeps the tag inside the card's top edge. */
+.handCard .mark {
+  --mk-h: clamp(13px, calc(var(--cardw) * 0.24), 18px);
+  min-width: calc(var(--mk-h) * 1.25);
+  height: var(--mk-h);
+  padding: 0 3px;
+  border-color: rgb(244 214 144 / 0.55);
+  background: linear-gradient(rgb(74 54 148 / 0.92), rgb(38 27 88 / 0.92));
+  box-shadow: 0 0 6px rgb(155 126 255 / 0.5);
+  color: #f4d690;
+}
+
+.handLocal .handCard .mark {
+  top: calc(var(--mk-h) * -0.5);
+}
+
+.handCard .nib {
+  width: calc(var(--mk-h) * 0.62);
+  height: calc(var(--mk-h) * 0.62);
+}
+
+.handCard .zone[data-selected="true"] .mark {
+  border-color: #f4d690;
+  color: #fff;
 }
 
 .zone[data-legal="true"][data-occupied="false"] .frame {
