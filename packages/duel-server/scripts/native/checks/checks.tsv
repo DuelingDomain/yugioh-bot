@@ -41,7 +41,9 @@ field-sites	field-sites	all	ready	field.cpp, card.cpp, effect.cpp, ocgapi.cpp si
 summon-sites	summon-sites	all	stale	stale: 2 failures at core 5edcc84; the old-rule oath with PLAYER_ALL counts seat 0 only (counters 1 0 0), the check wants the first living opponent too: an owner rule decision is needed first
 opponent-pick	opponent-pick	-	ready	F5: one opponent bound at activation (0xFFFE pick); needs a core with 29fff80 or later
 place-seat-hint	place-seat-hint	-	ready	F8 x F5: seat hint of a place prompt (HINT 0xF0); the hint names the opponent that the F5 pick bound (option 0 = lowest living opponent on an own-team turn, the turn player on an opponent turn); needs core 5edcc84 or later
-domain-multi	domain-multi	ffa3	domain	Domain layer for 3 and 4 duelists; needs a core tree with domain_master.cpp (not in the merged tree, so it does not compile there)
+domain-multi	domain-multi	ffa3	domain	D1 (run.sh --domain): Domain at ffa3: every seat has a Deck Master, tax from own LP, each seat recalls (turn order) and summons its Deck Master and pays 500, a dead seat is skipped, its Deck Master leaves play
+domain-multi	domain-multi	ffa4	domain	D1 (run.sh --domain): the same at ffa4
+domain-multi	domain-multi	tag	domain	D1 (run.sh --domain): Tag has a Deck Master for each of the 4 players; tax and nested costs are checked against, and paid from, the team LP
 turn-handoff	turn-handoff	check	ready	F9: the turn player is eliminated at battle start, in the attack window, in the damage step: next living seat gets the turn, no prompt to a dead seat
 zone-seat-sset	zone-seat-sset	-	ready	F9: Duel.SSet toward the bound opponent at n>2; a bound opponent eliminated while the chain waits leaves no card on its field
 reset-self-turn	reset-self-turn	-	ready	F9: RESET_SELF_TURN alone counts the own turns, not the partner turns (Tag); OPPO alone counts the other team; both count every turn; SkipPhase toward the second opposing seat

@@ -2,7 +2,7 @@
 // Build and run: bash packages/duel-server/scripts/native/checks/run.sh <check name> (see README.md).
 // Usage: check <format> [part]
 //   format: ffa3 | ffa4 | tag | two   ("two" = a 2-duelist duel without SetupDuelists, the n == 2 sanity run)
-//   part:   setup | tax | flow | elim | all (default)
+//   part:   setup | tax | flow | recall | elim | all (default)
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -233,17 +233,29 @@ static StepResult run_to_idle_of(OCG_Duel d, int seat, Trace& t, std::vector<int
 	return none;
 }
 
-// A global effect that sends the Deck Masters of `seats` to the Graveyard at the start of Main Phase 1 of turn player `tp`.
-// (Duel.SendtoGrave is not allowed from LoadScript while a prompt is open, but it is inside an effect operation.)
-static void register_gy_effect(OCG_Duel d, int tp, const std::vector<int>& seats, const std::string& after = "") {
-	std::string ops;
-	for(int s : seats) ops += "Duel.SendtoGrave(Duel.GetFieldCard(" + std::to_string(s) + ",0x4000,0),0x440) ";
-	const std::string code = "local e=Effect.GlobalEffect() e:SetType(0x802) "
-		"e:SetCode(" + std::string("0x2004") + ") e:SetCondition(function() return Duel.GetTurnPlayer()==" + std::to_string(tp) + " end) "
-		"e:SetOperation(function(e) " + ops + after + " e:Reset() end) Duel.RegisterEffect(e,0)";
-	if(!run_lua(d, code)) {
-		std::printf("FAIL: gy effect: %s\n", last_log.c_str());
-		std::exit(2);
+// At the start of Main Phase 1 of turn number `turn` (Duel.GetTurnCount; seat k plays turn k + 1 in the first round),
+// each seat of `seats` sends its own Deck Master to the Graveyard. Inside an effect, Lua sees the own side of the effect
+// duelist as `tp` (0 in FFA, the team number in Tag) and the others as 1 (the Lua perspective fold). So there is one global
+// effect for each seat, registered for that seat, and it reads its own seat as the `tp` argument of the operation. The optional
+// `after` text runs once, in an effect of seat 0, after the Deck Masters went (for example Debug.EliminateDuelist).
+static void register_gy_effects(OCG_Duel d, int turn, const std::vector<int>& seats, const std::string& after = "") {
+	const std::string when = "e:SetCondition(function() return Duel.GetTurnCount()==" + std::to_string(turn) + " end) ";
+	for(int s : seats) {
+		const std::string code = "local e=Effect.GlobalEffect() e:SetType(0x802) e:SetCode(0x2004) " + when +
+			"e:SetOperation(function(e,tp) Duel.SendtoGrave(Duel.GetFieldCard(tp,0x4000,0),0x440) e:Reset() end) "
+			"Duel.RegisterEffect(e," + std::to_string(s) + ")";
+		if(!run_lua(d, code)) {
+			std::printf("FAIL: gy effect: %s\n", last_log.c_str());
+			std::exit(2);
+		}
+	}
+	if(!after.empty()) {
+		const std::string code = "local e=Effect.GlobalEffect() e:SetType(0x802) e:SetCode(0x2004) " + when +
+			"e:SetOperation(function(e) " + after + " e:Reset() end) Duel.RegisterEffect(e,0)";
+		if(!run_lua(d, code)) {
+			std::printf("FAIL: after effect: %s\n", last_log.c_str());
+			std::exit(2);
+		}
 	}
 }
 
@@ -315,86 +327,154 @@ static void part_tax(const Format& fmt) {
 	OCG_DestroyDuel(d);
 }
 
-// Seat `tp` is the turn player. The Deck Masters of the other seats in `others` go to the Graveyard.
+// Message text for a list of seats.
+static std::string seats_text(const std::vector<int>& v) {
+	std::string s;
+	for(int p : v) s += std::to_string(p) + " ";
+	return s;
+}
+
+// Summons the Deck Master of `s` from its idle prompt (the duel must be at the idle prompt of `s`) and checks the payment:
+// 500 LP (one completed return), from the own LP in FFA and from the team LP in Tag. Leaves the next idle prompt open.
+static void summon_and_check_payment(OCG_Duel d, const Format& fmt, int s, const StepResult& idle) {
+	auto& f = F(d);
+	Trace t2;
+	const Msg* im = idle_msg(idle);
+	const int index = im ? summon_index(*im, dm_code(s)) : -1;
+	EXPECT(index >= 0, "%s: seat %d Deck Master not summonable", fmt.name.c_str(), s);
+	if(index < 0) return;
+	const int32_t own_before = f.player[s].lp, team_before = f.lp_ref(static_cast<uint8_t>(s));
+	const int team = f.team_of(static_cast<uint8_t>(s));
+	// Other seats keep their LP, except the paying one (the team LP in Tag).
+	std::vector<int32_t> before;
+	for(int p = 0; p < fmt.n; ++p) before.push_back(f.player[p].lp);
+	respond(d, (static_cast<uint32_t>(index) << 16) | 0u);
+	bool at_idle = false;
+	for(int i = 0; i < 60; ++i) {
+		StepResult r2 = process(d);
+		scan(r2, t2);
+		if(r2.status != OCG_DUEL_STATUS_AWAITING) continue;
+		if(idle_msg(r2)) { at_idle = true; break; }
+		if(!auto_answer(d, r2)) break;
+	}
+	EXPECT(at_idle, "%s: seat %d no idle prompt after the Deck Master summon", fmt.name.c_str(), s);
+	EXPECT(t2.paid.size() == 1 && t2.paid[0].first == s && t2.paid[0].second == 500, "%s: seat %d payment message (%zu)", fmt.name.c_str(), s, t2.paid.size());
+	EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(s), LOCATION_MZONE) == 1, "%s: seat %d Deck Master not on the field", fmt.name.c_str(), s);
+	EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(s), DM_LOC) == 0, "%s: seat %d Deck Master still in its zone", fmt.name.c_str(), s);
+	if(!fmt.tag) {
+		EXPECT(f.player[s].lp == own_before - 500, "%s: seat %d LP %d -> %d", fmt.name.c_str(), s, own_before, f.player[s].lp);
+	} else {
+		EXPECT(f.player[team].lp == team_before - 500, "tag: team %d LP %d -> %d", team, team_before, f.player[team].lp);
+		if(team != s)
+			EXPECT(f.player[s].lp == own_before, "tag: own LP of seat %d changed (%d -> %d)", s, own_before, f.player[s].lp);
+	}
+	for(int p = 0; p < fmt.n; ++p) {
+		const int paying = fmt.tag ? team : s;
+		if(p != paying)
+			EXPECT(f.player[p].lp == before[p], "%s: LP of seat %d changed (%d -> %d) while seat %d paid", fmt.name.c_str(), p, before[p], f.player[p].lp, s);
+	}
+	if(at_idle) respond(d, 7); // leave the idle prompt so that the next seat can be reached
+	std::printf("ok   %s flow: seat %d recalled, summoned, paid 500 (%s LP %d -> %d)\n", fmt.name.c_str(), s, fmt.tag ? "team" : "own",
+	            team_before, f.lp_ref(static_cast<uint8_t>(s)));
+}
+
+// Every seat's Deck Master goes to the Graveyard at the start of the Main Phase 1 of seat 2 (turn 3). Each owner gets one
+// recall prompt, in turn order from the turn player. Then every seat summons its Deck Master from the Deck Master zone
+// on its own turn and pays the tax (500 LP after one return) from its own LP (FFA) or from the team LP (Tag).
 static void part_flow(const Format& fmt) {
 	if(fmt.n == 2) {
 		std::printf("skip %s flow (n == 2 only runs setup and tax)\n", fmt.name.c_str());
 		return;
 	}
 	OCG_Duel d = make_domain_duel(fmt);
-	// Seat 2 is the turn player; the Deck Masters of the seats 1 and 3 (or 1 only in ffa3) go to the Graveyard in its Main Phase 1.
-	std::vector<int> victims{1};
-	if(fmt.n == 4) victims.push_back(3);
-	register_gy_effect(d, 2, victims);
+	std::vector<int> victims;
+	for(int s = 0; s < fmt.n; ++s) victims.push_back(s);
+	register_gy_effects(d, 3, victims);
 	OCG_StartDuel(d);
 	auto& f = F(d);
 	Trace t;
 	std::vector<int> prompted;
 	StepResult r = run_to_idle_of(d, 2, t, &prompted);
 	if(r.status < 0) { EXPECT(false, "%s: seat 2 idle prompt not reached", fmt.name.c_str()); OCG_DestroyDuel(d); return; }
-	respond(d, 7); // end the turn of seat 2 (the recall prompts came before its idle prompt)
-	// Order: from the turn player (2): 3, then 0 (no), then 1. So 3 before 1.
+	// Seat 2 is at its idle prompt: its own Deck Master came back before this prompt. Seat 2 summons first.
 	std::vector<int> want;
-	if(fmt.n == 4) want.push_back(3);
-	want.push_back(1);
-	EXPECT(prompted == want, "%s: recall prompts went to seats (want 3 then 1) %s", fmt.name.c_str(), [&] { std::string s; for(int p : prompted) s += std::to_string(p) + " "; return s; }().c_str());
-	for(int s : prompted) {
+	for(int k = 0; k < fmt.n; ++k) want.push_back((2 + k) % fmt.n);
+	EXPECT(prompted == want, "%s: recall prompts went to seats (want %s) got %s", fmt.name.c_str(), seats_text(want).c_str(), seats_text(prompted).c_str());
+	for(int s = 0; s < fmt.n; ++s) {
 		EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(s), DM_LOC) == 1, "%s: Deck Master of seat %d is not back", fmt.name.c_str(), s);
 		EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(s), DM_RETURNS) == 1, "%s: returns of seat %d", fmt.name.c_str(), s);
+		EXPECT(f.player[s].deck_master_returns == 1, "%s: deck_master_returns of seat %d = %u", fmt.name.c_str(), s, f.player[s].deck_master_returns);
+		EXPECT(f.domain_leave_tax_for(static_cast<uint8_t>(s)) == 500, "%s: tax of seat %d = %u", fmt.name.c_str(), s, f.domain_leave_tax_for(static_cast<uint8_t>(s)));
 	}
-	for(int s = 0; s < fmt.n; ++s) {
-		if(std::find(prompted.begin(), prompted.end(), s) == prompted.end())
-			EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(s), DM_RETURNS) == 0, "%s: returns of seat %d (not recalled)", fmt.name.c_str(), s);
-	}
-	// Summon each recalled Deck Master on its owner's turn and look at the payment.
-	for(int s : prompted) {
+	// Seat 2 summons now, then each other seat on its own turn (in turn order after seat 2).
+	summon_and_check_payment(d, fmt, 2, r);
+	for(int k = 1; k < fmt.n; ++k) {
+		const int s = (2 + k) % fmt.n;
 		Trace t2;
 		StepResult idle = run_to_idle_of(d, s, t2);
 		if(idle.status < 0) { EXPECT(false, "%s: seat %d idle prompt not reached", fmt.name.c_str(), s); continue; }
-		const Msg* im = idle_msg(idle);
-		const int index = im ? summon_index(*im, dm_code(s)) : -1;
-		EXPECT(index >= 0, "%s: seat %d Deck Master not summonable", fmt.name.c_str(), s);
-		if(index < 0) continue;
-		const int32_t own_before = f.player[s].lp, team_before = f.lp_ref(static_cast<uint8_t>(s));
-		const int team = f.team_of(static_cast<uint8_t>(s));
-		respond(d, (static_cast<uint32_t>(index) << 16) | 0u);
-		bool at_idle = false;
-		for(int i = 0; i < 60; ++i) {
-			StepResult r2 = process(d);
-			scan(r2, t2);
-			if(r2.status != OCG_DUEL_STATUS_AWAITING) continue;
-			if(idle_msg(r2)) { at_idle = true; break; }
-			if(!auto_answer(d, r2)) break;
-		}
-		EXPECT(t2.paid.size() == 1 && t2.paid[0].first == s && t2.paid[0].second == 500, "%s: seat %d payment message (%zu)", fmt.name.c_str(), s, t2.paid.size());
-		EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(s), LOCATION_MZONE) == 1, "%s: seat %d Deck Master not on the field", fmt.name.c_str(), s);
-		if(!fmt.tag) {
-			EXPECT(f.player[s].lp == own_before - 500, "%s: seat %d LP %d -> %d", fmt.name.c_str(), s, own_before, f.player[s].lp);
-		} else {
-			EXPECT(f.player[team].lp == team_before - 500, "tag: team %d LP %d -> %d", team, team_before, f.player[team].lp);
-			if(team != s)
-				EXPECT(f.player[s].lp == own_before, "tag: own LP of seat %d changed (%d -> %d)", s, own_before, f.player[s].lp);
-		}
-		// Every other team or seat is unchanged? Only the paying LP moved.
-		if(at_idle) respond(d, 7); // leave the idle prompt so that the next seat can be reached
-		std::printf("ok   %s flow: seat %d recalled, summoned, paid 500 (%s LP %d -> %d)\n", fmt.name.c_str(), s, fmt.tag ? "team" : "own",
-		            team_before, f.lp_ref(static_cast<uint8_t>(s)));
+		summon_and_check_payment(d, fmt, s, idle);
 	}
 	OCG_DestroyDuel(d);
 }
 
-static void part_elim(const Format& fmt) {
-	if(fmt.n == 2) {
-		std::printf("skip %s elim (n == 2)\n", fmt.name.c_str());
+// Seat 2 is the turn player of turn 3. In Tag, seats 0 and 2 are one team (the shared LP of 16000 is in player[team]).
+// Every seat sends its Deck Master to the Graveyard at the same time as the next living seat is eliminated; the prompts of the
+// living seats go in turn order from the turn player and no prompt goes to the dead seat.
+static void part_recall_order(const Format& fmt) {
+	if(fmt.n == 2 || fmt.tag) {
+		std::printf("skip %s recall-order (%s)\n", fmt.name.c_str(), fmt.n == 2 ? "n == 2" : "in Tag the loss of one seat ends the game for its team, so no later prompt exists");
 		return;
 	}
-	if(fmt.tag) {
-		std::printf("skip %s elim (Tag eliminates teams; host-driven per seat is FFA)\n", fmt.name.c_str());
-		return;
-	}
+	const int before_failures = failures;
 	OCG_Duel d = make_domain_duel(fmt);
-	// The same effect sends the Deck Master of seat 2 to the Graveyard (recall pending) and eliminates seat 2, in Main Phase 1 of seat 0.
-	register_gy_effect(d, 0, {2}, "Debug.EliminateDuelist(2,0)");
+	const int tp = fmt.n - 2;                 // ffa3: seat 1 (turn 2), ffa4: seat 2 (turn 3)
+	const int dead = (tp + 1) % fmt.n;        // the seat right after the turn player in the prompt order
+	std::vector<int> victims;
+	for(int s = 0; s < fmt.n; ++s) victims.push_back(s);
+	register_gy_effects(d, tp + 1, victims, "Debug.EliminateDuelist(" + std::to_string(dead) + ",0)");
+	OCG_StartDuel(d);
+	auto& f = F(d);
+	Trace t;
+	std::vector<int> prompted;
+	StepResult r = run_to_idle_of(d, tp, t, &prompted);
+	if(r.status < 0) { EXPECT(false, "%s: seat %d idle prompt not reached", fmt.name.c_str(), tp); OCG_DestroyDuel(d); return; }
+	std::vector<int> want;
+	for(int k = 0; k < fmt.n; ++k) {
+		const int p = (tp + k) % fmt.n;
+		if(p != dead) want.push_back(p);
+	}
+	EXPECT(prompted == want, "%s: recall prompts went to seats (want %s, seat %d is dead) got %s", fmt.name.c_str(), seats_text(want).c_str(), dead, seats_text(prompted).c_str());
+	EXPECT(f.player[dead].eliminated, "%s: seat %d not eliminated", fmt.name.c_str(), dead);
+	EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(dead), DM_LOC) == 0, "%s: dead seat %d Deck Master zone count %u", fmt.name.c_str(), dead,
+	       OCG_DuelQueryCount(d, static_cast<uint8_t>(dead), DM_LOC));
+	EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(dead), LOCATION_GRAVE) == 0, "%s: dead seat %d Graveyard count %u", fmt.name.c_str(), dead,
+	       OCG_DuelQueryCount(d, static_cast<uint8_t>(dead), LOCATION_GRAVE));
+	EXPECT(f.player[dead].list_deckmaster.empty() || !f.player[dead].list_deckmaster[0], "%s: dead seat %d still holds its Deck Master", fmt.name.c_str(), dead);
+	for(const auto& y : t.yesno)
+		EXPECT(y.first != dead, "%s: the dead seat %d got a recall prompt", fmt.name.c_str(), dead);
+	for(int s : want) {
+		EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(s), DM_LOC) == 1, "%s: living seat %d Deck Master is not back", fmt.name.c_str(), s);
+	}
+	if(failures == before_failures)
+		std::printf("ok   %s recall-order: prompts to seats %sin turn order, dead seat %d skipped\n", fmt.name.c_str(), seats_text(prompted).c_str(), dead);
+	OCG_DestroyDuel(d);
+}
+
+// A seat is eliminated while its Deck Master sits in the Deck Master zone, and another while its Deck Master waits in the
+// Graveyard (a recall is pending). Both Deck Masters leave the game; no recall prompt goes to either seat.
+static void part_elim(const Format& fmt) {
+	if(fmt.n == 2 || fmt.tag) {
+		std::printf("skip %s elim (%s)\n", fmt.name.c_str(), fmt.n == 2 ? "n == 2" : "in Tag the loss of one seat ends the game for its team: the duel is over, field::eliminate does not run");
+		return;
+	}
+	const int before_failures = failures;
+	OCG_Duel d = make_domain_duel(fmt);
+	// In Main Phase 1 of seat 0 (turn 1): the Deck Master of seat 2 goes to the Graveyard (a recall is pending), then seat 2
+	// is eliminated; seat 1 is eliminated with its Deck Master still in the Deck Master zone (the host removes a seat).
+	// (ffa3 keeps seat 1: with two seats gone the duel would end.)
+	const std::vector<int> gone = fmt.n == 4 ? std::vector<int>{1, 2} : std::vector<int>{2};
+	register_gy_effects(d, 1, {2}, std::string("Debug.EliminateDuelist(2,0)") + (fmt.n == 4 ? " Debug.EliminateDuelist(1,0)" : ""));
 	OCG_StartDuel(d);
 	auto& f = F(d);
 	Trace t;
@@ -410,14 +490,23 @@ static void part_elim(const Format& fmt) {
 		if(idle_msg(r)) { ++idle_count; respond(d, 7); continue; }
 		if(!auto_answer(d, r)) { EXPECT(false, "%s: unknown prompt after elimination (id %u)", fmt.name.c_str(), r.msgs.empty() ? 0u : r.msgs.back().id); break; }
 	}
-	EXPECT(f.player[2].eliminated, "%s: seat 2 not eliminated", fmt.name.c_str());
 	EXPECT(saw200, "%s: no MSG_DUELIST_ELIMINATED seen", fmt.name.c_str());
-	EXPECT(OCG_DuelQueryCount(d, 2, DM_LOC) == 0, "%s: seat 2 Deck Master still in the zone (%u)", fmt.name.c_str(), OCG_DuelQueryCount(d, 2, DM_LOC));
-	EXPECT(OCG_DuelQueryCount(d, 2, LOCATION_GRAVE) == 0, "%s: seat 2 Graveyard not empty", fmt.name.c_str());
-	bool prompt2 = false;
-	for(const auto& y : t.yesno) if(y.first == 2) prompt2 = true;
-	EXPECT(!prompt2, "%s: the eliminated seat 2 got a recall prompt", fmt.name.c_str());
-	std::printf("ok   %s elim: seat 2 Deck Master gone, no recall prompt for seat 2 (%d idle prompts after)\n", fmt.name.c_str(), idle_count);
+	for(int dead : gone) {
+		EXPECT(f.player[dead].eliminated, "%s: seat %d not eliminated", fmt.name.c_str(), dead);
+		EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(dead), DM_LOC) == 0, "%s: seat %d Deck Master still in the zone (%u)", fmt.name.c_str(), dead,
+		       OCG_DuelQueryCount(d, static_cast<uint8_t>(dead), DM_LOC));
+		EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(dead), LOCATION_GRAVE) == 0, "%s: seat %d Graveyard not empty", fmt.name.c_str(), dead);
+		EXPECT(f.player[dead].list_deckmaster.empty() || !f.player[dead].list_deckmaster[0], "%s: seat %d still holds its Deck Master", fmt.name.c_str(), dead);
+		for(const auto& y : t.yesno)
+			EXPECT(y.first != dead, "%s: the eliminated seat %d got a recall prompt", fmt.name.c_str(), dead);
+	}
+	for(int s = 0; s < fmt.n; ++s) {
+		if(f.player[s].eliminated) continue;
+		EXPECT(OCG_DuelQueryCount(d, static_cast<uint8_t>(s), DM_LOC) == 1, "%s: living seat %d lost its Deck Master (%u)", fmt.name.c_str(), s,
+		       OCG_DuelQueryCount(d, static_cast<uint8_t>(s), DM_LOC));
+	}
+	if(failures == before_failures)
+		std::printf("ok   %s elim: Deck Masters of the eliminated seats are gone (zone and Graveyard), no recall prompt for them (%d idle prompts after)\n", fmt.name.c_str(), idle_count);
 	OCG_DestroyDuel(d);
 }
 
@@ -429,6 +518,7 @@ int main(int argc, char** argv) {
 	if(all || part == "setup") part_setup(fmt);
 	if(all || part == "tax") part_tax(fmt);
 	if(all || part == "flow") part_flow(fmt);
+	if(all || part == "recall") part_recall_order(fmt);
 	if(all || part == "elim") part_elim(fmt);
 	std::printf("%s %s: %d failure(s)\n", failures ? "FAIL" : "PASS", fname.c_str(), failures);
 	return failures ? 1 : 0;

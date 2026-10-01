@@ -5,6 +5,7 @@
 #   MULTI_TREE=/path/to/core-tree bash packages/duel-server/scripts/native/checks/run.sh            # the same on another core tree
 #   MULTI_TREE=... bash .../run.sh elimination zones                                                 # only these checks
 #   MULTI_TREE=... bash .../run.sh --pending                                                         # also run pending checks
+#   MULTI_TREE=... bash .../run.sh --domain                                                          # the Domain checks, on a core tree with the Domain layer
 #   bash .../run.sh --list                                                                           # print the manifest
 #   bash .../run.sh --clean                                                                          # delete the build folder
 #
@@ -12,6 +13,9 @@
 # (the same flags as scripts/build-native-core.sh, plus -DYGO_N_TRAP -D_GLIBCXX_ASSERTIONS), (2) compiles every check
 # listed in checks.tsv against it, (3) runs each check from the repo root and prints PASS or FAIL per check.
 # Exit code 0 only when every selected ready check passes. A MULTI_TREE that you give is only read, never written.
+# --domain: the core tree is first copied to $OUT/domain-tree and gets the Domain layer for 3 and 4 duelists (apply-domain-multi.mjs pre,
+# apply-domain-patch.mjs, apply-domain-multi.mjs post, the same steps as scripts/build-multi-core.sh with APPLY_DOMAIN=1 DOMAIN_MULTI=1).
+# The checks compile against that copy. Without names, only the rows with status `domain` run (they count as ready in this mode).
 #
 # Environment:
 #   MULTI_TREE        core source tree with the patch series applied (field.h, fold.h, ...). Default: the repo series on the
@@ -41,14 +45,16 @@ CHECK_TIMEOUT="${CHECK_TIMEOUT:-300}"
 DUEL_DATA_DIR="${DUEL_DATA_DIR:-$REPO/data/duel-engine-next}"
 
 with_pending=0
+with_domain=0
 list_only=0
 names=()
 for arg in "$@"; do
   case "$arg" in
     --pending) with_pending=1 ;;
+    --domain) with_domain=1 ;;
     --list) list_only=1 ;;
     --clean) rm -rf "${OUT:?}"; echo "deleted $OUT"; exit 0 ;;
-    -h | --help) sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "unknown option: $arg" >&2; exit 2 ;;
     *) names+=("$arg") ;;
   esac
@@ -73,9 +79,13 @@ sel=()
 for i in "${!rows_name[@]}"; do
   if ((${#names[@]} > 0)); then
     for n in "${names[@]}"; do [[ "$n" == "${rows_name[$i]}" ]] && sel+=("$i"); done
+  elif ((with_domain)); then
+    # Domain mode: only the Domain rows, and they count as ready (the tree has the Domain layer).
+    [[ "${rows_status[$i]}" == domain ]] && sel+=("$i")
   else
     sel+=("$i")
   fi
+  if ((with_domain)) && [[ "${rows_status[$i]}" == domain ]]; then rows_status[$i]=ready; fi
 done
 for n in ${names[@]+"${names[@]}"}; do
   found=0; for r in "${rows_name[@]}"; do [[ "$r" == "$n" ]] && found=1; done
@@ -96,6 +106,21 @@ MULTI_TREE="$(cd "$MULTI_TREE" && pwd)"
 [[ -f "$MULTI_TREE/field.h" && -f "$MULTI_TREE/ocgapi.h" ]] || { echo "MULTI_TREE has no field.h / ocgapi.h: $MULTI_TREE" >&2; exit 2; }
 [[ -f "$DUEL_DATA_DIR/cards.cdb" && -d "$DUEL_DATA_DIR/card-scripts" ]] || { echo "DUEL_DATA_DIR has no cards.cdb / card-scripts: $DUEL_DATA_DIR" >&2; exit 2; }
 tree_id="$(git -C "$MULTI_TREE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+if ((with_domain)); then
+  # Copy of the core tree with the Domain layer. It is made again on every run (a copy and four node runs, a few seconds).
+  mkdir -p "$OUT/logs"
+  DOMAIN_TREE="$OUT/domain-tree"
+  rm -rf "${DOMAIN_TREE:?}"; mkdir -p "$DOMAIN_TREE"
+  tar -C "$MULTI_TREE" --exclude=.git -c . | tar -x -C "$DOMAIN_TREE"
+  {
+    node "$PKG/domain-core/src/apply-domain-multi.mjs" pre "$DOMAIN_TREE" &&
+      node "$PKG/domain-core/src/apply-domain-patch.mjs" "$DOMAIN_TREE" &&
+      node "$PKG/domain-core/src/apply-domain-multi.mjs" post "$DOMAIN_TREE"
+  } > "$OUT/logs/domain-tree.log" 2>&1 || { tail -n 20 "$OUT/logs/domain-tree.log"; echo "Domain layer did not apply to $MULTI_TREE (see $OUT/logs/domain-tree.log)" >&2; exit 2; }
+  # The id goes into the library stamp, so a changed Domain layer makes CHECKS_SKIP_LIB build the library again.
+  tree_id="$tree_id+domain-$(cat "$PKG"/domain-core/src/apply-domain-multi.mjs "$PKG"/domain-core/src/apply-domain-patch.mjs "$PKG"/domain-core/src/domain_master.* | sha256sum | cut -c1-8)"
+  MULTI_TREE="$DOMAIN_TREE"
+fi
 echo "core tree: $MULTI_TREE (HEAD $tree_id)"
 echo "build dir: $OUT"
 mkdir -p "$OUT/obj" "$OUT/lua-obj" "$OUT/bin" "$OUT/logs" "$OUT/tmp" "$OUT/data"

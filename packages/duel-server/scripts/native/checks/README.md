@@ -14,6 +14,7 @@ npm run test:native
 MULTI_TREE=/path/to/core-tree npm run test:native --workspace=packages/duel-server
 MULTI_TREE=... bash packages/duel-server/scripts/native/checks/run.sh elimination zones   # only these checks
 MULTI_TREE=... bash packages/duel-server/scripts/native/checks/run.sh --pending           # also pending, stale, domain
+MULTI_TREE=... bash packages/duel-server/scripts/native/checks/run.sh --domain            # the Domain rows, on a copy with the Domain layer
 bash packages/duel-server/scripts/native/checks/run.sh --list                             # print the manifest
 bash packages/duel-server/scripts/native/checks/run.sh --clean                            # delete the build folder
 ```
@@ -43,8 +44,10 @@ check passes. Logs are in `$NATIVE_CHECKS_OUT/logs`.
 - `ready`: must pass on the merged core (core `5edcc84`, which has F5 and F8).
 - `pending`: needs core work that is not merged, or a check that does not match the merged core yet. Skipped unless you pass `--pending`.
   No check has this status now.
-- `domain`: needs a core tree with the Domain layer (`domain_master.cpp`). The runner adds that file to the build when it
-  is in the tree. `domain-multi` does not compile on the merged tree, which has no Domain layer.
+- `domain`: needs a core tree with the Domain layer (`domain_master.cpp`). The merged tree has no Domain layer, so
+  `domain-multi` does not compile there. Use `--domain`: the runner copies the tree, runs the build-time Domain layer
+  (`apply-domain-multi.mjs pre`, the Domain patch, `post`) on the copy, and runs the `domain` rows only (they count as
+  ready). The tree itself stays unchanged.
 - `stale`: the expectations no longer match the merged core. They are skipped unless you pass `--pending`.
   - `summon-counters-reflect`, `lua-sites`, `summon-sites`: written before the Lua perspective fold (core commits caf013c
     and 0375e33) and before F5. The Lua in these checks uses absolute seats inside effect scripts. Inside an effect, Lua now
