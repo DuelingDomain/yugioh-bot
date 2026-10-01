@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 import type { DuelAnswer, DuelFormat, DuelPrompt } from "@yugidraft/shared/duels";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import {
-  COMPARE_EXTRA, COMPARE_FALSE_POSITIVES, MIRROR_GATE, OVERLAY_DIRECTORY, readManifest, readTriage, type CardClass, type Manifest,
+  COMPARE_EXTRA, COMPARE_FALSE_POSITIVES, EXPECTED_COUNTS, MIRROR_GATE, OVERLAY_DIRECTORY, R1_NO_CHANGE, R2_NO_CHANGE, r1Codes, readManifest, readTriage,
+  type CardClass, type Manifest, type Triage,
 } from "../scripts/generate-multi-scripts.js";
 import { scanCorpus, type CardScan } from "../scripts/scan-multiplayer-scripts.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
@@ -33,7 +34,8 @@ const TRAP_WASM = process.env.TABLE_TRAP_WASM
   : fileURLToPath(new URL(`../domain-core/dist/ocgcore.multi-${CURRENT_MULTI_TAG}-trap.sync.wasm`, import.meta.url));
 const trapWasm = needs.localFile("debug multi core (-DYGO_N_TRAP)", TRAP_WASM, "Build it with EXTRA_CXXFLAGS=-DYGO_N_TRAP (see the head of tests/multi-scripts-table.test.ts) or set TABLE_TRAP_WASM.");
 
-const manifest = readManifest();
+const overlayDirectory = process.env.TABLE_OVERLAY ? resolve(process.env.TABLE_OVERLAY) : OVERLAY_DIRECTORY;
+const manifest = readManifest(overlayDirectory);
 const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(currentEngineDataDirectory(), "card-scripts/official");
 const stock = needs.file("official script corpus", stockDirectory, "Set DUEL_SCRIPTS_DIR, or set DUEL_DATA_DIR to an engine data directory with card-scripts/official.");
 const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.lua`), "utf8");
@@ -42,7 +44,7 @@ const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.
 // The table. A group is a list of codes. R1 (each duelist) and R2 groups are added here by the parts that write their overlay.
 // ---------------------------------------------------------------------------------------------------------------------------------
 
-export type TableGroup = "compare" | "chooser" | "r1" | "r2";
+export type TableGroup = "compare" | "chooser" | "r1" | "r2" | "fix";
 
 export interface TableCard {
   code: number;
@@ -50,32 +52,99 @@ export interface TableCard {
   name: string;
 }
 
-/** Cards of a manifest by class. A card of both classes (Evenly Matched, Pineapple Blast) is listed once, in the compare group. */
+/**
+ * Cards of a manifest by class, in the order compare, chooser, R1, R2, fix. A card of several classes (Evenly Matched, Pineapple
+ * Blast) is listed once, in the first group. A "fix" entry has no class (a fix of one script that the scan does not flag) and is
+ * listed in its own group. Mirror Gate is never listed (Q7).
+ */
 export function tableCardsOf(source: Manifest): TableCard[] {
   const rows: TableCard[] = [];
+  const groups: [string, TableGroup][] = [["COMPARE", "compare"], ["CHOOSER", "chooser"], ["R1", "r1"], ["R2", "r2"]];
   for (const card of source.cards) {
-    if (card.kind === "fix") continue;
-    if (card.classes.includes("COMPARE")) rows.push({ code: card.code, group: "compare", name: card.name });
-    else if (card.classes.includes("CHOOSER")) rows.push({ code: card.code, group: "chooser", name: card.name });
+    if (card.code === MIRROR_GATE) continue;
+    const group = groups.find(([name]) => (card.classes as string[]).includes(name))?.[1] ?? (card.kind === "fix" ? "fix" : null);
+    if (group) rows.push({ code: card.code, group, name: card.name || `c${card.code}` });
   }
-  return rows;
+  const order: TableGroup[] = ["compare", "chooser", "r1", "r2", "fix"];
+  return rows.sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group));
 }
 
-/** Later parts append here: { code, group: "r1" | "r2", name }. Each needs a MANIFEST entry only when it has an overlay file. */
-const APPENDED_CARDS: TableCard[] = [];
+/** The name of a card from line 2 of its stock script (the English name), for the cards that have no MANIFEST entry. */
+function scriptName(code: number): string {
+  try {
+    return stockText(code).split("\n")[1]?.replace(/^--\s*/, "").trim() || `c${code}`;
+  } catch {
+    return `c${code}`;
+  }
+}
 
-const TABLE: TableCard[] = [...tableCardsOf(manifest), ...APPENDED_CARDS];
+/**
+ * Cards of a group whose stock script needs no suffix (R1_NO_CHANGE) and so have no MANIFEST entry. The table still plays them: the
+ * stock script must load and run at three seats and in Tag with no Lua error and no trap U or c.
+ */
+export function noChangeCards(group: "r1" | "r2", codes: readonly number[], listed: ReadonlySet<number>): TableCard[] {
+  return codes.filter((code) => !listed.has(code)).map((code) => ({ code, group, name: scriptName(code) }));
+}
+
+const MANIFEST_ROWS = tableCardsOf(manifest);
+const LISTED = new Set(MANIFEST_ROWS.map((row) => row.code));
+const TABLE: TableCard[] = [...MANIFEST_ROWS, ...noChangeCards("r1", R1_NO_CHANGE, LISTED), ...noChangeCards("r2", R2_NO_CHANGE, LISTED)];
 
 /**
  * Trap lines that a card causes on purpose, by code: the line kind. Empty today. Each entry needs a reason.
  */
 const EXPECTED_TRAPS: Record<number, { kind: string; reason: string }[]> = {};
 
-/** Cards whose condition cannot run in this generic game, by code, with the reason. Empty entries are not allowed. */
+/**
+ * Cards whose condition cannot run in this generic game, by code, with the reason. Empty entries are not allowed. The entry holds in
+ * both formats unless NO_CONDITION_RUN_ONLY names the formats (the card runs its condition in the other one).
+ */
 const NO_CONDITION_RUN: Record<number, string> = {
   1804528: "Dark Coffin: the trigger needs this card to be face-down on the field and destroyed; no generic seat destroys a set Trap",
   12247206: "Inferno Reckless Summon: the condition needs p0 to Special Summon exactly one weak monster while an opponent has a monster; the generic driver does not play it",
   36898537: "Metaphys Horus: the triggers need a Synchro Summon of this card; the generic game has no Synchro materials",
+  // R1 and fix cards. Each is an event or Flip card; the live scenarios of the cards (tests/scenarios/multiplayer) play the event.
+  12694768: "Abaki: the trigger is the destruction of this card by battle (EVENT_BATTLE_DESTROYED); the generic game does not destroy it in battle",
+  58071123: "Oxygeddon: the trigger is the destruction of this card by battle (EVENT_BATTLE_DESTROYED); the generic game does not destroy it in battle",
+  89731911: "Familiar Knight: the trigger is the destruction of this card by battle (EVENT_BATTLE_DESTROYED); in Tag the generic game does not destroy it in battle",
+  39180960: "Rigorous Reaver: a Flip effect and a trigger on its destruction by battle; the generic game neither flips nor destroys it in battle",
+  78706415: "Fiber Jar: a Flip effect (its only target function runs when the card is flipped); the generic game does not flip a Set monster",
+  3549275: "Dice Jar: a Flip effect (its only target function runs when the card is flipped); the generic game does not flip a Set monster",
+  40267580: "Brain Jacker: a Flip effect that equips, and a Standby Phase trigger of the equip; the generic game does not flip it",
+  30109445: "Clown Crew Dristy: the target runs for a trigger on its own release (EVENT_RELEASE); at three seats the generic game does not release it (in Tag it does)",
+  39767432: "Sorcerer of Sebek: triggers on battle damage (EVENT_BATTLE_DAMAGE) and on gaining Life Points (EVENT_RECOVER); the generic game has neither on its field",
+  68078978: "Fortune Fairy Chee: triggers on being drawn (EVENT_DRAW from the hand) and on its own Special Summon; the generic game does neither",
+  82734805: "Infernoid Tierra: triggers on its own Special Summon by its procedure; the generic game does not Special Summon it",
+  96148285: "Triggered Summon: a Trap that waits for a Special Summon; no Special Summon of the generic game reaches its condition",
+  35059553: "Kaiser Colosseum: the card has no condition, target or cost function (only SetTargetRange values), so there is nothing for the table to see",
+  // R2 cards. Their global effects and flags load and run (no Lua error, no trap U or c); only a condition, target or cost never ran.
+  3900605: "Absorbing Jar: the target is a Flip effect and the rest are continuous Summon and Set locks; the generic game does not flip a Set monster",
+  18114794: "Summon Breaker: a Field Spell whose trigger is a custom event raised by a global effect after a Normal or Flip Summon; no such event reaches its condition",
+  27770341: "Super Rejuvenation: a continuous Spell driven by EVENT_RELEASE, EVENT_DISCARD and the End Phase; the generic game gives none that reaches a function of the card",
+  29724053: "Summon Gate: a continuous Spell with a Special Summon limit and a global counter of Special Summons; in Tag no function of the card runs in the generic game (at three seats the Spell does run)",
+  32056070: "You and A.I.: a Continuous Spell whose trigger is a custom event raised by a global effect after a Special Summon; no such event reaches its target",
+  51194046: "Qliphort Monolith: both effects work from the Pendulum Zone; the generic board has no Pendulum Zone",
+  60018643: "Cynet Codec: a Continuous Spell whose trigger is a custom event raised by a global effect after a Special Summon; no such event reaches its target",
+  65541655: "Red Nova Dragon - Burning Soul: the procedure needs two Tuners (or Red Dragon Archfiend) in the Monster Zone or Graveyard and a Synchro selection; the generic board has none",
+  77910045: "Fatal Abacus: a Continuous Spell with one continuous effect on EVENT_TO_GRAVE and no condition, target or cost function",
+  82670878: "Ogre of the Scarlet Sorrow: a hand trigger on a custom event raised by a global effect after an attack at a monster; the generic game does not raise it",
+  83957459: "Rhinotaurus: an extra attack (condition) that is read for a monster that destroyed another by battle; the generic game does not destroy a monster by battle with it",
+  83962752: "Synchro Panic: a Trap on a custom event raised by a global effect after a destruction; no such event reaches its condition",
+  94585852: "Pandemonium: a Field Spell with an LP-cost replacement and a trigger on a custom event; the generic game pays no LP cost and raises no such event",
+};
+/** Formats where the NO_CONDITION_RUN entry holds (default both). */
+const NO_CONDITION_RUN_ONLY: Record<number, DuelFormat[]> = { 89731911: ["tag"], 30109445: ["ffa3"], 29724053: ["tag"] };
+
+/**
+ * Cards of the table that are not in cards.cdb of the engine data (the script exists, the card does not), by code, with the reason.
+ * The engine cannot put such a card in a deck, so the table cannot play it. The test PASSES only while the card is absent.
+ */
+const NOT_IN_CARD_DATABASE: Record<number, string> = {
+  39513225: "R1_NO_CHANGE card: the script is in card-scripts/official, the card is not in cards.cdb of data/duel-engine-next",
+  95200102: "R1 entry: the script is in card-scripts/official, the card is not in cards.cdb of data/duel-engine-next",
+  99505609: "R1 entry (Bingo Card): the script is in card-scripts/official, the card is not in cards.cdb of data/duel-engine-next",
+  17242022: "R2 entry (Red-Eyes Black Dragon Exceed): the script is in card-scripts/official, the card is not in cards.cdb of data/duel-engine-next",
+  77482666: "R2 entry (Swiftwind Panther Warrior): the script is in card-scripts/official, the card is not in cards.cdb of data/duel-engine-next",
 };
 
 /**
@@ -90,6 +159,26 @@ interface KnownGap {
   reason: string;
 }
 const KNOWN_GAPS: Record<number, KnownGap[]> = {
+  39552584: [
+    { format: "ffa3", trap: "c", reason: "Grapha, Dragon Overlord of Dark World (R1): the core reports a pick during the operation step (trap c) at fn=DiscardHand, P=1, card=53129443 (Dark Hole) while the card plays. The overlay keeps the first effect (the opponent discards) stock. Owner: seats-r1" },
+    { format: "tag", trap: "c", reason: "Grapha, Dragon Overlord of Dark World (R1): the same trap c at fn=DiscardHand in Tag. Owner: seats-r1" },
+  ],
+  14318794: [
+    { format: "ffa3", luaError: /table index is nil/, reason: "Life Absorbing Machine (R2, kind seat): the generated seat table raises a Lua error (c14318794.lua:86 table index is nil) as soon as the card loads. Owner: r2-global" },
+    { format: "tag", luaError: /table index is nil/, reason: "Life Absorbing Machine (R2, kind seat): the same Lua error (table index is nil) in Tag. Owner: r2-global" },
+  ],
+  71645242: [
+    { format: "ffa3", trap: "c", reason: "Black Garden (R2 hand file): the core reports a pick during the operation step (trap c) at fn=GetLocationCount, P=0, card=71645242. Owner: r2-global" },
+    { format: "tag", trap: "c", reason: "Black Garden (R2 hand file): the same trap c at fn=GetLocationCount in Tag. Owner: r2-global" },
+  ],
+  98715423: [
+    { format: "ffa3", trap: "c", reason: "Gravekeeper's Trap (R2_NO_CHANGE, no overlay): the core reports a pick during the operation step (trap c) at fn=GetDrawCount, P=0, card=98715423 (40 lines over the table). The stock script may need an entry. Owner: r2-global" },
+    { format: "tag", trap: "c", reason: "Gravekeeper's Trap (R2_NO_CHANGE, no overlay): the same trap c at fn=GetDrawCount in Tag. Owner: r2-global" },
+  ],
+  76895648: [
+    { format: "ffa3", trap: "c", reason: "Dangerous Machine Type-6 (R1_NO_CHANGE, no overlay): the core reports a pick during the operation step (trap c) at fn=Draw, P=0, card=76895648. The stock script may need an entry. Owner: seats-r1" },
+    { format: "tag", trap: "c", reason: "Dangerous Machine Type-6 (R1_NO_CHANGE, no overlay): the same trap c at fn=Draw in Tag. Owner: seats-r1" },
+  ],
 };
 
 function gapFor(code: number, format: DuelFormat): KnownGap | undefined {
@@ -135,14 +224,51 @@ export const CLASS_DECISIONS: Record<number, CardClass[]> = {
  */
 export const SCAN_CLASS_OF: Record<number, CardScan["cls"]> = { 25388971: "F", 55273560: "F" };
 
-/** Problems with the classes of the manifest against the scan of the stock scripts. */
-export function classProblems(source: Manifest, scans: Map<number, CardScan>, falsePositives: readonly number[] = COMPARE_FALSE_POSITIVES): string[] {
+/**
+ * The scan classes that an R1 entry may have. The scan marks a card as U (no opponent read) or C (the fold is enough) when the stock
+ * script needs no overlay, so such a card is never an R1 entry. Every R1 entry is O (an opponent read) or F.
+ */
+const R1_SCAN_CLASSES: CardScan["cls"][] = ["O", "F"];
+
+/** Triage rules of another class: an R2 card is never listed under one of them. */
+const NOT_R2_RULES = ["EACH-DUELIST", "SCRIPT", "CHOOSER"];
+
+/**
+ * Problems with the classes of the manifest against the scan of the stock scripts. An R1 entry must be in the triage R1 list (rule
+ * EACH-DUELIST or SCRIPT) and have the scan class O or F. An R2 entry must have a scan class other than U (the scan sees a read of the
+ * opponent or of a player) and must not be listed under the triage rules of R1 or the choosers (R2 also holds cards that the
+ * triage did not list, found by reading the scripts; the triage is a local file and the triage checks are skipped without it).
+ * A "fix" entry has no class and is not checked.
+ */
+export function classProblems(
+  source: Manifest,
+  scans: Map<number, CardScan>,
+  falsePositives: readonly number[] = COMPARE_FALSE_POSITIVES,
+  triage: readonly Triage[] | null = null,
+): string[] {
   const problems: string[] = [];
+  const r1 = triage ? new Set(r1Codes([...triage])) : null;
+  const ruleOf = new Map((triage ?? []).map((entry) => [entry.code, entry.rule] as const));
   for (const card of source.cards) {
     if (card.kind === "fix") continue;
+    // ATTACK (a direct attack at you) is not a scan class: the manifest test and the live scenarios check these entries.
+    if ((card.classes as string[]).includes("ATTACK")) continue;
     const scan = scans.get(card.code);
     if (!scan) {
       problems.push(`${card.code} ${card.name}: not in the scan`);
+      continue;
+    }
+    const rClasses = (card.classes as string[]).filter((name) => name === "R1" || name === "R2");
+    if (rClasses.length > 0) {
+      if (rClasses.includes("R1")) {
+        if (r1 && !r1.has(card.code)) problems.push(`${card.code} ${card.name}: MANIFEST class R1, the triage has no R1 rule`);
+        if (!R1_SCAN_CLASSES.includes(scan.cls)) problems.push(`${card.code} ${card.name}: MANIFEST class R1, scan class is ${scan.cls} (expected O or F)`);
+      }
+      if (rClasses.includes("R2")) {
+        const rule = ruleOf.get(card.code);
+        if (rule && NOT_R2_RULES.some((prefix) => rule.startsWith(prefix))) problems.push(`${card.code} ${card.name}: MANIFEST class R2, the triage rule is ${rule.split(":")[0]}`);
+        if (scan.cls === "U") problems.push(`${card.code} ${card.name}: MANIFEST class R2, scan class is U (expected C, O or F)`);
+      }
       continue;
     }
     const expected = CLASS_DECISIONS[card.code] ?? scanClasses(scan);
@@ -173,7 +299,7 @@ describeWithCores("the table: classes of the manifest against the scan", stock, 
   const scans = new Map(scanCorpus(stockDirectory).map((scan) => [scan.code, scan] as const));
 
   it("every listed card has the same class in MANIFEST.json and in the scan", () => {
-    expect(classProblems(manifest, scans)).toEqual([]);
+    expect(classProblems(manifest, scans, COMPARE_FALSE_POSITIVES, readTriage())).toEqual([]);
   });
 
   it("the class check fails for a wrong class, a missing entry and a card that is not O", () => {
@@ -184,6 +310,33 @@ describeWithCores("the table: classes of the manifest against the scan", stock, 
     missing.cards = missing.cards.filter((card) => card.code !== 25388971);
     expect(classProblems(missing, scans).join("\n")).toContain("25388971");
     expect(classProblems(manifest, new Map([...scans].map(([code, scan]) => [code, code === 93507434 ? { ...scan, cls: "C" as const } : scan] as const))).join("\n")).toContain("93507434");
+  });
+
+  it("every card of R1_NO_CHANGE and R2_NO_CHANGE has the scan class of its group (the stock script is read, no overlay)", () => {
+    const card = (code: number, cls: CardClass) => ({ code, file: `c${code}.lua`, kind: "hand", name: scriptName(code), classes: [cls] });
+    const noChange: Manifest = { version: 1, cards: [...R1_NO_CHANGE.map((code) => card(code, "R1")), ...R2_NO_CHANGE.map((code) => card(code, "R2" as CardClass))] };
+    const codes = new Set(noChange.cards.map((entry) => entry.code));
+    // Only the problems of these cards count (the manifest of no-change cards also lacks every compare card).
+    const problems = classProblems(noChange, scans, COMPARE_FALSE_POSITIVES, readTriage()).filter((line) => codes.has(Number(line.split(" ")[0])));
+    expect(problems).toEqual([]);
+  });
+
+  it("the class check fails for an R1 card that the triage does not list, and for an R1 card that the scan calls U or C", () => {
+    const r1 = manifest.cards.find((card) => card.classes.includes("R1"));
+    expect(r1, "the manifest has an R1 card").toBeDefined();
+    const triage: Triage[] = [{ code: r1!.code, name: r1!.name, group: "x", rule: "EACH-DUELIST: x" }];
+    const scan = scans.get(r1!.code)!;
+    // Only the problems of this card count (a manifest of one card also lacks every other compare card).
+    const problems = (source: Manifest, map: Map<number, CardScan>, list: readonly Triage[]) =>
+      classProblems(source, map, COMPARE_FALSE_POSITIVES, list).filter((line) => line.startsWith(`${r1!.code} `));
+    const only: Manifest = { version: 1, cards: [r1!] };
+    expect(problems(only, scans, triage)).toEqual([]);
+    expect(problems(only, scans, []).join("\n")).toContain("the triage has no R1 rule");
+    expect(problems(only, new Map([[r1!.code, { ...scan, cls: "C" as const }]]), triage).join("\n")).toContain("expected O or F");
+    const r2: Manifest = { version: 1, cards: [{ ...r1!, classes: ["R2" as CardClass] }] };
+    expect(problems(r2, scans, triage).join("\n")).toContain("the triage rule is EACH-DUELIST");
+    expect(problems(r2, new Map([[r1!.code, { ...scan, cls: "U" as const }]]), []).join("\n")).toContain("scan class is U");
+    expect(problems(r2, scans, [])).toEqual([]);
   });
 
   it("every listed card that reads overlay materials or counters on a field has a MANIFEST entry", () => {
@@ -216,6 +369,12 @@ describeWithCores("the table: classes of the manifest against the scan", stock, 
     const chooser = manifest.cards.filter((card) => card.classes.includes("CHOOSER") && !COMPARE_EXTRA.includes(card.code)).length;
     expect(TABLE.filter((row) => row.group === "compare")).toHaveLength(compare);
     expect(TABLE.filter((row) => row.group === "chooser")).toHaveLength(chooser);
+    // R1: an entry or a card of R1_NO_CHANGE, 92 in all. Fix entries: every entry of kind "fix" except Mirror Gate.
+    expect(TABLE.filter((row) => row.group === "r1")).toHaveLength(manifest.cards.filter((card) => card.classes.includes("R1")).length + R1_NO_CHANGE.length);
+    expect(TABLE.filter((row) => row.group === "r1")).toHaveLength(EXPECTED_COUNTS.r1);
+    const r2Entries = manifest.cards.filter((card) => card.classes.includes("R2" as CardClass)).length;
+    expect(TABLE.filter((row) => row.group === "r2")).toHaveLength(r2Entries + R2_NO_CHANGE.filter((code) => !manifest.cards.some((card) => card.code === code)).length);
+    expect(TABLE.filter((row) => row.group === "fix")).toHaveLength(manifest.cards.filter((card) => card.kind === "fix" && card.classes.length === 0 && card.code !== MIRROR_GATE).length);
     expect(codes).not.toContain(MIRROR_GATE);
     for (const [code, reason] of Object.entries(NO_CONDITION_RUN)) expect(reason, code).toBeTruthy();
   });
@@ -234,6 +393,16 @@ const TYPE = { monster: 0x1, spell: 0x2, trap: 0x4, field: 0x80000, extra: 0x40 
 
 let cardRows: Map<number, CardRow> | null = null;
 function cardRow(code: number): CardRow {
+  const row = cardRowsOf().get(code);
+  if (!row) throw new Error(`card ${code} is not in cards.cdb`);
+  return row;
+}
+
+function inCardDatabase(code: number): boolean {
+  return cardRowsOf().has(code);
+}
+
+function cardRowsOf(): Map<number, CardRow> {
   if (!cardRows) {
     const db = new Database(join(engineDataDirectory, "cards.cdb"), { readonly: true });
     try {
@@ -242,9 +411,7 @@ function cardRow(code: number): CardRow {
       db.close();
     }
   }
-  const row = cardRows.get(code);
-  if (!row) throw new Error(`card ${code} is not in cards.cdb`);
-  return row;
+  return cardRows;
 }
 
 type Layout = "behind" | "ahead";
@@ -373,7 +540,7 @@ export async function playTable(format: DuelFormat, code: number, layout: Layout
       seed: ["1", "2", "3", "4"],
       dataDirectory: engineDataDirectory,
       multiWasmBinary: multiBinary(),
-      multiScriptsDirectory: process.env.TABLE_OVERLAY ? resolve(process.env.TABLE_OVERLAY) : OVERLAY_DIRECTORY,
+      multiScriptsDirectory: overlayDirectory,
     });
     collect();
     const rng = new Rng(code);
@@ -463,6 +630,10 @@ describeWithCores("the table: every listed card on the debug core", [liveNseat, 
   for (const format of FORMATS) {
     for (const row of TABLE) {
       it(`${row.group} ${row.code} ${row.name} at ${format}: loads, runs its condition, no trap U or c`, async () => {
+        if (NOT_IN_CARD_DATABASE[row.code]) {
+          expect(inCardDatabase(row.code), `${NOT_IN_CARD_DATABASE[row.code]} (remove the entry when the card is in the database)`).toBe(false);
+          return;
+        }
         const runs = [await playTable(format, row.code, "behind"), await playTable(format, row.code, "ahead")];
         if (process.env.TABLE_DEBUG) appendFileSync(process.env.TABLE_DEBUG, `TABLE ${format} ${row.code} ${row.name}: ${runs.map((run) => `steps=${run.steps} turn=${run.turn} stuck=${run.stuck} probes=${[...run.probes].join("/")} traps=${run.traps.length}[${[...new Set(run.traps.map((line) => /^NFOLD (\w)/.exec(line)?.[1] ?? "?"))].join("")}] err=${run.luaError ?? "-"}`).join(" | ")}\n`);
         const gap = gapFor(row.code, format);
@@ -475,7 +646,7 @@ describeWithCores("the table: every listed card on the debug core", [liveNseat, 
           expect(unexpectedTraps(row.code, run.traps), "trap lines").toEqual([]);
         }
         const ran = runs.some((run) => run.probes.has("cond") || run.probes.has("tgt") || run.probes.has("cost"));
-        if (NO_CONDITION_RUN[row.code]) expect(ran, `${NO_CONDITION_RUN[row.code]} (remove the entry when it runs)`).toBe(false);
+        if (NO_CONDITION_RUN[row.code] && (NO_CONDITION_RUN_ONLY[row.code] ?? FORMATS).includes(format)) expect(ran, `${NO_CONDITION_RUN[row.code]} (remove the entry when it runs)`).toBe(false);
         else expect(ran, "the condition, target or cost never ran").toBe(true);
       }, 120_000);
     }
@@ -493,6 +664,11 @@ describe("the table helpers", () => {
       }
     }
     for (const code of Object.keys(NO_CONDITION_RUN)) expect(listed.has(Number(code)), `${code} is in the table`).toBe(true);
+    for (const [code, reason] of Object.entries(NOT_IN_CARD_DATABASE)) {
+      expect(listed.has(Number(code)), `${code} is in the table`).toBe(true);
+      expect(reason, code).toBeTruthy();
+    }
+    for (const code of Object.keys(NO_CONDITION_RUN_ONLY)) expect(NO_CONDITION_RUN[Number(code)], `${code} has a NO_CONDITION_RUN entry`).toBeTruthy();
   });
 
   it("matches a known gap by its Lua error or by its trap kind, and by nothing else", () => {
@@ -504,9 +680,12 @@ describe("the table helpers", () => {
     expect(showsGap(trap, { luaError: null, traps: ["NFOLD a card=1 P=0 fn=x"] })).toBe(false);
   });
 
-  it("lists the compare group before the chooser group of a manifest, once per card, without the fix", () => {
+  it("lists the groups compare, chooser, R1, R2 and fix of a manifest in this order, once per card, without Mirror Gate", () => {
     const rows = tableCardsOf(manifest);
     expect(rows.find((row) => row.code === MIRROR_GATE)).toBeUndefined();
+    const order = ["compare", "chooser", "r1", "r2", "fix"];
+    expect(rows.map((row) => order.indexOf(row.group))).toEqual(rows.map((row) => order.indexOf(row.group)).sort((a, b) => a - b));
+    expect(noChangeCards("r1", [1, 2, 3], new Set([2])).map((row) => `${row.group}:${row.code}`)).toEqual(["r1:1", "r1:3"]);
     expect(rows.filter((row) => row.code === 15693423)).toHaveLength(1);
     expect(rows.find((row) => row.code === 15693423)?.group).toBe("compare");
   });
