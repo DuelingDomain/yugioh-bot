@@ -1062,6 +1062,16 @@
       "stockSha256": "42f98b5f285c5e65180ef86610cc026ebe67f409b01e1024ad63f7a9cda5d554"
     },
     {
+      "code": 37806313,
+      "file": "c37806313.lua",
+      "name": "Caravan of the Ice Barrier",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "4a0fe9dde4878435894a6a5cd6c8c71b62a9573a9dc0481597c4ef231c3f7a08"
+    },
+    {
       "code": 38026562,
       "file": "c38026562.lua",
       "name": "Vola-Chemicritter Methydraco",
@@ -1941,6 +1951,16 @@
       "stockSha256": "fbad42ee891317236159bcfca671bd7cd05a9f1919f835e9f7bf228958e84e04"
     },
     {
+      "code": 69840739,
+      "file": "c69840739.lua",
+      "name": "Artifact Durendal",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "16c6302fae39792f9ea034398141cfb9d0d7cec90899cb831a9bbde9d4ed2d0b"
+    },
+    {
       "code": 70914287,
       "file": "c70914287.lua",
       "name": "Kuribabylon",
@@ -1957,6 +1977,26 @@
       ],
       "stockSha256": "264e8cab82b266b698bd27f2b30276eccac675524b8e9f94753eef4e97f44ddc",
       "note": "Reads the Graveyard and the banished zone (field class); today it sums all opponents. The triage text that calls it OK-BIND is wrong."
+    },
+    {
+      "code": 71166481,
+      "file": "c71166481.lua",
+      "name": "Number 75: Bamboozling Gossip Shadow",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "e48e5cc488677ae837e0ed243fb9fbb7446e8cb67a139222b3c945524927bd1a"
+    },
+    {
+      "code": 71782404,
+      "file": "c71782404.lua",
+      "name": "Red-Eyes Burn",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "a6de06d188180d35b9af4b1128c447f5ff3a22464c6b8fd59a77dc8da630251f"
     },
     {
       "code": 71863024,
@@ -2010,6 +2050,46 @@
       ],
       "stockSha256": "4560ae6a34229b2fe925f34088a4858c902e5f72901b338dd2bb10ec60d91e18",
       "note": "Script fix (late-cards, R-COMMON-EACH-PLAYER): every living duelist discards the Monsters of its own hand (the Tag partner too), with no opponent pick. Each duelist is read in its own scope (aux.MPForEachDuelist). Not part of R1."
+    },
+    {
+      "code": 73082255,
+      "file": "c73082255.lua",
+      "name": "The Zombie Vampire",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "d1e2fc4b90bfa3ef0971260803a0ef11fa4d98f6a7cd457e6527e68b67d9f27e"
+    },
+    {
+      "code": 73507661,
+      "file": "c73507661.lua",
+      "name": "Fairy Wind",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "7b32612dd05f7a1ebc9060a86adefaad5c09297b8753355db0100d00dffdd279"
+    },
+    {
+      "code": 74117290,
+      "file": "c74117290.lua",
+      "name": "Dark World Dealings",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "12358eff25253775fd3cf467e8692e77df0b5cbf2b0e6f811db4aff59a28fe72"
+    },
+    {
+      "code": 74426895,
+      "file": "c74426895.lua",
+      "name": "Awakening of the Possessed - Gagigobyte",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "3410cb544be050a766afb918cb576344d3da9e24df72691c8afbba9d095424ab"
     },
     {
       "code": 75043725,
@@ -2085,6 +2165,16 @@
       "stockSha256": "93ce31f12267332f0f57805851131f4dd4c1e3173b6dc94b26ff43afbb913ec6"
     },
     {
+      "code": 77092311,
+      "file": "c77092311.lua",
+      "name": "Tsuchigumo, the Poisonous Mayakashi",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "e216d9c5472d495c75aa60d9ffa834099683c559744d72e88594df621d5272aa"
+    },
+    {
       "code": 78098950,
       "file": "c78098950.lua",
       "name": "Tsumuha-Kutsunagi the Lord of Swords",
@@ -2103,6 +2193,16 @@
         "R1"
       ],
       "stockSha256": "5b85c1dd408241a719667c65f5c97548e73ca6b6b326bb16654515319b5adacb"
+    },
+    {
+      "code": 78706415,
+      "file": "c78706415.lua",
+      "name": "Fiber Jar",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "50c3dcab9adfcaa8421181d46a83499e18eee56f1fb2ccbbabda6fad392e9aee"
     },
     {
       "code": 80453041,
@@ -2240,6 +2340,26 @@
       "stockSha256": "358ad8ddc2bc362107a5229ee33c46fb9974c445598d83374d3559e7da148405"
     },
     {
+      "code": 85862791,
+      "file": "c85862791.lua",
+      "name": "Fighting Dirty",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "f0a79bad5d47a018d6388b67fd08b3df27aaca47562441bbd55080e062ab85c0"
+    },
+    {
+      "code": 86209650,
+      "file": "c86209650.lua",
+      "name": "Stray Asmodian",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "b3d16bf1a076a7b1d85e3b759ee84d0d591a5ff0215b019d33789ccb3ff01048"
+    },
+    {
       "code": 87588741,
       "file": "c87588741.lua",
       "name": "Qliphort Cephalopod",
@@ -2351,6 +2471,36 @@
         "target"
       ],
       "stockSha256": "b60b87d28d97540dc4477a863a2c3cbf6fe3a2d235dfc965eecf408e50a93577"
+    },
+    {
+      "code": 89462956,
+      "file": "c89462956.lua",
+      "name": "Dealer's Choice",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "ae52d0b98b46c4d773ef1f02d73cc56eed46674866de33ae696bf7eb430cc897"
+    },
+    {
+      "code": 89642993,
+      "file": "c89642993.lua",
+      "name": "Number 63: Shamoji Soldier",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "6f6ef18b70b08e9aeadaaf92120b607a43f99d1a7c155a92e4b465768d8781e7"
+    },
+    {
+      "code": 89719143,
+      "file": "c89719143.lua",
+      "name": "Final Fusion",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "aa2fe9c192d77ecf71cb14f779a2fa794da47cf26bdc33dc6a69fc2a06f6f42b"
     },
     {
       "code": 89731911,
@@ -2494,6 +2644,16 @@
       "stockSha256": "26a66dc18367bcfa8156b470d21ba9dfa2d0a7d488473254343335b0f0a5a9f5"
     },
     {
+      "code": 92219931,
+      "file": "c92219931.lua",
+      "name": "Simultaneous Loss",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "f0158a7bc654cc077cebb2545de1b3cf088916e4d4231663c2566c42c836f4ee"
+    },
+    {
       "code": 92394653,
       "file": "c92394653.lua",
       "name": "Spirit's Invitation",
@@ -2522,6 +2682,16 @@
         "R1"
       ],
       "stockSha256": "dc0cfca2f59c7bd6b6adca735f4e58e7a8b7e6f1367569c1bde4ce0eb415c563"
+    },
+    {
+      "code": 93469007,
+      "file": "c93469007.lua",
+      "name": "Assault Overload",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "2b82279b5e67459b4acddb5e9e987a2b2877b4f2d08d2be1bf3577578127a52a"
     },
     {
       "code": 93507434,
@@ -2573,6 +2743,36 @@
       ],
       "replace": true,
       "stockSha256": "0857b1661f3f66e3d5d6b43ce6ba2f9511e0b1122980d1f9012336d0a11fc16c"
+    },
+    {
+      "code": 94919024,
+      "file": "c94919024.lua",
+      "name": "Lunalight Crimson Fox",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "6096b748bc20688c5c47d44c14fa50c71527c81e8c84684924aa85406d8d081a"
+    },
+    {
+      "code": 95200102,
+      "file": "c95200102.lua",
+      "name": "",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "b6ae8b91c77932fb41c220816b66f01d717d17257863762b783399234bfa7362"
+    },
+    {
+      "code": 95207988,
+      "file": "c95207988.lua",
+      "name": "Earthbound Resonance",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "e0bac9c0e72ef94e2dc8468f1ca29ea93baa532af476165f6f8d3f665b5fbe35"
     },
     {
       "code": 95403418,
@@ -2665,6 +2865,16 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "2a70f6b5c9f9bdc331c35213c3f3b6349a873acb4a0e66cdea620f7920156058"
+    },
+    {
+      "code": 99505609,
+      "file": "c99505609.lua",
+      "name": "Bingo Card",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "ab451c525824e8bb1b2c55dedfd270b05ccbdeee6901e7bb8ddea71d470c097b"
     }
   ]
 }
