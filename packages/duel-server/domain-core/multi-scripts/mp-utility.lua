@@ -205,3 +205,28 @@ function aux.MPForEachController(g,fn)
 	end
 	if bind then Duel.MPBindSeat() end
 end
+
+-- "An opponent's monster attacks directly" (a direct attack AT YOU). fn is the stock condition, kept as it is; it holds for a direct attack of
+-- any opponent, because FFA folds all opponents into the Lua value 1 and a script cannot tell an attack at itself from an attack at another
+-- opponent. This wrapper adds the real target: Duel.MPAttackedSeat (core) is the seat that the direct attack goes to, and it must be the seat
+-- of the card that holds the effect. Two seats and Tag: fn itself (Tag: the stock 1-tp is the team value, so fn already means an attack at
+-- your team; the partner shares the life points and the field side).
+-- Without that core function (an older core) the attack counts when you are the only seat it can go to: a direct attack goes to a seat with
+-- no monster, so if another seat that is not the attacker has no monster too, the attack may be at that seat and it does not count.
+function aux.MPAttackedAtMe(fn)
+	return function(e,tp,...)
+		if not fn(e,tp,...) then return false end
+		if Duel.MPMode()~=1 then return true end
+		if Duel.MPAttackedSeat and Duel.MPSeatOf then
+			return Duel.MPAttackedSeat()==Duel.MPSeatOf(e:GetHandler())
+		end
+		local atk=Duel.GetAttacker()
+		local other=false
+		for i=1,Duel.MPOppCount() do
+			Duel.MPWindow(i)
+			if not Duel.GetFieldGroup(tp,0,LOCATION_ALL):IsContains(atk) and Duel.GetFieldGroupCount(tp,0,LOCATION_MZONE)==0 then other=true end
+			Duel.MPWindowEnd()
+		end
+		return not other
+	end
+end

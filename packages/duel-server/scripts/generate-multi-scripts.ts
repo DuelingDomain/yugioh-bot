@@ -23,6 +23,12 @@
  *                  whose stock script works as it is after core patch 0053 is a member of R2_NO_CHANGE. The R2 entries are not part of
  *                  the pinned `entries` count either.
  *
+ *   ATTACK (a direct attack at you) = a MANIFEST entry of class `ATTACK`, kind `hand`: "when an opponent's monster declares a direct attack"
+ *                  holds in FFA only when the attack goes to the duelist that holds the card (aux.MPAttackedAtMe wraps the stock
+ *                  condition; an inline condition is a `--@replace` file). Not part of the pinned `entries` count either.
+ *
+ *   npx tsx scripts/generate-multi-scripts.ts --register-attack FILE.json
+ *                  read-modify-write: adds or replaces the ATTACK entries (items as AttackItem, see registerAttack).
  *   npx tsx scripts/generate-multi-scripts.ts --register-r2 FILE.json
  *                  read-modify-write: adds or replaces the R2 entries (items as R2Item, see registerR2); run the generator again to write
  *                  the files of the `seat` entries.
@@ -52,7 +58,7 @@ export const COMPARE_SCAN_ADDED = [25388971, 46772449, 50838440, 55273560, 62015
 /** Compare AND chooser cards that the triage does not list as `field-count-compare`. */
 export const COMPARE_EXTRA = [15693423, 90669991];
 export const MIRROR_GATE = 43452193;
-export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 108, r1: 92 } as const;
+export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 108, r1: 92, attack: 41 } as const;
 /**
  * R1 cards whose stock script already acts on every living duelist after core patch 0053, so they need no suffix and no entry.
  * Pinned (a card is added here only after the script was read). 39513225 only sends a Confirm to the opponent (no effect on each duelist);
@@ -73,8 +79,9 @@ export const R2_NO_CHANGE: number[] = [
 /** True when every one of the 92 R1 cards is an entry or a member of R1_NO_CHANGE (the strict count check). */
 export const R1_COMPLETE = true;
 
-export type Helper = "MPAny" | "MPValue" | "MPOne" | "MPPick" | "MPTarget";
-export type CardClass = "COMPARE" | "CHOOSER" | "R1" | "R2";
+export type Helper = "MPAny" | "MPValue" | "MPOne" | "MPPick" | "MPTarget" | "MPAttackedAtMe";
+/** ATTACK: "when an opponent's monster declares a direct attack" (the attack must go to the duelist that holds the card). */
+export type CardClass = "COMPARE" | "CHOOSER" | "R1" | "R2" | "ATTACK";
 /** The kind of seat state that the stock script of an R2 card keeps (a short tag for the note and the report). */
 export type R2Class =
   | "TABLE" // a per-player table or counter (s[tp], s.list[ep]): one slot per seat (FFA) or team (Tag)
@@ -239,7 +246,7 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
   if (compare.length !== EXPECTED_COUNTS.compare) problems.push(`COMPARE has ${compare.length} cards, expected ${EXPECTED_COUNTS.compare}`);
   if (chooser.length !== EXPECTED_COUNTS.chooser) problems.push(`CHOOSER has ${chooser.length} cards, expected ${EXPECTED_COUNTS.chooser}`);
   if (whole.length !== EXPECTED_COUNTS.whole) problems.push(`${whole.length} whole files, expected ${EXPECTED_COUNTS.whole}`);
-  const overlayEntries = manifest.cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2"));
+  const overlayEntries = manifest.cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2") && !card.classes.includes("ATTACK"));
   if (overlayEntries.length !== EXPECTED_COUNTS.entries) problems.push(`${overlayEntries.length} entries, expected ${EXPECTED_COUNTS.entries}`);
   const r1Entries = manifest.cards.filter((card) => card.classes.includes("R1"));
   for (const card of r1Entries) {
@@ -255,6 +262,13 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
     if (card.kind === "seat" && !(card.seatTables && card.seatTables.length > 0)) problems.push(`R2 card ${card.code} has kind seat but no seatTables`);
     if (R2_NO_CHANGE.includes(card.code)) problems.push(`R2 card ${card.code} has an entry and is in R2_NO_CHANGE`);
   }
+  const attackEntries = manifest.cards.filter((card) => card.classes.includes("ATTACK"));
+  for (const card of attackEntries) {
+    if (card.kind !== "hand") problems.push(`ATTACK card ${card.code} has kind ${card.kind}, expected hand`);
+    if (card.classes.length !== 1) problems.push(`ATTACK card ${card.code} has another class besides ATTACK`);
+    if (!card.replace && !(card.wrap?.MPAttackedAtMe && card.wrap.MPAttackedAtMe.length > 0)) problems.push(`ATTACK card ${card.code} has no MPAttackedAtMe wrap and is not a replace file`);
+  }
+  if (attackEntries.length !== EXPECTED_COUNTS.attack) problems.push(`ATTACK has ${attackEntries.length} cards, expected ${EXPECTED_COUNTS.attack}`);
   const r1Total = r1Entries.length + R1_NO_CHANGE.length;
   if (r1Total > EXPECTED_COUNTS.r1) problems.push(`R1 has ${r1Total} cards (entries and R1_NO_CHANGE), expected at most ${EXPECTED_COUNTS.r1}`);
   if (R1_COMPLETE && r1Total !== EXPECTED_COUNTS.r1) problems.push(`R1 has ${r1Total} cards (entries and R1_NO_CHANGE), expected ${EXPECTED_COUNTS.r1}`);
@@ -330,6 +344,54 @@ export function registerR1(items: { code: number; name: string; note?: string }[
   manifest.cards.sort((a, b) => a.code - b.code);
   writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
   return added;
+}
+
+/** An ATTACK item of --register-attack: the stock condition functions to wrap, or none for a `--@replace` file (an inline condition). */
+export interface AttackItem {
+  code: number;
+  name: string;
+  /** The stock condition functions wrapped as `s.fn=aux.MPAttackedAtMe(s.fn)`; absent for a replace file. */
+  wrap?: string[];
+  note?: string;
+}
+
+/**
+ * Read-modify-write of MANIFEST.json for the ATTACK entries (a direct attack must go to the holder of the card): re-reads the file right
+ * before the write, adds or replaces the entries of the items and keeps the list sorted by code. The suffix (or replace) file must exist.
+ * Returns the codes that were added or replaced.
+ */
+export function registerAttack(items: AttackItem[], stockDirectory: string, directory = OVERLAY_DIRECTORY): number[] {
+  const path = join(directory, "MANIFEST.json");
+  const manifest = readManifest(directory);
+  const done: number[] = [];
+  for (const item of items) {
+    const file = join(directory, `c${item.code}.lua`);
+    if (!existsSync(file)) throw new Error(`c${item.code}.lua is missing: write the file before registering the card`);
+    const old = manifest.cards.find((card) => card.code === item.code);
+    if (old && !old.classes.includes("ATTACK")) throw new Error(`card ${item.code} is a ${old.classes.join("+")} entry: it cannot also be ATTACK`);
+    const entry: ManifestCard = {
+      code: item.code,
+      file: `c${item.code}.lua`,
+      name: item.name,
+      kind: "hand",
+      classes: ["ATTACK"],
+      stockSha256: createHash("sha256").update(readFileSync(join(stockDirectory, `c${item.code}.lua`), "utf8")).digest("hex"),
+    };
+    if (item.wrap) {
+      entry.wrap = { MPAttackedAtMe: item.wrap };
+      entry.compareIn = item.wrap;
+    } else {
+      entry.compareIn = ["inline"];
+    }
+    if (readFileSync(file, "utf8").startsWith("--@replace")) entry.replace = true;
+    if (item.note) entry.note = item.note;
+    manifest.cards = manifest.cards.filter((card) => card.code !== item.code);
+    manifest.cards.push(entry);
+    done.push(item.code);
+  }
+  manifest.cards.sort((a, b) => a.code - b.code);
+  writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
+  return done;
 }
 
 /** An R2 item of --register-r2: a `seat` card (the file is generated by `run`) or a `hand` card (the suffix exists already). */
@@ -411,6 +473,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(process.env.DUEL_DATA_DIR ?? "", "card-scripts/official");
     const items = JSON.parse(readFileSync(process.argv[registerR2At + 1], "utf8")) as R2Item[];
     console.log(`registered ${JSON.stringify(registerR2(items, stockDirectory))}`);
+    process.exit(0);
+  }
+  const registerAttackAt = process.argv.indexOf("--register-attack");
+  if (registerAttackAt >= 0) {
+    const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(process.env.DUEL_DATA_DIR ?? "", "card-scripts/official");
+    const items = JSON.parse(readFileSync(process.argv[registerAttackAt + 1], "utf8")) as AttackItem[];
+    console.log(`registered ${JSON.stringify(registerAttack(items, stockDirectory))}`);
     process.exit(0);
   }
   const registerAt = process.argv.indexOf("--register-r1");

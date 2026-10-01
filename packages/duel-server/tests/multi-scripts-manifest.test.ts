@@ -28,7 +28,7 @@ const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.
 describe("MANIFEST.json of the overlay", () => {
   it("lists 108 cards with a valid kind, a file named after the code and a name", () => {
     expect(manifest.version).toBe(1);
-    expect(cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2"))).toHaveLength(EXPECTED_COUNTS.entries);
+    expect(cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2") && !card.classes.includes("ATTACK"))).toHaveLength(EXPECTED_COUNTS.entries);
     for (const card of cards) {
       expect(KINDS, String(card.code)).toContain(card.kind);
       expect(card.file).toBe(`c${card.code}.lua`);
@@ -180,6 +180,36 @@ describe("the R2 entries (state per seat: Q6, the key is the seat in FFA and the
     expect(problems).toContain("R2 card 1 has kind expr");
     expect(problems).toContain("R2 card 2 has another class");
     expect(problems).toContain("R2 card 3 has no r2Class");
+  });
+});
+
+describe("the ATTACK entries (a direct attack at you: the real target of the attack, FFA)", () => {
+  const attackCards = cards.filter((card) => card.classes.includes("ATTACK"));
+
+  it("have kind hand, only the class ATTACK and the loop guard, and wrap the stock condition with aux.MPAttackedAtMe (or are a replace file)", () => {
+    for (const card of attackCards) {
+      expect(card.kind, card.file).toBe("hand");
+      expect(card.classes, card.file).toEqual(["ATTACK"]);
+      expect(text(card).split("\n")[0], card.file).toBe(card.replace ? "--@replace" : "if not aux.MPAny then return end");
+      if (card.replace) expect(text(card), card.file).toContain("MPAttackedAtMe(");
+      else expect(card.wrap?.MPAttackedAtMe?.length, card.file).toBeGreaterThan(0);
+      expect(Object.keys(card.wrap ?? {}).filter((helper) => helper !== "MPAttackedAtMe"), card.file).toEqual([]);
+    }
+  });
+
+  it("count 41 cards, none of them in another class", () => {
+    expect(attackCards).toHaveLength(EXPECTED_COUNTS.attack);
+    expect(attackCards).toHaveLength(41);
+  });
+
+  it("are reported when they have a wrong kind, a second class or no wrap", () => {
+    const wrong = clone();
+    const entry = { ...wrong.cards.find((card) => card.classes.includes("ATTACK"))! };
+    wrong.cards.push({ ...entry, code: 1, kind: "expr" }, { ...entry, code: 2, classes: ["ATTACK", "COMPARE"] }, { ...entry, code: 3, wrap: undefined });
+    const problems = checkLists(wrong, null).join("\n");
+    expect(problems).toContain("ATTACK card 1 has kind expr");
+    expect(problems).toContain("ATTACK card 2 has another class");
+    expect(problems).toContain("ATTACK card 3 has no MPAttackedAtMe wrap");
   });
 });
 

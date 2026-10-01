@@ -80,6 +80,24 @@
       "replace": true
     },
     {
+      "code": 2625939,
+      "file": "c2625939.lua",
+      "name": "Spool Code",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "54af3061061172b0ecfe17fa9612e67ea4e581d89e000cbe89e2879dcee300b8",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 2665273,
       "file": "c2665273.lua",
       "name": "Jormungandr, Generaider Boss of Eternity",
@@ -107,6 +125,24 @@
         "val"
       ],
       "stockSha256": "ffd2a8b2ca79cfe63bc96719f97a5c2eaa2e06a148ef54f5609edf2e2b830382"
+    },
+    {
+      "code": 2830693,
+      "file": "c2830693.lua",
+      "name": "Rainbow Kuriboh",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "ab8acde4041ea394ef893d32ea58aa987fce86d3b5ac4361f4a7b45655b7897c",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
     },
     {
       "code": 3064425,
@@ -190,6 +226,24 @@
         "R1"
       ],
       "stockSha256": "95b0299aa519f171a580e1b23962a188704f5a200949933cfb4d8cc55489125c"
+    },
+    {
+      "code": 5641251,
+      "file": "c5641251.lua",
+      "name": "F.A. Dead Heat",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "c9c522474b50f978dc5b3a4340fc298046d3ba9822f8e28a51b13f57a03a4405",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
     },
     {
       "code": 6783559,
@@ -313,6 +367,24 @@
       "stockSha256": "25b5d45c0032ce0535d434eecb814336d36f00eb517cfb6ea5574b2b36f8887a"
     },
     {
+      "code": 8836329,
+      "file": "c8836329.lua",
+      "name": "Raging Storm Dragon - Beaufort IX",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "797387f657d61740e2ef1aecd2ca1b2bda5efcdce7cb6a2878048d55e4c70588",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "nacon"
+        ]
+      },
+      "compareIn": [
+        "nacon"
+      ]
+    },
+    {
       "code": 9074847,
       "file": "c9074847.lua",
       "name": "Major Riot",
@@ -321,6 +393,24 @@
         "R1"
       ],
       "stockSha256": "5b24aed7ea7f09158cbfe040853d6d0114e363916c9f89187d480d8d9c61de7c"
+    },
+    {
+      "code": 9106362,
+      "file": "c9106362.lua",
+      "name": "Performapal Gongato",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "456eb50ebf4af407b86e2dc9bea99e81b5d4961f0014ad3ee9f3f2fd5901b4ba",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "dmcon1"
+        ]
+      },
+      "compareIn": [
+        "dmcon1"
+      ]
     },
     {
       "code": 9418365,
@@ -441,6 +531,24 @@
       "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
       "seatTables": [
         "s.type_list"
+      ]
+    },
+    {
+      "code": 12423762,
+      "file": "c12423762.lua",
+      "name": "Gagaga Gardna",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "5b7bae782f325007599314d7e522a2fd9b765573b5b722821950ed8cb863873f",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
       ]
     },
     {
@@ -605,6 +713,24 @@
       "seatExtra": "c16832845.extra.lua"
     },
     {
+      "code": 16947147,
+      "file": "c16947147.lua",
+      "name": "Speedroid Menko",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "84a8e8113d64b08f28c101f692880949f768a2e9d601a62c1223dae8ac0d4e11",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
+    },
+    {
       "code": 17086528,
       "file": "c17086528.lua",
       "name": "Xiangsheng Magician",
@@ -760,6 +886,24 @@
       "stockSha256": "3c658cc062a2fff5f8637632ff15ee024875e9bbecdc1be19fe07bb77722b490"
     },
     {
+      "code": 18964575,
+      "file": "c18964575.lua",
+      "name": "Swift Scarecrow",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "6af16bb771d9a21a95c8e3da094d42d9856ac1e7a3b149113f40eafded2b69d7",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 19222426,
       "file": "c19222426.lua",
       "name": "Elemental HERO Thunder Giant - Voltic Thunder",
@@ -792,6 +936,24 @@
         "condition"
       ],
       "stockSha256": "32cfe8d8c4eb5f701024261c78a5b792789d3ba97f77554fbe959ec0927852f8"
+    },
+    {
+      "code": 19665973,
+      "file": "c19665973.lua",
+      "name": "Battle Fader",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "84e900dc128172dff5fd3f9d21525d78c1506fdc3d865a748d2037180b0db3a5",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 19671102,
@@ -844,6 +1006,24 @@
       }
     },
     {
+      "code": 20590784,
+      "file": "c20590784.lua",
+      "name": "Stardust Re-Spark",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "a9b385c393e8dfbea48f5b21a700fdd63265a693c783f521b34e14b8315480c3",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 20644748,
       "file": "c20644748.lua",
       "name": "Spatial Collapse",
@@ -880,6 +1060,24 @@
       "r2Class": "FLAG-L0",
       "stockSha256": "4e86617869ac8b8d3ec3a87e3f1081422ce4ae98806f7796cd0958bd236c0228",
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 20960340,
+      "file": "c20960340.lua",
+      "name": "Krystal Avatar",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "a5d69ab2fa0a7e9bddc41e4543ecf8db1c6561ce11e4c7f0fd4d85f9724e43fe",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 20985997,
@@ -951,6 +1149,24 @@
       "stockSha256": "eac8f85e4ff240ce74911b852e0c01b4a6c3c7c9eec26f0e164b8441a6e8d1b9"
     },
     {
+      "code": 22765132,
+      "file": "c22765132.lua",
+      "name": "Performapal Call",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "94e294dd6418dceed95769f699aaf39a532f917d01313656aa5175cf978e32ea",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 23557835,
       "file": "c23557835.lua",
       "name": "Dimension Fusion",
@@ -998,6 +1214,24 @@
       "note": "the adjust check loops over the seats 0..3 (stock: 0 and 1) and sends the extra monsters of each duelist to the GY."
     },
     {
+      "code": 24212820,
+      "file": "c24212820.lua",
+      "name": "The Phantom Knights of Dark Gauntlets",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "825b3760a05f4d7f947cfff79d7b89636bcd0f2113db19f09511620e5717610b",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
+    },
+    {
       "code": 24514503,
       "file": "c24514503.lua",
       "name": "Soulicer Crystal",
@@ -1010,6 +1244,24 @@
       ],
       "replace": true,
       "stockSha256": "9e3c4c3787d7eda606ba1d80444ea47aaa0836b459cf074ae13afc6afa1b08bc"
+    },
+    {
+      "code": 24731453,
+      "file": "c24731453.lua",
+      "name": "Snow Plow Hustle Rustle",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "4e366e25b356c50dd5739c56e86f2c37b8cf9a1cf42955b2692bc7cd277d2d39",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
     },
     {
       "code": 25274141,
@@ -1046,6 +1298,24 @@
       "stockSha256": "d22769cec678669c6d56d296ac82acb6519c1146b18a46a2940d1bd1a4746749"
     },
     {
+      "code": 25669282,
+      "file": "c25669282.lua",
+      "name": "Burnout",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "fed2f4543bcc7f2b266b214d569f1244eb3abd46e44ec559adb47acbd3718bd1",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
+    },
+    {
       "code": 25926710,
       "file": "c25926710.lua",
       "name": "Kelbek the Ancient Vanguard",
@@ -1054,6 +1324,42 @@
         "R1"
       ],
       "stockSha256": "7bf55c3d6d037af36db5c32628b5cde0febf4b60340f189d56f1cd3fe1a8dfd0"
+    },
+    {
+      "code": 26775203,
+      "file": "c26775203.lua",
+      "name": "Blackwing - Ghibli the Searing Wind",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "70b8d8d0afbc2a9373ffc35d0831d28ce002a432d5252c19c977e34cae2e19fd",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
+      "code": 27062594,
+      "file": "c27062594.lua",
+      "name": "The Door of Destiny",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "bb26f597aca7525ea85660ea821d53fbad92b5a4fc6273d7c269e4de576a9c79",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 27260347,
@@ -1138,6 +1444,24 @@
       "r2Class": "LITERAL",
       "stockSha256": "4b0b3f19c27381fda1aad05907ebd2cbb3aa51cc6e6b61ee8e4304ef35054fd8",
       "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
+    },
+    {
+      "code": 29400787,
+      "file": "c29400787.lua",
+      "name": "Ghostrick Parade",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "92d6f2d979b6bdf3dd13210c4feea03031b1f9133e63d342202fce8a8c2517e4",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "thcon"
+        ]
+      },
+      "compareIn": [
+        "thcon"
+      ]
     },
     {
       "code": 29599813,
@@ -1338,6 +1662,24 @@
       "stockSha256": "8e26bb6c68fe54e3563199d82a4fd5ad7c2295aee014b18365a1dac03e776993"
     },
     {
+      "code": 33298291,
+      "file": "c33298291.lua",
+      "name": "Dances with Beasts",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "169d03624616e50bad5d9b2e21d7d4bbbe6d7ca0cfebcc1bbf00dbc909c33256",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 33327029,
       "file": "c33327029.lua",
       "name": "Metalfoes Counter",
@@ -1506,6 +1848,24 @@
         "R1"
       ],
       "stockSha256": "741dec2cee2771d962b659961885de0a4286a908e3667603eba1212c0453aefd"
+    },
+    {
+      "code": 36415522,
+      "file": "c36415522.lua",
+      "name": "Performapal Pinch Helper",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "aedaeaffc2c86164fcc9849880d34d36ad09e17416cfd0843076512351af5305",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
     },
     {
       "code": 36668118,
@@ -1869,6 +2229,24 @@
       "note": "Script fix (late-cards, Tag): the 100 LP is asked only in the Standby Phase of the duelist that owns the card, not in the Standby Phase of its partner (Duel.MPTurnOwns). The team LP pays. Not part of R1."
     },
     {
+      "code": 44891812,
+      "file": "c44891812.lua",
+      "name": "Superheavy Samurai Helper",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "58dddc7ff964a15cfa9c8063e6741ea39484abb0727e138e5b9ce0a75ba73459",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
+    },
+    {
       "code": 44968459,
       "file": "c44968459.lua",
       "name": "Silent Burning",
@@ -1959,6 +2337,24 @@
         "R1"
       ],
       "stockSha256": "55127880a2557cf77a7fc6de8bcd2ad38c9259a3306d37c9c64286633d8f54b1"
+    },
+    {
+      "code": 46613515,
+      "file": "c46613515.lua",
+      "name": "Clear Kuriboh",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "57a8e64b88c96b83a478a776cd8960b1a51c2b33b22668c774847a12aef5a119",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "drcon"
+        ]
+      },
+      "compareIn": [
+        "drcon"
+      ]
     },
     {
       "code": 46772449,
@@ -2089,6 +2485,42 @@
       "r2Class": "FLAG-L0",
       "stockSha256": "2bf11067b480216086cad25fadf6c1e054a757b2e3aac509304c4a7686abd95c",
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 49838105,
+      "file": "c49838105.lua",
+      "name": "Sylvan Waterslide",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "184abd94daa1d3ea5b64ff36d5f3193664b9165aa642c49514030210d045eb95",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
+      "code": 49966595,
+      "file": "c49966595.lua",
+      "name": "Graydle Parasite",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "286581cd501e05e10cb558b679658b5bdfcded54734ca04fa1dd7adfc144b105",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon1"
+        ]
+      },
+      "compareIn": [
+        "spcon1"
+      ]
     },
     {
       "code": 50042011,
@@ -2274,6 +2706,42 @@
       "note": "the global check asks Duel.GetBattleMonster for the literals 0 and 1 and writes the flag for 0 and 1; it asks for every real seat and writes the flag of the seat of the battle monster (flag keyed by seat in FFA, team in Tag)."
     },
     {
+      "code": 53819028,
+      "file": "c53819028.lua",
+      "name": "Predaplant Sarraceniant",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "6f0b8f2c95ce825f913342092b532e0364154557019cd16717dcf6b6ea3f359b",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
+    },
+    {
+      "code": 54512827,
+      "file": "c54512827.lua",
+      "name": "Ghostrick Lantern",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "d47a5322144338e9ff41ba3659d7b39c3c29ac0e9269c12d8d2deb45bdc0702f",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon1"
+        ]
+      },
+      "compareIn": [
+        "spcon1"
+      ]
+    },
+    {
       "code": 54564198,
       "file": "c54564198.lua",
       "name": "Monster Rebirth",
@@ -2452,6 +2920,24 @@
       "stockSha256": "bba517904b492d90fccdc1d5e2d9e32f5164bc4d8769d37286b3ec6e6863930b"
     },
     {
+      "code": 59762399,
+      "file": "c59762399.lua",
+      "name": "Performapal Odd-Eyes Light Phoenix",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "2e23d678b28bd2aa70986561bd9126d5f5b2d1b92a55bc9382eac480966f7880",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
+    },
+    {
       "code": 60018643,
       "file": "c60018643.lua",
       "name": "Cynet Codec",
@@ -2521,6 +3007,24 @@
       "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
     },
     {
+      "code": 61318483,
+      "file": "c61318483.lua",
+      "name": "Ghostrick Jackfrost",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "dfa00173dd22ff730794f3974375f4cb02d80e13b56ab004d64e4a1b68e13a4a",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
+    },
+    {
       "code": 61622107,
       "file": "c61622107.lua",
       "name": "Bubble Crash",
@@ -2577,6 +3081,24 @@
         "condition"
       ],
       "stockSha256": "728e35ca22ffc93a9a383ed853062d452c7cc4057370ab8c690e22c76b9aa52f"
+    },
+    {
+      "code": 62017867,
+      "file": "c62017867.lua",
+      "name": "Superheavy Samurai Gigagloves",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "168ec167f196a8626029107eb612d5898ffa1dab04863e50ccde1d2175df6b8b",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "atkcon"
+        ]
+      },
+      "compareIn": [
+        "atkcon"
+      ]
     },
     {
       "code": 62098216,
@@ -2659,6 +3181,24 @@
         "R1"
       ],
       "stockSha256": "ead5481f7ca0d03da0a45f4dc9ff0765f82f7b2de25b41fc8c33bfa2b821e868"
+    },
+    {
+      "code": 64605089,
+      "file": "c64605089.lua",
+      "name": "Swordsman of Revealing Light",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "7e5fbab621b31d80a922268151016de596266ab388a4abf2ade17a215d900d3e",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 65541655,
@@ -2751,6 +3291,24 @@
       ]
     },
     {
+      "code": 67385964,
+      "file": "c67385964.lua",
+      "name": "Gladiator Beast Noxious",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "1745b93b00950f05f58ad33ed7bffe9fb5ec9074a01705ceea89a37003efbc3b",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "hspcon"
+        ]
+      },
+      "compareIn": [
+        "hspcon"
+      ]
+    },
+    {
       "code": 67443336,
       "file": "c67443336.lua",
       "name": "Balance of Judgment",
@@ -2794,6 +3352,24 @@
       "stockSha256": "7d002b3547fd58d862faa59970b1aa719bb4eb04f1452f1670835ddc4f12ad4b"
     },
     {
+      "code": 68120130,
+      "file": "c68120130.lua",
+      "name": "Junk Defender",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "ab1721c56186bf976dadb08d94ff20c809e69086acaba8c54462a0f39bddf2d5",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
+    },
+    {
       "code": 68199168,
       "file": "c68199168.lua",
       "name": "Harr, Generaider Boss of Storms",
@@ -2824,6 +3400,42 @@
       "stockSha256": "3693e2446758134c6e861dff80d9490027144da1606540e815640ae227af499d"
     },
     {
+      "code": 69181753,
+      "file": "c69181753.lua",
+      "name": "Performapal Kuribohble",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "0a6d7955a79e1d1fc2eb5cf2e37d2e8f86ac0fa14b9df993c934f2fcb7baad24",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
+      "code": 69304426,
+      "file": "c69304426.lua",
+      "name": "Artifact Vajra",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "b48404c2639f2e04d7331d31e559d0ff7742ca7d0d156d9b4f2e622bfb463372",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "hspcon"
+        ]
+      },
+      "compareIn": [
+        "hspcon"
+      ]
+    },
+    {
       "code": 69402394,
       "file": "c69402394.lua",
       "name": "Dark Scheme",
@@ -2832,6 +3444,24 @@
         "R1"
       ],
       "stockSha256": "fbad42ee891317236159bcfca671bd7cd05a9f1919f835e9f7bf228958e84e04"
+    },
+    {
+      "code": 69838592,
+      "file": "c69838592.lua",
+      "name": "Yosenju Oyam",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "a10fb7312c526ebd837bb587beb990cb91a3631e97216adf235036895cd6a525",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
     },
     {
       "code": 69840739,
@@ -2979,6 +3609,24 @@
         "hspcon"
       ],
       "stockSha256": "5272b6f3bf15e3e1703e4161e35a09e22f572a294b3f20637f76f0fd5914dd14"
+    },
+    {
+      "code": 71985676,
+      "file": "c71985676.lua",
+      "name": "Performapal Inflater Tapir",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "6bf31275ac4745d9fc15c995f338cf99eb38399d0176e02b1a4116e6a8538096",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
     },
     {
       "code": 72402069,
@@ -3219,6 +3867,24 @@
       "stockSha256": "e216d9c5472d495c75aa60d9ffa834099683c559744d72e88594df621d5272aa"
     },
     {
+      "code": 77462146,
+      "file": "c77462146.lua",
+      "name": "The Phantom Knights of Shadow Veil",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "4c607de797738217ea9c446dee1b30f1d638c88f968d8eca645ff701ccf78ca6",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
+    },
+    {
       "code": 77482666,
       "file": "c77482666.lua",
       "name": "Swiftwind Panther Warrior",
@@ -3283,6 +3949,24 @@
         "R1"
       ],
       "stockSha256": "50c3dcab9adfcaa8421181d46a83499e18eee56f1fb2ccbbabda6fad392e9aee"
+    },
+    {
+      "code": 80208158,
+      "file": "c80208158.lua",
+      "name": "D.D. Esper Star Sparrow",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "56b1b4c455c2dc3ed94ec207ab3ea33d469bf1a603ab54a4a6564bb5bf52abe3",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "spcon"
+        ]
+      },
+      "compareIn": [
+        "spcon"
+      ]
     },
     {
       "code": 80453041,
@@ -3947,6 +4631,24 @@
       "stockSha256": "88e8ba425dd0a0b82a005178a8899cb2f97fd54b4425d3c97fcf4c4ead48bdf1"
     },
     {
+      "code": 92530005,
+      "file": "c92530005.lua",
+      "name": "Performage Ball Balancer",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "35998b58d81cc8cc915e23c52c9ee9306037314694251448a8877eae3bf82dc6",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "gyspcon"
+        ]
+      },
+      "compareIn": [
+        "gyspcon"
+      ]
+    },
+    {
       "code": 92933195,
       "file": "c92933195.lua",
       "name": "Mist Valley Windmaster",
@@ -4055,6 +4757,24 @@
       "note": "the check raises the event with a bit mask of the controller keys; the condition asks for any key except the own one (stock compared the value with 0, which is only the first seat at more than two seats)."
     },
     {
+      "code": 94561645,
+      "file": "c94561645.lua",
+      "name": "Counter Gate",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "d044df4b6c500f384b6d91012e4c65feb4ee2ae5670a741c2357d96b10ade31f",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 94585852,
       "file": "c94585852.lua",
       "name": "Pandemonium",
@@ -4079,6 +4799,24 @@
       ],
       "replace": true,
       "stockSha256": "0857b1661f3f66e3d5d6b43ce6ba2f9511e0b1122980d1f9012336d0a11fc16c"
+    },
+    {
+      "code": 94804055,
+      "file": "c94804055.lua",
+      "name": "Firewall",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "1034aff4f5ac824d5c2c02d8a2d1e692c3fa91bfc708085186d2042fb4b7ddb6",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "atkcon"
+        ]
+      },
+      "compareIn": [
+        "atkcon"
+      ]
     },
     {
       "code": 94919024,
