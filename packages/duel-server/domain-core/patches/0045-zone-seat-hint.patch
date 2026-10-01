@@ -1,0 +1,262 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Mon, 14 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: name the seat of an opponent-field place prompt at n >
+ 2
+
+The place mask has one high half for "the opponent". With more than two
+duelists the message did not say which one, and the answer check accepted
+any living seat.
+
+The SelectPlace process gets a target seat (default DUELIST_NONE, the old
+behaviour). The callers that offer the zones of another field pass the owner
+of that field: MoveToField and Special Summon (move_to_field, two sites),
+SSet to another field (SpellSetGroup), Duel.SelectFieldZone (the bound
+opponent of the link, else the next living opponent) and Duel.SelectDisableField
+(the next living duelist in turn order). The other callers offer own zones only.
+
+At n > 2, when the mask offers a zone of the other field and the target is
+named, the core writes MSG_HINT type 0xF0 (HINT_PLACE_SEAT, player = the
+prompted seat, data = the target seat) right before MSG_SELECT_PLACE or
+MSG_SELECT_DISFIELD. A high half answer must name the target seat exactly,
+else MSG_RETRY. With no target seat the old rule stays. The simple AI and
+skipped-seat answer uses the target seat.
+
+SelectDisableField and SelectFieldZone offer the zones of that one seat only.
+SelectDisableField names the next living duelist in turn order, because the
+EFFECT_DISABLE_FIELD code binds the high half of its value to that seat. The
+zones that are offered are the zones that get disabled. It used the next seat
+even when dead. It now skips the opponent zones when nobody else lives or that
+seat is on the same team. SelectFieldZone uses the bound opponent, as the
+reads with 1-tp do.
+
+n == 2 is unchanged: no hint, the same rule, the same bytes.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ libduel.cpp        | 44 ++++++++++++++++++++++++++++++++++++++------
+ ocgapi_constants.h |  1 +
+ operations.cpp     |  6 +++---
+ playerop.cpp       | 25 ++++++++++++++++++++-----
+ processor_unit.h   |  9 +++++----
+ 5 files changed, 67 insertions(+), 18 deletions(-)
+
+diff --git a/libduel.cpp b/libduel.cpp
+index c2f80ea..164b3e9 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -3553,6 +3553,22 @@ LUA_STATIC_FUNCTION(SelectPosition) {
+ 		return 1;
+ 	});
+ }
++// n_duelists > 2: the one opponent whose zones a place prompt of `seat` offers (the high half of the mask).
++// The bound opponent of the link when seat is the scope duelist, else the next living opponent in turn order
++// (a kind (a) record when the scope duelist falls back). DUELIST_NONE when nobody else lives.
++static uint8_t f8_place_target(duel* pduel, uint8_t seat, const char* fn) {
++	const auto& f = *pduel->game_field;
++	if(const auto* s = fold::active(pduel); s && s->P == seat) {
++		const uint8_t bound = pduel->lua->scope_bound_opp();
++		if(f.is_alive(bound) && !f.same_team(seat, bound))
++			return bound;
++		const uint8_t next = fold::next_opponent(f, seat);
++		if(next != DUELIST_NONE)
++			pduel->lua->fold_trap('a', fn);
++		return next;
++	}
++	return fold::next_opponent(f, seat);
++}
+ LUA_STATIC_FUNCTION(SelectDisableField) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 5);
+@@ -3572,8 +3588,17 @@ LUA_STATIC_FUNCTION(SelectDisableField) {
+ 	filter |= lua_get<uint32_t>(L, 5, filter);
+ 	uint32_t ct1 = 0, ct2 = 0, ct3 = 0, ct4 = 0, plist = 0, flag = 0xffffffff;
+ 	// The high half of the mask is the zones of one opponent. With more than two duelists it is the next living
+-	// duelist in turn order (the one the field-disabled code binds), and it is skipped when nobody else lives.
+-	const uint8_t oppid = pduel->game_field->n_duelists == 2 ? pduel->game_field->opponent_of(playerid) : pduel->game_field->next_in_turn_order(playerid);
++	// duelist in turn order: the seat that the EFFECT_DISABLE_FIELD code (add_disabled_zones_n) binds the high half
++	// to, so the zones that are offered are the zones that get disabled. It is skipped when nobody else lives or
++	// that seat is on the same team. (SelectFieldZone is different: its result is read back with 1-tp, so it uses
++	// the bound opponent.)
++	uint8_t target = DUELIST_NONE;
++	if(pduel->game_field->n_duelists > 2) {
++		const uint8_t next = pduel->game_field->next_in_turn_order(playerid);
++		if(next != playerid && !pduel->game_field->same_team(playerid, next))
++			target = next;
++	}
++	const uint8_t oppid = pduel->game_field->n_duelists == 2 ? pduel->game_field->opponent_of(playerid) : target;
+ 	if(location1 & LOCATION_MZONE) {
+ 		ct1 = pduel->game_field->get_useable_count(nullptr, playerid, LOCATION_MZONE, pduel->game_field->none_id(), LOCATION_REASON::NONE, 0xff, &plist);
+ 		if (all_field) {
+@@ -3608,7 +3633,7 @@ LUA_STATIC_FUNCTION(SelectDisableField) {
+ 		}
+ 		flag = (flag & 0xffff00ff) | (plist << 8);
+ 	}
+-	if((location2 & LOCATION_MZONE) && oppid != playerid) {
++	if((location2 & LOCATION_MZONE) && oppid != playerid && pduel->game_field->is_duelist(oppid)) {
+ 		ct3 = pduel->game_field->get_useable_count(nullptr, oppid, LOCATION_MZONE, pduel->game_field->none_id(), LOCATION_REASON::NONE, 0xff, &plist);
+ 		if (all_field) {
+ 			plist &= ~0x60;
+@@ -3623,7 +3648,7 @@ LUA_STATIC_FUNCTION(SelectDisableField) {
+ 		}
+ 		flag = (flag & 0xff00ffff) | (plist << 16);
+ 	}
+-	if((location2 & LOCATION_SZONE) && oppid != playerid) {
++	if((location2 & LOCATION_SZONE) && oppid != playerid && pduel->game_field->is_duelist(oppid)) {
+ 		ct4 = pduel->game_field->get_useable_count(nullptr, oppid, LOCATION_SZONE, pduel->game_field->none_id(), LOCATION_REASON::NONE, 0xff, &plist);
+ 		if (all_field) {
+ 			plist &= ~0xe0;
+@@ -3647,7 +3672,7 @@ LUA_STATIC_FUNCTION(SelectDisableField) {
+ 		count = ct1 + ct2 + ct3 + ct4;
+ 	if(count == 0)
+ 		return 0;
+-	pduel->game_field->emplace_process<Processors::SelectDisField>(playerid, flag, count);
++	pduel->game_field->emplace_process<Processors::SelectDisField>(playerid, flag, count, target);
+ 	return yieldk({
+ 		auto playerid = lua_get<uint8_t>(L, 1);
+ 		auto count = lua_get<uint8_t>(L, 2);
+@@ -3687,9 +3712,16 @@ LUA_STATIC_FUNCTION(SelectFieldZone) {
+ 	if(location2 & LOCATION_SZONE)
+ 		flag &= 0xffffff;
+ 	flag |= filter;
++	// n_duelists > 2: the high half is the zones of one opponent; nobody else alive closes it
++	uint8_t target = DUELIST_NONE;
++	if(pduel->game_field->n_duelists > 2 && (location2 & (LOCATION_MZONE | LOCATION_SZONE))) {
++		target = f8_place_target(pduel, playerid, "SelectFieldZone");
++		if(target == DUELIST_NONE)
++			flag |= 0xffff0000;
++	}
+ 	if (flag == 0xffffffff)
+ 		return 0;
+-	pduel->game_field->emplace_process<Processors::SelectDisField>(playerid, flag, count);
++	pduel->game_field->emplace_process<Processors::SelectDisField>(playerid, flag, count, target);
+ 	return yieldk({
+ 		auto playerid = lua_get<uint8_t>(L, 1);
+ 		auto count = lua_get<uint8_t>(L, 2);
+diff --git a/ocgapi_constants.h b/ocgapi_constants.h
+index cdc0f4c..9f23cef 100644
+--- a/ocgapi_constants.h
++++ b/ocgapi_constants.h
+@@ -312,6 +312,7 @@
+ #define HINT_NUMBER     9
+ #define HINT_CARD       10
+ #define HINT_ZONE       11
++#define HINT_PLACE_SEAT 0xF0 /* n > 2 only: data = the seat whose field the opponent zones of the next place prompt belong to */
+ 
+ /* Card Hints */
+ #define CHINT_TURN        1
+diff --git a/operations.cpp b/operations.cpp
+index d48e5d3..b3480f7 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -3047,7 +3047,7 @@ bool field::process(Processors::SpellSetGroup& arg) {
+ 		message->write<uint8_t>(HINT_SELECTMSG);
+ 		message->write<uint8_t>(setplayer);
+ 		message->write<uint64_t>(target->data.code);
+-		emplace_process<Processors::SelectPlace>(setplayer, flag, 1);
++		emplace_process<Processors::SelectPlace>(setplayer, flag, 1, setplayer == toplayer ? DUELIST_NONE : toplayer);
+ 		return FALSE;
+ 	}
+ 	case 2: {
+@@ -5184,7 +5184,7 @@ bool field::process(Processors::MoveToField& arg) {
+ 			message->write<uint8_t>(HINT_SELECTMSG);
+ 			message->write<uint8_t>(move_player);
+ 			message->write<uint64_t>(target->data.code);
+-			emplace_process<Processors::SelectPlace>(move_player, flag, 1);
++			emplace_process<Processors::SelectPlace>(move_player, flag, 1, move_player == playerid ? DUELIST_NONE : playerid);
+ 		} else {
+ 			uint32_t flag;
+ 			LOCATION_REASON real_reason = LOCATION_REASON::TOFIELD;
+@@ -5264,7 +5264,7 @@ bool field::process(Processors::MoveToField& arg) {
+ 			message->write<uint8_t>(HINT_SELECTMSG);
+ 			message->write<uint8_t>(move_player);
+ 			message->write<uint64_t>(target->data.code);
+-			emplace_process<Processors::SelectPlace>(move_player, flag, 1);
++			emplace_process<Processors::SelectPlace>(move_player, flag, 1, move_player == playerid ? DUELIST_NONE : playerid);
+ 		}
+ 		return FALSE;
+ 	}
+diff --git a/playerop.cpp b/playerop.cpp
+index 5e2650b..34c769e 100644
+--- a/playerop.cpp
++++ b/playerop.cpp
+@@ -540,6 +540,8 @@ bool field::process(Processors::SelectPlace& arg) {
+ 	auto flag = arg.flag;
+ 	auto count = arg.count;
+ 	auto disable_field = arg.disable_field;
++	// n_duelists > 2: the seat whose field the opponent zones belong to (DUELIST_NONE = not named, or the own field)
++	const uint8_t target = (n_duelists > 2 && arg.target != playerid) ? arg.target : DUELIST_NONE;
+ 	if(arg.step == 0) {
+ 		if(count == 0) {
+ 			auto message = pduel->new_message(MSG_HINT);
+@@ -550,15 +552,19 @@ bool field::process(Processors::SelectPlace& arg) {
+ 		}
+ 		if(is_skipped_seat(playerid) || ((playerid == 1) && is_flag(DUEL_SIMPLE_AI))) {
+ 			// the seats the simple AI answers with: itself (1) and its opponent (0). A seat that is not
+-			// alive answers with its own seat and the first living other seat.
++			// alive answers with its own seat and the target seat (the first living other seat when none is named).
+ 			uint8_t own_seat = 1, other_seat = 0;
+ 			if(n_duelists > 2) {
+ 				own_seat = playerid;
+ 				other_seat = playerid;
+-				for(uint8_t q = 0; q < n_duelists; ++q) {
+-					if(q != playerid && is_alive(q)) {
+-						other_seat = q;
+-						break;
++				if(is_alive(target)) {
++					other_seat = target;
++				} else {
++					for(uint8_t q = 0; q < n_duelists; ++q) {
++						if(q != playerid && is_alive(q)) {
++							other_seat = q;
++							break;
++						}
+ 					}
+ 				}
+ 			}
+@@ -606,6 +612,13 @@ bool field::process(Processors::SelectPlace& arg) {
+ 			}
+ 			return TRUE;
+ 		}
++		if(target != DUELIST_NONE && (~flag & 0xffff0000u)) {
++			// the mask has one high half: tell the client which opponent it is
++			auto hint = pduel->new_message(MSG_HINT);
++			hint->write<uint8_t>(HINT_PLACE_SEAT);
++			hint->write<uint8_t>(playerid);
++			hint->write<uint64_t>(target);
++		}
+ 		auto message = pduel->new_message(disable_field ? MSG_SELECT_DISFIELD : MSG_SELECT_PLACE);
+ 		message->write<uint8_t>(playerid);
+ 		message->write<uint8_t>(count);
+@@ -623,6 +636,8 @@ bool field::process(Processors::SelectPlace& arg) {
+ 			if(n_duelists > 2 ? !is_alive(select_player) : !is_duelist(select_player))
+ 				return retry();
+ 			const bool isplayerid = (select_player == playerid);
++			if(target != DUELIST_NONE && !isplayerid && select_player != target)
++				return retry();
+ 			uint8_t location = returns.at<uint8_t>(pt + 1);
+ 			if(location != LOCATION_MZONE && location != LOCATION_SZONE)
+ 				return retry();
+diff --git a/processor_unit.h b/processor_unit.h
+index bd17396..744fc11 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -117,12 +117,13 @@ struct SelectPlace : public Process<true> {
+ 	uint8_t count;
+ 	uint32_t flag;
+ 	bool disable_field;
+-	SelectPlace(uint16_t step_, uint8_t playerid_, uint32_t flag_, uint8_t count_) :
+-		Process(step_), playerid(playerid_), count(count_), flag(flag_), disable_field(false) {}
++	uint8_t target; // n_duelists > 2: the seat whose field the opponent zones of flag belong to, DUELIST_NONE = not named
++	SelectPlace(uint16_t step_, uint8_t playerid_, uint32_t flag_, uint8_t count_, uint8_t target_ = DUELIST_NONE) :
++		Process(step_), playerid(playerid_), count(count_), flag(flag_), disable_field(false), target(target_) {}
+ };
+ struct SelectDisField : SelectPlace {
+-	SelectDisField(uint16_t step_, uint8_t playerid_, uint32_t flag_, uint8_t count_) :
+-		SelectPlace(step_, playerid_, flag_, count_) {
++	SelectDisField(uint16_t step_, uint8_t playerid_, uint32_t flag_, uint8_t count_, uint8_t target_ = DUELIST_NONE) :
++		SelectPlace(step_, playerid_, flag_, count_, target_) {
+ 		disable_field = true;
+ 	}
+ };

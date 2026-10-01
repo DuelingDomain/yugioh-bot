@@ -55,6 +55,7 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 | `0042-not-alive-seat-guards.patch` | A seat that is not alive gets no prompt, no card on its field and no control change at `n > 2`. New `is_skipped_seat(p)` in `field.h`. The core answers for such a seat with the stock "no choice" answer. | None with 2 duelists. Every change is in an `n > 2` branch. |
 | `0043-shared-fold-helpers.patch` | The local fold helpers of `libduel`, `libcard` and `libgroup` move to `fold_lib.h`. `Group.SelectWithSumEqual` and `SelectWithSumGreater` clear stale forced cards. `field::add_effect` swaps the ranges of an absolute free for all effect. `Destroy` drops a card with no location and no controller. | None with 2 duelists. The move and rename is pure. |
 | `0044-opponent-binding.patch` | At `n > 2` Lua "1" (one opponent) is bound when the effect is activated and stays for the whole chain link. Order: the event opponent (a battle names the other side), then a probe at `AddChain` step 0, then a lazy prompt in a yieldable cost or target. One opponent binds with no prompt. Several: the activator gets `MSG_SELECT_OPTION` with desc `0xFFFE0000\|seat`. Summon procedures with a range on the opponent side ask in `SpSummonRule`. In Tag the pick is between the opponent seats. Team level calls (`GetLP`, `CheckLPCost`, `SetTargetPlayer`, the operation info player) need no pick. A bound opponent that is eliminated before the link resolves gives an empty result (ADR 0002). | None with 2 duelists. Every new path is guarded by `n_duelists > 2`. |
+| `0045-zone-seat-hint.patch` | The `SelectPlace` process gets a target seat (default `DUELIST_NONE`). At `n > 2` a prompt for the zones of another field writes `MSG_HINT` type `0xF0` (`HINT_PLACE_SEAT`) with the target seat before `MSG_SELECT_PLACE` or `MSG_SELECT_DISFIELD`. A high half answer must name that seat, else `MSG_RETRY`. | None with 2 duelists. The default target is the old behaviour. |
 
 ## Commands
 
@@ -140,7 +141,7 @@ The same fix is useful for the production standard core. It is not applied there
 ## Status of the series
 
 - Patches 2, 3 and 4 pass the differential gate. The reference is patches 1 and 2. The multi core is patches 1 to 4.
-- The results in this section are for patches 1 to 4. They were not repeated for patches 5 to 44 when these files were added.
+- The results in this section are for patches 1 to 4. They were not repeated for patches 5 to 45 when these files were added.
 - Before the freed-effect fix: 200 seeds (base seed 20260930) and 1,000 seeds gave zero stock differences and zero multi differences.
 - With the freed-effect fix and the raw byte check: 200 seeds with patches 1 to 3 give zero differences and zero parse
   warnings. Patch 4 passes the 6 seeds that failed before (1577499120, 1916473771, 1025441889, 1578551883, 1116767578,
