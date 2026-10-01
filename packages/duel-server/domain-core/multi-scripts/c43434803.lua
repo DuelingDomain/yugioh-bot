@@ -24,24 +24,37 @@ function s.target(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
 	Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_SPSUMMON)
 	local g=Duel.SelectTarget(tp,s.filter,tp,LOCATION_GRAVE,0,1,1,nil,e,tp)
 	e:SetLabelObject(g:GetFirst())
-	aux.MPEachOpponent(function()
+	-- picks[i] is the target of the i-th opposing duelist (the operation reads it in the same window order)
+	s.picks={}
+	aux.MPEachOpponent(function(i)
 		if Duel.IsExistingTarget(s.filter,1-tp,LOCATION_GRAVE,0,1,nil,e,1-tp)
 			and Duel.GetLocationCount(1-tp,LOCATION_MZONE,1-tp)>0 then
 			Duel.Hint(HINT_SELECTMSG,1-tp,HINTMSG_SPSUMMON)
-			g:Merge(Duel.SelectTarget(1-tp,s.filter,1-tp,LOCATION_GRAVE,0,1,1,nil,e,1-tp))
+			local og=Duel.SelectTarget(1-tp,s.filter,1-tp,LOCATION_GRAVE,0,1,1,nil,e,1-tp)
+			s.picks[i]=og:GetFirst()
+			g:Merge(og)
 		end
 	end)()
-	Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,#g,PLAYER_ALL,g:GetFirst():GetOwner())
+	-- The core accepts PLAYER_ALL with CATEGORY_SPECIAL_SUMMON only for a group of exactly 2 cards (the summon counters of both players).
+	-- With 3 or more targets (FFA3, FFA4) the info names the activating player alone.
+	if #g==2 then
+		Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,#g,PLAYER_ALL,g:GetFirst():GetOwner())
+	else
+		Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,#g,tp,0)
+	end
 end
 function s.operation(e,tp,eg,ep,ev,re,r,rp)
 	local sc=e:GetLabelObject()
 	local g=Duel.GetChainInfo(0,CHAININFO_TARGET_CARDS)
-	for tc in aux.Next(g) do
-		if tc:IsRelateToEffect(e) then
-			local p=tp
-			if tc~=sc then p=tc:GetControler() end
-			Duel.SpecialSummonStep(tc,0,p,p,false,false,POS_FACEDOWN_DEFENSE)
-		end
+	if sc and sc:IsRelateToEffect(e) then
+		Duel.SpecialSummonStep(sc,0,tp,tp,false,false,POS_FACEDOWN_DEFENSE)
 	end
+	-- One window per opposing duelist: the target of that duelist is Special Summoned to its own field.
+	aux.MPEachOpponent(function(i)
+		local tc=s.picks and s.picks[i]
+		if tc and g:IsContains(tc) and tc:IsRelateToEffect(e) then
+			Duel.SpecialSummonStep(tc,0,1-tp,1-tp,false,false,POS_FACEDOWN_DEFENSE)
+		end
+	end)()
 	Duel.SpecialSummonComplete()
 end
