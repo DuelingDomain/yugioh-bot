@@ -3,7 +3,8 @@
 // Board: every duelist has one Blue-Eyes (vanilla) in the Monster Zone and one set Raigeki in the Spell/Trap Zone,
 // and a Deck. Seat 1 also has a face-up Jinzo. The real card scripts come from data/duel-engine-next/card-scripts.
 // The queries run from Lua at the first Main Phase prompt of the turn player, with the raw seat as the player
-// argument (a bare script has no Lua scope, so the raw core seat is used). Inside an effect Lua sees 0 and 1 only.
+// argument (a bare script has no Lua scope, so the raw core seat is used). Inside an effect that belongs to a card Lua
+// sees 0 and 1 only (the fold). Inside a global effect (patch 0053) Lua sees real seats. The destroy part runs both.
 // Modes:
 //   check      ffa3, ffa4, tag, identity
 //   trap-n3    (trap build) a 3 duelist duel with the same board: prints the first trap, exit 0 if a trap line is seen
@@ -259,6 +260,76 @@ static std::string seats_str(std::vector<int> v) {
 	return s;
 }
 
+// Real destroy: an EVENT_ADJUST operation destroys the Raigeki group (all opposing monsters) and the Duster group (all
+// opposing Spell/Trap cards). Duel.Destroy is not allowed from a bare script, so it runs in an effect. Which duelist is
+// "the opposing side" depends on the kind of effect (patch 0053, R2 rule 1):
+//   Card          the effect belongs to the Blue-Eyes of seat `who`. It has a seat, so Lua sees the folded values (0 = the
+//                 owner, 1 = the opponents): the query player 0 is `who`.
+//   Global        Effect.GlobalEffect registered for seat 0 (not for `who`). It has no seat and no fold, so the query
+//                 player is a real seat: `who`. The seat that registered it plays no part.
+//   GlobalSeat1   a global effect that queries with the literal player 1. That is real seat 1, not "the opponents": the
+//                 side that is hit is every duelist that is not on the team of seat 1.
+// The monsters and Spell/Traps of the hit duelists must be gone, all others unchanged.
+enum class Kill { Card, Global, GlobalSeat1 };
+static void check_destroy(const Layout& l, Kill kind) {
+	const char* label = kind == Kill::Card ? "card effect" : kind == Kill::Global ? "global effect" : "global effect, literal seat 1";
+	OCG_Duel d = make_duel();
+	EXPECT(run_lua(d, setup_code(l)), "%s: SetupDuelists", l.name);
+	build_board(d, l);
+	auto& f = F(d);
+	if(!to_idle(d)) {
+		EXPECT(false, "%s (%s): no idle prompt", l.name, label);
+		OCG_DestroyDuel(d);
+		return;
+	}
+	const int who = l.n > 2 ? 2 : 0;
+	const int killer = kind == Kill::GlobalSeat1 ? 1 : who; // the seat whose opponents are destroyed
+	std::vector<int> before_mz(l.n), before_st(l.n);
+	for(int q = 0; q < l.n; ++q) { before_mz[q] = count_zone(f, q, 0); before_st[q] = count_zone(f, q, 1); }
+	const std::string query_player = kind == Kill::Card ? "0" : kind == Kill::Global ? std::to_string(who) : "1";
+	const std::string body =
+		"  Duel.Destroy(Duel.GetMatchingGroup(aux.TRUE," + query_player + ",0,LOCATION_MZONE,nil),REASON_EFFECT)\n"
+		"  Duel.Destroy(Duel.GetMatchingGroup(Card.IsSpellTrap," + query_player + ",0,LOCATION_ONFIELD,nil),REASON_EFFECT)\n"
+		"  Debug.Message(\"CHK killed\")\n"
+		"end)\n";
+	const std::string head = "local done=false\n";
+	const std::string op = "e:SetOperation(function(e,tp)\n  if done then return end\n  done=true\n";
+	std::string kill;
+	if(kind == Kill::Card)
+		kill = head + "local h=Duel.GetFieldCard(" + std::to_string(who) + ",LOCATION_MZONE,0)\nlocal e=Effect.CreateEffect(h)\n"
+		       "e:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)\ne:SetCode(EVENT_ADJUST)\ne:SetRange(LOCATION_MZONE)\n" + op + body + "h:RegisterEffect(e)\n";
+	else
+		kill = head + "local e=Effect.GlobalEffect()\ne:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)\ne:SetCode(EVENT_ADJUST)\n" + op + body +
+		       "Duel.RegisterEffect(e," + (kind == Kill::Global ? std::string("0") : std::to_string(who)) + ")\n";
+	chk_lines.clear();
+	EXPECT(run_lua(d, kill), "%s (%s): destroy script", l.name, label);
+	const uint32_t to_end_phase = 7;
+	OCG_DuelSetResponse(d, &to_end_phase, sizeof(to_end_phase));
+	bool killed = false;
+	for(int i = 0; i < 200 && !killed; ++i) {
+		bool at_idle = false;
+		if(step(d, true, at_idle) == OCG_DUEL_STATUS_END)
+			break;
+		for(const auto& line : chk_lines)
+			killed = killed || line == "killed";
+	}
+	for(int i = 0; i < 4; ++i) {
+		bool at_idle = false;
+		step(d, true, at_idle);
+	}
+	if(std::getenv("CHECK_DEBUG")) { for(const auto& line : chk_lines) std::printf("  chk: %s\n", line.c_str()); for(int q = 0; q < l.n; ++q) std::printf("  seat %d mz %d st %d\n", q, count_zone(f, q, 0), count_zone(f, q, 1)); }
+	EXPECT(killed, "%s (%s): the Destroy operation did not run", l.name, label);
+	for(int q = 0; q < l.n; ++q) {
+		const bool should_die = l.team[q] != l.team[killer];
+		const int expect_mz = should_die ? 0 : before_mz[q];
+		const int expect_st = should_die ? 0 : before_st[q];
+		EXPECT(count_zone(f, q, 0) == expect_mz, "%s (%s): after Raigeki group (seat %d) seat %d has %d monsters, want %d", l.name, label, killer, q, count_zone(f, q, 0), expect_mz);
+		EXPECT(count_zone(f, q, 1) == expect_st, "%s (%s): after Duster group (seat %d) seat %d has %d S/T, want %d", l.name, label, killer, q, count_zone(f, q, 1), expect_st);
+	}
+	std::printf("ok   %s: %s: Destroy on the Raigeki group and the Duster group hit only the other team(s) of seat %d\n", l.name, label, killer);
+	OCG_DestroyDuel(d);
+}
+
 static void check_layout(const Layout& l) {
 	OCG_Duel d = make_duel();
 	EXPECT(run_lua(d, setup_code(l)), "%s: SetupDuelists", l.name);
@@ -367,54 +438,9 @@ end
 	}
 	std::printf("ok   %s: probes from every seat (raigeki/duster groups, counts, hand class, Jinzo, s/o/both ranges), turn player %d\n", l.name, tp);
 
-	// Real destroy: an EVENT_ADJUST operation of seat `who` destroys the Raigeki group (all opposing monsters) and the
-	// Duster group (all opposing Spell/Trap cards). Duel.Destroy is not allowed from a bare script, so it runs in an effect.
-	const int who = l.n > 2 ? 2 : 0;
-	std::vector<int> before_mz(l.n), before_st(l.n);
-	for(int q = 0; q < l.n; ++q) { before_mz[q] = count_zone(f, q, 0); before_st[q] = count_zone(f, q, 1); }
-	const std::string kill = "local who=" + std::to_string(who) + R"LUA(
-local done=false
-local e=Effect.GlobalEffect()
-e:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)
-e:SetCode(EVENT_ADJUST)
-e:SetOperation(function(e,tp)
-  if done then return end
-  done=true
-  -- inside the effect Lua sees the owner (seat `who`) as 0 and the other seats as 1 (the Lua fold)
-  Duel.Destroy(Duel.GetMatchingGroup(aux.TRUE,0,0,LOCATION_MZONE,nil),REASON_EFFECT)
-  Duel.Destroy(Duel.GetMatchingGroup(Card.IsSpellTrap,0,0,LOCATION_ONFIELD,nil),REASON_EFFECT)
-  Debug.Message("CHK killed")
-end)
-Duel.RegisterEffect(e,who)
-)LUA";
-	chk_lines.clear();
-	EXPECT(run_lua(d, kill), "%s: destroy script", l.name);
-	const uint32_t to_end_phase = 7;
-	OCG_DuelSetResponse(d, &to_end_phase, sizeof(to_end_phase));
-	bool killed = false;
-	for(int i = 0; i < 200 && !killed; ++i) {
-		bool at_idle = false;
-		if(step(d, true, at_idle) == OCG_DUEL_STATUS_END)
-			break;
-		for(const auto& line : chk_lines)
-			killed = killed || line == "killed";
-	}
-	for(int i = 0; i < 4; ++i) {
-		bool at_idle = false;
-		step(d, true, at_idle);
-	}
-	if(std::getenv("CHECK_DEBUG")) { for(const auto& line : chk_lines) std::printf("  chk: %s\n", line.c_str()); for(int q = 0; q < l.n; ++q) std::printf("  seat %d mz %d st %d\n", q, count_zone(f, q, 0), count_zone(f, q, 1)); }
-	EXPECT(killed, "%s: the Destroy operation did not run", l.name);
-	for(int q = 0; q < l.n; ++q) {
-		const bool should_die = l.team[q] != l.team[who];
-		const int expect_mz = should_die ? 0 : before_mz[q];
-		const int expect_st = should_die ? 0 : before_st[q];
-		EXPECT(count_zone(f, q, 0) == expect_mz, "%s: after Raigeki group (seat %d) seat %d has %d monsters, want %d", l.name, who, q, count_zone(f, q, 0), expect_mz);
-		EXPECT(count_zone(f, q, 1) == expect_st, "%s: after Duster group (seat %d) seat %d has %d S/T, want %d", l.name, who, q, count_zone(f, q, 1), expect_st);
-	}
-	const int who2 = who;
-	std::printf("ok   %s: Destroy on the Raigeki group (seat %d) and the Duster group (seat %d) hit only the other team(s)\n", l.name, who, who2);
 	OCG_DestroyDuel(d);
+	for(const Kill k : { Kill::Card, Kill::Global, Kill::GlobalSeat1 })
+		check_destroy(l, k);
 }
 
 // n = 2 bytes identical with and without SetupDuelists(2,0,1) on the same board (plus the real card scripts).

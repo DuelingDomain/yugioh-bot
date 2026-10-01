@@ -148,25 +148,38 @@ static bool run_to_idle(OCG_Duel d) {
 // ---- conf / tohand: event players of ConfirmCards
 // A: code 21, seat 3 (monster zone, or grave for tohand). B: code 22, seat 1 (hand, or grave for tohand).
 // The driver runs in the Draw Phase of turn 1 (turn player 0). Seat 2 confirms both cards.
-// Inside an effect Lua sees only "own" (0) and "opponents" (1) (the Lua fold), so seat 2 confirms through an effect that
-// is registered for seat 2 and calls ConfirmCards(0, ...). confirmer = the registering seat ("2"; "0" at n == 2).
+// Two kinds of observer see every group event (patch 0053, R2 rule 1):
+//   "group ..." lines: ONE global effect (Effect.GlobalEffect, registered for seat 0). It has no seat and no fold, so it
+//     sees the real event player and the real controllers: "group CONFIRM ep=3 cards=21(c3)".
+//   "fold ..." lines (n > 2 only): one observer per seat, each an effect of a monster of that seat. It has a seat, so
+//     Lua sees the folded values: ep = 0 exactly when the event player is its seat. The observer of seat q sees "own" (0)
+//     when the event player (or the controller of a card) is q. The line is printed when the last observer has seen the
+//     event, with the raw seat that each observer named.
+// The driver is an effect of a monster of the confirming seat (confirmer: "2"; "0" at n == 2), so ConfirmCards(0, ...)
+// shows the cards to that seat on every core.
 static std::string conf_lua(bool tohand, const char* confirmer = "2") {
-	// Lua sees seats relative to the seat the effect runs for (the Lua fold). To print the raw seats, one observer per
-	// seat watches each group event: the observer of seat q sees "own" (0) exactly when the event player (or the
-	// controller of a card) is q. The line is printed when the last of the observers has seen the event.
-	// A single-card effect sees ep = 0 when the event player is the controller of its card, 1 otherwise.
+	const bool multi = confirmer[0] != '0';
 	std::string s =
-	    "local NSEAT=" + std::string(confirmer[0] == '0' ? "1" : "4") + "\n"
-	    "local RAW=(NSEAT==1)\n" // n == 2: no fold, Lua sees the raw seats
+	    "local NSEAT=" + std::string(multi ? "4" : "1") + "\n"
 	    "local function glob(code,name)\n"
+	    " local e=Effect.GlobalEffect()\n e:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)\n e:SetCode(code)\n"
+	    " e:SetOperation(function(e,tp,eg,ep,ev,re,r,rp)\n"
+	    "  local s=name..' ep='..ep..' cards='\n"
+	    "  local tc=eg:GetFirst()\n"
+	    "  while tc do s=s..tc:GetCode()..'(c'..tc:GetControler()..') ' tc=eg:GetNext() end\n"
+	    "  Debug.Message(s)\n"
+	    " end)\n Duel.RegisterEffect(e,0)\n"
+	    "end\n"
+	    "local function fold(code,name,seq)\n"
 	    " local acc={ep=-1,codes={},ctl={},cnt=0}\n"
 	    " for q=0,NSEAT-1 do\n"
-	    "  local e=Effect.GlobalEffect()\n e:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)\n e:SetCode(code)\n"
+	    "  local h=Debug.AddCard(40+10*seq+q,q,q,LOCATION_MZONE,seq,POS_FACEUP_ATTACK)\n"
+	    "  local e=Effect.CreateEffect(h)\n e:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)\n e:SetCode(code)\n e:SetRange(LOCATION_MZONE)\n"
 	    "  e:SetOperation(function(e,tp,eg,ep,ev,re,r,rp)\n"
-	    "   if RAW then acc.ep=ep elseif ep==0 then acc.ep=q end\n"
+	    "   if ep==0 then acc.ep=q end\n"
 	    "   local i=0\n"
 	    "   local tc=eg:GetFirst()\n"
-	    "   while tc do i=i+1 acc.codes[i]=tc:GetCode() local cc=tc:GetControler() if RAW then acc.ctl[i]=cc elseif cc==0 then acc.ctl[i]=q end tc=eg:GetNext() end\n"
+	    "   while tc do i=i+1 acc.codes[i]=tc:GetCode() if tc:GetControler()==0 then acc.ctl[i]=q end tc=eg:GetNext() end\n"
 	    "   acc.cnt=acc.cnt+1\n"
 	    "   if acc.cnt==NSEAT then\n"
 	    "    local s=name..' ep='..acc.ep..' cards='\n"
@@ -174,7 +187,7 @@ static std::string conf_lua(bool tohand, const char* confirmer = "2") {
 	    "    Debug.Message(s)\n"
 	    "    acc.ep=-1 acc.codes={} acc.ctl={} acc.cnt=0\n"
 	    "   end\n"
-	    "  end)\n Duel.RegisterEffect(e,q)\n"
+	    "  end)\n h:RegisterEffect(e)\n"
 	    " end\n"
 	    "end\n"
 	    "local function single(c,code,name)\n"
@@ -190,16 +203,23 @@ static std::string conf_lua(bool tohand, const char* confirmer = "2") {
 		     "local B=Debug.AddCard(22,1,1,LOCATION_HAND,0,POS_FACEUP_ATTACK)\n";
 	s += "single(A,EVENT_CONFIRM,'single CONFIRM') single(B,EVENT_CONFIRM,'single CONFIRM')\n"
 	     "single(A,EVENT_TOHAND_CONFIRM,'single TOHAND_CONFIRM') single(B,EVENT_TOHAND_CONFIRM,'single TOHAND_CONFIRM')\n"
-	     "glob(EVENT_CONFIRM,'group CONFIRM')\nglob(EVENT_TOHAND_CONFIRM,'group TOHAND_CONFIRM')\n"
-	     "local g=Group.FromCards(A,B)\n";
+	     "glob(EVENT_CONFIRM,'group CONFIRM')\nglob(EVENT_TOHAND_CONFIRM,'group TOHAND_CONFIRM')\n";
+	if(multi)
+		s += "fold(EVENT_CONFIRM,'fold CONFIRM',1)\nfold(EVENT_TOHAND_CONFIRM,'fold TOHAND_CONFIRM',2)\n";
+	s += "local g=Group.FromCards(A,B)\n";
+	// The driver and the confirming effect belong to a monster of the confirming seat, so Lua sees that seat as 0:
+	// ConfirmCards(0,...) shows the cards to the confirmer. (A global effect would name the seat as a real seat.)
+	const std::string c = confirmer;
+	s += "local D=Debug.AddCard(60," + c + "," + c + ",LOCATION_MZONE,3,POS_FACEUP_ATTACK)\n"
+	     "local function drive(code,fn)\n"
+	     " local e=Effect.CreateEffect(D)\n e:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)\n e:SetCode(code)\n e:SetRange(LOCATION_MZONE)\n"
+	     " e:SetOperation(fn)\n D:RegisterEffect(e)\n"
+	     "end\n";
 	if(tohand) {
-		s += "local h=Effect.GlobalEffect()\n h:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)\n h:SetCode(EVENT_TO_HAND)\n"
-		     "h:SetOperation(function(e,tp,eg) Debug.Message('to hand seen') Duel.ConfirmCards(0,eg) end)\n Duel.RegisterEffect(h," + std::string(confirmer) + ")\n"
-		     "local d=Effect.GlobalEffect()\n d:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)\n d:SetCode(EVENT_PHASE_START+PHASE_DRAW)\n"
-		     "d:SetOperation(function() Debug.Message('driver') Duel.SendtoHand(g,nil,REASON_EFFECT) end)\n Duel.RegisterEffect(d,0)\n";
+		s += "drive(EVENT_TO_HAND,function(e,tp,eg) Debug.Message('to hand seen') Duel.ConfirmCards(0,eg) end)\n"
+		     "drive(EVENT_PHASE_START+PHASE_DRAW,function() Debug.Message('driver') Duel.SendtoHand(g,nil,REASON_EFFECT) end)\n";
 	} else {
-		s += "local d=Effect.GlobalEffect()\n d:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)\n d:SetCode(EVENT_PHASE_START+PHASE_DRAW)\n"
-		     "d:SetOperation(function() Debug.Message('driver') Duel.ConfirmCards(0,g) end)\n Duel.RegisterEffect(d," + std::string(confirmer) + ")\n";
+		s += "drive(EVENT_PHASE_START+PHASE_DRAW,function() Debug.Message('driver') Duel.ConfirmCards(0,g) end)\n";
 	}
 	return s;
 }
@@ -238,22 +258,27 @@ static void mode_conf(bool tohand) {
 	// Single events: the controller of each card (A = seat 3, B = seat 1).
 	EXPECT(has(out, "single CONFIRM card=21 ep=0"), "single CONFIRM of the seat 3 card: the event player is its controller (Lua ep 0)");
 	EXPECT(has(out, "single CONFIRM card=22 ep=0"), "single CONFIRM of the seat 1 card: the event player is its controller (Lua ep 0)");
-	// Group events: one per controller, with that controller's cards.
+	// Group events (global observer, real seats): one per controller, with that controller's cards.
 	EXPECT(has(out, "group CONFIRM ep=3 cards=21(c3) "), "group CONFIRM for seat 3 with card 21");
 	EXPECT(has(out, "group CONFIRM ep=1 cards=22(c1) "), "group CONFIRM for seat 1 with card 22");
 	EXPECT(count_prefix(out, "group CONFIRM") == 2, "two group CONFIRM events, saw %d", count_prefix(out, "group CONFIRM"));
-	{
+	// The same events through the folded observers of every seat (effects of a card): the same raw seats.
+	EXPECT(has(out, "fold CONFIRM ep=3 cards=21(c3) "), "fold CONFIRM for seat 3 with card 21");
+	EXPECT(has(out, "fold CONFIRM ep=1 cards=22(c1) "), "fold CONFIRM for seat 1 with card 22");
+	EXPECT(count_prefix(out, "fold CONFIRM") == 2, "two fold CONFIRM events, saw %d", count_prefix(out, "fold CONFIRM"));
+	for(const char* kind : {"group", "fold"}) {
 		// Order of the group events: the turn player is seat 0, so seat 1 comes before seat 3.
-		auto it1 = std::find(out.begin(), out.end(), "group CONFIRM ep=1 cards=22(c1) ");
-		auto it3 = std::find(out.begin(), out.end(), "group CONFIRM ep=3 cards=21(c3) ");
-		EXPECT(it1 < it3, "group CONFIRM events must go seat 1, then seat 3");
+		const std::string l1 = std::string(kind) + " CONFIRM ep=1 cards=22(c1) ", l3 = std::string(kind) + " CONFIRM ep=3 cards=21(c3) ";
+		EXPECT(std::find(out.begin(), out.end(), l1) < std::find(out.begin(), out.end(), l3), "%s CONFIRM events must go seat 1, then seat 3", kind);
 	}
 	if(tohand) {
 		EXPECT(has(out, "single TOHAND_CONFIRM card=21 ep=0"), "single TOHAND_CONFIRM seat 3");
 		EXPECT(has(out, "single TOHAND_CONFIRM card=22 ep=0"), "single TOHAND_CONFIRM seat 1");
-		EXPECT(has(out, "group TOHAND_CONFIRM ep=3 cards=21(c3) "), "group TOHAND_CONFIRM for seat 3");
-		EXPECT(has(out, "group TOHAND_CONFIRM ep=1 cards=22(c1) "), "group TOHAND_CONFIRM for seat 1");
-		EXPECT(count_prefix(out, "group TOHAND_CONFIRM") == 2, "two group TOHAND_CONFIRM events, saw %d", count_prefix(out, "group TOHAND_CONFIRM"));
+		for(const char* kind : {"group", "fold"}) {
+			EXPECT(has(out, std::string(kind) + " TOHAND_CONFIRM ep=3 cards=21(c3) "), "%s TOHAND_CONFIRM for seat 3", kind);
+			EXPECT(has(out, std::string(kind) + " TOHAND_CONFIRM ep=1 cards=22(c1) "), "%s TOHAND_CONFIRM for seat 1", kind);
+			EXPECT(count_prefix(out, (std::string(kind) + " TOHAND_CONFIRM").c_str()) == 2, "two %s TOHAND_CONFIRM events, saw %d", kind, count_prefix(out, (std::string(kind) + " TOHAND_CONFIRM").c_str()));
+		}
 	}
 	std::printf("RESULT %s %s\n", name, failures == before_failures ? "PASS" : "FAIL");
 }

@@ -1,8 +1,13 @@
 // T8 native check: control change and swap control for more than two duelists.
 // Build and run: bash packages/duel-server/scripts/native/checks/run.sh <check name> (see README.md).
-// Every scenario plays a real duel. A Lua global effect at the start of Main Phase 1 of a chosen turn calls
+// Every scenario plays a real duel. A Lua effect at the start of Main Phase 1 of a chosen turn calls
 // Duel.GetControl or Duel.SwapControl with reset PHASE_END. The Adjust at the End Phase must hand the cards back.
 // The check reads the controller of each card after every process step and compares the sequence.
+// Two kinds of effect run every scenario (patch 0053, R2 rule 1):
+//   global  Effect.GlobalEffect registered with Duel.RegisterEffect(e,0) (the GlobalCheck pattern). It belongs to no
+//           seat and its Lua runs without a fold, so every player argument is a REAL seat: Duel.GetControl(c,taker,...).
+//   card    an effect owned by a monster of the taker. It has a seat, so Lua sees the folded values (0 = the owner, 1 =
+//           every opponent): Duel.GetControl(c,0,...) is the taker, and the victim is found by its code.
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -74,7 +79,6 @@ static void add_cards(OCG_Duel d, uint8_t con, uint32_t loc, int count, uint32_t
 	}
 }
 
-static int g_reg = 0; // player the test effect is registered for (the reason player of the control change)
 static bool saw_win = false;
 static int last_unanswered = 0;
 static uint64_t fnv = 1469598103934665603ull;
@@ -159,7 +163,9 @@ static void push(std::vector<int>& v, int x) {
 		v.push_back(x);
 }
 // setup: 0 = no SetupDuelists call (n must be 2), 1 = call it.
-static Result run_scn(int n, int setup, int act_turn, const std::vector<Mon>& mons, const std::string& op, uint32_t seed = 7) {
+// handler_seat < 0: the effect is global (registered for seat 0). handler_seat >= 0: the effect belongs to the monster
+// of that seat (mons must hold a monster there), so it has a seat and Lua sees the folded values.
+static Result run_scn(int n, int setup, int act_turn, const std::vector<Mon>& mons, const std::string& op, int handler_seat = -1, uint32_t seed = 7) {
 	Result r;
 	OCG_Duel d = make_duel(seed);
 	if(setup) {
@@ -189,17 +195,17 @@ static Result run_scn(int n, int setup, int act_turn, const std::vector<Mon>& mo
 	card* c[2] = { nullptr, nullptr };
 	for(size_t i = 0; i < mons.size() && i < 2; ++i)
 		c[i] = F(d).player[mons[i].seat].list_mzone[0];
-	const std::string script =
-		"local done=false\n"
-		"local e=Effect.GlobalEffect()\n"
+	const std::string body =
 		"e:SetType(0x802)\n"
 		"e:SetCode(0x2004)\n"
 		"e:SetOperation(function(e,tp,eg,ep,ev,re,r,rp)\n"
 		"  if not done and Duel.GetTurnCount()==" + std::to_string(act_turn) + " then\n"
 		"    done=true\n" + op + "\n"
 		"  end\n"
-		"end)\n"
-		"Duel.RegisterEffect(e," + std::to_string(g_reg) + ")\n";
+		"end)\n";
+	const std::string script = handler_seat < 0
+		? "local done=false\nlocal e=Effect.GlobalEffect()\n" + body + "Duel.RegisterEffect(e,0)\n"
+		: "local done=false\nlocal h=Duel.GetFieldCard(" + std::to_string(handler_seat) + ",4,0)\nlocal e=Effect.CreateEffect(h)\ne:SetRange(4)\n" + body + "h:RegisterEffect(e)\n";
 	if(!run_lua(d, script)) {
 		r.fail = "effect script: " + last_log;
 		OCG_DestroyDuel(d);
@@ -245,35 +251,49 @@ static std::string show(const std::vector<int>& v) {
 }
 
 // Seat taker takes the monster of seat victim at turn act_turn (taker = turn player when act_turn is taker + 1).
-static void check_get(const char* name, int n, int act_turn, int taker, int victim) {
+// as_global: a global effect with real seats. Otherwise an effect of a monster of the taker (folded values); that
+// monster must stay with the taker.
+static void check_get(const char* name, int n, int act_turn, int taker, int victim, bool as_global) {
 	if(const char* only = std::getenv("CHECK_ONLY")) { if(std::strstr(name, only) == nullptr) return; }
-	g_reg = taker;
 	if(std::getenv("CHECK_TRACE")) std::fprintf(stderr, "== %s\n", name);
-	const auto r = run_scn(n, 1, act_turn, { { victim, victim } },
-		// The effect runs for seat `taker` (g_reg): Lua sees the taker as 0 and every other seat as 1, so the victim
-		// is found by its code, and the taker is 0.
-		"local c=Duel.GetMatchingGroup(function(c) return c:IsCode(" + std::to_string(1000 + victim) + ") end,0,4,4,nil):GetFirst() Duel.GetControl(c,0,0x200,1)");
+	const std::string vcode = std::to_string(1000 + victim);
+	const auto r = as_global
+		// Global: Lua sees real seats. The victim is read from its seat and the taker is named by its seat. The zone
+		// prompt goes to the reason player, which is seat 0 for a global effect, so the taker is named as chooser too
+		// (argument 6) to get the prompt for its own field.
+		? run_scn(n, 1, act_turn, { { victim, victim } },
+		          "local c=Duel.GetFieldCard(" + std::to_string(victim) + ",4,0) Duel.GetControl(c," + std::to_string(taker) + ",0x200,1,0xff," + std::to_string(taker) + ")")
+		// Card: Lua sees the taker as 0 and every other seat as 1, so the victim is found by its code.
+		: run_scn(n, 1, act_turn, { { victim, victim }, { taker, taker } },
+		          "local c=Duel.GetMatchingGroup(function(c) return c:IsCode(" + vcode + ") end,0,4,4,nil):GetFirst() Duel.GetControl(c,0,0x200,1)", taker);
 	const std::string want = std::to_string(victim) + ">" + std::to_string(taker) + ">" + std::to_string(victim);
+	const std::string want_h = std::to_string(taker);
 	EXPECT(r.fail.empty(), "%s: %s", name, r.fail.c_str());
 	EXPECT(show(r.ctl0) == want, "%s: controller trace %s, want %s", name, show(r.ctl0).c_str(), want.c_str());
-	std::printf("%s %s: n=%d turn %d: seat %d takes the monster of seat %d, trace %s (want %s), stopped at turn %d\n",
-	            show(r.ctl0) == want && r.fail.empty() ? "ok  " : "FAIL", name, n, act_turn, taker, victim, show(r.ctl0).c_str(), want.c_str(), r.turn);
+	EXPECT(as_global || show(r.ctl1) == want_h, "%s: the monster of the effect moved, trace %s, want %s", name, show(r.ctl1).c_str(), want_h.c_str());
+	std::printf("%s %s: n=%d turn %d: %s effect, seat %d takes the monster of seat %d, trace %s (want %s), stopped at turn %d\n",
+	            show(r.ctl0) == want && r.fail.empty() && (as_global || show(r.ctl1) == want_h) ? "ok  " : "FAIL", name, n, act_turn,
+	            as_global ? "global" : "card", taker, victim, show(r.ctl0).c_str(), want.c_str(), r.turn);
 }
-static void check_swap(const char* name, int n, int act_turn, int a, int b) {
+// The monsters of seats a and b swap at turn act_turn and return.
+static void check_swap(const char* name, int n, int act_turn, int a, int b, bool as_global) {
 	if(const char* only = std::getenv("CHECK_ONLY")) { if(std::strstr(name, only) == nullptr) return; }
-	g_reg = 0;
 	if(std::getenv("CHECK_TRACE")) std::fprintf(stderr, "== %s\n", name);
-	const auto r = run_scn(n, 1, act_turn, { { a, a }, { b, b } },
-		"local function mon(code) return Duel.GetMatchingGroup(function(c) return c:IsCode(code) end,0,4,4,nil):GetFirst() end "
-		"Duel.SwapControl(mon(" + std::to_string(1000 + a) + "),mon(" + std::to_string(1000 + b) + "),0x200,1)");
+	const auto r = as_global
+		? run_scn(n, 1, act_turn, { { a, a }, { b, b } },
+		          "Duel.SwapControl(Duel.GetFieldCard(" + std::to_string(a) + ",4,0),Duel.GetFieldCard(" + std::to_string(b) + ",4,0),0x200,1)")
+		// Card: the effect belongs to the monster of seat a (the monster moves, its effect stays on the field).
+		: run_scn(n, 1, act_turn, { { a, a }, { b, b } },
+		          "local function mon(code) return Duel.GetMatchingGroup(function(c) return c:IsCode(code) end,0,4,4,nil):GetFirst() end "
+		          "Duel.SwapControl(mon(" + std::to_string(1000 + a) + "),mon(" + std::to_string(1000 + b) + "),0x200,1)", a);
 	const std::string want0 = std::to_string(a) + ">" + std::to_string(b) + ">" + std::to_string(a);
 	const std::string want1 = std::to_string(b) + ">" + std::to_string(a) + ">" + std::to_string(b);
 	EXPECT(r.fail.empty(), "%s: %s", name, r.fail.c_str());
 	EXPECT(show(r.ctl0) == want0, "%s: monster of seat %d trace %s, want %s", name, a, show(r.ctl0).c_str(), want0.c_str());
 	EXPECT(show(r.ctl1) == want1, "%s: monster of seat %d trace %s, want %s", name, b, show(r.ctl1).c_str(), want1.c_str());
 	const bool ok = r.fail.empty() && show(r.ctl0) == want0 && show(r.ctl1) == want1;
-	std::printf("%s %s: n=%d turn %d: swap seat %d <-> seat %d, traces %s | %s, stopped at turn %d\n",
-	            ok ? "ok  " : "FAIL", name, n, act_turn, a, b, show(r.ctl0).c_str(), show(r.ctl1).c_str(), r.turn);
+	std::printf("%s %s: n=%d turn %d: %s effect, swap seat %d <-> seat %d, traces %s | %s, stopped at turn %d\n",
+	            ok ? "ok  " : "FAIL", name, n, act_turn, as_global ? "global" : "card", a, b, show(r.ctl0).c_str(), show(r.ctl1).c_str(), r.turn);
 }
 // n = 2: the same duel with and without SetupDuelists(2,0,1): identical bytes; print the hash.
 static void check_n2(const char* name, const std::string& op, std::vector<Mon> mons, int taker, int victim) {
@@ -295,17 +315,21 @@ int main(int argc, char** argv) {
 		check_n2("n2-swap", "Duel.SwapControl(Duel.GetFieldCard(0,4,0),Duel.GetFieldCard(1,4,0),0x200,1)", { { 0, 0 }, { 1, 1 } }, 0, 0);
 	}
 	if(mode == "check" || mode == "multi") {
-		// (1) seat 0 takes a monster of a far seat (not the next seat); it returns to its owner, not to seat 1.
-		check_get("c1-n4-tp0-takes-seat3", 4, 1, 0, 3);
-		check_get("c1b-n3-tp0-takes-seat2", 3, 1, 0, 2);
-		// (2) swap between two far seats, neither is the turn player.
-		check_swap("c2-n4-swap-1-3", 4, 1, 1, 3);
-		check_swap("c2b-n4-swap-2-3", 4, 1, 2, 3);
-		// (3) the turn player is not 0 or 1: turn 4 is seat 3 in n = 4, turn 3 is seat 2 in n = 3.
-		check_get("c3-n4-tp3-takes-seat0", 4, 4, 3, 0);
-		check_get("c3b-n3-tp2-takes-seat0", 3, 3, 2, 0);
-		check_get("c3c-n4-tp2-takes-seat1", 4, 3, 2, 1);
-		check_swap("c3d-n4-tp3-swap-0-1", 4, 4, 0, 1);
+		// Every scenario runs twice: a global effect (real seats) and an effect of a monster of the taker (folded values).
+		for(const bool g : { true, false }) {
+			const std::string k = g ? "-global" : "-card";
+			// (1) seat 0 takes a monster of a far seat (not the next seat); it returns to its owner, not to seat 1.
+			check_get(("c1-n4-tp0-takes-seat3" + k).c_str(), 4, 1, 0, 3, g);
+			check_get(("c1b-n3-tp0-takes-seat2" + k).c_str(), 3, 1, 0, 2, g);
+			// (2) swap between two far seats, neither is the turn player.
+			check_swap(("c2-n4-swap-1-3" + k).c_str(), 4, 1, 1, 3, g);
+			check_swap(("c2b-n4-swap-2-3" + k).c_str(), 4, 1, 2, 3, g);
+			// (3) the taker is not seat 0 or 1: turn 4 is seat 3 in n = 4, turn 3 is seat 2 in n = 3.
+			check_get(("c3-n4-tp3-takes-seat0" + k).c_str(), 4, 4, 3, 0, g);
+			check_get(("c3b-n3-tp2-takes-seat0" + k).c_str(), 3, 3, 2, 0, g);
+			check_get(("c3c-n4-tp2-takes-seat1" + k).c_str(), 4, 3, 2, 1, g);
+			check_swap(("c3d-n4-tp3-swap-0-1" + k).c_str(), 4, 4, 0, 1, g);
+		}
 	}
 	std::printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
 	return failures ? 1 : 0;
