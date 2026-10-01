@@ -413,6 +413,24 @@
       ]
     },
     {
+      "code": 9201964,
+      "file": "c9201964.lua",
+      "name": "D - Fortune",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "5ca95def94932e3e4cee860c6d6a6b09c54f0397ff9f080948974d89ce1d86c9",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 9418365,
       "file": "c9418365.lua",
       "name": "Bujin Hirume",
@@ -2771,6 +2789,24 @@
       "stockSha256": "1a89e3b7b3a620cfdcab9392c4f955c6a8c841f4f76055c71cf33a83e5bc6416"
     },
     {
+      "code": 55554175,
+      "file": "c55554175.lua",
+      "name": "Performapal Classikuriboh",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "c77d78ae4fa8247b392ce3c44b5f83e7ab651ac30cf891a888ca262e4ed8ea1e",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "descon"
+        ]
+      },
+      "compareIn": [
+        "descon"
+      ]
+    },
+    {
       "code": 55787576,
       "file": "c55787576.lua",
       "name": "World Legacy - \"World Shield\"",
@@ -2789,6 +2825,24 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "cd73860122707474e79fd5e30196443420e778d5d40a7eaedfbaac0a653354ba"
+    },
+    {
+      "code": 56051648,
+      "file": "c56051648.lua",
+      "name": "Spider Egg",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "32c44a7882dfc9f92d1fb05e401a8d50f9a6673ba711179b7411526a0ceb2dab",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 56673480,
@@ -2969,6 +3023,24 @@
       "seatInit": "false"
     },
     {
+      "code": 60312997,
+      "file": "c60312997.lua",
+      "name": "Reanimation Wave",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "4d02a80ba0149576b3f4d10de9782870e4385a3dd2511a462879b5fb3548cab1",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 60375194,
       "file": "c60375194.lua",
       "name": "Vendread Daybreak",
@@ -2993,6 +3065,24 @@
       "r2Class": "TABLE",
       "stockSha256": "d6e15fd8aeec771a69bd0a96205246aed311557132c197153086f70f89830ea9",
       "note": "the condition compares the real seat of the player that took the battle damage (s[0], written by the global check) with tp, which a handler folds; it compares keys (seat in FFA, team in Tag) with the real seat of this card."
+    },
+    {
+      "code": 60534585,
+      "file": "c60534585.lua",
+      "name": "Battle Instinct",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "7b1c8d1504a911c79031057fc516770a757e8f77a3c16866973a8c0b8e94d8c7",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 60621361,
@@ -4051,6 +4141,24 @@
       "seatInit": "false"
     },
     {
+      "code": 82340056,
+      "file": "c82340056.lua",
+      "name": "Offering to the Immortals",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "68fe9c87dd7825e58f04f0c276aebb71a0edb34ca620110404b8f58358e03add",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 82385847,
       "file": "c82385847.lua",
       "name": "Dinowrestler Pankratops",
@@ -4367,6 +4475,24 @@
         ]
       },
       "stockSha256": "ca15b875da720d62234c9d7f274a3a11471a6ee706da2cdd5dc34880f7cfe273"
+    },
+    {
+      "code": 89040386,
+      "file": "c89040386.lua",
+      "name": "Blackwing - Backlash",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "eb7c2909479e7e49eae0d262bcef0e0b191d00cc9c514c92617d6ca1557219af",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 89328238,
@@ -4906,6 +5032,24 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "5d32b89e57e2c143e14df36c2fc1904be1f6b456451ffa7cbebbd415989df92d"
+    },
+    {
+      "code": 96427353,
+      "file": "c96427353.lua",
+      "name": "Aqua Armor Ninja",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "1f19bc79faf04a52bfd52a323f791e75f37a24d0242f63ecbd82af042d3275ae",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 97345699,

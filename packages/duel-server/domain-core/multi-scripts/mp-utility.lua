@@ -220,6 +220,7 @@ function aux.MPAttackedAtMe(fn)
 		if Duel.MPAttackedSeat and Duel.MPSeatOf then
 			return Duel.MPAttackedSeat()==Duel.MPSeatOf(e:GetHandler())
 		end
+		tp=tp or e:GetHandlerPlayer() -- a condition with the form (e) only gets no tp
 		local atk=Duel.GetAttacker()
 		local other=false
 		for i=1,Duel.MPOppCount() do

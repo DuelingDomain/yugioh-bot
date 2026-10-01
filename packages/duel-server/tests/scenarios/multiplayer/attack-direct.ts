@@ -137,6 +137,25 @@ export const ATTACK_DIRECT_SCENARIOS: Scenario[] = [
     atP0: { p0: { lp: 9100, grave: ["Performapal Kuribohble"] }, p1: { monsters: [RAT] } },
     atP2: { p0: { hand: ["Performapal Kuribohble", DARK_HOLE] }, p1: { monsters: [RAT] }, p2: { lp: 6600 } },
   }),
+  // Group of the conditions with `Duel.IsTurnPlayer(1-tp)`: a Trap that needs the holder to have no monster, and a Trap that needs low LP.
+  ...pair({
+    slug: "battle-instinct", name: "Battle Instinct", code: 60534585,
+    p0: { spells: [faceDown("Battle Instinct")], hand: [RAT], deck: [DARK_HOLE] },
+    p1: { monsters: [OX] },
+    attacker: OX,
+    answer: [activate("Battle Instinct", "p0")],
+    atP0: { p0: { monsters: [RAT], grave: ["Battle Instinct"], hand: [DARK_HOLE] }, p1: { monsters: [OX] } },
+    atP2: { p0: { spells: ["Battle Instinct"], hand: [RAT, DARK_HOLE] }, p1: { monsters: [OX] }, p2: { lp: 6300 } },
+  }),
+  ...pair({
+    slug: "offering-to-the-immortals", name: "Offering to the Immortals", code: 82340056,
+    p0: { lp: 3000, spells: [faceDown("Offering to the Immortals")], deck: [DARK_HOLE, "Earthbound Immortal Uru"] },
+    p1: { monsters: [OX] },
+    attacker: OX,
+    answer: [activate("Offering to the Immortals", "p0")],
+    atP0: { p0: { lp: 3000, monsters: { count: 2 }, grave: ["Offering to the Immortals"], hand: [DARK_HOLE, "Earthbound Immortal Uru"] }, p1: { monsters: [OX] } },
+    atP2: { p0: { lp: 3000, spells: ["Offering to the Immortals"], hand: [DARK_HOLE] }, p1: { monsters: [OX] }, p2: { lp: 6300 } },
+  }),
   // Tag keeps the team value: a direct attack at a seat of the team asks the partner of the target as well (p2 holds the Trap, p0 holds nothing).
   defineScenario({
     id: "attack-direct-tag-counter-gate-offered-to-the-partner",

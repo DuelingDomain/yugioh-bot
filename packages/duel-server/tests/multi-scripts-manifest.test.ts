@@ -251,9 +251,9 @@ describe("the ATTACK entries (a direct attack at you: the real target of the att
     }
   });
 
-  it("count 41 cards, none of them in another class", () => {
+  it("count 49 cards, none of them in another class", () => {
     expect(attackCards).toHaveLength(EXPECTED_COUNTS.attack);
-    expect(attackCards).toHaveLength(41);
+    expect(attackCards).toHaveLength(49);
   });
 
   it("are reported when they have a wrong kind, a second class or no wrap", () => {
