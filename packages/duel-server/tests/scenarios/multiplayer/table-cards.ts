@@ -5,7 +5,7 @@
 // Every scenario ends with the state of every seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md and DECISIONS-2026-10-01 (Q3, Q6, Q9, OQ3).
 
 import {
-  activate, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPrompt, expectTurn, surrender, expectNotOffered, expectPickSeats, pickOpponent, specialSummon, yes, changePosition, select, changePhase, attack,
+  activate, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectPrompt, expectTurn, surrender, expectPickSeats, pickOpponent, specialSummon, yes, changePosition, select, changePhase, attack,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -24,6 +24,9 @@ export function everySeat(format: "ffa3" | "ffa4" | "tag", spec: Partial<Record<
   for (const seat of seats) board[seat] = { lp: format === "tag" ? 16000 : 8000, monsters: [], spells: [], grave: [], banished: [], ...spec[seat] };
   return expectBoard(board);
 }
+
+/** A select step answered by the named seat. */
+const selectBy = (seat: Seat, name: string): Step => ({ ...select(name), by: seat }) as Step;
 
 const PUDICA = "Traptrix Pudica";
 const CYBER = "Cyber Dragon";
@@ -350,7 +353,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
       changePhase("battle", "p1"),
       attack("Battle Ox", { card: "Giant Rat", owner: "p0" }, "p1"),
       activate("The Grave of Enkindling", "p0"),
-      { ...select("Mystical Elf"), by: "p1" },
+      selectBy("p1", "Mystical Elf"),
       // 8000 - 300 (battle) - 500 (maintenance of the Curse). p1 chose its card; p0 and p2 had no choice. Each of the three banished exactly one.
       everySeat("ffa3", {
         p0: { lp: 7200, monsters: ["Giant Rat"], spells: ["Summoning Curse"], grave: ["The Grave of Enkindling"], banished: ["Mystical Elf"] },
@@ -379,9 +382,9 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
       changePhase("battle", "p1"),
       attack("Battle Ox", { card: "Giant Rat", owner: "p0" }, "p1"),
       activate("The Grave of Enkindling", "p0"),
-      { ...select("Mystical Elf"), by: "p0" },
-      { ...select("Mystical Elf"), by: "p1" },
-      { ...select("Mystical Elf"), by: "p3" },
+      selectBy("p0", "Mystical Elf"),
+      selectBy("p1", "Mystical Elf"),
+      selectBy("p3", "Mystical Elf"),
       // The team life points: 16000 - 300 (battle) - 500 (maintenance of the Curse). p0, p1 and p3 each banished exactly one card of their own hand; p2 summoned nothing and banished nothing.
       everySeat("tag", {
         p0: { lp: 15200, hand: [ELF], monsters: ["Giant Rat"], spells: ["Summoning Curse"], grave: ["The Grave of Enkindling"], banished: [ELF] },
@@ -441,5 +444,3 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     ],
   }),
 ];
-
-void [expectLp, expectNotOffered];
