@@ -5,16 +5,21 @@ import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import type { Scenario } from "../../support/dsl.js";
+import { FFA_SCENARIOS } from "./nseat-ffa.js";
 import { TAG_SCENARIOS } from "./nseat-tag.js";
 
-// Live N-seat scenarios beyond the basic list in nseat.test.ts: Tag end states. Same gate: NSEAT_LIVE=1 and a multi core with
+// Live N-seat scenarios beyond the basic list in nseat.test.ts: Tag and FFA end states. Same gate: NSEAT_LIVE=1 and a multi core with
 // Debug.SetupDuelists (tests/support/live-nseat.ts). With DUEL_REQUIRE_CORES=1 a closed gate fails the run instead of skipping.
 
 describeWithCores("live N-seat scenarios: Tag", liveNseat, () => {
   runScenarios("multiplayer/nseat-tag", TAG_SCENARIOS);
 });
 
-const LISTS: Array<[string, Scenario[]]> = [["Tag", TAG_SCENARIOS]];
+describeWithCores("live N-seat scenarios: FFA", liveNseat, () => {
+  runScenarios("multiplayer/nseat-ffa", FFA_SCENARIOS);
+});
+
+const LISTS: Array<[string, Scenario[]]> = [["Tag", TAG_SCENARIOS], ["FFA", FFA_SCENARIOS]];
 
 describe("live N-seat scenario lists", () => {
   for (const [name, list] of LISTS) {
