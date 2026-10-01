@@ -10,6 +10,7 @@
     "start": "node dist/server.js",
     "test": "vitest run tests --testTimeout=15000",
     "test:engine": "DUEL_REQUIRE_CORES=1 NSEAT_LIVE=1 vitest run tests --testTimeout=15000",
+    "test:native": "bash scripts/native/checks/run.sh",
     "prepare:data": "tsx scripts/prepare-data.ts",
     "test:scenarios": "vitest run tests/scenarios",
     "test:scenarios:json": "vitest run tests/scenarios --reporter=default --reporter=json --outputFile.json=../../.status/scenarios.json",

@@ -1,0 +1,44 @@
+# Manifest of the native rule checks. Columns (tab separated): name, source (file in this folder without .cpp), args (- = none), status, note.
+# status: ready = must pass against the merged core; pending = needs core work that is not merged yet (skipped unless --pending);
+# domain = needs a core tree with the Domain layer applied (skipped unless --pending); stale = expectations that no longer match the merged core (written before the Lua perspective fold, or before F5 opponent binding) (skipped unless --pending; a rewrite is open). One name may have several rows (one process each).
+# @DATA@ and @SCRIPTS@ in args are replaced by the card data folder (cards.tsv) and the card script folder.
+setup-duelists	setup-duelists	check	ready	Debug.SetupDuelists: success, errors, cards, n=2 identity
+response-order	response-order	check	ready	chain and trigger order at n>2: priority windows, SEGOC, phase window
+battle	battle	all	ready	battle at n>2: attack order, direct attack, damage
+losses-team-lp	losses-team-lp	check	ready	losses, win, draw, team LP, Debug.EliminateDuelist
+elimination	elimination	check	ready	field::eliminate: cards, turns, chain, attack
+elimination-guards	elimination-guards	-	ready	a seat that is not alive gets no prompt and no card
+zones	zones	-	ready	zones at n>2: no Extra Monster Zone mirror, disabled zones
+control-change	control-change	check	ready	control change and swap control at n>2
+player-ids	player-ids	check	ready	seats 2 and 3 are real seats, PLAYER_NONE and PLAYER_ALL are not
+tag-partner	tag-partner	@DATA@/cards.tsv @SCRIPTS@ all	ready	Tag partner negation with real cards
+range-fold	range-fold	check	ready	core range fold in field.cpp and effect.cpp
+lua-scope-fold	lua-scope-fold	-	stale	expectations written before F5 (opponent bound at activation, core 29fff80): pass at 4193da9, ffa3/ffa4 modes fail since 29fff80; update the expected opponent seats (Lua perspective fold: scope, folded params, yield)
+lua-duel-library-a	lua-duel-library-a	-	stale	expectations written before F5 (opponent bound at activation, core 29fff80): pass at 4193da9, ffa3/ffa4 modes fail since 29fff80; update the expected opponent seats (Duel library, top to GetChainEvent, under the fold)
+lua-duel-library-b	lua-duel-library-b	-	stale	expectations written before F5 (opponent bound at activation, core 29fff80): pass at 4193da9, ffa3/ffa4 modes fail since 29fff80; update the expected opponent seats (Duel library, SkipPhase to the end: choosers, zone prompts)
+lua-prompts-range	lua-prompts-range	-	stale	expectations written before F5 (opponent bound at activation, core 29fff80): pass at 4193da9, ffa3/ffa4 modes fail since 29fff80; update the expected opponent seats (library prompts and the absolute range of a field effect)
+lua-card-group-effect	lua-card-group-effect	-	stale	expectations written before F5 (opponent bound at activation, core 29fff80): pass at 4193da9, ffa3/ffa4 modes fail since 29fff80; update the expected opponent seats (Card, Group and Effect library under the fold)
+summon-counters-reflect	summon-counters-reflect	all	stale	written before the Lua fold: effect scripts use absolute seats; needs a rewrite with per-seat effects
+control-check-flags	control-check-flags	check	ready	control check, old-rule flags, effect owner compare
+response-cursor	response-cursor	all	ready	response cursor and phase pass count after an elimination
+simultaneous-loss	simultaneous-loss	s1	ready	simultaneous losses, FFA draw, battle defaults (s1)
+simultaneous-loss	simultaneous-loss	s2	ready	simultaneous losses, FFA draw, battle defaults (s2)
+simultaneous-loss	simultaneous-loss	s2all	ready	simultaneous losses, FFA draw, battle defaults (s2all)
+simultaneous-loss	simultaneous-loss	tagdraw	ready	simultaneous losses, FFA draw, battle defaults (tagdraw)
+simultaneous-loss	simultaneous-loss	s3	ready	simultaneous losses, FFA draw, battle defaults (s3)
+simultaneous-loss	simultaneous-loss	s3n2	ready	simultaneous losses, FFA draw, battle defaults (s3n2)
+simultaneous-loss	simultaneous-loss	s4	ready	simultaneous losses, FFA draw, battle defaults (s4)
+simultaneous-loss	simultaneous-loss	s4n2	ready	simultaneous losses, FFA draw, battle defaults (s4n2)
+confirm-hint-sort	confirm-hint-sort	all	ready	ConfirmCards event players, HINT_OPSELECTED, card operation order
+link-column-zones	link-column-zones	zones 4	ready	Link and column zones (zones 4)
+link-column-zones	link-column-zones	zones 3	ready	Link and column zones (zones 3)
+link-column-zones	link-column-zones	zones 2	ready	Link and column zones (zones 2)
+link-column-zones	link-column-zones	extralink 4	ready	Link and column zones (extralink 4)
+link-column-zones	link-column-zones	extralink 3	ready	Link and column zones (extralink 3)
+absolute-range-unique	absolute-range-unique	all	ready	ABSOLUTE_TARGET effects, unique cards, summon procedures to the opponent
+lua-sites	lua-sites	all	stale	written before the Lua fold: effect scripts use absolute seats; needs a rewrite with per-seat effects
+field-sites	field-sites	all	ready	field.cpp, card.cpp, effect.cpp, ocgapi.cpp sites at n>2
+summon-sites	summon-sites	all	stale	written before the Lua fold: effect scripts use absolute seats; needs a rewrite with per-seat effects
+opponent-pick	opponent-pick	-	ready	F5: one opponent bound at activation (0xFFFE pick); needs a core with 29fff80 or later
+place-seat-hint	place-seat-hint	-	pending	F8: seat hint of a place prompt (HINT 0xF0). Compiles at 5edcc84 but fails: seat 1 and 2 prompts name seat 0, the check wants the next living seat. Check or merge order (F5 x F8) needs review
+domain-multi	domain-multi	ffa3	domain	Domain layer for 3 and 4 duelists; needs a core tree with domain_master.cpp (not in the merged tree, so it does not compile there)

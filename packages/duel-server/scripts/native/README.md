@@ -3,6 +3,9 @@
 All tools here link against `libocgcore-multi.a` (core + Lua, AddressSanitizer + UBSan). Build that library with
 `scripts/build-native-core.sh`.
 
+Native rule checks (C++ programs that include the core headers) are in `checks/`. See `checks/README.md`; run them with
+`MULTI_TREE=<core source tree> npm run test:native --workspace=packages/duel-server`.
+
 ## nduel: N-duelist duel driver
 
 `nduel.cpp` plays one whole seeded duel with 2, 3 or 4 duelists. It answers every select prompt with a seeded random
