@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { itWithCores, needs } from "./support/cores.js";
 import { loadOwners, ownerOf, ownersOf, parseOwners, siteFromText, UNOWNED } from "../scripts/lib/owners.js";
 
 const rows = loadOwners();
@@ -48,7 +49,7 @@ describe("owners.tsv", () => {
     expect(siteFromText("no site here")).toBeNull();
   });
 
-  it.runIf(existsSync(CENSUS))("places the census sites of B2 (test data)", () => {
+  itWithCores("places the census sites of B2 (test data)", needs.localFile("B2 census file (.status, gitignored, not a core)", CENSUS, "Run the nduel census for B2 to write it."), () => {
     const census = JSON.parse(readFileSync(CENSUS, "utf8")) as { census: Array<{ file: string; line: number; fn: string }> };
     const owners = census.census.map((site) => [`${site.file}:${site.line}`, ownerOf(site, rows)] as const);
     const by = new Map(owners);

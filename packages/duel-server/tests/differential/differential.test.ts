@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { engineDataDirectory } from "../fuzz/config.js";
 import { setupScenario } from "../fuzz/driver.js";
+import { coresReady, describeWithCores, itWithCores, needs } from "../support/cores.js";
 
 // Every core created during this file goes through the recorder (a passthrough unless a recording is active).
 vi.mock("ocgcore-wasm", async (importOriginal) => {
@@ -14,7 +14,7 @@ import { differentialReproCommand, writeDifferentialFailure } from "./failures.j
 import {
   MULTI_WASM_PATH,
   REFERENCE_WASM_PATH,
-  canRun,
+  dataNeeds,
   compareSeed,
   describeDiff,
   readWasm,
@@ -35,7 +35,7 @@ import {
  *  - "stock vs stock" always runs when the engine data exists. It proves the harness.
  *  - "stock vs multi" needs domain-core/dist/ocgcore.multi.sync.wasm (all patches) and
  *    ocgcore.multi-ref.sync.wasm (patches 1 and 2 only: same source meaning, different binary layout). Both are built with a fixed Lua seed (scripts/build-multi-core.sh).
- *    Without it the test is skipped and CI stays green.
+ *    Without it the test is skipped (with DUEL_REQUIRE_CORES=1 it fails: tests/support/cores.ts).
  *
  * Knobs: DIFF_RUNS (default 20), DIFF_SEED (base seed, default 20260930), DIFF_MAX_STEPS (default 400),
  * DIFF_MULTI_WASM, DIFF_REFERENCE_WASM (wasm paths), DIFF_ONLY_SEEDS (comma list, replaces the seed set), DIFF_TIMEOUT_MS, DUEL_DATA_DIR.
@@ -47,13 +47,12 @@ const baseSeed = Number(process.env.DIFF_SEED ?? 20260930);
 const maxSteps = Number(process.env.DIFF_MAX_STEPS ?? 400);
 const timeoutMs = Number(process.env.DIFF_TIMEOUT_MS ?? 30 * 60_000);
 
-const dataReady = canRun(dataDirectory);
-const referenceReady = existsSync(REFERENCE_WASM_PATH);
-const multiReady = existsSync(MULTI_WASM_PATH) && referenceReady;
-if (!dataReady) console.warn(`differential: SKIPPED. Engine data is missing (need ${standardWasmPath(dataDirectory)} and cards.cdb). Set DUEL_DATA_DIR.`);
-else if (!multiReady) console.warn(`differential: stock-vs-multi SKIPPED. ${MULTI_WASM_PATH} or ${REFERENCE_WASM_PATH} is missing. Build both with scripts/build-multi-core.sh in docker.io/emscripten/emsdk:4.0.9 (see domain-core/patches/README.md).`);
+const REFERENCE_NEED = needs.file("reference core (patches 1 and 2)", REFERENCE_WASM_PATH, "Build it with scripts/build-multi-core.sh in docker.io/emscripten/emsdk:4.0.9 (see domain-core/patches/README.md).");
+const MULTI_NEEDS = [needs.file("multi core (all patches)", MULTI_WASM_PATH, "Build it with scripts/build-multi-core.sh in docker.io/emscripten/emsdk:4.0.9 (see domain-core/patches/README.md)."), REFERENCE_NEED];
+const referenceReady = REFERENCE_NEED.ok;
+const multiReady = coresReady(MULTI_NEEDS);
 
-describe.skipIf(!dataReady)("differential: stock core vs replay", () => {
+describeWithCores("differential: stock core vs replay", dataNeeds(dataDirectory), () => {
   const results: { stock: SeedResult[]; multi: SeedResult[] } = { stock: [], multi: [] };
   let seconds = 0;
 
@@ -122,7 +121,7 @@ describe.skipIf(!dataReady)("differential: stock core vs replay", () => {
     expect(warnings.slice(0, 20).join("\n")).toBe("");
   });
 
-  it.skipIf(!multiReady)("stock vs multi (2 duelists): zero differences", () => {
+  itWithCores("stock vs multi (2 duelists): zero differences", MULTI_NEEDS, () => {
     expect(results.multi.length).toBe(results.stock.length);
     const diffs = results.multi.filter((r) => r.diff);
     expect(diffs.map((r) => describeDiff(r.diff!)).join("\n")).toBe("");

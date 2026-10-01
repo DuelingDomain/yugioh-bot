@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { engineDataDirectory } from "../fuzz/config.js";
+import { coresReady, describeWithCores, failIfRequired, needs, type CoreNeed } from "../support/cores.js";
 
 // Every core created during this file goes through the recorder (a passthrough unless a recording is active).
 vi.mock("ocgcore-wasm", async (importOriginal) => {
@@ -13,7 +13,7 @@ vi.mock("ocgcore-wasm", async (importOriginal) => {
 
 import { compareRecorded, recordBoard, recordSeeded, type ExtendedSeedResult } from "./extended-harness.js";
 import { differentialReproCommand, writeDifferentialFailure } from "./failures.js";
-import { MULTI_WASM_PATH, REFERENCE_WASM_PATH, canRun, describeDiff, readWasm, seedsFor, standardWasmPath, type Diff } from "./harness.js";
+import { MULTI_WASM_PATH, REFERENCE_WASM_PATH, dataNeeds, describeDiff, readWasm, seedsFor, standardWasmPath, type Diff } from "./harness.js";
 import { wasmIdentity, writeDifferentialSummary } from "./summary.js";
 
 /**
@@ -55,16 +55,12 @@ const domainPair = {
 };
 // The wasm pair that the summary reports for the mode (scenarios mode reports the Standard pair).
 const mainPair = mode === "domain" ? domainPair : standardPair;
-const both = (pair: { reference: string; multi: string }) => existsSync(pair.reference) && existsSync(pair.multi);
-const domainPairReady = both(domainPair);
-
-const dataReady = canRun(dataDirectory);
-const coresReady = mode === "domain" ? domainPairReady : both(standardPair);
-const ready = dataReady && coresReady;
-if (!dataReady) console.warn(`differential-extended: SKIPPED. Engine data is missing (need ${standardWasmPath(dataDirectory)} and cards.cdb). Set DUEL_DATA_DIR.`);
-else if (!coresReady) {
-  console.warn(`differential-extended (${mode}): SKIPPED. Missing ${mainPair.reference} or ${mainPair.multi}. See tests/differential/README.md for the build commands.`);
-}
+const BUILD = "See tests/differential/README.md for the build commands.";
+const pairNeeds = (pair: { reference: string; multi: string }): CoreNeed[] => [
+  needs.file("reference core", pair.reference, BUILD),
+  needs.file("multi core", pair.multi, BUILD),
+];
+const both = (pair: { reference: string; multi: string }) => coresReady(pairNeeds(pair));
 
 /** FNV-1a of the scenario id, mixed with the base seed: the self-play seed of a scenario. */
 function scenarioSeed(id: string): number {
@@ -73,7 +69,7 @@ function scenarioSeed(id: string): number {
   return ((hash ^ baseSeed) >>> 0) % (2 ** 31 - 2) + 1;
 }
 
-describe.skipIf(!ready)(`differential extended: ${mode}`, () => {
+describeWithCores(`differential extended: ${mode}`, [...dataNeeds(dataDirectory), ...pairNeeds(mainPair)], () => {
   const results: ExtendedSeedResult[] = [];
   const skipped: string[] = [];
   let failureFiles: string[] = [];
@@ -122,6 +118,7 @@ describe.skipIf(!ready)(`differential extended: ${mode}`, () => {
         const duelMode = scenario.setup.mode ?? "normal";
         const pair = pairFor(duelMode);
         if (!both(pair)) {
+          failIfRequired(`differential extended scenario ${scenario.id}`, pairNeeds(pair));
           skipped.push(`${scenario.id} (needs the ${duelMode} cores)`);
           continue;
         }

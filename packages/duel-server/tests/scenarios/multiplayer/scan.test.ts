@@ -1,7 +1,8 @@
-import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { currentEngineDataDirectory } from "../../engine-data-dir.js";
+import { describeWithCores, needs } from "../../support/cores.js";
 import {
-  defaultScriptsDir,
   fieldCountCompare,
   listIndex,
   makeSource,
@@ -14,7 +15,7 @@ import {
 } from "../../../scripts/scan-multiplayer-scripts.js";
 
 // Unit tests per pattern use small inline Lua samples. The corpus test reads the official scripts of the
-// next engine (data/duel-engine-next, never the live data/duel-engine) and is skipped when they are missing.
+// shared test data directory (DUEL_DATA_DIR, default data/duel-engine-next, never the live data/duel-engine); it is skipped when they are missing, and fails with DUEL_REQUIRE_CORES=1.
 
 const wrap = (body: string): string => `local s,id=GetID()\nfunction s.activate(e,tp,eg,ep,ev,re,r,rp)\n${body}\nend\n`;
 const scan = (body: string): CardScan => scanText(1, wrap(body));
@@ -302,11 +303,12 @@ describe("C patterns", () => {
   });
 });
 
-const dir = defaultScriptsDir();
-const haveCorpus = existsSync(dir);
+// DUEL_SCRIPTS_DIR, else the card scripts of the shared test data directory (DUEL_DATA_DIR).
+const dir = process.env.DUEL_SCRIPTS_DIR ?? join(currentEngineDataDirectory(), "card-scripts/official");
+const corpus = needs.file("official script corpus", dir, "Set DUEL_SCRIPTS_DIR, or set DUEL_DATA_DIR to an engine data directory with card-scripts/official.");
 
-describe.skipIf(!haveCorpus)("corpus", () => {
-  const cards = haveCorpus ? scanCorpus(dir) : [];
+describeWithCores("corpus", corpus, () => {
+  const cards = corpus.ok ? scanCorpus(dir) : [];
   const byCode = new Map(cards.map((card) => [card.code, card]));
   const lists = listIndex();
 

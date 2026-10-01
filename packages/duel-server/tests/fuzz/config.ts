@@ -1,6 +1,5 @@
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { DuelMasterRule, DuelMode } from "@yugidraft/shared/duels";
+import { currentEngineDataDirectory } from "../engine-data-dir.js";
 
 export type FuzzModeSetting = "normal" | "domain" | "all";
 
@@ -25,10 +24,9 @@ function int(name: string, fallback: number): number {
   return Math.trunc(value);
 }
 
+/** The shared test default (tests/engine-data-dir.ts): DUEL_DATA_DIR, else data/duel-engine-next. */
 export function engineDataDirectory(): string {
-  return resolve(
-    process.env.DUEL_DATA_DIR ?? fileURLToPath(new URL("../../../../data/duel-engine-next/", import.meta.url)),
-  );
+  return currentEngineDataDirectory();
 }
 
 export function loadFuzzConfig(defaults: Partial<FuzzConfig> = {}): FuzzConfig {

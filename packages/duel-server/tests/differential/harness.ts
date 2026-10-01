@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createEngineGame } from "../../src/engine.js";
@@ -6,6 +6,7 @@ import { scenarioFor } from "../fuzz/config.js";
 import { readViews, runDuel, setupScenario, type DuelOutcome } from "../fuzz/driver.js";
 import { viewsHash } from "../fuzz/invariants.js";
 import { Rng } from "../fuzz/rng.js";
+import { needs, type CoreNeed } from "../support/cores.js";
 import { setWasmOverride, sha1, startRecording, stopRecording, type Trace } from "./trace.js";
 
 export const MULTI_WASM_PATH = resolve(
@@ -30,8 +31,9 @@ export function standardWasmPath(dataDirectory: string): string {
   return join(dataDirectory, "ocgcore.standard.wasm");
 }
 
-export function canRun(dataDirectory: string): boolean {
-  return existsSync(standardWasmPath(dataDirectory)) && existsSync(join(dataDirectory, "cards.cdb"));
+/** What every differential test needs: the standard core and the card database of the engine data directory. */
+export function dataNeeds(dataDirectory: string): CoreNeed[] {
+  return [needs.standard(dataDirectory), needs.cards(dataDirectory)];
 }
 
 export interface Diff {

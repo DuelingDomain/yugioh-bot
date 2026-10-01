@@ -1,23 +1,19 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import type { DuelAnswer, DuelDeck, DuelFormat, DuelPrompt } from "@yugidraft/shared/duels";
 import { seatCountFor, seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { choosePracticeBotAnswer, chooseSurrenderedAnswer } from "../src/practice-bot.js";
+import { engineDataDirectory as dataDirectory } from "./engine-data-dir.js";
+import { currentDomainMultiWasm, currentMultiWasm, describeWithCores, needs } from "./support/cores.js";
 
 // Task ELIM: game.eliminate() while a prompt is open. The core applies the loss at its next Adjust, so the
 // engine keeps the open prompt (or answers it for a leaving seat) until the core reports the loss.
-// Never the live engine data: DUEL_DATA_DIR, else the next-generation data directory.
-const dataDirectory = resolve(process.env.DUEL_DATA_DIR ?? fileURLToPath(new URL("../../../data/duel-engine-next/", import.meta.url)));
 // The multi core of the data directory may be older than Debug.EliminateDuelist: these tests load a build that has it.
-// MULTI_WASM and DOMAIN_MULTI_WASM name the wasm files; without the files the live tests are skipped.
-const multiWasmPath = resolve(process.env.MULTI_WASM ?? fileURLToPath(new URL("../domain-core/dist/ocgcore.multi-P2M.sync.wasm", import.meta.url)));
-const hasMulti = existsSync(multiWasmPath);
-const domainWasmPath = resolve(process.env.DOMAIN_MULTI_WASM ?? fileURLToPath(new URL("../domain-core/dist/ocgcore.multi-domain-D1.sync.wasm", import.meta.url)));
-const hasDomain = existsSync(domainWasmPath) && (existsSync(resolve(dataDirectory, "card-scripts", "domain.lua")) || existsSync(resolve(dataDirectory, "domain.lua")));
+// MULTI_WASM and DOMAIN_MULTI_WASM name the wasm files; without them the live tests skip, or fail with DUEL_REQUIRE_CORES=1 (tests/support/cores.ts).
+const multiWasmPath = currentMultiWasm();
+const domainWasmPath = currentDomainMultiWasm();
 
 const settings = {
   visibility: "public" as const, banlist: "none" as const, cardPool: "both" as const, turnSeconds: 240,
@@ -64,7 +60,7 @@ const isOut = (game: EngineGame, seat: number) => game.view(null).seats[seat]!.e
 
 const cases: [DuelFormat][] = [["ffa3"], ["ffa4"], ["tag"]];
 
-describe.skipIf(!hasMulti)("eliminate with a prompt open (multi core)", () => {
+describeWithCores("eliminate with a prompt open (multi core)", needs.multi(multiWasmPath), () => {
   async function open(format: DuelFormat): Promise<EngineGame> {
     return createEngineGame({ mode: "normal", format, decks: vanillaDecks(seatCountFor(format)), seed: ["11", "22", "33", "44"], dataDirectory, settings, multiWasmBinary: wasmBinary(multiWasmPath) });
   }
@@ -173,7 +169,7 @@ describe.skipIf(!hasMulti)("eliminate with a prompt open (multi core)", () => {
   });
 });
 
-describe.skipIf(!hasMulti || !hasDomain)("eliminate with a prompt open (domain multi core)", () => {
+describeWithCores("eliminate with a prompt open (domain multi core)", [needs.multi(multiWasmPath), ...needs.domainMulti(dataDirectory, domainWasmPath)], () => {
   it.each(cases)("%s: eliminates the seat that holds the prompt and one that does not", async (format) => {
     for (const mode of ["holder", "other"] as const) {
       const game = await createEngineGame({

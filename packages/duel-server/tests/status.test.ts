@@ -44,6 +44,9 @@ import {
   parseWait,
   pathsOverlap,
   playwrightFailures,
+  e2eRow,
+  noPassState,
+  renderSections,
   queueRows,
   readJson,
   renderHtml,
@@ -134,6 +137,26 @@ describe("summaries", () => {
   it("lists playwright failures", () => {
     const data = { suites: [{ file: "a.spec.ts", suites: [{ title: "s", specs: [{ title: "ok", ok: true }, { title: "bad", ok: false }] }] }] };
     expect(playwrightFailures(data)).toEqual(["a.spec.ts: bad"]);
+  });
+  it("never shows PASS when nothing passed (e2e and scenarios)", () => {
+    const e2e = (stats: object) => e2eRow(readJson(JSON.stringify({ stats })), NOW - 1000, NOW);
+    const skippedOnly = e2e({ expected: 0, unexpected: 0, flaky: 0, skipped: 30 });
+    expect(skippedOnly.state).toBe("SKIPPED");
+    expect(skippedOnly.reason).toContain("0 passed");
+    expect(skippedOnly.reason).toContain("30 skipped");
+    expect(e2e({ expected: 0, unexpected: 0, flaky: 0, skipped: 0 }).state).toBe("MISSING");
+    expect(e2e({ expected: 3, unexpected: 0, flaky: 0, skipped: 30 }).state).toBe("PASS");
+    expect(e2e({ expected: 0, unexpected: 1, flaky: 0, skipped: 30 })).toMatchObject({ state: "FAIL" });
+    const scenarios = (data: object) => scenariosRow(readJson(JSON.stringify(data)), NOW - 1000, NOW);
+    expect(scenarios({ numTotalTests: 9, numPassedTests: 0, numFailedTests: 0, numPendingTests: 9, success: true }).state).toBe("SKIPPED");
+    expect(scenarios({ numTotalTests: 9, numPassedTests: 2, numFailedTests: 0, numPendingTests: 7, success: true }).state).toBe("PASS");
+    expect(scenarios({ numTotalTests: 9, numPassedTests: 0, numFailedTests: 1, numPendingTests: 8, success: false }).state).toBe("FAIL");
+    expect(noPassState(0, 0)).toBe("MISSING");
+  });
+  it("shows the SKIPPED state in the table", () => {
+    const text = renderSections([{ title: "t", rows: [{ item: "e2e", state: "SKIPPED", ageMs: null, reason: "0 passed, 5 skipped" }] }]);
+    expect(text).toContain("SKIP ");
+    expect(text).not.toContain("PASS");
   });
 });
 
@@ -453,6 +476,21 @@ describe("stuck signals", () => {
     expect(orphanedVitestWorkers(all).map((p) => p.pid)).toEqual([200, 300]);
     const rows = stuckRows(base({ orphans: orphanedVitestWorkers(all) }));
     expect(rows[0]?.reason).toContain("Not killed");
+  });
+});
+
+describe("rows where nothing ran are not PASS", () => {
+  it("shows differential with no multi core as SKIPPED and with 0 seeds as MISSING", () => {
+    const noCore = differentialRow(readJson(JSON.stringify({ time: "2026-09-30T11:00:00Z", seeds: 20, differences: 0, parseWarnings: 0 })), NOW);
+    expect(noCore.state).toBe("SKIPPED");
+    const noSeeds = differentialRow(readJson(JSON.stringify({ seeds: 0, differences: 0, multi: { path: "/x/a.wasm" } })), NOW);
+    expect(noSeeds.state).toBe("MISSING");
+    const ok = differentialRow(readJson(JSON.stringify({ seeds: 20, differences: 0, multi: { path: "/x/a.wasm" } })), NOW);
+    expect(ok.state).toBe("PASS");
+  });
+  it("shows fuzz and fuzz-n with 0 duels as MISSING", () => {
+    expect(fuzzRow(readJson(JSON.stringify({ runs: 0, failures: 0 })), NOW).state).toBe("MISSING");
+    expect(fuzzNRow(readJson(JSON.stringify({ runs: 0, failures: 0 })), null, NOW).state).toBe("MISSING");
   });
 });
 

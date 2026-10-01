@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -7,11 +7,15 @@ import { classifyKnown, recordIssue, readIssues, signatureOf, ownerOfFailure } f
 import { loadOwners } from "../scripts/lib/owners.js";
 import { detectJson, failureInfoOf, readManualJournal, triage, writeGeneratedIndex } from "../scripts/triage.js";
 import { engineDataDirectory } from "./fuzz/config.js";
+import { itWithCores, needs } from "./support/cores.js";
 import { createHash } from "node:crypto";
 
 const dataDirectory = engineDataDirectory();
 const FUZZ_N = resolve(__dirname, "fuzz-n/failures/ffa3-1-B2.json");
-const haveMulti = existsSync(join(dataDirectory, "ocgcore.multi.wasm")) && existsSync(FUZZ_N);
+const multiNeeds = [
+  needs.installedMulti(dataDirectory),
+  needs.localFile("fuzz-n failure fixture ffa3-1-B2.json (gitignored, not a core)", FUZZ_N, "Record it with npm run fuzz:n on core B2."),
+];
 const deck = { main: [1, 2, 3], extra: [] };
 
 describe("N-seat triage", () => {
@@ -98,8 +102,9 @@ describe("N-seat triage", () => {
     expect(text).toContain("GENERATED_PRESETS: readonly Preset[] = [g_a_1, g_b];");
   });
 
-  it.runIf(haveMulti)(
+  itWithCores(
     "replays a 3 seat fuzz-n failure, writes a preset draft, names the owner and writes the issue file",
+    multiNeeds,
     async () => {
       const presetDirectory = join(dir, "generated");
       const issuesDirectory = join(dir, "issues");

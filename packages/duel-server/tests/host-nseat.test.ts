@@ -11,6 +11,7 @@ import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import { multiCoreAvailable } from "../src/presets/index.js";
+import { failIfRequired, needs } from "./support/cores.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 
@@ -575,6 +576,8 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
     process.env.DUEL_SCENARIOS = "1";
     const t = scenarioHost();
     const res = await post(t.host, { op: "start-preset", presetId: "mind-crush-ffa4-pick", ...t.who });
+    // With DUEL_REQUIRE_CORES=1 the data directory must have its multi core: the 409 branch is not a pass then.
+    failIfRequired("start-preset of a multi-core preset", needs.installedMulti(DATA));
     expect(res.status).toBe(multiCoreAvailable(DATA) ? 200 : 409);
   });
 

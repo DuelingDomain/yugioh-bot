@@ -1,8 +1,6 @@
 import { createHmac } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { afterEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import type { DuelAnswer, DuelCardInfo, DuelEngineView, DuelFormat } from "@yugidraft/shared/duels";
@@ -11,13 +9,12 @@ import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
+import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { currentMultiWasm, describeWithCores, needs } from "./support/cores.js";
 
 // Task ELIM: the host removes a seat while a prompt is open, then rebuilds the duel from the journal.
 // The worker below runs the real engine in this process, on a multi core that has Debug.EliminateDuelist.
-// Never the live engine data: DUEL_DATA_DIR, else the next-generation data directory.
-const DATA = resolve(process.env.DUEL_DATA_DIR ?? fileURLToPath(new URL("../../../data/duel-engine-next/", import.meta.url)));
-const multiWasmPath = resolve(process.env.MULTI_WASM ?? fileURLToPath(new URL("../domain-core/dist/ocgcore.multi-P2M.sync.wasm", import.meta.url)));
-const available = existsSync(multiWasmPath) && existsSync(resolve(DATA, "ocgcore.multi.wasm"));
+const multiWasmPath = currentMultiWasm();
 const SECRET = "eliminate-secret";
 
 class RealEngineWorker implements DuelGameWorker {
@@ -87,7 +84,7 @@ async function holderOf(t: Awaited<ReturnType<typeof table>>, seats: number): Pr
   throw new Error("No prompt is open");
 }
 
-describe.skipIf(!available)("host eliminates a seat while a prompt is open (real engine)", () => {
+describeWithCores("host eliminates a seat while a prompt is open (real engine)", [needs.multi(multiWasmPath), needs.installedMulti(DATA)], () => {
   it("removes the seat that holds the prompt, and a rebuild from the journal gives the same view", async () => {
     const t = await table("ffa3", 3);
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);

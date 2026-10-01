@@ -1,9 +1,9 @@
-import { join, resolve } from "node:path";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import createCore from "ocgcore-wasm";
 import { OcgLocation, OcgMessageType, OcgPosition, OcgResponseType, type OcgCardData } from "ocgcore-wasm";
@@ -15,10 +15,10 @@ import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, parseDuelistMessages, split
 import { createRevealMap, projectView, type StoredChainLink } from "../src/views.js";
 import type { CardDatabase } from "../src/cards.js";
 import { compileBoard } from "./support/board.js";
+import { engineDataDirectory as dataDirectory } from "./engine-data-dir.js";
+import { currentMultiWasm, itEachWithCores, itWithCores, needs } from "./support/cores.js";
 
-// Never the live engine data: DUEL_DATA_DIR, else the next-generation data directory.
-const dataDirectory = resolve(process.env.DUEL_DATA_DIR ?? fileURLToPath(new URL("../../../data/duel-engine-next/", import.meta.url)));
-const multiWasmPath = fileURLToPath(new URL("../domain-core/dist/ocgcore.multi.sync.wasm", import.meta.url));
+const multiWasmPath = currentMultiWasm();
 
 function info(code: number): DuelCardInfo {
   return { code, name: `Card ${code}`, description: "", type: 1, attack: 1000, defense: 1000, level: 4, attribute: 1, race: "warrior" };
@@ -316,7 +316,7 @@ describe("live N-seat duel", () => {
     }
   })();
 
-  it.skipIf(!setupDuelistsAvailable)("starts a 3-seat free-for-all and shows every seat", async () => {
+  itWithCores("starts a 3-seat free-for-all and shows every seat", needs.setupDuelists(setupDuelistsAvailable, multiWasmPath), async () => {
     const decks = [0, 1, 2].map(() => ({ main: vanillaMain(), extra: [], side: [] }));
     const game = await createEngineGame({
       mode: "normal",
@@ -383,7 +383,7 @@ describe("engine diagnostics, disabled zones and the first win", () => {
     }
   });
 
-  it.skipIf(!existsSync(resolve(dataDirectory, "ocgcore.multi.wasm")))("names a missing Debug.EliminateDuelist, or eliminates a seat and records it", async () => {
+  itWithCores("names a missing Debug.EliminateDuelist, or eliminates a seat and records it", needs.installedMulti(dataDirectory), async () => {
     const decks = [0, 1, 2].map(() => ({ main: vanillaMain(), extra: [], side: [] }));
     const game = await createEngineGame({ mode: "normal", format: "ffa3", decks, seed: ["11", "22", "33", "44"], dataDirectory, settings });
     try {
@@ -411,10 +411,9 @@ describe("engine diagnostics, disabled zones and the first win", () => {
 });
 
 describe("seats 2 and 3 get their cards (SetupDuelists runs before any card is added)", () => {
-  const hasMulti = existsSync(resolve(dataDirectory, "ocgcore.multi.wasm"));
   const settings = { visibility: "public" as const, banlist: "none" as const, cardPool: "both" as const, turnSeconds: 240, startingLP: 8000, startingHand: 5, drawPerTurn: 1, timeout: "loss" as const, validateDeck: false, shuffleDeck: true };
 
-  it.skipIf(!hasMulti).each<[DuelFormat, number]>([["ffa3", 3], ["ffa4", 4], ["tag", 4]])("%s: every seat has a full Deck and a 5-card hand", async (format, seats) => {
+  itEachWithCores<[DuelFormat, number]>(needs.installedMulti(dataDirectory), [["ffa3", 3], ["ffa4", 4], ["tag", 4]], "%s: every seat has a full Deck and a 5-card hand", async (format, seats) => {
     const decks = Array.from({ length: seats }, () => ({ main: vanillaMain(40), extra: [], side: [] }));
     const game = await createEngineGame({ mode: "normal", format, decks, seed: ["5", "6", "7", "8"], dataDirectory, settings });
     try {
@@ -439,7 +438,7 @@ describe("journaled eliminations", () => {
     expect(eliminationCodeOf("p1-2")).toBeNull();
   });
 
-  it.skipIf(!existsSync(resolve(dataDirectory, "ocgcore.multi.wasm")))("replay-journal.ts applies an eliminate command instead of checking the prompt id", () => {
+  itWithCores("replay-journal.ts applies an eliminate command instead of checking the prompt id", needs.installedMulti(dataDirectory), () => {
     const folder = mkdtempSync(join(tmpdir(), "duel-journal-"));
     try {
       const file = join(folder, "journal.json");
@@ -486,7 +485,7 @@ describe("core identity and core log lines", () => {
     }
   });
 
-  it.skipIf(!existsSync(resolve(dataDirectory, "ocgcore.multi.wasm")))("reports the multi wasm of the data directory for three seats", async () => {
+  itWithCores("reports the multi wasm of the data directory for three seats", needs.installedMulti(dataDirectory), async () => {
     const game = await createEngineGame({ mode: "normal", format: "ffa3", decks: [deck(), deck(), deck()], seed: ["1", "2", "3", "4"], dataDirectory });
     try {
       expect(game.coreInfo()).toMatchObject({ wasmFile: "ocgcore.multi.wasm", wasmSha: sha(join(dataDirectory, "ocgcore.multi.wasm")) });

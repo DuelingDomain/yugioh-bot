@@ -8,6 +8,7 @@ import {
 } from "../../support/dsl.js";
 import { Session, probeSetupDuelists, ScenarioError } from "../../support/session.js";
 import { runScenarios } from "../../support/runner.js";
+import { describeWithCores, needs } from "../../support/cores.js";
 
 // Layer 1 scenarios for N-seat tables (FFA3, FFA4, Tag). The live scenarios need a multi core that has
 // Debug.SetupDuelists: they are skipped until it exists (same probe as tests/engine-nseat.test.ts).
@@ -184,7 +185,8 @@ describe("N-seat DSL steps (no core)", () => {
 // The core runs synchronously: a core bug that loops forever cannot be stopped by a test timeout. So the live
 // scenarios also need NSEAT_LIVE=1 until the multi core passes a full round of turns (the T0 build of 16:56 hangs
 // when seat 1 ends its turn). NSEAT_WASM picks another core build.
-const setupDuelistsAvailable = process.env.NSEAT_LIVE === "1" && (await probeSetupDuelists());
+// REMOVE the gate (needs.liveNseat) when the merged core is installed (tests/support/cores.ts).
+const liveNseat = needs.liveNseat(process.env.NSEAT_LIVE === "1" && (await probeSetupDuelists()));
 
 const elfAt = (lp?: number) => ({ monsters: [ELF], ...(lp != null ? { lp } : {}) });
 const passTurns = (...seats: Array<"p0" | "p1" | "p2" | "p3">): Step[] => seats.map((seat) => endTurn(seat));
@@ -299,7 +301,7 @@ const scenarios: Scenario[] = [
   }),
 ];
 
-describe.skipIf(!setupDuelistsAvailable)("live N-seat scenarios", () => {
+describeWithCores("live N-seat scenarios", liveNseat, () => {
   runScenarios("multiplayer/nseat", scenarios);
 });
 

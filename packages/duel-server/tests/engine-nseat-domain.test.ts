@@ -1,20 +1,15 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import type { DuelDeck, DuelFormat } from "@yugidraft/shared/duels";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { partnerSeatOf } from "@yugidraft/shared/duels";
+import { engineDataDirectory as dataDirectory } from "./engine-data-dir.js";
+import { currentDomainMultiWasm, describeWithCores, needs } from "./support/cores.js";
 
 // Domain duels with 3 and 4 duelists (task D1). The test loads the multi-domain core through the multiWasmBinary hook.
-// DOMAIN_MULTI_WASM names the wasm; the default is the D1 build. Without the file every live test is skipped.
-const dataDirectory = resolve(process.env.DUEL_DATA_DIR ?? fileURLToPath(new URL("../../../data/duel-engine-next/", import.meta.url)));
-const wasmPath = resolve(
-  process.env.DOMAIN_MULTI_WASM ?? fileURLToPath(new URL("../domain-core/dist/ocgcore.multi-domain-D1.sync.wasm", import.meta.url)),
-);
-const hasWasm = existsSync(wasmPath);
-const hasScripts = existsSync(resolve(dataDirectory, "card-scripts", "domain.lua")) || existsSync(resolve(dataDirectory, "domain.lua"));
+// DOMAIN_MULTI_WASM names the wasm; the default is the current build (tests/support/cores.ts). Without the file every live test skips, or fails with DUEL_REQUIRE_CORES=1.
+const wasmPath = currentDomainMultiWasm();
 
 const settings = {
   visibility: "public" as const, banlist: "none" as const, cardPool: "both" as const, turnSeconds: 240,
@@ -42,7 +37,7 @@ function domainDecks(count: number): DuelDeck[] {
   }
 }
 
-describe.skipIf(!hasWasm || !hasScripts)("domain duel with 3 and 4 duelists", () => {
+describeWithCores("domain duel with 3 and 4 duelists", needs.domainMulti(dataDirectory, wasmPath), () => {
   it.each<[DuelFormat, number]>([["ffa3", 3], ["ffa4", 4], ["tag", 4]])("%s: every seat has a Deck Master and a 5-card hand", async (format, seats) => {
     const game = await createEngineGame({
       mode: "domain", format, decks: domainDecks(seats), seed: ["5", "6", "7", "8"], dataDirectory, settings,

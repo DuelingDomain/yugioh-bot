@@ -1,6 +1,7 @@
 /** Pure helpers for scripts/status.ts: log parsing, owner staleness, summary reading, table layout. No I/O here. */
 
-export type State = "PASS" | "FAIL" | "RUNNING" | "MISSING" | "STALE" | "IDLE";
+/** SKIPPED: a test run where nothing passed and some tests were skipped. It is never PASS. */
+export type State = "PASS" | "FAIL" | "RUNNING" | "MISSING" | "STALE" | "IDLE" | "SKIPPED";
 
 /** Pipe, cell and text escaping for the HTML page. */
 export const escapeHtml = (t: string): string => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -187,7 +188,11 @@ export function differentialRow(read: SummaryRead<DifferentialSummary>, nowMs: n
   const multi = d.multi?.path ? `${d.multi.path.split("/").pop()} ${(d.multi.sha256 ?? "").slice(0, 8)}` : "no multi core";
   const seeds = d.onlySeeds?.length ? `${d.onlySeeds.length} fixed seeds` : `${d.seeds ?? "?"} seeds from ${d.baseSeed ?? "?"}`;
   const base = `${seeds}, ${d.differences ?? "?"} diffs, ${d.parseWarnings ?? 0} parse warnings, ${multi}`;
-  return { item, state: bad ? "FAIL" : "PASS", ageMs: age, reason: bad && d.firstFailingSeed != null ? `${base}, first seed ${d.firstFailingSeed}` : base };
+  const ran = d.onlySeeds?.length ?? d.seeds ?? 0;
+  // No multi core means nothing was compared; 0 seeds means nothing ran. Neither is PASS.
+  const state = bad ? "FAIL" : !d.multi?.path ? "SKIPPED" : noPassState(ran, 0);
+  const reason = bad && d.firstFailingSeed != null ? `${base}, first seed ${d.firstFailingSeed}` : base;
+  return { item, state, ageMs: age, reason: bad ? reason : noPassReason(state, base) };
 }
 
 export interface FuzzSummary {
@@ -208,7 +213,8 @@ export function fuzzRow(read: SummaryRead<FuzzSummary>, nowMs: number): Row {
   const age = d.time ? nowMs - Date.parse(d.time) : null;
   const fails = d.failures ?? 0;
   const base = `${d.runs ?? "?"} duels, ${fails} new failures (${d.knownFailures ?? 0} known), ${d.durationS ?? "?"}s`;
-  return { item, state: fails > 0 ? "FAIL" : "PASS", ageMs: age, reason: fails > 0 ? `${base}, first seed ${d.firstFailingSeed ?? "?"}` : base, next: fails > 0 && d.firstFailingSeed != null ? `npx tsx packages/duel-server/scripts/fuzz-repro.ts --seed ${d.firstFailingSeed}` : undefined };
+  const state = fails > 0 ? "FAIL" : noPassState(d.runs ?? 0, 0);
+  return { item, state, ageMs: age, reason: fails > 0 ? `${base}, first seed ${d.firstFailingSeed ?? "?"}` : noPassReason(state, base), next: fails > 0 && d.firstFailingSeed != null ? `npx tsx packages/duel-server/scripts/fuzz-repro.ts --seed ${d.firstFailingSeed}` : undefined };
 }
 
 export interface VitestJson {
@@ -221,6 +227,21 @@ export interface VitestJson {
   testResults?: { name?: string; assertionResults?: { status?: string; fullName?: string; title?: string }[] }[];
 }
 
+/**
+ * State of a test run without failures. "0 passed, 30 skipped" is SKIPPED, never PASS; "0 passed, 0 skipped" means no
+ * test ran at all, so it is MISSING. A run where something passed is PASS (the skipped count stays in the reason).
+ */
+export function noPassState(passed: number, skipped: number): "PASS" | "SKIPPED" | "MISSING" {
+  if (passed > 0) return "PASS";
+  return skipped > 0 ? "SKIPPED" : "MISSING";
+}
+
+function noPassReason(state: State, base: string): string {
+  if (state === "SKIPPED") return `${base}; nothing ran (all skipped)`;
+  if (state === "MISSING") return `${base}; no test ran`;
+  return base;
+}
+
 export function scenariosRow(read: SummaryRead<VitestJson>, mtimeMs: number | null, nowMs: number): Row {
   const item = "scenarios";
   const next = "npm run test:scenarios:json --workspace=packages/duel-server";
@@ -229,7 +250,9 @@ export function scenariosRow(read: SummaryRead<VitestJson>, mtimeMs: number | nu
   const failed = d.numFailedTests ?? 0;
   const failedNames = (d.testResults ?? []).flatMap((f) => (f.assertionResults ?? []).filter((a) => a.status === "failed").map((a) => a.fullName ?? a.title ?? "?"));
   const base = `${d.numPassedTests ?? 0}/${d.numTotalTests ?? 0} passed, ${failed} failed, ${d.numPendingTests ?? 0} skipped`;
-  return { item, state: failed > 0 || d.success === false ? "FAIL" : "PASS", ageMs: mtimeMs === null ? null : nowMs - mtimeMs, reason: failedNames.length ? `${base}: ${failedNames.slice(0, 3).join("; ")}` : base, next: failed > 0 ? next : undefined };
+  const bad = failed > 0 || d.success === false;
+  const state = bad ? "FAIL" : noPassState(d.numPassedTests ?? 0, d.numPendingTests ?? 0);
+  return { item, state, ageMs: mtimeMs === null ? null : nowMs - mtimeMs, reason: failedNames.length ? `${base}: ${failedNames.slice(0, 3).join("; ")}` : noPassReason(state, base), next: failed > 0 ? next : undefined };
 }
 
 interface PwSpec {
@@ -268,7 +291,8 @@ export function e2eRow(read: SummaryRead<PlaywrightJson>, mtimeMs: number | null
   const bad = (st.unexpected ?? 0) > 0 || failed.length > 0;
   const base = `${st.expected ?? 0} passed, ${st.unexpected ?? 0} failed, ${st.flaky ?? 0} flaky, ${st.skipped ?? 0} skipped`;
   const started = st.startTime ? Date.parse(st.startTime) + (st.duration ?? 0) : mtimeMs;
-  return { item, state: bad ? "FAIL" : "PASS", ageMs: started === null || started === undefined ? null : nowMs - started, reason: failed.length ? `${base}: ${failed.slice(0, 2).join("; ")}` : base, next: bad ? next : undefined };
+  const state = bad ? "FAIL" : noPassState(st.expected ?? 0, st.skipped ?? 0);
+  return { item, state, ageMs: started === null || started === undefined ? null : nowMs - started, reason: failed.length ? `${base}: ${failed.slice(0, 2).join("; ")}` : noPassReason(state, base), next: bad ? next : undefined };
 }
 
 export interface FailureSummary {
@@ -321,7 +345,7 @@ export function parsePs(text: string, selfPid: number): PsJob[] {
 
 // ---- table
 
-export const STATE_TAG: Record<State, string> = { PASS: "PASS", FAIL: "FAIL", RUNNING: "RUN ", MISSING: "MISS", STALE: "STALE", IDLE: "IDLE" };
+export const STATE_TAG: Record<State, string> = { PASS: "PASS", FAIL: "FAIL", RUNNING: "RUN ", MISSING: "MISS", STALE: "STALE", IDLE: "IDLE", SKIPPED: "SKIP" };
 
 export function renderSections(sections: Section[], width = 118): string {
   const lines: string[] = [];
@@ -717,7 +741,7 @@ export function agentRows(infos: AgentInfo[], overlaps: Map<string, string[]>, n
 
 // ---- HTML page
 
-const STATE_COLOR: Record<State, string> = { PASS: "#1a7f37", FAIL: "#cf222e", RUNNING: "#0969da", MISSING: "#6e7781", STALE: "#9a6700", IDLE: "#6e7781" };
+const STATE_COLOR: Record<State, string> = { PASS: "#1a7f37", FAIL: "#cf222e", RUNNING: "#0969da", MISSING: "#6e7781", STALE: "#9a6700", IDLE: "#6e7781", SKIPPED: "#9a6700" };
 
 const fileUrl = (path: string): string => `file://${path.split("/").map(encodeURIComponent).join("/")}`;
 
@@ -986,7 +1010,8 @@ export function fuzzNRow(read: SummaryRead<FuzzNSummary>, mtimeMs: number | null
   const fails = (d.failures ?? 0) + (d.hangs ?? 0);
   const core = d.coreTag ?? d.tag;
   const base = `${core ? `core ${core}, ` : ""}${d.runs ?? "?"} duels, ${d.failures ?? 0} new failures (${d.knownFailures ?? 0} known), ${d.hangs ?? 0} hangs`;
-  return { item, state: fails > 0 ? "FAIL" : "PASS", ageMs: at === null || !Number.isFinite(at) ? null : nowMs - at, reason: fails > 0 && d.firstFailingSeed != null ? `${base}, first seed ${d.firstFailingSeed}` : base, next: fails > 0 ? next : undefined };
+  const state = fails > 0 ? "FAIL" : noPassState(d.runs ?? 0, 0);
+  return { item, state, ageMs: at === null || !Number.isFinite(at) ? null : nowMs - at, reason: fails > 0 && d.firstFailingSeed != null ? `${base}, first seed ${d.firstFailingSeed}` : fails > 0 ? base : noPassReason(state, base), next: fails > 0 ? next : undefined };
 }
 
 export interface E2eMultiEntry {

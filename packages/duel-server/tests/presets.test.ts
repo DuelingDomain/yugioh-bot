@@ -8,6 +8,7 @@ import { compileBoard } from "../src/presets/board.js";
 import { getPreset, multiCoreAvailable, PRESETS, summarizePreset, type Preset } from "../src/presets/index.js";
 import { activate, chooseScripted, pass, type Rule } from "../src/scripted-bot.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { itWithCores, needs } from "./support/cores.js";
 import { nseatWasmBinary, probeSetupDuelists } from "./support/session.js";
 
 const seed = ["11", "22", "33", "44"];
@@ -152,7 +153,7 @@ describe("1v1 presets run to the end of their checklist", () => {
 describe("multi-core presets", async () => {
   const available = await probeSetupDuelists();
   for (const preset of PRESETS.filter((item) => item.needs === "multi-core")) {
-    it.skipIf(!available)(`${preset.id} starts and the human has the first prompt`, async () => {
+    itWithCores(`${preset.id} starts and the human has the first prompt`, needs.setupDuelists(available), async () => {
       const run = await play(preset, [pass()], { maxSteps: 20, stopWhen: () => true });
       expect(run.view(0).prompt?.seat).toBe(0);
       run.game.close();

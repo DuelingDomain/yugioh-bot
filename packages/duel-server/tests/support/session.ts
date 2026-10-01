@@ -7,10 +7,10 @@ import { cardLabel, resolveCard, type CardRef } from "./card-catalog.js";
 import type {
   ActionKind, BoardExpect, CardSel, DuelistExpect, EventMatch, ListExpect, PromptExpect, Scenario, Step, Zone, ZoneExpect,
 } from "./dsl.js";
-import { existsSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import createCore, { type OcgCardData } from "ocgcore-wasm";
 import { engineDataDirectory } from "../engine-data-dir.js";
+import { currentNseatWasm } from "./cores.js";
 
 
 /** Failure of a scenario step, with the state of the duel at that moment. */
@@ -74,13 +74,9 @@ export function describePrompt(view: DuelEngineView, prompt: DuelPrompt): string
   return lines.join("\n");
 }
 
-/** Multi-duelist core for N-seat scenarios. NSEAT_WASM overrides; else the T0 build; else the stock multi build. */
+/** Multi-duelist core for N-seat scenarios: NSEAT_WASM, else the current multi core (tests/support/cores.ts). */
 export function nseatWasmPath(): string {
-  const env = process.env.NSEAT_WASM;
-  if (env) return env;
-  const t0 = fileURLToPath(new URL("../../domain-core/dist/ocgcore.multi-T0.sync.wasm", import.meta.url));
-  if (existsSync(t0)) return t0;
-  return fileURLToPath(new URL("../../domain-core/dist/ocgcore.multi.sync.wasm", import.meta.url));
+  return currentNseatWasm();
 }
 
 export function nseatWasmBinary(): ArrayBuffer | undefined {
@@ -92,7 +88,7 @@ export function nseatWasmBinary(): ArrayBuffer | undefined {
   }
 }
 
-/** True when the N-seat core has Debug.SetupDuelists. Live N-seat tests use this for skipIf. */
+/** True when the N-seat core has Debug.SetupDuelists. Live N-seat tests pass it to needs.setupDuelists / needs.liveNseat (tests/support/cores.ts). */
 export async function probeSetupDuelists(): Promise<boolean> {
   try {
     const wasmBinary = nseatWasmBinary();
