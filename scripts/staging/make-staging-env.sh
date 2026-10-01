@@ -11,9 +11,10 @@
 #
 # What the staging file gets:
 #   - copied from production: only the keys the web needs to sign users in and to check the guild
-#     (see COPY_REQUIRED and COPY_OPTIONAL below). Nothing else is copied.
+#     (see COPY_REQUIRED and COPY_OPTIONAL below). Nothing else is copied. NEXTAUTH_SECRET is NOT copied.
 #   - set to the staging address: NEXTAUTH_URL, AUTH_URL, WEB_URL, NEXT_PUBLIC_WS_URL.
-#   - NEW random secrets: WS_INTERNAL_SECRET and DUEL_INTERNAL_SECRET. They differ from production.
+#   - NEW random secrets: NEXTAUTH_SECRET, WS_INTERNAL_SECRET and DUEL_INTERNAL_SECRET. They differ from
+#     production. A session made in staging is therefore not valid in production, and the other way round.
 #   - empty on purpose: BOT_ANNOUNCE_URL and BOT_ANNOUNCE_SECRET (there is no bot in staging).
 #
 # The script reads the production file and never writes to it. An existing staging file is kept
@@ -22,7 +23,7 @@ set -eu
 
 # DISCORD_TOKEN is copied because the web uses it as a REST credential to check guild membership
 # (packages/web/src/lib/discord-guild-membership.ts). Staging runs no bot process, so it cannot answer commands.
-COPY_REQUIRED="DISCORD_TOKEN DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET DISCORD_GUILD_ID NEXTAUTH_SECRET"
+COPY_REQUIRED="DISCORD_TOKEN DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET DISCORD_GUILD_ID"
 COPY_OPTIONAL="DISCORD_DEFAULT_CHANNEL_ID DISCORD_REMINDER_CHANNEL_ID"
 
 force=0
@@ -112,7 +113,8 @@ trap 'rm -f "$tmp"' EXIT INT TERM HUP
   echo "# No bot in staging: announcements stay off"
   echo "BOT_ANNOUNCE_URL="
   echo "BOT_ANNOUNCE_SECRET="
-  echo "# New internal secrets, not the production ones"
+  echo "# New secrets, not the production ones. Staging sessions must not be valid in production."
+  echo "NEXTAUTH_SECRET=$(random_secret)"
   echo "WS_INTERNAL_SECRET=$(random_secret)"
   echo "DUEL_INTERNAL_SECRET=$(random_secret)"
   echo "# Copied from the production file"
@@ -120,7 +122,7 @@ trap 'rm -f "$tmp"' EXIT INT TERM HUP
 
 echo "make-staging-env: set NEXTAUTH_URL AUTH_URL WEB_URL NEXT_PUBLIC_WS_URL to the staging address"
 echo "make-staging-env: set STAGING_SITE_ADDRESS STAGING_HTTP_PORT STAGING_HTTPS_PORT"
-echo "make-staging-env: generated WS_INTERNAL_SECRET and DUEL_INTERNAL_SECRET (new random values)"
+echo "make-staging-env: generated NEXTAUTH_SECRET WS_INTERNAL_SECRET DUEL_INTERNAL_SECRET (new random values)"
 echo "make-staging-env: left BOT_ANNOUNCE_URL and BOT_ANNOUNCE_SECRET empty"
 
 missing=""

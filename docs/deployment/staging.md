@@ -15,7 +15,7 @@ does not change.
 | Engine files | `data/duel-engine` | `data-staging/duel-engine` (with the multi core `ocgcore.multi.wasm`) |
 | Docker network | the default network of the project | `yugidraft-staging-net` |
 | Address | port 80 | port 8080 (plain HTTP) or your own domain (HTTPS) |
-| Secrets | `.env` | `.env.staging` (new internal secrets) |
+| Secrets | `.env` | `.env.staging` (new `NEXTAUTH_SECRET` and new internal secrets) |
 
 Files: `docker-compose.staging.yml`, `Caddyfile.staging`, `scripts/staging/`, `.github/workflows/deploy-staging.yml`.
 
@@ -124,8 +124,10 @@ Open the address and sign in with Discord.
   5. Tag loss and turn-count cards (a team loss from an empty Deck, Final Countdown).
 - The Standard core in npm is older than the card scripts. A Standard duel can throw on some cards.
 - Staging has a copy of the production database. Testers sign in with their real Discord accounts, and the guild check applies.
-- Sign-in cookies are tied to the host name, not to the port. At the same IP address, staging and production share the
-  session cookie. This is fine because `NEXTAUTH_SECRET` is the same. If it confuses you, use a staging domain.
+- Staging has its own `NEXTAUTH_SECRET`. A sign-in made in staging is not valid in production, and the other way round.
+  Sign-in cookies are tied to the host name, not to the port. At the same IP address, a sign-in on staging replaces the
+  production cookie in that browser, and the production page then asks to sign in again. This is only a nuisance.
+  A separate host name for staging (a second DNS name for the VM) stops it.
 
 ## Open risks
 
