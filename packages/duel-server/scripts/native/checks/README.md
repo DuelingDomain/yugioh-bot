@@ -42,19 +42,21 @@ check passes. Logs are in `$NATIVE_CHECKS_OUT/logs`.
 
 - `ready`: must pass on the merged core (core `5edcc84`, which has F5 and F8).
 - `pending`: needs core work that is not merged, or a check that does not match the merged core yet. Skipped unless you pass `--pending`.
-  - `place-seat-hint`: seat hint of a place prompt (`HINT_PLACE_SEAT`, F8). It compiles at `5edcc84` but fails: prompts of seat 1
-    and seat 2 name seat 0, and the check wants the next living seat. The check was written before F5, so the check or the
-    merge order needs review. It does not compile on cores before F8.
+  No check has this status now.
 - `domain`: needs a core tree with the Domain layer (`domain_master.cpp`). The runner adds that file to the build when it
   is in the tree. `domain-multi` does not compile on the merged tree, which has no Domain layer.
 - `stale`: the expectations no longer match the merged core. They are skipped unless you pass `--pending`.
   - `summon-counters-reflect`, `lua-sites`, `summon-sites`: written before the Lua perspective fold (core commits caf013c
-    and 0375e33). The Lua in these checks uses absolute seats inside effect scripts. Inside an effect, Lua now sees only 0
-    (the effect duelist) and 1 (the opponents). They need a rewrite: register the effect for the seat you want and use 0,
-    or find the card by a unique code. A bisect showed all of them pass at core commit df45f27, before the fold.
-  - `lua-scope-fold`, `lua-duel-library-a`, `lua-duel-library-b`, `lua-prompts-range`, `lua-card-group-effect`: written
-    before F5 (core `29fff80`, one opponent bound at activation). They pass at `4193da9` (34 pass, 0 fail with the other
-    ready checks) and fail in the 3 and 4 duelist modes since `29fff80`. The expected opponent seats need an update.
+    and 0375e33) and before F5. The Lua in these checks uses absolute seats inside effect scripts. Inside an effect, Lua now
+    sees only 0 (the effect duelist) and 1 (the opponents). They need a rewrite: register the effect for the seat you want
+    and use 0, or find the card by a unique code. A bisect showed all of them pass at core commit df45f27, before the fold.
+    `summon-sites` also needs an owner rule decision (the old-rule oath with PLAYER_ALL counts seat 0 only).
+
+The five Lua fold checks (`lua-scope-fold`, `lua-duel-library-a`, `lua-duel-library-b`, `lua-prompts-range`,
+`lua-card-group-effect`) follow the F5 rules and are `ready`. Their test cards have no target or cost, so every pick prompt
+there is the fallback pick of the operation step (kind c). The harness answers pick number k with option `k % options`, so a
+core that ignores the answer fails. The pick at activation is checked by `opponent-pick`; a bound opponent that is eliminated
+after the bind is checked by `zone-seat-sset`.
 
 `opponent-pick` and `place-seat-hint` are snapshots of the development trees (`domain-core/.build/phase1/F5` and `F8`).
 Copy them again when those trees change.
@@ -76,4 +78,6 @@ HEAD, the Lua pin or the flags change, and makes `cards.tsv` again when `DUEL_DA
 | `confirm-hint-sort`, `field-sites` | confirm events, hints, sort, field sites |
 | `lua-sites`, `summon-sites`, `summon-counters-reflect` | library sites (stale) |
 | `opponent-pick` | one opponent bound at activation (F5) |
-| `place-seat-hint`, `domain-multi` | pending (see below) |
+| `place-seat-hint` | seat hint of a place prompt (F8 with F5) |
+| `turn-handoff`, `zone-seat-sset` | turn hand-off after an elimination, SSet toward the bound opponent (F9) |
+| `domain-multi` | Domain layer (status `domain`, see below) |
