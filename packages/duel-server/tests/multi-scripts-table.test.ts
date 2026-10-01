@@ -159,10 +159,6 @@ interface KnownGap {
   reason: string;
 }
 const KNOWN_GAPS: Record<number, KnownGap[]> = {
-  39552584: [
-    { format: "ffa3", trap: "c", reason: "Grapha, Dragon Overlord of Dark World (R1): the core reports a pick during the operation step (trap c) at fn=DiscardHand, P=1, card=53129443 (Dark Hole) while the card plays. The overlay keeps the first effect (the opponent discards) stock. Owner: seats-r1" },
-    { format: "tag", trap: "c", reason: "Grapha, Dragon Overlord of Dark World (R1): the same trap c at fn=DiscardHand in Tag. Owner: seats-r1" },
-  ],
   71645242: [
     { format: "ffa3", trap: "c", reason: "Black Garden (R2 hand file): the core reports a pick during the operation step (trap c) at fn=GetLocationCount, P=0, card=71645242. Owner: r2-global" },
     { format: "tag", trap: "c", reason: "Black Garden (R2 hand file): the same trap c at fn=GetLocationCount in Tag. Owner: r2-global" },
