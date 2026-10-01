@@ -40,7 +40,7 @@ import {
 import { chooseScripted, ScriptedBotError, type Rule, type RuleTraceEntry } from "./scripted-bot.js";
 import { compileBoard } from "./presets/board.js";
 import { setCatalogDirectory } from "./presets/catalog.js";
-import { multiDomainStartProblem } from "./multi-domain-guard.js";
+import { multiStartProblem } from "./multi-domain-guard.js";
 import { getPreset, multiCoreAvailable, multiCoreInfo, PRESETS, SCRIPTED_POLICY, summarizePreset, type PresetIssue } from "./presets/index.js";
 
 const BOT_ADVANCE_LIMIT = 128;
@@ -1599,8 +1599,8 @@ export function createDuelHost(options: {
     const session = service.get(slug, guildId);
     if (session.status !== "lobby") throw new RequestError("Duel already started", 409);
     const seatCount = seatCountFor(session.format);
-    const domainProblem = multiDomainStartProblem(session.mode, session.format, options.dataDirectory);
-    if (domainProblem) throw new RequestError(domainProblem, 409);
+    const coreProblem = multiStartProblem(session.mode, session.format, options.dataDirectory);
+    if (coreProblem) throw new RequestError(coreProblem, 409);
     if (!allSeatsReady(session)) {
       throw new RequestError(
         seatCount === 2

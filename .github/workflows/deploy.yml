@@ -66,9 +66,85 @@ jobs:
           path: data/duel-engine
           key: ${{ env.BUNDLE_CACHE_KEY }}
 
+      # The multi-duelist core (Tag and 3 and 4 player tables). It is NOT part of the pinned bundle above: data/duel-engine,
+      # its cache key and its manifest stay exactly as they were, so the standard and domain cores of 1v1 duels are the
+      # same files as before. The core travels next to the bundle in the deploy tarball and is installed by
+      # packages/duel-server/scripts/install-engine-bundle.sh. The server loads it only for tables with more than 2 seats.
+      # Same inputs as the staging workflow, with the production prefix: the series of patches and the multi build scripts.
+      # The v1 is a literal: raise it when the build step below changes (the hash cannot see it).
+      - name: Compute multi core cache key
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        run: echo "MULTI_CACHE_KEY=duel-multi-core-v1-${{ hashFiles('packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'patches/ocgcore-wasm+0.1.2.patch') }}" >> "$GITHUB_ENV"
+
+      - name: Read the emsdk image from pins.json
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
+
+      - name: Restore multi core
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        id: multi
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+          key: ${{ env.MULTI_CACHE_KEY }}
+
+      # No LUA_FIXED_SEED: that flag is for tests that need a repeatable Lua seed. Production must not have it.
+      # Only the plain multi core is built. Domain at 3 and 4 seats (ocgcore.multi-domain.wasm) is still in development:
+      # it is not built and not shipped, and without its file the duel server refuses Domain at those tables
+      # (packages/duel-server/src/multi-domain-guard.ts). Domain 1v1 does not use it.
+      - name: Build multi core
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.multi.outputs.cache-hit != 'true' }}
+        run: |
+          set -eu
+          docker pull "$EMSDK_IMAGE"
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e EM_CACHE=/src/packages/duel-server/domain-core/.emcache \
+            -e OUT_NAME=ocgcore.multi.sync.wasm \
+            -e MULTI_TREE=/src/packages/duel-server/domain-core/.build/multi-core-tree \
+            -v "$PWD":/src -w /src "$EMSDK_IMAGE" \
+            bash packages/duel-server/scripts/build-multi-core.sh
+
+      - name: Save multi core
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.multi.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+          key: ${{ env.MULTI_CACHE_KEY }}
+
       - name: Verify duel-engine bundle
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
         run: DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
+
+      # The deploy tarball is made here, not from data/duel-engine: that folder stays the pinned bundle.
+      # The check at the end runs the install script on this exact content, in a scratch folder of the runner.
+      - name: Add the multi core to the deploy bundle
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        run: |
+          set -eu
+          wasm=packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+          test -s "$wasm"
+          bundle="$RUNNER_TEMP/deploy-bundle"
+          rm -rf "$bundle" "$RUNNER_TEMP/deploy-bundle-check"
+          mkdir -p "$bundle"
+          cp -a data/duel-engine/. "$bundle/"
+          cp "$wasm" "$bundle/ocgcore.multi.wasm"
+          sum=$(sha256sum "$wasm" | cut -d' ' -f1)
+          printf '%s  ocgcore.multi.wasm\n' "$sum" > "$bundle/ocgcore.multi.sha256"
+          patches=$(find packages/duel-server/domain-core/patches -maxdepth 1 -name '[0-9][0-9][0-9][0-9]-*.patch' | wc -l)
+          printf 'commit=%s\nsha256=%s\npatches=%s\nbuilt=%s\nnote=built by .github/workflows/deploy.yml, production build, no LUA_FIXED_SEED\n' \
+            "$GITHUB_SHA" "$sum" "$patches" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$bundle/ocgcore.multi.SOURCE"
+          # Domain at 3 and 4 seats has no core in production yet. The server guard stays closed without this file.
+          if [ -e "$bundle/ocgcore.multi-domain.wasm" ]; then
+            echo "ocgcore.multi-domain.wasm must not be part of the production bundle." >&2
+            exit 1
+          fi
+          DUEL_BUNDLE_SRC="$bundle" DUEL_DATA_DIR="$RUNNER_TEMP/deploy-bundle-check/duel-engine" \
+            sh packages/duel-server/scripts/install-engine-bundle.sh
+          cmp "$RUNNER_TEMP/deploy-bundle-check/duel-engine/ocgcore.multi.wasm" "$wasm"
+          rm -rf "$RUNNER_TEMP/deploy-bundle-check"
+          echo "ocgcore.multi.wasm sha256 $sum ($patches patches)"
+          echo "### Production multi core" >> "$GITHUB_STEP_SUMMARY"
+          echo "ocgcore.multi.wasm sha256 \`$sum\`, $patches patches, commit \`${GITHUB_SHA::12}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Configure SSH key
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
@@ -86,7 +162,7 @@ jobs:
       - name: Deploy over SSH
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
         run: |
-          tar -C data/duel-engine -czf "$RUNNER_TEMP/duel-engine.tar.gz" .
+          tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$RUNNER_TEMP/duel-engine.tar.gz" .
           scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$RUNNER_TEMP/duel-engine.tar.gz" \
             "$VM_USER@$VM_HOST:/tmp/yugidraft-duel-engine.tar.gz"

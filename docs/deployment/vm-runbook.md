@@ -64,6 +64,12 @@ The deploy workflow requires these GitHub Actions secrets:
    using `npm run duel:prepare`, `packages/duel-server/scripts/build-domain-core.ts` (Domain wasm) and `packages/duel-server/scripts/build-domain-core.ts standard` (Standard wasm: stock rules plus the shared fixes in `domain-core/src/apply-core-fixes.mjs`, `build-standard-core.sh`)
    inside `docker.io/emscripten/emsdk:4.0.9` (digest from `packages/duel-server/domain-core/pins.json`).
    Identical pins hit the Actions cache and skip regenerate.
+   The workflow also builds the multi-duelist core `ocgcore.multi.wasm` (Tag and 3 and 4 player tables) with
+   `build-multi-core.sh` in the same emsdk image: the pinned ygopro-core plus the patch series in
+   `domain-core/patches`, no `LUA_FIXED_SEED`. It has its own cache key (`duel-multi-core-v1-<hash of the patches and
+   the multi build scripts>`). The core is added to the deploy tarball, not to the cached `data/duel-engine` bundle, so
+   the bundle key and the standard and domain cores do not depend on it. The Domain core for 3 and 4 seats
+   (`ocgcore.multi-domain.wasm`) is not built or shipped yet: the server refuses Domain at those tables.
 4. The workflow SSHes into the VM, resets `/opt/yugioh-bot` to `origin/main`,
    rebuilds Compose images, stops **web** (ingress) only, then installs the
    bundle into `/opt/yugioh-bot/data/duel-engine` **before** `docker compose down`.
@@ -73,6 +79,10 @@ The deploy workflow requires these GitHub Actions secrets:
    columns fail closed); on refuse, `docker compose start web` restores the old
    web container and the deploy exits without recreating duel. This reduces
    new-table races; it is not a race-free preflight. It never writes `data/bot.sqlite`.
+   The multi core is installed on its own (one atomic rename per file, checked against `ocgcore.multi.sha256`),
+   also when `manifest.json` is identical. A changed multi core is refused while a Tag or free-for-all duel is active.
+   A 1v1 duel never blocks it and never reads it. Without the multi core, a Tag, 3 or 4 player table answers 409
+   with a clear message when it starts.
 5. Compose starts bot, ws, duel, web, and caddy. The duel container verifies
    the volume bundle and runs `node packages/duel-server/dist/server.js`
    (`dist/worker.js` is loaded by the compiled host). Container restarts do

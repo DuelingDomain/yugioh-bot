@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
-import { MULTI_DOMAIN_UNAVAILABLE_MESSAGE, type DuelFormat } from "@yugidraft/shared/duels";
+import { MULTI_DOMAIN_UNAVAILABLE_MESSAGE, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
+import { MULTI_CORE_MISSING_MESSAGE } from "../src/multi-domain-guard.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
 
 const SECRET = "multi-domain-guard-secret";
@@ -19,8 +20,8 @@ afterEach(async () => {
   while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true });
 });
 
-/** A lobby with one organizer in a Domain table. The data directory holds only the files named in `files`. */
-function lobby(format: DuelFormat, files: string[]) {
+/** A lobby with one organizer in a table of `mode` (Domain by default). The data directory holds only the files named in `files`. */
+function lobby(format: DuelFormat, files: string[], mode: DuelMode = "domain") {
   const dataDirectory = mkdtempSync(join(tmpdir(), "host-multi-domain-"));
   dirs.push(dataDirectory);
   writeFileSync(join(dataDirectory, "manifest.json"), JSON.stringify({ bundleVersion: "test" }));
@@ -30,7 +31,7 @@ function lobby(format: DuelFormat, files: string[]) {
   const playerId = Number(
     db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", "u0", "P0").lastInsertRowid,
   );
-  const session = createDuelService(db).create({ guildId: "g1", organizerPlayerId: playerId, name: "Duel", mode: "domain", format });
+  const session = createDuelService(db).create({ guildId: "g1", organizerPlayerId: playerId, name: "Duel", mode, format });
   let workersCreated = 0;
   const host = createDuelHost({
     db,
@@ -75,5 +76,17 @@ describe("host start of a Domain table with 3 or more seats", () => {
     expect(started.status).toBe(409);
     expect(started.data.error).toMatch(/3 players must submit valid decks/);
     expect(t.workersCreated()).toBe(0);
+  });
+});
+
+describe("host start of a table with 3 or more seats when the multi core is missing", () => {
+  it.each(["ffa3", "ffa4", "tag"] as const)("answers 409 with the clear message at %s, in Standard and in Domain, and opens no worker", async (format) => {
+    for (const mode of ["normal", "domain"] as const) {
+      const t = lobby(format, [], mode);
+      const started = await t.start();
+      expect(started.status).toBe(409);
+      expect(started.data.error).toBe(MULTI_CORE_MISSING_MESSAGE);
+      expect(t.workersCreated()).toBe(0);
+    }
   });
 });
