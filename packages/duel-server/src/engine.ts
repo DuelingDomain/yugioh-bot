@@ -935,16 +935,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       diagnose("eliminate", seat, `reason ${Math.trunc(reason)}`);
       // The loss is only flagged in the core. It lands at the next Adjust, which runs after the open prompt is answered.
       for (const gone of format === "tag" ? seatsOfTeam(format, teamOfSeat(format, seat)) : [seat]) leaving.add(gone);
-      const previous = pending;
-      sawRetry = false;
-      pending = null;
-      processUntilWait();
-      if (sawRetry) {
-        // No new response was given, so the core only answered MSG_RETRY: it still waits on the old prompt. Keep it.
-        sawRetry = false;
-        if (!previous) throw new Error("The core waits for an answer but the engine has no open prompt");
-        pending = previous;
-      }
+      // Do not run the core here. A call with no new response is no no-op: the core takes the old response buffer as the answer
+      // of the open prompt (a chain window gets a pass), so the prompt of ANOTHER seat would be answered without that seat.
+      // The open prompt stays. If its seat is the one that leaves, answerForLeavingSeats answers it with a real response.
+      if (!pending) throw new Error("The core waits for an answer but the engine has no open prompt");
       answerForLeavingSeats();
       revision += 1;
     },
