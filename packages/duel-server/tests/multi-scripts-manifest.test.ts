@@ -199,11 +199,11 @@ describe("the R2 entries (state per seat: Q6, the key is the seat in FFA and the
     }
   });
 
-  it("count 100 suffixes (38 generated seat tables, 62 hand files) and 45 cards that work without change", () => {
-    expect(r2Cards).toHaveLength(100);
+  it("count 101 suffixes (38 generated seat tables, 63 hand files) and 44 cards that work without change", () => {
+    expect(r2Cards).toHaveLength(101);
     expect(seatCards).toHaveLength(38);
-    expect(handCards).toHaveLength(62);
-    expect(R2_NO_CHANGE).toHaveLength(45);
+    expect(handCards).toHaveLength(63);
+    expect(R2_NO_CHANGE).toHaveLength(44);
     expect(new Set(R2_NO_CHANGE).size).toBe(R2_NO_CHANGE.length);
   });
 

@@ -5,7 +5,7 @@
 
 import {
   activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, pass, pickOpponent,
-  normalSummon, select, setCard, zone, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+  announce, normalSummon, select, setCard, zone, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
@@ -34,6 +34,7 @@ const LAM = "Life Absorbing Machine";
 const PREMATURE = "Premature Burial";
 const GARDEN = "Black Garden";
 const ROSE = "Rose Token";
+const GRAVEKEEPER = "Gravekeeper's Trap";
 const ELF_ATK = 800;
 
 /** The state of EVERY seat: LP, monsters, Spell and Trap zones, Graveyard and banished zone are exact; the hand only when the spec names it. */
@@ -283,6 +284,63 @@ export const SEATS_R2_SCENARIOS: Scenario[] = [
         p1: { monsters: [AXE, ROSE, ROSE], spells: [GARDEN] },
         p2: { monsters: [FANG, ROSE] },
         p3: { monsters: [ELF] },
+      }),
+    ],
+  }),
+
+  // --- Gravekeeper's Trap: the declared card is checked against the draw of the TURN PLAYER, one opponent at a time -----------------------
+  defineScenario({
+    id: "seats-r2-ffa3-gravekeepers-trap-checks-the-draw-of-the-turn-player",
+    title: "FFA3: p0 controls Gravekeeper's Trap and declares Silver Fang before the draw of p1 and of p2. p1 draws Silver Fang: it goes to the Graveyard of p1. p2 draws Axe Raider: it stays in the hand of p2. The draw of p0 and the hand of the other seats are not touched",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "r2", "turn-player", "ffa3", "card:98715423"],
+    // The stock trap c was GetDrawCount(1-tp) in the operation step (an unbound opponent). The opponent is the player of the draw: the turn player.
+    setup: {
+      format: "ffa3",
+      p0: { spells: [GRAVEKEEPER], deck: [RAT] },
+      p1: { deck: [FANG] },
+      p2: { deck: [AXE] },
+    },
+    steps: [
+      endTurn("p0"),
+      announce(FANG, "p0"),
+      endTurn("p1"),
+      announce(FANG, "p0"),
+      endTurn("p2"),
+      everySeat("ffa3", {
+        p0: { hand: [RAT], spells: [GRAVEKEEPER] },
+        p1: { grave: [FANG] },
+        p2: { hand: [AXE] },
+      }),
+    ],
+  }),
+
+  defineScenario({
+    id: "seats-r2-tag-gravekeepers-trap-checks-the-draw-of-the-opposing-turn-player-only",
+    title: "Tag: p0 controls Gravekeeper's Trap and declares Silver Fang before the draw of p1 and of p3 (not before the draw of its partner p2). p1 draws Silver Fang: it goes to the Graveyard of p1. p3 draws Axe Raider: it stays in the hand of p3. p2 draws Mystical Elf and keeps it",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-TAG-PARTNER", "R-TAG-ORDER"],
+    tags: ["multiplayer", "r2", "turn-player", "tag", "card:98715423"],
+    setup: {
+      format: "tag",
+      p0: { spells: [GRAVEKEEPER], deck: [RAT] },
+      p1: { deck: [FANG] },
+      p2: { deck: [ELF] },
+      p3: { deck: [AXE] },
+    },
+    steps: [
+      endTurn("p0"),
+      announce(FANG, "p0"),
+      endTurn("p1"),
+      endTurn("p2"),
+      announce(FANG, "p0"),
+      endTurn("p3"),
+      everySeat("tag", {
+        p0: { hand: [RAT], spells: [GRAVEKEEPER] },
+        p1: { grave: [FANG] },
+        p2: { hand: [ELF] },
+        p3: { hand: [AXE] },
       }),
     ],
   }),

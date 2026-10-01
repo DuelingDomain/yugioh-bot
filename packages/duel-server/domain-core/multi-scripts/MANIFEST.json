@@ -5223,6 +5223,18 @@
       "note": "Chooser card with a compare in an inline condition (MPAny); the file replaces the script. The triage did not list it as a compare card."
     },
     {
+      "code": 98715423,
+      "file": "c98715423.lua",
+      "name": "Gravekeeper's Trap",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "b5aebe148dbffbe64db572c6729ccfc3b3bde1b03450bc93deb0ea748422cf6c",
+      "note": "the draw count, the flag and the hand of 1-tp are read for the TURN PLAYER (an opponent of the holder): every function binds that seat first (Duel.MPTurnOwns on a card of the turn player, no pick), so the operation step no longer needs a pick."
+    },
+    {
       "code": 98787535,
       "file": "c98787535.lua",
       "name": "Aleirtt, the Ogdoadic Dark",
