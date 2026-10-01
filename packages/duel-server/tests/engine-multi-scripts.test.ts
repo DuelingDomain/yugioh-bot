@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DuelDeck, DuelFormat } from "@yugidraft/shared/duels";
+import { seatCountFor, type DuelDeck, type DuelFormat } from "@yugidraft/shared/duels";
 import { loadCardDatabase } from "../src/cards.js";
 import { createEngineGame, type EngineGameOptions } from "../src/engine.js";
 import { engineDataDirectory as dataDirectory } from "./engine-data-dir.js";
@@ -30,13 +30,25 @@ function vanilla(count: number): number[] {
 }
 
 const deck = (): DuelDeck => ({ main: [REPLACED_CARD, SUFFIXED_CARD, ...vanilla(38)], extra: [], side: [] });
-const seats = (format: DuelFormat) => (format === "ffa3" ? 3 : 2);
+const seats = (format: DuelFormat) => seatCountFor(format);
+
+/** A Domain deck: 40 spells and one Deck Master monster, different for each seat. */
+function domainDeck(seat: number): DuelDeck {
+  const db = new Database(join(dataDirectory, "cards.cdb"), { readonly: true });
+  try {
+    const ids = (type: number) => (db.prepare("SELECT id FROM datas WHERE type = ? AND alias = 0 AND (ot & 3) != 0 ORDER BY id").all(type) as { id: number }[]).map((row) => row.id);
+    return { main: ids(2).slice(seat * 40, seat * 40 + 40), extra: [], side: [], deckMaster: ids(17)[seat] };
+  } finally {
+    db.close();
+  }
+}
 
 async function start(format: DuelFormat, extra: Partial<EngineGameOptions> = {}) {
+  const mode = extra.mode ?? "normal";
   return createEngineGame({
-    mode: "normal",
+    mode,
     format,
-    decks: Array.from({ length: seats(format) }, deck),
+    decks: Array.from({ length: seats(format) }, (_, seat) => (mode === "domain" ? domainDeck(seat) : deck())),
     seed: ["11", "22", "33", "44"],
     dataDirectory,
     settings,
@@ -92,10 +104,14 @@ describeWithCores("Lua overlay on a real engine", needsAll, () => {
     expect(await holds("1v1", "MP_OVERLAY_ACTIVE == nil")).toBe(true);
   });
 
-  it("sets MP_OVERLAY_ACTIVE with the stub alone: the core has no MPBindOpponent to guard on", async () => {
+  // The stub sets the flag before its guard on Duel.MPBindOpponent, so the flag is there whether or not the core has the function.
+  it("sets MP_OVERLAY_ACTIVE with the stub alone", async () => {
     const overlay = makeOverlay([]);
     expect(await holds("ffa3", "MP_OVERLAY_ACTIVE == true", { multiScriptsDirectory: overlay })).toBe(true);
-    expect(await holds("ffa3", "Duel.MPBindOpponent == nil", { multiScriptsDirectory: overlay })).toBe(true);
+  });
+
+  it.each<DuelFormat>(["ffa3", "ffa4", "tag"])("loads mp-utility.lua at %s (normal mode)", async (format) => {
+    expect(await holds(format, "MP_OVERLAY_ACTIVE == true")).toBe(true);
   });
 
   it("loads mp-utility.lua before any card exists", async () => {
@@ -174,3 +190,18 @@ describeWithCores("Lua overlay on a real engine", needsAll, () => {
     expect([...fromEngine].some((line) => line.startsWith(`c${REPLACED_CARD}.lua\0`))).toBe(true);
   });
 });
+
+// Domain mode loads the overlay at 3 and 4 seats too, and never at 2. These tests need the installed multi-domain core.
+describeWithCores(
+  "Lua overlay in Domain mode",
+  [...needsAll, needs.domain(dataDirectory), needs.file("installed domain multi core", join(dataDirectory, "ocgcore.multi-domain.wasm"), "Install the multi-domain core into the engine data directory (see domain-core/patches/README.md).")],
+  () => {
+    it.each<DuelFormat>(["ffa3", "ffa4", "tag"])("loads mp-utility.lua at %s (domain mode)", async (format) => {
+      expect(await holds(format, "MP_OVERLAY_ACTIVE == true", { mode: "domain" })).toBe(true);
+    });
+
+    it("does not load mp-utility.lua at 1v1 (domain mode)", async () => {
+      expect(await holds("1v1", "MP_OVERLAY_ACTIVE == nil", { mode: "domain" })).toBe(true);
+    });
+  },
+);
