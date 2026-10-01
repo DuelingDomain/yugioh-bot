@@ -118,11 +118,36 @@ function aux.MPForEachDuelist(fn)
 	Duel.MPNthDuelist(0)
 end
 
+-- True when fn(tp_i,seat_i) is true for every living duelist (the loop stops at the first false). Same rules for fn as in MPForEachDuelist.
+function aux.MPAllDuelists(fn)
+	local all=true
+	aux.MPForEachDuelist(function(tp_i,seat_i)
+		if not fn(tp_i,seat_i) then all=false return true end
+	end)
+	return all
+end
+
+-- True when fn(tp_i,seat_i) is true for at least one living duelist (the loop stops at the first true).
+function aux.MPAnyDuelist(fn)
+	local any=false
+	aux.MPForEachDuelist(function(tp_i,seat_i)
+		if fn(tp_i,seat_i) then any=true return true end
+	end)
+	return any
+end
+
 -- The key of a player value p for a flag or a table that is kept per player: the seat in FFA, the team in Tag (Q6).
 -- Without Duel.MPSeat (or at two seats) it is p itself.
 function aux.MPKey(p)
 	if Duel.MPSeat and Duel.MPMode()~=0 then return Duel.MPSeat(p) end
 	return p
+end
+
+-- The key (as aux.MPKey gives it) of a real seat: the seat in FFA, the team in Tag. aux.MPKey(tp) before a loop and
+-- aux.MPKeyOfSeat(seat_i) inside it tell if a duelist is on the side of the effect (equal) or an opponent (different).
+function aux.MPKeyOfSeat(seat)
+	if Duel.MPMode()==2 then return mp_team(seat) end
+	return seat
 end
 
 -- The Lua value of the own side of the duelist that runs the effect: FFA 0, Tag its team id. A seat that Duel.MPBindSeat accepts is a

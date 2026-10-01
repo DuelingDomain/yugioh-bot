@@ -60,9 +60,9 @@ if got~='${want}' then error('LOG '..got..' want ${want}') end
 `;
 
 describeWithCores("seat helpers of mp-utility.lua", [needs.scripts(dataDirectory), needs.cards(dataDirectory), needs.installedMulti(dataDirectory)], () => {
-  it("defines the three helpers at 3 and 4 seats and in Tag", async () => {
+  it("defines the helpers at 3 and 4 seats and in Tag", async () => {
     for (const format of ["ffa3", "ffa4", "tag"] as DuelFormat[]) {
-      expect(await run(format, "assert(aux.MPForEachDuelist and aux.MPKey and aux.MPForEachController)")).toBe("");
+      expect(await run(format, "assert(aux.MPForEachDuelist and aux.MPKey and aux.MPForEachController and aux.MPAllDuelists and aux.MPAnyDuelist and aux.MPKeyOfSeat)")).toBe("");
     }
   });
 
@@ -137,6 +137,38 @@ aux.MPForEachDuelist(function(tp,seat) calls[#calls+1]=tp..':'..seat end)
 if table.concat(calls,',')~='0:0,1:1' then error('calls '..table.concat(calls,',')) end
 ${EXPECT_LOG("")}`;
       expect(await run("ffa3", lua)).toBe("");
+    });
+  });
+
+  describe("MPAllDuelists and MPAnyDuelist", () => {
+    it("All is true when fn is true for every living duelist, and stops at the first false (scope given back)", async () => {
+      const lua = `${FAKE_NTH([0, 1, 2])}
+if not aux.MPAllDuelists(function(tp,seat) LOG[#LOG+1]='a'..seat return true end) then error('all true') end
+${EXPECT_LOG("n1 a0 n2 a1 n3 a2 n4 n0")}
+LOG={}
+if aux.MPAllDuelists(function(tp,seat) LOG[#LOG+1]='b'..seat return seat~=1 end) then error('all false') end
+if REBOUND then error('scope not given back') end
+${EXPECT_LOG("n1 b0 n2 b1 n0")}`;
+      expect(await run("ffa3", lua)).toBe("");
+    });
+
+    it("Any is true when fn is true for one living duelist, stops there, and is false for no duelist", async () => {
+      const lua = `${FAKE_NTH([0, 1, 2])}
+if not aux.MPAnyDuelist(function(tp,seat) LOG[#LOG+1]='a'..seat return seat==1 end) then error('any true') end
+if REBOUND then error('scope not given back') end
+${EXPECT_LOG("n1 a0 n2 a1 n0")}
+if aux.MPAnyDuelist(function() return false end) then error('any false') end`;
+      expect(await run("ffa3", lua)).toBe("");
+      expect(await run("ffa3", `${FAKE_NTH([])}
+if aux.MPAnyDuelist(function() return true end) then error('any with no duelist') end
+if not aux.MPAllDuelists(function() return false end) then error('all with no duelist') end`)).toBe("");
+    });
+  });
+
+  describe("MPKeyOfSeat", () => {
+    it("is the seat in FFA, and the team in Tag", async () => {
+      expect(await run("ffa4", "for seat=0,3 do if aux.MPKeyOfSeat(seat)~=seat then error('ffa '..seat) end end")).toBe("");
+      expect(await run("tag", "for seat=0,3 do if aux.MPKeyOfSeat(seat)~=seat%2 then error('tag '..seat) end end")).toBe("");
     });
   });
 

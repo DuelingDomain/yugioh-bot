@@ -98,7 +98,7 @@ describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)
       expect(card.kind, card.file).toBe("hand");
       expect(card.classes, card.file).toEqual(["R1"]);
       expect(text(card).split("\n")[0], card.file).toBe("if not aux.MPForEachDuelist then return end");
-      expect(text(card), card.file).toMatch(/aux\.MPForEachDuelist\(function\(tp_i(,seat_i)?\)/);
+      expect(text(card), card.file).toMatch(/aux\.MP(ForEach|All|Any)Duelists?\(function\(tp_i(,seat_i)?\)/);
     }
   });
 

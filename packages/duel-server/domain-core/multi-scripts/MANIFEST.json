@@ -1229,7 +1229,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
+      "name": "Evil★Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"
@@ -1427,6 +1427,16 @@
       "stockSha256": "0df1dc036523fd7d87169c0d1c760750d98303125289eac58338cd9c60dd5680"
     },
     {
+      "code": 78098950,
+      "file": "c78098950.lua",
+      "name": "Tsumuha-Kutsunagi the Lord of Swords",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "dea8a60a706e831ccaffe30792747c56d2127867cbec3ccae2eeb23131ea8b12"
+    },
+    {
       "code": 80453041,
       "file": "c80453041.lua",
       "name": "Phantom of Yubel",
@@ -1477,6 +1487,16 @@
         "spcon"
       ],
       "stockSha256": "be6fdc99cef9346fe6ffb15b7290c38ac32bd96c3ec5e45aabd7e1066a34854a"
+    },
+    {
+      "code": 82734805,
+      "file": "c82734805.lua",
+      "name": "Infernoid Tierra",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "4c3a10e09be6aad83b8fdecfe1080c3d74548dad8df73cb33244a7266a023aef"
     },
     {
       "code": 83054225,
@@ -1670,6 +1690,16 @@
         "condition"
       ],
       "stockSha256": "7e380b2908ac063874e65c2b05c89ca8e4e8d116c8e9d5a75cc25031e64c22bf"
+    },
+    {
+      "code": 89928517,
+      "file": "c89928517.lua",
+      "name": "Two-for-One Team",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "443717ee2ca68266e0133f3a59a78194e893aa04bd6efda2a4f01c0f962cd0cf"
     },
     {
       "code": 90173539,
