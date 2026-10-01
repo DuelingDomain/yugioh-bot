@@ -81,7 +81,7 @@ jobs:
       # staging-prefixed key, so a staging run can never put a bundle where the production deploy reads it.
       - name: Compute bundle cache key
         if: ${{ inputs.action == 'deploy' }}
-        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
+        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
 
       - name: Compute staging bundle cache key
         if: ${{ inputs.action == 'deploy' }}
@@ -125,6 +125,8 @@ jobs:
           docker pull "$EMSDK_IMAGE"
           npx tsx packages/duel-server/scripts/build-domain-core.ts
           npx tsx packages/duel-server/scripts/build-domain-core.ts standard
+          # The Domain core of the legacy 1v1 engine (main's build), next to the merged one. 1v1 duels start on it by default.
+          npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
 
       - name: Save pinned duel-engine bundle
         if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-matched-key == '' }}

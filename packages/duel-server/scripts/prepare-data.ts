@@ -74,6 +74,9 @@ if (previous && await catalogIsCurrent(previous)) {
 
 const luaPath = join(directory, "card-scripts", "domain.lua");
 const savedLua = existsSync(luaPath) ? await readFile(luaPath) : null;
+// The Domain Lua of the legacy 1v1 engine (built by legacy-1v1/scripts/build-domain-core.sh) is kept the same way.
+const legacyLuaPath = join(directory, "card-scripts", "domain.legacy.lua");
+const savedLegacyLua = existsSync(legacyLuaPath) ? await readFile(legacyLuaPath) : null;
 const temporary = await mkdtemp(join(tmpdir(), "yugidraft-resources-"));
 try {
   const [cards, strings, scripts] = await Promise.all([
@@ -87,6 +90,7 @@ try {
   await mkdir(scriptStaging, { recursive: true });
   execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", scriptStaging]);
   if (savedLua) await writeFile(join(scriptStaging, "domain.lua"), savedLua);
+  if (savedLegacyLua) await writeFile(join(scriptStaging, "domain.legacy.lua"), savedLegacyLua);
   const scriptDirectory = join(directory, "card-scripts");
   await rm(scriptDirectory, { recursive: true, force: true });
   await cp(scriptStaging, scriptDirectory, { recursive: true });
@@ -112,6 +116,13 @@ try {
     integrity.domainWasm = hash(await readFile(domainWasmPath));
     integrity.domainLua = hash(await readFile(domainLuaPath));
     if (previous.integrity.domainPatch) integrity.domainPatch = previous.integrity.domainPatch;
+  }
+  const legacyWasmPath = join(directory, "ocgcore.domain.legacy.wasm");
+  if (previous?.sources.domainCoreLegacy && existsSync(legacyWasmPath) && existsSync(legacyLuaPath)) {
+    mergedSources.domainCoreLegacy = previous.sources.domainCoreLegacy;
+    integrity.domainLegacyWasm = hash(await readFile(legacyWasmPath));
+    integrity.domainLegacyLua = hash(await readFile(legacyLuaPath));
+    if (previous.integrity.domainLegacyPatch) integrity.domainLegacyPatch = previous.integrity.domainLegacyPatch;
   }
   const standardWasmPath = join(directory, "ocgcore.standard.wasm");
   if (previous?.sources.standardCore && existsSync(standardWasmPath)) {

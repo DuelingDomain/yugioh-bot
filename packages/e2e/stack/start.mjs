@@ -125,6 +125,9 @@ run("duel", process.execPath, ["packages/duel-server/dist/server.js"], {
     DUEL_REPORT_DIR: resolve(stackDir, "reports"),
     // Tag, 3-player and 4-player tables. On for the E2E stack so the multi-seat specs run; E2E_MULTIPLAYER_TABLES=0 turns it off.
     MULTIPLAYER_TABLES: process.env.E2E_MULTIPLAYER_TABLES ?? "1",
+    // The engine of new 1v1 duels. The E2E stack tests the merged engine (pinned) unless E2E_1V1_ENGINE=legacy asks for the
+    // engine that production uses (the data dir then needs the legacy Domain files, see docs/deployment/duel-engine-switch.md).
+    DUEL_1V1_ENGINE: process.env.E2E_1V1_ENGINE ?? "pinned",
     // Fast practice bot. The default pause is 900 ms per step.
     DUEL_BOT_STEP_MS: process.env.E2E_BOT_STEP_MS ?? "120",
     // The host defaults. A live .env value must not change them.

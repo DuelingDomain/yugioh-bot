@@ -32,7 +32,7 @@ jobs:
 
       - name: Compute bundle cache key
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
-        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
+        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
 
       - name: Restore pinned duel-engine bundle
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
@@ -58,6 +58,8 @@ jobs:
           docker pull docker.io/emscripten/emsdk:4.0.9@sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811
           npx tsx packages/duel-server/scripts/build-domain-core.ts
           npx tsx packages/duel-server/scripts/build-domain-core.ts standard
+          # The Domain core of the legacy 1v1 engine (main's build), next to the merged one. 1v1 duels start on it by default.
+          npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
 
       - name: Save pinned duel-engine bundle
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}

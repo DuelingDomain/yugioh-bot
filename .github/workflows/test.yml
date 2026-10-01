@@ -56,7 +56,7 @@ jobs:
       # The emsdk image comes from pins.json (a pins.json change also changes the key).
       - name: Compute bundle cache key
         id: key
-        run: echo "key=duel-engine-ci-v1-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=duel-engine-ci-v1-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
 
       - name: Read the emsdk image from pins.json
         run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
@@ -88,6 +88,8 @@ jobs:
           docker pull "$EMSDK_IMAGE"
           npx tsx packages/duel-server/scripts/build-domain-core.ts
           npx tsx packages/duel-server/scripts/build-domain-core.ts standard
+          # The Domain core of the legacy 1v1 engine (main's build), next to the merged one. 1v1 duels start on it by default.
+          npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
 
       # All multi cores use LUA_FIXED_SEED=1 so that the one binary serves the engine tests and the
       # differential tests. The deploy build must use the same flags to ship the tested binary.

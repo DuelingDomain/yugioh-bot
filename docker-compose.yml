@@ -46,6 +46,9 @@ services:
       - DUEL_IDLE_WORKER_MS=${DUEL_IDLE_WORKER_MS:-300000}
       # Tag, 3-player and 4-player tables. Off by default: only 1v1 tables start. The web service needs the same value.
       - MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-0}
+      # The engine that new 1v1 duels start on. legacy is the engine production ran before the n-seat work (the default).
+      # pinned is the merged engine. A duel keeps the engine it started on. Tables with 3 or 4 seats always use the multi core.
+      - DUEL_1V1_ENGINE=${DUEL_1V1_ENGINE:-legacy}
     # The VM has 4 GB. The first game loads the card database and scripts (about 114 MB), each game adds a few MB.
     mem_limit: ${DUEL_MEM_LIMIT:-1g}
     volumes:

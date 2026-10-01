@@ -21,7 +21,7 @@ function multiScriptsHash(files: Record<string, string>): string {
 }
 
 /** A small, complete bundle. `tag` changes manifest.json, `multi` changes only the multi core. */
-function writeBundle(dir: string, options: { tag: string; multi?: string }): void {
+function writeBundle(dir: string, options: { tag: string; multi?: string; legacy?: false | "bad-hash" }): void {
   const overlay = { "mp-utility.lua": "-- overlay", "MANIFEST.json": "{}" };
   mkdirSync(join(dir, "card-scripts"), { recursive: true });
   mkdirSync(join(dir, "multi-scripts"), { recursive: true });
@@ -30,8 +30,19 @@ function writeBundle(dir: string, options: { tag: string; multi?: string }): voi
   writeFileSync(join(dir, "ocgcore.domain.wasm"), "domain");
   writeFileSync(join(dir, "ocgcore.standard.wasm"), `standard-${options.tag}`);
   writeFileSync(join(dir, "card-scripts", "domain.lua"), "-- domain");
+  if (options.legacy !== false) {
+    writeFileSync(join(dir, "ocgcore.domain.legacy.wasm"), "legacy domain");
+    writeFileSync(join(dir, "card-scripts", "domain.legacy.lua"), "-- legacy domain");
+  }
   for (const [name, text] of Object.entries(overlay)) writeFileSync(join(dir, "multi-scripts", name), text);
-  writeFileSync(join(dir, "manifest.json"), JSON.stringify({ tag: options.tag, integrity: { multiScripts: multiScriptsHash(overlay) } }));
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({
+    tag: options.tag,
+    integrity: {
+      multiScripts: multiScriptsHash(overlay),
+      domainLegacyWasm: sha(options.legacy === "bad-hash" ? "other" : "legacy domain"),
+      domainLegacyLua: sha("-- legacy domain"),
+    },
+  }));
   if (options.multi !== undefined) {
     writeFileSync(join(dir, "ocgcore.multi.wasm"), options.multi);
     writeFileSync(join(dir, "ocgcore.multi.sha256"), `${sha(options.multi)}  ocgcore.multi.wasm\n`);
@@ -63,6 +74,15 @@ function fixture(installed: { tag: string; multi?: string }, incoming: { tag: st
   }
   db.close();
   return { src, dst, root };
+}
+
+/** A bundle that was made without the legacy 1v1 files (or with a wrong hash) is refused, also in the preflight. */
+function incompleteFixture(legacy: false | "bad-hash"): Fixture {
+  const f = fixture({ tag: "old", multi: "m1" }, { tag: "new", multi: "m1" }, []);
+  rmSync(f.src, { recursive: true, force: true });
+  mkdirSync(f.src, { recursive: true });
+  writeBundle(f.src, { tag: "new", multi: "m1", legacy });
+  return f;
 }
 
 function run(f: Fixture, preflight: boolean): { status: number | null; out: string } {
@@ -152,5 +172,28 @@ describe("install-engine-bundle.sh install", () => {
     expect(run(f, false).status).toBe(0);
     expect(readFileSync(join(f.dst, "ocgcore.multi.wasm"), "utf8")).toBe("m2");
     expect(readFileSync(join(f.dst, "ocgcore.standard.wasm"), "utf8")).toBe(standardBefore);
+  });
+});
+
+describe("install-engine-bundle.sh and the legacy 1v1 engine files", () => {
+  it.each([
+    ["has no legacy files", false],
+    ["has a legacy wasm that does not match integrity.domainLegacyWasm", "bad-hash"],
+  ] as const)("refuses a bundle that %s", (_name, legacy) => {
+    const f = incompleteFixture(legacy);
+    const before = snapshot(f.dst);
+    for (const preflight of [true, false]) {
+      const result = run(f, preflight);
+      expect(result.status).toBe(1);
+      expect(result.out).toMatch(/bundle source is incomplete/);
+    }
+    expect(snapshot(f.dst)).toEqual(before);
+  });
+
+  it("installs the legacy files with the bundle", () => {
+    const f = fixture({ tag: "old", multi: "m1" }, { tag: "new", multi: "m1" }, []);
+    expect(run(f, false).status).toBe(0);
+    expect(readFileSync(join(f.dst, "ocgcore.domain.legacy.wasm"), "utf8")).toBe("legacy domain");
+    expect(readFileSync(join(f.dst, "card-scripts", "domain.legacy.lua"), "utf8")).toBe("-- legacy domain");
   });
 });

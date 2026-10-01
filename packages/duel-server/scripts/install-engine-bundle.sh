@@ -69,6 +69,20 @@ multi_scripts_ok() {
   [ "$(multi_scripts_hash "$root/multi-scripts")" = "$expected" ]
 }
 
+# The files of the legacy 1v1 engine (the Domain wasm and Domain Lua that production ran before the n-seat work) are part of the
+# bundle and of manifest.json: the sha256 of each must match integrity.domainLegacyWasm and integrity.domainLegacyLua. The Standard
+# core of that engine is the npm package file, so it has no entry here.
+legacy_files_ok() {
+  root="$1"
+  [ -f "$root/ocgcore.domain.legacy.wasm" ] || return 1
+  [ -f "$root/card-scripts/domain.legacy.lua" ] || return 1
+  want_wasm=$(sed -n 's/.*"domainLegacyWasm": *"\([0-9a-f]*\)".*/\1/p' "$root/manifest.json" | head -n 1)
+  want_lua=$(sed -n 's/.*"domainLegacyLua": *"\([0-9a-f]*\)".*/\1/p' "$root/manifest.json" | head -n 1)
+  [ -n "$want_wasm" ] && [ -n "$want_lua" ] || return 1
+  [ "$(sha256sum "$root/ocgcore.domain.legacy.wasm" | cut -d' ' -f1)" = "$want_wasm" ] || return 1
+  [ "$(sha256sum "$root/card-scripts/domain.legacy.lua" | cut -d' ' -f1)" = "$want_lua" ]
+}
+
 required() {
   root="$1"
   [ -f "$root/cards.cdb" ] \
@@ -78,6 +92,7 @@ required() {
     && [ -f "$root/manifest.json" ] \
     && [ -d "$root/card-scripts" ] \
     && [ -f "$root/card-scripts/domain.lua" ] \
+    && legacy_files_ok "$root" \
     && multi_scripts_ok "$root"
 }
 
@@ -243,7 +258,7 @@ if [ -n "$src" ]; then
 fi
 
 if ! required "$dst"; then
-  echo "duel-engine bundle missing under $dst (need cards.cdb, strings.conf, card-scripts/domain.lua, ocgcore.domain.wasm, manifest.json, and multi-scripts with its integrity.multiScripts hash; run npm run duel:prepare)" >&2
+  echo "duel-engine bundle missing under $dst (need cards.cdb, strings.conf, card-scripts/domain.lua, ocgcore.domain.wasm, ocgcore.domain.legacy.wasm and card-scripts/domain.legacy.lua with their integrity.domainLegacy* hashes, manifest.json, and multi-scripts with its integrity.multiScripts hash; run npm run duel:prepare, then build-domain-core.ts legacy-domain)" >&2
   exit 1
 fi
 
