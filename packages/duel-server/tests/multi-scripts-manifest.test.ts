@@ -10,7 +10,7 @@ import { scanCorpus } from "../scripts/scan-multiplayer-scripts.js";
 import { currentEngineDataDirectory } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
-// The overlay of the compare and chooser cards (F7 design, part P3a): MANIFEST.json, the 101 cNNN.lua files (the Snatch Steal and Kaiser Colosseum fixes are the 100th and 101st) and the generator.
+// The overlay of the compare and chooser cards (F7 design, part P3a): MANIFEST.json, the 103 cNNN.lua files (the Snatch Steal, Kaiser Colosseum, The Eye of Truth and Brain Jacker fixes are the 100th to 103rd) and the generator.
 // The checks that need the stock scripts or the triage file (both are not in git) are skipped when the file is missing,
 // and fail with DUEL_REQUIRE_CORES=1 (stock scripts) or stay a skip (triage, a local file).
 
@@ -26,7 +26,7 @@ const triageNeed = needs.localFile("multiplayer triage", TRIAGE_FILE, "Run scrip
 const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.lua`), "utf8");
 
 describe("MANIFEST.json of the overlay", () => {
-  it("lists 101 cards with a valid kind, a file named after the code and a name", () => {
+  it("lists 103 cards with a valid kind, a file named after the code and a name", () => {
     expect(manifest.version).toBe(1);
     expect(cards).toHaveLength(EXPECTED_COUNTS.entries);
     for (const card of cards) {
@@ -58,7 +58,7 @@ describe("MANIFEST.json of the overlay", () => {
     const problems = checkLists(fewer, null).join("\n");
     expect(problems).toContain("COMPARE has 53 cards");
     expect(problems).toContain("6 whole files");
-    expect(problems).toContain("100 entries");
+    expect(problems).toContain("102 entries");
     const noFix = clone();
     noFix.cards.find((card) => card.code === MIRROR_GATE)!.kind = "expr";
     expect(checkLists(noFix, null).join("\n")).toContain("Mirror Gate");
@@ -134,7 +134,7 @@ describe("the overlay files", () => {
   });
 
   it("uses only helpers that mp-utility.lua defines and core functions of the F7 window", () => {
-    const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns"]);
+    const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPSeatOf", "MPBindSeat"]);
     for (const card of cards) {
       for (const [, helper] of text(card).matchAll(/\baux\.(MP\w+)/g)) {
         expect(helperText, `${card.file}: aux.${helper}`).toContain(`function aux.${helper}(`);

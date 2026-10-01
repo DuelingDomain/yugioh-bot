@@ -34,7 +34,7 @@ export const COMPARE_SCAN_ADDED = [25388971, 46772449, 50838440, 55273560, 62015
 /** Compare AND chooser cards that the triage does not list as `field-count-compare`. */
 export const COMPARE_EXTRA = [15693423, 90669991];
 export const MIRROR_GATE = 43452193;
-export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 101, r1: 92 } as const;
+export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 103, r1: 92 } as const;
 
 export type Helper = "MPAny" | "MPValue" | "MPOne" | "MPPick" | "MPTarget";
 export type CardClass = "COMPARE" | "CHOOSER";

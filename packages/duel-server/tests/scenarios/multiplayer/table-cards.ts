@@ -5,7 +5,7 @@
 // Every scenario ends with the state of every seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md and DECISIONS-2026-10-01 (Q3, Q6, Q9, OQ3).
 
 import {
-  activate, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectPrompt, expectTurn, surrender, expectNotOffered, expectPickSeats, pickOpponent, specialSummon, yes,
+  activate, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPrompt, expectTurn, surrender, expectNotOffered, expectPickSeats, pickOpponent, specialSummon, yes, changePosition, select,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -27,6 +27,7 @@ export function everySeat(format: "ffa3" | "ffa4" | "tag", spec: Partial<Record<
 
 const PUDICA = "Traptrix Pudica";
 const CYBER = "Cyber Dragon";
+const BRAIN_JACKER = "Brain Jacker";
 
 export const TABLE_CARD_SCENARIOS: Scenario[] = [
   defineScenario({
@@ -120,6 +121,101 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
       expectTurn("p1"),
       expectPrompt({ by: "p1", context: "action" }),
       everySeat("ffa3", { p0: { monsters: [ELF, PUDICA], grave: ["Monster Reborn"] }, p1: { monsters: [CYBER] } }),
+    ],
+  }),
+  defineScenario({
+    id: "table-ffa3-eye-of-truth-the-turn-player-gains-the-lp-in-its-own-standby-phase",
+    title: "FFA3: The Eye of Truth of p0: p1 has a Spell in its hand and gains 1000 LP in its own Standby Phase with no pick, p2 gains 1000 LP in its own Standby Phase, and nobody else gains LP",
+    source: OPP_FIELD,
+    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    tags: ["multiplayer", "lp", "ffa3", "card:34694160"],
+    setup: {
+      format: "ffa3",
+      p0: { spells: [{ card: "The Eye of Truth", pos: "set" }] },
+      p1: { hand: ["Dark Hole"] },
+      p2: { hand: ["Raigeki"] },
+    },
+    steps: [
+      activate("The Eye of Truth", "p0"),
+      endTurn("p0"),
+      // no opponent pick: the open prompt is the action prompt of p1 (its own main phase), with the 1000 LP already gained
+      expectPrompt({ by: "p1", context: "action" }),
+      expectLp({ seat: "p0" }, 8000),
+      expectLp({ seat: "p1" }, 9000),
+      expectLp({ seat: "p2" }, 8000),
+      endTurn("p1"),
+      expectLp({ seat: "p0" }, 8000),
+      expectLp({ seat: "p1" }, 9000),
+      expectLp({ seat: "p2" }, 9000),
+      everySeat("ffa3", { p0: { lp: 8000, spells: ["The Eye of Truth"] }, p1: { lp: 9000 }, p2: { lp: 9000 } }),
+    ],
+  }),
+  defineScenario({
+    id: "table-ffa3-brain-jacker-only-the-owner-of-the-stolen-monster-gains-the-lp-in-its-own-standby-phase",
+    title: "FFA3: the 500 LP of Brain Jacker go to the owner of the stolen monster (p2) in its own Standby Phase, with no pick, and to nobody else",
+    source: OPP_FIELD,
+    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    tags: ["multiplayer", "equip", "steal", "lp", "ffa3", "card:40267580"],
+    setup: {
+      format: "ffa3",
+      p0: { monsters: [{ card: BRAIN_JACKER, pos: "set" }] },
+      p1: { monsters: [ELF] },
+      p2: { monsters: ["Summoned Skull"] },
+    },
+    steps: [
+      changePosition({ card: BRAIN_JACKER }, "p0"),
+      select({ card: "Summoned Skull", owner: "p2" }),
+      endTurn("p0"),
+      // The Standby Phase of p1 (not the owner): nobody is asked and nobody gains LP.
+      expectLp({ seat: "p0" }, 8000),
+      expectLp({ seat: "p1" }, 8000),
+      expectLp({ seat: "p2" }, 8000),
+      endTurn("p1"),
+      // The Standby Phase of p2 (the owner): p2 gains 500 LP, nobody is asked.
+      expectPrompt({ by: "p2", context: "action" }),
+      expectLp({ seat: "p0" }, 8000),
+      expectLp({ seat: "p1" }, 8000),
+      expectLp({ seat: "p2" }, 8500),
+      endTurn("p2"),
+      endTurn("p0"),
+      endTurn("p1"),
+      // The next Standby Phase of p2: once more 500 LP to p2 only.
+      everySeat("ffa3", { p0: { monsters: ["Summoned Skull"], spells: [BRAIN_JACKER] }, p1: { monsters: [ELF] }, p2: { lp: 9000 } }),
+    ],
+  }),
+  defineScenario({
+    id: "table-tag-brain-jacker-only-the-team-of-the-owner-gains-the-lp-in-the-turn-of-the-owner",
+    title: "Tag: the 500 LP of Brain Jacker go to the team of the owner (p3) in the turn of p3 only, not in the turn of its partner p1",
+    source: OPP_FIELD,
+    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER", "R-TAG-ORDER"],
+    tags: ["multiplayer", "equip", "steal", "lp", "tag", "card:40267580"],
+    setup: {
+      format: "tag",
+      p0: { monsters: [{ card: BRAIN_JACKER, pos: "set" }] },
+      p1: { monsters: [ELF] },
+      p2: { monsters: ["Dark Magician"] },
+      p3: { monsters: ["Summoned Skull"] },
+    },
+    steps: [
+      changePosition({ card: BRAIN_JACKER }, "p0"),
+      select({ card: "Summoned Skull", owner: "p3" }),
+      endTurn("p0"),
+      // The Standby Phase of p1, the partner of the owner: no LP for the team of the owner.
+      expectLp({ team: 0 }, 16000),
+      expectLp({ team: 1 }, 16000),
+      endTurn("p1"),
+      // The Standby Phase of p2, the partner of the controller: nothing.
+      expectLp({ team: 0 }, 16000),
+      expectLp({ team: 1 }, 16000),
+      endTurn("p2"),
+      // The Standby Phase of p3, the owner: the team of p3 gains 500 LP.
+      expectPrompt({ by: "p3", context: "action" }),
+      everySeat("tag", {
+        p0: { lp: 16000, monsters: ["Summoned Skull"], spells: [BRAIN_JACKER] },
+        p1: { lp: 16500, monsters: [ELF] },
+        p2: { lp: 16000, monsters: ["Dark Magician"] },
+        p3: { lp: 16500 },
+      }),
     ],
   }),
 ];

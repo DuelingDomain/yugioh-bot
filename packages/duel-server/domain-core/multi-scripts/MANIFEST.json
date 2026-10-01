@@ -616,6 +616,22 @@
       "note": "Reads the Graveyard and the banished zone (field class); today it sums all opponents. The triage text that calls it OK-BIND is wrong."
     },
     {
+      "code": 34694160,
+      "file": "c34694160.lua",
+      "name": "The Eye of Truth",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+TRIGGER_F",
+      "redefined": [
+        "mpturnspell",
+        "reccon",
+        "rectg",
+        "recop"
+      ],
+      "stockSha256": "9398ff93bd133e06e4578686b24b5bbd3a2a4db150055587fa4a4d46b5dc05ba",
+      "note": "Script fix (misc-table): only the duelist whose Standby Phase it is, with a Spell in its own hand, gains the 1000 LP, with no pick (Duel.MPTurnOwns on the Spell in that hand). Not part of R1."
+    },
+    {
       "code": 35059553,
       "file": "c35059553.lua",
       "name": "Kaiser Colosseum",
@@ -782,6 +798,21 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "a647c24660bf8aa6baef63356cdde6717ff53135eac3a481b8228dd9326f3b0e"
+    },
+    {
+      "code": 40267580,
+      "file": "c40267580.lua",
+      "name": "Brain Jacker",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+TRIGGER_F",
+      "redefined": [
+        "reccon",
+        "rectg",
+        "recop"
+      ],
+      "stockSha256": "1037984463fc8aa1f348c7ca64c937ce76459a5668141e745b393ca5af61a6a0",
+      "note": "Script fix (misc-table): only the owner of the stolen monster gains the 500 LP, in its own Standby Phase, with no pick (Duel.MPTurnOwns, as Snatch Steal). Not part of R1."
     },
     {
       "code": 40428851,
