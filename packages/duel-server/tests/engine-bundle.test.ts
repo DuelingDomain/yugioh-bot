@@ -11,11 +11,14 @@ const directories: string[] = [];
 function bundle(options: { integrity?: Record<string, string>; bundleVersion?: string | null; skip?: string[] } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "engine-bundle-"));
   directories.push(directory);
-  const files: Record<string, string> = { "ocgcore.standard.wasm": "standard", "ocgcore.domain.wasm": "domain", "cards.cdb": "cards", wrapper: "wrapper" };
+  const files: Record<string, string> = { "ocgcore.standard.wasm": "standard", "ocgcore.domain.wasm": "domain", "ocgcore.domain.legacy.wasm": "legacy wasm", "cards.cdb": "cards", wrapper: "wrapper" };
   for (const [name, content] of Object.entries(files)) {
     if (!options.skip?.includes(name)) writeFileSync(join(directory, name), content);
   }
-  if (!options.skip?.includes("card-scripts")) mkdirSync(join(directory, "card-scripts"));
+  if (!options.skip?.includes("card-scripts")) {
+    mkdirSync(join(directory, "card-scripts"));
+    if (!options.skip?.includes("domain.legacy.lua")) writeFileSync(join(directory, "card-scripts", "domain.legacy.lua"), "legacy lua");
+  }
   if (!options.skip?.includes("manifest.json")) {
     const manifest: Record<string, unknown> = { integrity: options.integrity ?? {} };
     if (options.bundleVersion !== null) manifest.bundleVersion = options.bundleVersion ?? "v1";
@@ -62,5 +65,38 @@ describe("verifyEngineBundle", () => {
   ])("rejects a %s hash mismatch", (key, pattern) => {
     const { directory, wrapperPath } = bundle({ integrity: { [key]: sha("something else") } });
     expect(() => verifyEngineBundle(directory, { wrapperPath })).toThrow(pattern);
+  });
+
+  describe("the files of the legacy 1v1 engine", () => {
+    const legacyIntegrity = { domainLegacyWasm: sha("legacy wasm"), domainLegacyLua: sha("legacy lua") };
+
+    it("accepts matching legacy hashes", () => {
+      const { directory, wrapperPath } = bundle({ integrity: legacyIntegrity });
+      expect(verifyEngineBundle(directory, { wrapperPath, engine: "legacy" }).bundleVersion).toBe("v1");
+    });
+
+    it("stops the server at startup when the legacy engine is chosen and the manifest has no legacy hashes", () => {
+      const { directory, wrapperPath } = bundle();
+      expect(() => verifyEngineBundle(directory, { wrapperPath, engine: "legacy" })).toThrow(/no integrity\.domainLegacyWasm.*legacy-domain/);
+    });
+
+    it("does not need the legacy files when the pinned engine is chosen", () => {
+      const { directory, wrapperPath } = bundle();
+      expect(verifyEngineBundle(directory, { wrapperPath, engine: "pinned" }).bundleVersion).toBe("v1");
+    });
+
+    it.each([
+      ["domainLegacyWasm", /ocgcore\.domain\.legacy\.wasm does not match manifest integrity\.domainLegacyWasm.*legacy-domain/],
+      ["domainLegacyLua", /domain\.legacy\.lua does not match manifest integrity\.domainLegacyLua.*legacy-domain/],
+    ])("rejects a %s hash mismatch in both modes", (key, pattern) => {
+      const { directory, wrapperPath } = bundle({ integrity: { ...legacyIntegrity, [key]: sha("something else") } });
+      expect(() => verifyEngineBundle(directory, { wrapperPath, engine: "legacy" })).toThrow(pattern);
+      expect(() => verifyEngineBundle(directory, { wrapperPath, engine: "pinned" })).toThrow(pattern);
+    });
+
+    it("names a legacy file that the manifest lists but the folder lacks", () => {
+      const { directory, wrapperPath } = bundle({ integrity: legacyIntegrity, skip: ["ocgcore.domain.legacy.wasm"] });
+      expect(() => verifyEngineBundle(directory, { wrapperPath, engine: "legacy" })).toThrow(/ocgcore\.domain\.legacy\.wasm is missing.*legacy-domain/);
+    });
   });
 });
