@@ -50,6 +50,8 @@ end
 -- stock: s[p] is the list of LP costs that player p paid this turn and s[p+2] the list of the last turn of p: that is s[2] and s[3] for
 -- the players 2 and 3 too. The lists are kept per key (seat in FFA, team in Tag) in s.mpnow and s.mpprev, and the turn player moves its
 -- list at the turn end. (The stock reset still runs on the raw table s: it writes only s[2..5] and nothing reads them.)
+s.mpnow={}
+s.mpprev={}
 function s.checkop(e,tp,eg,ep,ev,re,r,rp)
 	if ep==Duel.GetTurnPlayer() then
 		local val=math.ceil(ev/2)

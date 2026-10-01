@@ -163,10 +163,6 @@ const KNOWN_GAPS: Record<number, KnownGap[]> = {
     { format: "ffa3", trap: "c", reason: "Grapha, Dragon Overlord of Dark World (R1): the core reports a pick during the operation step (trap c) at fn=DiscardHand, P=1, card=53129443 (Dark Hole) while the card plays. The overlay keeps the first effect (the opponent discards) stock. Owner: seats-r1" },
     { format: "tag", trap: "c", reason: "Grapha, Dragon Overlord of Dark World (R1): the same trap c at fn=DiscardHand in Tag. Owner: seats-r1" },
   ],
-  14318794: [
-    { format: "ffa3", luaError: /table index is nil/, reason: "Life Absorbing Machine (R2, kind seat): the generated seat table raises a Lua error (c14318794.lua:86 table index is nil) as soon as the card loads. Owner: r2-global" },
-    { format: "tag", luaError: /table index is nil/, reason: "Life Absorbing Machine (R2, kind seat): the same Lua error (table index is nil) in Tag. Owner: r2-global" },
-  ],
   71645242: [
     { format: "ffa3", trap: "c", reason: "Black Garden (R2 hand file): the core reports a pick during the operation step (trap c) at fn=GetLocationCount, P=0, card=71645242. Owner: r2-global" },
     { format: "tag", trap: "c", reason: "Black Garden (R2 hand file): the same trap c at fn=GetLocationCount in Tag. Owner: r2-global" },

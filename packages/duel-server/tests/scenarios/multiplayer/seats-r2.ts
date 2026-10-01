@@ -4,7 +4,7 @@
 // NSEAT_LIVE=1). Every scenario uses the real card scripts plus the overlay, and ends with the state of EVERY seat.
 
 import {
-  activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, pickOpponent,
+  activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, pass, pickOpponent,
   select, setCard, zone, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -30,6 +30,8 @@ const FANG = "Silver Fang";
 const ELF = "Mystical Elf";
 const RAT = "Giant Rat";
 const SANGAN = "Sangan";
+const LAM = "Life Absorbing Machine";
+const PREMATURE = "Premature Burial";
 const ELF_ATK = 800;
 
 /** The state of EVERY seat: LP, monsters, Spell and Trap zones, Graveyard and banished zone are exact; the hand only when the spec names it. */
@@ -123,6 +125,98 @@ export const SEATS_R2_SCENARIOS: Scenario[] = [
         p0: { grave: [CHALICE] },
         p1: { grave: [AXE] },
         p3: { monsters: [RAT] },
+      }),
+    ],
+  }),
+
+  // --- Life Absorbing Machine: the list of LP costs of the last turn, kept per seat (FFA) and per team (Tag) ---------------------------
+  defineScenario({
+    id: "seats-r2-ffa3-life-absorbing-machine-recovers-half-of-the-cost-of-its-own-seat",
+    title: "FFA3: p0 pays 800 LP twice and p2 pays 800 LP once for Premature Burial; in its next own Standby Phase the Life Absorbing Machine of p0 gives p0 400 LP twice and the one of p2 gives p2 400 LP once (one list per seat, p2 does not read the list of p0), p1 gets nothing",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "r2", "seat-table", "ffa3", "card:14318794"],
+    // The stock lists are s[p] and s[p+2] for p = 0 and 1. The overlay keeps a list for every seat (seat 2 has its own list, not the one of seat 0).
+    setup: {
+      format: "ffa3",
+      p0: { hand: [PREMATURE, PREMATURE], grave: [OX, AXE], spells: [LAM] },
+      p1: {},
+      p2: { hand: [PREMATURE], grave: [FANG], spells: [LAM] },
+    },
+    steps: [
+      activate(PREMATURE, "p0"),
+      zone("p0", "s1", "p0"),
+      select({ card: OX, owner: "p0" }),
+      activate(PREMATURE, "p0"),
+      zone("p0", "s2", "p0"),
+      endTurn("p0"),
+      endTurn("p1"),
+      // The Standby Phase of p2: its list of the last turn is empty, so p2 recovers nothing (the 2 payments of p0 are not on its list).
+      everySeat("ffa3", {
+        p0: { lp: 6400, monsters: [OX, AXE], spells: [LAM, PREMATURE, PREMATURE] },
+        p2: { lp: 8000, spells: [LAM], grave: [FANG] },
+      }),
+      activate(PREMATURE, "p2"),
+      zone("p2", "s1", "p2"),
+      endTurn("p2"),
+      // The Standby Phase of p0: its list is [400, 400].
+      everySeat("ffa3", {
+        p0: { lp: 7200, monsters: [OX, AXE], spells: [LAM, PREMATURE, PREMATURE] },
+        p2: { lp: 7200, monsters: [FANG], spells: [LAM, PREMATURE] },
+      }),
+      endTurn("p0"),
+      endTurn("p1"),
+      // The Standby Phase of p2: its list is [400].
+      everySeat("ffa3", {
+        p0: { lp: 7200, monsters: [OX, AXE], spells: [LAM, PREMATURE, PREMATURE] },
+        p2: { lp: 7600, monsters: [FANG], spells: [LAM, PREMATURE] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-life-absorbing-machine-recovers-half-of-the-cost-of-the-team",
+    title: "Tag: p0 pays 800 LP twice and p1 pays 800 LP once for Premature Burial; the Life Absorbing Machine of the partner p2 gives team 0 800 LP and the one of p3 gives team 1 400 LP (one list per team, the partner reads the list of the team)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-TAG-LP", "R-TAG-ORDER"],
+    tags: ["multiplayer", "r2", "seat-table", "tag", "card:14318794"],
+    // The key is the team: the costs of p0 are on the list of team 0 and p2 (its partner) reads that list in its own Standby Phase.
+    setup: {
+      format: "tag",
+      p0: { hand: [PREMATURE, PREMATURE], grave: [OX, AXE] },
+      p1: { hand: [PREMATURE], grave: [FANG] },
+      p2: { spells: [LAM] },
+      p3: { spells: [LAM] },
+    },
+    steps: [
+      activate(PREMATURE, "p0"),
+      zone("p0", "s0", "p0"),
+      select({ card: OX, owner: "p0" }),
+      activate(PREMATURE, "p0"),
+      zone("p0", "s1", "p0"),
+      endTurn("p0"),
+      everySeat("tag", {
+        p0: { lp: 14400, monsters: [OX, AXE], spells: [PREMATURE, PREMATURE] },
+        p1: { grave: [FANG] },
+        p2: { lp: 14400, spells: [LAM] },
+        p3: { spells: [LAM] },
+      }),
+      activate(PREMATURE, "p1"),
+      zone("p1", "s0", "p1"),
+      endTurn("p1"),
+      // The Standby Phase of p2: the list of team 0 is [400, 400].
+      everySeat("tag", {
+        p0: { lp: 15200, monsters: [OX, AXE], spells: [PREMATURE, PREMATURE] },
+        p1: { lp: 15200, monsters: [FANG], spells: [PREMATURE] },
+        p2: { lp: 15200, spells: [LAM] },
+        p3: { lp: 15200, spells: [LAM] },
+      }),
+      endTurn("p2"),
+      // The Standby Phase of p3: the list of team 1 is [400].
+      everySeat("tag", {
+        p0: { lp: 15200, monsters: [OX, AXE], spells: [PREMATURE, PREMATURE] },
+        p1: { lp: 15600, monsters: [FANG], spells: [PREMATURE] },
+        p2: { lp: 15200, spells: [LAM] },
+        p3: { lp: 15600, spells: [LAM] },
       }),
     ],
   }),
