@@ -70,15 +70,19 @@ The deploy workflow requires these GitHub Actions secrets:
    the multi build scripts>`). The core is added to the deploy tarball, not to the cached `data/duel-engine` bundle, so
    the bundle key and the standard and domain cores do not depend on it. The Domain core for 3 and 4 seats
    (`ocgcore.multi-domain.wasm`) is not built or shipped yet: the server refuses Domain at those tables.
-4. The workflow SSHes into the VM, resets `/opt/yugioh-bot` to `origin/main`,
-   rebuilds Compose images, stops **web** (ingress) only, then installs the
-   bundle into `/opt/yugioh-bot/data/duel-engine` **before** `docker compose down`.
-   The duel engine stays up during the check. Install is a no-op when
-   `manifest.json` is identical. A different bundle is refused while
-   `duels.status = 'active'` in `data/bot.sqlite` (locked/corrupt DB and missing
-   columns fail closed); on refuse, `docker compose start web` restores the old
-   web container and the deploy exits without recreating duel. This reduces
-   new-table races; it is not a race-free preflight. It never writes `data/bot.sqlite`.
+4. The workflow SSHes into the VM and fetches `origin/main`. Then it runs a **preflight** before anything on the VM
+   changes: the install script of the new commit (`git show origin/main:...`) runs with `DUEL_PREFLIGHT=1` on the new
+   bundle and installs nothing. It refuses while a duel has `status = 'active'` in `data/bot.sqlite` and the bundle
+   would be replaced (a locked or corrupt DB and missing columns fail closed). For a new multi core under an
+   identical bundle, only an active Tag or free-for-all duel refuses. On a refuse the deploy stops there: the old
+   checkout, images and containers stay as they were. The new duel image needs the new bundle, so a half-done
+   deploy followed by `docker compose up` would crash-loop the duel service. That is why the check comes first.
+   After the preflight the workflow resets `/opt/yugioh-bot` to `origin/main`, rebuilds Compose images, stops **web**
+   (ingress) only, then installs the bundle into `/opt/yugioh-bot/data/duel-engine` **before** `docker compose down`.
+   The duel engine stays up during the check. Install is a no-op when `manifest.json` is identical. The install
+   script checks the active duels once more (a table could start during the build, which takes minutes); on that
+   second refuse `docker compose start web` restores the old web container and the deploy exits without recreating
+   duel. It never writes `data/bot.sqlite`.
    The multi core is installed on its own (one atomic rename per file, checked against `ocgcore.multi.sha256`),
    also when `manifest.json` is identical. A changed multi core is refused while a Tag or free-for-all duel is active.
    A 1v1 duel never blocks it and never reads it. Without the multi core, a Tag, 3 or 4 player table answers 409
@@ -95,6 +99,7 @@ Remote steps used by the workflow (bundle tarball is built on the runner first):
 ```bash
 cd /opt/yugioh-bot && \
 git fetch --all --prune && \
+# preflight: install-engine-bundle.sh of origin/main with DUEL_PREFLIGHT=1; refuses while duels are active
 git reset --hard origin/main && \
 docker compose -f docker-compose.yml build && \
 docker compose -f docker-compose.yml stop web && \
@@ -105,6 +110,30 @@ docker compose -f docker-compose.yml up -d && \
 docker compose -f docker-compose.yml ps && \
 docker compose -f docker-compose.yml logs --tail=40
 ```
+
+### Before a deploy that changes the engine bundle
+
+The multiplayer merge changes the Standard and Domain cores, so its first deploy replaces the bundle. Before it:
+
+1. Count the active duels. The count must be 0:
+   `sqlite3 -readonly /opt/yugioh-bot/data/bot.sqlite "select count(*) from duels where status = 'active'"`
+   (or let the preflight do it: it prints the count and stops the deploy).
+2. Do not start new tables until the deploy has finished. Tell the players first. A table that starts after the
+   preflight is caught by the second check, but then the deploy stops after the images were built.
+3. After the deploy, the duel container must be `running restarts=0` (the workflow checks this).
+4. Watch memory for the first days (`docker stats --no-stream`). The duel service has `mem_limit` 1g
+   (`DUEL_MEM_LIMIT`). The first game loads the card database and scripts (about 114 MB). Each game adds about 2.4 to
+   4 MB.
+
+### Rollback
+
+1. Revert the merge commit on `main` (`git revert -m 1 <merge sha>`), and push it.
+2. Make sure no duel is active (see above), or let the preflight refuse until it is true.
+3. The deploy workflow builds the old bundle and installs it. The multi core file stays in the data directory and
+   is not read by the old code.
+4. The database is safe: the schema change only adds columns (`format` with default `'1v1'`, `snapshot_seats_json`,
+   `setup_json`), so the old code runs on the new database. Replays of duels from before the bundle change stop
+   working, as after every bundle change.
 
 ## VM Setup (Hetzner CAX11 or similar)
 

@@ -12,6 +12,9 @@
 # with one atomic rename per file, because an identical manifest.json skips the bundle install. The standard and domain
 # files, and so every 1v1 duel, are not touched by it. A changed multi core is refused while a Tag or free-for-all duel
 # is active. Domain at 3 and 4 seats has its own core (ocgcore.multi-domain.wasm). This script never installs it.
+#
+# DUEL_PREFLIGHT=1 runs only the checks (bundle complete, multi core sidecar, active duels) and installs nothing.
+# The production deploy runs it before it resets the checkout and builds images, so a refusal changes nothing.
 set -eu
 
 src="${DUEL_BUNDLE_SRC:-}"
@@ -148,6 +151,36 @@ install_multi_file() {
   echo "installed $f into $dst"
 }
 
+# The SQLite file that sits next to the engine data directory (or DATABASE_PATH).
+duel_database_file() {
+  dbfile="${DATABASE_PATH:-}"
+  if [ -z "$dbfile" ]; then
+    dbfile="$(dirname "$dst")/bot.sqlite"
+  fi
+  printf '%s\n' "$dbfile"
+}
+
+# Exits 1 when active duels of the given scope forbid the replace. Does nothing without a database file.
+# $1 scope (all or multi-seat), $2 what is replaced, $3 how the duels are named in the message, $4 the advice.
+refuse_when_active() {
+  dbfile=$(duel_database_file)
+  [ -f "$dbfile" ] || return 0
+  count=$(active_duel_count "$dbfile" "$1") || {
+    echo "refusing to replace $2: cannot read active duels from $dbfile" >&2
+    exit 1
+  }
+  if [ "$count" -gt 0 ]; then
+    echo "refusing to replace $2: $count active $3 in $dbfile. $4" >&2
+    exit 1
+  fi
+}
+
+# True when the multi core of the source differs from the installed one (and one is installed).
+multi_core_differs() {
+  [ -n "$src" ] && [ -f "$src/ocgcore.multi.wasm" ] && [ -f "$dst/ocgcore.multi.wasm" ] \
+    && ! cmp -s "$src/ocgcore.multi.wasm" "$dst/ocgcore.multi.wasm"
+}
+
 if [ -n "$src" ]; then
   if contains_database "$src"; then
     echo "refusing to use bundle source $src because it contains a database" >&2
@@ -162,23 +195,23 @@ if [ -n "$src" ]; then
     echo "bundle source has a bad multi core: ocgcore.multi.wasm is empty, or ocgcore.multi.sha256 is missing or does not match: $src" >&2
     exit 1
   fi
+  # DUEL_PREFLIGHT=1: only the checks. The deploy runs this before it changes anything on the VM, so a refusal leaves
+  # the old containers, the old checkout and the old images as they were.
+  if [ -n "${DUEL_PREFLIGHT:-}" ]; then
+    if ! required "$dst" || ! cmp -s "$dst/manifest.json" "$src/manifest.json"; then
+      refuse_when_active all "$dst" "duel(s)" "Drain tables first; identical bundles still install."
+    fi
+    if multi_core_differs; then
+      refuse_when_active multi-seat "the multi core in $dst" "Tag or free-for-all duel(s)" "Drain those tables first."
+    fi
+    echo "preflight ok: the bundle in $src can be installed into $dst"
+    trap - EXIT INT TERM HUP
+    exit 0
+  fi
   if required "$dst" && cmp -s "$dst/manifest.json" "$src/manifest.json"; then
     echo "duel-engine bundle already current under $dst"
   else
-    dbfile="${DATABASE_PATH:-}"
-    if [ -z "$dbfile" ]; then
-      dbfile="$(dirname "$dst")/bot.sqlite"
-    fi
-    if [ -f "$dbfile" ]; then
-      count=$(active_duel_count "$dbfile") || {
-        echo "refusing to replace $dst: cannot read active duels from $dbfile" >&2
-        exit 1
-      }
-      if [ "$count" -gt 0 ]; then
-        echo "refusing to replace $dst: $count active duel(s) in $dbfile. Drain tables first; identical bundles still install." >&2
-        exit 1
-      fi
-    fi
+    refuse_when_active all "$dst" "duel(s)" "Drain tables first; identical bundles still install."
     parent=$(dirname "$dst")
     mkdir -p "$parent"
     stage=$(mktemp -d "$parent/.duel-engine.installing.XXXXXX")
@@ -216,21 +249,8 @@ fi
 
 # The multi core, on its own. It runs also when the bundle above was current (same manifest.json).
 if [ -n "$src" ] && [ -f "$src/ocgcore.multi.wasm" ]; then
-  if [ -f "$dst/ocgcore.multi.wasm" ] && ! cmp -s "$src/ocgcore.multi.wasm" "$dst/ocgcore.multi.wasm"; then
-    dbfile="${DATABASE_PATH:-}"
-    if [ -z "$dbfile" ]; then
-      dbfile="$(dirname "$dst")/bot.sqlite"
-    fi
-    if [ -f "$dbfile" ]; then
-      count=$(active_duel_count "$dbfile" multi-seat) || {
-        echo "refusing to replace the multi core in $dst: cannot read active duels from $dbfile" >&2
-        exit 1
-      }
-      if [ "$count" -gt 0 ]; then
-        echo "refusing to replace the multi core in $dst: $count active Tag or free-for-all duel(s) in $dbfile. Drain those tables first." >&2
-        exit 1
-      fi
-    fi
+  if multi_core_differs; then
+    refuse_when_active multi-seat "the multi core in $dst" "Tag or free-for-all duel(s)" "Drain those tables first."
   fi
   install_multi_file ocgcore.multi.wasm
   install_multi_file ocgcore.multi.sha256

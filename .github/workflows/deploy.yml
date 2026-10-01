@@ -176,18 +176,31 @@ jobs:
                exec 9>/var/lock/yugidraft-build.lock
                flock -w 1500 9 || { echo "Another build (maybe the staging deploy) holds the build lock." >&2; exit 1; }
              fi
+             cd /opt/yugioh-bot
+             git fetch --all --prune
+             # Preflight, before anything on the VM changes: the install script of the new commit, run in check-only
+             # mode on the new bundle. It refuses while a duel is active and the bundle would be replaced (or, for a new
+             # multi core under an identical bundle, while a Tag or free-for-all duel is active). A refusal here leaves
+             # the old checkout, the old images and the old containers as they were. The new duel image needs the new
+             # bundle, so a later "docker compose up" on a half-done deploy would crash-loop the duel service.
+             rm -rf /tmp/yugidraft-duel-engine-src
+             mkdir -p /tmp/yugidraft-duel-engine-src
+             tar -C /tmp/yugidraft-duel-engine-src -xzf /tmp/yugidraft-duel-engine.tar.gz
+             git show origin/main:packages/duel-server/scripts/install-engine-bundle.sh > /tmp/yugidraft-install-engine-bundle.sh
+             if ! DUEL_PREFLIGHT=1 DUEL_BUNDLE_SRC=/tmp/yugidraft-duel-engine-src DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
+               sh /tmp/yugidraft-install-engine-bundle.sh; then
+               rm -rf /tmp/yugidraft-duel-engine-src /tmp/yugidraft-install-engine-bundle.sh
+               echo "Deploy stopped before any change: drain the active duels (see docs/deployment/vm-runbook.md), then run the deploy again." >&2
+               exit 1
+             fi
+             rm -f /tmp/yugidraft-install-engine-bundle.sh
              staging_ids=$(docker ps -q --filter label=com.docker.compose.project=yugidraft-staging)
              if [ -n "$staging_ids" ]; then
                docker stop $staging_ids || true
              fi
-             cd /opt/yugioh-bot
-             git fetch --all --prune
              git reset --hard origin/main
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
              docker compose -f docker-compose.yml build
-             rm -rf /tmp/yugidraft-duel-engine-src
-             mkdir -p /tmp/yugidraft-duel-engine-src
-             tar -C /tmp/yugidraft-duel-engine-src -xzf /tmp/yugidraft-duel-engine.tar.gz
              docker compose -f docker-compose.yml stop web || true
              if ! DUEL_BUNDLE_SRC=/tmp/yugidraft-duel-engine-src DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
