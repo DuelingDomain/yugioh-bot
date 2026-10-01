@@ -4,7 +4,7 @@
 // card scripts and the overlay, on the Standard multi core and again on the Domain multi core. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, faceDown, no, pickOpponent, yes, zone,
+  activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, faceDown, no, pickOpponent, select, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -236,6 +236,44 @@ function ante(format: Format, ownerWins: boolean): Scenario {
   });
 }
 
+// --- Hero Counterattack in Tag --------------------------------------------------------------------------------------------------------
+const HERO_RULE = `${SOURCE} [R-COMMON-OPP-PICK], the other cards use the defaults: Hero Counterattack (the opponent that attacked picks at random from your hand)`;
+const AVIAN = "Elemental HERO Avian";
+const SPARKMAN = "Elemental HERO Sparkman";
+const HERO_COUNTERATTACK = "Hero Counterattack";
+
+// Tag: p1 (team 1) attacks the Hero of p0 (team 0) on its second turn (turn 6; no attack in the first turn of each seat). The attacker is the
+// bound opponent: no pick prompt. Sparkman is Special Summoned to p0, p0 destroys a monster of an OPPOSING duelist (p1 or p3, never its partner p2).
+const heroCounterattackTag = defineScenario({
+  id: "late-tag-hero-counterattack-the-attacker-picks-from-your-hand-and-the-partner-is-unchanged",
+  title: "Tag: p1 destroys the Hero of p0 in battle, p0 activates Hero Counterattack: the attacker picks at random from the hand of p0, the Hero is Special Summoned, p0 destroys the attacker; the partner p2 and p3 are unchanged",
+  source: HERO_RULE,
+  rules: ["R-COMMON-OPP-PICK", "R-TAG-PARTNER"],
+  tags: ["multiplayer", "late-cards", "trap", "tag", "card:19024706"],
+  setup: {
+    format: "tag",
+    // The Deck top is the same card as the hand card: the draw of turn 5 gives a second copy, so the random pick finds a Hero in any case.
+    p0: { monsters: [AVIAN], hand: [SPARKMAN], deck: [SPARKMAN], spells: [{ card: HERO_COUNTERATTACK, pos: "set" }] },
+    p1: { monsters: [SKULL] },
+    p2: { monsters: [ELF], hand: [RAT] },
+    p3: { monsters: [OX], hand: [AXE] },
+  },
+  steps: [
+    ...(["p0", "p1", "p2", "p3", "p0"] as Seat[]).map((seat) => endTurn(seat)),
+    changePhase("battle", "p1"),
+    attack(SKULL, AVIAN, "p1"),
+    activate(HERO_COUNTERATTACK, "p0"),
+    select({ card: SKULL, owner: "p1" }),
+    // The other seats drew the default Mystical Elf in their own turns (p1 twice, p2 and p3 once); no card of theirs moved because of the trap.
+    expectBoard({
+      p0: { lp: 14500, monsters: [SPARKMAN], hand: [SPARKMAN], spells: [], grave: [AVIAN, HERO_COUNTERATTACK], banished: [] },
+      p1: { lp: 16000, monsters: [], hand: [ELF, ELF], spells: [], grave: [SKULL], banished: [] },
+      p2: { lp: 14500, monsters: [ELF], hand: [RAT, ELF], spells: [], grave: [], banished: [] },
+      p3: { lp: 16000, monsters: [OX], hand: [AXE, ELF], spells: [], grave: [], banished: [] },
+    }),
+  ],
+});
+
 export const LATE_CARD_SCENARIOS: Scenario[] = [
   royalTribute("ffa3"),
   royalTribute("ffa4"),
@@ -257,4 +295,5 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   ante("ffa4", false),
   ante("tag", true),
   ante("tag", false),
+  heroCounterattackTag,
 ];
