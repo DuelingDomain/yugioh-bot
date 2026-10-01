@@ -232,8 +232,9 @@ export function createDuelHost(options: {
   }
   let stopped = false;
 
-  function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings): void {
-    validateDeck(mode, deck, options.dataDirectory, settings);
+  /** Check one deck against the real table format, so a Tag or FFA table also refuses the cards that do not work there. */
+  function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat): void {
+    validateDeck(mode, deck, options.dataDirectory, settings, { table: format });
   }
 
   function workerCreateOptions(
@@ -1560,7 +1561,7 @@ export function createDuelHost(options: {
       if (room.session.status !== "lobby") throw new RequestError("A practice bot can only be added before the duel starts", 409);
       const settings = room.session.settings;
       const deck = buildPracticeBotDeck(room.session.mode, options.dataDirectory);
-      validateSessionDeck(room.session.mode, deck, settings);
+      validateSessionDeck(room.session.mode, deck, settings, room.session.format);
       let botSeat: number | undefined;
       if (body.seat !== undefined && body.seat !== null) {
         if (!Number.isSafeInteger(body.seat)) throw new RequestError("Bot seat must be a whole number", 400);
@@ -1593,9 +1594,9 @@ export function createDuelHost(options: {
         keepUnresolved: op === "validate-deck",
       });
       if (op === "validate-deck") {
-        return inspectDeck(room.session.mode, deck, options.dataDirectory, settings);
+        return inspectDeck(room.session.mode, deck, options.dataDirectory, settings, { table: room.session.format });
       }
-      validateSessionDeck(room.session.mode, deck, settings);
+      validateSessionDeck(room.session.mode, deck, settings, room.session.format);
       const session = service.setDeck(slug, guildId, actor, deck);
       await emitChange(slug, guildId);
       return { session };
@@ -1614,7 +1615,7 @@ export function createDuelHost(options: {
       }
       const state = service.privateState(slug, guildId);
       const settings = state.session.settings;
-      for (const deck of state.decks) validateSessionDeck(state.session.mode, deck, settings);
+      for (const deck of state.decks) validateSessionDeck(state.session.mode, deck, settings, state.session.format);
       const bytes = randomBytes(32);
       const seed = [0, 8, 16, 24].map((offset) => bytes.readBigUInt64LE(offset).toString());
       const game = spawn();
