@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Thu, 1 Oct 2026 17:07:57 -0400
+Subject: [PATCH] core: Duel.MPAttackedSeat() gives the real seat of the
+ duelist that the current attack goes at, at n > 2
+
+The Lua values 0 and 1 fold every opponent to 1, so a script cannot tell a direct attack at itself from a direct attack at another
+opponent that also has no monster (Numeron Dragon). The function gives the controller of the attack target, or the defender of a
+direct attack, or nil (no attack, seat not alive, two duelists). It asks and binds nothing.
+---
+ libduel.cpp | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/libduel.cpp b/libduel.cpp
+index 197d1ab..7fe2da5 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -5006,6 +5006,24 @@ LUA_STATIC_FUNCTION(MPTurnOwns) {
+ 	lua_pushboolean(L, yes);
+ 	return 1;
+ }
++// Duel.MPAttackedSeat(): the real seat of the duelist that the current attack goes at (the controller of the attack target, or the
++// defender of a direct attack), or nil when there is no attack, no such seat, or the seat is not alive. More than two duelists
++// only: with two duelists it gives nil (the Lua player of the attacked side is always 1 - the attacker's, so it is not needed).
++// The Lua values 0 and 1 fold every opponent to 1, so a script cannot tell a direct attack at itself from a direct attack at
++// another opponent that also has no monster (Numeron Dragon): this is the seat compare. It asks nothing and binds nothing.
++LUA_STATIC_FUNCTION(MPAttackedSeat) {
++	const auto& f = *pduel->game_field;
++	if(f.n_duelists <= 2 || !f.core.attacker) {
++		lua_pushnil(L);
++		return 1;
++	}
++	const uint8_t seat = f.core.attack_target ? f.core.attack_target->current.controler : f.core.battle_defender;
++	if(f.is_duelist(seat) && f.is_alive(seat))
++		lua_pushinteger(L, seat);
++	else
++		lua_pushnil(L);
++	return 1;
++}
+ }
+ }
+ 
