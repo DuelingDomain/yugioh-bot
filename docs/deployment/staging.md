@@ -100,7 +100,8 @@ Open the address and sign in with Discord.
 ## Normal use
 
 - **Update staging to a newer commit.** Push the branch. Run the workflow again with `action` = `deploy`.
-  The staging database is kept.
+  The staging database is kept. Staging is stopped during a deploy, so a duel that is running in staging at that time
+  is set to `interrupted` (the engine install refuses a new bundle while a duel is active).
 - **Refresh the database from production.** Run the workflow with `refresh_db` on. Staging duels and anything
   else that was only in staging are lost. Active duels in the copy are set to `interrupted`.
   The old staging database stays as `data-staging/bot.sqlite.before-copy` (one older copy).

@@ -119,7 +119,9 @@ else
   echo "remote-deploy: keeping the staging database (set refresh_db to copy production again)"
 fi
 
-# 5. The engine bundle, with the multi core.
+# 5. The engine bundle, with the multi core. The install refuses a changed bundle while a duel is "active", and
+#    no duel can end while staging is stopped, so set the active staging duels to interrupted first.
+sh scripts/staging/interrupt-active-duels.sh "$staging_dir/data-staging"
 sh scripts/staging/install-staging-bundle.sh "$bundle" "$staging_dir/data-staging"
 cat data-staging/duel-engine/ocgcore.multi.SOURCE 2>/dev/null || true
 
