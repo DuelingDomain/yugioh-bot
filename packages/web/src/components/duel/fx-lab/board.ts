@@ -1,4 +1,4 @@
-import type { DuelCard, DuelCardInfo, DuelChainLink, DuelEvent, DuelPrompt, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo, DuelChainLink, DuelEvent, DuelMasterRule, DuelPrompt, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   LOCATION_DECK,
   LOCATION_EXTRA,
@@ -67,6 +67,8 @@ export type LabScript = {
   domain?: boolean;
   /** Whose view: seat 0 is the bottom player. */
   mySeat?: number;
+  /** The Master Rule the board is drawn for (default 5): it decides the Extra Monster and Pendulum zones. */
+  masterRule?: DuelMasterRule;
   /** A Best of 3 game: the header shows the game label; `screen` opens a between-games or match screen over the board. */
   series?: LabSeries;
 };
