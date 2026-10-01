@@ -482,6 +482,23 @@
       "stockSha256": "4fbef28b5d6037dd098c575e516605da110b604e8630a81b4e64dff11456c962"
     },
     {
+      "code": 25388971,
+      "file": "c25388971.lua",
+      "name": "Sangen Kaiho",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "phcon"
+      ],
+      "redefined": [
+        "phcon"
+      ],
+      "stockSha256": "d22769cec678669c6d56d296ac82acb6519c1146b18a46a2940d1bd1a4746749"
+    },
+    {
       "code": 27279764,
       "file": "c27279764.lua",
       "name": "Apoqliphort Towers",
@@ -857,6 +874,23 @@
       "stockSha256": "6379973afe9c35e13999ee3f759c5a4bbca78fee6fc1451d145039917668cbb0"
     },
     {
+      "code": 46772449,
+      "file": "c46772449.lua",
+      "name": "Evilswarm Exciton Knight",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "QUICK_O",
+      "compareIn": [
+        "descon"
+      ],
+      "redefined": [
+        "descon"
+      ],
+      "stockSha256": "30824601c4acfae9af97567171306ade6a8b3559fa98e3101ff53f6e903eb03e"
+    },
+    {
       "code": 46898368,
       "file": "c46898368.lua",
       "name": "Burning Draw",
@@ -935,6 +969,23 @@
       "stockSha256": "368822aab7b0be98103cf99610c8520553d1b62b86bff1854e64e3a32c0e289f"
     },
     {
+      "code": 50838440,
+      "file": "c50838440.lua",
+      "name": "Three in One",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "condition"
+      ],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "a01a0298f45fee1ab7ff4512125b7a7f4662846707467379210d5cd387b1311d"
+    },
+    {
       "code": 53244294,
       "file": "c53244294.lua",
       "name": "Number 57: Tri-Head Dust Dragon",
@@ -950,6 +1001,23 @@
         "zcon"
       ],
       "stockSha256": "62672b54b42c1ae1d918da63b1179097ad0563e1ad1b2f7f05e1f41a5c43cedb"
+    },
+    {
+      "code": 55273560,
+      "file": "c55273560.lua",
+      "name": "Incredible Ecclesia, the Virtuous",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "spcon"
+      ],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "1a89e3b7b3a620cfdcab9392c4f955c6a8c841f4f76055c71cf33a83e5bc6416"
     },
     {
       "code": 55787576,
@@ -1069,6 +1137,23 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "6f2dcac2eb858d2f62110f83a6d40740336871b543a84a499199dceb3de9fc49"
+    },
+    {
+      "code": 62015408,
+      "file": "c62015408.lua",
+      "name": "Ghost Reaper & Winter Cherries",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "QUICK_O",
+      "compareIn": [
+        "condition"
+      ],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "728e35ca22ffc93a9a383ed853062d452c7cc4057370ab8c690e22c76b9aa52f"
     },
     {
       "code": 62098216,
@@ -1292,6 +1377,25 @@
       "note": "Only the replacement operation is fixed (the activator, from rp). The inline condition rp==1-tp is left as it is."
     },
     {
+      "code": 80551022,
+      "file": "c80551022.lua",
+      "name": "Mimighoul Slime",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "IGNITION",
+      "compareIn": [
+        "selfsptg",
+        "selfspop"
+      ],
+      "redefined": [
+        "selfsptg",
+        "selfspop"
+      ],
+      "stockSha256": "e41f6ee4fe55bfcc9d1c439c8032a1890405d25770021a725a72ce573323b878"
+    },
+    {
       "code": 82385847,
       "file": "c82385847.lua",
       "name": "Dinowrestler Pankratops",
@@ -1477,6 +1581,23 @@
         "target"
       ],
       "stockSha256": "b60b87d28d97540dc4477a863a2c3cbf6fe3a2d235dfc965eecf408e50a93577"
+    },
+    {
+      "code": 89883517,
+      "file": "c89883517.lua",
+      "name": "Mistaken Accusation",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "condition"
+      ],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "7e380b2908ac063874e65c2b05c89ca8e4e8d116c8e9d5a75cc25031e64c22bf"
     },
     {
       "code": 90173539,

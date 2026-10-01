@@ -10,17 +10,9 @@ import { scanCorpus } from "../scripts/scan-multiplayer-scripts.js";
 import { currentEngineDataDirectory } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
-// The overlay of the compare and chooser cards (F7 design, part P3a): MANIFEST.json, the 92 cNNN.lua files and the generator.
+// The overlay of the compare and chooser cards (F7 design, part P3a): MANIFEST.json, the 99 cNNN.lua files and the generator.
 // The checks that need the stock scripts or the triage file (both are not in git) are skipped when the file is missing,
 // and fail with DUEL_REQUIRE_CORES=1 (stock scripts) or stay a skip (triage, a local file).
-
-/**
- * Cards that the scanner rule field-count-compare flags but the design does not list as COMPARE (the triage groups a card by ONE
- * primary group, so these sit in other groups). The triage evidence of 8 of them reads "monster-count compare (question 2)". They
- * need a product decision and a MANIFEST entry; this list is the open gap. Weighbridge 39103226 and Vesper Girsu 97345699 are
- * listed as CHOOSER, so they are not in it.
- */
-const COMPARE_SCAN_GAP = [25388971, 35059553, 46772449, 50838440, 55273560, 62015408, 80551022, 89883517];
 
 const KINDS = ["whole", "expr", "trig", "hand", "chooser", "fix"];
 const manifest = readManifest();
@@ -34,7 +26,7 @@ const triageNeed = needs.localFile("multiplayer triage", TRIAGE_FILE, "Run scrip
 const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.lua`), "utf8");
 
 describe("MANIFEST.json of the overlay", () => {
-  it("lists 92 cards with a valid kind, a file named after the code and a name", () => {
+  it("lists 99 cards with a valid kind, a file named after the code and a name", () => {
     expect(manifest.version).toBe(1);
     expect(cards).toHaveLength(EXPECTED_COUNTS.entries);
     for (const card of cards) {
@@ -50,7 +42,7 @@ describe("MANIFEST.json of the overlay", () => {
     expect(files).toEqual(cards.map((card) => card.file).sort());
   });
 
-  it("has no problem in the lists and counts (47 compare, 44 chooser, 7 whole)", () => {
+  it("has no problem in the lists and counts (54 compare, 44 chooser, 7 whole)", () => {
     expect(checkLists(manifest, null)).toEqual([]);
     expect(cards.filter((card) => card.classes.includes("COMPARE"))).toHaveLength(EXPECTED_COUNTS.compare);
     expect(cards.filter((card) => card.classes.includes("CHOOSER") && !COMPARE_EXTRA.includes(card.code))).toHaveLength(EXPECTED_COUNTS.chooser);
@@ -64,9 +56,9 @@ describe("MANIFEST.json of the overlay", () => {
     const fewer = clone();
     fewer.cards = fewer.cards.filter((card) => card.code !== 8814959);
     const problems = checkLists(fewer, null).join("\n");
-    expect(problems).toContain("COMPARE has 46 cards");
+    expect(problems).toContain("COMPARE has 53 cards");
     expect(problems).toContain("6 whole files");
-    expect(problems).toContain("91 entries");
+    expect(problems).toContain("98 entries");
     const noFix = clone();
     noFix.cards.find((card) => card.code === MIRROR_GATE)!.kind = "expr";
     expect(checkLists(noFix, null).join("\n")).toContain("Mirror Gate");
@@ -204,13 +196,13 @@ describeWithCores("the overlay against the stock scripts", stock, () => {
     }
   });
 
-  it("every COMPARE card is flagged by the scan rule field-count-compare, and no other flagged card is missing from the manifest except the known gap", () => {
+  it("every COMPARE card is flagged by the scan rule field-count-compare, and no other flagged card is missing from the manifest", () => {
     const scanned = scanCorpus(stockDirectory).filter((card) => card.rules.includes("field-count-compare")).map((card) => card.code)
       .filter((code) => !COMPARE_FALSE_POSITIVES.includes(code));
     const compare = cards.filter((card) => card.classes.includes("COMPARE")).map((card) => card.code);
     expect(compare.filter((code) => !scanned.includes(code))).toEqual([]);
     const listed = new Set(cards.map((card) => card.code));
-    expect(scanned.filter((code) => !listed.has(code)).sort((a, b) => a - b)).toEqual(COMPARE_SCAN_GAP);
+    expect(scanned.filter((code) => !listed.has(code)).sort((a, b) => a - b)).toEqual([]);
   });
 
   it("a compare card that reads overlay materials or counters on a field is in the manifest", () => {
@@ -225,7 +217,7 @@ describeWithCores("the overlay against the stock scripts", stock, () => {
 });
 
 describeWithCores("the overlay against the triage file", triageNeed, () => {
-  it("the lists equal the triage (COMPARE 47, CHOOSER 44, R1 92)", () => {
+  it("the lists equal the triage (COMPARE 54, CHOOSER 44, R1 92)", () => {
     const triage = readTriage();
     expect(triage).not.toBeNull();
     expect(checkLists(manifest, triage)).toEqual([]);

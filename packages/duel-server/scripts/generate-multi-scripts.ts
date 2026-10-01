@@ -10,7 +10,8 @@
  *
  * The lists are pinned in this file. When the triage file (.status/multiplayer-triage.json, not in git) is present, the
  * lists are also compared with it:
- *   COMPARE (47) = triage group `field-count-compare` (51) minus 6 false positives, plus Evenly Matched and Pineapple Blast.
+ *   COMPARE (54) = triage group `field-count-compare` (51) minus 6 false positives, plus Evenly Matched and Pineapple Blast,
+ *                  plus 7 cards of the scan gap (COMPARE_SCAN_ADDED, in other triage groups).
  *   CHOOSER (44) = triage rule starting with `CHOOSER`.
  *   R1 (92)      = triage rule starting with `EACH-DUELIST` or `SCRIPT`, minus Mirror Gate 43452193 (it belongs to Q7).
  */
@@ -22,11 +23,18 @@ const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const OVERLAY_DIRECTORY = join(PACKAGE_DIR, "domain-core", "multi-scripts");
 export const TRIAGE_FILE = resolve(PACKAGE_DIR, "..", "..", ".status", "multiplayer-triage.json");
 
-export const COMPARE_FALSE_POSITIVES = [16191953, 22512406, 24175232, 60623203, 70916046, 82693917];
+/**
+ * Cards that the scan rule field-count-compare flags but that need no one-opponent window. 35059553 Kaiser Colosseum: both
+ * functions are continuous values (EFFECT_MAX_MZONE, EFFECT_UNRELEASABLE_SUM) with no activation, no window and no chooser;
+ * the "opponent" is the controller of the card in the value call.
+ */
+export const COMPARE_FALSE_POSITIVES = [16191953, 22512406, 24175232, 35059553, 60623203, 70916046, 82693917];
+/** Real COMPARE cards that the triage does not list as `field-count-compare` (it groups a card by one primary group). */
+export const COMPARE_SCAN_ADDED = [25388971, 46772449, 50838440, 55273560, 62015408, 80551022, 89883517];
 /** Compare AND chooser cards that the triage does not list as `field-count-compare`. */
 export const COMPARE_EXTRA = [15693423, 90669991];
 export const MIRROR_GATE = 43452193;
-export const EXPECTED_COUNTS = { compare: 47, chooser: 44, whole: 7, entries: 92, r1: 92 } as const;
+export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 99, r1: 92 } as const;
 
 export type Helper = "MPAny" | "MPValue" | "MPOne" | "MPPick" | "MPTarget";
 export type CardClass = "COMPARE" | "CHOOSER";
@@ -98,6 +106,7 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
     const expectedCompare = sorted([
       ...triage.filter((entry) => entry.group === "field-count-compare" && !COMPARE_FALSE_POSITIVES.includes(entry.code)).map((entry) => entry.code),
       ...COMPARE_EXTRA,
+      ...COMPARE_SCAN_ADDED,
     ]);
     if (!same(compare, expectedCompare)) problems.push(`COMPARE differs from the triage: ${diff(compare, expectedCompare)}`);
     const expectedChooser = sorted(triage.filter((entry) => entry.rule.startsWith("CHOOSER")).map((entry) => entry.code));
