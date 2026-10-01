@@ -36,13 +36,13 @@ async function picker() {
   return select;
 }
 
-function option(name: RegExp) {
-  return screen.getByRole("option", { name }) as HTMLOptionElement;
+function optionNames(): string[] {
+  const select = screen.getByLabelText("Use a saved deck") as HTMLSelectElement;
+  return Array.from(select.options, (entry) => entry.textContent ?? "");
 }
 
 describe("saved deck picker and the table's format", () => {
   beforeEach(() => {
-    // The deck a player built as a Domain list but saved under Normal, and one saved as Domain.
     listSavedDecks.mockResolvedValue([
       saved(1, "Blue-Eyes DOMAIN", "normal", [111, 112]),
       saved(2, "Real Domain", "domain", [221]),
@@ -51,53 +51,47 @@ describe("saved deck picker and the table's format", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it("lists every saved deck at a custom Domain table, because the format check is off", async () => {
-    renderEditor("domain", false);
+  it.each([
+    ["checked", true],
+    ["custom", false],
+  ])("lists only Domain decks at a %s Domain table", async (_label, validateDeck) => {
+    renderEditor("domain", validateDeck);
     const select = await picker();
 
-    for (const name of [/^Blue-Eyes DOMAIN ·/, /^Real Domain ·/, /^Plain Normal ·/]) {
-      expect(option(name)).toBeEnabled();
-    }
-    fireEvent.change(select, { target: { value: option(/^Blue-Eyes DOMAIN ·/).value } });
-
-    expect(screen.getByRole("button", { name: "Remove 111 from Main" })).toBeInTheDocument();
+    expect(optionNames()).toEqual(["Choose a deck", "Real Domain · 1 Main / 0 Extra / 0 Side"]);
+    fireEvent.change(select, { target: { value: select.options[1]!.value } });
+    expect(screen.getByRole("button", { name: "Remove 221 from Main" })).toBeInTheDocument();
   });
 
-  it("lists every saved deck at a custom Normal table", async () => {
-    renderEditor("normal", false);
+  it.each([
+    ["checked", true],
+    ["custom", false],
+  ])("lists only Standard decks at a %s Standard table", async (_label, validateDeck) => {
+    renderEditor("normal", validateDeck);
     await picker();
 
-    expect(option(/^Real Domain ·/)).toBeEnabled();
-    expect(option(/^Plain Normal ·/)).toBeEnabled();
+    expect(optionNames()).toEqual([
+      "Choose a deck",
+      "Blue-Eyes DOMAIN · 2 Main / 0 Extra / 0 Side",
+      "Plain Normal · 1 Main / 0 Extra / 0 Side",
+    ]);
   });
 
-  it("offers only matching decks at a checked Domain table and says why the others cannot be used", async () => {
-    renderEditor("domain", true);
+  it("says how to get a Domain deck when none is saved as Domain, even at a custom table", async () => {
+    listSavedDecks.mockResolvedValue([saved(1, "Blue-Eyes DOMAIN", "normal", [111])]);
+    renderEditor("domain", false);
     await picker();
 
-    expect(option(/^Real Domain ·/)).toBeEnabled();
-    const blocked = option(/^Blue-Eyes DOMAIN ·/);
-    expect(blocked).toBeDisabled();
-    expect(blocked.textContent).toMatch(/saved as Normal/i);
-    expect(option(/^Plain Normal ·/)).toBeDisabled();
-  });
-
-  it("offers only matching decks at a checked Normal table", async () => {
-    renderEditor("normal", true);
-    await picker();
-
-    expect(option(/^Plain Normal ·/)).toBeEnabled();
-    expect(option(/^Blue-Eyes DOMAIN ·/)).toBeEnabled();
-    const blocked = option(/^Real Domain ·/);
-    expect(blocked).toBeDisabled();
-    expect(blocked.textContent).toMatch(/saved as Domain/i);
+    expect(optionNames()).toEqual(["No saved Domain decks"]);
+    expect(screen.getByText(/save a deck as Domain/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Manage decks" })).toHaveAttribute("href", "/decks");
   });
 
   it("keeps the empty message when no deck is saved", async () => {
     listSavedDecks.mockResolvedValue([]);
-    renderEditor("domain", false);
+    renderEditor("normal", true);
     await picker();
 
-    expect(option(/No saved decks/)).toBeInTheDocument();
+    expect(optionNames()).toEqual(["No saved Standard decks"]);
   });
 });

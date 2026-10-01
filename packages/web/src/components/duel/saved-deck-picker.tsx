@@ -8,27 +8,16 @@ import { SheetButton, SheetSelect, sheetButtonClass } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./deck-editor.module.css";
 
-const MODE_NAME: Record<DuelMode, string> = { domain: "Domain", normal: "Normal" };
+/** The names Manage decks and the room settings use for each format. */
+const MODE_NAME: Record<DuelMode, string> = { domain: "Domain", normal: "Standard" };
 
 /**
- * A saved deck remembers the format it was saved under. A checked table only takes decks of its own
- * format. A custom table turns the format checks off, so every saved deck can be loaded there; the
- * list still names a deck saved under the other format, so the player knows what they are loading.
+ * Lists the saved decks that were saved in the table's format, and only those. A custom table turns the
+ * format and copy-limit checks off, but a Domain deck list stays a Domain list and a Standard deck list
+ * stays a Standard list, so the two formats never mix here.
  */
-export function savedDeckChoice(saved: SavedDeck, mode: DuelMode, checked: boolean): { label: string; disabled: boolean } {
-  const { main, extra, side } = saved.deck;
-  const counts = `${saved.name} · ${main.length} Main / ${extra.length} Extra / ${side.length} Side`;
-  if (saved.mode === mode) return { label: counts, disabled: false };
-  const other = `saved as ${MODE_NAME[saved.mode]}`;
-  return checked
-    ? { label: `${counts} · ${other}, this is a ${MODE_NAME[mode]} table`, disabled: true }
-    : { label: `${counts} · ${other}`, disabled: false };
-}
-
-export function SavedDeckPicker({ mode, checked, disabled, onLoad }: {
+export function SavedDeckPicker({ mode, disabled, onLoad }: {
   mode: DuelMode;
-  /** The table checks decks against its format (not a custom table). */
-  checked: boolean;
   disabled: boolean;
   /** Loads the chosen deck. Returns false when the player keeps the current deck. */
   onLoad: (deck: DuelDeck) => boolean;
@@ -51,22 +40,18 @@ export function SavedDeckPicker({ mode, checked, disabled, onLoad }: {
     return () => { cancelled = true; };
   }, [retry]);
 
-  const listed = (decks ?? []).map((saved) => ({ saved, ...savedDeckChoice(saved, mode, checked) }));
-  // Decks that fit this table come first; the ones it cannot take stay visible with the reason.
-  const usable = listed.filter((entry) => !entry.disabled);
-  const choices = [...usable, ...listed.filter((entry) => entry.disabled)];
-  const current = usable.find((entry) => String(entry.saved.id) === selected);
+  const matching = decks?.filter((saved) => saved.mode === mode) ?? [];
+  const current = matching.find((saved) => String(saved.id) === selected);
 
   function choose(value: string) {
-    const entry = usable.find((item) => String(item.saved.id) === value);
-    if (!entry || onLoad(entry.saved.deck)) setSelected(value);
+    const saved = matching.find((deck) => String(deck.id) === value);
+    if (!saved || onLoad(saved.deck)) setSelected(value);
   }
 
   const placeholder = error ? "Saved decks unavailable"
     : !decks ? "Loading saved decks…"
-    : usable.length ? "Choose a deck"
-    : decks.length ? `No saved ${MODE_NAME[mode]} decks for this table`
-    : "No saved decks";
+    : matching.length ? "Choose a deck"
+    : `No saved ${MODE_NAME[mode]} decks`;
 
   return (
     <section className={styles.head} aria-label="Saved decks">
@@ -75,12 +60,18 @@ export function SavedDeckPicker({ mode, checked, disabled, onLoad }: {
           value={current ? selected : ""} disabled={disabled || !decks} onChange={choose}
           choices={[
             { value: "", label: placeholder },
-            ...choices.map((entry) => ({ value: String(entry.saved.id), label: entry.label, disabled: entry.disabled })),
+            ...matching.map((saved) => ({ value: String(saved.id), label: `${saved.name} · ${saved.deck.main.length} Main / ${saved.deck.extra.length} Extra / ${saved.deck.side.length} Side` })),
           ]} />
         <SheetButton disabled={disabled} size="sm" onClick={() => setRetry((value) => value + 1)}>Refresh</SheetButton>
         <Link href="/decks" className={sheetButtonClass("quiet", "sm")}>Manage decks</Link>
       </div>
       {error ? <p role="alert" className={ui.alert}>{error}</p> : null}
+      {decks && matching.length === 0 ? (
+        <p className={styles.muted}>
+          {decks.length > 0 ? "Your saved decks use another format. " : ""}
+          In Manage decks, save a deck as {MODE_NAME[mode]} to use it at this table.
+        </p>
+      ) : null}
       <p className={styles.muted}>Choosing a deck loads a copy. Editing it here won&apos;t change your saved deck; this room&apos;s rules are checked before you ready up.</p>
     </section>
   );
