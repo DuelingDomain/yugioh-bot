@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: clear stale effect pointers before an effect is freed
+
+duel::delete_effect now clears every card reason_effect pointer (current,
+previous, temp) and core.reason_effect that points at the effect. Without
+this, Card.GetReasonEffect and is_self_destroy_related read freed memory
+after an Equip Spell is destroyed by the lost-target rule.
+
+This patch is the exact edit of domain-core/src/apply-core-fixes.mjs. Every
+build applies these fixes, so "stock" means upstream plus this patch.
+---
+ duel.cpp | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/duel.cpp b/duel.cpp
+index d58294b..d6527eb 100644
+--- a/duel.cpp
++++ b/duel.cpp
+@@ -96,6 +96,16 @@ void duel::delete_group(group* pgroup) {
+ 	delete pgroup;
+ }
+ void duel::delete_effect(effect* peffect) {
++	for(auto& pcard : cards) {
++		if(pcard->current.reason_effect == peffect)
++			pcard->current.reason_effect = nullptr;
++		if(pcard->previous.reason_effect == peffect)
++			pcard->previous.reason_effect = nullptr;
++		if(pcard->temp.reason_effect == peffect)
++			pcard->temp.reason_effect = nullptr;
++	}
++	if(game_field->core.reason_effect == peffect)
++		game_field->core.reason_effect = nullptr;
+ 	lua->unregister_effect(peffect);
+ 	effects.erase(peffect);
+ 	delete peffect;

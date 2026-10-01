@@ -1,0 +1,109 @@
+# Core patch series (multi core)
+
+This directory holds the patch series for the N-duelist ygopro-core. The series is for 3-player, 4-player and 2v2 Tag duels. No server uses the multi core yet.
+
+## What the series is
+
+- The base is ygopro-core at the commit in `domain-core/pins.json`.
+- Each file is a `git format-patch` patch. They have fixed dates and a fixed author, so the build is repeatable.
+- Patches apply in file name order with `git am`.
+- Do not edit a patch file by hand. Change the dev tree, then run `git format-patch` again.
+
+| Patch | What it does | Behaviour change |
+| --- | --- | --- |
+| `0001-core-fixes.patch` | The same core fix as `apply-core-fixes.mjs` (stale `reason_effect` in `delete_effect`). | None compared to the standard core. |
+| `0002-deterministic-effect-order.patch` | Containers keyed by an address become ordered by `effect::initial_id` or `card::cardid`. See "Why the order must not depend on addresses". | None in the rules. Only the order of ties that stock left to the address. |
+| `0003-n-duelist-player-array.patch` | `player` becomes `std::array<player_info, MAX_DUELISTS>`. `MAX_DUELISTS` is 4. `n_duelists` is 2. It adds `opponent_of`, `for_each_duelist` and `same_team`. | None. A duel has 2 duelists. |
+| `0004-duelist-ids-and-helpers.patch` | Core-private ids `DUELIST_NONE` (0xFF) and `DUELIST_ALL` (0xFE). `player_info::team` (each duelist is its own team) and `player_info::eliminated`. `field::n_teams`. Helpers `is_duelist`, `is_alive`, `team_of`, `next_in_turn_order`, `for_each_opponent`. `same_team` compares teams. | None. Nothing calls the new helpers yet. |
+
+## Commands
+
+Run all commands in the repository root.
+
+1. Prepare the source tree (no docker needed):
+   `bash packages/duel-server/scripts/prepare-multi-core-tree.sh`
+   - The tree is `packages/duel-server/domain-core/.build/multi-core-tree`. Set `MULTI_TREE` to use a different path.
+   - Set `PATCH_LIMIT=N` to apply only the first N patches.
+   - The script can run again. It does nothing when the patches did not change. It stops with an error when a patch fails, and it aborts `git am`.
+2. Build the wasm core. Use the local emsdk image. Do not pull it.
+   ```
+   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+     -e EM_CACHE=/src/packages/duel-server/domain-core/.emcache \
+     -v "$PWD":/src -w /src docker.io/emscripten/emsdk:4.0.9 \
+     bash packages/duel-server/scripts/build-multi-core.sh
+   ```
+   - Output: `domain-core/dist/ocgcore.multi.sync.wasm` and `ocgcore.multi-build-info.json`. The `dist` directory is ignored by git. The file is not in any manifest.
+   - Environment: `PATCH_LIMIT=N` (first N patches only), `LUA_FIXED_SEED=1` (see below), `OUT_NAME=file` (output name), `EXTRA_PATCHES` (extra patch files, for experiments), `EXTRA_EM_FLAGS` (extra em++ flags).
+   - Sanity gate: with `PATCH_LIMIT=1` and no `LUA_FIXED_SEED`, the output is byte for byte the same as `ocgcore.standard.sync.wasm`. Patch 2 changes the binary, so this gate only works with `PATCH_LIMIT=1`.
+   - The differential test needs two builds, both with `LUA_FIXED_SEED=1`:
+     - the reference: `PATCH_LIMIT=2 LUA_FIXED_SEED=1 OUT_NAME=ocgcore.multi-ref.sync.wasm` (patches 1 and 2)
+     - the multi core: `LUA_FIXED_SEED=1` (all patches)
+   - The reference has patch 2 because the gate compares "same source meaning, different binary layout". Stock without patch 2 is not address free, so it is not a valid reference.
+3. Build the native core with ASan and UBSan, and run the smoke test:
+   `bash packages/duel-server/scripts/build-native-core.sh`
+   - Environment: `JOBS`, `CXX`, `SKIP_SMOKE`, `NATIVE_OUT` (output directory), `MULTI_TREE`, `PATCH_LIMIT`, `EXTRA_PATCHES`.
+4. Make the two-player site list:
+   `bash packages/duel-server/scripts/list-two-player-sites.sh > docs/specs/multiplayer-core-sites.txt`
+5. Run the differential test:
+   `cd packages/duel-server && DUEL_DATA_DIR=<engine data dir> DIFF_RUNS=20 npx vitest run tests/differential`
+   - It records a self-play duel on the reference core. It replays the journal on the reference core (reference trace), again on the reference core (self-check), and on the multi core.
+   - It compares each parsed message, the raw bytes of each message and a field snapshot after each process step, and
+     the final views. It needs zero differences.
+   - The raw bytes come from the `OCG_DuelGetMessage` buffer (`tests/differential/raw-messages.ts`). The wrapper drops a
+     message that it cannot parse, so the parsed messages alone can hide a difference. A separate test fails when the
+     wrapper logs "failed to parse a message" for any core.
+   - It skips when the engine data, the multi wasm or the reference wasm is missing.
+   - `DIFF_RUNS` is the seed count. `DIFF_SEED` is the base seed. `DIFF_ONLY_SEEDS` is a comma list that replaces the seed set. `DIFF_REFERENCE_WASM` and `DIFF_MULTI_WASM` set the wasm paths.
+
+## Why the differential test needs fixed seeds
+
+Two sources of change between runs would give false differences. The test removes both.
+
+- Lua seeds its string hash and `math.random` from `time(NULL)` and from addresses. The order of `pairs()` in a card script then changes from run to run. The test freezes `Date.now` during each duel. The wasm time call reads it.
+- The addresses depend on the binary. Two different binaries get two different seeds. The build option `LUA_FIXED_SEED=1` sets `luai_makeseed()` to 0 in both test cores. The standard server core does not use this option.
+
+The reference trace is a replay, not the self-play run. Self-play makes extra query calls, and this changes the wasm heap layout. A replay makes the same calls on each core.
+
+Without these two measures, a 200 seed run gave stock-against-stock differences in 4 seeds.
+
+## How to add a patch
+
+1. Prepare the tree with all patches applied.
+2. Make your change in the `multi` branch of the tree. Make one commit.
+3. Run `git format-patch` for the new commit. Use the next number in the name.
+4. Build the multi core and run the differential test. You must get zero differences before the patch is final.
+5. Keep a patch that has differences as a draft. Do not merge it.
+
+## Rules for every patch
+
+- Bound each loop over the `player` array with `n_duelists`. Never use `player.size()` or a range loop over the whole array.
+- Change behaviour only in a patch that says so in its title.
+
+## Why the order must not depend on addresses
+
+The stock core keeps some containers with a pointer as the key (`std::unordered_set<effect*>`, `std::map<effect*, chain>`, `std::unordered_map<effect*, effect*>`). It then walks them and sends messages, calls Lua or changes the game state. The walk order is the hash order or the address order. Two binaries that have the same source meaning have different heap addresses. They can play the same duel in a different way. The 200 seed run found 6 seeds with the same two card hints (`MSG_CARD_HINT` or `MSG_PLAYER_HINT`, hint 7) in a different order. The same holds for a later real server: two servers must not give two different duels from one seed and one answer list.
+
+Patch 2 fixes this.
+
+- Every registered effect gets a unique `initial_id` once, and it never changes. Every card gets a unique `cardid`. Patch 2 orders by these ids. It does not use `effect::id`, because the core assigns `id` again.
+- The comparator is `effect_sort_by_initial_id_ptr`. It uses the address only when two effects have the same `initial_id`. This happens only for a lookup of an unregistered effect. A clone keeps the `initial_id` of its source until it is registered, and `card::add_effect` starts with `indexer.find`. A pure `initial_id` compare would match the clone with its source.
+- Changed: `effects.pheff`, `cheff`, `spsummon_count_eff`, `oath`, the grant `gain_effects`, `effect_indexer` (`card::indexer` and `field_effect::indexer`), `core.quick_f_chain`, `core.delayed_quick` and `delayed_quick_tmp`, `core.unique_cards`.
+- Freed effects: the new comparators read the effect, so a container must not keep a pointer to a freed effect. In turn 1,
+  `quick_f_chain`, `delayed_quick` and `delayed_quick_tmp` can still hold entries from the Startup events when the `Turn`
+  processor frees the reset effects (their first clear is in step 2). Patch 2 drops those entries first. A stock read of
+  such an entry was a use-after-free, so no defined behaviour changes.
+- Checked and left: `effects.rechargeable` (`recharge()` has no side effect), `core.reseted_effects` and `duel::uncopy` (they only delete effects and may hold unregistered effects), `readjust_map`, `relations`, `relate_effect`, `duel::cards`, `groups`, `effects`, `assumes`, all maps with an integer key, and all sorts (they compare ids, not addresses). The commit message of patch 2 has the reason for each one.
+- Not in the core: Lua `pairs()` over a table keyed by a card or effect hashes by address. `LUA_FIXED_SEED` removes this in the test. A card script that depends on it is a script problem.
+
+The same fix is useful for the production standard core. It is not applied there. The production path stays as it is until the multi series ships.
+
+## Status of the series
+
+- Patches 2, 3 and 4 pass the differential gate. The reference is patches 1 and 2. The multi core is patches 1 to 4.
+- Before the freed-effect fix: 200 seeds (base seed 20260930) and 1,000 seeds gave zero stock differences and zero multi differences.
+- With the freed-effect fix and the raw byte check: 200 seeds with patches 1 to 3 give zero differences and zero parse
+  warnings. Patch 4 passes the 6 seeds that failed before (1577499120, 1916473771, 1025441889, 1578551883, 1116767578,
+  1646569184).
+- Control: a second reference from the same patches 1 and 2 with `EXTRA_EM_FLAGS=-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE` (a different binary layout) gives zero differences against the reference on the 6 seeds and on 50 seeds. Before patch 2, the same control built from patch 1 only gave differences on 2 of 3 seeds.
+- Sanity gate: the `PATCH_LIMIT=1` build without `LUA_FIXED_SEED` is byte for byte the same as `ocgcore.standard.sync.wasm`.
+- The native ASan and UBSan build of all patches compiles without warnings, and the smoke test passes.

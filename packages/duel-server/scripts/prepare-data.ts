@@ -103,6 +103,11 @@ try {
     integrity.domainLua = hash(await readFile(domainLuaPath));
     if (previous.integrity.domainPatch) integrity.domainPatch = previous.integrity.domainPatch;
   }
+  const standardWasmPath = join(directory, "ocgcore.standard.wasm");
+  if (previous?.sources.standardCore && existsSync(standardWasmPath)) {
+    mergedSources.standardCore = previous.sources.standardCore;
+    integrity.standardWasm = hash(await readFile(standardWasmPath));
+  }
   const manifest = { sources: mergedSources, integrity, bundleVersion: hash(JSON.stringify({ sources: mergedSources, integrity })) };
   await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   console.log(JSON.stringify({ directory, ...manifest }, null, 2));

@@ -44,6 +44,7 @@ required() {
   [ -f "$root/cards.cdb" ] \
     && [ -f "$root/strings.conf" ] \
     && [ -f "$root/ocgcore.domain.wasm" ] \
+    && [ -f "$root/ocgcore.standard.wasm" ] \
     && [ -f "$root/manifest.json" ] \
     && [ -d "$root/card-scripts" ] \
     && [ -f "$root/card-scripts/domain.lua" ]

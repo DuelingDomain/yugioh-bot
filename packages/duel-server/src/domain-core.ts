@@ -40,11 +40,11 @@ export const createDomainCore: DomainCoreFactory = async (ctx) => {
   if (!handle) throw new Error("Failed to create domain duel");
 
   const getDomainState = (): DomainSeatState[] => {
-    return ([0, 1] as const).map((seat) => {
+    return ctx.decks.map((deck, seat) => {
       // These locations are native extensions, not part of the stock enum.
       const inZone = lib.duelQueryCount(handle, seat, LOCATION_DECKMASTER as OcgLocation) > 0;
       const returns = lib.duelQueryCount(handle, seat, LOCATION_DECKMASTER_RETURNS as OcgLocation);
-      const code = ctx.decks[seat].deckMaster!;
+      const code = deck.deckMaster!;
       return { inZone, code, returns, nextCost: returns * DOMAIN_LEAVE_TAX_STEP };
     });
   };

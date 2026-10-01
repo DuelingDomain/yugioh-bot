@@ -14,7 +14,10 @@ if (!existsSync(pinsPath)) throw new Error(`missing ${pinsPath}`);
 const pins = JSON.parse(readFileSync(pinsPath, "utf8")) as { emscripten?: { image?: string; digest?: string } };
 const imageName = pins.emscripten?.image ?? "docker.io/emscripten/emsdk:4.0.9";
 const image = pins.emscripten?.digest ? `${imageName}@${pins.emscripten.digest}` : imageName;
-const script = "packages/duel-server/scripts/build-domain-core.sh";
+// `tsx build-domain-core.ts standard` builds the Standard core (stock rules plus the shared core fixes) instead.
+const target = process.argv[2] ?? "domain";
+if (target !== "domain" && target !== "standard") throw new Error(`target must be "domain" or "standard"`);
+const script = `packages/duel-server/scripts/build-${target}-core.sh`;
 const mode = process.env.DOMAIN_CORE_BUILD ?? "docker";
 const dataDir = process.env.DUEL_DATA_DIR ? resolve(process.env.DUEL_DATA_DIR) : undefined;
 

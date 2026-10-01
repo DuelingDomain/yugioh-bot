@@ -54,7 +54,7 @@ if (!existsSync(manifestPath) || !existsSync(wasmPath) || !existsSync(luaPath)) 
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 const pins = JSON.parse(readFileSync(pinsPath, 'utf8'));
 if (JSON.stringify(manifest.sources?.domainCore) !== JSON.stringify(pins)) process.exit(1);
-const patchFiles = ['apply-domain-patch.mjs', 'domain_master.cpp', 'domain_master.h'];
+const patchFiles = ['apply-core-fixes.mjs', 'apply-domain-patch.mjs', 'domain_master.cpp', 'domain_master.h'];
 const checks = {
   domainWasm: hash(readFileSync(wasmPath)),
   domainLua: hash(readFileSync(luaPath)),
@@ -139,6 +139,7 @@ rm -rf "$BUILD_TMP/ocgcore-wasm/cpp/ygo" "$BUILD_TMP/ocgcore-wasm/cpp/lua"
 archive_tree "$CACHE_YGO" "$CORE_COMMIT" "$BUILD_TMP/ocgcore-wasm/cpp/ygo"
 archive_tree "$CACHE_LUA" "$LUA_REF" "$BUILD_TMP/ocgcore-wasm/cpp/lua"
 
+node "$CORE_SRC/apply-core-fixes.mjs" "$BUILD_TMP/ocgcore-wasm/cpp/ygo"
 node "$CORE_SRC/apply-domain-patch.mjs" "$BUILD_TMP/ocgcore-wasm/cpp/ygo"
 
 BUILD_SH="$BUILD_TMP/ocgcore-wasm/scripts/build.sh"
@@ -200,7 +201,7 @@ const [directory, pins, source, wrapper] = process.argv.slice(2);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const path = join(directory, 'manifest.json');
 const manifest = JSON.parse(readFileSync(path, 'utf8'));
-const patchFiles = ['apply-domain-patch.mjs', 'domain_master.cpp', 'domain_master.h'];
+const patchFiles = ['apply-core-fixes.mjs', 'apply-domain-patch.mjs', 'domain_master.cpp', 'domain_master.h'];
 manifest.sources.domainCore = JSON.parse(readFileSync(pins, 'utf8'));
 manifest.integrity.wrapper = hash(readFileSync(wrapper));
 manifest.integrity.domainWasm = hash(readFileSync(join(directory, 'ocgcore.domain.wasm')));

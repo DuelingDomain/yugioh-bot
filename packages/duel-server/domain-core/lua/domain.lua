@@ -319,16 +319,24 @@ function Duel.IsExistingMatchingCard(f, p, loc1, loc2, ct, ex, ...)
 end
 
 local _SelectMatchingCard = Duel.SelectMatchingCard
-function Duel.SelectMatchingCard(sp, f, p, loc1, loc2, min, max, ex, ...)
+-- efc21aa: (sp, f, p, s, o, min, max, [cancel:boolean], ex, ...). Position 8 may be the optional
+-- cancel flag, so the exception card and the extra args start one place later when it is present.
+function Duel.SelectMatchingCard(sp, f, p, loc1, loc2, min, max, ...)
 	if current_trial() then
-		return call_scoped(push_nested, pop_nested, _SelectMatchingCard, sp, f, p, loc1, loc2, min, max, ex, ...)
+		return call_scoped(push_nested, pop_nested, _SelectMatchingCard, sp, f, p, loc1, loc2, min, max, ...)
 	end
+	local t = table.pack(...)
+	local shift = (type(t[1]) == "boolean") and 1 or 0
 	local wrapped
-	f, loc1, loc2, wrapped = apply_extra_bridge(f, loc1, loc2, ...)
-	if wrapped then
-		return _SelectMatchingCard(sp, f, p, loc1, loc2, min, max, ex)
+	f, loc1, loc2, wrapped = apply_extra_bridge(f, loc1, loc2, table.unpack(t, 2 + shift, t.n))
+	if wrapped and t.n >= 1 + shift then
+		-- The bridge filter already holds the extra args, so pass only [cancel] and ex.
+		if shift == 1 then
+			return _SelectMatchingCard(sp, f, p, loc1, loc2, min, max, t[1], t[2])
+		end
+		return _SelectMatchingCard(sp, f, p, loc1, loc2, min, max, t[1])
 	end
-	return _SelectMatchingCard(sp, f, p, loc1, loc2, min, max, ex, ...)
+	return _SelectMatchingCard(sp, f, p, loc1, loc2, min, max, table.unpack(t, 1, t.n))
 end
 
 if Duel.GetFirstMatchingCard then
