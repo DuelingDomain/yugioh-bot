@@ -18,17 +18,18 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { DuelStatus } from "@yugidraft/shared/duels";
 import { classifyResultReason, type DuelResultReasonKind } from "./duel-result";
+import { GATE_TIMING } from "./duel-timing";
 import { lpMotionRemainingMs } from "./lp-motion";
 import { movesSettleAt } from "./move-plan";
 import { pendingBoardAnimations, promptRevealHoldMs, type AnimationSource } from "./prompt-reveal";
 
 export const RESULT_TIMING = {
   /** Quiet time on the board before the screen shows: the pause a person takes after the last blow. */
-  pauseMs: 1000,
+  pauseMs: GATE_TIMING.resultPauseMs,
   /** The screen shows at the latest this long after the end, whatever the board does. */
-  capMs: 6000,
+  capMs: GATE_TIMING.resultCapMs,
   /** Reduced motion: one short pause instead. */
-  reducedPauseMs: 250,
+  reducedPauseMs: GATE_TIMING.resultReducedPauseMs,
   /** How often the hook looks at the board. */
   tickMs: 100,
 };

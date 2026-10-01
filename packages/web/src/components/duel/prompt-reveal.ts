@@ -13,16 +13,17 @@
  * While the panel is hidden nothing answers the prompt: not right-click, Esc nor Enter.
  */
 import { useEffect, useState, type RefObject } from "react";
+import { GATE_TIMING } from "./duel-timing";
 
 export const REVEAL_TIMING = {
   /** The beat before a panel may appear. */
-  beatMs: 450,
+  beatMs: GATE_TIMING.promptBeatMs,
   /** Quiet time after the last board effect ends. */
-  settleMs: 350,
+  settleMs: GATE_TIMING.promptSettleMs,
   /** The panel never stays hidden longer than this. */
-  capMs: 4000,
+  capMs: GATE_TIMING.promptCapMs,
   /** Reduced motion: one short pause instead. */
-  reducedMs: 150,
+  reducedMs: GATE_TIMING.promptReducedMs,
 };
 
 export type RevealTiming = typeof REVEAL_TIMING;

@@ -1,12 +1,16 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats } from "./card-face";
+import { EquipChip, EquipLinksContext, useEquipRole } from "./equip-chip";
+import { EquipFx } from "./equip-fx";
+import { equipSentence, resolveEquipLinks } from "./equip-links";
 import { duelFontClasses } from "./fonts";
 import { LifePoints } from "./life-points";
+import { zoneMarkLook } from "./pick-glow";
 import { pileSummonTone } from "./summon-circle-model";
 import { SummonCircle, SummonGlow } from "./summon-circle";
 import {
@@ -184,15 +188,32 @@ function NibIcon() {
 }
 
 /**
- * Legal or selected zones get a shape signal (dashed or solid outline plus a tag), never colour alone.
- * A legal pile with a summoning circle already shows that signal, so it skips the outline and tag until selected.
+ * Legal or selected zones get a signal that is not colour alone: a glow on a card, in the hand too (soft and
+ * pulsing when it can be used or picked, steady and stronger when picked) or a dashed outline on an empty zone, plus a tag
+ * (a nib, or a check once picked).
+ * A legal pile with a summoning circle already shows that signal, so it skips the glow and tag until selected.
  */
-function ZoneMarks({ legal, selected, circle = false }: { legal: boolean; selected: boolean; circle?: boolean }) {
+function ZoneMarks({
+  legal,
+  selected,
+  circle = false,
+  occupied,
+}: {
+  legal: boolean;
+  selected: boolean;
+  circle?: boolean;
+  occupied: boolean;
+}) {
   if (!legal && !selected) return null;
   if (circle && !selected) return null;
+  const look = zoneMarkLook({ occupied });
   return (
     <>
-      <span className={styles.ring} aria-hidden="true" />
+      {look === "glow" ? (
+        <span className={styles.glow} data-state={selected ? "picked" : "usable"} aria-hidden="true" />
+      ) : (
+        <span className={styles.ring} aria-hidden="true" />
+      )}
       <span className={styles.mark} aria-hidden="true">
         {selected ? <Check size={11} strokeWidth={2.4} /> : <NibIcon />}
       </span>
@@ -214,7 +235,7 @@ function PileLabel({ kind, count }: { kind: string; count: number }) {
     <span className={styles.pileLabel}>
       <span className={styles.plFull}>{full}</span>
       <span className={styles.plShort}>{short}</span>
-      <b className={styles.plCount}>{count}</b>
+      <b className={styles.plCount} data-pile-count={count}>{count}</b>
     </span>
   );
 }
@@ -258,6 +279,8 @@ function ZoneSlot({
   const stats = cardFieldStats(card, showStats);
   const [atk, def] = stats ? stats.split(" / ") : [null, null];
   const defense = card != null && isDefenseAt(card.location, card.position);
+  const equipRole = useEquipRole(card);
+  const equipText = equipSentence(equipRole);
 
   return (
     <div
@@ -267,6 +290,7 @@ function ZoneSlot({
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
       data-occupied={card ? "true" : "false"}
+      data-equip={equipRole?.role}
       data-defense={defense ? "true" : "false"}
       data-side={flip ? "opp" : "you"}
       data-disabled={offId ? "true" : undefined}
@@ -275,7 +299,7 @@ function ZoneSlot({
       <button
         type="button"
         className={styles.zoneHit}
-        aria-label={label}
+        aria-label={equipText ? `${label}. ${equipText}` : label}
         aria-pressed={selected}
         onClick={(event) => onActivate(keys, card, event.currentTarget)}
         onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
@@ -298,7 +322,8 @@ function ZoneSlot({
               ) : null}
             </span>
           ) : null}
-          <ZoneMarks legal={legal} selected={selected} />
+          <EquipChip role={equipRole} flip={flip} />
+          <ZoneMarks legal={legal} selected={selected} occupied={card != null} />
         </div>
         {pileCount != null ? <PileLabel kind={kind} count={pileCount} /> : null}
       </button>
@@ -423,7 +448,7 @@ function PileSlot({
               <SummonCircle tone={circleTone} />
             </>
           ) : null}
-          <ZoneMarks legal={legal} selected={selected} circle={circleTone != null} />
+          <ZoneMarks legal={legal} selected={selected} circle={circleTone != null} occupied={count > 0} />
         </div>
         <PileLabel kind={kind} count={count} />
       </button>
@@ -816,8 +841,10 @@ export function DuelField({
     if (topOff && (left ? topOff.monsters[6] : topOff.monsters[5])) return `${topIndex}-m-${left ? 6 : 5}`;
     return undefined;
   };
+  const equipLinks = useMemo(() => resolveEquipLinks(engine.seats), [engine.seats]);
 
   return (
+    <EquipLinksContext.Provider value={equipLinks}>
     <div
       className={cn(duelFontClasses, styles.felt)}
       data-duel-field="true"
@@ -930,7 +957,9 @@ export function DuelField({
           )}
         </div>
       </div>
+      <EquipFx links={equipLinks} events={engine.events} duelKey="field" reducedMotion={reducedMotion} />
     </div>
+    </EquipLinksContext.Provider>
   );
 }
 
@@ -1000,7 +1029,7 @@ function MasterDock({
           >
             <div className={styles.masterArt} data-master-dock={view.seat} data-away={status === "Elsewhere" ? "true" : "false"}>
               <img src={cardArtUrl(master.card.code, "full")} alt="" draggable={false} />
-              <ZoneMarks legal={legal} selected={selected} />
+              <ZoneMarks legal={legal} selected={selected} occupied />
             </div>
             <div className={styles.masterId}>
               <b className={styles.masterName}>{master.card.name}</b>

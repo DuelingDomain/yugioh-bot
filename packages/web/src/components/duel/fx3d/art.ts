@@ -4,9 +4,9 @@ import { cardArtUrl } from "../constants";
 /**
  * Card art textures for the embodiment. Small art is usually in the browser cache already (the
  * board shows it); the full image is sharper. Both start loading on `prefetch`, and `peek` returns
- * the best one that has arrived. A small LRU keeps GPU memory bounded.
+ * the best one that has arrived. A small LRU keeps GPU memory bounded (a wipe may show up to 20 different cards on the field at once).
  */
-const MAX_TEXTURES = 16;
+const MAX_TEXTURES = 40;
 
 type Entry = { full: THREE.Texture | null; small: THREE.Texture | null; failed: boolean };
 

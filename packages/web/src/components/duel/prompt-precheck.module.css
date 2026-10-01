@@ -1,6 +1,7 @@
 /* Compact yes/no pre-check for an effect you may activate.
-   A slim bar in the middle of the board, the same family as the on-board select bar (prompt-center.module.css):
-   dark surface, hairline border, soft shadow. Purple marks the Yes of an effect question, gold of a chain
+   A bar in the middle of the board, the same family as the on-board select bar (prompt-center.module.css): it
+   reads the --pc-* tokens of the prompt layer (dark blurred surface, hairline border, soft shadow, 14px radius,
+   semibold title over a muted line, 8px buttons). Purple marks the Yes of an effect question, gold of a chain
    response. Only the bar takes pointer events. */
 
 /* The pop-in says "something is going off". Reduced motion only fades. */
@@ -18,17 +19,20 @@
   top: 50%;
   left: 50%;
   translate: -50% -50%;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: calc(12 * var(--duel-unit, 1px));
+  justify-content: space-between;
+  gap: 12px 16px;
   width: max-content;
-  max-width: min(520px, calc(100% - 24px));
-  padding: calc(6 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px)) calc(6 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px));
-  border: 1px solid rgb(239 231 213 / 0.16);
-  border-radius: calc(16 * var(--duel-unit, 1px));
-  background: rgb(10 16 31 / 0.92);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.42);
+  min-width: min(280px, calc(100% - 24px));
+  max-width: min(440px, calc(100% - 24px));
+  padding: var(--pc-pad-y, 12px) var(--pc-pad-x, 14px);
+  border: var(--pc-border, 1px solid rgb(239 231 213 / 0.14));
+  border-radius: var(--pc-radius, 14px);
+  background: var(--pc-surface, rgb(11 17 32 / 0.95));
+  backdrop-filter: blur(10px) saturate(1.1);
+  box-shadow: var(--pc-shadow, 0 10px 28px rgb(0 0 0 / 0.5));
   color: var(--duel-ink, #efe7d5);
   font-family: var(--duel-f-ui, var(--font-body));
   font-size: var(--duel-t-body, 13px);
@@ -36,7 +40,7 @@
   pointer-events: auto;
   animation: pop 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-.bar[data-tone="chain"] { border-color: rgb(228 182 79 / 0.4); }
+.bar[data-tone="chain"] { border: var(--pc-border-chain, 1px solid rgb(228 182 79 / 0.42)); }
 .bar[data-reduced="true"] { animation: fade 0.16s linear both; }
 
 .thumbs { display: flex; flex: none; padding-left: calc(10 * var(--duel-unit, 1px)); }
@@ -55,36 +59,48 @@
 .thumb:focus-visible { box-shadow: 0 0 0 2px var(--duel-ink, #efe7d5); }
 .thumb:hover, .thumb:focus-visible { z-index: 1; }
 
-.text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: calc(1 * var(--duel-unit, 1px)); }
+.text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 2px; }
 .text b {
-  overflow: hidden;
-  font-size: var(--duel-t-head, 14px);
+  font-size: var(--pc-title, 15px);
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+  text-wrap: balance;
 }
 .bar[data-tone="chain"] .text b { color: var(--duel-chain-ink, #f4d690); }
-.ask { color: var(--duel-ink-2, #c3bba8); font-size: var(--duel-t-sm, 12px); }
+.name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--duel-ink-2, #c3bba8);
+  font-size: var(--pc-sub, 12.5px);
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
 .context {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
   color: var(--duel-ink-3, #958f81);
   font-size: var(--duel-t-xs, 11px);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
 }
 
-.btns { display: flex; flex: none; gap: calc(6 * var(--duel-unit, 1px)); }
+.btns { display: flex; flex: none; gap: 8px; }
 .btn {
-  min-width: calc(52 * var(--duel-unit, 1px));
-  min-height: calc(28 * var(--duel-unit, 1px));
-  padding: 0 calc(14 * var(--duel-unit, 1px));
+  min-width: 64px;
+  min-height: var(--pc-btn-h, 32px);
+  padding: 0 14px;
   border: 1px solid var(--duel-rule, rgb(181 153 99 / 0.34));
-  border-radius: 999px;
+  border-radius: var(--pc-btn-radius, 8px);
   background: transparent;
   color: var(--duel-ink, #efe7d5);
   font-family: var(--duel-f-ui, var(--font-body));
-  font-size: calc(12.5 * var(--duel-unit, 1px));
+  font-size: var(--pc-sub, 12.5px);
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
 }
 .btn:hover:not(:disabled) { background: var(--duel-lamp, rgb(239 231 213 / 0.085)); }
@@ -108,9 +124,11 @@
   .bar { animation: fade 0.16s linear both; }
 }
 
-/* Phones: still centred; the bar takes the width it can and the text wraps, the buttons stay in reach. */
-@media (max-width: 900px) {
-  .bar { max-width: calc(100% - 16px); }
+/* Phones: still centred; the bar takes the width it can, the text wraps and the buttons go under it. */
+@media (max-width: 520px) {
+  .bar { flex-wrap: wrap; max-width: calc(100% - 16px); }
+  .btns { flex: 1 1 100%; }
+  .btn { flex: 1 1 0; }
 }
 @media (pointer: coarse) {
   .btn { min-height: 40px; }

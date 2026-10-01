@@ -114,7 +114,7 @@ describe("precheckCopy", () => {
     );
     expect(copy).toEqual({
       name: "Blue-Eyes Spirit Dragon",
-      ask: "You can activate an effect. Activate?",
+      ask: "Activate its effect?",
       context: "Battle Step · in response to Raigeki",
       cards: [{ code: 100, card: card(100, "Blue-Eyes Spirit Dragon") }],
     });
@@ -127,6 +127,7 @@ describe("precheckCopy", () => {
       null,
     );
     expect(copy?.name).toBe("4 effects");
+    expect(copy?.ask).toBe("Activate an effect?");
     expect(copy?.context).toBe("");
     expect(copy?.cards.map((entry) => entry.code)).toEqual([100, 101]);
   });

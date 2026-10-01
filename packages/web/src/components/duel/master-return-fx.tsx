@@ -43,14 +43,14 @@ export type MasterReturnFxProps = {
 };
 
 export const MASTER_RETURN = {
-  flightMs: 660,
+  flightMs: 780,
   /** A beat after the last card flight lands, so the Graveyard toss reads first. */
-  gapMs: 140,
+  gapMs: 240,
   /** Never wait longer than the move layer's own queue cap. */
   waitCapMs: MOVE_TIMING.queueCapMs,
   reducedFadeMs: 200,
   landFadeMs: 120,
-  pulseMs: 380,
+  pulseMs: 520,
   /** The pulse starts this long before the card lands. */
   pulseLeadMs: 100,
   echoes: [

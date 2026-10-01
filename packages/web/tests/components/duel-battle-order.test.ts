@@ -75,15 +75,15 @@ describe("destroy flights wait for the battle", () => {
   ];
 
   it("sends the card to the Graveyard only after the counter strike has landed", () => {
-    // the attacker (zone 0:4:2) loses; the counter lands 1000 ms in, the break is due at 1120 ms
-    armBattleDestroy("7:attacker", z(0, MZONE, 2), 1120, 100);
+    // the attacker (zone 0:4:2) loses; the counter lands 1400 ms in, the break is due a beat later (1880 ms)
+    armBattleDestroy("7:attacker", z(0, MZONE, 2), 1880, 100);
     const [plan] = planMoves(events(), { now: 100, reduced: false, duelKey: "t", geometry });
-    expect(plan.startAt).toBeGreaterThanOrEqual(1220);
+    expect(plan.startAt).toBeGreaterThanOrEqual(1980);
     // the card leaves for the pile only after the slice was seen: the break at the hold, the flight a settle later
-    expect(plan.startAt).toBeGreaterThanOrEqual(1120 + BREAK_SETTLE_MS);
+    expect(plan.startAt).toBeGreaterThanOrEqual(1880 + BREAK_SETTLE_MS);
     expect(plan.leadMs).toBe(HELD_CRACK_MS + BREAK_SETTLE_MS);
-    // the crack begins no earlier than the hit (100 ms + 1000 ms), and the destroy effect follows the flight
-    expect(plan.startAt - plan.leadMs).toBeGreaterThanOrEqual(100 + 1000);
+    // the crack begins no earlier than the hit (100 ms + 1400 ms), and the destroy effect follows the flight
+    expect(plan.startAt - plan.leadMs).toBeGreaterThanOrEqual(100 + 1400);
     expect(pairedMovePlan(1)?.id).toBe(2);
     expect(plan.landAt).toBeGreaterThan(plan.startAt);
   });

@@ -1,6 +1,7 @@
 import type { SceneCueName } from "./fx3d/scene-plan";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import type { BattleSoundPlan } from "./attack-audio";
+import { BANNER_TIMING } from "./duel-timing";
 import {
   isDefenseAt,
   isFacedown,
@@ -226,15 +227,15 @@ export function emitDuelFxCue(detail: DuelFxCueDetail): void {
  * A backlog of cues is compressed, never dropped: each cue keeps at least MIN_CUE_FRACTION of its
  * length (and MIN_CUE_MS), so a long chain stays a row of distinct beats instead of a blur.
  */
-const CATCH_UP_BUDGET_MS = 3600;
-const MIN_CUE_MS = 400;
+const CATCH_UP_BUDGET_MS = BANNER_TIMING.catchUpBudgetMs;
+const MIN_CUE_MS = BANNER_TIMING.minCueMs;
 const MIN_CUE_FRACTION = 0.5;
 /**
  * Past this, a backlog would trail the board by more and more (the floor above times the queue
  * length), so the floor gives way and the whole queue fits in about this long, down to BLINK_CUE_MS.
  */
-const MAX_BACKLOG_MS = 7000;
-const BLINK_CUE_MS = 250;
+const MAX_BACKLOG_MS = BANNER_TIMING.maxBacklogMs;
+const BLINK_CUE_MS = BANNER_TIMING.blinkCueMs;
 
 export function maxEventId(events: readonly DuelEvent[]): number | null {
   let max: number | null = null;
@@ -268,29 +269,33 @@ export function collectFreshEvents(
   return { nextCursor, fresh };
 }
 
-/** How long a banner or toast stays: at least about 1.2 s for anything with words to read. */
+/**
+ * False for the chain events that are shown on the board only: a link resolving or resolved is the
+ * badge on its card (chain-fx.tsx, paced by chain-beats.ts), and the end of the chain clears the
+ * badges. They keep their sound cue and their log and screen reader entries, but get no banner.
+ * "activate" and "chain-negated" keep theirs.
+ */
+export function hasCentreBanner(kind: DuelEventKind): boolean {
+  // An equip is drawn on the board as a line between the two cards (EquipFx), so it has no banner.
+  return kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end" && kind !== "equip";
+}
+
+/** How long a banner or toast stays: at least about 1.3 s for anything with words to read. */
 export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number {
   if (reducedMotion) {
-    return kind === "activate" ? 1200 : 900;
+    return kind === "activate" ? BANNER_TIMING.reducedActivateMs : BANNER_TIMING.reducedDefaultMs;
   }
   switch (kind) {
     case "activate":
-      return 1500;
+      return BANNER_TIMING.activateMs;
     case "summon":
     case "set":
     case "attack":
     case "destroy":
     case "phase":
-      return 1200;
-    case "chain-resolving":
-      return 800;
-    case "chain-resolved":
-    case "chain-negated":
-      return 900;
-    case "chain-end":
-      return 600;
+      return BANNER_TIMING.eventMs;
     default:
-      return 900;
+      return BANNER_TIMING.defaultMs;
   }
 }
 

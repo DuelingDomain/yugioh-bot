@@ -1,0 +1,301 @@
+import type { DuelCard, DuelCardInfo, DuelChainLink, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
+import {
+  LOCATION_DECK,
+  LOCATION_EXTRA,
+  LOCATION_GRAVE,
+  LOCATION_HAND,
+  LOCATION_MZONE,
+  LOCATION_REMOVED,
+  LOCATION_SZONE,
+  POS_FACEDOWN_ATTACK,
+  POS_FACEDOWN_DEFENSE,
+  POS_FACEUP_ATTACK,
+} from "../constants";
+
+/**
+ * The scripted board of one FX lab scenario: pure data and pure functions, no React and no DOM.
+ * A scenario is a start board plus timed steps. Each step brings engine events and a changed board
+ * together, the way one engine batch reaches the room. The lab runner numbers the events.
+ */
+
+export type LabBoard = {
+  seats: DuelSeatView[];
+  chain: DuelChainLink[];
+  phase: string;
+  turnSeat: number;
+};
+
+/** An engine event before the runner gives it an id. */
+export type EventSpec = Omit<DuelEvent, "id">;
+
+/** A change to a board; it edits the copy it is given. */
+export type Edit = (board: LabBoard) => void;
+
+export type LabStep = {
+  /** ms after the scenario starts (the lab lead-in comes first). */
+  at: number;
+  events?: EventSpec[];
+  edits?: Edit[];
+  /** Replaces the live chain snapshot (engine.chain) when set. */
+  chain?: DuelChainLink[];
+  /** The result screen opens at this step. */
+  result?: { winnerSeat: number | null; reason: string };
+};
+
+export type LabAim = { mode: "preview" | "aim" | "locked"; from: string | null; to: { zones?: readonly string[]; lpSeat?: number | null } };
+
+export type LabScript = {
+  initial: LabBoard;
+  steps: LabStep[];
+  /** ms after the last step until the scenario has settled (the end of the longest effect). */
+  tailMs: number;
+  /** Zone keys drawn as usable (the glow on a legal card). Static for the whole run. */
+  legalKeys?: string[];
+  /** The aim arrow BattleFx draws while a player chooses a target. Static for the whole run. */
+  aim?: LabAim;
+  /** Show the Deck Master rail (a Domain duel). */
+  domain?: boolean;
+  /** Whose view: seat 0 is the bottom player. */
+  mySeat?: number;
+};
+
+export type LabCategory = "Attacks" | "Destroy" | "Summons" | "Card moves" | "Chain" | "LP" | "Banners" | "Board states";
+
+export type LabScenario = {
+  id: string;
+  category: LabCategory;
+  name: string;
+  description: string;
+  build: () => LabScript;
+};
+
+/** Time from the first step to the end of the tail, in ms at 1x. */
+export function scriptDurationMs(script: LabScript): number {
+  const last = script.steps.reduce((max, step) => Math.max(max, step.at), 0);
+  return last + script.tailMs;
+}
+
+/* ---------- zones and cards ---------- */
+
+export const z = (controller: number, location: number, sequence: number): DuelZoneRef => ({ controller, location, sequence });
+export const MZ = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCATION_MZONE, sequence);
+export const SZ = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCATION_SZONE, sequence);
+export const HAND = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCATION_HAND, sequence);
+export const GY = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCATION_GRAVE, sequence);
+export const BANISHED = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCATION_REMOVED, sequence);
+export const DECK = (seat: number): DuelZoneRef => z(seat, LOCATION_DECK, 0);
+export const EXTRA = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCATION_EXTRA, sequence);
+export const FIELD = (seat: number): DuelZoneRef => z(seat, LOCATION_SZONE, 5);
+
+export function cardAt(info: DuelCardInfo, ref: DuelZoneRef, position = POS_FACEUP_ATTACK): DuelCard {
+  return {
+    controller: ref.controller,
+    location: ref.location,
+    sequence: ref.sequence,
+    position,
+    code: info.code,
+    name: info.name,
+    description: info.description,
+    attack: info.attack,
+    defense: info.defense,
+    level: info.level,
+    type: info.type,
+    attribute: info.attribute,
+    race: info.race,
+  };
+}
+
+/** A card the viewer cannot see: no identity. */
+export function hiddenAt(ref: DuelZoneRef, position = POS_FACEDOWN_ATTACK): DuelCard {
+  return { controller: ref.controller, location: ref.location, sequence: ref.sequence, position };
+}
+
+/* ---------- boards ---------- */
+
+export type SeatOptions = {
+  lp?: number;
+  /** Hand cards in order; null is a card the viewer cannot see. */
+  hand?: Array<DuelCardInfo | null>;
+  deck?: number;
+  extra?: Array<DuelCardInfo | null>;
+};
+
+export function newSeat(seat: number, options: SeatOptions = {}): DuelSeatView {
+  const hand = (options.hand ?? []).map((info, index) => (info ? cardAt(info, HAND(seat, index), POS_FACEUP_ATTACK) : hiddenAt(HAND(seat, index))));
+  const extra = (options.extra ?? []).map((info, index) => (info ? cardAt(info, EXTRA(seat, index), POS_FACEDOWN_DEFENSE) : hiddenAt(EXTRA(seat, index), POS_FACEDOWN_DEFENSE)));
+  return {
+    seat,
+    lp: options.lp ?? 8000,
+    hand,
+    deckCount: options.deck ?? 30,
+    extraCount: extra.length,
+    extra,
+    monsters: Array.from({ length: 7 }, () => null),
+    spells: Array.from({ length: 8 }, () => null),
+    graveyard: [],
+    banished: [],
+  };
+}
+
+export function newBoard(me: SeatOptions = {}, opp: SeatOptions = {}, phase = "main1", turnSeat = 0): LabBoard {
+  return { seats: [newSeat(0, me), newSeat(1, opp)], chain: [], phase, turnSeat };
+}
+
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+/** Applies edits to a copy of the board. */
+export function applyEdits(board: LabBoard, edits: readonly Edit[]): LabBoard {
+  if (edits.length === 0) return board;
+  const next = clone(board);
+  for (const edit of edits) edit(next);
+  return next;
+}
+
+function renumber(cards: DuelCard[], location: number): void {
+  cards.forEach((card, index) => {
+    card.location = location;
+    card.sequence = index;
+  });
+}
+
+/** Edit builders. Each returns an Edit; compose them in a step. */
+export const edit = {
+  monster: (seat: number, sequence: number, info: DuelCardInfo | null, position = POS_FACEUP_ATTACK): Edit => (board) => {
+    board.seats[seat].monsters[sequence] = info ? cardAt(info, MZ(seat, sequence), position) : null;
+  },
+  hiddenMonster: (seat: number, sequence: number, position = POS_FACEDOWN_DEFENSE): Edit => (board) => {
+    board.seats[seat].monsters[sequence] = hiddenAt(MZ(seat, sequence), position);
+  },
+  spell: (seat: number, sequence: number, info: DuelCardInfo | null, position = POS_FACEUP_ATTACK): Edit => (board) => {
+    board.seats[seat].spells[sequence] = info ? cardAt(info, SZ(seat, sequence), position) : null;
+  },
+  hiddenSpell: (seat: number, sequence: number): Edit => (board) => {
+    board.seats[seat].spells[sequence] = hiddenAt(SZ(seat, sequence), 0x0a);
+  },
+  /** Face-down card with its identity known to the viewer (their own Set card). */
+  setSpell: (seat: number, sequence: number, info: DuelCardInfo): Edit => (board) => {
+    board.seats[seat].spells[sequence] = cardAt(info, SZ(seat, sequence), 0x0a);
+  },
+  position: (seat: number, sequence: number, position: number): Edit => (board) => {
+    const card = board.seats[seat].monsters[sequence];
+    if (card) card.position = position;
+  },
+  addHand: (seat: number, info: DuelCardInfo | null): Edit => (board) => {
+    const hand = board.seats[seat].hand;
+    hand.push(info ? cardAt(info, HAND(seat, hand.length), POS_FACEUP_ATTACK) : hiddenAt(HAND(seat, hand.length)));
+  },
+  removeHand: (seat: number, index: number): Edit => (board) => {
+    const hand = board.seats[seat].hand;
+    hand.splice(index, 1);
+    renumber(hand, LOCATION_HAND);
+  },
+  drawFromDeck: (seat: number, count = 1): Edit => (board) => {
+    board.seats[seat].deckCount -= count;
+  },
+  deckCount: (seat: number, count: number): Edit => (board) => {
+    board.seats[seat].deckCount = count;
+  },
+  grave: (seat: number, info: DuelCardInfo): Edit => (board) => {
+    const grave = board.seats[seat].graveyard;
+    grave.push(cardAt(info, GY(seat, grave.length), POS_FACEUP_ATTACK));
+  },
+  banish: (seat: number, info: DuelCardInfo): Edit => (board) => {
+    const pile = board.seats[seat].banished;
+    pile.push(cardAt(info, BANISHED(seat, pile.length), POS_FACEUP_ATTACK));
+  },
+  removeGrave: (seat: number, index: number): Edit => (board) => {
+    const grave = board.seats[seat].graveyard;
+    grave.splice(index, 1);
+    renumber(grave, LOCATION_GRAVE);
+  },
+  removeExtra: (seat: number, index: number): Edit => (board) => {
+    const seatView = board.seats[seat];
+    seatView.extra.splice(index, 1);
+    seatView.extraCount = seatView.extra.length;
+    seatView.extra.forEach((card, i) => {
+      card.sequence = i;
+    });
+  },
+  lp: (seat: number, lp: number): Edit => (board) => {
+    board.seats[seat].lp = lp;
+  },
+  phase: (phase: string, turnSeat?: number): Edit => (board) => {
+    board.phase = phase;
+    if (turnSeat != null) board.turnSeat = turnSeat;
+  },
+  /** An equipped card: the Spell/Trap zone card points at its monster. */
+  equipTo: (seat: number, sequence: number, target: DuelZoneRef): Edit => (board) => {
+    const card = board.seats[seat].spells[sequence];
+    if (card) card.equippedTo = { ...target };
+  },
+  deckMaster: (seat: number, info: DuelCardInfo, state: { inZone: boolean; returns: number; nextCost?: number }): Edit => (board) => {
+    board.seats[seat].deckMaster = { card: { ...info }, inZone: state.inZone, returns: state.returns, nextCost: state.nextCost ?? 0 };
+  },
+};
+
+/* ---------- chain snapshot ---------- */
+
+export const link = (index: number, seat: number, info: DuelCardInfo): DuelChainLink => ({
+  index,
+  seat,
+  code: info.code,
+  name: info.name,
+  description: info.description || undefined,
+});
+
+/* ---------- event builders ---------- */
+
+export const ev = {
+  summon: (seat: number, info: DuelCardInfo, zone: DuelZoneRef, summonKind: NonNullable<DuelEvent["summonKind"]> = "normal"): EventSpec => ({
+    kind: "summon", seat, card: info, zone, summonKind, text: `Player ${seat + 1} ${summonKind === "normal" || summonKind === "tribute" ? "Normal" : summonKind === "flip" ? "Flip" : "Special"} Summons ${info.name}`,
+  }),
+  set: (seat: number, info: DuelCardInfo, zone: DuelZoneRef): EventSpec => ({
+    kind: "set", seat, card: info, zone, text: `Player ${seat + 1} Sets ${info.name}`,
+  }),
+  move: (seat: number, info: DuelCardInfo | null, from: DuelZoneRef, zone: DuelZoneRef, reason: NonNullable<DuelEvent["reason"]>, extra: Partial<EventSpec> = {}): EventSpec => ({
+    kind: "move", seat, ...(info ? { card: info } : {}), from, zone, reason, text: `${info?.name ?? "A card"} moved`, ...extra,
+  }),
+  addToHand: (seat: number, info: DuelCardInfo | null, from: DuelZoneRef, zone: DuelZoneRef): EventSpec =>
+    ev.move(seat, info, from, zone, "other", { addedToHand: true }),
+  draw: (seat: number, info: DuelCardInfo | null, handIndex: number): EventSpec =>
+    ev.move(seat, info, DECK(seat), HAND(seat, handIndex), "draw"),
+  attack: (seat: number, attacker: DuelZoneRef, target?: DuelZoneRef): EventSpec => ({
+    kind: "attack", seat, zone: attacker, ...(target ? { target } : {}), text: `Player ${seat + 1} declares ${target ? "an" : "a direct"} attack`,
+  }),
+  damage: (seat: number, amount: number, cause: "battle" | "effect" | "cost" = "battle"): EventSpec => ({
+    kind: "damage", seat, amount, cause, text: cause === "cost" ? `Player ${seat + 1} pays ${amount} LP` : `Player ${seat + 1} takes ${amount} damage`,
+  }),
+  destroy: (seat: number, info: DuelCardInfo, zone: DuelZoneRef, why: { cause: "battle" | "effect" | "rule"; sourceCode?: number; sourceKind?: "monster" | "spell" | "trap"; sourceSeat?: number }): EventSpec => ({
+    kind: "destroy", seat, card: info, zone, ...why, text: `${info.name} was destroyed`,
+  }),
+  /** The move to the Graveyard that follows a destroy event. */
+  toGrave: (seat: number, info: DuelCardInfo, from: DuelZoneRef, graveIndex: number, why: { cause?: "battle" | "effect"; sourceCode?: number; sourceKind?: "monster" | "spell" | "trap"; sourceSeat?: number } = {}): EventSpec =>
+    ev.move(seat, info, from, GY(seat, graveIndex), "destroy", why),
+  activate: (seat: number, info: DuelCardInfo, zone: DuelZoneRef, chainIndex: number): EventSpec => ({
+    kind: "activate", seat, card: info, zone, chainIndex, text: `${info.name} is activating`, ...(info.description ? { description: info.description } : {}),
+  }),
+  chain: (kind: "chain-resolving" | "chain-resolved" | "chain-negated", seat: number, info: DuelCardInfo, chainIndex: number): EventSpec => ({
+    kind, seat, card: info, chainIndex, text: `Chain link ${chainIndex} (${info.name}) ${kind === "chain-resolving" ? "is resolving" : kind === "chain-resolved" ? "resolved" : "was negated"}`,
+  }),
+  chainEnd: (): EventSpec => ({ kind: "chain-end", text: "Chain ended" }),
+  position: (seat: number, info: DuelCardInfo, zone: DuelZoneRef, fromPosition: number, toPosition: number, flip = false): EventSpec => ({
+    kind: "position", seat, card: info, zone, fromPosition, toPosition, ...(flip ? { flip: true as const } : {}),
+    text: flip ? `${info.name} was flipped face-up` : `${info.name} changed position`,
+  }),
+  equip: (seat: number, equipZone: DuelZoneRef, target: DuelZoneRef): EventSpec => ({
+    kind: "equip", seat, zone: equipZone, target, text: `Player ${seat + 1} equips a card`,
+  }),
+  phase: (text: string): EventSpec => ({ kind: "phase", text }),
+};
+
+/** Gives each event of the steps an id (idBase + 1, + 2, ...) in order. Used by the runner and the tests. */
+export function numberSteps(steps: readonly LabStep[], idBase: number): Array<{ step: LabStep; events: DuelEvent[] }> {
+  let next = idBase;
+  return steps.map((step) => ({
+    step,
+    events: (step.events ?? []).map((spec) => {
+      next += 1;
+      return { ...spec, id: next } as DuelEvent;
+    }),
+  }));
+}

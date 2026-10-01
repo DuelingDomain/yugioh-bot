@@ -530,50 +530,6 @@ void main() {
 }
 `;
 
-/** The Mirror Force barrier: a hex lattice of light standing up from the ground, with a hit ripple. */
-export const HEX_FRAG = /* glsl */ `
-${HASH}
-varying vec2 vUv;
-uniform vec3 uColor;
-uniform vec3 uColor2;
-uniform float uAlpha;
-uniform float uReveal;
-uniform float uTime;
-uniform vec2 uHit;
-uniform float uHitT;
-uniform float uCells;
-uniform float uAspect;
-float hexDist(vec2 p) {
-  p = abs(p);
-  return max(dot(p, normalize(vec2(1.0, 1.7320508))), p.x);
-}
-void main() {
-  vec2 uv = vUv;
-  float vis = 1.0 - smoothstep(uReveal - 0.05, uReveal, uv.y);
-  vec2 q = vec2(uv.x * uAspect, uv.y) * uCells;
-  vec2 r = vec2(1.0, 1.7320508);
-  vec2 h = r * 0.5;
-  vec2 ca = mod(q, r) - h;
-  vec2 cb = mod(q - h, r) - h;
-  vec2 gv = dot(ca, ca) < dot(cb, cb) ? ca : cb;
-  float hd = hexDist(gv);
-  float line = smoothstep(0.42, 0.5, hd);
-  float cellId = hash21(floor((q - gv) * 2.0));
-  float twinkle = 0.5 + 0.5 * sin(uTime * 3.0 + cellId * 40.0);
-  float fill = (0.08 + 0.12 * twinkle) * (1.0 - line);
-  float sheen = exp(-pow((uv.x + uv.y * 0.6 - fract(uTime * 0.55) * 2.0 + 0.3) * 5.0, 2.0)) * 0.35;
-  float edge = max(exp(-uv.x * 40.0), exp(-(1.0 - uv.x) * 40.0)) + exp(-uv.y * 30.0) + exp(-(1.0 - uv.y) * 30.0) * 0.6;
-  float hitD = length((uv - uHit) * vec2(uAspect, 1.0));
-  float ripple = uHitT >= 0.0 ? exp(-pow((hitD - uHitT * 1.6) * 7.0, 2.0)) * (1.0 - uHitT) : 0.0;
-  float flashHit = uHitT >= 0.0 ? exp(-hitD * 5.0) * pow(1.0 - uHitT, 3.0) : 0.0;
-  float side = smoothstep(0.0, 0.08, uv.x) * smoothstep(1.0, 0.92, uv.x);
-  float a = clamp(line * 0.75 * (0.6 + twinkle * 0.4) + fill + sheen * (0.5 + line) + edge * 0.6 + ripple * (0.5 + line) + flashHit, 0.0, 1.0);
-  a *= vis * uAlpha * (0.35 + 0.65 * side);
-  vec3 c = mix(uColor, uColor2, clamp(line + ripple + flashHit + sheen, 0.0, 1.0));
-  gl_FragColor = vec4(c, a);
-}
-`;
-
 /** A wave rolling across the field along +x: body, curling crest and foam. */
 export const TIDE_FRAG = /* glsl */ `
 ${HASH}

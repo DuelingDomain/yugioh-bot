@@ -6,7 +6,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
-import { stripScrollLeft } from "@/components/duel/card-strip";
+import { stripOverflow, stripPageScroll, stripScrollLeft } from "@/components/duel/card-strip";
 import { choiceStripItems, isChainStripPrompt, isStripPrompt } from "@/components/duel/prompt-center";
 import { nextAnswerableId } from "@/components/duel/prompt-reveal";
 
@@ -107,6 +107,34 @@ describe("stripScrollLeft", () => {
 
   it("scrolls right to a card cut off at the right edge", () => {
     expect(stripScrollLeft(view, { left: 640, width: 124 })).toBe(276);
+  });
+});
+
+describe("stripOverflow", () => {
+  it("shows no arrows and no fade when every card fits", () => {
+    expect(stripOverflow({ scrollLeft: 0, clientWidth: 900, scrollWidth: 900 })).toEqual({ prev: false, next: false });
+    expect(stripOverflow({ scrollLeft: 0, clientWidth: 900, scrollWidth: 901 })).toEqual({ prev: false, next: false });
+  });
+
+  it("shows only the side that has more cards beyond it", () => {
+    expect(stripOverflow({ scrollLeft: 0, clientWidth: 500, scrollWidth: 1200 })).toEqual({ prev: false, next: true });
+    expect(stripOverflow({ scrollLeft: 300, clientWidth: 500, scrollWidth: 1200 })).toEqual({ prev: true, next: true });
+    expect(stripOverflow({ scrollLeft: 700, clientWidth: 500, scrollWidth: 1200 })).toEqual({ prev: true, next: false });
+  });
+});
+
+describe("stripPageScroll", () => {
+  const view = { scrollLeft: 300, clientWidth: 500, scrollWidth: 1200 };
+
+  it("moves most of a page and keeps the last card seen in view", () => {
+    expect(stripPageScroll(view, 1)).toBe(700);
+    expect(stripPageScroll(view, -1)).toBe(0);
+  });
+
+  it("stops at both ends of the scrollable range", () => {
+    expect(stripPageScroll({ ...view, scrollLeft: 600 }, 1)).toBe(700);
+    expect(stripPageScroll({ ...view, scrollLeft: 100 }, -1)).toBe(0);
+    expect(stripPageScroll({ scrollLeft: 0, clientWidth: 900, scrollWidth: 900 }, 1)).toBe(0);
   });
 });
 

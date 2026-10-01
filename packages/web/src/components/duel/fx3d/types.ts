@@ -81,11 +81,57 @@ export type FxScenePiece =
   | "raigeki"
   | "bottomless"
   | "trap-hole"
+  | "feather-duster"
+  | "heavy-storm"
+  | "banish-all"
+  | "mass-destroy"
   | "trap"
   | "spell"
   | "monster";
 
-export type FxVictim = { rect: FxRect; code: number; defense: boolean; turned?: boolean; atMs: number };
+/**
+ * How demo world units map to the canvas (see effects/wipes/common.ts). The demo scenes work in a
+ * world of 96 x 140 cards, y UP, origin in the middle of the board. In the app:
+ * `wx = (px - cx) / u` and `wy = (cy - py) / u` for a canvas point (px, py), y DOWN.
+ */
+export type FxWorld = {
+  /** Origin: centre of all card zones, canvas px, y down. */
+  cx: number;
+  cy: number;
+  /** Canvas px per world unit (card art width / 96). */
+  u: number;
+  /** Canvas size in CSS px. */
+  vw: number;
+  vh: number;
+};
+
+/** A row of card zones per seat, in canvas px (null when the board has none). */
+export type FxRows = { you: { m: FxRect | null; st: FxRect | null }; opp: { m: FxRect | null; st: FxRect | null } };
+
+/** The graveyard and banish pile of each seat, in canvas px. */
+export type FxPiles = { you: { gy: FxRect | null; banish: FxRect | null }; opp: { gy: FxRect | null; banish: FxRect | null } };
+
+export type FxVictim = {
+  rect: FxRect;
+  code: number;
+  defense: boolean;
+  turned?: boolean;
+  /** Old pieces: the card breaks here (ms from the start). Wipes: the card is gone from the field here. */
+  atMs: number;
+  /** Wipes: the canvas starts to draw this card (the page card hides here, about 40 ms earlier than any change). */
+  takeMs?: number;
+  /** Wipes: the landing streak of this card starts here (ms). */
+  landMs?: number;
+  /** Wipes: the landing streak arrives at the pile here (ms); the page pile takes the card then. */
+  endMs?: number;
+  /** Wipes: the pile this card ends in (canvas px), when known. */
+  pile?: FxRect | null;
+  /** Wipes: position in world units (see FxWorld). */
+  wx?: number;
+  wy?: number;
+  /** Wipes: the card is a Spell or Trap (it stands in a spell/trap zone). */
+  st?: boolean;
+};
 
 export type FxScene = {
   piece: FxScenePiece;
@@ -104,6 +150,12 @@ export type FxScene = {
   /** Mirror Force: the attack in the same snapshot is the one it stops (no projectile of its own). */
   incoming: boolean;
   totalMs: number;
+  /** Wipes only: world mapping, rows and piles. Absent on the older pieces. */
+  world?: FxWorld;
+  rows?: FxRows;
+  piles?: FxPiles;
+  /** Wipes only: how the demo times were laid out (key points in ms, for the sound and the lab). */
+  marks?: Partial<Record<"open" | "strike" | "close" | "land", number>>;
 };
 
 export type FxRequest = {

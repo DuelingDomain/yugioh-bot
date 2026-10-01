@@ -9,6 +9,7 @@ import {
   cardKindText,
   isHiddenCard,
 } from "./constants";
+import { equipSentence, roleOfCard, type EquipLinks } from "./equip-links";
 import styles from "./inspector.module.css";
 
 export type InspectTarget =
@@ -58,10 +59,13 @@ export function CardInspector({
   target,
   onInspectCard,
   onActivateCard,
+  equipLinks,
 }: {
   target: InspectTarget | null;
   onInspectCard?: (card: DuelCard) => void;
   onActivateCard?: (card: DuelCard, anchor: HTMLElement) => void;
+  /** The equip links of the live board: adds "Equipped to ..." / "Equipped with ..." for a card on the field. */
+  equipLinks?: EquipLinks;
 }) {
   if (!target) {
     return <div className={styles.empty}>Select a card to inspect.</div>;
@@ -109,6 +113,8 @@ export function CardInspector({
   }
 
   const extras: string[] = [];
+  const equipText = equipLinks ? equipSentence(roleOfCard(equipLinks, target.card)) : null;
+  if (equipText) extras.push(equipText);
   if (target.card.counters?.length) {
     for (const counter of target.card.counters) {
       extras.push(`Counter ${counter.type}: ${counter.count}`);

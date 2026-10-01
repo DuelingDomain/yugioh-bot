@@ -48,7 +48,8 @@ import {
   type DuelFxCueDetail,
   type SummonStyle,
 } from "./event-queue";
-import { battleBreakIs3d, battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
+import { battleBreakIs3d, battleDestroyAt, battleTakeover, HELD_CRACK_MS } from "./battle-hold";
+import { chainEffectAt } from "./chain-beats";
 import { hiddenHoldMs } from "./big-summon";
 import { getSharedFx3d, setSharedFx3d } from "./fx3d/shared";
 import { parseRgbTriplet } from "./fx3d/coords";
@@ -61,6 +62,7 @@ import { MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } from "./move-pl
 import type { DuelShakePreference } from "./preferences";
 import styles from "./summon-fx.module.css";
 import { safeAnimate } from "./safe-animate";
+import { CARD_FX } from "./duel-timing";
 
 export type SummonFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -73,16 +75,16 @@ export type SummonFxProps = {
 
 /** Milliseconds from the start of a heavy summon. Everything else is derived from these. */
 export const HEAVY_TIMELINE = {
-  rise: 320,
-  hoverEnd: 520,
-  impact: 640,
-  handOver: 710,
-  shake: 320,
-  crackDraw: 150,
-  crackFadeFrom: 900,
+  rise: CARD_FX.heavyTimeline.riseMs,
+  hoverEnd: CARD_FX.heavyTimeline.hoverEndMs,
+  impact: CARD_FX.heavyTimeline.impactMs,
+  handOver: CARD_FX.heavyTimeline.handOverMs,
+  shake: 400,
+  crackDraw: 190,
+  crackFadeFrom: 1130,
   /** Rays of light from the impact are gone by here. */
-  raysEnd: 1080,
-  total: 1300,
+  raysEnd: 1350,
+  total: CARD_FX.heavyTimeline.totalMs,
 } as const;
 
 /**
@@ -109,7 +111,7 @@ const TYPED_AUTHORED: Record<SummonStyle, { handOver: number; total: number }> =
   ritual: { handOver: 820, total: 1350 },
   pendulum: { handOver: 1080, total: 1500 },
 };
-export const TYPED_SCALE = 0.75;
+export const TYPED_SCALE = CARD_FX.typedScale;
 
 /** The same timeline as it plays: when the real card takes over, and when the effect is gone. */
 export const TYPED_TIMELINE = Object.fromEntries(
@@ -150,10 +152,10 @@ function applyTone(el: HTMLElement | SVGElement | null, tone: FxTone): void {
 
 const CARD_ASPECT = 0.686;
 /** Gap between queued board effects (a chain link, a second summon), so each one reads on its own. */
-const STAGGER_MS = 220;
+const STAGGER_MS = CARD_FX.summonStaggerMs;
 const MAX_STAGGER_STEPS = 5;
 /** A second slam waits this long after the first starts; the first one's aftermath overlaps it a little. */
-const HEAVY_LOCK_MS = 1150;
+const HEAVY_LOCK_MS = CARD_FX.heavyLockMs;
 const MAX_ITEMS = 10;
 /** The WebGL summon holds the real card this much past its hand-over, in case the timer is late. */
 const HAND_OVER_MARGIN_MS = 400;
@@ -455,9 +457,10 @@ const SHARD_GRID: Array<Array<[number, number]>> = [
   [[0, 100], [35, 100], [66, 100], [100, 100]],
 ];
 
-type Shard = { clip: string; cx: number; cy: number };
+export type Shard = { clip: string; cx: number; cy: number };
 
-const SHARDS: Shard[] = (() => {
+/** The pieces of a broken card (clip polygons over the card art). MoveFx flies the same pieces to the pile. */
+export const SHARDS: Shard[] = (() => {
   const shards: Shard[] = [];
   for (let r = 0; r < 3; r += 1) {
     for (let c = 0; c < 3; c += 1) {
@@ -673,7 +676,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
     const breakAt = item.breakMs ?? (item.event.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs);
     // With a flight to the Graveyard the card ends here and MoveFx picks it up at the break. A break
     // the canvas claimed keeps the full length: if the canvas dies first, the DOM shards play instead.
-    const burst = handoff ? (claimed ? 300 : 60) : 560;
+    const burst = handoff ? (claimed ? 400 : 60) : 840;
     const total = breakAt + burst;
     track.after(d + breakAt, () => emitCue("shatter", 1));
 
@@ -691,9 +694,9 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
       whole.current,
       [
         { opacity: 1, filter: "brightness(1)", transform: "translate(0, 0)" },
-        { opacity: 1, filter: "brightness(1)", offset: Math.max(0, breakAt - 130) / total },
-        { opacity: 1, filter: "brightness(1.7) saturate(1.2)", transform: "translate(-1.5px, 0)", offset: Math.max(0, breakAt - 70) / total },
-        { opacity: 1, filter: "brightness(1.2)", transform: "translate(1.5px, 0)", offset: Math.max(0, breakAt - 20) / total },
+        { opacity: 1, filter: "brightness(1)", offset: Math.max(0, breakAt - 200) / total },
+        { opacity: 1, filter: "brightness(1.7) saturate(1.2)", transform: "translate(-1.5px, 0)", offset: Math.max(0, breakAt - 110) / total },
+        { opacity: 1, filter: "brightness(1.2)", transform: "translate(1.5px, 0)", offset: Math.max(0, breakAt - 30) / total },
         { opacity: 0, offset: Math.min(0.999, breakAt / total) },
         { opacity: 0 },
       ],
@@ -701,12 +704,12 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
     );
     track.play(
       crackSvg.current,
-      [{ opacity: 0 }, { opacity: 0, offset: Math.max(0, breakAt - 190) / total }, { opacity: 1, offset: Math.max(0, breakAt - 90) / total }, { opacity: 1, offset: Math.min(0.999, breakAt / total) }, { opacity: 0 }],
+      [{ opacity: 0 }, { opacity: 0, offset: Math.max(0, breakAt - 300) / total }, { opacity: 1, offset: Math.max(0, breakAt - 170) / total }, { opacity: 1, offset: Math.min(0.999, breakAt / total) }, { opacity: 0 }],
       { duration: total, delay: d, easing: "linear" },
     );
     const playFlash = (delay: number) =>
       track.play(flash.current, [{ opacity: 0 }, { opacity: 0.8, offset: 0.35 }, { opacity: 0 }], {
-        duration: 280,
+        duration: 420,
         delay,
         easing: "ease-out",
       });
@@ -720,7 +723,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
       const burstX = ox * geo.w * (0.32 + rand() * 0.22);
       const burstY = oy * geo.h * (0.2 + rand() * 0.14) - geo.h * 0.05;
       const spin = (rand() - 0.5) * 70 + ox * 24;
-      const lag = rand() * 70;
+      const lag = rand() * 100;
       const flyX = dxGy * (0.7 + rand() * 0.25) + burstX * 0.3;
       const flyY = dyGy * (0.7 + rand() * 0.25) + burstY * 0.3;
       const anim = track.play(
@@ -729,7 +732,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
           { opacity: 0, transform: "translate(0, 0) rotate(0deg) scale(1)", offset: 0 },
           { opacity: 0, transform: "translate(0, 0) rotate(0deg) scale(1)", offset: Math.max(0, breakAt - 1) / (breakAt + burst + lag) },
           { opacity: 1, transform: "translate(0, 0) rotate(0deg) scale(1)", offset: breakAt / (breakAt + burst + lag), easing: "cubic-bezier(0.1, 0.7, 0.3, 1)" },
-          { opacity: 1, transform: `translate(${burstX}px, ${burstY}px) rotate(${spin * 0.6}deg) scale(1.02)`, offset: (breakAt + 150) / (breakAt + burst + lag), easing: "cubic-bezier(0.5, 0, 0.75, 0.4)" },
+          { opacity: 1, transform: `translate(${burstX}px, ${burstY}px) rotate(${spin * 0.6}deg) scale(1.02)`, offset: (breakAt + 220) / (breakAt + burst + lag), easing: "cubic-bezier(0.5, 0, 0.75, 0.4)" },
           { opacity: 0, transform: `translate(${flyX}px, ${flyY}px) rotate(${spin * 1.6}deg) scale(0.3)` },
         ],
         { duration: breakAt + burst + lag, delay, easing: "linear" },
@@ -2052,6 +2055,8 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
       const planned_ = planKind(event, fresh);
       if (!planned_ || !findZoneElement(event.zone)) continue;
       const { kind, style } = planned_;
+      // A wipe piece (DestroyFx) keeps the card whole on its own ghost and draws it on the canvas: no ghost here.
+      if (kind === "destroy" && battleTakeover(event.zone, now)) continue;
       const plan = pairedMovePlan(event.id);
       // A light summon or a set is the landing of its flight: no second animation of the same move.
       if (plan && (kind === "light" || kind === "set")) continue;
@@ -2061,6 +2066,9 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         const at = kind === "destroy" ? plan.startAt - plan.leadMs : plan.landAt;
         delayMs = Math.max(0, at - now);
       }
+      // The effect of a resolving chain link starts while its badge is lit, never before.
+      const chainAt = chainEffectAt(event.id);
+      if (chainAt > now) delayMs = Math.max(delayMs, chainAt - now);
       // The layer is picked here and stays: an effect never changes layer half-way.
       const api = fx3d.current;
       const threeKey =

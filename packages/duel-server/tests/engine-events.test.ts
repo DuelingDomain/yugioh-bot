@@ -415,6 +415,41 @@ describe("move events from a real duel", () => {
   });
 });
 
+describe("equip links from a real duel", () => {
+  const AXE_OF_DESPAIR = 40619825;
+
+  it("links an Equip Spell to its monster in the board snapshot and emits an equip event", async () => {
+    const game = await openGame([weak[0]!, AXE_OF_DESPAIR], [strong[0]!]);
+    try {
+      drive(game, (w) => {
+        if (w.seat !== 0 || w.view.turn !== 1) return null;
+        const spells = w.view.seats[0].spells;
+        if (spells.some((card) => card?.equippedTo)) return "stop";
+        const summon = option(w, "summon:", weak[0]!);
+        if (summon) return { choice: summon };
+        const activate = w.prompt.options.find((entry) => entry.card?.code === AXE_OF_DESPAIR && /^(activate|spell|chain)/.test(entry.id));
+        if (activate) return { choice: activate.id };
+        return null;
+      });
+      const mine = game.view(0);
+      const axeIndex = mine.seats[0].spells.findIndex((card) => card?.code === AXE_OF_DESPAIR);
+      expect(axeIndex).toBeGreaterThanOrEqual(0);
+      const axe = mine.seats[0].spells[axeIndex]!;
+      expect(axe.equippedTo).toEqual({ controller: 0, location: OcgLocation.MZONE, sequence: 0 });
+      expect(mine.seats[0].monsters[0]?.code).toBe(weak[0]);
+      expect(game.view(1).seats[0].spells[axeIndex]?.equippedTo).toEqual(axe.equippedTo);
+      const equip = mine.events.find((event) => event.kind === "equip");
+      expect(equip).toMatchObject({
+        seat: 0,
+        zone: { controller: 0, location: OcgLocation.SZONE, sequence: axeIndex },
+        target: { controller: 0, location: OcgLocation.MZONE, sequence: 0 },
+      });
+    } finally {
+      game.close();
+    }
+  });
+});
+
 describe("event observer messages", () => {
   const info = (code: number): DuelCardInfo => ({
     code, name: `Card ${code}`, description: "", type: 1, attack: 1000, defense: 1000, level: code === 7 ? 7 : 4, attribute: 1, race: "warrior",
@@ -428,6 +463,22 @@ describe("event observer messages", () => {
   });
   const moveOut = (code: number, from: ReturnType<typeof at>): OcgMessage => ({
     type: OcgMessageType.MOVE, card: code, from, to: at(from.controller, OcgLocation.GRAVE, 0, OcgPosition.FACEUP),
+  });
+
+  it("reports an equip with both zones and no card identity", () => {
+    const stored = observeDuelEvent(
+      { type: OcgMessageType.EQUIP, card: at(0, OcgLocation.SZONE, 2, OcgPosition.FACEUP), target: at(1, OcgLocation.MZONE, 3) },
+      cards, [], 7, createEventContext(),
+    )!;
+    expect(stored.kind).toBe("equip");
+    expect(stored.seat).toBe(0);
+    expect(stored.card).toBeUndefined();
+    for (const viewer of [0, 1, null]) {
+      const shown = projectStoredEvent(stored, viewer);
+      expect(shown.zone).toEqual({ controller: 0, location: OcgLocation.SZONE, sequence: 2 });
+      expect(shown.target).toEqual({ controller: 1, location: OcgLocation.MZONE, sequence: 3 });
+      expect(shown.text).not.toMatch(/Card \d/);
+    }
   });
 
   it("tags Special and Flip Summons and Level 7 Normal Summons", () => {
@@ -628,6 +679,21 @@ describe("event observer messages", () => {
       expect(reasonOf(OcgLocation.SZONE, OcgLocation.DECK)).toBe("return");
       expect(reasonOf(OcgLocation.DECK, OcgLocation.HAND)).toBe("draw");
       expect(reasonOf(OcgLocation.EXTRA, OcgLocation.MZONE)).toBe("other");
+    });
+
+    it("marks a move into a hand as added by an effect, and a draw as not", () => {
+      const ctx = createEventContext();
+      for (const from of [OcgLocation.DECK, OcgLocation.GRAVE, OcgLocation.REMOVED, OcgLocation.MZONE]) {
+        const [added] = run(move(4, at(0, from, 0), at(0, OcgLocation.HAND, 0, OcgPosition.FACEDOWN)), ctx);
+        expect(added!.addedToHand).toBe(true);
+        expect(projectStoredEvent(added!, 0).addedToHand).toBe(true);
+        expect(projectStoredEvent(added!, 1).addedToHand).toBe(true);
+      }
+      const [drawn] = run({ type: OcgMessageType.DRAW, player: 0, drawn: [{ code: 5, position: OcgPosition.FACEDOWN }] }, ctx, 20);
+      expect(drawn!.addedToHand).toBeUndefined();
+      expect(projectStoredEvent(drawn!, 0).addedToHand).toBeUndefined();
+      const [discard] = run(move(4, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.GRAVE, 0)), ctx);
+      expect(discard!.addedToHand).toBeUndefined();
     });
 
     it("upgrades the reason from the message that follows the move", () => {

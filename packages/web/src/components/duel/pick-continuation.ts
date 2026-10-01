@@ -9,12 +9,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DuelAnswer, DuelPrompt } from "@yugidraft/shared/duels";
 import { isBoardTogglePrompt } from "./prompt-center";
+import { GATE_TIMING } from "./duel-timing";
 
 export const PICK_CONTINUATION = {
   /** A follow-up prompt counts only when it arrives within this time of the player's own click. */
   windowMs: 4000,
   /** The last bar stays up (buttons off) this long when no prompt is there yet. */
-  holdMs: 1200,
+  holdMs: GATE_TIMING.pickHoldMs,
 };
 
 /**

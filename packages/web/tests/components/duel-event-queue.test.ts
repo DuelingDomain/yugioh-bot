@@ -3,6 +3,8 @@ import type { DuelEvent } from "@yugidraft/shared/duels";
 import {
   collectFreshEvents,
   auraTintOf,
+  cueDuration,
+  hasCentreBanner,
   isHeavySummon,
   slamCrackCount,
   slamStrengthOf,
@@ -157,17 +159,33 @@ describe("auraTintOf", () => {
   });
 });
 
-describe("pacedCueDuration", () => {
-  it("keeps a short backlog at a readable pace", () => {
-    expect(pacedCueDuration("summon", false, 1)).toBe(1200);
-    expect(pacedCueDuration("summon", false, 6)).toBe(600);
+describe("chain banners", () => {
+  it("has no centre banner for a link resolving or resolved, nor for the chain end", () => {
+    expect(hasCentreBanner("chain-resolving")).toBe(false);
+    expect(hasCentreBanner("chain-resolved")).toBe(false);
+    expect(hasCentreBanner("chain-end")).toBe(false);
   });
 
-  it("never lets a long backlog trail the board by much more than about 7 s", () => {
+  it("keeps the Activate and Negated banners, at their own length", () => {
+    expect(hasCentreBanner("activate")).toBe(true);
+    expect(hasCentreBanner("chain-negated")).toBe(true);
+    expect(cueDuration("activate", false)).toBe(2000);
+    expect(cueDuration("chain-negated", false)).toBe(1300);
+    expect(cueDuration("activate", true)).toBe(1500);
+  });
+});
+
+describe("pacedCueDuration", () => {
+  it("keeps a short backlog at a readable pace", () => {
+    expect(pacedCueDuration("summon", false, 1)).toBe(1600);
+    expect(pacedCueDuration("summon", false, 6)).toBe(800);
+  });
+
+  it("never lets a long backlog trail the board by much more than about 9 s", () => {
     for (const count of [10, 20, 28]) {
-      expect(pacedCueDuration("summon", false, count) * count).toBeLessThanOrEqual(7000);
+      expect(pacedCueDuration("summon", false, count) * count).toBeLessThanOrEqual(9000);
     }
-    expect(pacedCueDuration("summon", false, 60)).toBe(250);
+    expect(pacedCueDuration("summon", false, 60)).toBe(300);
   });
 });
 

@@ -14,6 +14,26 @@ const items = (selected: number[] = []): StripCard[] =>
 
 afterEach(cleanup);
 
+/** jsdom has no layout: give every element a fixed scroll box, and record scrollTo calls. */
+function mockLayout(box: { clientWidth: number; scrollWidth: number }) {
+  const scrollTo = vi.fn();
+  const saved = {
+    clientWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth"),
+    scrollWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollWidth"),
+    scrollTo: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo"),
+  };
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => box.clientWidth });
+  Object.defineProperty(HTMLElement.prototype, "scrollWidth", { configurable: true, get: () => box.scrollWidth });
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: scrollTo });
+  const restore = () => {
+    for (const [key, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, key, descriptor);
+      else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
+    }
+  };
+  return { scrollTo, restore };
+}
+
 describe("CardStrip", () => {
   it("numbers every card, shows the selected state and keeps the highlighted card as the primary", () => {
     render(<CardStrip items={items([2])} highlight={1} busy={false} multi label="Pick" onPick={() => {}} />);
@@ -67,5 +87,59 @@ describe("CardStrip", () => {
       tone="chain" hint="Click a card to activate it" onPick={() => {}} />);
     expect(screen.getByText("Click a card to activate it")).toBeTruthy();
     expect(container.firstElementChild?.getAttribute("data-tone")).toBe("chain");
+  });
+
+  describe("arrow buttons", () => {
+    it("shows no arrows when every card fits", () => {
+      const layout = mockLayout({ clientWidth: 900, scrollWidth: 900 });
+      try {
+        render(<CardStrip items={items()} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        expect(screen.queryByRole("button", { name: "Show more cards" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Show earlier cards" })).toBeNull();
+        expect(screen.getAllByRole("button")).toHaveLength(3);
+      } finally {
+        layout.restore();
+      }
+    });
+
+    it("shows an arrow only on the side that has more cards, and pages by most of a view", () => {
+      const layout = mockLayout({ clientWidth: 500, scrollWidth: 1200 });
+      try {
+        render(<CardStrip items={items()} highlight={0} busy={false} multi label="Pick" onPick={() => {}} />);
+        const list = screen.getByRole("list");
+        const frame = list.parentElement as HTMLElement;
+        expect(screen.queryByRole("button", { name: "Show earlier cards" })).toBeNull();
+        expect(frame.getAttribute("data-next")).toBe("true");
+        expect(frame.getAttribute("data-prev")).toBe("false");
+
+        fireEvent.click(screen.getByRole("button", { name: "Show more cards" }));
+        expect(layout.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ left: 400 }));
+
+        Object.defineProperty(list, "scrollLeft", { configurable: true, value: 300 });
+        fireEvent.scroll(list);
+        expect(screen.getByRole("button", { name: "Show earlier cards" })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "Show more cards" })).toBeTruthy();
+
+        Object.defineProperty(list, "scrollLeft", { configurable: true, value: 700 });
+        fireEvent.scroll(list);
+        expect(screen.getByRole("button", { name: "Show earlier cards" })).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Show more cards" })).toBeNull();
+        expect(frame.getAttribute("data-next")).toBe("false");
+      } finally {
+        layout.restore();
+      }
+    });
+
+    it("keeps picking behaviour when the arrows show", () => {
+      const layout = mockLayout({ clientWidth: 500, scrollWidth: 1200 });
+      try {
+        const onPick = vi.fn();
+        render(<CardStrip items={items()} highlight={0} busy={false} multi label="Pick" onPick={onPick} />);
+        fireEvent.click(screen.getByRole("button", { name: "2. Card 2" }));
+        expect(onPick).toHaveBeenCalledWith(1);
+      } finally {
+        layout.restore();
+      }
+    });
   });
 });

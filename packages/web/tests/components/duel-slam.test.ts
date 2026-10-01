@@ -9,11 +9,11 @@ describe("slam timing", () => {
     expect(slamHitMs("typed", null)).toBe(0);
   });
 
-  it("keeps the whole slam under about 1.4 s for every summon type", () => {
+  it("keeps the whole slam under about 1.9 s for every summon type", () => {
     const hits = [slamHitMs("heavy", null), ...(Object.keys(TYPED_TIMELINE) as Array<keyof typeof TYPED_TIMELINE>).map((s) => slamHitMs("typed", s))];
     for (const hit of hits) {
       expect(impactLifeMs(hit)).toBeGreaterThanOrEqual(560);
-      expect(hit + impactLifeMs(hit)).toBeLessThanOrEqual(1400);
+      expect(hit + impactLifeMs(hit)).toBeLessThanOrEqual(1900);
     }
     expect(HEAVY_TIMELINE.impact + impactLifeMs(HEAVY_TIMELINE.impact)).toBeLessThanOrEqual(HEAVY_TIMELINE.total);
   });
