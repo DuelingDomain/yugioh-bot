@@ -4,7 +4,7 @@
 // the real card scripts plus the overlay, and ends with the state of EVERY seat (LP, field, hand, GY, banished zone).
 
 import {
-  activate, defineScenario, expectBoard, expectPickSeats, select, pickOpponent,
+  activate, defineScenario, endTurn, expectBoard, expectPickSeats, pickOpponent, select, specialSummon, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -112,7 +112,58 @@ function dangerousMachine(format: "ffa3" | "tag", die: 2 | 4 | 5): Scenario {
   });
 }
 
+// --- Awakening of the Possessed - Gagigobyte ------------------------------------------------------------------------------------------
+// After its own Special Summon: "your opponent sends 1 card from the hand to the Graveyard (at random), then both players draw 1". The hand of
+// "your opponent" is R-COMMON-OPP-PICK: p0 picks ONE opponent when it activates the effect, and the random discard takes a card of that hand only.
+// Every duelist draws 1 card after it (Q3, the Tag partner too). Every seat has a hand card and a Deck of 2 cards of one name.
+const GAGI = "Awakening of the Possessed - Gagigobyte";
+const MEISEI = "Sealmaster Meisei";
+const HYOSUBE = "Hyosube";
+const GAGI_RULE = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q3/Q4: Awakening of the Possessed - Gagigobyte (a random discard from the hand of ONE picked opponent, then every duelist draws)`;
+const GAGI_HAND: Record<Seat, string> = { p0: RAT, p1: OX, p2: AXE, p3: FANG };
+const GAGI_DECK: Record<Seat, string> = { p0: ELF, p1: RAT, p2: OX, p3: AXE };
+
+function gagigobyte(format: "ffa3" | "tag", seedWord: string): Scenario {
+  const seats = seatsOf(format);
+  const picks: Seat[] = format === "tag" ? ["p1", "p3"] : ["p1", "p2"];
+  const picked = picks[picks.length - 1];
+  const setup: Scenario["setup"] = { format };
+  const spec: Partial<Record<Seat, DuelistExpect>> = {};
+  for (const seat of seats) {
+    (setup as Record<string, unknown>)[seat] = {
+      hand: seat === "p0" ? [GAGI] : [GAGI_HAND[seat]],
+      ...(seat === "p0" ? { monsters: [MEISEI, HYOSUBE] } : {}),
+      deck: [GAGI_DECK[seat], GAGI_DECK[seat]],
+    };
+    spec[seat] = {
+      monsters: seat === "p0" ? [GAGI] : [],
+      grave: [...(seat === "p0" ? [MEISEI, HYOSUBE] : []), ...(seat === picked ? [GAGI_HAND[seat]] : [])],
+      hand: [...(seat === picked || seat === "p0" ? [] : [GAGI_HAND[seat]]), GAGI_DECK[seat]],
+    };
+  }
+  return defineScenario({
+    id: `gaps-r1-${format}-gagigobyte-random-discard-of-the-picked-opponent-then-everyone-draws`,
+    title: `${labelOf(format)}: p0 Special Summons Gagigobyte and picks ${picked}: only the hand card of ${picked} is discarded, then every duelist draws 1 card; the other opponent keeps its hand card`,
+    source: GAGI_RULE,
+    rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    tags: ["multiplayer", "gaps-r1", "r1", "opp-pick", "random", "draw", format, "card:74426895"],
+    seed: ["1", seedWord, "3", "4"],
+    setup,
+    steps: [
+      specialSummon(GAGI, "p0"),
+      select(MEISEI, HYOSUBE),
+      zone("p0", "m2", "p0"),
+      yes("p0"),
+      expectPickSeats(picks, "p0"),
+      pickOpponent(picked, "p0"),
+      everySeat(format, spec),
+    ],
+  });
+}
+
 export const GAPS_R1_SCENARIOS: Scenario[] = [
+  gagigobyte("ffa3", "1"),
+  gagigobyte("tag", "1"),
   grapha("ffa3"),
   grapha("tag"),
   ...([2, 4, 5] as const).flatMap((die) => [dangerousMachine("ffa3", die), dangerousMachine("tag", die)]),
