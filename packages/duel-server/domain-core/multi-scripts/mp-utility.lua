@@ -60,6 +60,15 @@ function aux.MPPick(fn)
 	end
 end
 
+-- Chooser card, target or cost step with chk: chk==0 asks for the pick (MPPick), the real step binds and runs in window ONE (MPOne).
+function aux.MPTarget(fn)
+	local pick,one=aux.MPPick(fn),aux.MPOne(fn)
+	return function(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
+		if chk==0 then return pick(e,tp,eg,ep,ev,re,r,rp,chk,chkc) end
+		return one(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
+	end
+end
+
 -- "All" or "each" opponent cards, and continuous (ADJUST) cards: fn(i,...) runs once per living opponent.
 -- Seat windows work in FFA and in Tag: one duelist per run, never the joined field. Two seats: fn(0,...) once.
 function aux.MPEachOpponent(fn)

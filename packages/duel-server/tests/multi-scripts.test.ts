@@ -38,7 +38,7 @@ describe("the overlay folder of the repo", () => {
     expect(lines[0]).toBe("MP_OVERLAY_ACTIVE = true");
     expect(lines[1]).toBe("if not Duel.MPBindOpponent then return end");
     const text = lines.slice(2).join("\n");
-    for (const helper of ["MPAny", "MPValue", "MPOne", "MPPick", "MPEachOpponent"]) {
+    for (const helper of ["MPAny", "MPValue", "MPOne", "MPPick", "MPTarget", "MPEachOpponent"]) {
       expect(text).toContain(`function aux.${helper}(fn)`);
     }
   });
