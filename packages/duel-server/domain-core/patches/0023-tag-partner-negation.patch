@@ -1,0 +1,122 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 23 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: Tag partner negation (P4)
+
+In a Tag duel a duelist cannot negate the activation or the summon of the partner.
+Free for all, and two duelists, are not changed.
+
+effect.cpp: effect::is_activateable returns FALSE before save_lp_cost when n_duelists > 2
+and n_teams == 2, the category has CATEGORY_NEGATE, CATEGORY_DISABLE or CATEGORY_DISABLE_SUMMON,
+the code is EVENT_CHAINING, EVENT_SUMMON, EVENT_FLIP_SUMMON or EVENT_SPSUMMON, and
+e.event_player is the partner (same team, not the same duelist). 1 site.
+
+libduel.cpp: NegateActivation, NegateEffect and NegateSummon do nothing when the reason
+effect is not continuous and the link player or the summon player is the partner. They
+return false (NegateSummon returns 0). With YGO_N_TRAP the core prints
+"YGO_N_TRAP partner-negate code=<card code>" on stderr and goes on. 3 sites, 2 helpers.
+Continuous effects (Jinzo, Imperial Order) are not changed.
+
+With n_duelists == 2 every new condition starts with n_duelists > 2, so the stock code runs
+and no byte changes. No new message, no new random call, no change in the order of Lua calls.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ effect.cpp  | 11 +++++++++++
+ libduel.cpp | 46 ++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 57 insertions(+)
+
+diff --git a/effect.cpp b/effect.cpp
+index b5cc6bf..d6405e1 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -293,6 +293,17 @@ int32_t effect::is_activateable(uint8_t playerid, const tevent& e, int32_t negle
+ 		if((get_owner_player() != playerid) && !is_flag(EFFECT_FLAG_BOTH_SIDE))
+ 			return FALSE;
+ 	}
++	// Tag only (phase 3, P4): a duelist cannot negate the activation or the summon of the partner.
++	// Free for all and two duelists skip this block.
++	if(pduel->game_field->n_duelists > 2 && pduel->game_field->n_teams == 2) {
++		// CATEGORY_DISABLE, CATEGORY_DISABLE_SUMMON and CATEGORY_NEGATE of the card scripts.
++		constexpr uint64_t negate_categories = 0x4000ULL | 0x8000ULL | 0x10000000ULL;
++		if((category & negate_categories)
++			&& (code == EVENT_CHAINING || code == EVENT_SUMMON || code == EVENT_FLIP_SUMMON || code == EVENT_SPSUMMON)
++			&& pduel->game_field->is_duelist(e.event_player) && e.event_player != playerid
++			&& pduel->game_field->same_team(playerid, e.event_player))
++			return FALSE;
++	}
+ 	pduel->game_field->save_lp_cost();
+ 	effect* oreason = pduel->game_field->core.reason_effect;
+ 	uint8_t op = pduel->game_field->core.reason_player;
+diff --git a/libduel.cpp b/libduel.cpp
+index 478800c..f76fb7f 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -1653,13 +1653,49 @@ LUA_STATIC_FUNCTION(ChangeChainOperation) {
+ 	pduel->game_field->change_chain_effect(lua_get<uint8_t>(L, 1), f);
+ 	return 0;
+ }
++// Tag only (phase 3, P4): backstop of the partner rule. A reason effect that is not continuous
++// cannot negate a link or a summon of the partner (Jinzo-like continuous effects still can).
++// Returns true when the negation must do nothing. Under YGO_N_TRAP it also prints the card code.
++static bool tag_partner_negate(duel* pduel, uint8_t target_player) {
++	field* gf = pduel->game_field;
++	if(gf->n_duelists <= 2 || gf->n_teams != 2)
++		return false;
++	effect* reason_effect = gf->core.reason_effect;
++	const uint8_t reason_player = gf->core.reason_player;
++	if(!reason_effect || (reason_effect->type & EFFECT_TYPE_CONTINUOUS))
++		return false;
++	if(!gf->is_duelist(reason_player) || !gf->is_duelist(target_player) || reason_player == target_player
++		|| !gf->same_team(reason_player, target_player))
++		return false;
++#ifdef YGO_N_TRAP
++	std::fprintf(stderr, "YGO_N_TRAP partner-negate code=%u\n", static_cast<unsigned>(reason_effect->get_handler()->data.code));
++#endif
++	return true;
++}
++// The chain link that NegateActivation and NegateEffect act on (same clamp as negate_chain).
++static bool tag_partner_negate_chain(duel* pduel, uint8_t chaincount) {
++	field* gf = pduel->game_field;
++	if(gf->n_duelists <= 2 || gf->core.current_chain.empty())
++		return false;
++	if(chaincount > gf->core.current_chain.size() || chaincount < 1)
++		chaincount = static_cast<uint8_t>(gf->core.current_chain.size());
++	return tag_partner_negate(pduel, gf->core.current_chain[chaincount - 1].triggering_player);
++}
+ LUA_STATIC_FUNCTION(NegateActivation) {
+ 	check_param_count(L, 1);
++	if(tag_partner_negate_chain(pduel, lua_get<uint8_t>(L, 1))) {
++		lua_pushboolean(L, FALSE);
++		return 1;
++	}
+ 	lua_pushboolean(L, pduel->game_field->negate_chain(lua_get<uint8_t>(L, 1)));
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(NegateEffect) {
+ 	check_param_count(L, 1);
++	if(tag_partner_negate_chain(pduel, lua_get<uint8_t>(L, 1))) {
++		lua_pushboolean(L, FALSE);
++		return 1;
++	}
+ 	lua_pushboolean(L, pduel->game_field->disable_chain(lua_get<uint8_t>(L, 1)));
+ 	return 1;
+ }
+@@ -1688,6 +1724,16 @@ LUA_STATIC_FUNCTION(NegateSummon) {
+ 	check_param_count(L, 1);
+ 	uint8_t sumplayer = PLAYER_NONE;
+ 	auto [pcard, pgroup] = lua_get_card_or_group(L, 1);
++	if(pduel->game_field->n_duelists > 2) {
++		bool blocked = false;
++		if(pcard)
++			blocked = tag_partner_negate(pduel, pcard->summon.player);
++		else
++			for(auto& _pcard : pgroup->container)
++				blocked = tag_partner_negate(pduel, _pcard->summon.player) || blocked;
++		if(blocked)
++			return 0;
++	}
+ 	if(pcard) {
+ 		sumplayer = pcard->summon.player;
+ 		pcard->set_status(STATUS_SUMMONING, FALSE);

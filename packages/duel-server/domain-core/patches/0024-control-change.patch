@@ -1,0 +1,497 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Mon, 24 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: control change and two-pass adjusts for more than two
+ duelists
+
+Adjust cases 3, 4 and 5 (processor.cpp) now test every duelist's set when n_duelists > 2.
+In cases 4 and 5 the cards are grouped by the duelist that must control them (case 4: the
+controller from refresh_control_status, stored when the set is filled; case 5: the owner).
+get_control runs once per non-empty group, in turn order from the turn player. A card whose
+target is not a living duelist goes to the Graveyard by rule. One static helper does both.
+
+ControlAdjust (operations.cpp) uses two sides side_a and side_b (0 and 1 with two duelists,
+else the two controllers with a non-empty set, in turn order). The receiving side chooses.
+Case 3 moves a card to the other side, not opponent_of. More than two non-empty sets abort
+in the YGO_N_TRAP build. Note: nothing in the core emplaces this process now (dead code).
+
+TrapMonsterAdjust and ChangePos case 1 use a pass counter and a pass player when n > 2:
+one pass per living duelist from the turn player or the reason player. The stock bool
+oppo_selection and opponent_of stay in the n == 2 branch. TrapMonsterAdjust case 4 loops
+once per living duelist when n > 2 (no duplicate visit after an elimination).
+
+With two duelists every changed site takes the stock branch, so bytes and Lua call order
+are the same. SwapControl needs no change (it uses the controllers of the cards); its
+PLAYER_NONE line is left to T9. The pass player of ChangePos treats reason PLAYER_NONE
+(2) as seat 2 until the sentinel task lands.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ operations.cpp   | 159 +++++++++++++++++++++++++++++++++--------------
+ processor.cpp    |  78 ++++++++++++++++++++---
+ processor_unit.h |  12 +++-
+ 3 files changed, 192 insertions(+), 57 deletions(-)
+
+diff --git a/operations.cpp b/operations.cpp
+index 545816d..57c481a 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -1341,47 +1341,72 @@ bool field::process(Processors::ControlAdjust& arg) {
+ 	case 0: {
+ 		auto& destroy_set = arg.destroy_set;
+ 		destroy_set.clear();
+-		uint32_t b0 = get_useable_count(nullptr, 0, LOCATION_MZONE, 0, LOCATION_REASON::CONTROL);
+-		uint32_t b1 = get_useable_count(nullptr, 1, LOCATION_MZONE, 1, LOCATION_REASON::CONTROL);
+-		for(auto& pcard : core.control_adjust_set[0])
++		if(n_duelists > 2) {
++			// the two sides are the two controllers that have cards to hand over, in turn order from the turn player
++			uint8_t sides[MAX_DUELISTS];
++			uint8_t nsides = 0;
++			uint8_t q = infos.turn_player;
++			for(uint8_t i = 0; i < n_duelists; ++i) {
++				if(core.control_adjust_set[q].size())
++					sides[nsides++] = q;
++				q = static_cast<uint8_t>((q + 1) % n_duelists);
++			}
++#ifdef YGO_N_TRAP
++			if(nsides > 2) {
++				std::fprintf(stderr, "YGO_N_TRAP ControlAdjust with %d non-empty sets %s:%d\n", static_cast<int>(nsides), __FILE__, __LINE__);
++				std::abort();
++			}
++#endif
++			arg.side_a = nsides > 0 ? sides[0] : infos.turn_player;
++			if(nsides > 1) {
++				arg.side_b = sides[1];
++			} else {
++				arg.side_b = next_in_turn_order(arg.side_a);
++				if(arg.side_b == arg.side_a)
++					arg.side_b = static_cast<uint8_t>((arg.side_a + 1) % n_duelists);
++			}
++		}
++		uint32_t b0 = get_useable_count(nullptr, arg.side_a, LOCATION_MZONE, arg.side_a, LOCATION_REASON::CONTROL);
++		uint32_t b1 = get_useable_count(nullptr, arg.side_b, LOCATION_MZONE, arg.side_b, LOCATION_REASON::CONTROL);
++		for(auto& pcard : core.control_adjust_set[arg.side_a])
+ 			pcard->filter_disable_related_cards();
+-		for(auto& pcard : core.control_adjust_set[1])
++		for(auto& pcard : core.control_adjust_set[arg.side_b])
+ 			pcard->filter_disable_related_cards();
+-		if(core.control_adjust_set[0].size() > core.control_adjust_set[1].size()) {
+-			if(core.control_adjust_set[0].size() - core.control_adjust_set[1].size() > b1) {
+-				if(core.control_adjust_set[1].size() == 0 && b1 == 0) {
+-					destroy_set.swap(core.control_adjust_set[0]);
++		if(core.control_adjust_set[arg.side_a].size() > core.control_adjust_set[arg.side_b].size()) {
++			if(core.control_adjust_set[arg.side_a].size() - core.control_adjust_set[arg.side_b].size() > b1) {
++				if(core.control_adjust_set[arg.side_b].size() == 0 && b1 == 0) {
++					destroy_set.swap(core.control_adjust_set[arg.side_a]);
+ 					arg.step = 4;
+ 				} else {
+-					arg.adjusting_player = 0;
+-					uint32_t count = static_cast<uint32_t>(core.control_adjust_set[0].size() - core.control_adjust_set[1].size() - b1);
++					arg.adjusting_player = arg.side_a;
++					uint32_t count = static_cast<uint32_t>(core.control_adjust_set[arg.side_a].size() - core.control_adjust_set[arg.side_b].size() - b1);
+ 					core.select_cards.clear();
+-					for(auto& pcard : core.control_adjust_set[0])
++					for(auto& pcard : core.control_adjust_set[arg.side_a])
+ 						core.select_cards.push_back(pcard);
+ 					auto message = pduel->new_message(MSG_HINT);
+ 					message->write<uint8_t>(HINT_SELECTMSG);
+ 					message->write<uint8_t>(infos.turn_player);
+ 					message->write<uint64_t>(502);
+-					emplace_process<Processors::SelectCard>(1, false, count, count);
++					emplace_process<Processors::SelectCard>(arg.side_b, false, count, count);
+ 				}
+ 			} else
+ 				arg.step = 1;
+-		} else if(core.control_adjust_set[0].size() < core.control_adjust_set[1].size()) {
+-			if(core.control_adjust_set[1].size() - core.control_adjust_set[0].size() > b0) {
+-				if(core.control_adjust_set[0].size() == 0 && b0 == 0) {
+-					destroy_set.swap(core.control_adjust_set[1]);
++		} else if(core.control_adjust_set[arg.side_a].size() < core.control_adjust_set[arg.side_b].size()) {
++			if(core.control_adjust_set[arg.side_b].size() - core.control_adjust_set[arg.side_a].size() > b0) {
++				if(core.control_adjust_set[arg.side_a].size() == 0 && b0 == 0) {
++					destroy_set.swap(core.control_adjust_set[arg.side_b]);
+ 					arg.step = 4;
+ 				} else {
+-					arg.adjusting_player = 1;
+-					uint32_t count = static_cast<uint32_t>(core.control_adjust_set[1].size() - core.control_adjust_set[0].size() - b0);
++					arg.adjusting_player = arg.side_b;
++					uint32_t count = static_cast<uint32_t>(core.control_adjust_set[arg.side_b].size() - core.control_adjust_set[arg.side_a].size() - b0);
+ 					core.select_cards.clear();
+-					for(auto& pcard : core.control_adjust_set[1])
++					for(auto& pcard : core.control_adjust_set[arg.side_b])
+ 						core.select_cards.push_back(pcard);
+ 					auto message = pduel->new_message(MSG_HINT);
+ 					message->write<uint8_t>(HINT_SELECTMSG);
+ 					message->write<uint8_t>(infos.turn_player);
+ 					message->write<uint64_t>(502);
+-					emplace_process<Processors::SelectCard>(0, false, count, count);
++					emplace_process<Processors::SelectCard>(arg.side_a, false, count, count);
+ 				}
+ 			} else
+ 				arg.step = 1;
+@@ -1397,17 +1422,17 @@ bool field::process(Processors::ControlAdjust& arg) {
+ 		return FALSE;
+ 	}
+ 	case 2: {
+-		for(auto& pcard : core.control_adjust_set[0]) {
++		for(auto& pcard : core.control_adjust_set[arg.side_a]) {
+ 			if(pcard->unique_code && (pcard->unique_location & LOCATION_MZONE))
+ 				remove_unique_card(pcard);
+ 		}
+-		for(auto& pcard : core.control_adjust_set[1]) {
++		for(auto& pcard : core.control_adjust_set[arg.side_b]) {
+ 			if(pcard->unique_code && (pcard->unique_location & LOCATION_MZONE))
+ 				remove_unique_card(pcard);
+ 		}
+-		auto cit1 = core.control_adjust_set[0].begin();
+-		auto cit2 = core.control_adjust_set[1].begin();
+-		while(cit1 != core.control_adjust_set[0].end() && cit2 != core.control_adjust_set[1].end()) {
++		auto cit1 = core.control_adjust_set[arg.side_a].begin();
++		auto cit2 = core.control_adjust_set[arg.side_b].begin();
++		while(cit1 != core.control_adjust_set[arg.side_a].end() && cit2 != core.control_adjust_set[arg.side_b].end()) {
+ 			card* pcard1 = *cit1++;
+ 			card* pcard2 = *cit2++;
+ 			swap_card(pcard1, pcard2);
+@@ -1416,8 +1441,8 @@ bool field::process(Processors::ControlAdjust& arg) {
+ 		}
+ 		auto& adjust_set = arg.adjust_set;
+ 		adjust_set.clear();
+-		adjust_set.insert(cit1, core.control_adjust_set[0].end());
+-		adjust_set.insert(cit2, core.control_adjust_set[1].end());
++		adjust_set.insert(cit1, core.control_adjust_set[arg.side_a].end());
++		adjust_set.insert(cit2, core.control_adjust_set[arg.side_b].end());
+ 		return FALSE;
+ 	}
+ 	case 3: {
+@@ -1428,16 +1453,17 @@ bool field::process(Processors::ControlAdjust& arg) {
+ 		card* pcard = *cit;
+ 		adjust_set.erase(cit);
+ 		pcard->reset(RESET_CONTROL, RESET_EVENT);
+-		move_to_field(pcard, opponent_of(pcard->current.controler), opponent_of(pcard->current.controler), LOCATION_MZONE, pcard->current.position);
++		uint8_t other = n_duelists == 2 ? opponent_of(pcard->current.controler) : (pcard->current.controler == arg.side_a ? arg.side_b : arg.side_a);
++		move_to_field(pcard, other, other, LOCATION_MZONE, pcard->current.position);
+ 		arg.step = 2;
+ 		return FALSE;
+ 	}
+ 	case 4: {
+-		core.control_adjust_set[0].insert(core.control_adjust_set[1].begin(), core.control_adjust_set[1].end());
+-		for(auto cit = core.control_adjust_set[0].begin(); cit != core.control_adjust_set[0].end(); ) {
++		core.control_adjust_set[arg.side_a].insert(core.control_adjust_set[arg.side_b].begin(), core.control_adjust_set[arg.side_b].end());
++		for(auto cit = core.control_adjust_set[arg.side_a].begin(); cit != core.control_adjust_set[arg.side_a].end(); ) {
+ 			card* pcard = *cit++;
+ 			if(!(pcard->current.location & LOCATION_ONFIELD)) {
+-				core.control_adjust_set[0].erase(pcard);
++				core.control_adjust_set[arg.side_a].erase(pcard);
+ 				continue;
+ 			}
+ 			pcard->filter_disable_related_cards();
+@@ -1446,9 +1472,9 @@ bool field::process(Processors::ControlAdjust& arg) {
+ 			raise_single_event(pcard, nullptr, EVENT_CONTROL_CHANGED, nullptr, REASON_RULE, 0, pcard->current.controler, 0);
+ 			raise_single_event(pcard, nullptr, EVENT_MOVE, nullptr, REASON_RULE, 0, pcard->current.controler, 0);
+ 		}
+-		if(core.control_adjust_set[0].size()) {
+-			raise_event(core.control_adjust_set[0], EVENT_CONTROL_CHANGED, nullptr, 0, 0, 0, 0);
+-			raise_event(core.control_adjust_set[0], EVENT_MOVE, nullptr, 0, 0, 0, 0);
++		if(core.control_adjust_set[arg.side_a].size()) {
++			raise_event(core.control_adjust_set[arg.side_a], EVENT_CONTROL_CHANGED, nullptr, 0, 0, 0, 0);
++			raise_event(core.control_adjust_set[arg.side_a], EVENT_MOVE, nullptr, 0, 0, 0, 0);
+ 		}
+ 		process_single_event();
+ 		process_instant_event();
+@@ -1602,6 +1628,10 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 	auto& oppo_selection = arg.oppo_selection;
+ 	switch(arg.step) {
+ 	case 0: {
++		if(n_duelists > 2 && arg.pass_count == 0) {
++			// one pass per living duelist, in turn order from the turn player
++			arg.pass_player = is_alive(infos.turn_player) ? infos.turn_player : next_in_turn_order(infos.turn_player);
++		}
+ 		if(!is_flag(DUEL_TRAP_MONSTERS_NOT_USE_ZONE)) {
+ 			arg.step = 3;
+ 			return FALSE;
+@@ -1611,8 +1641,12 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 	}
+ 	case 1: {
+ 		uint8_t check_player = infos.turn_player;
+-		if(oppo_selection)
+-			check_player = opponent_of(infos.turn_player);
++		if(n_duelists == 2) {
++			if(oppo_selection)
++				check_player = opponent_of(infos.turn_player);
++		} else {
++			check_player = arg.pass_player;
++		}
+ 		refresh_location_info_instant();
+ 		int32_t fcount = get_useable_count(nullptr, check_player, LOCATION_SZONE, check_player, LOCATION_REASON::NONE);
+ 		if(fcount <= 0) {
+@@ -1637,8 +1671,12 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 	}
+ 	case 2: {
+ 		uint8_t check_player = infos.turn_player;
+-		if(oppo_selection)
+-			check_player = opponent_of(infos.turn_player);
++		if(n_duelists == 2) {
++			if(oppo_selection)
++				check_player = opponent_of(infos.turn_player);
++		} else {
++			check_player = arg.pass_player;
++		}
+ 		for(auto& pcard : return_cards.list) {
+ 			to_grave_set.insert(pcard);
+ 			core.trap_monster_adjust_set[check_player].erase(pcard);
+@@ -1646,9 +1684,19 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 		[[fallthrough]];
+ 	}
+ 	case 3: {
+-		if(!oppo_selection) {
+-			oppo_selection = true;
+-			arg.step = 0;
++		if(n_duelists == 2) {
++			if(!oppo_selection) {
++				oppo_selection = true;
++				arg.step = 0;
++			}
++		} else {
++			uint8_t living = 0;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				living += is_alive(p) ? 1 : 0;
++			if(++arg.pass_count < living) {
++				arg.pass_player = next_in_turn_order(arg.pass_player);
++				arg.step = 0;
++			}
+ 		}
+ 		return FALSE;
+ 	}
+@@ -5198,6 +5246,11 @@ bool field::process(Processors::ChangePos& arg) {
+ 	auto enable = arg.enable;
+ 	switch(arg.step) {
+ 	case 0: {
++		if(n_duelists > 2) {
++			// one pass per living duelist, in turn order from the reason player (the turn player for a rule)
++			uint8_t start = is_alive(reason_player) ? reason_player : infos.turn_player;
++			arg.pass_player = is_alive(start) ? start : next_in_turn_order(start);
++		}
+ 		for(auto cit = targets->container.begin(); cit != targets->container.end();) {
+ 			card* pcard = *cit++;
+ 			uint8_t npos = pcard->position_param & 0xff;
+@@ -5232,8 +5285,12 @@ bool field::process(Processors::ChangePos& arg) {
+ 	}
+ 	case 1: {
+ 		uint8_t playerid = reason_player;
+-		if(arg.oppo_selection)
+-			playerid = opponent_of(reason_player);
++		if(n_duelists == 2) {
++			if(arg.oppo_selection)
++				playerid = opponent_of(reason_player);
++		} else {
++			playerid = arg.pass_player;
++		}
+ 		card_set ssets;
+ 		for(auto& pcard : targets->container) {
+ 			uint8_t npos = pcard->position_param & 0xff;
+@@ -5278,9 +5335,19 @@ bool field::process(Processors::ChangePos& arg) {
+ 		return FALSE;
+ 	}
+ 	case 3: {
+-		if(!arg.oppo_selection) {
+-			arg.oppo_selection = true;
+-			arg.step = 0;
++		if(n_duelists == 2) {
++			if(!arg.oppo_selection) {
++				arg.oppo_selection = true;
++				arg.step = 0;
++			}
++		} else {
++			uint8_t living = 0;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				living += is_alive(p) ? 1 : 0;
++			if(++arg.pass_count < living) {
++				arg.pass_player = next_in_turn_order(arg.pass_player);
++				arg.step = 0;
++			}
+ 		}
+ 		return FALSE;
+ 	}
+diff --git a/processor.cpp b/processor.cpp
+index c3309ba..2aa8194 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -5070,6 +5070,22 @@ bool field::process(Processors::RefreshLoc& arg) {
+ 	}
+ 	return TRUE;
+ }
++// n_duelists > 2: hands every group of cards to the duelist that must control it, in turn order from the
++// turn player (the order that the two calls of the two-duelist code have). A target that is not a living
++// duelist sends the card to the Graveyard by rule.
++static void give_control_groups(field& f, card_set (&by_target)[MAX_DUELISTS], card_set& lost) {
++	uint8_t q = f.is_alive(f.infos.turn_player) ? f.infos.turn_player : f.next_in_turn_order(f.infos.turn_player);
++	uint8_t living = 0;
++	for(uint8_t p = 0; p < f.n_duelists; ++p)
++		living += f.is_alive(p) ? 1 : 0;
++	for(uint8_t i = 0; i < living; ++i) {
++		if(by_target[q].size())
++			f.get_control(std::move(by_target[q]), nullptr, PLAYER_NONE, q, 0, 0, 0xff);
++		q = f.next_in_turn_order(q);
++	}
++	if(lost.size())
++		f.send_to(std::move(lost), nullptr, REASON_RULE, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
++}
+ bool field::process(Processors::Adjust& arg) {
+ 	switch(arg.step) {
+ 	case 0: {
+@@ -5187,7 +5203,14 @@ bool field::process(Processors::Adjust& arg) {
+ 				}
+ 			}
+ 		}
+-		if(core.trap_monster_adjust_set[0].size() || core.trap_monster_adjust_set[1].size()) {
++		bool any_trap_monster = false;
++		if(n_duelists == 2) {
++			any_trap_monster = core.trap_monster_adjust_set[0].size() || core.trap_monster_adjust_set[1].size();
++		} else {
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				any_trap_monster = any_trap_monster || core.trap_monster_adjust_set[p].size();
++		}
++		if(any_trap_monster) {
+ 			core.re_adjust = true;
+ 			emplace_process<Processors::TrapMonsterAdjust>();
+ 		}
+@@ -5198,6 +5221,8 @@ bool field::process(Processors::Adjust& arg) {
+ 		for(uint8_t p = 0; p < n_duelists; ++p)
+ 			core.control_adjust_set[p].clear();
+ 		card_set reason_cards;
++		card_set by_target[MAX_DUELISTS];
++		card_set lost_target;
+ 		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : player[p].list_mzone) {
+ 				if(!pcard) continue;
+@@ -5205,15 +5230,32 @@ bool field::process(Processors::Adjust& arg) {
+ 				auto [ref, peffect] = pcard->refresh_control_status();
+ 				if(cur != ref && pcard->is_capable_change_control()) {
+ 					core.control_adjust_set[p].insert(pcard);
++					if(n_duelists > 2) {
++						if(is_alive(ref))
++							by_target[ref].insert(pcard);
++						else
++							lost_target.insert(pcard);
++					}
+ 					if(peffect && (!(peffect->type & EFFECT_TYPE_SINGLE) || peffect->condition))
+ 						reason_cards.insert(peffect->get_handler());
+ 				}
+ 			}
+ 		}
+-		if(core.control_adjust_set[0].size() || core.control_adjust_set[1].size()) {
++		bool any_control = false;
++		if(n_duelists == 2) {
++			any_control = core.control_adjust_set[0].size() || core.control_adjust_set[1].size();
++		} else {
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				any_control = any_control || core.control_adjust_set[p].size();
++		}
++		if(any_control) {
+ 			core.re_adjust = true;
+-			get_control(core.control_adjust_set[opponent_of(infos.turn_player)], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
+-			get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, opponent_of(infos.turn_player), 0, 0, 0xff);
++			if(n_duelists == 2) {
++				get_control(core.control_adjust_set[opponent_of(infos.turn_player)], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
++				get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, opponent_of(infos.turn_player), 0, 0, 0xff);
++			} else {
++				give_control_groups(*this, by_target, lost_target);
++			}
+ 			for(auto& rcard : reason_cards) {
+ 				++core.readjust_map[rcard];
+ 				if(core.readjust_map[rcard] > 3)
+@@ -5226,6 +5268,8 @@ bool field::process(Processors::Adjust& arg) {
+ 	case 5: {
+ 		//remove brainwashing
+ 		if(core.global_flag & GLOBALFLAG_BRAINWASHING_CHECK) {
++			card_set by_owner[MAX_DUELISTS];
++			card_set lost_owner;
+ 			for(uint8_t p = 0; p < n_duelists; ++p)
+ 				core.control_adjust_set[p].clear();
+ 			effect_set eset;
+@@ -5243,15 +5287,33 @@ bool field::process(Processors::Adjust& arg) {
+ 							if(!peffect->condition)
+ 								peffect->handler->remove_effect(peffect);
+ 						}
+-						if(p != pcard->owner && pcard->is_capable_change_control())
++						if(p != pcard->owner && pcard->is_capable_change_control()) {
+ 							core.control_adjust_set[p].insert(pcard);
++							if(n_duelists > 2) {
++								if(is_alive(pcard->owner))
++									by_owner[pcard->owner].insert(pcard);
++								else
++									lost_owner.insert(pcard);
++							}
++						}
+ 					}
+ 				}
+ 			}
+-			if(core.control_adjust_set[0].size() || core.control_adjust_set[1].size()) {
++			bool any_brainwashed = false;
++			if(n_duelists == 2) {
++				any_brainwashed = core.control_adjust_set[0].size() || core.control_adjust_set[1].size();
++			} else {
++				for(uint8_t p = 0; p < n_duelists; ++p)
++					any_brainwashed = any_brainwashed || core.control_adjust_set[p].size();
++			}
++			if(any_brainwashed) {
+ 				core.re_adjust = true;
+-				get_control(core.control_adjust_set[opponent_of(infos.turn_player)], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
+-				get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, opponent_of(infos.turn_player), 0, 0, 0xff);
++				if(n_duelists == 2) {
++					get_control(core.control_adjust_set[opponent_of(infos.turn_player)], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
++					get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, opponent_of(infos.turn_player), 0, 0, 0xff);
++				} else {
++					give_control_groups(*this, by_owner, lost_owner);
++				}
+ 			}
+ 		}
+ 		arg.step = 7;
+diff --git a/processor_unit.h b/processor_unit.h
+index ff0a9e3..750ba83 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -389,12 +389,14 @@ struct ChangePos : public Process<false> {
+ 	uint8_t reason_player;
+ 	bool enable;
+ 	bool oppo_selection;
++	uint8_t pass_count; // n_duelists > 2: passes done, one per living duelist from the reason player
++	uint8_t pass_player; // n_duelists > 2: the duelist of the current pass
+ 	effect* reason_effect;
+ 	owned_lua<group> targets;
+ 	card_set to_grave_set;
+ 	ChangePos(uint16_t step_, owned_lua<group> targets_, effect* reason_effect_,
+ 					   uint8_t reason_player_, bool enable_) :
+-		Process(step_), reason_player(reason_player_), enable(enable_), oppo_selection(false),
++		Process(step_), reason_player(reason_player_), enable(enable_), oppo_selection(false), pass_count(0), pass_player(0),
+ 		reason_effect(reason_effect_), targets(targets_) {}
+ };
+ struct OperationReplace : public Process<false> {
+@@ -588,10 +590,12 @@ struct SwapControl : public Process<false> {
+ };
+ struct ControlAdjust : public Process<false> {
+ 	uint8_t adjusting_player;
++	uint8_t side_a; // the two sides of the swap: 0 and 1 with two duelists, else the two controllers
++	uint8_t side_b;
+ 	card_set destroy_set;
+ 	card_set adjust_set;
+ 	ControlAdjust(uint16_t step_) :
+-		Process(step_), adjusting_player(0) {}
++		Process(step_), adjusting_player(0), side_a(0), side_b(1) {}
+ };
+ struct SelfDestroyUnique : public Process<false> {
+ 	uint8_t playerid;
+@@ -609,9 +613,11 @@ struct SelfToGrave : public Process<false> {
+ };
+ struct TrapMonsterAdjust : public Process<false> {
+ 	bool oppo_selection;
++	uint8_t pass_count; // n_duelists > 2: passes done, one per living duelist from the turn player
++	uint8_t pass_player; // n_duelists > 2: the duelist of the current pass
+ 	card_set to_grave_set;
+ 	TrapMonsterAdjust(uint16_t step_) :
+-		Process(step_), oppo_selection(false) {}
++		Process(step_), oppo_selection(false), pass_count(0), pass_player(0) {}
+ };
+ struct PayLPCost : public Process<false> {
+ 	uint8_t playerid;

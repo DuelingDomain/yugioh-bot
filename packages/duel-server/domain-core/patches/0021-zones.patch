@@ -1,0 +1,299 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Fri, 21 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: zones for more than two duelists (no Extra Monster Zone
+ mirror, per duelist disabled zones)
+
+Zone work for n_duelists > 2. With 2 duelists every stock statement stays as it was.
+
+Changed sites: the Extra Monster Zone mirror in refresh_location_info_instant and in RefreshLoc step 7
+(2 sites, guarded with n_duelists == 2); the mirror check in is_location_useable (1 site);
+the opponent part of get_linked_zone and get_linked_cards (2 sites); the four places that split an
+EFFECT_DISABLE_FIELD value in two halves for players 0 and 1 (2 in the instant refresh and RefreshLoc step 0,
+1 in RefreshLoc step 2; all with n_duelists == 2 keeping the stock text); the message at the end of both
+refreshes (2 sites); Duel.CheckTiming and Duel.IsEnvironment (2 functions, loops over the living duelists).
+
+New behaviour for n > 2: every duelist has its own 2 Extra Monster Zones, nothing is mirrored or swapped.
+An EFFECT_DISABLE_FIELD value is relative to its handler: low 16 bits = own zones, high 16 bits = the next
+duelist in turn order. EFFECT_BECOME_LINKED_ZONE uses the same split. The new message MSG_FIELD_DISABLED_N (202)
+replaces MSG_FIELD_DISABLED: u8 count, then count x (u8 duelist, u32 own disabled zones in the low 16 bits).
+It is sent when the zones of any duelist change. The ids 200, 201 and 202 are added to common.h together.
+RefreshLoc gets one member (previously_disabled_n) for the old zones of every duelist.
+
+With 2 duelists nothing changes: the stock text is inside n_duelists == 2 branches, the loops in CheckTiming
+and IsEnvironment visit duelist 0 then 1 in the same order with the same result (nobody is eliminated).
+Left for other tasks: the card.cpp and libcard zone code that still uses opponent_of (phase 3 fold).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ field.cpp        | 39 ++++++++++++++++++---------
+ libduel.cpp      | 23 ++++++++++++----
+ processor.cpp    | 70 ++++++++++++++++++++++++++++++++++++++++--------
+ processor_unit.h |  2 ++
+ 4 files changed, 106 insertions(+), 28 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index a1c88d5..30a86ca 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -919,7 +919,7 @@ int32_t field::is_location_useable(uint32_t playerid, uint32_t location, uint32_
+ 	if (location == LOCATION_MZONE) {
+ 		if(flag & (0x1u << sequence))
+ 			return FALSE;
+-		if(sequence >= 5) {
++		if(sequence >= 5 && n_duelists == 2) {
+ 			uint32_t oppo = player[opponent_of(playerid)].disabled_location | player[opponent_of(playerid)].used_location;
+ 			if(oppo & (0x1u << (11 - sequence)))
+ 				return FALSE;
+@@ -1147,16 +1147,21 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
+ 		if(pcard)
+ 			zones |= pcard->get_linked_zone(free);
+ 	}
+-	uint32_t oppzones = 0;
+-	for(auto& pcard : player[opponent_of(playerid)].list_mzone) {
+-		if(pcard)
+-			oppzones |= pcard->get_linked_zone(free);
+-	}
+-	for(auto& pcard : player[opponent_of(playerid)].list_szone) {
+-		if(pcard)
+-			oppzones |= pcard->get_linked_zone(free);
++	if(n_duelists == 2) {
++		uint32_t oppzones = 0;
++		for(auto& pcard : player[opponent_of(playerid)].list_mzone) {
++			if(pcard)
++				oppzones |= pcard->get_linked_zone(free);
++		}
++		for(auto& pcard : player[opponent_of(playerid)].list_szone) {
++			if(pcard)
++				oppzones |= pcard->get_linked_zone(free);
++		}
++		zones |= ((oppzones & 0xffff) << 16) | (oppzones >> 16);
++	} else {
++		// Separate fields: the high half (the mirrored zones of the other field) does not exist.
++		zones &= 0xffff;
+ 	}
+-	zones |= ((oppzones & 0xffff) << 16) | (oppzones >> 16);
+ 	if(!actually_linked) {
+ 		effect_set eset;
+ 		uint32_t value;
+@@ -1164,7 +1169,16 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
+ 		for(const auto& peff : eset) {
+ 			value = peff->get_value();
+ 			if(value) {
+-				zones |= (value >> (16 * playerid)) & 0x7f;
++				if(n_duelists == 2)
++					zones |= (value >> (16 * playerid)) & 0x7f;
++				else {
++					// Relative to the handler, as EFFECT_DISABLE_FIELD: own zones low, the bound opponent high.
++					const uint8_t handler = peff->get_handler_player();
++					if(handler == playerid)
++						zones |= value & 0x7f;
++					else if(is_duelist(handler) && next_in_turn_order(handler) == playerid)
++						zones |= (value >> 16) & 0x7f;
++				}
+ 			}
+ 		}
+ 	}
+@@ -1172,7 +1186,8 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
+ }
+ void field::get_linked_cards(uint8_t self, uint8_t location1, uint8_t location2, card_set* cset) {
+ 	get_cards_in_zone(cset, get_linked_zone(self), self, location1);
+-	get_cards_in_zone(cset, get_linked_zone(opponent_of(self)), opponent_of(self), location2);
++	if(n_duelists == 2)
++		get_cards_in_zone(cset, get_linked_zone(opponent_of(self)), opponent_of(self), location2);
+ }
+ int32_t field::check_extra_link(int32_t playerid, card* pcard, int32_t sequence) {
+ 	if(!pcard)
+diff --git a/libduel.cpp b/libduel.cpp
+index 5ff7a7f..478800c 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -1021,7 +1021,12 @@ LUA_STATIC_FUNCTION(RaiseSingleEvent) {
+ LUA_STATIC_FUNCTION(CheckTiming) {
+ 	check_param_count(L, 1);
+ 	auto tm = lua_get<uint32_t>(L, 1);
+-	lua_pushboolean(L, (pduel->game_field->core.hint_timing[0]&tm) || (pduel->game_field->core.hint_timing[1]&tm));
++	bool timing = false;
++	for(uint8_t p = 0; p < pduel->game_field->n_duelists && !timing; ++p) {
++		if(pduel->game_field->is_alive(p) && (pduel->game_field->core.hint_timing[p] & tm))
++			timing = true;
++	}
++	lua_pushboolean(L, timing);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetEnvironment) {
+@@ -1060,6 +1065,14 @@ LUA_STATIC_FUNCTION(IsEnvironment) {
+ 		return 1;
+ 	};
+ 	auto IsEnabled = [](card* pcard) { return pcard && pcard->is_position(POS_FACEUP) && pcard->get_status(STATUS_EFFECT_ENABLED); };
++	// True when check(p) holds for a living duelist p. Tries p = 0, 1, ... in order (with 2 duelists: check(0) || check(1)).
++	auto AnyLiving = [&](auto&& check) {
++		for(uint8_t p = 0; p < pduel->game_field->n_duelists; ++p) {
++			if(pduel->game_field->is_alive(p) && check(p))
++				return true;
++		}
++		return false;
++	};
+ 	auto CheckFzone = [&](uint8_t player) {
+ 		if(playerid == player || playerid == PLAYER_ALL) {
+ 			const auto& pcard = pduel->game_field->player[player].list_szone[5];
+@@ -1089,16 +1102,16 @@ LUA_STATIC_FUNCTION(IsEnvironment) {
+ 	auto ShouldApplyChangeEnv = [&]() {
+ 		if((loc & (LOCATION_FZONE | LOCATION_SZONE)) == 0)
+ 			return false;
+-		return !(IsEnabled(pduel->game_field->player[0].list_szone[5]) || IsEnabled(pduel->game_field->player[1].list_szone[5]));
++		return !AnyLiving([&](uint8_t p) { return IsEnabled(pduel->game_field->player[p].list_szone[5]); });
+ 	};
+ 
+-	if(loc & LOCATION_FZONE && (CheckFzone(0) || CheckFzone(1)))
++	if(loc & LOCATION_FZONE && AnyLiving(CheckFzone))
+ 		return RetTrue();
+ 
+-	if(loc & LOCATION_SZONE && (CheckSzone(0) || CheckSzone(1)))
++	if(loc & LOCATION_SZONE && AnyLiving(CheckSzone))
+ 		return RetTrue();
+ 
+-	if(loc & LOCATION_MZONE && (CheckMzone(0) || CheckMzone(1)))
++	if(loc & LOCATION_MZONE && AnyLiving(CheckMzone))
+ 		return RetTrue();
+ 
+ 	if(ShouldApplyChangeEnv()) {
+diff --git a/processor.cpp b/processor.cpp
+index d996c93..c3309ba 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -4820,16 +4820,46 @@ void field::adjust_all() {
+ 	core.readjust_map.clear();
+ 	emplace_process<Processors::Adjust>();
+ }
++// n_duelists > 2 only. An EFFECT_DISABLE_FIELD value is relative to the handler: the low 16 bits are the
++// handler's own zones, the high 16 bits are the zones of the bound opponent (the next duelist in turn order).
++// The Extra Monster Zones are not mirrored: every duelist has its own.
++static void add_disabled_zones_n(field* f, uint8_t handler, uint32_t value) {
++	if(!f->is_duelist(handler))
++		return;
++	f->player[handler].disabled_location |= value & 0xff7f;
++	f->player[f->next_in_turn_order(handler)].disabled_location |= (value >> 16) & 0xff7f;
++}
++// n_duelists > 2 only. Sends MSG_FIELD_DISABLED_N (u8 count, count x (u8 duelist, u32 own zones in the low 16 bits))
++// when the zones of any duelist differ from before.
++static void send_field_disabled_n(field* f, const uint32_t (&before)[MAX_DUELISTS]) {
++	bool changed = false;
++	for(uint8_t p = 0; p < f->n_duelists; ++p)
++		changed = changed || before[p] != (f->player[p].disabled_location & 0xffff);
++	if(!changed)
++		return;
++	auto message = f->pduel->new_message(MSG_FIELD_DISABLED_N);
++	message->write<uint8_t>(f->n_duelists);
++	for(uint8_t p = 0; p < f->n_duelists; ++p) {
++		message->write<uint8_t>(p);
++		message->write<uint32_t>(f->player[p].disabled_location & 0xffff);
++	}
++}
+ void field::refresh_location_info_instant() {
+ 	effect_set eset;
+ 	uint32_t dis1 = player[0].disabled_location | (player[1].disabled_location << 16);
++	uint32_t dis_before[MAX_DUELISTS] = {};
++	for(uint8_t p = 0; p < n_duelists; ++p)
++		dis_before[p] = player[p].disabled_location & 0xffff;
+ 	for(uint8_t p = 0; p < n_duelists; ++p)
+ 		player[p].disabled_location = 0;
+ 	filter_field_effect(EFFECT_DISABLE_FIELD, &eset);
+ 	for(const auto& peff : eset) {
+ 		uint32_t value = peff->get_value();
+-		player[0].disabled_location |= value & 0xff7f;
+-		player[1].disabled_location |= (value >> 16) & 0xff7f;
++		if(n_duelists == 2) {
++			player[0].disabled_location |= value & 0xff7f;
++			player[1].disabled_location |= (value >> 16) & 0xff7f;
++		} else
++			add_disabled_zones_n(this, peff->get_handler_player(), value);
+ 	}
+ 	eset.clear();
+ 	filter_field_effect(EFFECT_USE_EXTRA_MZONE, &eset);
+@@ -4845,13 +4875,18 @@ void field::refresh_location_info_instant() {
+ 		uint32_t value = peff->get_value();
+ 		player[p].disabled_location |= (value >> 8) & 0x1f00;
+ 	}
+-	player[0].disabled_location |= (((player[1].disabled_location >> 5) & 1) << 6) | (((player[1].disabled_location >> 6) & 1) << 5);
+-	player[1].disabled_location |= (((player[0].disabled_location >> 5) & 1) << 6) | (((player[0].disabled_location >> 6) & 1) << 5);
+-	uint32_t dis2 = player[0].disabled_location | (player[1].disabled_location << 16);
+-	if(dis1 != dis2) {
+-		auto message = pduel->new_message(MSG_FIELD_DISABLED);
+-		message->write<uint32_t>(dis2);
++	if(n_duelists == 2) {
++		player[0].disabled_location |= (((player[1].disabled_location >> 5) & 1) << 6) | (((player[1].disabled_location >> 6) & 1) << 5);
++		player[1].disabled_location |= (((player[0].disabled_location >> 5) & 1) << 6) | (((player[0].disabled_location >> 6) & 1) << 5);
+ 	}
++	uint32_t dis2 = player[0].disabled_location | (player[1].disabled_location << 16);
++	if(n_duelists == 2) {
++		if(dis1 != dis2) {
++			auto message = pduel->new_message(MSG_FIELD_DISABLED);
++			message->write<uint32_t>(dis2);
++		}
++	} else
++		send_field_disabled_n(this, dis_before);
+ }
+ bool field::process(Processors::RefreshLoc& arg) {
+ 	switch(arg.step) {
+@@ -4862,6 +4897,8 @@ bool field::process(Processors::RefreshLoc& arg) {
+ 				player[p].used_location |= 0x1111;
+ 		}
+ 		arg.previously_disabled_locations = (player[0].disabled_location & 0xffff) | (player[1].disabled_location << 16);
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			arg.previously_disabled_n[p] = player[p].disabled_location & 0xffff;
+ 		for(uint8_t p = 0; p < n_duelists; ++p)
+ 			player[p].disabled_location = 0;
+ 		core.disfield_effects.clear();
+@@ -4871,8 +4908,11 @@ bool field::process(Processors::RefreshLoc& arg) {
+ 		for(const auto& peff : eset) {
+ 			uint32_t value = peff->get_value();
+ 			if(value && !peff->is_flag(EFFECT_FLAG_REPEAT)) {
+-				player[0].disabled_location |= value & 0xff7f;
+-				player[1].disabled_location |= (value >> 16) & 0xff7f;
++				if(n_duelists == 2) {
++					player[0].disabled_location |= value & 0xff7f;
++					player[1].disabled_location |= (value >> 16) & 0xff7f;
++				} else
++					add_disabled_zones_n(this, peff->get_handler_player(), value);
+ 			} else
+ 				core.disfield_effects.push_back(peff);
+ 		}
+@@ -4918,7 +4958,11 @@ bool field::process(Processors::RefreshLoc& arg) {
+ 		disabled_locations &= 0xff7fff7f;
+ 		if(disabled_locations == 0)
+ 			disabled_locations = 0x80;
+-		if(arg.current_disable_field_effect->get_handler_player() == 0) {
++		if(n_duelists > 2) {
++			// The value stays relative to the handler: own zones low, the bound opponent high.
++			arg.current_disable_field_effect->value = disabled_locations;
++			add_disabled_zones_n(this, arg.current_disable_field_effect->get_handler_player(), disabled_locations);
++		} else if(arg.current_disable_field_effect->get_handler_player() == 0) {
+ 			arg.current_disable_field_effect->value = disabled_locations;
+ 			player[0].disabled_location |= disabled_locations & 0xff7f;
+ 			player[1].disabled_location |= (disabled_locations >> 16) & 0xff7f;
+@@ -5010,6 +5054,10 @@ bool field::process(Processors::RefreshLoc& arg) {
+ 		return FALSE;
+ 	}
+ 	case 7: {
++		if(n_duelists > 2) {
++			send_field_disabled_n(this, arg.previously_disabled_n);
++			return TRUE;
++		}
+ 		player[0].disabled_location |= (((player[1].disabled_location >> 5) & 1) << 6) | (((player[1].disabled_location >> 6) & 1) << 5);
+ 		player[1].disabled_location |= (((player[0].disabled_location >> 5) & 1) << 6) | (((player[0].disabled_location >> 6) & 1) << 5);
+ 		uint32_t dis = player[0].disabled_location | (player[1].disabled_location << 16);
+diff --git a/processor_unit.h b/processor_unit.h
+index 999b716..ff0a9e3 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -41,6 +41,8 @@ struct Turn : public Process<false> {
+ struct RefreshLoc : public Process<false> {
+ 	uint8_t dis_count;
+ 	uint32_t previously_disabled_locations;
++	// n_duelists > 2: the disabled zones (low 16 bits) of every duelist before this refresh.
++	uint32_t previously_disabled_n[MAX_DUELISTS]{};
+ 	effect* current_disable_field_effect;
+ 	RefreshLoc(uint16_t step_) :
+ 		Process(step_), dis_count(0), previously_disabled_locations(0),
