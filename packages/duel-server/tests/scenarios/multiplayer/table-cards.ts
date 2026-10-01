@@ -330,6 +330,67 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
       everySeat("ffa3", { p0: { lp: 10500, spells: [KISEITAI] }, p1: { monsters: ["Summoned Skull"] } }),
     ],
   }),
+  defineScenario({
+    id: "table-ffa3-summoning-curse-two-opponents-summon-at-once-both-banish",
+    title: "FFA3: Summoning Curse of p0, then The Grave of Enkindling Special Summons a monster for p0, p1 and p2 at once: each of the three controllers banishes 1 card from its own hand",
+    source: OPP_FIELD,
+    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    tags: ["multiplayer", "trigger", "banish", "ffa3", "card:61650133"],
+    setup: {
+      format: "ffa3",
+      p0: { monsters: ["Giant Rat"], spells: [{ card: "The Grave of Enkindling", pos: "set" }, { card: "Summoning Curse", pos: "set" }] },
+      p1: { monsters: ["Battle Ox"], grave: ["Celtic Guardian"] },
+      p2: { grave: ["Axe Raider"] },
+    },
+    steps: [
+      ...["p0", "p1", "p2"].map((seat) => endTurn(seat as Seat)),
+      activate("Summoning Curse", "p0"),
+      endTurn("p0"),
+      yes("p0"),
+      changePhase("battle", "p1"),
+      attack("Battle Ox", { card: "Giant Rat", owner: "p0" }, "p1"),
+      activate("The Grave of Enkindling", "p0"),
+      { ...select("Mystical Elf"), by: "p1" },
+      // 8000 - 300 (battle) - 500 (maintenance of the Curse). p1 chose its card; p0 and p2 had no choice. Each of the three banished exactly one.
+      everySeat("ffa3", {
+        p0: { lp: 7200, monsters: ["Giant Rat"], spells: ["Summoning Curse"], grave: ["The Grave of Enkindling"], banished: ["Mystical Elf"] },
+        p1: { monsters: ["Battle Ox", "Celtic Guardian"], banished: ["Mystical Elf"] },
+        p2: { monsters: ["Axe Raider"], banished: ["Mystical Elf"] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "table-tag-summoning-curse-two-opposing-duelists-summon-at-once-both-banish",
+    title: "Tag: Summoning Curse of p0, then The Grave of Enkindling Special Summons a monster for p0, p1 and p3 at once: p0, p1 and p3 each banish 1 card from their own hand (p2 summoned nothing)",
+    source: OPP_FIELD,
+    rules: ["R-COMMON-OPP-FIELD", "R-TAG-TEAMS"],
+    tags: ["multiplayer", "trigger", "banish", "tag", "card:61650133"],
+    setup: {
+      format: "tag",
+      p0: { hand: [ELF], monsters: ["Giant Rat"], spells: [{ card: "The Grave of Enkindling", pos: "set" }, { card: "Summoning Curse", pos: "set" }] },
+      p1: { hand: [ELF], monsters: ["Battle Ox"], grave: ["Celtic Guardian"] },
+      p3: { hand: [ELF], grave: ["Axe Raider"] },
+    },
+    steps: [
+      ...["p0", "p1", "p2", "p3"].map((seat) => endTurn(seat as Seat)),
+      activate("Summoning Curse", "p0"),
+      endTurn("p0"),
+      yes("p0"),
+      changePhase("battle", "p1"),
+      attack("Battle Ox", { card: "Giant Rat", owner: "p0" }, "p1"),
+      activate("The Grave of Enkindling", "p0"),
+      { ...select("Mystical Elf"), by: "p0" },
+      { ...select("Mystical Elf"), by: "p1" },
+      { ...select("Mystical Elf"), by: "p3" },
+      // The team life points: 16000 - 300 (battle) - 500 (maintenance of the Curse). p0, p1 and p3 each banished exactly one card of their own hand; p2 summoned nothing and banished nothing.
+      everySeat("tag", {
+        p0: { lp: 15200, hand: [ELF], monsters: ["Giant Rat"], spells: ["Summoning Curse"], grave: ["The Grave of Enkindling"], banished: [ELF] },
+        p1: { hand: [ELF, ELF], monsters: ["Battle Ox", "Celtic Guardian"], banished: [ELF] },
+        p2: { lp: 15200, hand: [ELF] },
+        p3: { hand: [ELF], monsters: ["Axe Raider"], banished: [ELF] },
+      }),
+    ],
+  }),
 ];
 
 void [expectLp, expectNotOffered];
