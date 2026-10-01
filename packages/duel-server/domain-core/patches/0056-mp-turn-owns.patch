@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 5 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: Duel.MPTurnOwns(c) tells the owner of a controlled card
+ from the other opponents at n > 2
+
+The Lua values 0 and 1 fold every opponent to 1, so a script cannot tell the owner of a stolen card from another opponent.
+Snatch Steal asked its controller for an opponent pick in every opponent Standby Phase and gave the LP to the picked seat.
+
+Duel.MPTurnOwns(c) is true when the turn player is the real owner of c and is alive. It asks nothing, so a condition may call
+it. When it is true and the owner is an opponent of the scope duelist, it binds that owner (first binding wins), so that the
+Recover(1, ...) of the same scope gains the LP of exactly that seat (Tag: the team LP of the owner). Additive: no existing
+function changes, and the function is used only by the overlay (loaded at 3 or 4 seats).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ libduel.cpp | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/libduel.cpp b/libduel.cpp
+index 5449f0c..197d1ab 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -4987,6 +4987,25 @@ LUA_STATIC_FUNCTION(MPBindSeat) {
+ 	lua_pushboolean(L, usable);
+ 	return 1;
+ }
++// Duel.MPTurnOwns(c): true when the turn player is the real OWNER of the card c and is alive. The Lua values 0 and 1 fold every
++// opponent to 1, so a script cannot tell the owner of a stolen card from another opponent: this is the seat compare. It asks
++// nothing, so a condition may call it. When it gives true and the owner is an opponent of the scope duelist, it also binds that
++// owner (first binding wins, as for every bind), so that a later Lua 1 of the same scope is exactly that owner (Snatch Steal: only
++// the owner of the stolen monster gains the LP, in the Standby Phase of that owner; Tag: the exact seat, not the partner).
++// Two seats: the plain compare (no scope folds).
++LUA_STATIC_FUNCTION(MPTurnOwns) {
++	check_param_count(L, 1);
++	const auto* pcard = lua_get<card*, true>(L, 1);
++	const auto& f = *pduel->game_field;
++	const uint8_t owner = pcard->owner;
++	const bool yes = owner == f.infos.turn_player && (f.n_duelists <= 2 || f.is_alive(owner));
++	if(yes) {
++		if(const auto* s = f7_scope(pduel); s && !f.same_team(s->P, owner))
++			pduel->lua->scope_bind(owner);
++	}
++	lua_pushboolean(L, yes);
++	return 1;
++}
+ }
+ }
+ 

@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sat, 4 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: a turn cut short by the loss of its turn player fires
+ its End Phase event for the others at n > 2
+
+When the turn player is eliminated in its own turn, PhaseEvent(PHASE_END) skipped its whole step 0 (force_turn_end) but
+still ran reset_phase, so every RESET_PHASE turn count counted the cut-short turn while the EVENT_PHASE+PHASE_END effects
+never fired for it. Nightmare's Steelcage (own counter +1 in its End Phase effect, reset after 2 opponent turns) lost both
+effects with the counter at 1 and was never destroyed.
+
+Rule (ADR 0002, elimination): a turn cut short by an elimination counts as an ended turn for every turn count. The End
+Phase event now runs for the living duelists: forced triggers and continuous effects, with hand_adjusted set so that no
+optional effect and no free chain window is offered. A genuine EFFECT_SKIP_EP still skips it.
+
+Guarded with n_duelists > 2 and a turn player that is not alive. With 2 duelists (and the Tag relay) nothing changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ processor.cpp | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/processor.cpp b/processor.cpp
+index dd1fe45..7bd6d6c 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -325,11 +325,18 @@ bool field::process(Processors::PhaseEvent& arg) {
+ 	auto phase = arg.phase;
+ 	switch(arg.step) {
+ 	case 0: {
++		// n > 2 (ADR 0002, elimination): a turn cut short by the loss of its turn player counts as an ended turn for every turn
++		// count (RESET_*_TURN, "until the end of the Nth turn"), so its End Phase event is not skipped: the forced and the
++		// continuous effects of the living duelists run. hand_adjusted keeps the optional effects and the free chain out, and
++		// the hand limit has nothing to discard (the cards of the seat that lost are gone). A genuine skip of the End Phase stays.
++		const bool out_turn = n_duelists > 2 && phase == PHASE_END && core.force_turn_end && !is_alive(infos.turn_player);
++		if(out_turn)
++			core.hand_adjusted = true;
+ 		if((phase == PHASE_DRAW && (core.force_turn_end || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_DP)))
+ 				|| (phase == PHASE_STANDBY && (core.force_turn_end || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_SP)))
+ 				|| (phase == PHASE_BATTLE_START && (core.force_turn_end || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_BP)))
+ 				|| (phase == PHASE_BATTLE && (core.force_turn_end || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_BP)))
+-				|| (phase == PHASE_END && (core.force_turn_end || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_EP)))) {
++				|| (phase == PHASE_END && ((core.force_turn_end && !out_turn) || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_EP)))) {
+ 			arg.step = 24;
+ 			return FALSE;
+ 		}

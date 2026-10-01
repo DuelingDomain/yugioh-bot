@@ -1,0 +1,224 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Thu, 2 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: the opponent binding covers the Normal Summon and Set
+ procedures (Ra Sphere Mode), and a summon bound to a seat that is gone does
+ not happen at n > 2
+
+The F5 binding only knew EFFECT_SPSUMMON_PROC. Ra Sphere Mode uses
+EFFECT_LIMIT_SUMMON_PROC, so a Tribute from several opponents was offered and no
+opponent was asked. The binding now covers EFFECT_SUMMON_PROC,
+EFFECT_LIMIT_SUMMON_PROC, EFFECT_SET_PROC and EFFECT_LIMIT_SET_PROC too. SummonRule
+and MonsterSet ask for the opponent and send the monster to that field.
+
+When the bound seat is out of the duel (or has a pending loss) before the summon
+completes, SummonRule, MonsterSet and SpSummonRule stop before the move: the card
+stays in the hand and not in the Graveyard. 1v1 is unchanged.
+---
+ interpreter.cpp | 15 +++++++--
+ operations.cpp  | 82 +++++++++++++++++++++++++++++++++++++++++++++++--
+ 2 files changed, 93 insertions(+), 4 deletions(-)
+
+diff --git a/interpreter.cpp b/interpreter.cpp
+index 6b9c533..013e7a9 100644
+--- a/interpreter.cpp
++++ b/interpreter.cpp
+@@ -445,11 +445,22 @@ static uint8_t scope_player_of(const field* gf, effect* peffect) {
+ 	const uint8_t P = peffect->get_handler_player();
+ 	return gf->is_duelist(P) ? P : DUELIST_NONE;
+ }
+-// F5: summon procedures with an opponent field (EFFECT_FLAG_SPSUM_PARAM and o_range), n > 2 only.
++// F5: summon, set and special summon procedures with an opponent field (EFFECT_FLAG_SPSUM_PARAM and o_range),
++// n > 2 only. The Normal Summon codes too (Ra Sphere Mode uses EFFECT_LIMIT_SUMMON_PROC).
+ bool interpreter::is_proc_effect(effect* peffect) const {
+ 	const auto* gf = pduel->game_field;
+-	if(!peffect || !gf || gf->n_duelists <= 2 || peffect->code != EFFECT_SPSUMMON_PROC)
++	if(!peffect || !gf || gf->n_duelists <= 2)
+ 		return false;
++	switch(peffect->code) {
++	case EFFECT_SPSUMMON_PROC:
++	case EFFECT_SUMMON_PROC:
++	case EFFECT_LIMIT_SUMMON_PROC:
++	case EFFECT_SET_PROC:
++	case EFFECT_LIMIT_SET_PROC:
++		break;
++	default:
++		return false;
++	}
+ 	return peffect->is_flag(EFFECT_FLAG_SPSUM_PARAM) && peffect->o_range;
+ }
+ uint8_t* interpreter::proc_slot(effect* peffect) {
+diff --git a/operations.cpp b/operations.cpp
+index 1abcff4..5cd0a0c 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -44,6 +44,17 @@ static uint8_t first_summon_opponent(const field& f, uint8_t p, F&& works) {
+ 	return first;
+ }
+ 
++// More than 2 duelists only. True when a summon procedure with an opponent field is bound to a seat that is out of
++// the duel by now, or that has a pending loss (Debug.EliminateDuelist: the loss is applied at the next check, and a seat
++// with it is as good as gone). The summon then does not happen and the card stays where it is. The caller runs
++// adjust_all() so that a pending loss lands now.
++static bool proc_bound_gone(const field& f, interpreter& lua, effect* proc) {
++	if(f.n_duelists <= 2 || !proc)
++		return false;
++	const uint8_t bound = lua.proc_opponent(proc);
++	return bound != DUELIST_NONE && (!f.is_alive(bound) || f.player[bound].pending_loss);
++}
++
+ int32_t field::negate_chain(uint8_t chaincount) {
+ 	if(core.current_chain.size() == 0)
+ 		return FALSE;
+@@ -2129,6 +2140,15 @@ bool field::process(Processors::SummonRule& arg) {
+ 		return FALSE;
+ 	}
+ 	case 4: {
++		if(n_duelists > 2) {
++			// F5: a procedure that puts the monster on an opponent's field binds one opponent first
++			if(pduel->lua->proc_pick_wait == summon_procedure_effect)
++				pduel->lua->proc_take_pick(summon_procedure_effect, returns.at<int32_t>(0));
++			else if(pduel->lua->proc_ask_pick(summon_procedure_effect, sumplayer)) {
++				arg.step = 3;
++				return FALSE;
++			}
++		}
+ 		returns.set<int32_t>(0, TRUE);
+ 		if(summon_procedure_effect->target) {
+ 			auto pextra = arg.extra_summon_effect;
+@@ -2158,6 +2178,8 @@ bool field::process(Processors::SummonRule& arg) {
+ 			arg.step = 9;
+ 		else if(summon_procedure_effect) {
+ 			if(!returns.at<int32_t>(0)) {
++				if(n_duelists > 2)
++					pduel->lua->proc_forget(summon_procedure_effect);
+ 				--core.summon_depth;
+ 				return TRUE;
+ 			}
+@@ -2257,6 +2279,14 @@ bool field::process(Processors::SummonRule& arg) {
+ 		return FALSE;
+ 	}
+ 	case 7: {
++		if(proc_bound_gone(*this, *pduel->lua, summon_procedure_effect)) {
++			// F5: the bound opponent lost: no summon, no Tribute, the card stays in the hand
++			pduel->lua->proc_forget(summon_procedure_effect);
++			adjust_all();
++			returns.set<int32_t>(0, FALSE);
++			--core.summon_depth;
++			return TRUE;
++		}
+ 		target->summon.location = LOCATION_HAND;
+ 		target->summon.pzone = false;
+ 		target->summon.type = (summon_procedure_effect->get_value(target) & 0xfffffff) | SUMMON_TYPE_NORMAL;
+@@ -2314,6 +2344,13 @@ bool field::process(Processors::SummonRule& arg) {
+ 	case 9: {
+ 		uint8_t targetplayer = sumplayer;
+ 		uint8_t positions = POS_FACEUP_ATTACK;
++		if(proc_bound_gone(*this, *pduel->lua, summon_procedure_effect)) {
++			// F5: the bound opponent lost while the procedure paid: the summon does not happen (case 10 would end the depth)
++			pduel->lua->proc_forget(summon_procedure_effect);
++			adjust_all();
++			--core.summon_depth;
++			return TRUE;
++		}
+ 		if(is_flag(DUEL_NORMAL_SUMMON_FACEUP_DEF)
+ 		   || is_player_affected_by_effect(sumplayer, EFFECT_NORMAL_SUMMON_FACEUP_DEFENSE)
+ 		   || is_player_affected_by_effect(sumplayer, EFFECT_DEVINE_LIGHT)) {
+@@ -2326,9 +2363,13 @@ bool field::process(Processors::SummonRule& arg) {
+ 					targetplayer = 1 - sumplayer;
+ 				else {
+ 					const uint32_t sumtype = summon_procedure_effect->get_value(target);
+-					targetplayer = first_summon_opponent(*this, sumplayer, [&](uint8_t q) {
++					// the opponent that the procedure is bound to (F5), else the first one for whom the summon works
++					const uint8_t bound = pduel->lua->proc_opponent(summon_procedure_effect);
++					targetplayer = is_alive(bound) ? bound : first_summon_opponent(*this, sumplayer, [&](uint8_t q) {
+ 						return is_player_can_summon(sumtype, sumplayer, target, q) && !check_unique_onfield(target, q, LOCATION_MZONE);
+ 					});
++					// the pick is used: the next summon asks again
++					pduel->lua->proc_forget(summon_procedure_effect);
+ 				}
+ 			}
+ 		}
+@@ -2805,6 +2846,15 @@ bool field::process(Processors::MonsterSet& arg) {
+ 		return FALSE;
+ 	}
+ 	case 6: {
++		if(n_duelists > 2) {
++			// F5: a procedure that puts the monster on an opponent's field binds one opponent first
++			if(pduel->lua->proc_pick_wait == summon_procedure_effect)
++				pduel->lua->proc_take_pick(summon_procedure_effect, returns.at<int32_t>(0));
++			else if(pduel->lua->proc_ask_pick(summon_procedure_effect, setplayer)) {
++				arg.step = 5;
++				return FALSE;
++			}
++		}
+ 		returns.set<int32_t>(0, TRUE);
+ 		if(summon_procedure_effect->target) {
+ 			auto pextra = arg.extra_summon_effect;
+@@ -2831,6 +2881,14 @@ bool field::process(Processors::MonsterSet& arg) {
+ 	}
+ 	case 7: {
+ 		if(!returns.at<int32_t>(0)) {
++			if(n_duelists > 2)
++				pduel->lua->proc_forget(summon_procedure_effect);
++			return TRUE;
++		}
++		if(proc_bound_gone(*this, *pduel->lua, summon_procedure_effect)) {
++			// F5: the bound opponent lost: no set, the card stays in the hand
++			pduel->lua->proc_forget(summon_procedure_effect);
++			adjust_all();
+ 			return TRUE;
+ 		}
+ 		target->summon.type = (summon_procedure_effect->get_value(target) & 0xfffffff) | SUMMON_TYPE_NORMAL;
+@@ -2887,6 +2945,12 @@ bool field::process(Processors::MonsterSet& arg) {
+ 	case 9: {
+ 		uint8_t targetplayer = setplayer;
+ 		uint8_t positions = POS_FACEDOWN_DEFENSE;
++		if(proc_bound_gone(*this, *pduel->lua, summon_procedure_effect)) {
++			// F5: the bound opponent lost while the procedure paid: the set does not happen
++			pduel->lua->proc_forget(summon_procedure_effect);
++			adjust_all();
++			return TRUE;
++		}
+ 		if(summon_procedure_effect && summon_procedure_effect->is_flag(EFFECT_FLAG_SPSUM_PARAM)) {
+ 			positions = (uint8_t)summon_procedure_effect->s_range & POS_FACEDOWN;
+ 			if(summon_procedure_effect->o_range) {
+@@ -2894,9 +2958,11 @@ bool field::process(Processors::MonsterSet& arg) {
+ 					targetplayer = 1 - setplayer;
+ 				else {
+ 					const uint32_t sumtype = summon_procedure_effect->get_value(target);
+-					targetplayer = first_summon_opponent(*this, setplayer, [&](uint8_t q) {
++					const uint8_t bound = pduel->lua->proc_opponent(summon_procedure_effect);
++					targetplayer = is_alive(bound) ? bound : first_summon_opponent(*this, setplayer, [&](uint8_t q) {
+ 						return is_player_can_mset(sumtype, setplayer, target, q);
+ 					});
++					pduel->lua->proc_forget(summon_procedure_effect);
+ 				}
+ 			}
+ 		}
+@@ -3244,6 +3310,12 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 	}
+ 	case 3: {
+ 		auto proc = arg.summon_proc_effect;
++		if(proc_bound_gone(*this, *pduel->lua, proc)) {
++			// F5: the bound opponent lost: no summon, the card stays where it is
++			pduel->lua->proc_forget(proc);
++			adjust_all();
++			return TRUE;
++		}
+ 		target->material_cards.clear();
+ 		if(proc->operation) {
+ 			pduel->lua->add_param<LuaParam::CARD>(target);
+@@ -3265,6 +3337,12 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 		core.must_use_mats = nullptr;
+ 		core.only_use_mats = nullptr;
+ 		auto proc = arg.summon_proc_effect;
++		if(proc_bound_gone(*this, *pduel->lua, proc)) {
++			// F5: the bound opponent lost while the procedure paid: the summon does not happen
++			pduel->lua->proc_forget(proc);
++			adjust_all();
++			return TRUE;
++		}
+ 		uint8_t targetplayer = sumplayer;
+ 		uint8_t positions = POS_FACEUP;
+ 		if(proc->is_flag(EFFECT_FLAG_SPSUM_PARAM)) {
