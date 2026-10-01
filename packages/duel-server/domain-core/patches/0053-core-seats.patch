@@ -1,0 +1,596 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Fri, 3 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: core seats for multi-duelist card rules (MPNthDuelist,
+ MPSeat, MPSeatOf, MPBindSeat, global effect, Tag flag key)
+
+Duel.MPNthDuelist(i) rebinds the scope to the i-th living duelist counting from the scope player (R1). i = 0 and the end
+of every call put P, the bound opponent, the window and the seat bind back (scope_guard), also for a filter and after a
+Lua error; a prompt in the function keeps the rebind (call_coroutine). The trap build aborts when a call ends normally
+with a rebind open. Duel.MPSeat gives the real seat of a Lua player value (Tag: the team), Duel.MPSeatOf the controller
+seat of a card, and Duel.MPBindSeat binds the Lua value 1 to a real seat (a dead seat, a seat of the own team or no seat
+gives an empty other side, never another opponent). These are the seats for the 92 "each living duelist" cards (R1) and
+the 108 per-seat-state cards (R2).
+
+R2 core rule: a global effect (Effect.GlobalEffect, or an effect that a script registers in initial_effect with
+Duel.RegisterEffect) belongs to no seat. Its scope folds nothing, so it sees the real rp, ep and tp. In Tag a player
+flag effect (Duel.RegisterFlagEffect) counts for the team of its seat (get, label and reset match by team).
+
+Every site is guarded with n_duelists > 2. With 2 duelists nothing changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ effect.cpp      |   3 +
+ effect.h        |   7 +++
+ interpreter.cpp | 118 +++++++++++++++++++++++++++++++++------
+ interpreter.h   |  65 +++++++++++++++++++++-
+ libduel.cpp     | 145 +++++++++++++++++++++++++++++++++++++++++++++++-
+ 5 files changed, 319 insertions(+), 19 deletions(-)
+
+diff --git a/effect.cpp b/effect.cpp
+index 8aeda6a..d0b750e 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -591,6 +591,9 @@ int32_t effect::is_target_player(uint8_t playerid) {
+ 			const bool own_side = gf.n_teams == gf.n_duelists ? playerid == get_owner_player() : gf.team_of(playerid) == 0;
+ 			return (own_side ? s_range : o_range) ? TRUE : FALSE;
+ 		}
++		// F7 P2 (R2 core rule): a player flag of a Tag team is read and written by every seat of the team
++		if(team_key)
++			return (gf.is_duelist(self) && gf.same_team(self, playerid) && s_range) ? TRUE : FALSE;
+ 		// s only: the viewpoint duelist. o only: every duelist of another team. Both: everyone
+ 		// (the partner of the viewpoint in Tag is hit only when both ranges are set).
+ 		if(gf.is_duelist(self) && gf.same_team(self, playerid))
+diff --git a/effect.h b/effect.h
+index 00d9b98..2fe3d57 100644
+--- a/effect.h
++++ b/effect.h
+@@ -31,6 +31,13 @@ public:
+ 	// n_duelists > 2: the opponent that was bound when an EFFECT_DISABLE_FIELD was registered by Duel.RegisterEffect.
+ 	// The high half of its value is the zones of this opponent (DUELIST_NONE: the next living opponent in turn order).
+ 	uint8_t disfield_opp{ DUELIST_NONE };
++	// n_duelists > 2 (F7 part P2, R2 core rule). A global effect: registered by Duel.RegisterEffect while a card
++	// script runs initial_effect (the GlobalCheck pattern), or made by Effect.GlobalEffect. It belongs to no seat:
++	// its Lua runs without a perspective fold, so it sees the real rp, ep and tp of the event.
++	bool global_effect{ false };
++	// n_duelists > 2, Tag only: a player flag effect (Duel.RegisterFlagEffect) that counts for the whole team of
++	// its owner, not for the owner seat alone.
++	bool team_key{ false };
+ 	uint16_t type{};
+ 	uint16_t copy_id{};
+ 	uint16_t range{};
+diff --git a/interpreter.cpp b/interpreter.cpp
+index 7fbc2f5..6b9c533 100644
+--- a/interpreter.cpp
++++ b/interpreter.cpp
+@@ -304,12 +304,32 @@ bool interpreter::load_card_script(uint32_t code) {
+ // The scope guard and the fold of a player parameter (Phase 3). With 2 duelists nothing is pushed.
+ bool interpreter::scope_guard::push(uint8_t P, uint8_t* bound, bool yieldable, bool probe, effect* eff, bool pinned) {
+ 	const auto* gf = I->pduel->game_field;
+-	if(!gf || gf->n_duelists <= 2 || !gf->is_duelist(P) || pushed)
++	if(!gf || gf->n_duelists <= 2 || pushed)
+ 		return false;
+-	I->push_scope(P, bound, yieldable, probe, eff, pinned);
++	// F7 P2 (R2 core rule): a global effect has no seat. Its scope folds nothing (P is not a duelist), so the
++	// script sees the real rp, ep and tp of the event. It is a scope all the same: a call inside it does not
++	// inherit the scope of the effect that happens to run below.
++	const bool unfolded = eff && eff->global_effect;
++	if(!unfolded && !gf->is_duelist(P))
++		return false;
++	I->push_scope(unfolded ? DUELIST_NONE : P, bound, yieldable, probe, eff, pinned);
+ 	pushed = true;
+ 	return true;
+ }
++void interpreter::scope_guard::check_rebind_closed(bool ok) const {
++#ifdef YGO_N_TRAP
++	if(!ok || I->scopes.empty() || I->scopes.size() < base + (pushed ? 1 : 0))
++		return;
++	const auto& top = I->scopes.back();
++	if(top.rb.active && !(had_parent && !pushed && saved_rb.active && saved_rb.P0 == top.rb.P0)) {
++		std::fprintf(stderr, "YGO_N_TRAP MPNthDuelist rebind open at the end of a call P=%d P0=%d\n",
++					 static_cast<int>(top.P), static_cast<int>(top.rb.P0));
++		std::abort();
++	}
++#else
++	(void)ok;
++#endif
++}
+ interpreter::scope_guard::~scope_guard() {
+ #ifdef YGO_N_TRAP
+ 	const size_t expected = base + (pushed ? 1 : 0);
+@@ -321,8 +341,20 @@ interpreter::scope_guard::~scope_guard() {
+ 	if(pushed)
+ 		I->pop_scope();
+ 	// F7: the window of the scope below is what it was at entry, on every path
+-	if(had_parent && I->scopes.size() >= base)
+-		I->scopes[base - 1].mp = saved_mp;
++	if(had_parent && I->scopes.size() >= base) {
++		auto& s = I->scopes[base - 1];
++		s.mp = saved_mp;
++		// F7 P2: the MPBindSeat bind never outlives the call that set it
++		s.seat_bind = saved_seat_bind;
++		// F7 P2: a rebind that the call opened (or moved to another duelist) is closed, on every path: the values at
++		// entry come back. A scope that was not rebound keeps its own_bound (a lazy bind inside the call stays).
++		if(s.rb.active != saved_rb.active || s.P != saved_P || (s.rb.active && s.rb.P0 != saved_rb.P0)) {
++			s.P = saved_P;
++			s.bound = saved_bound;
++			s.own_bound = saved_own_bound;
++			s.rb = saved_rb;
++		}
++	}
+ }
+ bool interpreter::window_applies(const lua_scope* s) const {
+ 	const auto* gf = pduel->game_field;
+@@ -359,7 +391,7 @@ void interpreter::fold_trap(char kind, const char* fn) {
+ void interpreter::bind_param_opponent() {
+ 	const auto* gf = pduel->game_field;
+ 	const auto* s = current_scope();
+-	if(!s || !gf || gf->n_duelists <= 2)
++	if(!s || !gf || gf->n_duelists <= 2 || !gf->is_duelist(s->P))
+ 		return;
+ 	const uint8_t P = s->P;
+ 	// A chain link knows its event: the opponent is the one that the event names (field::event_opponent). The
+@@ -387,7 +419,7 @@ void interpreter::bind_param_opponent() {
+ }
+ lua_Integer interpreter::fold_out(uint8_t d) {
+ 	const auto* gf = pduel->game_field;
+-	if(scopes.empty() || !gf || gf->n_duelists <= 2)
++	if(scopes.empty() || !gf || gf->n_duelists <= 2 || !gf->is_duelist(scopes.back().P))
+ 		return d;
+ 	const uint8_t P = scopes.back().P;
+ 	if(d == DUELIST_NONE)
+@@ -631,6 +663,8 @@ bool interpreter::call_function_scoped(int param_count, int ret_count, effect* s
+ 		const bool copy_window = cur && cur->eff == eff && cur->P == P;
+ 		const mp_window parent_mp = copy_window ? cur->mp : mp_window{};
+ 		const uint8_t parent_bound = (copy_window && cur->mp.open && cur->mp.kind == MPW_ONE) ? scope_raw_bound(cur) : DUELIST_NONE;
++		// F7 P2: the MPBindSeat bind goes with the window (same effect, same P)
++		const uint8_t parent_seat_bind = copy_window ? cur->seat_bind : DUELIST_NONE;
+ 		if(!inherit) {
+ 			// A summon procedure reads the other side through its one bound opponent (the probe of
+ 			// check_condition seeds it; the later runs use the slot of the procedure effect)
+@@ -639,6 +673,7 @@ bool interpreter::call_function_scoped(int param_count, int ret_count, effect* s
+ 			if(sg.push(P, slot, false, false, eff)) {
+ 				current_scope()->mp = parent_mp;
+ 				current_scope()->own_bound = parent_bound;
++				current_scope()->seat_bind = parent_seat_bind;
+ 				if(proc) {
+ 					current_scope()->exclusive = true;
+ 					if(!slot)
+@@ -655,6 +690,7 @@ bool interpreter::call_function_scoped(int param_count, int ret_count, effect* s
+ 		lua_pop(current_state, 1);
+ 		ret = false;
+ 	}
++	sg.check_rebind_closed(ret);
+ 	return ret;
+ }
+ bool interpreter::call_function(int32_t function, uint32_t param_count, int32_t ret_count, effect* scope_eff, uint8_t scope_P) {
+@@ -679,7 +715,11 @@ bool interpreter::call_card_function(card* pcard, const char* function_name, uin
+ 		return ret_fail(format(R"("CallCardFunction"(c%u.%s): attempt to call an error function)", pcard->data.code, function_name), forced);
+ 	}
+ 	lua_remove(current_state, -2);
+-	return call_function_scoped(param_count, ret_count, nullptr, pcard->owner);
++	const bool is_init = std::strcmp(function_name, "initial_effect") == 0;
++	init_depth += is_init ? 1 : 0;
++	const bool ok = call_function_scoped(param_count, ret_count, nullptr, pcard->owner);
++	init_depth -= is_init ? 1 : 0;
++	return ok;
+ }
+ bool interpreter::call_code_function(uint32_t code, const char* function_name, uint32_t param_count, int32_t ret_count) {
+ 	if (param_count != params.size())
+@@ -699,7 +739,11 @@ bool interpreter::call_code_function(uint32_t code, const char* function_name, u
+ 			break;
+ 		}
+ 	}
+-	return call_function_scoped(param_count, ret_count, nullptr, P);
++	const bool is_init = std::strcmp(function_name, "initial_effect") == 0;
++	init_depth += is_init ? 1 : 0;
++	const bool ok = call_function_scoped(param_count, ret_count, nullptr, P);
++	init_depth -= is_init ? 1 : 0;
++	return ok;
+ }
+ bool interpreter::check_condition(int32_t function, uint32_t param_count, effect* scope_eff, uint8_t scope_P) {
+ 	if(!function) {
+@@ -754,10 +798,14 @@ bool interpreter::check_matching(card* pcard, int32_t findex, int32_t extraargs)
+ 	pushobject(current_state, pcard);
+ 	push_range_of_values(current_state, -(extraargs + 2), extraargs);
+ 	auto result = false;
++	// F7 P2: a filter runs in the scope of the caller; a rebind or MPBindSeat that it leaves does not outlive it
++	scope_guard sg(this);
+ 	if(call_lua(current_state, 1 + extraargs, 1) != LUA_OK) {
+ 		pduel->handle_message(lua_get_string_or_empty(current_state, -1), OCG_LOG_TYPE_ERROR);
+-	} else
++	} else {
++		sg.check_rebind_closed(true);
+ 		result = lua_toboolean(current_state, -1);
++	}
+ 	lua_pop(current_state, 1);
+ 	return result;
+ }
+@@ -769,10 +817,14 @@ bool interpreter::check_matching_table(card* pcard, int32_t findex, int32_t tabl
+ 	pushobject(current_state, pcard);
+ 	int extraargs = pushExpandedTable(current_state, table_index);
+ 	auto result = false;
++	// F7 P2: a filter runs in the scope of the caller; a rebind or MPBindSeat that it leaves does not outlive it
++	scope_guard sg(this);
+ 	if(call_lua(current_state, 1 + extraargs, 1) != LUA_OK) {
+ 		pduel->handle_message(lua_get_string_or_empty(current_state, -1), OCG_LOG_TYPE_ERROR);
+-	} else
++	} else {
++		sg.check_rebind_closed(true);
+ 		result = lua_toboolean(current_state, -1);
++	}
+ 	lua_pop(current_state, 1);
+ 	return result;
+ }
+@@ -784,6 +836,7 @@ lua_Integer interpreter::get_operation_value(card* pcard, int32_t findex, int32_
+ 	pushobject(current_state, pcard);
+ 	push_range_of_values(current_state, -(extraargs + 2), extraargs);
+ 	lua_Integer result = 0;
++	scope_guard sg(this);
+ 	if(call_lua(current_state, 1 + extraargs, 1) != LUA_OK) {
+ 		pduel->handle_message(lua_get_string_or_empty(current_state, -1), OCG_LOG_TYPE_ERROR);
+ 	} else
+@@ -799,7 +852,9 @@ bool interpreter::get_operation_value(card* pcard, int32_t findex, int32_t extra
+ 	int32_t stack_top = lua_gettop(current_state);
+ 	pushobject(current_state, pcard);
+ 	push_range_of_values(current_state, -(extraargs + 2), extraargs);
++	scope_guard sg(this);
+ 	auto ret = call_lua(current_state, extraargs, LUA_MULTRET) == LUA_OK;
++	sg.check_rebind_closed(ret);
+ 	if(!ret) {
+ 		pduel->handle_message(lua_get_string_or_empty(current_state, -1), OCG_LOG_TYPE_ERROR);
+ 		lua_pop(current_state, 1);
+@@ -922,21 +977,52 @@ int32_t interpreter::call_coroutine(int32_t function, uint32_t param_count, lua_
+ 			auto* cs = current_scope();
+ 			cs->operation = operation;
+ 			cs->exclusive = proc;
+-			// F7: the window of this coroutine survives a prompt
+-			if(const auto mit = mp_saved.find(rthread); mit != mp_saved.end())
+-				cs->mp = mit->second;
+ 			scoped = true;
+ 			bind_param_opponent();
++			// F7: the window, the MPBindSeat bind and an open MPNthDuelist rebind of this coroutine survive a prompt
++			if(const auto mit = mp_saved.find(rthread); mit != mp_saved.end()) {
++				const auto& sv = mit->second;
++				cs->mp = sv.mp;
++				cs->seat_bind = sv.seat_bind;
++				if(sv.rebound && pduel->game_field->is_duelist(cs->P)) {
++					cs->rb.active = true;
++					cs->rb.P0 = cs->P;
++					cs->rb.bound0 = cs->bound;
++					cs->rb.own_bound0 = sv.own_bound0;
++					cs->rb.seat_bind0 = sv.seat_bind0;
++					cs->rb.mp0 = sv.mp0;
++					cs->P = sv.P;
++					cs->bound = nullptr;
++					cs->own_bound = sv.own_bound;
++				}
++			}
+ 		}
+ 		push_param(rthread, true);
+ 		auto prev_state = std::exchange(current_state, rthread);
+ 		std::tie(result, nresults) = resume_coroutine(current_state, prev_state, param_count);
+ 		current_state = prev_state;
+ 		// every scope that the script pushed is popped again: ours is on top
+-		if(scoped && result == LUA_YIELD && current_scope() && current_scope()->mp.open)
+-			mp_saved[rthread] = current_scope()->mp;
+-		else
++		auto* top = current_scope();
++		if(scoped && result == LUA_YIELD && top && (top->mp.open || top->seat_bind != DUELIST_NONE || top->rb.active)) {
++			coro_saved sv;
++			sv.mp = top->mp;
++			sv.seat_bind = top->seat_bind;
++			if(top->rb.active) {
++				sv.rebound = true;
++				sv.P = top->P;
++				sv.own_bound = top->own_bound;
++				sv.own_bound0 = top->rb.own_bound0;
++				sv.seat_bind0 = top->rb.seat_bind0;
++				sv.mp0 = top->rb.mp0;
++				// the rebind waits in the map: the scope goes back to its own duelist before it is popped
++				top->end_rebind();
++			}
++			mp_saved[rthread] = sv;
++		} else {
+ 			mp_saved.erase(rthread);
++			if(scoped && top)
++				sg.check_rebind_closed(result == LUA_OK);
++		}
+ 	}
+ 	if(result == LUA_YIELD)
+ 		return COROUTINE_YIELD;
+diff --git a/interpreter.h b/interpreter.h
+index 080590b..a3bcb7e 100644
+--- a/interpreter.h
++++ b/interpreter.h
+@@ -53,6 +53,8 @@ public:
+ 	coroutine_map coroutines;
+ 	int32_t no_action;
+ 	int32_t call_depth;
++	// F7 P2: > 0 while initial_effect of a card runs (n > 2). Duel.RegisterEffect then makes a global effect.
++	int32_t init_depth{ 0 };
+ 	lua_invalid deleted;
+ 	int weak_lua_references;
+ 	int loaded_scripts_table;
+@@ -75,6 +77,16 @@ public:
+ 		uint8_t kind{ MPW_ONE };
+ 		uint8_t seat{ DUELIST_NONE };
+ 	};
++	// F7 part P2: the state that Duel.MPNthDuelist(i >= 1) replaces in the scope. It keeps the values of the first
++	// rebind so that MPNthDuelist(0) can put them back (a rebind that is still open when a call ends is a script bug).
++	struct mp_rebind {
++		bool active{ false };
++		uint8_t P0{ DUELIST_NONE };
++		uint8_t* bound0{ nullptr };
++		uint8_t own_bound0{ DUELIST_NONE };
++		uint8_t seat_bind0{ DUELIST_NONE };
++		mp_window mp0;
++	};
+ 	struct lua_scope {
+ 		uint8_t P{ DUELIST_NONE };
+ 		uint8_t* bound{ nullptr };
+@@ -92,11 +104,40 @@ public:
+ 		bool exclusive{ false };
+ 		// F7: the one-opponent window of the scope (closed by default)
+ 		mp_window mp;
++		// F7 P2: Duel.MPBindSeat. The real seat that "1" means in this scope, DUELIST_WINDOW_EMPTY for "no opponent
++		// side" (a dead seat, or a seat of the own team), DUELIST_NONE for no seat bind. It wins over `bound`.
++		uint8_t seat_bind{ DUELIST_NONE };
++		// F7 P2: Duel.MPNthDuelist. active = P (and bound, own_bound, seat_bind, mp) belong to another duelist than
++		// the one that the scope was pushed for.
++		mp_rebind rb;
++		// Puts the values of the first rebind back (Duel.MPNthDuelist(0)). Does nothing when no rebind is open.
++		void end_rebind() {
++			if(!rb.active)
++				return;
++			P = rb.P0;
++			bound = rb.bound0;
++			own_bound = rb.own_bound0;
++			seat_bind = rb.seat_bind0;
++			mp = rb.mp0;
++			rb = mp_rebind{};
++		}
++	};
++	// F7 P2: what a coroutine that waits in a prompt keeps. call_coroutine puts it into the scope of every resume
++	// (the window, the MPBindSeat bind and an open MPNthDuelist rebind) and writes it back at the yield.
++	struct coro_saved {
++		mp_window mp;
++		uint8_t seat_bind{ DUELIST_NONE };
++		bool rebound{ false };
++		uint8_t P{ DUELIST_NONE };
++		uint8_t own_bound{ DUELIST_NONE };
++		uint8_t own_bound0{ DUELIST_NONE };
++		uint8_t seat_bind0{ DUELIST_NONE };
++		mp_window mp0;
+ 	};
+ 	std::vector<lua_scope> scopes;
+ 	// F7: the window of a coroutine that waits in a prompt. call_coroutine puts it into the scope of every
+ 	// resume and writes it back at the yield; the entry is erased when the coroutine ends or fails.
+-	std::unordered_map<lua_State*, mp_window> mp_saved;
++	std::unordered_map<lua_State*, coro_saved> mp_saved;
+ 	void push_scope(uint8_t P, uint8_t* bound = nullptr, bool yieldable = false, bool probe = false,
+ 					effect* eff = nullptr, bool pinned = false) {
+ 		lua_scope s;
+@@ -117,6 +158,8 @@ public:
+ 	}
+ 	// The bound opponent of a scope (chain link or own), without any window. DUELIST_NONE when nothing is bound.
+ 	static uint8_t scope_raw_bound(const lua_scope* s) {
++		if(s->seat_bind != DUELIST_NONE)
++			return s->seat_bind;
+ 		return s->bound ? *s->bound : s->own_bound;
+ 	}
+ 	uint8_t scope_raw_bound() const {
+@@ -150,6 +193,8 @@ public:
+ 		if(scopes.empty())
+ 			return false;
+ 		auto& s = scopes.back();
++		if(s.seat_bind != DUELIST_NONE)
++			return s.seat_bind == d;
+ 		uint8_t& slot = s.bound ? *s.bound : s.own_bound;
+ 		if(slot == DUELIST_NONE)
+ 			slot = d;
+@@ -203,16 +248,32 @@ public:
+ 		// push() pushed nothing: an inherited scope), so a window that fn opened never outlives the call.
+ 		bool had_parent{ false };
+ 		mp_window saved_mp;
++		// F7 P2: the rest of what a call can change in the scope below: the MPBindSeat bind always, and
++		// P, bound, own_bound with the rebind of MPNthDuelist (see the destructor).
++		uint8_t saved_seat_bind{ DUELIST_NONE };
++		uint8_t saved_P{ DUELIST_NONE };
++		uint8_t* saved_bound{ nullptr };
++		uint8_t saved_own_bound{ DUELIST_NONE };
++		mp_rebind saved_rb;
+ 		explicit scope_guard(interpreter* i) : I(i), base(i->scopes.size()) {
+ 			if(!i->scopes.empty()) {
+ 				had_parent = true;
+-				saved_mp = i->scopes.back().mp;
++				const auto& top = i->scopes.back();
++				saved_mp = top.mp;
++				saved_seat_bind = top.seat_bind;
++				saved_P = top.P;
++				saved_bound = top.bound;
++				saved_own_bound = top.own_bound;
++				saved_rb = top.rb;
+ 			}
+ 		}
+ 		scope_guard(const scope_guard&) = delete;
+ 		scope_guard& operator=(const scope_guard&) = delete;
+ 		bool push(uint8_t P, uint8_t* bound = nullptr, bool yieldable = false, bool probe = false,
+ 				  effect* eff = nullptr, bool pinned = false);
++		// Trap build, n > 2: the call ended normally (ok) but left an MPNthDuelist rebind open that it did not start
++		// with: print and abort. A call that failed is not checked: the destructor puts the values back.
++		void check_rebind_closed(bool ok) const;
+ 		~scope_guard();
+ 	};
+ 	// The Lua value of a core duelist id under the current scope (identity without a scope).
+diff --git a/libduel.cpp b/libduel.cpp
+index 9178218..5449f0c 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -99,7 +99,15 @@ LUA_STATIC_FUNCTION(GetDrawCount) {
+ LUA_STATIC_FUNCTION(RegisterEffect) {
+ 	check_param_count(L, 2);
+ 	auto peffect = lua_get<effect*, true>(L, 1);
+-	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "RegisterEffect");
++	// F7 P2 (R2 core rule), n > 2: an effect that a card script registers in initial_effect, or that
++	// Effect.GlobalEffect made, belongs to no seat. It keeps the literal seat of the script (the stock 0) and
++	// runs without a perspective fold.
++	const auto& gfield = *pduel->game_field;
++	const bool is_global = gfield.n_duelists > 2 && !peffect->handler
++		&& (pduel->lua->init_depth > 0 || peffect->owner == gfield.temp_card);
++	if(is_global)
++		peffect->global_effect = true;
++	const auto playerid = is_global ? lua_get<uint8_t>(L, 2) : fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "RegisterEffect");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	// n_duelists > 2: a zone-disabling effect keeps the opponent of the zone prompt that made its value
+@@ -133,6 +141,9 @@ LUA_STATIC_FUNCTION(RegisterFlagEffect) {
+ 	peffect->o_range = 0;
+ 	peffect->reset_count = count;
+ 	peffect->label.push_back(lab);
++	// F7 P2 (R2 core rule): in Tag the flag counts for the team of the seat (the read, reset and label functions
++	// match by team). Free for all and 1v1 keep the seat.
++	peffect->team_key = pduel->game_field->n_duelists > 2 && pduel->game_field->n_teams != pduel->game_field->n_duelists;
+ 	pduel->game_field->add_effect(peffect, playerid);
+ 	interpreter::pushobject(L, peffect);
+ 	return 1;
+@@ -4844,6 +4855,138 @@ LUA_STATIC_FUNCTION(MPAssertBound) {
+ 	lua_pushboolean(L, FALSE);
+ 	return 1;
+ }
++// ---- F7 part P2: seats for the "each duelist" (R1) and "per seat state" (R2) cards. n > 2 only: at n == 2 and in Lua
++// that runs for no duelist these functions give the stock answer (a value that is its own seat, no rebind).
++// Duel.MPNthDuelist(i): i >= 1 rebinds the CURRENT scope to the i-th living duelist in turn order from the scope player
++// (i == 1: that player). P becomes that seat (Tag: the fold of the seat is its team), the bound opponent and the
++// MPBindSeat bind are cleared and the window is closed. Gives true and the seat; gives false (and changes nothing) for
++// an i past the last living duelist, below 1 or above MAX_DUELISTS. An eliminated duelist is skipped, the Tag partner
++// counts. The first rebind keeps the values of the scope (P0, bound, own_bound, bind, window); i == 0 puts them back
++// (true, also when nothing was rebound). A call that ends puts them back on every path (scope_guard), and a prompt in
++// the loop keeps the rebind (call_coroutine). The trap build aborts when a call ends normally with a rebind open.
++// "i" counts from P0 (the scope player before the first rebind), not from the duelist of the previous step.
++LUA_STATIC_FUNCTION(MPNthDuelist) {
++	check_param_count(L, 1);
++	auto* s = f7_scope(pduel);
++	const auto i = lua_get<int64_t>(L, 1);
++	if(!s) {
++		lua_pushboolean(L, FALSE);
++		return 1;
++	}
++	if(i == 0) {
++		s->end_rebind();
++		lua_pushboolean(L, TRUE);
++		return 1;
++	}
++	const auto& f = *pduel->game_field;
++	const uint8_t P0 = s->rb.active ? s->rb.P0 : s->P;
++	uint8_t seat = DUELIST_NONE;
++	uint8_t k = 0;
++	for(uint8_t j = 0; i >= 1 && i <= MAX_DUELISTS && j < f.n_duelists; ++j) {
++		const auto q = static_cast<uint8_t>((P0 + j) % f.n_duelists);
++		if(f.is_alive(q) && ++k == i) {
++			seat = q;
++			break;
++		}
++	}
++	if(seat == DUELIST_NONE) {
++		lua_pushboolean(L, FALSE);
++		return 1;
++	}
++	if(!s->rb.active) {
++		s->rb.active = true;
++		s->rb.P0 = s->P;
++		s->rb.bound0 = s->bound;
++		s->rb.own_bound0 = s->own_bound;
++		s->rb.seat_bind0 = s->seat_bind;
++		s->rb.mp0 = s->mp;
++	}
++	s->P = seat;
++	s->bound = nullptr;
++	s->own_bound = DUELIST_NONE;
++	s->seat_bind = DUELIST_NONE;
++	s->mp = interpreter::mp_window{};
++	lua_pushboolean(L, TRUE);
++	lua_pushinteger(L, seat);
++	return 2;
++}
++// Duel.MPSeat(p): the key of the Lua player value p for state that is kept per seat (R2). FFA: the real seat (0 is the
++// scope player, 1 is the bound opponent; with nothing bound the next living opponent, the scope is marked `touched`
++// and a kind a record is written, as unfold_action does; no prompt). Tag: the team id (the Lua value is a team id
++// already). Outside a scope (a global effect, setup) p is a real seat: FFA the seat, Tag its team. -1 for a value
++// that names no seat (PLAYER_NONE, PLAYER_ALL, 2 or more in a scope, no living opponent). At n == 2: p.
++LUA_STATIC_FUNCTION(MPSeat) {
++	check_param_count(L, 1);
++	const auto v = lua_get<int64_t>(L, 1);
++	const auto& f = *pduel->game_field;
++	if(f.n_duelists <= 2) {
++		lua_pushinteger(L, v);
++		return 1;
++	}
++	const bool tag = f.n_teams != f.n_duelists;
++	const auto* s = fold::active(pduel);
++	if(!s) {
++		lua_pushinteger(L, f.is_duelist(v) ? (tag ? f.team_of(static_cast<uint8_t>(v)) : v) : -1);
++		return 1;
++	}
++	if(v < 0 || v > 1) {
++		lua_pushinteger(L, -1);
++		return 1;
++	}
++	const uint8_t P = s->P;
++	if(fold::is_own(f, P, static_cast<uint8_t>(v))) {
++		lua_pushinteger(L, tag ? f.team_of(P) : P);
++		return 1;
++	}
++	if(tag) {
++		lua_pushinteger(L, v);
++		return 1;
++	}
++	uint8_t b = pduel->lua->scope_bound_opp();
++	if(b == DUELIST_NONE) {
++		b = fold::next_opponent(f, P);
++		if(b != DUELIST_NONE) {
++			pduel->lua->scope_mark_touched();
++			pduel->lua->fold_trap('a', "MPSeat");
++		}
++	}
++	lua_pushinteger(L, (f.is_alive(b) && !f.same_team(P, b)) ? b : -1);
++	return 1;
++}
++// Duel.MPSeatOf(c): the real seat of the controller of the card c (Tag too: the seat, not the team). -1 when the
++// controller is not a duelist. At n == 2: the controller.
++LUA_STATIC_FUNCTION(MPSeatOf) {
++	check_param_count(L, 1);
++	const auto pcard = lua_get<card*, true>(L, 1);
++	const auto& f = *pduel->game_field;
++	const uint8_t c = pcard->current.controler;
++	lua_pushinteger(L, (f.n_duelists <= 2 || f.is_duelist(c)) ? c : -1);
++	return 1;
++}
++// Duel.MPBindSeat(seat): in this scope the Lua value 1 (the opponent) means the real seat `seat`, whatever the chain
++// link has bound (a window wins over it). A seat that is not a living opponent of the scope player (a dead seat, the
++// own team, no duelist) gives an EMPTY other side, never another opponent. Gives true when an opponent is bound.
++// Without an argument it removes the bind. The bind never outlives the call that set it (scope_guard) and a prompt
++// in the call keeps it (call_coroutine). At n == 2, or with no duelist scope: true and nothing else.
++LUA_STATIC_FUNCTION(MPBindSeat) {
++	auto* s = f7_scope(pduel);
++	const bool clear = lua_gettop(L) == 0;
++	if(!s) {
++		lua_pushboolean(L, TRUE);
++		return 1;
++	}
++	if(clear) {
++		s->seat_bind = DUELIST_NONE;
++		lua_pushboolean(L, TRUE);
++		return 1;
++	}
++	const auto seat = lua_get<int64_t>(L, 1);
++	const auto& f = *pduel->game_field;
++	const bool usable = f.is_alive(seat) && !f.same_team(s->P, static_cast<uint8_t>(seat));
++	s->seat_bind = usable ? static_cast<uint8_t>(seat) : DUELIST_WINDOW_EMPTY;
++	lua_pushboolean(L, usable);
++	return 1;
++}
+ }
+ }
+ 
