@@ -5,6 +5,7 @@ import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { installMultiScripts } from "../src/multi-scripts.js";
 
 const sources = {
   corePackage: "ocgcore-wasm@0.1.2",
@@ -58,7 +59,15 @@ async function catalogIsCurrent(manifest: Manifest | null): Promise<boolean> {
 
 await mkdir(directory, { recursive: true });
 const previous = await readManifest(join(directory, "manifest.json"));
+// The Lua overlay of duels with more than two seats ships as <data>/multi-scripts. It is not part of card-scripts
+// (this script replaces that folder), and it changes with the repo, so it is installed on every run.
+const multiScriptsHash = installMultiScripts(directory);
 if (previous && await catalogIsCurrent(previous)) {
+  if (previous.integrity.multiScripts !== multiScriptsHash) {
+    previous.integrity.multiScripts = multiScriptsHash;
+    previous.bundleVersion = hash(JSON.stringify({ sources: previous.sources, integrity: previous.integrity }));
+    await writeFile(join(directory, "manifest.json"), JSON.stringify(previous, null, 2) + "\n");
+  }
   console.log(JSON.stringify({ directory, skipped: true, ...previous }, null, 2));
   process.exit(0);
 }
@@ -93,6 +102,7 @@ try {
     scripts: hash(scripts),
     wasm: hash(wasm),
     wrapper: hash(wrapper),
+    multiScripts: multiScriptsHash,
   };
   const mergedSources: Record<string, unknown> = { ...sources };
   const domainWasmPath = join(directory, "ocgcore.domain.wasm");

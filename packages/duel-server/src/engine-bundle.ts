@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { MULTI_SCRIPTS_DIRECTORY_NAME, multiScriptsFolderHash } from "./multi-scripts.js";
 
 const standardHint = "Build it with docker.io/emscripten/emsdk:4.0.9 and packages/duel-server/scripts/build-standard-core.sh";
 const domainHint = "Build it with docker.io/emscripten/emsdk:4.0.9 and packages/duel-server/scripts/build-domain-core.sh";
 const dataHint = "Run npm run duel:prepare";
+const multiScriptsHint = "Run npm run duel:prepare (it installs domain-core/multi-scripts into the data directory)";
 
 interface Manifest {
   bundleVersion?: unknown;
@@ -58,6 +60,17 @@ export function verifyEngineBundle(dataDirectory: string, options: { wrapperPath
     const actual = sha256(file);
     if (actual !== expected) {
       throw new Error(`Engine file ${file} does not match manifest integrity.${key} (expected ${expected}, got ${actual}). ${hint}`);
+    }
+  }
+
+  // The Lua overlay of duels with more than two seats. An older bundle has no integrity.multiScripts: nothing to check.
+  const expectedMultiScripts = integrity.multiScripts;
+  if (typeof expectedMultiScripts === "string" && expectedMultiScripts) {
+    const folder = join(dataDirectory, MULTI_SCRIPTS_DIRECTORY_NAME);
+    if (!existsSync(folder) || !statSync(folder).isDirectory()) throw new Error(`Multi-scripts folder is missing at ${folder}. ${multiScriptsHint}`);
+    const actual = multiScriptsFolderHash(folder);
+    if (actual !== expectedMultiScripts) {
+      throw new Error(`Engine folder ${folder} does not match manifest integrity.multiScripts (expected ${expectedMultiScripts}, got ${actual}). ${multiScriptsHint}`);
     }
   }
   return { bundleVersion: manifest.bundleVersion };

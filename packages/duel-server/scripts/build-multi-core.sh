@@ -7,6 +7,10 @@
 # domain_master.cpp. Output goes to domain-core/dist (gitignored). It is NOT added to
 # any manifest and no server uses it yet. Only the differential test reads it.
 #
+# The Lua side of duels with more than two seats is NOT part of the wasm: the overlay folder
+# domain-core/multi-scripts (mp-utility.lua, card suffixes) is read by the hosts at run time and shipped in the engine
+# bundle by prepare-data.ts. Changing it does not change this build; the bundle cache keys hash it (see test.yml).
+#
 #   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
 #     -e EM_CACHE=/src/packages/duel-server/domain-core/.emcache \
 #     -v "$PWD":/src -w /src docker.io/emscripten/emsdk:4.0.9 \

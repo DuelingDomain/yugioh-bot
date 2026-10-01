@@ -39,6 +39,27 @@ if contains_database "$dst"; then
   exit 1
 fi
 
+# sha256 of the multi-scripts folder: the lines "<relative path>\0<sha256 of the file>\n", sorted bytewise by path.
+# Same value as multiScriptsFolderHash in src/multi-scripts.ts and integrity.multiScripts in manifest.json.
+multi_scripts_hash() {
+  (
+    cd "$1" || exit 1
+    find . -type f | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do
+      printf '%s\0%s\n' "$f" "$(sha256sum "$f" | cut -d' ' -f1)"
+    done
+  ) | sha256sum | cut -d' ' -f1
+}
+
+# The Lua overlay of duels with more than two seats ships as <bundle>/multi-scripts. Its hash must match the manifest.
+multi_scripts_ok() {
+  root="$1"
+  [ -f "$root/multi-scripts/mp-utility.lua" ] || return 1
+  [ -f "$root/multi-scripts/MANIFEST.json" ] || return 1
+  expected=$(sed -n 's/.*"multiScripts": *"\([0-9a-f]*\)".*/\1/p' "$root/manifest.json" | head -n 1)
+  [ -n "$expected" ] || return 1
+  [ "$(multi_scripts_hash "$root/multi-scripts")" = "$expected" ]
+}
+
 required() {
   root="$1"
   [ -f "$root/cards.cdb" ] \
@@ -47,7 +68,8 @@ required() {
     && [ -f "$root/ocgcore.standard.wasm" ] \
     && [ -f "$root/manifest.json" ] \
     && [ -d "$root/card-scripts" ] \
-    && [ -f "$root/card-scripts/domain.lua" ]
+    && [ -f "$root/card-scripts/domain.lua" ] \
+    && multi_scripts_ok "$root"
 }
 
 cleanup() {
@@ -143,7 +165,7 @@ if [ -n "$src" ]; then
 fi
 
 if ! required "$dst"; then
-  echo "duel-engine bundle missing under $dst (need cards.cdb, strings.conf, card-scripts/domain.lua, ocgcore.domain.wasm, manifest.json)" >&2
+  echo "duel-engine bundle missing under $dst (need cards.cdb, strings.conf, card-scripts/domain.lua, ocgcore.domain.wasm, manifest.json, and multi-scripts with its integrity.multiScripts hash; run npm run duel:prepare)" >&2
   exit 1
 fi
 
