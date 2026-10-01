@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildRows, collect, loadPending, loadScenarioLists, loadScenarios, outcomeAsserts, parseAdrRules, parseRuleDeclarations,
-  pendingListPath, renderTable, runnerSources, scenarioRefs, staleEntries, uniqueScenarios, unknownRules, unrunLists, type RuleRef,
+  partialListPath, pendingListPath, renderTable, runnerSources, scenarioRefs, staleEntries, stalePartial, uniqueScenarios, unknownRules, unrunLists, type RuleRef,
 } from "../scripts/rule-coverage.js";
 
 const adr = [
@@ -102,6 +102,14 @@ describe("rule rows", () => {
     expect(staleEntries(rows, pending)).toEqual(["R-COMMON-A", "R-FFA-GONE"]);
   });
 
+  it("marks a covered rule with a partial note, and flags partial entries for rules that are not covered", () => {
+    const partial = { "R-COMMON-A": "the Deck clause is not proven", "R-TAG-B-2": "x", "R-FFA-GONE": "x" };
+    const rows = buildRows(rules, [{ rule: "R-COMMON-A", ref: ref("scn-a", "outcome") }, { rule: "R-FFA-C", ref: ref("mp-3", "sketch") }], {}, partial);
+    expect(rows[0]!.partial).toBe("the Deck clause is not proven");
+    expect(renderTable(rows, 1)).toContain("| covered (partial: the Deck clause is not proven) | `scn-a` |");
+    expect(stalePartial(rows, partial)).toEqual(["R-TAG-B-2", "R-FFA-GONE"]);
+  });
+
   it("renders the summary, the reasons and the not-counted references", () => {
     const rows = buildRows(
       rules,
@@ -168,7 +176,9 @@ describe("the real repository", () => {
     const rules = parseAdrRules(readFileSync(new URL("../../../docs/adr/0002-multiplayer-duel-rules.md", import.meta.url), "utf8"));
     const pending = loadPending(pendingListPath);
     const { refs } = await collect();
-    const rows = buildRows(rules, refs, pending);
+    const partial = loadPending(partialListPath);
+    const rows = buildRows(rules, refs, pending, partial);
+    expect(stalePartial(rows, partial)).toEqual([]);
     expect(unknownRules(rules.map((r) => r.id), refs)).toEqual([]);
     expect(rows.filter((row) => row.status === "none").map((row) => row.id)).toEqual([]);
     expect(staleEntries(rows, pending)).toEqual([]);
@@ -179,7 +189,7 @@ describe("the real repository", () => {
   it("has a doc that is the table this script makes", async () => {
     const rules = parseAdrRules(readFileSync(new URL("../../../docs/adr/0002-multiplayer-duel-rules.md", import.meta.url), "utf8"));
     const { refs, sketchEntries } = await collect();
-    const table = renderTable(buildRows(rules, refs, loadPending(pendingListPath)), sketchEntries);
+    const table = renderTable(buildRows(rules, refs, loadPending(pendingListPath), loadPending(partialListPath)), sketchEntries);
     expect(readFileSync(new URL("../../../docs/specs/multiplayer-rule-coverage.md", import.meta.url), "utf8")).toBe(table);
   });
 

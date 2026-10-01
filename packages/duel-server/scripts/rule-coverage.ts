@@ -14,6 +14,8 @@
 // scenario, on an unknown rule id, on a scenario list that no test file runs, and (with --check) on a doc that differs
 // from the table this script makes. Without --strict the exit code is always 0.
 // One tested clause is enough to mark the whole rule id as covered: the marker cannot see which clauses of a rule a scenario checks.
+// A covered rule with clauses that no scenario proves is listed in scripts/rule-coverage-partial.json (rule id -> what is not proven).
+// The table shows it as "covered (partial: ...)". --strict fails on a partial entry for a rule that is not covered or not in the ADR.
 // Usage: npx tsx scripts/rule-coverage.ts [--strict] [--check]   (--check: write nothing, compare the doc with the table)
 
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -35,9 +37,11 @@ export interface RuleRow {
   status: Status;
   /** Allow-list reason, only when status is "pending". */
   reason?: string;
+  /** What no scenario proves yet, only when status is "covered" and the rule is in the partial list. */
+  partial?: string;
   tests: RuleRef[];
 }
-/** Allow-list: rule id -> reason. */
+/** Allow-list: rule id -> reason. The partial list has the same shape: rule id -> what is not proven. */
 export type PendingList = Record<string, string>;
 
 /** Step ops that are not actions: every `expect*` step only reads the state. */
@@ -91,10 +95,13 @@ export function buildRows(
   rules: { id: string; title: string }[],
   refs: { rule: string; ref: RuleRef }[],
   pending: PendingList = {},
+  partial: PendingList = {},
 ): RuleRow[] {
   return rules.map((rule) => {
     const tests = refs.filter((r) => r.rule === rule.id).map((r) => r.ref);
-    if (tests.some((t) => t.kind === "outcome")) return { ...rule, status: "covered", tests };
+    if (tests.some((t) => t.kind === "outcome")) {
+      return partial[rule.id] ? { ...rule, status: "covered", partial: partial[rule.id], tests } : { ...rule, status: "covered", tests };
+    }
     const reason = pending[rule.id];
     return reason ? { ...rule, status: "pending", reason, tests } : { ...rule, status: "none", tests };
   });
@@ -104,6 +111,12 @@ export function buildRows(
 export function staleEntries(rows: RuleRow[], pending: PendingList): string[] {
   const byId = new Map(rows.map((row) => [row.id, row]));
   return Object.keys(pending).filter((id) => byId.get(id)?.status !== "pending");
+}
+
+/** Partial-list entries to remove: the rule is not covered (so it is pending or unknown), or it is not in the ADR. */
+export function stalePartial(rows: RuleRow[], partial: PendingList): string[] {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return Object.keys(partial).filter((id) => byId.get(id)?.status !== "covered");
 }
 
 /** Turn the scenarios that declare `rules` into references (outcome, or weak without an outcome assert). */
@@ -141,7 +154,8 @@ export function renderTable(rows: RuleRow[], sketchEntries: number): string {
     if (sketches > 0) parts.push(`${sketches} catalog sketch${sketches === 1 ? "" : "es"}`);
     return parts.length === 0 ? "-" : parts.join(", ");
   };
-  const statusCell = (row: RuleRow) => (row.status === "pending" ? `pending: ${row.reason}` : row.status);
+  const statusCell = (row: RuleRow) =>
+    row.status === "pending" ? `pending: ${row.reason}` : row.partial ? `covered (partial: ${row.partial})` : row.status;
   const pendingCount = count("pending");
   const noneCount = count("none");
   return [
@@ -158,7 +172,8 @@ export function renderTable(rows: RuleRow[], sketchEntries: number): string {
     "on a stale entry, and on a scenario that declares `rules` with no outcome assert.",
     "",
     "A rule id is one unit: if a rule has several clauses, one tested clause is enough to mark it covered. The marker does not check",
-    "which clauses a scenario proves, so read the scenario before you trust a rule that has more than one clause.",
+    "which clauses a scenario proves, so read the scenario before you trust a rule that has more than one clause. When a covered rule",
+    "has clauses that no scenario proves, `scripts/rule-coverage-partial.json` says so and the status reads `covered (partial: ...)`.",
     "",
     "The outcome scenarios in `tests/scenarios/multiplayer/nseat-scenarios.ts` run on a real engine only with `NSEAT_LIVE=1` and a",
     "multi core that has `Debug.SetupDuelists`. Until the live core is the default (and the gate is removed), a default `npm test` skips them.",
@@ -187,6 +202,7 @@ export const packageRoot = resolve(here, "..");
 export const repoRoot = resolve(packageRoot, "../..");
 
 export const pendingListPath = join(packageRoot, "scripts", "rule-coverage-pending.json");
+export const partialListPath = join(packageRoot, "scripts", "rule-coverage-partial.json");
 
 /** Read the allow-list. A missing file is an empty list. A value must be a non-empty reason. */
 export function loadPending(path = pendingListPath): PendingList {
@@ -291,7 +307,8 @@ async function main() {
   const pending = loadPending();
   const { refs, sketchEntries } = await collect();
   const unknown = unknownRules(rules.map((r) => r.id), refs);
-  const rows = buildRows(rules, refs, pending);
+  const partial = loadPending(partialListPath);
+  const rows = buildRows(rules, refs, pending, partial);
   const table = renderTable(rows, sketchEntries);
   const docPath = join(repoRoot, "docs/specs/multiplayer-rule-coverage.md");
   if (!checkOnly) writeFileSync(docPath, table);
@@ -300,15 +317,17 @@ async function main() {
   const count = (status: Status) => rows.filter((row) => row.status === status).length;
   const none = rows.filter((row) => row.status === "none");
   const stale = staleEntries(rows, pending);
+  const stalePartialIds = stalePartial(rows, partial);
   const weak = [...new Set(refs.filter((r) => r.ref.kind === "weak").map((r) => r.ref.test))];
   console.log(`${rows.length} rules: ${count("covered")} covered by an outcome scenario, ${count("pending")} pending (allow-list), ${none.length} with no test.`);
   if (unknown.length > 0) console.error(`Unknown rule ids: ${unknown.join(", ")}`);
   if (none.length > 0) console.log(`No outcome test and not in the allow-list: ${none.map((row) => row.id).join(", ")}`);
   if (stale.length > 0) console.error(`Stale allow-list entries (covered or not in the ADR): ${stale.join(", ")}`);
+  if (stalePartialIds.length > 0) console.error(`Stale partial entries (rule not covered or not in the ADR): ${stalePartialIds.join(", ")}`);
   if (weak.length > 0) console.error(`Scenarios with rules but no outcome assert: ${weak.join(", ")}`);
   if (unrun.length > 0) console.error(`Scenario lists that no test file runs: ${unrun.join(", ")}`);
   if (docStale) console.error("docs/specs/multiplayer-rule-coverage.md is out of date. Run: npx tsx scripts/rule-coverage.ts");
-  if (strict && (none.length > 0 || unknown.length > 0 || stale.length > 0 || weak.length > 0 || unrun.length > 0 || docStale)) process.exit(1);
+  if (strict && (none.length > 0 || unknown.length > 0 || stale.length > 0 || stalePartialIds.length > 0 || weak.length > 0 || unrun.length > 0 || docStale)) process.exit(1);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await main();
