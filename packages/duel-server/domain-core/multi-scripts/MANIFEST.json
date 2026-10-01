@@ -1386,7 +1386,7 @@
       "code": 76375976,
       "file": "c76375976.lua",
       "name": "Mystic Mine",
-      "kind": "trig",
+      "kind": "hand",
       "classes": [
         "COMPARE"
       ],
@@ -1397,14 +1397,9 @@
         "descon",
         "destg"
       ],
-      "redefined": [
-        "conopp",
-        "conself",
-        "descon",
-        "destg"
-      ],
+      "replace": true,
       "stockSha256": "108707831a6836dde33a08fc3f8d17e422f9aaf686adc46c39427c054a42860d",
-      "note": "Mystic Mine: the continuous compare is in FIELD effect conditions (conself, conopp)."
+      "note": "Mystic Mine (review A item 4): the continuous compare is in FIELD effect conditions (conself, conopp). The lock of the opponents is per opponent in FFA: only an opponent that alone controls more monsters cannot activate monster effects (value function) or declare an attack (card target). Whole file replaced; Two seats and Tag keep the stock lock."
     },
     {
       "code": 76416959,

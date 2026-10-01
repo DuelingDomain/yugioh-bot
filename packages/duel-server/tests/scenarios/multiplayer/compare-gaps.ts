@@ -7,7 +7,7 @@
 // Decisions: docs/adr/0002-multiplayer-duel-rules.md (question 2): FFA, the activator compares with ONE opponent.
 
 import {
-  activate, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectTurn,
+  activate, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectTurn,
   normalSummon, pass, pickOpponent, select, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -31,6 +31,8 @@ const SANGEN = "Sangen Kaiho";
 const GHOST = "Ghost Reaper & Winter Cherries";
 const EXCITON = "Evilswarm Exciton Knight";
 const SLIME = "Mimighoul Slime";
+const MINE = "Mystic Mine";
+const PIPER = "Mystic Piper";
 
 /**
  * The state of EVERY seat of a format, exact for the monster zones, the Spell and Trap zones, the Graveyard, the banished zone and
@@ -306,6 +308,77 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       activate(SLIME, "p0"),
       pickOpponent("p1", "p0"),
       everySeat("ffa3", { p0: { hand: [], monsters: [ELF] }, p1: { monsters: [SANGAN, SLIME] }, p2: { monsters: [WITCH, BUG] } }),
+    ],
+  }),
+  // Mystic Mine: only an opponent that ALONE controls more monsters than the controller of the Mine cannot activate monster effects and
+  // cannot declare an attack. Mystic Piper (Tribute itself: draw 1 card) is a monster effect that any duelist can activate on its own.
+  defineScenario({
+    id: "compare-gaps-ffa3-mystic-mine-only-the-opponent-with-more-monsters-is-locked",
+    title: "FFA3: p0 controls 2 monsters, p1 controls 3 and p2 controls 1: Mystic Mine locks p1 (no monster effect, no attack) and leaves p2 free",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "compare", "ffa3", "card:76375976"],
+    setup: {
+      format: "ffa3",
+      p0: { hand: [MINE], monsters: [ELF, RAT] },
+      p1: { monsters: [PIPER, WITCH, BUG] },
+      p2: { monsters: [PIPER] },
+    },
+    steps: [
+      activate(MINE, "p0"),
+      endTurn("p0"),
+      // Round 1 (no attack is legal in it): the activation lock shows on the Piper of p1, the Piper of p2 is free.
+      expectNotOffered("activate", PIPER, "p1"),
+      endTurn("p1"),
+      expectOffered("activate", PIPER, "p2"),
+      endTurn("p2"),
+      // Round 2: p0 ends its turn, then the attack lock shows: no monster of p1 may attack, the Piper of p2 may.
+      endTurn("p0"),
+      changePhase("battle", "p1"),
+      expectNotOffered("attack", PIPER, "p1"),
+      expectNotOffered("attack", WITCH, "p1"),
+      expectNotOffered("attack", BUG, "p1"),
+      endTurn("p1"),
+      changePhase("battle", "p2"),
+      expectOffered("attack", PIPER, "p2"),
+
+      everySeat("ffa3", {
+        p0: { hand: [ELF], monsters: [ELF, RAT], spells: [MINE] },
+        p1: { hand: [ELF, ELF], monsters: [PIPER, WITCH, BUG] },
+        p2: { hand: [ELF, ELF], monsters: [PIPER] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "compare-gaps-ffa3-mystic-mine-no-opponent-has-more-nobody-is-locked",
+    title: "FFA3: p0 controls 2 monsters, p1 and p2 control 1 each (no opponent has more): Mystic Mine locks nobody, p1 and p2 activate and attack",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "compare", "ffa3", "card:76375976"],
+    setup: {
+      format: "ffa3",
+      p0: { hand: [MINE], monsters: [ELF, RAT] },
+      p1: { monsters: [PIPER] },
+      p2: { monsters: [PIPER] },
+    },
+    steps: [
+      activate(MINE, "p0"),
+      endTurn("p0"),
+      expectOffered("activate", PIPER, "p1"),
+      endTurn("p1"),
+      expectOffered("activate", PIPER, "p2"),
+      endTurn("p2"),
+      endTurn("p0"),
+      changePhase("battle", "p1"),
+      expectOffered("attack", PIPER, "p1"),
+      endTurn("p1"),
+      changePhase("battle", "p2"),
+      expectOffered("attack", PIPER, "p2"),
+      everySeat("ffa3", {
+        p0: { hand: [ELF], monsters: [ELF, RAT], spells: [MINE] },
+        p1: { hand: [ELF, ELF], monsters: [PIPER] },
+        p2: { hand: [ELF, ELF], monsters: [PIPER] },
+      }),
     ],
   }),
 ];
