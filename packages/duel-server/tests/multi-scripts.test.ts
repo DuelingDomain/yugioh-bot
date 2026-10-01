@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -178,16 +178,20 @@ describe("finding the folder", () => {
     expect(() => resolveMultiScriptsDirectory(empty("ms-data-"), { env: { [MULTI_SCRIPTS_ENV]: "/no/such/folder" } })).toThrow(/is not a directory/);
   });
 
-  it("takes <data>/multi-scripts second", () => {
+  it("takes the repo folder second, outside production, before an older copy in <data>", () => {
+    const repo = empty("ms-repo-");
     const data = empty("ms-data-");
     mkdirSync(join(data, "multi-scripts"));
-    expect(resolveMultiScriptsDirectory(data, { env: {}, repoDirectory: empty("ms-repo-") })).toBe(join(data, "multi-scripts"));
+    expect(resolveMultiScriptsDirectory(data, { env: {}, repoDirectory: repo })).toBe(repo);
+    expect(resolveMultiScriptsDirectory(data, { env: { NODE_ENV: "test" }, repoDirectory: repo })).toBe(repo);
+    expect(resolveMultiScriptsDirectory(empty("ms-data-"), { env: {}, repoDirectory: repo })).toBe(repo);
   });
 
-  it("takes the repo folder last, outside production", () => {
-    const repo = empty("ms-repo-");
-    expect(resolveMultiScriptsDirectory(empty("ms-data-"), { env: {}, repoDirectory: repo })).toBe(repo);
-    expect(resolveMultiScriptsDirectory(empty("ms-data-"), { env: { NODE_ENV: "test" }, repoDirectory: repo })).toBe(repo);
+  it("takes <data>/multi-scripts when the repo folder is missing", () => {
+    const data = empty("ms-data-");
+    mkdirSync(join(data, "multi-scripts"));
+    expect(resolveMultiScriptsDirectory(data, { env: {}, repoDirectory: join(data, "no-repo") })).toBe(join(data, "multi-scripts"));
+    expect(resolveMultiScriptsDirectory(empty("ms-data-"), { env: {}, repoDirectory: join(data, "no-repo") })).toBeNull();
   });
 
   it("in production uses <data>/multi-scripts only: no repo folder, no env folder", () => {
@@ -219,6 +223,13 @@ describe("installing the folder into a data directory", () => {
     const hash = installMultiScripts(data, good);
     expect(() => installMultiScripts(data, makeOverlay([], { utility: null }))).toThrow(/has no mp-utility\.lua/);
     expect(multiScriptsFolderHash(join(data, "multi-scripts"))).toBe(hash);
+  });
+
+  it("leaves no sibling folders behind and swaps in one step", () => {
+    const data = temp("ms-install-");
+    installMultiScripts(data, makeOverlay([{ code: 1, text: "A" }]));
+    installMultiScripts(data, makeOverlay([{ code: 2, text: "B" }]));
+    expect(readdirSync(data).sort()).toEqual(["multi-scripts"]);
   });
 
   it("installs the repo folder by default", () => {
