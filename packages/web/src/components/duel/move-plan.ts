@@ -96,6 +96,17 @@ export function pairedMovePlan(eventId: number): MovePlan | null {
   return moveId == null ? null : (plans.get(moveId) ?? null);
 }
 
+/**
+ * performance.now() timestamp at which every planned card flight (and its landing hold) is over;
+ * `now` when none is running. Effects that must come after the cards have settled (the Deck Master
+ * returning to its zone) start then.
+ */
+export function movesSettleAt(now: number): number {
+  let end = now;
+  for (const plan of plans.values()) end = Math.max(end, plan.landAt + plan.holdMs);
+  return end;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }

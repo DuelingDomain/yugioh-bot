@@ -969,7 +969,7 @@ function MasterDock({
             onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
             onBlur={() => onHoverCard?.(null, null)}
           >
-            <div className={styles.masterArt} data-away={status === "Elsewhere" ? "true" : "false"}>
+            <div className={styles.masterArt} data-master-dock={view.seat} data-away={status === "Elsewhere" ? "true" : "false"}>
               <img src={cardArtUrl(master.card.code, "full")} alt="" draggable={false} />
               <ZoneMarks legal={legal} selected={selected} />
             </div>

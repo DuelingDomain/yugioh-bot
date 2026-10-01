@@ -60,6 +60,7 @@ import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from 
 import { SheetButton } from "./sheet-ui";
 import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } from "./room-settings";
 import { battleStepLabel, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
+import { MasterReturnFx } from "./master-return-fx";
 import { MoveFx } from "./move-fx";
 import { PositionFx } from "./position-fx";
 import { SummonFx } from "./summon-fx";
@@ -930,6 +931,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                   reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
                 {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
                 {!error && !realtime.recovering ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
+                {!error && !realtime.recovering ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
+                  reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
                 <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
                   active={!error && !realtime.recovering} aim={battleAim} />
                 <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
