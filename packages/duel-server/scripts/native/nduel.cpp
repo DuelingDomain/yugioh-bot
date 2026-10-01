@@ -1094,7 +1094,8 @@ int main(int argc, char** argv) {
 				break;
 			}
 			if(is_prompt(m.id)) {
-				last_opt_chain = (m.id == MSG_SELECT_CHAIN && m.len >= 3 && !m.p[2]);
+				// Refined when the answer is known (below): only a chosen response to an optional prompt exempts the next link.
+				last_opt_chain = (m.id == MSG_SELECT_CHAIN && m.len >= 3 && !m.p[2] && m.p[1] != 0x7f);
 				if(m.id == MSG_SELECT_CHAIN && m.len >= 3) {
 					// spe_count 0x7f is the trigger window for the duelist's own new link, not a response prompt.
 					if(chain_L >= 0 && m.p[1] != 0x7f) chain_seen.push_back(m.p[0]);
@@ -1205,6 +1206,13 @@ int main(int argc, char** argv) {
 			fail("stall", std::to_string(opt.stall_steps) + " answers without a new turn (turn " + std::to_string(turn) + ")");
 		const Bytes answer = answer_prompt(last_prompt, attempt);
 		if(opt.trace) std::fprintf(stderr, "answer msg %d attempt %d len %zu\n", last_prompt.id, attempt, answer.v.size());
+		if(last_prompt.id == MSG_SELECT_CHAIN && last_prompt.payload.size() >= 3) {
+			// The next link is a chosen response only when the answer is not a pass (-1) and the window is not the
+			// spe_count 0x7f trigger window of the duelist's own new link. A pass leaves the next link a forced trigger.
+			int32_t idx = -1;
+			if(answer.v.size() >= 4) std::memcpy(&idx, answer.v.data(), 4);
+			last_opt_chain = !last_prompt.payload[2] && last_prompt.payload[1] != 0x7f && idx >= 0;
+		}
 		if(last_prompt.id == MSG_SELECT_OPTION && multi && last_prompt.payload.size() >= 2) {
 			const int cnt = last_prompt.payload[1];
 			int32_t idx = -1;
