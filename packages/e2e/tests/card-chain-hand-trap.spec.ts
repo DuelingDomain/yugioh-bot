@@ -1,5 +1,5 @@
 import { test, expect } from "../helpers/fixtures";
-import { chainList, handCard, openLog, pickLegalZone, pile, pileCards, respondPanel, startDuel, useCard } from "../helpers/board";
+import { activateSingleResponse, chainList, handCard, openLog, pickLegalZone, pile, pileCards, startDuel, useCard } from "../helpers/board";
 import { withFiller } from "../helpers/decks";
 
 // Chain and hand trap: Alice activates a searcher, Bob chains Ash Blossom from his hand.
@@ -17,14 +17,13 @@ test("a hand trap chained to a searcher negates it and both players see the chai
   await useCard(alice.page, handCard(alice.page, "Reinforcement of the Army"), "Activate");
   await pickLegalZone(alice.page, "st");
 
-  // Bob is asked to respond. Both see link 1 in the chain.
-  const respond = respondPanel(bob.page, "You can respond to Reinforcement of the Army");
-  await expect(respond).toBeVisible();
+  // Bob is asked to respond: one card, so the compact "Activate?" bar. Both see link 1 in the chain.
+  await expect(bob.page.getByRole("group", { name: /^Ash Blossom & Joyous Spring\. You can activate/ })).toBeVisible();
   await expect(chainList(bob.page).getByRole("listitem")).toHaveText([/1\s*Reinforcement of the Army\s*E2E Alice/]);
   await expect(chainList(alice.page).getByRole("listitem")).toHaveText([/1\s*Reinforcement of the Army\s*E2E Alice/]);
   await expect(alice.page.getByRole("button", { name: "Waiting" })).toBeDisabled();
 
-  await respond.getByRole("button", { name: /^Ash Blossom & Joyous Spring: Negate that effect/ }).click();
+  await activateSingleResponse(bob.page);
 
   // The chain ends. The searcher is negated: the warrior stays in the deck, Ash and the spell are in the GY.
   await expect(chainList(alice.page)).toHaveCount(0);

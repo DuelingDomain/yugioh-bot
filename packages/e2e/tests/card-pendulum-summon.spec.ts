@@ -36,7 +36,8 @@ test("a Pendulum Summon is shown as a Pendulum Summon on every screen", async ({
   await choice.getByRole("button", { name: "Cancel" }).click();
   await expect(choice).toHaveCount(0);
   await startPendulumSummon(alice.page);
-  await choice.getByRole("button", { name: new RegExp(FILLER) }).first().click();
+  // The cards of a hand pick are chosen on the board; the bar holds Finish and Cancel.
+  await handCard(alice.page, FILLER).click();
   await choice.getByRole("button", { name: "Finish" }).click();
   await pickLegalZone(alice.page, "mz");
   await alice.page.getByRole("button", { name: /Face-up Defense/ }).click();
