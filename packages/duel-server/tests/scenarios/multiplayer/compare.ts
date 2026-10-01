@@ -5,7 +5,7 @@
 // opponent only. Tag: the joined field of the two opposing duelists, and the picked opposing duelist chooses.
 
 import {
-  activate, attack, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectPickSeats,
+  activate, attack, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectPrompt,
   normalSummon, pass, pickOpponent, select, expectTurn, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -30,6 +30,7 @@ const BEAVER = "Beaver Warrior";
 const SANGAN = "Sangan";
 const WITCH = "Witch of the Black Forest";
 const BUG = "Man-Eater Bug";
+const OFFERINGS = "Offerings to the Doomed";
 const OPP_PICK = `${SOURCE} [R-COMMON-OPP-PICK]`;
 
 export const COMPARE_SCENARIOS: Scenario[] = [
@@ -40,16 +41,25 @@ export const COMPARE_SCENARIOS: Scenario[] = [
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "compare", "ffa3", "card:38817295"],
     // p0 has 2 monsters. p1 has 1 (fewer), p2 has 3 (more). Only p2 passes the compare, so the card is offered and p2 is the bound seat.
+    // Sangan of p2 is negated by the Sky: Offerings to the Doomed then destroys it and Sangan does NOT add a card (a Sangan that is not
+    // negated would offer p2 a search). Witch of p1 and every other card of p1 and p2 is unchanged.
     setup: {
       format: "ffa3",
-      p0: { hand: ["Ultimate Sky"], monsters: [ELF, RAT] },
-      p1: { monsters: [SANGAN] },
-      p2: { monsters: [WITCH, BUG, "Mystical Elf - White Lightning"] },
+      p0: { hand: ["Ultimate Sky", OFFERINGS], monsters: [ELF, RAT] },
+      p1: { monsters: [WITCH] },
+      p2: { monsters: [SANGAN, BUG, "Mystical Elf - White Lightning"] },
     },
     steps: [
       activate("Ultimate Sky", "p0"),
-      select(WITCH),
+      select(SANGAN),
       expectBoard({ p0: { lp: 7200 } }),
+      activate(OFFERINGS, "p0"),
+      select(SANGAN),
+      everySeat("ffa3", {
+        p0: { lp: 7200, hand: [], monsters: [ELF, RAT], grave: ["Ultimate Sky", OFFERINGS] },
+        p1: { hand: [], monsters: [WITCH] },
+        p2: { hand: [], monsters: [BUG, "Mystical Elf - White Lightning"], grave: [SANGAN] },
+      }),
     ],
   }),
   defineScenario({
@@ -440,7 +450,7 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       pickOpponent("p3", "p0"),
       // p3 chooses among the joined opposing field (3 monsters) which 1 monster is not destroyed: p0 controls 1 monster.
       select(SANGAN),
-      expectBoard({ p1: { monsters: [SANGAN] }, p3: { monsters: { count: 0 }, grave: [BUG, OX] } }),
+      everySeat("tag", { p0: { monsters: [BEAVER], grave: ["Pineapple Blast"] }, p1: { monsters: [SANGAN] }, p3: { grave: [BUG, OX] } }),
     ],
   }),
   defineScenario({
@@ -466,7 +476,7 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       pickOpponent("p3", "p0"),
       // p3 chooses among the joined opposing field: 2 of the 3 cards are banished.
       select(SANGAN, WITCH),
-      expectBoard({ p1: { monsters: { count: 0 } }, p3: { monsters: [BUG] } }),
+      everySeat("tag", { p0: { grave: ["Evenly Matched"] }, p1: { banished: [SANGAN] }, p3: { monsters: [BUG], banished: [WITCH] } }),
     ],
   }),
   defineScenario({
@@ -478,6 +488,35 @@ export const COMPARE_SCENARIOS: Scenario[] = [
     // p0 controls 1 monster, p1 has 1 and p2 has 2: the second opponent passes the compare, the first one does not.
     setup: { format: "ffa3", p0: { hand: ["Evilswarm Mandragora"], monsters: [ELF] }, p1: { monsters: [SANGAN] }, p2: { monsters: [WITCH, BUG] } },
     steps: [specialSummon("Evilswarm Mandragora", "p0"), expectBoard({ p0: { monsters: [ELF, "Evilswarm Mandragora"] } })],
+  }),
+  defineScenario({
+    id: "compare-tag-mandragora-joined-opposing-field-no-pick",
+    title: "Tag: Evilswarm Mandragora (a pure compare) reads the JOINED opposing field: p1 and p3 control 1 monster each (equal to p0 alone) but 2 together, so it is offered and summoned with no pick prompt (T1)",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "compare", "tag", "card:8814959"],
+    // Team 0 is p0 and p2, team 1 is p1 and p3. p0 controls 1 monster, the opposing team controls 2 together (1 each).
+    setup: { format: "tag", p0: { hand: ["Evilswarm Mandragora"], monsters: [ELF] }, p1: { monsters: [SANGAN] }, p3: { monsters: [WITCH] } },
+    steps: [
+      expectOffered("specialSummon", "Evilswarm Mandragora", "p0"),
+      specialSummon("Evilswarm Mandragora", "p0"),
+      // The summon came straight back to the action prompt: no opponent pick was asked.
+      expectPrompt({ by: "p0", context: "action" }),
+      everySeat("tag", { p0: { hand: [], monsters: [ELF, "Evilswarm Mandragora"] }, p1: { monsters: [SANGAN] }, p3: { monsters: [WITCH] } }),
+    ],
+  }),
+  defineScenario({
+    id: "compare-tag-mandragora-joined-opposing-field-equal-not-offered",
+    title: "Tag: Evilswarm Mandragora is not offered when the joined opposing field has as many monsters as p0 (1 against 1: p1 has 1 and p3 has none) (T1)",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "compare", "tag", "card:8814959"],
+    setup: { format: "tag", p0: { hand: ["Evilswarm Mandragora"], monsters: [ELF] }, p1: { monsters: [SANGAN] }, p3: {} },
+    steps: [
+      expectNotOffered("specialSummon", "Evilswarm Mandragora", "p0"),
+      endTurn("p0"),
+      everySeat("tag", { p0: { hand: ["Evilswarm Mandragora"], monsters: [ELF] }, p1: { monsters: [SANGAN] } }),
+    ],
   }),
   defineScenario({
     id: "compare-ffa3-mandragora-no-opponent-passes",

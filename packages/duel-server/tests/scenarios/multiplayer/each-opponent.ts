@@ -133,9 +133,10 @@ export const EACH_OPPONENT_SCENARIOS: Scenario[] = [
       expectPickOptions([{ seat: "p3", card: FANG }, { seat: "p3", card: BEAVER }], "p3"),
       select(BEAVER),
       expectBoard({
-        p0: { monsters: [GUARDIAN], grave: [RAT, GRAVE] },
-        p1: { monsters: [AXE], grave: [OX] },
-        p3: { monsters: [BEAVER], grave: [FANG] },
+        p0: { lp: 16000, monsters: [GUARDIAN], spells: [], grave: [RAT, GRAVE], banished: [] },
+        p1: { lp: 16000, monsters: [AXE], spells: [], grave: [OX], banished: [] },
+        p2: { lp: 16000, monsters: [], spells: [], grave: [], banished: [] },
+        p3: { lp: 16000, monsters: [BEAVER], spells: [], grave: [FANG], banished: [] },
       }),
     ],
   }),
