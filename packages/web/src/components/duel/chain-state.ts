@@ -115,42 +115,65 @@ function fromSnapshot(link: DuelChainLink): ChainLinkState {
   };
 }
 
+/** The snapshot as one link per index, ascending. A bad index is dropped, a repeated one keeps the last entry. */
+function snapshotEntries(snapshot: readonly DuelChainLink[]): ChainLinkState[] {
+  const byIndex = new Map<number, ChainLinkState>();
+  for (const link of snapshot) {
+    if (!Number.isInteger(link.index) || link.index < 1) continue;
+    byIndex.set(link.index, fromSnapshot(link));
+  }
+  return [...byIndex.values()].sort((a, b) => a.index - b.index);
+}
+
 /**
  * The chain after a whole event window. The snapshot chain fills links the window no longer holds
  * (and is the whole chain when the window has none), so a reload mid-chain still shows it.
+ *
+ * The result always holds exactly one link per number, 1..n. The snapshot is the engine's chain at
+ * the same revision as the window, so it also decides how long the chain is: a window link above
+ * its top is left over from a chain whose "chain-end" was lost, and is dropped.
  */
 export function deriveChainState(events: readonly DuelEvent[], snapshot: readonly DuelChainLink[] = []): ChainState {
   const ordered = events.filter(isChainEvent).sort((a, b) => a.id - b.id);
   let state = ordered.reduce(applyChainEvent, EMPTY_CHAIN);
   if (state === EMPTY_CHAIN && ordered.length > 0 && ordered[ordered.length - 1].kind === "chain-end") return EMPTY_CHAIN;
-  if (snapshot.length === 0) return state;
-  if (state.links.length === 0) return { links: snapshot.map(fromSnapshot), resolving: null };
-  let links: ChainLinkState[] | null = null;
-  for (const link of snapshot) {
-    const current = (links ?? state.links)[link.index - 1];
+  const entries = snapshotEntries(snapshot);
+  if (entries.length === 0) return state;
+  const top = entries[entries.length - 1].index;
+  if (state.links.length === 0) return { links: fillGaps(entries, top), resolving: null };
+  let links: ChainLinkState[] | null = state.links.length > top ? state.links.slice(0, top) : null;
+  for (const entry of entries) {
+    const current = (links ?? state.links)[entry.index - 1];
     if (current && current.code != null) continue;
     links ??= state.links.slice();
-    while (links.length < link.index) links.push(placeholder(links.length + 1));
-    const filled = fromSnapshot(link);
-    const known = links[link.index - 1];
-    links[link.index - 1] = { ...filled, status: known.status, negated: known.negated, zone: known.zone };
+    while (links.length < entry.index) links.push(placeholder(links.length + 1));
+    const known = links[entry.index - 1];
+    links[entry.index - 1] = { ...entry, status: known.status, negated: known.negated, zone: known.zone };
   }
-  if (links) state = { links, resolving: state.resolving };
+  if (links) state = { links, resolving: state.resolving != null && state.resolving > links.length ? null : state.resolving };
   return state;
 }
 
-/**
- * The stack panel shows a chain of two or more links, or a lone link that has not started
- * resolving (somebody is still deciding on a response).
- */
-export function chainPanelVisible(state: ChainState): boolean {
-  if (state.links.length >= 2) return true;
-  return state.links.length === 1 && state.links[0].status === "pending";
+/** Links 1..top from sorted entries, with a placeholder for any number the entries skip. */
+function fillGaps(entries: readonly ChainLinkState[], top: number): ChainLinkState[] {
+  const out: ChainLinkState[] = [];
+  let at = 0;
+  for (let index = 1; index <= top; index += 1) {
+    out.push(entries[at]?.index === index ? entries[at++] : placeholder(index));
+  }
+  return out;
 }
 
-/** Reading order for the stack panel: the top of the chain first, Chain Link 1 at the bottom. */
-export function panelOrder(state: ChainState): ChainLinkState[] {
-  return state.links.slice().sort((a, b) => b.index - a.index);
+/**
+ * The links the board cannot show as a badge: the activation zone is unknown, or the card and its
+ * hand / pile are not on the board right now (`lost` holds the indexes the badge layer could not
+ * place). The board shows every other link as a badge, and only as a badge, so these are the only
+ * links the off-board strip may list. The top of the chain comes first.
+ */
+export function strayLinks(state: ChainState, lost: ReadonlySet<number>): ChainLinkState[] {
+  return state.links
+    .filter((link) => lost.has(link.index) || chainAnchor(link) === null)
+    .sort((a, b) => b.index - a.index);
 }
 
 export type ChainAnchor = {
@@ -211,4 +234,77 @@ export function chainStateKey(state: ChainState): string {
       return `${link.index}:${link.seat}:${link.code ?? 0}:${link.status}:${link.negated ? 1 : 0}:${z}`;
     })
     .join("|");
+}
+
+type Point = { x: number; y: number };
+type Box = { left: number; top: number; width: number; height: number };
+
+/**
+ * Badge geometry, shared with chain-fx.module.css (.badge): the badge hangs on the card's top right
+ * corner, a third of its width outside, and each further link on the same card steps left by 82%.
+ */
+const BADGE_OUT = 0.34;
+const BADGE_STEP = 0.82;
+
+/** Centre of a link's badge, from the card box, the badge size and its place in the fan on that card. */
+export function badgeCenter(box: Box, size: number, shift: number): Point {
+  return {
+    x: box.left + box.width + size * (BADGE_OUT - shift * BADGE_STEP) - size / 2,
+    y: box.top - size * BADGE_OUT + size / 2,
+  };
+}
+
+/** A quadratic arc from one badge to the next, or null when they are too close for a line to read. */
+export function chainWirePath(from: Point, to: Point, minGap: number): string | null {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < minGap) return null;
+  const sag = Math.min(40, dist * 0.18);
+  const cx = (from.x + to.x) / 2 - (dy / dist) * sag;
+  const cy = (from.y + to.y) / 2 + (dx / dist) * sag;
+  const r = (n: number) => Math.round(n * 10) / 10;
+  return `M${r(from.x)} ${r(from.y)} Q${r(cx)} ${r(cy)} ${r(to.x)} ${r(to.y)}`;
+}
+
+/** What a screen reader says for one link, e.g. "Chain Link 2: Card, Opponent, negated. Effect text". */
+export function chainLinkLabel(
+  link: ChainLinkState,
+  mySeat: number | null,
+  playerName: (seat: number) => string,
+  detail = true,
+): string {
+  const parts = [`${link.name ?? "Effect"}`, chainSeatLabel(link.seat, mySeat, playerName)];
+  if (detail) {
+    if (link.status === "resolving") parts.push("resolving");
+    if (link.negated) parts.push("negated");
+    if (link.status === "resolved") parts.push("resolved");
+  }
+  const text = `Chain Link ${link.index}: ${parts.join(", ")}`;
+  return detail && link.description ? `${text}. ${link.description}` : text;
+}
+
+/**
+ * The one sentence a live region should say for this step of the chain, or null when nothing the
+ * player needs to hear changed.
+ */
+export function chainAnnouncement(
+  prev: ChainState,
+  next: ChainState,
+  mySeat: number | null,
+  playerName: (seat: number) => string,
+): string | null {
+  if (next.links.length === 0) return prev.links.length > 0 ? "Chain ended" : null;
+  const top = next.links[next.links.length - 1];
+  const prevTop = prev.links[prev.links.length - 1];
+  if (!prevTop || prevTop.index !== top.index || prevTop.code !== top.code) {
+    return chainLinkLabel(top, mySeat, playerName, false);
+  }
+  const negated = next.links.find((link) => link.negated && !prev.links[link.index - 1]?.negated);
+  if (negated) return `Chain Link ${negated.index} was negated`;
+  if (next.resolving != null && next.resolving !== prev.resolving) {
+    const link = next.links[next.resolving - 1];
+    return `Chain Link ${link.index} resolving: ${link.name ?? "Effect"}, ${chainSeatLabel(link.seat, mySeat, playerName)}`;
+  }
+  return null;
 }

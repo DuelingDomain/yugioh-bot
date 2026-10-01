@@ -1,6 +1,23 @@
-/* The chain on the board: a numbered badge and a ring on each link's card, and a compact stack
-   panel at the left edge. Nothing here takes pointer input. Only transform and opacity animate;
-   positions are set with the `translate` property from JS. */
+/* The chain on the board: a numbered medallion (number + chain glyph) and a ring on each link's
+   card, a thin wire from badge N to badge N-1, and a small off-board strip for a link the board
+   cannot place. Nothing here takes pointer input. Only transform and opacity animate; positions
+   are set with the `translate` property from JS. */
+
+/* Screen readers only: the chain as a list, and the live announcement. */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+  pointer-events: none;
+}
+.sr ol { list-style: none; margin: 0; padding: 0; }
+.sr p { margin: 0; }
 
 .layer {
   position: absolute;
@@ -32,7 +49,10 @@
   border-radius: 5px;
   opacity: 0.4;
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.55);
+  animation: chainStrike 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
+/* The newest link: its card is the one to look at. */
+.slot[data-top="true"] .ring { opacity: 0.7; }
 .slot[data-status="resolving"] .ring {
   border-color: var(--duel-pen-ink, #c6b6ff);
   opacity: 0.95;
@@ -40,11 +60,15 @@
 }
 .slot[data-negated="true"] .ring { border-color: var(--duel-loss, #e45a4d); opacity: 0.7; }
 
+/* Geometry (a third outside the card's top right corner, 82% step per extra link on the same card)
+   is mirrored in badgeCenter() in chain-state.ts, which the wire uses. */
 .badge {
   position: absolute;
   right: 0;
   top: 0;
   translate: calc(34% - var(--shift, 0) * 82%) -34%;
+  scale: 1;
+  transition: scale 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   display: grid;
   place-items: center;
   box-sizing: border-box;
@@ -52,16 +76,41 @@
   height: var(--b, 24px);
   border: 2px solid var(--duel-chain, #e4b64f);
   border-radius: 50%;
-  background: #120d1f;
+  background: radial-gradient(circle at 35% 28%, #2b2048, #120d1f 72%);
   color: var(--duel-chain-ink, #f4d690);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.65), inset 0 0 0 1px rgb(244 214 144 / 0.22), 0 2px 7px rgb(0 0 0 / 0.55);
+  animation: chainDrop 0.45s cubic-bezier(0.34, 1.3, 0.5, 1) both;
+}
+/* The highest link is larger and sits on top (the slot z-index is the link number). */
+.slot[data-top="true"] .badge { scale: 1.16; }
+
+.num {
   font-family: var(--duel-f-num, "Arial Narrow"), "Arial Narrow", sans-serif;
-  font-size: calc(var(--b, 24px) * 0.6);
+  font-size: calc(var(--b, 24px) * 0.58);
   font-variant-numeric: tabular-nums lining-nums;
   font-weight: 700;
   line-height: 1;
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.65), 0 2px 7px rgb(0 0 0 / 0.55);
-  animation: chainPop 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* The chain-link glyph: a small chip on the lower left of the ring. */
+.chip {
+  position: absolute;
+  left: -24%;
+  bottom: -22%;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 52%;
+  height: 52%;
+  border: 1.5px solid var(--duel-chain, #e4b64f);
+  border-radius: 50%;
+  background: #120d1f;
+  color: var(--duel-chain-ink, #f4d690);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6);
+  animation: chainClink 0.5s ease-out 0.2s both;
+}
+.glyph { width: 76%; height: 76%; }
+
 /* The shockwave behind a resolving badge. */
 .badge::after {
   content: "";
@@ -79,6 +128,8 @@
   animation: chainBeat 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .slot[data-status="resolving"] .badge::after { animation: chainWave 0.9s ease-out infinite; }
+/* chainBeat already swells the resolving badge: no extra top scale on top of it. */
+.slot[data-status="resolving"][data-top="true"] .badge { scale: 1; }
 .slot[data-negated="true"] .badge {
   border-color: var(--duel-loss, #e45a4d);
   color: var(--duel-loss-ink, #ff9489);
@@ -91,10 +142,21 @@
   background: linear-gradient(to top right, transparent 44%, var(--duel-loss, #e45a4d) 46% 54%, transparent 56%);
 }
 
-@keyframes chainPop {
-  from { opacity: 0; transform: scale(0.4); }
-  60% { opacity: 1; transform: scale(1.18); }
-  to { opacity: 1; transform: scale(1); }
+/* A new link drops onto its card and lands with a small bounce. */
+@keyframes chainDrop {
+  from { opacity: 0; transform: translateY(calc(var(--b, 24px) * -1)) scale(1.7) rotate(-14deg); }
+  45% { opacity: 1; transform: translateY(0) scale(0.9) rotate(3deg); }
+  70% { transform: translateY(-1px) scale(1.07) rotate(-1deg); }
+  to { opacity: 1; transform: none; }
+}
+/* The chain-link glyph snaps shut just after the landing. */
+@keyframes chainClink {
+  from { opacity: 0; transform: rotate(-40deg) scale(0.4); }
+  60% { opacity: 1; transform: rotate(10deg) scale(1.2); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chainStrike {
+  from { opacity: 1; transform: scale(1.1); }
 }
 @keyframes chainBeat {
   from { transform: scale(1); }
@@ -111,7 +173,31 @@
   to { opacity: 0.8; transform: scale(1); }
 }
 
-/* ---------- stack panel ---------- */
+/* ---------- wire: badge N to badge N-1 ---------- */
+
+.wires {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.wire {
+  fill: none;
+  stroke: var(--duel-chain, #e4b64f);
+  stroke-opacity: 0.6;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 5 4;
+  transition: opacity 0.35s ease 0.5s;
+  animation: chainWireIn 0.35s ease 0.25s backwards;
+}
+.wire[data-status="resolved"] { opacity: 0; }
+@keyframes chainWireIn { from { opacity: 0; } }
+
+/* ---------- off-board strip: only a link the board cannot place ---------- */
 
 .dock {
   position: absolute;
@@ -165,7 +251,7 @@
 }
 .row:last-child { border-bottom: 0; }
 
-.num {
+.rowNum {
   flex: none;
   display: grid;
   place-items: center;
@@ -214,7 +300,7 @@
   width: 3px;
   background: var(--duel-chain, #e4b64f);
 }
-.row[data-status="resolving"] .num {
+.row[data-status="resolving"] .rowNum {
   border-color: var(--duel-pen-ink, #c6b6ff);
   background: var(--duel-chain, #e4b64f);
   color: #1a1206;
@@ -222,7 +308,7 @@
 .row[data-status="resolved"] { opacity: 0.5; }
 .row[data-negated="true"] .name { text-decoration: line-through; }
 .row[data-negated="true"] { opacity: 0.6; }
-.row[data-negated="true"] .num { border-color: var(--duel-loss, #e45a4d); color: var(--duel-loss-ink, #ff9489); }
+.row[data-negated="true"] .rowNum { border-color: var(--duel-loss, #e45a4d); color: var(--duel-loss-ink, #ff9489); }
 
 @keyframes chainIn {
   from { opacity: 0; transform: translateX(-10px); }
@@ -233,13 +319,18 @@
 
 .layer[data-reduced="true"] .badge,
 .layer[data-reduced="true"] .badge::after,
+.layer[data-reduced="true"] .chip,
 .layer[data-reduced="true"] .ring,
 .layer[data-reduced="true"] .panel,
 .layer[data-reduced="true"] .row { animation: none; }
 .layer[data-reduced="true"] .slot { transition-duration: 0.15s; transition-delay: 0.2s; }
 .layer[data-reduced="true"] .slot[data-status="resolving"] .badge { transform: none; }
+.layer[data-reduced="true"] .badge { transition: none; }
+.layer[data-reduced="true"] .wires { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .badge, .badge::after, .ring, .panel, .row { animation: none !important; }
+  .badge, .badge::after, .chip, .ring, .panel, .row, .wire { animation: none !important; }
+  .badge { transition: none; }
+  .wires { display: none; }
   .slot { transition-duration: 0.15s; transition-delay: 0.2s; }
 }

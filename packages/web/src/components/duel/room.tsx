@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Circle, Diamond, ExternalLink, Eye, Link2, Radio, Settings, Volume2, VolumeX } from "lucide-react";
-import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelChainLink, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
+import { Circle, Diamond, ExternalLink, Eye, Radio, Settings, Volume2, VolumeX } from "lucide-react";
+import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Sheet } from "@/components/ui/sheet";
@@ -51,7 +51,7 @@ import {
   usePromptDraft,
   type PromptAim,
 } from "./prompts";
-import { cardArtUrl, isBattlePhase, phaseLabel, zoneKey } from "./constants";
+import { isBattlePhase, phaseLabel, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { duelWindowPath, exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
 import { ownWindowGateVisible } from "./start-flow";
@@ -213,36 +213,6 @@ function MatchSheetLog({
         })}
       </ol>
     </div>
-  );
-}
-
-function ChainBlock({
-  chain,
-  playerName,
-}: {
-  chain: readonly DuelChainLink[];
-  playerName: (seat: number) => string;
-}) {
-  return (
-    <section className={styles.chain} aria-label="Current chain">
-      <strong>
-        <Link2 size={14} strokeWidth={1.75} aria-hidden /> Chain<span className={styles.chainNote}> · resolves highest link first</span>
-      </strong>
-      <ol>
-        {chain.map((link) => (
-          <li key={link.index}>
-            <b>{link.index}</b>
-            {link.code != null && link.code > 0 ? (
-              <span className={styles.chainArt} aria-hidden style={{ backgroundImage: `url(${cardArtUrl(link.code)})` }} />
-            ) : null}
-            <span className={styles.chainText}>
-              {link.name ?? "Effect"}
-              <small>{playerName(link.seat)}{link.description ? ` · ${link.description}` : ""}</small>
-            </span>
-          </li>
-        ))}
-      </ol>
-    </section>
   );
 }
 
@@ -942,7 +912,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           {tabs()}
           <div className={styles.sideContent} role="tabpanel" aria-label={pane}>{sideContent}</div>
         </aside>
-        {engine?.chain.length ? <ChainBlock chain={engine.chain} playerName={playerName} /> : null}
         <div
           className={styles.promptDock}
           data-mode={dockMode}
