@@ -30,6 +30,10 @@ const ANTRA = "Infernoid Antra";
 const ONUNCU = "Infernoid Onuncu";
 const DEVYATY = "Infernoid Devyaty";
 const NUMERON = "Number 39: Utopia";
+const REAVER = "Rigorous Reaver";
+const BEAST_BATTLE = "Brutal Beast Battle";
+const NUMERON100 = "Number 100: Numeron Dragon";
+const RAIN = "Rain of Mercy";
 const TSUMUHA = "Tsumuha-Kutsunagi the Lord of Swords";
 
 /** What a defeated seat shows in the seat projection: no cards (the LP is not zeroed by a surrender, so it is not checked). */
@@ -263,6 +267,79 @@ export const SEATS_SCENARIOS: Scenario[] = [
         p0: { monsters: [TIERRA], grave: [POLY, ANTRA, ONUNCU, DEVYATY, NUMERON, NUMERON, NUMERON], extra: [] },
         p1: { grave: [NUMERON, NUMERON, NUMERON], extra: [] },
         p2: { grave: [NUMERON, NUMERON, NUMERON], extra: [] },
+      }),
+    ],
+  }),
+
+  // --- more R1 cards from the other triage groups ------------------------------------------------------------------------------
+  defineScenario({
+    id: "seats-r1-ffa4-rigorous-reaver-living-duelists-discard-1-defeated-seat-unchanged",
+    title: "FFA4: p2 is eliminated, p0 flips Rigorous Reaver (hand cards of both seats are single locations): p0, p1 and p3 each discard 1 card of their choice, the defeated p2 is not asked",
+    source: EACH,
+    rules: ["R-COMMON-EACH-PLAYER", "R-FFA-ELIMINATION"],
+    tags: ["multiplayer", "r1", "each-duelist", "both-individual-locs", "ffa4", "card:39180960"],
+    setup: {
+      format: "ffa4",
+      p0: { monsters: [faceDown(REAVER)], hand: [RAT, OX] },
+      p1: { hand: [AXE] },
+      p2: { hand: [HOLE] },
+      p3: { hand: [FANG, ELF] },
+    },
+    steps: [
+      eliminate("p2"),
+      changePosition(REAVER, "p0"),
+      select(RAT),
+      select(ELF),
+      expectEliminated("p2"),
+      everySeat("ffa4", {
+        p0: { monsters: [REAVER], hand: [OX], grave: [RAT] },
+        p1: { hand: [], grave: [AXE] },
+        p2: GONE,
+        p3: { hand: [FANG], grave: [ELF] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r1-ffa3-brutal-beast-battle-each-duelist-sends-and-draws",
+    title: "FFA3: p0 activates Brutal Beast Battle: p0 and p2 (2 Xyz Monsters each) send 1 of them and draw 1 card, p1 (1 Xyz Monster) sends nothing and draws nothing",
+    source: EACH,
+    rules: ["R-COMMON-EACH-PLAYER"],
+    tags: ["multiplayer", "r1", "each-duelist", "player-loop", "ffa3", "card:36809777"],
+    setup: {
+      format: "ffa3",
+      p0: { spells: [{ card: BEAST_BATTLE, pos: "set" }], monsters: [NUMERON, NUMERON100] },
+      p1: { monsters: [NUMERON100] },
+      p2: { monsters: [NUMERON, NUMERON100] },
+    },
+    steps: [
+      activate(BEAST_BATTLE, "p0"),
+      select(NUMERON),
+      select(NUMERON100),
+      everySeat("ffa3", {
+        p0: { monsters: [NUMERON100], hand: { count: 1 }, spells: { count: 0 }, grave: [BEAST_BATTLE, NUMERON] },
+        p1: { monsters: [NUMERON100], hand: { count: 0 }, grave: { count: 0 } },
+        p2: { monsters: [NUMERON], hand: { count: 1 }, grave: [NUMERON100] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r1-tag-rain-of-mercy-every-duelist-gains-lp",
+    title: "Tag: p0 activates Rain of Mercy: all four duelists gain 1000 LP (each team gains 2000, the partner included)",
+    source: EACH,
+    rules: ["R-COMMON-EACH-PLAYER", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r1", "each-duelist", "each-player-pair", "tag", "card:66719324"],
+    setup: {
+      format: "tag",
+      p0: { hand: [RAIN] },
+    },
+    steps: [
+      activate(RAIN, "p0"),
+      zone("p0", "s0", "p0"),
+      everySeat("tag", {
+        p0: { lp: 18000, grave: [RAIN] },
+        p1: { lp: 18000 },
+        p2: { lp: 18000 },
+        p3: { lp: 18000 },
       }),
     ],
   }),

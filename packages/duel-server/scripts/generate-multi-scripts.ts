@@ -45,11 +45,12 @@ export const MIRROR_GATE = 43452193;
 export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 107, r1: 92 } as const;
 /**
  * R1 cards whose stock script already acts on every living duelist after core patch 0053, so they need no suffix and no entry.
- * Pinned (a card is added here only after the script was read). Empty when every R1 card has a suffix.
+ * Pinned (a card is added here only after the script was read). 39513225 only sends a Confirm to the opponent (no effect on each duelist);
+ * 76895648 (Dangerous Machine Type-6) rolls one die for the owner and each result acts on the owner or on "your opponent" (the bound opponent).
  */
-export const R1_NO_CHANGE: number[] = [];
+export const R1_NO_CHANGE: number[] = [39513225, 76895648];
 /** True when every one of the 92 R1 cards is an entry or a member of R1_NO_CHANGE (the strict count check). */
-export const R1_COMPLETE = false;
+export const R1_COMPLETE = true;
 
 export type Helper = "MPAny" | "MPValue" | "MPOne" | "MPPick" | "MPTarget";
 export type CardClass = "COMPARE" | "CHOOSER" | "R1";

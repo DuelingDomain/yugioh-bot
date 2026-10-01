@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  COMPARE_EXTRA, COMPARE_FALSE_POSITIVES, EXPECTED_COUNTS, MIRROR_GATE, OVERLAY_DIRECTORY, R1_NO_CHANGE, TRIAGE_FILE,
+  COMPARE_EXTRA, COMPARE_FALSE_POSITIVES, EXPECTED_COUNTS, MIRROR_GATE, OVERLAY_DIRECTORY, R1_COMPLETE, R1_NO_CHANGE, TRIAGE_FILE,
   checkLists, r1Codes, r1Entry, readManifest, readTriage, run, wholeFileText, type Manifest, type ManifestCard, type Triage,
 } from "../scripts/generate-multi-scripts.js";
 import { scanCorpus } from "../scripts/scan-multiplayer-scripts.js";
@@ -105,6 +105,13 @@ describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)
   it("stay within the 92 R1 cards, and no card is an entry and also in R1_NO_CHANGE", () => {
     expect(r1Cards.length + R1_NO_CHANGE.length).toBeLessThanOrEqual(EXPECTED_COUNTS.r1);
     expect(r1Cards.filter((card) => R1_NO_CHANGE.includes(card.code))).toEqual([]);
+  });
+
+  it("are complete: 90 suffixes and 2 cards without change make the 92 R1 cards", () => {
+    expect(R1_COMPLETE).toBe(true);
+    expect(r1Cards).toHaveLength(90);
+    expect(R1_NO_CHANGE).toEqual([39513225, 76895648]);
+    expect(r1Cards.length + R1_NO_CHANGE.length).toBe(EXPECTED_COUNTS.r1);
   });
 
   it("are reported when they have a wrong kind, a second class, or are over the count", () => {
