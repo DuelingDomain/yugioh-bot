@@ -83,3 +83,90 @@ function aux.MPEachOpponent(fn)
 		end
 	end
 end
+
+-- R1 "each duelist" (Q3) and R2 "state per seat" (Q6). They need the seat functions of core patch 0053 (Duel.MPNthDuelist, MPSeat,
+-- MPSeatOf, MPBindSeat). Without them, or at two seats, each helper does the stock thing and never rebinds.
+
+-- The team id of every seat, read once at load (no scope yet, so Duel.MPSeat gives the team in Tag and the seat in FFA).
+local mp_team_of={}
+if Duel.MPSeat and Duel.MPMode()~=0 then
+	for seat=0,3 do mp_team_of[seat]=Duel.MPSeat(seat) end
+end
+-- (the formats put the seats of a Tag team on alternate seats: the fallback when the table has no entry)
+local function mp_team(seat) return mp_team_of[seat] or seat%2 end
+
+-- Runs fn(tp_i,seat_i) once for every LIVING duelist in turn order from the duelist that runs the effect (the Tag partner is one too,
+-- a defeated duelist is skipped). tp_i is the Lua player value of that duelist (FFA: 0, Tag: its team id), seat_i its real seat.
+-- Inside fn the scope is that duelist: write "tp_i" where the stock script writes "tp" and "1-tp_i" for its opponent. fn uses only
+-- tp_i and seat_i, never a value read before the loop (it was read for another duelist). fn returns true to stop the loop.
+-- The loop gives the scope back (Duel.MPNthDuelist(0)) on every exit: the end, a stop, and a prompt inside fn keeps the rebind.
+-- A Lua error is closed by the core (scope_guard). Two seats (or no seat functions): fn(0,0) for the duelist, then fn(1,1) for the other.
+function aux.MPForEachDuelist(fn)
+	if Duel.MPMode()==0 or not Duel.MPNthDuelist then
+		if not fn(0,0) then fn(1,1) end
+		return
+	end
+	local tag=Duel.MPMode()==2
+	local i=1
+	while true do
+		local ok,seat=Duel.MPNthDuelist(i)
+		if not ok then break end
+		local stop=fn(tag and mp_team(seat) or 0,seat)
+		if stop then break end
+		i=i+1
+	end
+	Duel.MPNthDuelist(0)
+end
+
+-- The key of a player value p for a flag or a table that is kept per player: the seat in FFA, the team in Tag (Q6).
+-- Without Duel.MPSeat (or at two seats) it is p itself.
+function aux.MPKey(p)
+	if Duel.MPSeat and Duel.MPMode()~=0 then return Duel.MPSeat(p) end
+	return p
+end
+
+-- The Lua value of the own side of the duelist that runs the effect: FFA 0, Tag its team id. A seat that Duel.MPBindSeat accepts is a
+-- living opponent, so the own team is the other one. It leaves no bind behind.
+local function mp_own_value()
+	if Duel.MPMode()~=2 then return 0 end
+	local own=0
+	for seat=0,3 do
+		if Duel.MPBindSeat(seat) then own=1-mp_team(seat) break end
+	end
+	Duel.MPBindSeat()
+	return own
+end
+
+-- "The controller of the card" reads: fn(sg,seat,p) runs once for every real controller seat of the cards in g, in seat order.
+-- sg is the part of g that this duelist controls, seat the real seat (Duel.MPSeatOf), p the Lua player value of the controller
+-- (the value that c:GetControler() gives). For an opponent controller the Lua value 1 is bound to that seat (Duel.MPBindSeat) while fn
+-- runs, so Duel.Damage(p,...) and the other reads of "1" reach that duelist, not "the next opponent". The own side (Tag: the partner
+-- too) runs with no bind. A controller that is not a living duelist is skipped. fn returns true to stop. The bind is removed on every
+-- exit (it replaces a bind that the caller made). Two seats (or no seat functions): the same loop with the real controller, no bind.
+function aux.MPForEachController(g,fn)
+	local order={}
+	local by={}
+	for c in aux.Next(g) do
+		local seat=Duel.MPSeatOf and Duel.MPSeatOf(c) or c:GetControler()
+		if seat>=0 then
+			if not by[seat] then
+				by[seat]=Group.CreateGroup()
+				order[#order+1]=seat
+			end
+			by[seat]:AddCard(c)
+		end
+	end
+	table.sort(order)
+	local bind=Duel.MPBindSeat and Duel.MPMode()~=0
+	local own=bind and mp_own_value()
+	for _,seat in ipairs(order) do
+		local sg=by[seat]
+		local p=sg:GetFirst():GetControler()
+		local ok=true
+		if bind then
+			if p==own then Duel.MPBindSeat() else ok=Duel.MPBindSeat(seat) end
+		end
+		if ok and fn(sg,seat,p) then break end
+	end
+	if bind then Duel.MPBindSeat() end
+end

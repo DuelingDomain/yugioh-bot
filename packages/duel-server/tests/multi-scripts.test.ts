@@ -41,6 +41,9 @@ describe("the overlay folder of the repo", () => {
     for (const helper of ["MPAny", "MPValue", "MPOne", "MPPick", "MPTarget", "MPEachOpponent"]) {
       expect(text).toContain(`function aux.${helper}(fn)`);
     }
+    for (const helper of ["MPForEachDuelist(fn)", "MPKey(p)", "MPForEachController(g,fn)"]) {
+      expect(text).toContain(`function aux.${helper}`);
+    }
   });
 
   it("loads and passes the checks", () => {
