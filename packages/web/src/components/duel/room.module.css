@@ -69,7 +69,9 @@
   flex-direction: column;
   height: 100dvh;
   min-width: 0;
+  /* clip, unlike hidden, cannot be scrolled by focus or scrollIntoView, so the room never shifts. */
   overflow: hidden;
+  overflow: clip;
   color: var(--duel-ink);
   font-family: var(--duel-f-ui);
   font-size: var(--duel-t-body);
@@ -450,6 +452,16 @@
 .options a { color: var(--duel-pen-ink); text-decoration: underline; text-underline-offset: 3px; }
 .options :focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
 
+/* Notices (connection lost, action failed) float over the top of the layout, out of flow: a notice
+   that came and went in flow would resize the whole board. Only the notice itself takes clicks. */
+.notices {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: var(--duel-z-prompt);
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
 .error {
   flex: none;
   display: flex;
@@ -458,8 +470,9 @@
   padding: calc(7 * var(--duel-unit)) calc(16 * var(--duel-unit));
   border-bottom: 1px solid rgb(228 182 79 / 0.45);
   color: var(--duel-chain-ink);
-  background: rgb(228 182 79 / 0.1);
+  background: linear-gradient(rgb(228 182 79 / 0.14), rgb(228 182 79 / 0.14)), var(--duel-panel);
   font-size: var(--duel-t-body);
+  pointer-events: auto;
 }
 .error button { text-decoration: underline; text-underline-offset: 3px; }
 

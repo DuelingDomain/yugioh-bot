@@ -910,11 +910,17 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         <SeriesBanner room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame}
           onOpenSide={() => setSideOpen(true)} />
       ) : null}
-      {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
-        <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
-      {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
-      {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
       <div className={styles.layout}>
+        {/* Notices float over the top of the layout. In flow they would take height from the board
+            and shrink it for as long as the notice shows. */}
+        {error || actionError || data.error ? (
+          <div className={styles.notices}>
+            {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
+              <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
+            {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
+            {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
+          </div>
+        ) : null}
         <aside className={styles.inspector}>
           {tabs()}
           <div className={styles.sideContent}>{sidePanes(true)}</div>
