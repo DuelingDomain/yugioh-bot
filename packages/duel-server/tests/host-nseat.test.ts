@@ -687,6 +687,30 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
     }
   });
 
+  it("without DUEL_SCENARIOS at host creation a room read waits for the queue (no stale answer, as on main)", async () => {
+    delete process.env.DUEL_SCENARIOS;
+    const t = scenarioHost({ debugReadTimeoutMs: 50, stallMs: 0 });
+    process.env.DUEL_SCENARIOS = "1"; // only to start the preset: the host read the variable when it was created
+    const started = await post(t.host, { op: "start-preset", presetId: "dust-tornado-chain", ...t.who });
+    const slug = started.data.slug as string;
+    await post(t.host, { op: "view", slug, ...t.who });
+    t.worker.hangAnswer = true;
+    t.worker.hang = true;
+    const stuck = post(t.host, {
+      op: "respond", slug, ...t.who,
+      command: { promptId: `p${t.worker.revision}`, revision: t.worker.revision, answer: { choice: "to_ep" } },
+    });
+    try {
+      const pending = post(t.host, { op: "view", slug, ...t.who });
+      const early = await Promise.race([pending, new Promise((resolve) => setTimeout(() => resolve("waiting"), 3600))]);
+      expect(early).toBe("waiting");
+    } finally {
+      t.worker.hang = false;
+      t.worker.unhang();
+      await stuck;
+    }
+  });
+
   it("a normal duel gives a full report and a fresh room read", async () => {
     process.env.DUEL_SCENARIOS = "1";
     const dir = mkdtempSync(join(tmpdir(), "duel-full-"));

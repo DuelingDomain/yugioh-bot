@@ -214,7 +214,8 @@ export function createDuelHost(options: {
   debugReadTimeoutMs?: number;
   /**
    * How long a `report` or a room read (`view`) waits in a blocked duel queue. After that, a report is written
-   * without the core (`partial: true`) and a room read answers the last view sent to that seat (`stale: true`). Default 3000.
+   * without the core (`partial: true`) and a room read answers the last view sent to that seat (`stale: true`). Default 3000 when
+   * `DUEL_SCENARIOS=1`, else 0 (off: a room read waits for the queue). A `report` needs `DUEL_SCENARIOS=1` anyway.
    */
   queueBlockedMs?: number;
   /** Known problems per preset id, for the dev presets page (`list-presets` answers them as `issues`). Default: none. */
@@ -245,7 +246,9 @@ export function createDuelHost(options: {
   const defaultStallMs = process.env.DUEL_SCENARIOS === "1" ? DEFAULT_STALL_MS : 0;
   const stallMs = options.stallMs ?? (process.env.DUEL_STALL_MS !== undefined && Number.isFinite(envStall) && envStall >= 0 ? envStall : defaultStallMs);
   const debugReadTimeoutMs = options.debugReadTimeoutMs ?? DEFAULT_DEBUG_READ_TIMEOUT_MS;
-  const queueBlockedMs = options.queueBlockedMs ?? DEFAULT_QUEUE_BLOCKED_MS;
+  // The stale room read is a test tool like the watchdog: production 1v1 waits for the queue exactly as main did. Off (0) unless
+  // DUEL_SCENARIOS=1 or the caller sets queueBlockedMs.
+  const queueBlockedMs = options.queueBlockedMs ?? (process.env.DUEL_SCENARIOS === "1" ? DEFAULT_QUEUE_BLOCKED_MS : 0);
   /** The last view built for each seat of each duel (key -1: the spectator). Only views that were built for that seat are kept. */
   const lastViews = new Map<string, Map<number, DuelEngineView>>();
   function rememberView(slug: string, seat: number | null, view: DuelEngineView | null | undefined): void {
@@ -2064,7 +2067,7 @@ export function createDuelHost(options: {
         // debug-trace must answer while the duel queue is stuck inside the core, so it skips the queue.
         const ctl = { abandoned: false };
         const queued = (body.op === "debug-trace" ? operate(body) : enqueue(key, () => operate(body, ctl)));
-        const answer = body.op === "report" || body.op === "view" ? await answerOrFallback(body, queued, ctl) : await queued;
+        const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
         return Response.json(answer, { headers: { "cache-control": "no-store" } });
       } catch (error) {
         const status = error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 400;
