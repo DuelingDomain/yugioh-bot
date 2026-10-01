@@ -79,14 +79,17 @@
 .panel[data-tone="chain"] { border: var(--pc-border-chain); }
 
 .panel[data-wide="true"] { width: min(640px, calc(100% - 24px)); }
-/* A card strip is as wide as its cards need and no wider, so most of the field stays in view. */
+/* A card strip is as wide as its cards need, up to about six large cards, and never wider than the board
+   (the layer is the board box). A longer list scrolls inside the strip; the header stays whole above it. */
 .panel[data-strip="true"] {
   width: fit-content;
-  min-width: min(calc(300 * var(--duel-unit, 1px)), calc(100% - 24px));
-  max-width: min(calc(720 * var(--duel-unit, 1px)), calc(100% - 24px));
+  min-width: min(calc(420 * var(--duel-unit, 1px)), calc(100% - 24px));
+  max-width: min(calc(1000 * var(--duel-unit, 1px)), calc(100% - 24px));
   gap: calc(4 * var(--duel-unit, 1px));
-  padding: calc(9 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px)) calc(10 * var(--duel-unit, 1px));
+  padding: calc(10 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px));
 }
+.panel[data-strip="true"] .head { padding-inline: calc(6 * var(--duel-unit, 1px)); }
+.panel[data-strip="true"] .titles { text-align: left; }
 .panel[data-strip="true"] .titles h2 { font-size: var(--pc-title); line-height: 1.25; }
 .panel[data-strip="true"] .titles p { margin-top: calc(1 * var(--duel-unit, 1px)); font-size: var(--pc-sub); }
 
