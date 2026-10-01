@@ -13,6 +13,8 @@ type Format = "ffa3" | "ffa4" | "tag";
 
 const TUALATIN = "Tualatin";
 const OX = "Battle Ox"; // 1700 ATK
+const SKULL = "Summoned Skull"; // 2500 ATK
+const SKYLER = "War Rock Skyler"; // 2200 ATK, +100 per monster of the opponents
 const ELF = "Mystical Elf"; // 800 ATK
 const ALTUS = "Cloudian - Altus"; // destroys itself in face-up Defense Position
 const RAGING = "Raging Cloudian";
@@ -105,4 +107,48 @@ const raging = (format: "ffa3" | "ffa4", holder: Seat): Scenario => {
   });
 };
 
-export const R2_CHECK_SCENARIOS: Scenario[] = [tualatin("ffa3"), tualatin("tag"), raging("ffa3", "p0"), raging("ffa3", "p1"), raging("ffa3", "p2"), raging("ffa4", "p3")];
+/**
+ * War Rock Skyler: +100 ATK per monster the opponents control (value function, c:GetControler() and "0, MZONE"). p0 (2200 ATK) attacks the
+ * Summoned Skull (2500 ATK) of p1: the opponents (p1 and p2, in Tag the team p1 and p3) control 4 monsters in all, so the ATK is 2600, the Skull is
+ * destroyed and p1 loses 100 LP. With the monsters of ONE opponent only (2) the ATK would be 2400 and Skyler would be destroyed.
+ */
+const skyler = (format: Format): Scenario => {
+  const tag = format === "tag";
+  const third: Seat = tag ? "p3" : "p2";
+  const setup: Record<string, unknown> = {
+    format,
+    p0: { monsters: [SKYLER], deck: [ELF] },
+    p1: { monsters: [SKULL, ELF], deck: [ELF, ELF] },
+    p2: { deck: [ELF] },
+  };
+  setup[third] = { monsters: [OX, ELF], deck: [ELF] };
+  if (format === "ffa4") setup.p3 = { deck: [ELF] };
+  const seats = seatsOf(format);
+  const toBattle: Step[] = seats.map((seat) => endTurn(seat));
+  const spec: Partial<Record<Seat, DuelistExpect>> = {
+    p0: { monsters: [SKYLER] },
+    p1: { lp: tag ? 15900 : 7900, monsters: [ELF], grave: [SKULL] },
+  };
+  if (!tag) spec.p2 = { monsters: [OX, ELF] };
+  if (tag) {
+    spec.p0 = { monsters: [SKYLER] };
+    spec.p2 = {};
+    spec.p3 = { lp: 15900, monsters: [OX, ELF] };
+  }
+  return defineScenario({
+    id: `r2-checks-${format}-war-rock-skyler-counts-the-monsters-of-every-opponent`,
+    title: `${format.toUpperCase()}: War Rock Skyler of p0 gains 100 ATK for every monster of ALL opponents (4: 2600 ATK), attacks the Summoned Skull (2500) of p1: the Skull is destroyed and p1 loses 100 LP, Skyler stays`,
+    source: EACH,
+    rules: ["R-COMMON-EACH-PLAYER"],
+    tags: ["multiplayer", "r2-checks", format, "card:72554862"],
+    setup: setup as unknown as Scenario["setup"],
+    steps: [
+      ...toBattle,
+      changePhase("battle", "p0"),
+      attack({ card: SKYLER }, { card: SKULL, owner: "p1" }, "p0"),
+      everySeat(format, spec),
+    ],
+  });
+};
+
+export const R2_CHECK_SCENARIOS: Scenario[] = [skyler("ffa3"), skyler("tag"), tualatin("ffa3"), tualatin("tag"), raging("ffa3", "p0"), raging("ffa3", "p1"), raging("ffa3", "p2"), raging("ffa4", "p3")];
