@@ -17,7 +17,15 @@ const ownMonsters = (page: Page) => page.locator('[data-kind="mz"][data-side="yo
 const lpOf = (page: Page, seat: number) => page.locator(`[data-lp-seat="${seat}"]`).first();
 /** The phase bar. The Battle plate is a button only while the engine offers the Battle Phase. */
 const toBattle = (page: Page) => page.getByRole("button", { name: /^To Battle/ });
-const battlePlate = (page: Page) => page.getByRole("navigation", { name: "Duel phases" }).getByRole("button", { name: /battle/i });
+/** The Battle plate in the list of phase plates (not the primary dock button, which also names the Battle Phase). */
+const battlePlate = (page: Page) =>
+  page.getByRole("navigation", { name: "Duel phases" }).getByRole("list").getByRole("button", { name: /battle/i });
+
+/** Waits until the seat shows turn `turn` and its End Turn button works, so a "no Battle Phase" check cannot pass on a page that is not ready. */
+async function expectTurnReady(seat: Seat, turn: number): Promise<void> {
+  await expect(turnLabel(seat.page)).toHaveText(`Turn ${turn}`);
+  await expect(seat.page.getByRole("button", { name: "End Turn", exact: true })).toBeEnabled();
+}
 
 async function normalSummon(seat: Seat): Promise<void> {
   await useCard(seat.page, handCard(seat.page, FILLER), "Normal Summon");
@@ -52,25 +60,31 @@ test.describe("4-player FFA", () => {
     await startTable(seats, "ffa4 no attack", decks([FILLER, FILLER]));
     const [alice, bob, carol, dave] = seats as [Seat, Seat, Seat, Seat];
     // Turn 1, seat 0: summon, then no Battle Phase move is offered (the plate is not a button).
+    await expectTurnReady(alice, 1);
     await normalSummon(alice);
     await expect(toBattle(alice.page)).toHaveCount(0);
     await expect(battlePlate(alice.page)).toHaveCount(0);
     await endTurn(alice.page, 2);
     for (const [index, seat] of [bob, carol, dave].entries()) {
+      await expectTurnReady(seat, index + 2);
       await expect(toBattle(seat.page)).toHaveCount(0);
       await expect(battlePlate(seat.page)).toHaveCount(0);
       await endTurn(seat.page, index + 3);
     }
-    // Turn 5 is seat 0 again: the first turn where an attack is allowed.
-    await expect(turnLabel(alice.page)).toHaveText("Turn 5");
+    // Turn 5 is seat 0 again: the first turn where an attack is allowed. The same two locators now match, so the
+    // count-0 checks above are real (a locator that never matches would pass them too).
+    await expectTurnReady(alice, 5);
     await expect(toBattle(alice.page)).toBeEnabled();
+    await expect(battlePlate(alice.page)).toHaveCount(1);
   });
 
   test("a spell that hits all opponents clears the monsters of all 3 opponents", async ({ player }) => {
     const seats = await openSeats(player);
-    // Seat 0 holds Raigeki. Seats 1 to 3 each summon a filler monster on their own turn.
+    // Seat 0 holds Raigeki and summons a filler monster on turn 1. Seats 1 to 3 each summon a filler monster on their own turn.
+    // Raigeki destroys the monsters of the opponents only: the monster of seat 0 must stay (Dark Hole would destroy it too).
     await startTable(seats, "ffa4 raigeki", decks(["Raigeki", FILLER]));
     const [alice, ...others] = seats as [Seat, ...Seat[]];
+    await normalSummon(alice);
     await endTurn(alice.page, 2);
     for (const [index, seat] of others.entries()) {
       await normalSummon(seat);
@@ -82,6 +96,8 @@ test.describe("4-player FFA", () => {
     for (const seat of others) {
       await expect(ownMonsters(seat.page)).toHaveCount(0);
     }
+    // Each opponent had one monster (normalSummon checked that), so the count 0 above is a change. The own monster stays.
+    await expect(ownMonsters(alice.page)).toHaveCount(1);
   });
 
   test("a card that picks one opponent offers each living opponent by name, and only the picked one is hit", async ({ player }) => {
@@ -96,16 +112,21 @@ test.describe("4-player FFA", () => {
     await expect(alice.page.getByText("You can respond")).toBeVisible();
     await alice.page.getByText("Activate", { exact: true }).click();
 
-    // The pick names the 3 opponents (never the own seat), on the turn order strip and in the prompt.
+    // The pick lists the 3 opponents in the prompt panel (once each, never the own seat) and on the turn order strip.
+    const panel = alice.page.locator("[data-prompt-panel]");
     for (const name of ["E2E Bob", "E2E Carol", "E2E Dave"]) {
-      await expect(alice.page.getByRole("button", { name: `Choose ${name} as the opponent` }).first()).toBeVisible();
+      await expect(panel.getByRole("button", { name: `Choose ${name} as the opponent` })).toHaveCount(1);
     }
-    await expect(alice.page.getByRole("button", { name: "Choose E2E Alice as the opponent" })).toHaveCount(0);
+    await expect(panel.getByRole("button", { name: "Choose E2E Alice as the opponent" })).toHaveCount(0);
+    for (const seat of [1, 2, 3]) await expect(alice.page.getByTestId(`seat-strip-pick-${seat}`)).toBeVisible();
+    await expect(alice.page.getByTestId("seat-strip-pick-0")).toHaveCount(0);
     await alice.page.getByTestId("seat-strip-pick-2").click();
 
     // Name the filler card: every copy in the picked opponent's hand goes to the Graveyard.
     await alice.page.getByLabel("Search card name").fill(FILLER);
-    await alice.page.locator("#announce-card ~ ul button").filter({ hasText: FILLER }).first().click();
+    const match = alice.page.locator("#announce-card ~ ul button").filter({ hasText: FILLER });
+    await expect(match).toHaveCount(1);
+    await match.click();
     await expect(alice.page.getByRole("button", { name: /^E2E Carol (GY|Graveyard) \(5\)$/ })).toBeVisible();
     await expect(alice.page.getByRole("button", { name: /^E2E Carol Hand \(0\)$/ })).toBeVisible();
     // The other opponents keep their cards.
