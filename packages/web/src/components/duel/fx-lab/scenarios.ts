@@ -1,5 +1,5 @@
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
-import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
+import { LOCATION_HAND, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
 import {
   BANISHED,
   DECK,
@@ -1093,6 +1093,41 @@ const BANNERS: LabScenario[] = [
 
 /* ---------- board states ---------- */
 
+/** The "discard 2" pick bar over a board with hand cards to pick; `selected` are the option ids shown as picked. */
+function selectScenario(id: string, name: string, description: string, selected: string[], interactive = false): LabScenario {
+  const hand = [C.sangan, C.kuriboh, C.potOfGreed, C.monsterReborn];
+  return {
+    id,
+    category: "Board states",
+    name,
+    description,
+    build: () =>
+      script(board((e) => e.push(edit.monster(ME, 2, C.celtic), edit.monster(OPP, 2, C.harpie))), [], 2400, {
+        legalKeys: hand.map((_, index) => `0:${LOCATION_HAND}:${index}`),
+        prompt: {
+          selected,
+          interactive,
+          prompt: {
+            id: "lab-select",
+            seat: ME,
+            kind: "cards",
+            title: "Select the card(s) to discard",
+            min: 2,
+            max: 2,
+            options: hand.map((card, index) => ({
+              id: `card:${index}`,
+              label: card.name,
+              card,
+              controller: ME,
+              location: LOCATION_HAND,
+              sequence: index,
+            })),
+          },
+        },
+      }),
+  };
+}
+
 const STATES: LabScenario[] = [
   {
     id: "state-equip",
@@ -1177,6 +1212,8 @@ const STATES: LabScenario[] = [
         },
       ),
   },
+  selectScenario("state-select-discard", "Select prompt: discard 2", "The on-board pick bar with nothing picked yet. Confirm is off.", []),
+  selectScenario("state-select-discard-done", "Select prompt: discard 2, done", "The same bar with 2 of 2 picked. Confirm is the gold button.", ["card:0", "card:2"]),
   {
     id: "state-aim-direct",
     category: "Board states",

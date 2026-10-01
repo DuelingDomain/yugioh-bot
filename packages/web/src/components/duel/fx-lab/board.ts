@@ -58,6 +58,8 @@ export type LabScript = {
   prompt?: {
     prompt: DuelPrompt;
     battleStep?: BattleStep;
+    /** Option ids shown as already picked. */
+    selected?: string[];
   };
   /** Show the Deck Master rail (a Domain duel). */
   domain?: boolean;
