@@ -346,7 +346,7 @@ export function captureZoneSnapshots(root: ParentNode = document): void {
     if (r.width < 4 || r.height < 4) return;
     handRails.set(el.dataset.handSeat ?? "", {
       rect: { left: r.left, top: r.top, width: r.width, height: r.height },
-      side: "you",
+      side: el.dataset.side === "opp" ? "opp" : "you",
       faceUp: false,
       defense: false,
     });

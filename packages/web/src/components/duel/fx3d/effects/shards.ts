@@ -16,6 +16,8 @@ export type CardBreakOptions = {
   rect: FxRect;
   code: number;
   defense: boolean;
+  /** The far player's card: the picture is turned half a circle (on top of the Defense turn). */
+  turned?: boolean;
   /** Seconds. The card is whole (and hidden here: the page still shows it) until then. */
   at: number;
   /** Unit vector of the blow, y down. */
@@ -38,14 +40,15 @@ export function cutOf(style: FxAttackStyle): CutKind {
   return style;
 }
 
-/** Card size on screen and the turn of a card that lies sideways. */
-export function cardGeometry(rect: FxRect, defense: boolean): { w: number; h: number; base: number } {
-  if (defense && rect.w >= rect.h) return { w: rect.h, h: rect.w, base: Math.PI / 2 };
-  return { w: rect.w, h: rect.h, base: 0 };
+/** Card size on screen and the turn of a card that lies sideways or faces the other way (`turned`). */
+export function cardGeometry(rect: FxRect, defense: boolean, turned = false): { w: number; h: number; base: number } {
+  const half = turned ? Math.PI : 0;
+  if (defense && rect.w >= rect.h) return { w: rect.h, h: rect.w, base: Math.PI / 2 + half };
+  return { w: rect.w, h: rect.h, base: half };
 }
 
 export function cardBreak(st: Stage, o: CardBreakOptions): FxPart[] {
-  const geo = cardGeometry(o.rect, o.defense);
+  const geo = cardGeometry(o.rect, o.defense, o.turned);
   if (o.code > 0) st.rig.env.art.prefetch(o.code);
   const centre = centreOf(o.rect);
   const at = st.off(centre);

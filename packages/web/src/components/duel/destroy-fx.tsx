@@ -106,7 +106,7 @@ function sourceBox(code: number, seat: number): Box | null {
 function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], mySeat: number, now: number, three: boolean): Planned | null {
   const host = getSharedFx3d()?.host.getBoundingClientRect();
   const toRect = (box: Box): FxRect => (host ? viewportToHost(box, host) : { x: box.left, y: box.top, w: box.width, h: box.height });
-  const victims: Array<{ rect: FxRect; code: number; defense: boolean; box: Box; event: DuelEvent }> = [];
+  const victims: Array<{ rect: FxRect; code: number; defense: boolean; turned: boolean; box: Box; event: DuelEvent }> = [];
   for (const event of group.events) {
     if (!event.zone) continue;
     const found = artBox(zoneKey(event.zone.controller, event.zone.location, event.zone.sequence));
@@ -115,6 +115,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
       rect: toRect(found.box),
       code: event.card && event.card.code > 0 ? event.card.code : codeOfNode(found.node),
       defense: found.node.getAttribute("data-defense") === "true",
+      turned: found.node.closest('[data-side="opp"]') != null,
       box: found.box,
       event,
     });
@@ -138,7 +139,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   const attackImpact = attackEvent ? attackImpactAt(attackEvent.id) : 0;
   const { scene, cues } = planScene({
     piece: group.piece,
-    victims: victims.map(({ rect, code, defense }) => ({ rect, code, defense })),
+    victims: victims.map(({ rect, code, defense, turned }) => ({ rect, code, defense, turned })),
     source: source ? toRect(source) : null,
     attacker: attackerFound ? toRect(attackerFound.box) : null,
     field: toRect(field),

@@ -192,6 +192,9 @@ type AttackCapture = {
   attackerCard: BattleCard;
   targetCard: BattleCard | null;
   targetInDefense: boolean;
+  /** The attacker / target stands on the far side of the table: its picture is turned half a circle. */
+  attackerTurned: boolean;
+  targetTurned: boolean;
   /** LP tally boxes by seat, for the damage flash. */
   lp: Record<number, Box | undefined>;
 };
@@ -205,7 +208,14 @@ function cutSourceOf(node: HTMLElement): CutSource | null {
   if (!art) return null;
   const box = boxOf(art);
   if (box.width <= 0 || box.height <= 0) return null;
-  return { box, innerW: art.offsetWidth || box.width, innerH: art.offsetHeight || box.height, html: art.outerHTML };
+  // The copy is drawn outside its zone, so it carries the opponent's half turn (field.module.css) as an attribute.
+  let html = art.outerHTML;
+  if (art.closest('[data-side="opp"]')) {
+    const clone = art.cloneNode(true) as HTMLElement;
+    clone.setAttribute("data-turned", "true");
+    html = clone.outerHTML;
+  }
+  return { box, innerW: art.offsetWidth || box.width, innerH: art.offsetHeight || box.height, html };
 }
 
 /**
@@ -226,6 +236,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     attacker: cutSourceOf(fromNode),
     fromEl: fromNode.querySelector("[data-card-art]"),
     attackerCard: readCard(fromKey, fromNode, prev, now),
+    attackerTurned: fromNode.closest('[data-side="opp"]') != null,
     lp,
   };
   if (event.target) {
@@ -237,11 +248,11 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     if (to.width <= 0 || to.height <= 0) return null;
     const targetCard = readCard(targetKey, node, prev, now);
     const targetInDefense = node.getAttribute("data-defense") === "true" || isDefense(prev.get(targetKey)?.position ?? now.get(targetKey)?.position);
-    return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense };
+    return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: node.closest('[data-side="opp"]') != null };
   }
   const to = lpBox(1 - zone.controller);
   if (!to) return null;
-  return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false };
+  return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false, targetTurned: false };
 }
 
 /* ---------- playback model ---------- */
@@ -501,12 +512,12 @@ function startBattle3d(capture: AttackCapture, play: Play, skipMs: number, contr
   const { fx } = play;
   const attackerSide = {
     rect: to(fx.attacker.box), code: attackerCard.code ?? 0, style: fx.attacker.style, tint: fx.attacker.tint,
-    signature: play.sound.attacker.signature, defense: false,
+    signature: play.sound.attacker.signature, defense: false, turned: capture.attackerTurned,
   };
   const defenderSide = fx.defender
     ? {
         rect: to(fx.defender.box), code: targetCard?.code ?? 0, style: fx.defender.style, tint: fx.defender.tint,
-        signature: play.sound.defender?.signature ?? null, defense: capture.targetInDefense,
+        signature: play.sound.defender?.signature ?? null, defense: capture.targetInDefense, turned: capture.targetTurned,
       }
     : null;
   const battle = planBattle({ kind: fx.kind, timing: fx.timing, attacker: attackerSide, defender: defenderSide, hit: to(fx.hit) });

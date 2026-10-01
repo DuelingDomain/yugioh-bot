@@ -35,6 +35,8 @@ export type PlanSide = {
   /** Passcode of a signature attack, else null. */
   signature: number | null;
   defense: boolean;
+  /** The far player's card: its picture is turned half a circle. */
+  turned?: boolean;
 };
 
 export type BattlePlanInput = {
@@ -63,6 +65,7 @@ function breakOf(target: PlanSide, source: PlanSide, atMs: number): FxBreak {
     rect: target.rect,
     code: target.code,
     defense: target.defense,
+    turned: target.turned,
     atMs,
     dir: unit(source.rect, target.rect),
     style: source.style,

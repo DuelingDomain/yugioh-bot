@@ -227,6 +227,14 @@ export function destinationShift(overlay: HTMLElement, dest: HTMLElement, cx: nu
   return Math.hypot(dx, dy) < GLIDE_MIN_PX ? null : { dx, dy };
 }
 
+/**
+ * Turn of a card as it rests on the board, in degrees: a quarter for Defense Position, plus a half turn
+ * on the opponent's side of the table (field.module.css turns their cards the same way).
+ */
+export function cardTurn(side: "you" | "opp", defense: boolean): number {
+  return (side === "opp" ? 180 : 0) + (defense ? 90 : 0);
+}
+
 function seededSign(id: number): number {
   return (id * 2654435761) % 2 === 0 ? 1 : -1;
 }
@@ -277,6 +285,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
     const track = new Track();
     let alive = true;
     const endDefense = dest.dataset.defense === "true";
+    const endTurn = cardTurn(dest.dataset.side === "opp" ? "opp" : "you", endDefense);
 
     if (plan.style === "fade" || !source) {
       track.play(el, [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], {
@@ -284,7 +293,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         easing: "ease-out",
       });
       if (flipper.current) flipper.current.style.transform = `rotateY(${endAngle}deg)`;
-      el.style.transform = endDefense ? "rotate(90deg)" : "none";
+      el.style.transform = endTurn !== 0 ? `rotate(${endTurn}deg)` : "none";
     } else {
       const sx = source.rect.left - o.left + source.rect.width / 2;
       const sy = source.rect.top - o.top + source.rect.height / 2;
@@ -293,8 +302,8 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         dx: sx - cx,
         dy: sy - cy,
         startScale: clamp(source.rect.height / h, 0.35, 2.4),
-        startRot: source.defense ? 90 : 0,
-        endRot: endDefense ? 90 : 0,
+        startRot: cardTurn(source.side, source.defense),
+        endRot: endTurn,
         cardH: h,
         spin: seededSign(plan.id) * (14 + (plan.id % 5) * 3),
       });
@@ -338,13 +347,13 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
       // The destination may have moved while the card flew (a hand re-centres): glide the last pixels.
       const shift = plan.style === "fade" || !source ? null : destinationShift(overlay, dest, cx, cy);
       if (shift) {
-        const rest = `translate3d(0px, 0px, 0) rotate(${endDefense ? 90 : 0}deg) scale(1)`;
+        const rest = `translate3d(0px, 0px, 0) rotate(${endTurn}deg) scale(1)`;
         const glide = new Track();
         glide.play(
           el,
           [
             { transform: rest },
-            { transform: `translate3d(${shift.dx.toFixed(2)}px, ${shift.dy.toFixed(2)}px, 0) rotate(${endDefense ? 90 : 0}deg) scale(1)` },
+            { transform: `translate3d(${shift.dx.toFixed(2)}px, ${shift.dy.toFixed(2)}px, 0) rotate(${endTurn}deg) scale(1)` },
           ],
           { duration: GLIDE_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "both" },
         );

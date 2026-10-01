@@ -502,6 +502,7 @@ function HandStrip({
         role="group"
         aria-label={`${ownerLabel} hand`}
         data-hand-seat={seat}
+        data-side={mine ? "you" : "opp"}
         data-many={cards.length >= 7 ? "true" : "false"}
         style={vars}
       >
@@ -848,6 +849,7 @@ export function DuelField({
                   legalKeys={legalKeys}
                   selectedKeys={selectedKeys}
                   showStats
+                  flip={leftEmz != null && leftEmz.controller === topIndex}
                   onActivate={onActivate}
                   onHoverCard={onHoverCard}
                 />
@@ -860,6 +862,7 @@ export function DuelField({
                   legalKeys={legalKeys}
                   selectedKeys={selectedKeys}
                   showStats
+                  flip={rightEmz != null && rightEmz.controller === topIndex}
                   onActivate={onActivate}
                   onHoverCard={onHoverCard}
                 />

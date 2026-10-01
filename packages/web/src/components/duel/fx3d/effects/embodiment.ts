@@ -16,7 +16,10 @@ export function embodiment(rig: Rig, tl: Summon3dTimeline): FxPart {
   const card = rig.request.rect;
   const start = artWindowOnCard(card);
   const goal = portraitTarget(card, view);
-  const cw = rig.request.defense ? Math.PI / 2 : 0;
+  // The card's turn from upright: a sideways card turns a quarter, the far player's card (picture upside
+  // down on screen) half a circle; both together make three quarters (written as a quarter the other way).
+  const far = rig.request.side === "opp";
+  const cw = far ? (rig.request.defense ? -Math.PI / 2 : Math.PI) : rig.request.defense ? Math.PI / 2 : 0;
   const code = rig.request.artCode ?? 0;
   const [u0, v0, u1, v1] = artCropUv();
   const { main, accent } = rig.tint;

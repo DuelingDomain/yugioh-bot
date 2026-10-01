@@ -69,6 +69,7 @@ function breaks(c: Ctx, cut: CutKind, o: { dir?: (v: FxVictim) => P; mode?: "bur
         rect: v.rect,
         code: v.code,
         defense: v.defense,
+        turned: v.turned,
         at: sec(v.atMs),
         dir: o.dir ? o.dir(v) : pushDir(c, v, null),
         cut,

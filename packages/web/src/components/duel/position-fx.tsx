@@ -198,8 +198,10 @@ function FlipFx(props: EffectProps) {
   const reveal = change.reveal;
   useSetup(props, ({ track, zone, geo, d }) => {
     place(anchor.current, geo);
-    const from = change.fromDefense ? 90 : 0;
-    const to = change.toDefense ? 90 : 0;
+    // The copy sits on the opponent's card, which is turned half way (field.module.css).
+    const base = geo.side === "opp" ? 180 : 0;
+    const from = base + (change.fromDefense ? 90 : 0);
+    const to = base + (change.toDefense ? 90 : 0);
     const body = cardBodyOf(zone);
     const total = FLIP_REVEAL_MS;
     const faceAt = FLIP_FACE_AT_MS / total;

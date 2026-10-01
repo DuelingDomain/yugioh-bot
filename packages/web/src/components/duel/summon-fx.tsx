@@ -275,6 +275,13 @@ function placeAnchor(anchor: HTMLElement, geo: Geo): void {
   anchor.style.setProperty("--fx-w", `${geo.w}px`);
   anchor.style.setProperty("--fx-h", `${geo.h}px`);
   anchor.style.setProperty("--fx-r", `${geo.radius}px`);
+  // The opponent's cards face the other way: the copies drawn here turn with them (see summon-fx.module.css).
+  anchor.dataset.side = geo.side;
+}
+
+/** The turn a card copy needs to match the real card: 180 degrees for the opponent, plus 90 in Defense Position. */
+function copyTurn(geo: Geo): number {
+  return (geo.side === "opp" ? 180 : 0) + (geo.defense ? 90 : 0);
 }
 
 function artOf(zone: HTMLElement): HTMLElement | null {
@@ -776,14 +783,10 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
             shards.current[index] = el;
           }}
           className={styles.shard}
-          style={
-            {
-              clipPath: shard.clip,
-              transformOrigin: `${shard.cx}% ${shard.cy}%`,
-              backgroundImage: card ? `url(${cardArtUrl(card.code, "small")})` : undefined,
-            } as CSSProperties
-          }
-        />
+          style={{ clipPath: shard.clip, transformOrigin: `${shard.cx}% ${shard.cy}%` } as CSSProperties}
+        >
+          <i className={styles.shardArt} style={{ backgroundImage: card ? `url(${cardArtUrl(card.code, "small")})` : undefined }} />
+        </span>
       ))}
       <span ref={flash} className={styles.breakFlash} />
     </div>
@@ -875,8 +878,9 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
       { duration: T.handOver, delay: d, fill: "backwards", easing: "linear" },
     );
     if (geo.defense) {
-      // A monster summoned in Defense Position turns as it lands.
-      track.play(art.current, [{ rotate: "0deg", offset: 0 }, { rotate: "0deg", offset: at(T.hoverEnd) }, { rotate: "90deg", offset: at(T.impact) }, { rotate: "90deg" }], {
+      // A monster summoned in Defense Position turns as it lands (from the owner's upright turn).
+      const base = geo.side === "opp" ? 180 : 0;
+      track.play(art.current, [{ rotate: `${base}deg`, offset: 0 }, { rotate: `${base}deg`, offset: at(T.hoverEnd) }, { rotate: `${base + 90}deg`, offset: at(T.impact) }, { rotate: `${base + 90}deg` }], {
         duration: T.handOver,
         delay: d,
         fill: "backwards",
@@ -1313,7 +1317,7 @@ function useTypedSetup(
     const { handOver, total } = TYPED_AUTHORED[style];
     if (refs.anchor.current) placeAnchor(refs.anchor.current, geo);
     applyTone(refs.anchor.current, style);
-    if (refs.copyBody.current && geo.defense) refs.copyBody.current.style.rotate = "90deg";
+    if (refs.copyBody.current && copyTurn(geo) !== 0) refs.copyBody.current.style.rotate = `${copyTurn(geo)}deg`;
     holdHidden(track, zone, d + handOver * TYPED_SCALE);
     // Everything below is written on the authored timeline and plays at TYPED_SCALE of it.
     track.pace(d, TYPED_SCALE);
@@ -1619,6 +1623,7 @@ function LinkFx(props: EffectProps) {
       fill: "both",
       easing: "cubic-bezier(0.4, 0, 0.6, 1)",
     });
+    // The fill keeps its own turn to the Defense Position only: its wipe (a clip) must run down the screen for both sides.
     if (fill.current && geo.defense) fill.current.style.rotate = "90deg";
     track.play(copyArt, [{ filter: "brightness(1) saturate(1)" }, { filter: "brightness(0.35) saturate(0.4) sepia(1) hue-rotate(170deg)", offset: 0.35 }, { filter: "brightness(0.35) saturate(0.4) sepia(1) hue-rotate(170deg)" }], {
       duration: sweepStart,
