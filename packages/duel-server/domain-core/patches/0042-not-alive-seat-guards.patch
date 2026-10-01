@@ -1,0 +1,366 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Fri, 11 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: no prompt, no card move and no control change for a
+ seat that is not alive at n > 2
+
+With more than two duelists, an eliminated seat could still get a prompt
+and could still get a card on its field. The lib functions give the folded
+value 0 to the core as a real seat. These guards stop the effect in the core.
+Every change is in an n > 2 branch. With two duelists the code is the same.
+
+field.h: new is_skipped_seat(p). It is true with n > 2 when p is not alive.
+
+playerop.cpp: a skipped seat gets no message. The core answers for it at
+step 0 with the stock "no choice" answer. Idle and battle commands end the
+phase. Yes/no and option give 0. Card, unselect, sort and position choices
+take the simple-AI answer. Chain gives -1 (0 if forced). Tribute and sum give
+an empty list. Announce choices take the first value. Place choices use the
+first living seat when the chooser is not alive.
+
+operations.cpp: MoveToField fails like a full zone when the field owner is not
+alive. When the chooser is not alive, the owner of the field chooses.
+GetControl does not move a card to a seat that is not alive.
+
+card.cpp: a control effect that names a seat that is not alive is ignored.
+It left a card in one mzone list with the controller of another seat.
+
+The nduel future checks eliminated-prompt (22 runs) and eliminated-cards
+(3 runs) are now 0. The stuck-prompt failures are gone. n3 is 20 of 20
+and n4 is 20 of 20. win-consistency in Tag is a harness count error.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ card.cpp       |   8 +++-
+ field.h        |   5 +++
+ operations.cpp |  10 +++++
+ playerop.cpp   | 110 +++++++++++++++++++++++++++++++++++++++++++------
+ 4 files changed, 118 insertions(+), 15 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index 220d517..0ae15a8 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -2118,8 +2118,12 @@ std::pair<uint8_t, effect*> card::refresh_control_status() {
+ 	if(eset.size()) {
+ 		effect* peffect = eset.back();
+ 		if(peffect->id >= last_id) {
+-			final = (uint8_t)peffect->get_value(this);
+-			ceffect = peffect;
++			const uint8_t controler = (uint8_t)peffect->get_value(this);
++			// with more than two duelists a control effect for a seat that is not alive is ignored
++			if(pduel->game_field->n_duelists == 2 || pduel->game_field->is_alive(controler)) {
++				final = controler;
++				ceffect = peffect;
++			}
+ 		}
+ 	}
+ 	return std::make_pair(final, ceffect);
+diff --git a/field.h b/field.h
+index 5b54685..4d1f413 100644
+--- a/field.h
++++ b/field.h
+@@ -483,6 +483,11 @@ public:
+ 	bool is_alive(int64_t p) const {
+ 		return is_duelist(p) && !player[p].eliminated;
+ 	}
++	// A seat that never gets a prompt: it is not alive (eliminated, or not a duelist) with more than
++	// two duelists. With two duelists this is always false, so the stock prompts are unchanged.
++	bool is_skipped_seat(int64_t p) const {
++		return n_duelists > 2 && !is_alive(p);
++	}
+ 	uint8_t team_of(uint8_t p) const {
+ 		return player[p].team;
+ 	}
+diff --git a/operations.cpp b/operations.cpp
+index 8da0ff4..b2f2c8e 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -1147,6 +1147,9 @@ bool field::process(Processors::GetControl& arg) {
+ 				change = false;
+ 			if(pcard->current.controler == none_id())
+ 				change = false;
++			// no card changes control to a seat that is not alive
++			if(n_duelists > 2 && !is_alive(playerid))
++				change = false;
+ 			if(pcard->current.location != LOCATION_MZONE)
+ 				change = false;
+ 			if(!pcard->is_capable_change_control())
+@@ -5116,9 +5119,16 @@ bool field::process(Processors::MoveToField& arg) {
+ 	uint8_t playerid = (target->to_field_param >> 16) & 0xff;
+ 	uint8_t location = (target->to_field_param >> 8) & 0xff;
+ 	uint8_t positions = (target->to_field_param) & 0xff;
++	// with more than two duelists the place is chosen by a living seat: the owner of the field
++	// chooses when the chooser is not alive (a folded or stale seat)
++	if(n_duelists > 2 && !is_alive(move_player) && is_alive(playerid))
++		move_player = playerid;
+ 	switch(arg.step) {
+ 	case 0: {
+ 		returns.set<int32_t>(0, FALSE);
++		// no card goes onto the field of a seat that is not alive: the move fails like a full zone
++		if(n_duelists > 2 && !is_alive(playerid))
++			return TRUE;
+ 		if((ret == 1) && (!(target->current.reason & REASON_TEMPORARY) || (target->current.reason_effect->owner != core.reason_effect->owner)))
+ 			return TRUE;
+ 		if(location == LOCATION_SZONE && zone == (0x1 << 5) && (target->data.type & TYPE_FIELD) && (target->data.type & (TYPE_SPELL | TYPE_TRAP))) {
+diff --git a/playerop.cpp b/playerop.cpp
+index 1cfddf0..5e2650b 100644
+--- a/playerop.cpp
++++ b/playerop.cpp
+@@ -18,6 +18,11 @@
+ bool field::process(Processors::SelectBattleCmd& arg) {
+ 	auto playerid = arg.playerid;
+ 	if(arg.step == 0) {
++		// a seat that is not alive does not choose: end the Battle Phase, or go to Main Phase 2
++		if(is_skipped_seat(playerid) && (core.to_ep || core.to_m2)) {
++			returns.set<int32_t>(0, core.to_ep ? 3 : 2);
++			return TRUE;
++		}
+ 		auto message = pduel->new_message(MSG_SELECT_BATTLECMD);
+ 		message->write<uint8_t>(playerid);
+ 		//Activatable
+@@ -69,6 +74,11 @@ bool field::process(Processors::SelectBattleCmd& arg) {
+ bool field::process(Processors::SelectIdleCmd& arg) {
+ 	auto playerid = arg.playerid;
+ 	if(arg.step == 0) {
++		// a seat that is not alive does not choose: end the phase
++		if(is_skipped_seat(playerid) && core.to_ep) {
++			returns.set<int32_t>(0, 7);
++			return TRUE;
++		}
+ 		auto message = pduel->new_message(MSG_SELECT_IDLECMD);
+ 		message->write<uint8_t>(playerid);
+ 		//idle summon
+@@ -162,6 +172,11 @@ bool field::process(Processors::SelectEffectYesNo& arg) {
+ 	auto pcard = arg.pcard;
+ 	auto description = arg.description;
+ 	if(arg.step == 0) {
++		// a seat that is not alive answers "no"
++		if(is_skipped_seat(playerid)) {
++			returns.set<int32_t>(0, 0);
++			return TRUE;
++		}
+ 		if((arg.playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
+ 			returns.set<int32_t>(0, 1);
+ 			return TRUE;
+@@ -185,6 +200,11 @@ bool field::process(Processors::SelectYesNo& arg) {
+ 	auto playerid = arg.playerid;
+ 	auto description = arg.description;
+ 	if(arg.step == 0) {
++		// a seat that is not alive answers "no"
++		if(is_skipped_seat(playerid)) {
++			returns.set<int32_t>(0, 0);
++			return TRUE;
++		}
+ 		if((playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
+ 			returns.set<int32_t>(0, 1);
+ 			return TRUE;
+@@ -213,7 +233,8 @@ bool field::process(Processors::SelectOption& arg) {
+ 			message->write<uint64_t>(0);
+ 			return TRUE;
+ 		}
+-		if((playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
++		// a seat that is not alive takes the first option
++		if(is_skipped_seat(playerid) || ((playerid == 1) && is_flag(DUEL_SIMPLE_AI))) {
+ 			returns.set<int32_t>(0, 0);
+ 			return TRUE;
+ 		}
+@@ -295,7 +316,8 @@ bool field::process(Processors::SelectCard& arg) {
+ 			max = static_cast<uint8_t>(core.select_cards.size());
+ 		if(min > max)
+ 			min = max;
+-		if((playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
++		// a seat that is not alive takes the first min cards, like the simple AI
++		if(is_skipped_seat(playerid) || ((playerid == 1) && is_flag(DUEL_SIMPLE_AI))) {
+ 			for(int32_t i = 0; i < min; ++i) {
+ 				return_cards.list.push_back(core.select_cards[i]);
+ 			}
+@@ -350,7 +372,8 @@ bool field::process(Processors::SelectCardCodes& arg) {
+ 			max = static_cast<uint8_t>(core.select_cards_codes.size());
+ 		if(min > max)
+ 			min = max;
+-		if((playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
++		// a seat that is not alive takes the first min cards, like the simple AI
++		if(is_skipped_seat(playerid) || ((playerid == 1) && is_flag(DUEL_SIMPLE_AI))) {
+ 			for(int32_t i = 0; i < min; ++i) {
+ 				return_card_codes.list.push_back(core.select_cards_codes[i]);
+ 			}
+@@ -401,7 +424,7 @@ bool field::process(Processors::SelectUnselectCard& arg) {
+ 			message->write<uint64_t>(0);
+ 			return TRUE;
+ 		}
+-		if ((playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
++		if (is_skipped_seat(playerid) || ((playerid == 1) && is_flag(DUEL_SIMPLE_AI))) {
+ 			if(finishable)
+ 				return_cards.canceled = true;
+ 			else
+@@ -457,6 +480,12 @@ bool field::process(Processors::SelectChain& arg) {
+ 	auto forced = arg.forced;
+ 	if(arg.step == 0) {
+ 		returns.set<int32_t>(0, -1);
++		// a seat that is not alive passes, and only takes a forced chain
++		if(is_skipped_seat(playerid)) {
++			if(forced && core.select_chains.size() != 0)
++				returns.set<int32_t>(0, 0);
++			return TRUE;
++		}
+ 		if((playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
+ 			if(core.select_chains.size() == 0)
+ 				returns.set<int32_t>(0, -1);
+@@ -519,33 +548,46 @@ bool field::process(Processors::SelectPlace& arg) {
+ 			message->write<uint64_t>(0);
+ 			return TRUE;
+ 		}
+-		if((playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
++		if(is_skipped_seat(playerid) || ((playerid == 1) && is_flag(DUEL_SIMPLE_AI))) {
++			// the seats the simple AI answers with: itself (1) and its opponent (0). A seat that is not
++			// alive answers with its own seat and the first living other seat.
++			uint8_t own_seat = 1, other_seat = 0;
++			if(n_duelists > 2) {
++				own_seat = playerid;
++				other_seat = playerid;
++				for(uint8_t q = 0; q < n_duelists; ++q) {
++					if(q != playerid && is_alive(q)) {
++						other_seat = q;
++						break;
++					}
++				}
++			}
+ 			flag = ~flag;
+ 			int32_t filter;
+ 			int32_t pzone = 0;
+ 			if(flag & 0x7f) {
+-				returns.set<int8_t>(0, 1);
++				returns.set<int8_t>(0, own_seat);
+ 				returns.set<int8_t>(1, LOCATION_MZONE);
+ 				filter = flag & 0x7f;
+ 			} else if(flag & 0x1f00) {
+-				returns.set<int8_t>(0, 1);
++				returns.set<int8_t>(0, own_seat);
+ 				returns.set<int8_t>(1, LOCATION_SZONE);
+ 				filter = (flag >> 8) & 0x1f;
+ 			} else if(flag & 0xc000) {
+-				returns.set<int8_t>(0, 1);
++				returns.set<int8_t>(0, own_seat);
+ 				returns.set<int8_t>(1, LOCATION_SZONE);
+ 				filter = (flag >> 14) & 0x3;
+ 				pzone = 1;
+ 			} else if(flag & 0x7f0000) {
+-				returns.set<int8_t>(0, 0);
++				returns.set<int8_t>(0, other_seat);
+ 				returns.set<int8_t>(1, LOCATION_MZONE);
+ 				filter = (flag >> 16) & 0x7f;
+ 			} else if(flag & 0x1f000000) {
+-				returns.set<int8_t>(0, 0);
++				returns.set<int8_t>(0, other_seat);
+ 				returns.set<int8_t>(1, LOCATION_SZONE);
+ 				filter = (flag >> 24) & 0x1f;
+ 			} else {
+-				returns.set<int8_t>(0, 0);
++				returns.set<int8_t>(0, other_seat);
+ 				returns.set<int8_t>(1, LOCATION_SZONE);
+ 				filter = (flag >> 30) & 0x3;
+ 				pzone = 1;
+@@ -615,7 +657,7 @@ bool field::process(Processors::SelectPosition& arg) {
+ 			returns.set<int32_t>(0, positions);
+ 			return TRUE;
+ 		}
+-		if((playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
++		if(is_skipped_seat(playerid) || ((playerid == 1) && is_flag(DUEL_SIMPLE_AI))) {
+ 			if(positions & 0x4)
+ 				returns.set<int32_t>(0, 0x4);
+ 			else if(positions & 0x1)
+@@ -649,6 +691,9 @@ bool field::process(Processors::SelectTributeP& arg) {
+ 	if(arg.step == 0) {
+ 		returns.clear();
+ 		return_cards.clear();
++		// a seat that is not alive does not choose: no Tribute
++		if(is_skipped_seat(playerid))
++			return TRUE;
+ 		if(max == 0 || core.select_cards.empty()) {
+ 			auto message = pduel->new_message(MSG_HINT);
+ 			message->write<uint8_t>(HINT_SELECTMSG);
+@@ -797,6 +842,9 @@ bool field::process(Processors::SelectSum& arg) {
+ 	if(arg.step == 0) {
+ 		return_cards.clear();
+ 		returns.clear();
++		// a seat that is not alive does not choose: nothing is selected
++		if(is_skipped_seat(playerid))
++			return TRUE;
+ 		if(core.select_cards.empty()) {
+ 			auto message = pduel->new_message(MSG_HINT);
+ 			message->write<uint8_t>(HINT_SELECTMSG);
+@@ -884,7 +932,7 @@ bool field::process(Processors::SortCard& arg) {
+ 	auto is_chain = arg.is_chain;
+ 	if(arg.step == 0) {
+ 		returns.clear();
+-		if((playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
++		if(is_skipped_seat(playerid) || ((playerid == 1) && is_flag(DUEL_SIMPLE_AI))) {
+ 			returns.set<int8_t>(0, -1);
+ 			return TRUE;
+ 		}
+@@ -927,6 +975,19 @@ bool field::process(Processors::AnnounceRace& arg) {
+ 	auto count = arg.count;
+ 	auto available = arg.available;
+ 	if(arg.step == 0) {
++		// a seat that is not alive takes the lowest available races
++		if(is_skipped_seat(playerid)) {
++			uint64_t selected = 0;
++			uint8_t taken = 0;
++			for(uint8_t b = 0; b < 64 && taken < count; ++b) {
++				if(available & (uint64_t{1} << b)) {
++					selected |= uint64_t{1} << b;
++					++taken;
++				}
++			}
++			returns.set<uint64_t>(0, selected);
++			return TRUE;
++		}
+ 		if(count == 0) {
+ 			auto message = pduel->new_message(MSG_HINT);
+ 			message->write<uint8_t>(HINT_SELECTMSG);
+@@ -962,6 +1023,19 @@ bool field::process(Processors::AnnounceAttribute& arg) {
+ 	auto count = arg.count;
+ 	auto available = arg.available;
+ 	if(arg.step == 0) {
++		// a seat that is not alive takes the lowest available attributes
++		if(is_skipped_seat(playerid)) {
++			uint32_t selected = 0;
++			uint8_t taken = 0;
++			for(uint8_t b = 0; b < 32 && taken < count; ++b) {
++				if(available & (uint32_t{1} << b)) {
++					selected |= uint32_t{1} << b;
++					++taken;
++				}
++			}
++			returns.set<uint32_t>(0, selected);
++			return TRUE;
++		}
+ 		if(count == 0) {
+ 			auto message = pduel->new_message(MSG_HINT);
+ 			message->write<uint8_t>(HINT_SELECTMSG);
+@@ -1086,6 +1160,11 @@ static int32_t is_declarable(const card_data& cd, const std::vector<uint64_t>& o
+ bool field::process(Processors::AnnounceCard& arg) {
+ 	auto playerid = arg.playerid;
+ 	if(arg.step == 0) {
++		// a seat that is not alive declares no card (code 0)
++		if(is_skipped_seat(playerid)) {
++			returns.set<int32_t>(0, 0);
++			return TRUE;
++		}
+ 		auto message = pduel->new_message(MSG_ANNOUNCE_CARD);
+ 		message->write<uint8_t>(playerid);
+ 		message->write<uint8_t>(static_cast<uint8_t>(core.select_options.size()));
+@@ -1110,6 +1189,11 @@ bool field::process(Processors::AnnounceCard& arg) {
+ bool field::process(Processors::AnnounceNumber& arg) {
+ 	auto playerid = arg.playerid;
+ 	if(arg.step == 0) {
++		// a seat that is not alive takes the first number
++		if(is_skipped_seat(playerid)) {
++			returns.set<int32_t>(0, 0);
++			return TRUE;
++		}
+ 		auto message = pduel->new_message(MSG_ANNOUNCE_NUMBER);
+ 		message->write<uint8_t>(playerid);
+ 		message->write<uint8_t>(static_cast<uint8_t>(core.select_options.size()));

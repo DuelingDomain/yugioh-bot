@@ -52,6 +52,8 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 | `0039-lua-fold-libduel-first-half.patch` | Every `libduel.cpp` function from the top to `GetChainEvent` that takes or returns a player uses the fold API (`unfold_action`, `query_list`, `field_side`, `push_player`). | None with 2 duelists. |
 | `0040-lua-fold-libduel-second-half.patch` | The same for `libduel.cpp` from `SkipPhase` to the end. No prompt goes to an eliminated seat. | None with 2 duelists. Every helper is the identity. |
 | `0041-lua-fold-card-group-effect.patch` | The same for the Card, Group and Effect functions. Lua gives a folded player. A value that is not a living duelist gives the stock invalid result. | None with 2 duelists. The 2 duelist path is the stock code. |
+| `0042-not-alive-seat-guards.patch` | A seat that is not alive gets no prompt, no card on its field and no control change at `n > 2`. New `is_skipped_seat(p)` in `field.h`. The core answers for such a seat with the stock "no choice" answer. | None with 2 duelists. Every change is in an `n > 2` branch. |
+| `0043-shared-fold-helpers.patch` | The local fold helpers of `libduel`, `libcard` and `libgroup` move to `fold_lib.h`. `Group.SelectWithSumEqual` and `SelectWithSumGreater` clear stale forced cards. `field::add_effect` swaps the ranges of an absolute free for all effect. `Destroy` drops a card with no location and no controller. | None with 2 duelists. The move and rename is pure. |
 
 ## Commands
 
@@ -137,6 +139,7 @@ The same fix is useful for the production standard core. It is not applied there
 ## Status of the series
 
 - Patches 2, 3 and 4 pass the differential gate. The reference is patches 1 and 2. The multi core is patches 1 to 4.
+- The results in this section are for patches 1 to 4. They were not repeated for patches 5 to 43 when these files were added.
 - Before the freed-effect fix: 200 seeds (base seed 20260930) and 1,000 seeds gave zero stock differences and zero multi differences.
 - With the freed-effect fix and the raw byte check: 200 seeds with patches 1 to 3 give zero differences and zero parse
   warnings. Patch 4 passes the 6 seeds that failed before (1577499120, 1916473771, 1025441889, 1578551883, 1116767578,
