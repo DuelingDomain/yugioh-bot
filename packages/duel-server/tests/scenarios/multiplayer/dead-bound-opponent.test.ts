@@ -1,39 +1,15 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
-import { repoMultiScriptsDirectory } from "../../../src/multi-scripts.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
-import { DEAD_BOUND_OPPONENT_SCENARIOS, STOCK_SCRIPT_CARD } from "./dead-bound-opponent.js";
+import { DEAD_BOUND_OPPONENT_SCENARIOS } from "./dead-bound-opponent.js";
 
 // Live scenarios of core fix OQ3 (a dead bound opponent is "no effect", never a Lua error). They run the STOCK script of Snake-Eyes Diabellstar:
-// the overlay folder of the repo is copied without c27260347.lua (and without its manifest row) and DUEL_MULTI_SCRIPTS_DIR names the copy.
+// the overlay has no file for it (the old c27260347.lua "or 0" workaround is gone), so the core alone must keep the duel running.
 // Same gate as the other live N-seat files: NSEAT_LIVE=1 and a multi core. These scenarios need a core with patch 0059 (the P59 build or later,
 // installed in data/duel-engine-next). On an older core the duel stops with "attempt to compare nil with number".
-let folder: string | undefined;
-let before: string | undefined;
-
-beforeAll(() => {
-  folder = mkdtempSync(join(tmpdir(), "oq3-multi-scripts-"));
-  cpSync(repoMultiScriptsDirectory(), folder, { recursive: true });
-  rmSync(join(folder, `c${STOCK_SCRIPT_CARD}.lua`));
-  const manifestPath = join(folder, "MANIFEST.json");
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { cards: { code: number }[] };
-  manifest.cards = manifest.cards.filter((card) => card.code !== STOCK_SCRIPT_CARD);
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  before = process.env.DUEL_MULTI_SCRIPTS_DIR;
-  process.env.DUEL_MULTI_SCRIPTS_DIR = folder;
-});
-
-afterAll(() => {
-  if (before === undefined) delete process.env.DUEL_MULTI_SCRIPTS_DIR;
-  else process.env.DUEL_MULTI_SCRIPTS_DIR = before;
-  if (folder) rmSync(folder, { recursive: true, force: true });
-});
 
 describeWithCores("live dead-bound-opponent scenarios (stock script)", liveNseat, () => {
   runScenarios("multiplayer/dead-bound-opponent", DEAD_BOUND_OPPONENT_SCENARIOS);

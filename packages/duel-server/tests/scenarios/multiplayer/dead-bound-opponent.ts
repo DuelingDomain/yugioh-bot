@@ -1,7 +1,7 @@
 // Live scenarios of core fix OQ3 (patch "gone bound opponent"): a bound opponent that is eliminated means "no effect on that seat", never a Lua error.
 // Stock cores returned NO Lua value from Duel.GetLocationCount (and the other count and group functions) when the bound seat was dead, so a script
 // that compares the result ("nothing > 0") stopped the duel. The scenarios run the STOCK script of Snake-Eyes Diabellstar: the test file
-// (dead-bound-opponent.test.ts) loads an overlay folder without the c27260347.lua workaround, so the core alone must keep the duel running.
+// (dead-bound-opponent.test.ts) runs with the overlay as it is: it has no file for that card (the old c27260347.lua workaround was removed), so the core alone must keep the duel running.
 // Plain data, also read by scripts/rule-coverage.ts. They need a core with patch 0059 (OQ3, the P59 build or later).
 // Every scenario ends with the state of every seat.
 
@@ -13,7 +13,7 @@ import { OPP_PICK, everySeat } from "./table-cards.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
 
-/** The card code whose overlay file the test file removes. */
+/** The card whose stock script the scenarios run (the overlay has no file for it). */
 export const STOCK_SCRIPT_CARD = 27260347;
 
 export const DEAD_BOUND_OPPONENT_SCENARIOS: Scenario[] = [
