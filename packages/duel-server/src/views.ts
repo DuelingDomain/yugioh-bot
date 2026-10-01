@@ -95,6 +95,7 @@ const QUERY_FLAGS = (
   OcgQueryFlags.ATTACK |
   OcgQueryFlags.DEFENSE |
   OcgQueryFlags.OVERLAY_CARD |
+  OcgQueryFlags.EQUIP_CARD |
   OcgQueryFlags.COUNTERS |
   OcgQueryFlags.OWNER |
   OcgQueryFlags.IS_PUBLIC |
@@ -178,6 +179,11 @@ function queryToCard(
   if (query.link) {
     card.linkRating = query.link.rating;
     card.linkMarker = query.link.marker as number;
+  }
+  // The core reports, on the equip card, the monster it is attached to (an Equip Spell, a Union
+  // monster, or any card an effect equips). Live state, so it follows the monster across zones.
+  if (query.equipCard) {
+    card.equippedTo = { controller: query.equipCard.controller, location: query.equipCard.location, sequence: query.equipCard.sequence };
   }
   return card;
 }
@@ -930,6 +936,21 @@ export function observeDuelEvent(
       const text = announcedPhaseTitle(message.phase);
       if (!text) return null;
       return { id, kind: "phase", text, publicText: text, revealCardTo: "all" };
+    }
+    case OcgMessageType.EQUIP: {
+      // The message carries board positions only, which are public. The cards are read from the board
+      // (DuelCard.equippedTo), so the event names none and nothing hidden can leak through it.
+      const text = `Player ${message.card.controller + 1} equips a card`;
+      return {
+        id,
+        kind: "equip",
+        seat: message.card.controller,
+        text,
+        publicText: text,
+        revealCardTo: "all",
+        zone: zoneOf(message.card),
+        target: zoneOf(message.target),
+      };
     }
     default:
       return null;

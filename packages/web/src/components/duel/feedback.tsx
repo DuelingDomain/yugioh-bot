@@ -303,7 +303,7 @@ export function DuelFeedback({
     for (const event of fresh) {
       // The battle layer draws damage on the life points; MoveFx draws card movement and
       // PositionFx the turn or flip of a monster: none of them get a toast.
-      if (event.kind === "damage" || event.kind === "move" || isPositionEvent(event)) continue;
+      if (event.kind === "damage" || event.kind === "move" || event.kind === "equip" || isPositionEvent(event)) continue;
       // When the board plays it: the chain beat of a chain event (ChainFx), or the moment a link's
       // own effect may start (chain-beats.ts). 0 when nothing holds it, as in the replay.
       const chainAt = Math.max(chainBeatAt(event.id), chainEffectAt(event.id));

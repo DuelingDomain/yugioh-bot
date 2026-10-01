@@ -1,0 +1,74 @@
+/* The line between an equip card and its monster: drawn on hover or focus, and once when the equip
+   happens. A pointer-transparent layer over the field; nothing here takes input. Only stroke and
+   opacity change. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  contain: layout style;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.link[data-placed="false"] { visibility: hidden; }
+
+.ring {
+  fill: rgb(155 126 255 / 0.1);
+  stroke: var(--pen, #9b7eff);
+  stroke-width: 2;
+  stroke-opacity: 0.85;
+  filter: drop-shadow(0 0 4px rgb(155 126 255 / 0.6));
+}
+
+/* A dark edge under the line keeps it readable on pale card art. */
+.shadow {
+  fill: none;
+  stroke: rgb(5 8 16 / 0.7);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.line {
+  fill: none;
+  stroke: var(--pen-ink, #c6b6ff);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  filter: drop-shadow(0 0 3px rgb(155 126 255 / 0.8));
+}
+
+.dot {
+  fill: var(--pen-ink, #c6b6ff);
+  stroke: rgb(5 8 16 / 0.85);
+  stroke-width: 1.5;
+}
+
+.glyphBg {
+  fill: #0c1224;
+  stroke: var(--pen, #9b7eff);
+  stroke-width: 1.5;
+}
+
+.glyphMark {
+  stroke: var(--pen-ink, #c6b6ff);
+  stroke-width: 3.2;
+}
+
+/* The hover line fades in; a one-shot line is animated from JS. */
+.link[data-mode="hover"] { animation: equipIn 0.14s ease-out both; }
+
+@keyframes equipIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link[data-mode="hover"] { animation: none; }
+}

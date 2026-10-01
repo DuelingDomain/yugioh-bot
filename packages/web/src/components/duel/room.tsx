@@ -29,6 +29,7 @@ import {
 } from "./api";
 import { RoomLobby } from "./room-lobby";
 import { DeckMasterRail, DuelField } from "./field";
+import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import { AttackConfirm, CardActionMenu, CardHoverInfo } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
@@ -729,6 +730,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     <CardInspector target={inspect}
       onInspectCard={(card) => setInspect({ type: "card", card })}
       onActivateCard={onInspectorActivate}
+      equipLinks={engine ? resolveEquipLinks(engine.seats) : undefined}
     />
   );
   const masterRail = domain && engine ? (

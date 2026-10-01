@@ -275,7 +275,8 @@ export function collectFreshEvents(
  * "activate" and "chain-negated" keep theirs.
  */
 export function hasCentreBanner(kind: DuelEventKind): boolean {
-  return kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end";
+  // An equip is drawn on the board as a line between the two cards (EquipFx), so it has no banner.
+  return kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end" && kind !== "equip";
 }
 
 /** How long a banner or toast stays: at least about 1.2 s for anything with words to read. */

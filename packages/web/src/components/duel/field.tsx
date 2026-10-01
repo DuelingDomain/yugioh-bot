@@ -1,10 +1,13 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats } from "./card-face";
+import { EquipChip, EquipLinksContext, useEquipRole } from "./equip-chip";
+import { EquipFx } from "./equip-fx";
+import { equipSentence, resolveEquipLinks } from "./equip-links";
 import { duelFontClasses } from "./fonts";
 import { LifePoints } from "./life-points";
 import { zoneMarkLook } from "./pick-glow";
@@ -272,6 +275,8 @@ function ZoneSlot({
   const stats = cardFieldStats(card, showStats);
   const [atk, def] = stats ? stats.split(" / ") : [null, null];
   const defense = card != null && isDefenseAt(card.location, card.position);
+  const equipRole = useEquipRole(card);
+  const equipText = equipSentence(equipRole);
 
   return (
     <div
@@ -281,13 +286,14 @@ function ZoneSlot({
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
       data-occupied={card ? "true" : "false"}
+      data-equip={equipRole?.role}
       data-defense={defense ? "true" : "false"}
       data-side={flip ? "opp" : "you"}
     >
       <button
         type="button"
         className={styles.zoneHit}
-        aria-label={label}
+        aria-label={equipText ? `${label}. ${equipText}` : label}
         aria-pressed={selected}
         onClick={(event) => onActivate(keys, card, event.currentTarget)}
         onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
@@ -310,6 +316,7 @@ function ZoneSlot({
               ) : null}
             </span>
           ) : null}
+          <EquipChip role={equipRole} flip={flip} />
           <ZoneMarks legal={legal} selected={selected} occupied={card != null} />
         </div>
         {pileCount != null ? <PileLabel kind={kind} count={pileCount} /> : null}
@@ -808,7 +815,10 @@ export function DuelField({
   const leftEmzKeys = withExact(leftEmz, extraMonsterKeys(bottomIndex, topIndex, "left"));
   const rightEmzKeys = withExact(rightEmz, extraMonsterKeys(bottomIndex, topIndex, "right"));
 
+  const equipLinks = useMemo(() => resolveEquipLinks(engine.seats), [engine.seats]);
+
   return (
+    <EquipLinksContext.Provider value={equipLinks}>
     <div
       className={cn(duelFontClasses, styles.felt)}
       data-duel-field="true"
@@ -919,7 +929,9 @@ export function DuelField({
           )}
         </div>
       </div>
+      <EquipFx links={equipLinks} events={engine.events} duelKey="field" reducedMotion={reducedMotion} />
     </div>
+    </EquipLinksContext.Provider>
   );
 }
 

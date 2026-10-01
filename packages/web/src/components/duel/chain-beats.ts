@@ -27,7 +27,7 @@ type PlanOptions = {
 };
 
 /** Event kinds that are the visible effect of a resolving link. */
-const EFFECT_KINDS = new Set<string>(["move", "destroy", "summon", "set", "position"]);
+const EFFECT_KINDS = new Set<string>(["move", "destroy", "summon", "set", "position", "equip"]);
 const MAX_KEPT = 400;
 
 const beats = new Map<number, number>();
