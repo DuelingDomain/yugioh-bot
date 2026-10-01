@@ -279,7 +279,7 @@ export function DeckEditor({
         <p className={styles.rules}><Info size={15} strokeWidth={1.6} aria-hidden /><span>{rulesNote}</span></p>
       </header>
 
-      <SavedDeckPicker mode={mode} disabled={busy} onLoad={(saved) => {
+      <SavedDeckPicker mode={mode} checked={settings.validateDeck} disabled={busy} onLoad={(saved) => {
         const hasCards = main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined;
         if (hasCards && deck !== pristineDeck
           && !window.confirm("Replace the deck you changed at this table? Your saved deck is unchanged.")) return false;
