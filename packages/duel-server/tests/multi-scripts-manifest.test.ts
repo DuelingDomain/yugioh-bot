@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  COMPARE_EXTRA, COMPARE_FALSE_POSITIVES, EXPECTED_COUNTS, MIRROR_GATE, OVERLAY_DIRECTORY, R1_COMPLETE, R1_NO_CHANGE, TRIAGE_FILE,
+  COMPARE_EXTRA, COMPARE_FALSE_POSITIVES, EXPECTED_COUNTS, MIRROR_GATE, OVERLAY_DIRECTORY, R1_COMPLETE, R1_NO_CHANGE, R2_NO_CHANGE, TRIAGE_FILE,
   checkLists, r1Codes, r1Entry, readManifest, readTriage, run, wholeFileText, type Manifest, type ManifestCard, type Triage,
 } from "../scripts/generate-multi-scripts.js";
 import { scanCorpus } from "../scripts/scan-multiplayer-scripts.js";
@@ -14,7 +14,7 @@ import { describeWithCores, needs } from "./support/cores.js";
 // The checks that need the stock scripts or the triage file (both are not in git) are skipped when the file is missing,
 // and fail with DUEL_REQUIRE_CORES=1 (stock scripts) or stay a skip (triage, a local file).
 
-const KINDS = ["whole", "expr", "trig", "hand", "chooser", "fix"];
+const KINDS = ["whole", "expr", "trig", "hand", "chooser", "fix", "seat"];
 const manifest = readManifest();
 const cards = manifest.cards;
 const text = (card: ManifestCard) => readFileSync(join(OVERLAY_DIRECTORY, card.file), "utf8");
@@ -28,7 +28,7 @@ const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.
 describe("MANIFEST.json of the overlay", () => {
   it("lists 108 cards with a valid kind, a file named after the code and a name", () => {
     expect(manifest.version).toBe(1);
-    expect(cards.filter((card) => !card.classes.includes("R1"))).toHaveLength(EXPECTED_COUNTS.entries);
+    expect(cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2"))).toHaveLength(EXPECTED_COUNTS.entries);
     for (const card of cards) {
       expect(KINDS, String(card.code)).toContain(card.kind);
       expect(card.file).toBe(`c${card.code}.lua`);
@@ -130,6 +130,59 @@ describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)
   });
 });
 
+describe("the R2 entries (state per seat: Q6, the key is the seat in FFA and the team in Tag)", () => {
+  const r2Cards = cards.filter((card) => card.classes.includes("R2"));
+  const seatCards = r2Cards.filter((card) => card.kind === "seat");
+  const handCards = r2Cards.filter((card) => card.kind === "hand");
+
+  it("have kind seat or hand, only the class R2, a state class and the key guard", () => {
+    for (const card of r2Cards) {
+      expect(["seat", "hand"], card.file).toContain(card.kind);
+      expect(card.classes, card.file).toEqual(["R2"]);
+      expect(card.r2Class, card.file).toBeTruthy();
+      expect(card.note, card.file).toBeTruthy();
+      expect(text(card).split("\n")[0], card.file).toBe("if not aux.MPKey then return end");
+    }
+  });
+
+  it("count 100 suffixes (38 generated seat tables, 62 hand files) and 45 cards that work without change", () => {
+    expect(r2Cards).toHaveLength(100);
+    expect(seatCards).toHaveLength(38);
+    expect(handCards).toHaveLength(62);
+    expect(R2_NO_CHANGE).toHaveLength(45);
+    expect(new Set(R2_NO_CHANGE).size).toBe(R2_NO_CHANGE.length);
+  });
+
+  it("have no card that is an entry and also in R2_NO_CHANGE, and no other class", () => {
+    expect(r2Cards.filter((card) => R2_NO_CHANGE.includes(card.code))).toEqual([]);
+    expect(cards.filter((card) => card.classes.includes("R2") && card.classes.length !== 1)).toEqual([]);
+  });
+
+  it("generate every seat file from the entry and chain the metatable of the card table", () => {
+    for (const card of seatCards) {
+      expect(card.seatTables, card.file).toBeTruthy();
+      expect(text(card), card.file).toContain("setmetatable(");
+      expect(text(card), card.file).toContain("aux.MPKey(");
+    }
+  });
+
+  it("name a key, a seat or a duelist helper (never only the stock player literal)", () => {
+    for (const card of handCards) {
+      expect(text(card), card.file).toMatch(/MP[A-Z]|seat/);
+    }
+  });
+
+  it("are reported when they have a wrong kind, a second class, no state class or are in R2_NO_CHANGE too", () => {
+    const wrong = clone();
+    const entry = { ...wrong.cards.find((card) => card.classes.includes("R2"))! };
+    wrong.cards.push({ ...entry, code: 1, kind: "expr" }, { ...entry, code: 2, classes: ["R2", "COMPARE"] }, { ...entry, code: 3, r2Class: undefined });
+    const problems = checkLists(wrong, null).join("\n");
+    expect(problems).toContain("R2 card 1 has kind expr");
+    expect(problems).toContain("R2 card 2 has another class");
+    expect(problems).toContain("R2 card 3 has no r2Class");
+  });
+});
+
 describe("the generator", () => {
   it("--check has no problem and writes nothing", () => {
     const result = run({ check: true, triage: null });
@@ -165,7 +218,7 @@ describe("the overlay files", () => {
     for (const card of cards) {
       const first = text(card).split("\n")[0];
       if (card.replace) expect(first, card.file).toBe("--@replace");
-      else expect(first.startsWith("--@replace") || first === "if not aux.MPAny then return end" || first === "if not aux.MPForEachDuelist then return end" || card.kind === "fix", `${card.file}: ${first}`).toBe(true);
+      else expect(first.startsWith("--@replace") || first === "if not aux.MPAny then return end" || first === "if not aux.MPForEachDuelist then return end" || first === "if not aux.MPKey then return end" || card.kind === "fix", `${card.file}: ${first}`).toBe(true);
     }
   });
 

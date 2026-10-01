@@ -133,6 +133,45 @@
       "note": "Script fix (late-cards, Q4 duel-style card): the activator picks the opponent at activation (aux.MPTarget) and the owner and that opponent each roll their own die, so the roller is the duelist that takes the damage. Tag: the die and the team LP of the picked side. Not part of R1."
     },
     {
+      "code": 3576031,
+      "file": "c3576031.lua",
+      "name": "Crystolic Potential",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "659d0a05b83e8d0a1829aed7ff250bce08e9e9a1052dd7aa1333947efe8402dc",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
+    },
+    {
+      "code": 3900605,
+      "file": "c3900605.lua",
+      "name": "Absorbing Jar",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EACH-CONTROLLER",
+      "stockSha256": "ccf44bba42540cac836b1675afc12d6530321c524f1f9a12c61bcadbff34fcde",
+      "note": "each player draws as many cards as destroyed cards on their side: the destroyed cards are split by real controller (aux.MPForEachController) and each controller draws its own count (stock: tp and 1-tp only)."
+    },
+    {
+      "code": 3972721,
+      "file": "c3972721.lua",
+      "name": "Greed Grado",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "428821a10cff6ef61b554727f8abba04380c089933b8413223f44d487f7ee98b",
+      "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
+    },
+    {
       "code": 4807253,
       "file": "c4807253.lua",
       "name": "Performage Flame Eater",
@@ -161,6 +200,38 @@
         "R1"
       ],
       "stockSha256": "a25ba29959507b346ad823f6bf8a9fc0552bf5d30f79b3f70b31cc5ee1b512f9"
+    },
+    {
+      "code": 6850209,
+      "file": "c6850209.lua",
+      "name": "A Deal with Dark Ruler",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "c0d8ea6f79c2860180d5bf251b630482f6e5ced9f388592e199cf925f76a624c",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). Flag table.",
+      "seatTables": [
+        "s"
+      ],
+      "seatInit": "false"
+    },
+    {
+      "code": 7293697,
+      "file": "c7293697.lua",
+      "name": "Toon World the Perfect World",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "7a97d659ba910312170150df5c8b4a8a7993bdf3e9b5c9088c9386f8e9abd718",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s.name_list"
+      ],
+      "seatInit": "{}"
     },
     {
       "code": 7373632,
@@ -209,6 +280,18 @@
         "target"
       ],
       "stockSha256": "cd85ff8cf901ed02e7b7692af01fcfc8f224ed880f3b66ece7bf7e22493806aa"
+    },
+    {
+      "code": 8778267,
+      "file": "c8778267.lua",
+      "name": "Penetration Fusion",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "2626aa1ca67fef50a7cc0857bcc50244ef38bf30916fbe8debf68bace0aee2e8",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
       "code": 8814959,
@@ -269,6 +352,42 @@
       "stockSha256": "8b50857dfc4745fa75e0f02aa8076a1a56bfc88e4af17627ce41c103ee1b1707"
     },
     {
+      "code": 10113611,
+      "file": "c10113611.lua",
+      "name": "Wattuna",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "e972287012a5645af654a753da7f3b7bdf3b2a133a30239a92d7895ad414470b",
+      "note": "the global check compares the damaged player with 1-controller of the attacker; it compares the keys (seat in FFA, team in Tag) and writes the flag for the real controller."
+    },
+    {
+      "code": 10497636,
+      "file": "c10497636.lua",
+      "name": "War Rock Meteoragon",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "d5a582e8293464b80974dd288e12857f48c9a44446b514b876f8159daaa39c31",
+      "note": "the global battle check asks Duel.GetBattleMonster(0), which gives the monsters only when the seat 0 duelist is in the battle; it asks for every real seat and writes the flag of the seat of each battle monster (flag keyed by seat in FFA, team in Tag)."
+    },
+    {
+      "code": 10529441,
+      "file": "c10529441.lua",
+      "name": "Foolish Trap Hole",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LOOP",
+      "stockSha256": "d994c293c62db60c813b0c9737f19651b8bd402624b82a7c13fbf74f0d18476a",
+      "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
+    },
+    {
       "code": 12210097,
       "file": "c12210097.lua",
       "name": "Mitsurugi Sacred Boundary",
@@ -310,6 +429,21 @@
       "note": "Card text says \"your opponent\" (one): CH-OP (decision Q5), not CH-EACH as in the first pass of the design."
     },
     {
+      "code": 12381100,
+      "file": "c12381100.lua",
+      "name": "Dragon Master Magia",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "4f89a123cdfe06eb09c81fec86347815556c6f55d77a648789a7ba51f9f05e24",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s.type_list"
+      ]
+    },
+    {
       "code": 12694768,
       "file": "c12694768.lua",
       "name": "Abaki",
@@ -320,6 +454,42 @@
       "stockSha256": "3a9138ec6be49bc281ec96035aa957c2fcc5fcaf5e59cb33ec23516d8faa7b6c"
     },
     {
+      "code": 12863633,
+      "file": "c12863633.lua",
+      "name": "Curse of the Circle",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LABEL",
+      "stockSha256": "898ffa3d071d1d14a375bbc861a500272930d9ae8b4f7ebb5616d2da514804fc",
+      "note": "the label is 1-tp, which a handler folds to the value 1 and not the real seat of the controller of the target; the label is the real seat of the target controller (Duel.MPSeatOf) and the Synchro check compares keys (seat in FFA, team in Tag)."
+    },
+    {
+      "code": 13076804,
+      "file": "c13076804.lua",
+      "name": "Chaos Archfiend",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "3635efa9cc11483895bbdb3f2558bf8de21ec358a4ad3ffb2c6fdad8d16b509e",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 13243124,
+      "file": "c13243124.lua",
+      "name": "Favorite HERO Flame Wingman",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "c76de9e9e6f551b9292b2d242699610c09c96af67c79cce839b29bd00a7c7904",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
       "code": 13995824,
       "file": "c13995824.lua",
       "name": "Voltic Bicorn",
@@ -328,6 +498,25 @@
         "R1"
       ],
       "stockSha256": "904caca4dc9e8e7704b02452553bb3fbdc9ab3680c511b0815f8504d513dfe38"
+    },
+    {
+      "code": 14318794,
+      "file": "c14318794.lua",
+      "name": "Life Absorbing Machine",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "efb54c768008fb04181cc028eca99fd7f19563682332aaa7e18a745cff446f7b",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). Two lists (this turn, last turn) replace s[p] and s[p+2].",
+      "seatTables": [
+        "s.mpnow",
+        "s.mpprev"
+      ],
+      "seatInit": "{}",
+      "seatExtra": "c14318794.extra.lua",
+      "seatNoReset": true
     },
     {
       "code": 14989021,
@@ -399,6 +588,23 @@
       "stockSha256": "9a7744980d307f9cb9a0a2b81aa35cd1b475fa6396647dd1302bff68eae4ffc9"
     },
     {
+      "code": 16832845,
+      "file": "c16832845.lua",
+      "name": "Final Geas",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "0f900f70e7b1db8bc1c2abc815379c1610dc86a56e392527c632c27b7806f3eb",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The condition asks for the own side and any opponent side (stock: s[0] and s[1]).",
+      "seatTables": [
+        "s"
+      ],
+      "seatInit": "false",
+      "seatExtra": "c16832845.extra.lua"
+    },
+    {
       "code": 17086528,
       "file": "c17086528.lua",
       "name": "Xiangsheng Magician",
@@ -414,6 +620,30 @@
         "slcon"
       ],
       "stockSha256": "69bfdf7b7b47096deb443d2f8b9c488f6367fcc6d2bbbb868aef6c4d7461f10f"
+    },
+    {
+      "code": 17242022,
+      "file": "c17242022.lua",
+      "name": "Red-Eyes Black Dragon Exceed",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "8ac96bbcf45a54f4e4af71731a1266ac819b2f039d8403bf2bbf6cd4eae9ece9",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 17269895,
+      "file": "c17269895.lua",
+      "name": "King's Resonance",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "c3cc26d13d1f3e74b260ba271bfc60d77260b356ffbd72074ba043d9abd72ffd",
+      "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag). One flag per summoned monster of the real summoner (the stock script counts monsters)."
     },
     {
       "code": 17956906,
@@ -433,6 +663,22 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "3f6996160e4b45310801a7b8089403e812af6d03265a8a2a0daf60fcf8179f79"
+    },
+    {
+      "code": 18114794,
+      "file": "c18114794.lua",
+      "name": "Summon Breaker",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "51d4bc4d05144bc975dbcc8044c2ce6615011b1593dad5f22f733cca37583d8e",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The turn number moves from s[2] to s.mp_turn.",
+      "seatTables": [
+        "s"
+      ],
+      "seatExtra": "c18114794.extra.lua"
     },
     {
       "code": 18271561,
@@ -464,6 +710,18 @@
         "destg"
       ],
       "stockSha256": "8d7e139ca1cd36d940672583f87bf07dde8663c4124bf413432d773f3fe4a169"
+    },
+    {
+      "code": 18558867,
+      "file": "c18558867.lua",
+      "name": "War Rock Bashileos",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "30229744a03ddbb31dbd5aa34adca11416d8531321ccb7176c1978163158c2a1",
+      "note": "the global battle check asks Duel.GetBattleMonster(0), which gives the monsters only when the seat 0 duelist is in the battle; it asks for every real seat and writes the flag of the seat of each battle monster (flag keyed by seat in FFA, team in Tag)."
     },
     {
       "code": 18752707,
@@ -536,6 +794,56 @@
       "stockSha256": "32cfe8d8c4eb5f701024261c78a5b792789d3ba97f77554fbe959ec0927852f8"
     },
     {
+      "code": 19671102,
+      "file": "c19671102.lua",
+      "name": "Stairs of Mail",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "1609eb3526d6bfdd9e6ae4a467222af6554b08e1fd93cbd6a3451949873b9665",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s.name_list"
+      ],
+      "seatInit": "{}"
+    },
+    {
+      "code": 20057949,
+      "file": "c20057949.lua",
+      "name": "Inherited Fortune",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "30178753ddc0e0e21d5727516bdeed58340a6008aa072b073fc96d7447d81c02",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). Flag table.",
+      "seatTables": [
+        "s"
+      ],
+      "seatInit": "false"
+    },
+    {
+      "code": 20501450,
+      "file": "c20501450.lua",
+      "name": "Concentrating Current",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "ba132519ae59a9fe3c8dcd59fc37598e05366180a990df8d2cf403355f3af4ff",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The stock clear function clears every slot.",
+      "seatTables": [
+        "s"
+      ],
+      "seatResets": {
+        "clear": null
+      }
+    },
+    {
       "code": 20644748,
       "file": "c20644748.lua",
       "name": "Spatial Collapse",
@@ -560,6 +868,18 @@
         "R1"
       ],
       "stockSha256": "d1f43147ab9399a82ec525a40188c6d6b06f0689e92f6c0fac53bedb33eb407c"
+    },
+    {
+      "code": 20904475,
+      "file": "c20904475.lua",
+      "name": "Kairo Ryu-Ge Emva",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "4e86617869ac8b8d3ec3a87e3f1081422ce4ae98806f7796cd0958bd236c0228",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
       "code": 20985997,
@@ -666,6 +986,18 @@
       "stockSha256": "a3bbf9d3eef444217d2b7a487c53f924849f2fef961f22a5e8ee41cee424cb61"
     },
     {
+      "code": 24207889,
+      "file": "c24207889.lua",
+      "name": "There Can Be Only One",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LOOP",
+      "stockSha256": "3e97ec1ea18a0244e3960e211807aa9158f0d09b7f186432582474d60fb586a2",
+      "note": "the adjust check loops over the seats 0..3 (stock: 0 and 1) and sends the extra monsters of each duelist to the GY."
+    },
+    {
       "code": 24514503,
       "file": "c24514503.lua",
       "name": "Soulicer Crystal",
@@ -757,6 +1089,57 @@
       "stockSha256": "e621cf1ba47ce4fd519ffcba2f471f1005c8e32344e19a3fb4b36476fd4c22d0"
     },
     {
+      "code": 27308231,
+      "file": "c27308231.lua",
+      "name": "K9-LC Release Restraint",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "3cbebb75e2b6fe55fd757f9293fd4ba747f6ef240e519129da962ce291f220e7",
+      "note": "the global check asks Duel.GetBattleMonster for the literals 0 and 1 and writes the flag for 0 and 1; it asks for every real seat and writes the flag of the seat of the battle monster (flag keyed by seat in FFA, team in Tag)."
+    },
+    {
+      "code": 27770341,
+      "file": "c27770341.lua",
+      "name": "Super Rejuvenation",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "d1a49464f2721b696620fbabf9641ba31b326a99f11e06c9598aa83a1b03d94b",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
+    },
+    {
+      "code": 27822206,
+      "file": "c27822206.lua",
+      "name": "Ages of Stars and Frost",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "686c2eafc278de29ce5f4c56136512f904d3431ee09bb567659a91ef87949ec9",
+      "note": "the global check compares the reason player with 1-previous controller; it compares the keys (seat in FFA, team in Tag) and writes the flag for the real previous controller."
+    },
+    {
+      "code": 29307554,
+      "file": "c29307554.lua",
+      "name": "Lineage of Destruction",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "4b0b3f19c27381fda1aad05907ebd2cbb3aa51cc6e6b61ee8e4304ef35054fd8",
+      "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
+    },
+    {
       "code": 29599813,
       "file": "c29599813.lua",
       "name": "Purrely Pretty Memory",
@@ -775,6 +1158,23 @@
         "R1"
       ],
       "stockSha256": "0eb239cd64b36cec25522de113c80eebe75d6432c1b00b390b44825dadd7248e"
+    },
+    {
+      "code": 29724053,
+      "file": "c29724053.lua",
+      "name": "Summon Gate",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "860538616df7329d80a1740ce815c0ff0fd862a334c304138871557aaacbb769",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The summon limit reads the slot of the real controller of the summoned monster (sump is a folded value). The CARD_SUMMON_GATE value function still gets a folded player.",
+      "seatTables": [
+        "s"
+      ],
+      "seatInit": "3",
+      "seatExtra": "c29724053.extra.lua"
     },
     {
       "code": 29904964,
@@ -812,6 +1212,21 @@
         "R1"
       ],
       "stockSha256": "4ec451fb4c2f5dd925619fa76d572ca586908d5fa80df67e0140da94024c08d3"
+    },
+    {
+      "code": 30353551,
+      "file": "c30353551.lua",
+      "name": "Human-Wave Tactics",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "b663fe1a3bb3e059f99bb8b5fd29db1536d9cdbfb7b6dce29d1e590b68bf9705",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
     },
     {
       "code": 30394645,
@@ -860,6 +1275,21 @@
       "stockSha256": "965c00d7c4526958781fc63e71636d325133cb81f6d45cd3a6b1dfe7e2beecb1"
     },
     {
+      "code": 32056070,
+      "file": "c32056070.lua",
+      "name": "You and A.I.",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "e9acd253ff12bcc8c6e3e94c597a7d2ab33200184c8897f5f99da73cb2f146be",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s.attr_list"
+      ]
+    },
+    {
       "code": 32762201,
       "file": "c32762201.lua",
       "name": "Ancient Gear Statue",
@@ -875,6 +1305,18 @@
         "selfspcon"
       ],
       "stockSha256": "0ea2588443e85f1e97ee8771af568a3df306217329e765fbee4694eb7eaa474d"
+    },
+    {
+      "code": 32835363,
+      "file": "c32835363.lua",
+      "name": "Cracking",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EACH-CONTROLLER",
+      "stockSha256": "6cb2ef2cba17d056c99532a2d3b3d487a0e95a8aaf3ad0a22cb2763da25b0dd8",
+      "note": "the damage step knows only the literals 0, 1 and PLAYER_ALL for the controllers of the destroyed monsters; the controllers are a key mask (real controller seat via Duel.MPSeatOf) carried in the event value, and every living side in the mask takes 800."
     },
     {
       "code": 32875265,
@@ -894,6 +1336,18 @@
         "condition"
       ],
       "stockSha256": "8e26bb6c68fe54e3563199d82a4fd5ad7c2295aee014b18365a1dac03e776993"
+    },
+    {
+      "code": 33327029,
+      "file": "c33327029.lua",
+      "name": "Metalfoes Counter",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EVENT-BITS",
+      "stockSha256": "4831ef01303e7ca8768893d5bbd96c6df0050d189fbfde891d4607953005d480",
+      "note": "the check raises the event with a bit mask of the keys (stock: 0, 1 or PLAYER_ALL); the condition asks for the own key."
     },
     {
       "code": 33782437,
@@ -933,6 +1387,18 @@
       ],
       "stockSha256": "5d376c4c525078587c6cef5e7ce8f2f4ea476477d4a6164ae3d08ffaf0dff14a",
       "note": "Reads the Graveyard and the banished zone (field class) of the bound opponent. Tag: the target picks the opposing duelist (MPTarget) and the operation runs bound to that duelist (MPOne), who may Special Summon from the Deck. The triage text that calls it OK-BIND is wrong."
+    },
+    {
+      "code": 34449261,
+      "file": "c34449261.lua",
+      "name": "Fusion Fright Waltz",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EACH-CONTROLLER",
+      "stockSha256": "ac2ba6e06ee10d4f26d9813a847e81ef1914ad25b7984df2abaaace3fbe3f614",
+      "note": "the damage goes to tp and 1-tp by the previous controller of the destroyed monsters; the real controller seat of every card is read before the destruction (Duel.MPSeatOf) and every living side that lost a card takes the damage."
     },
     {
       "code": 34694160,
@@ -981,6 +1447,45 @@
         ]
       },
       "stockSha256": "e330441b5b04c4b2c200a4ec4bd929885ba9ee5cf3b51b46828252c4cc9505d4"
+    },
+    {
+      "code": 35262428,
+      "file": "c35262428.lua",
+      "name": "Wiseman's Chalice",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LABEL",
+      "stockSha256": "8d616178394ef73c4440d73d9718fb08860180b908232c3e6bb7f99ec77e62d9",
+      "note": "the label is 1-tp, which a handler folds to the value 1 and not the real owner seat; the label is the real seat the monster came from and the End Phase returns control with that seat bound (Duel.MPBindSeat). A seat that is not a living opponent leaves the monster where it is."
+    },
+    {
+      "code": 35268887,
+      "file": "c35268887.lua",
+      "name": "Damage Translation",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "121fde8d5512b70306718d277077048b25cb6a58cf2877d4797553ae306a2ef3",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
+    },
+    {
+      "code": 35405755,
+      "file": "c35405755.lua",
+      "name": "Kurikara Divincarnate",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "e427a4a1b0b8fa4c67db6e4cfe9e598a87d711336e9fc86602b0728da381c48f",
+      "note": "the global check compares the controller of the chain link with 1-turn player; it compares the keys (seat in FFA, team in Tag)."
     },
     {
       "code": 35842855,
@@ -1090,6 +1595,18 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "7167a152987cdf93d23563f722cb54ad4bd2937767ea0e8b36a98bd9f585821c"
+    },
+    {
+      "code": 38522377,
+      "file": "c38522377.lua",
+      "name": "Meklord Astro Dragon Asterisk",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EACH-CONTROLLER",
+      "stockSha256": "416d972d7a441a06776789f4baeaa6dc5d7b61f47c5f18ae55386c37d298cfb6",
+      "note": "the damage goes to tp, 1-tp or both by who Synchro Summoned; the summoning sides are a key mask (real controller seat via Duel.MPSeatOf) stored in the label at the target step, and every living side in the mask takes 1000."
     },
     {
       "code": 38817295,
@@ -1251,6 +1768,18 @@
       "stockSha256": "100321adc2379201c936e524bdff4c35dc30b75e99f80f93df2698c00d6fdbb2"
     },
     {
+      "code": 42228966,
+      "file": "c42228966.lua",
+      "name": "Battlefield Tragedy",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "4b1ec90bf891df6c655b60b39392757538ce569344ae5c453e51d0dfaeac3188",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
       "code": 42517468,
       "file": "c42517468.lua",
       "name": "Ojama Pink",
@@ -1259,6 +1788,18 @@
         "R1"
       ],
       "stockSha256": "aa45dff987f42d5803585456668e393f744ffbe11018b7f9a7760b5956227e3f"
+    },
+    {
+      "code": 42589641,
+      "file": "c42589641.lua",
+      "name": "Stellarknight Triverr",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "b478f7457cd5ae958978f6d3bc49b9a1ad299ab257673f49172438a2424de6b2",
+      "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
     },
     {
       "code": 43262273,
@@ -1272,6 +1813,18 @@
       ],
       "stockSha256": "721fd4a0bdaa7626b8ee164f0f69bac6ab36be006b1d82bddc447e208534680c",
       "note": "Script fix (late-cards, R3 + R-COMMON-OPP-PICK): the card banished from the hand of the picked opponent goes back to the hand of its owner. The stock operation sent it to 1-tp, which reads as the turn player of the NEXT opponent turn, so in FFA3 the Axe Raider of p2 came back to p1. Not part of R1."
+    },
+    {
+      "code": 43383478,
+      "file": "c43383478.lua",
+      "name": "Rank-Up-Magic Raptor's Force",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "2c804f7d5dab11b99249e26a9c0f2af6d087918b3591b47b56c2e133ce82d18e",
+      "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
     },
     {
       "code": 43434803,
@@ -1462,6 +2015,18 @@
       "stockSha256": "efcc955398b73fd5d5ad4cb3de783c538a353d37cc3e06a6db338a55840d3fdb"
     },
     {
+      "code": 48171151,
+      "file": "c48171151.lua",
+      "name": "Astrograph Sorcerer, the Star Magician",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EVENT-BITS",
+      "stockSha256": "3ddef00ffefc32b1ea6fdf71ecf51bb3eea3b9174b67cf91b38921de5469fd6e",
+      "note": "the global check raises the event for the players 0 and 1 with the groups of the previous controller; it raises it for every real seat with that seat as the event player."
+    },
+    {
       "code": 48216773,
       "file": "c48216773.lua",
       "name": "Compulsory Escape Device",
@@ -1500,6 +2065,42 @@
       "chooserClass": "CH-OP",
       "stockSha256": "151ce2ea5cb256fc768acb80d2545a0d655ee5fef375a26633d95e924de750d5",
       "note": "The Standby Phase effect keeps the REAL seat of the controller of the banished monster in the effect value (Duel.MPSeatOf) and binds it again with Duel.MPBindSeat when it runs; a dead seat gives no offer."
+    },
+    {
+      "code": 49430782,
+      "file": "c49430782.lua",
+      "name": "True Draco Heritage",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "44dbfe219c696b7c5a5d5c5515c2585e1630eadc74f5674182c1a6d9dada5556",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 49565413,
+      "file": "c49565413.lua",
+      "name": "Chaos Beast",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "2bf11067b480216086cad25fadf6c1e054a757b2e3aac509304c4a7686abd95c",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 50042011,
+      "file": "c50042011.lua",
+      "name": "Mementotlan Shleepy",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LOOP",
+      "stockSha256": "611b4b5c805ad61d5bcb0e23a9492a995dc6ecc0d0871b0d8bb182ef343aafc2",
+      "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
     },
     {
       "code": 50470982,
@@ -1561,6 +2162,36 @@
       "stockSha256": "ac36ccebd90d1564a77f38918805e1090362cadf415e05194d1d7f7fdd679375"
     },
     {
+      "code": 51194046,
+      "file": "c51194046.lua",
+      "name": "Qliphort Monolith",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "76257ea778f21319c771d3be14308e9716c3652d6c2a8a32cc4a9b8e1b4a45ba",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The stock clear function clears every slot.",
+      "seatTables": [
+        "s"
+      ],
+      "seatResets": {
+        "clearop": null
+      }
+    },
+    {
+      "code": 51869363,
+      "file": "c51869363.lua",
+      "name": "Superconductive Plasma Blast",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "55e379ce353b1668d24d4f1e81075386643251ec9b2c2ee4fc85857951caefa8",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
       "code": 52350806,
       "file": "c52350806.lua",
       "name": "Danger! Mothman!",
@@ -1569,6 +2200,21 @@
         "R1"
       ],
       "stockSha256": "8e2867e2106c21f98bbbfbd1f168d01559243bc351f9a63335317a1ee0d5a487"
+    },
+    {
+      "code": 52900379,
+      "file": "c52900379.lua",
+      "name": "Blackwing - Brisote the Tailwind",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "9144482a83a0adc0610daae38572e87de8774669c88f199fbfa0e592c3d1e3ec",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
     },
     {
       "code": 53244294,
@@ -1586,6 +2232,58 @@
         "zcon"
       ],
       "stockSha256": "62672b54b42c1ae1d918da63b1179097ad0563e1ad1b2f7f05e1f41a5c43cedb"
+    },
+    {
+      "code": 53334471,
+      "file": "c53334471.lua",
+      "name": "Gozen Match",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "74582fedf1f77ee8042f79c3b3c4af13a7d6c01e350096dfec71088a1a292f5f",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The adjust handler loops over every living duelist (stock: the two sides of the owner). The cannot-activate value function still gets a folded player.",
+      "seatTables": [
+        "s"
+      ],
+      "seatExtra": "c53334471.extra.lua"
+    },
+    {
+      "code": 53545926,
+      "file": "c53545926.lua",
+      "name": "Token Support",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "61c0947efe314621fcabceeec1e34a95cee169bbb968c144116e75802a5e7e77",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 53792930,
+      "file": "c53792930.lua",
+      "name": "K9-X Forced Release",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "a8fbfff545bc32487661d04e5d523cfb919d09eec0d2bc50d43d76020196094e",
+      "note": "the global check asks Duel.GetBattleMonster for the literals 0 and 1 and writes the flag for 0 and 1; it asks for every real seat and writes the flag of the seat of the battle monster (flag keyed by seat in FFA, team in Tag)."
+    },
+    {
+      "code": 54564198,
+      "file": "c54564198.lua",
+      "name": "Monster Rebirth",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "9010addbc961a6172195f2edb2455088f37a71e954f25e0b35c5ee60084b6676",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
       "code": 55273560,
@@ -1692,6 +2390,18 @@
       "note": "Numeron Dragon (review A item 2): desop keeps the window index per card and Sets each card in the window of its seat (the owner is folded in FFA). spcon in FFA counts only a direct attack that can only go to you (no other seat without a monster): the core has no read of the attacked duelist."
     },
     {
+      "code": 57847269,
+      "file": "c57847269.lua",
+      "name": "Clown Crew Matinee Operatics",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "b6ded8db478fef828a26bde92742a32181d22ff7876e7e256a4f82a08c7d84e8",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
       "code": 58071123,
       "file": "c58071123.lua",
       "name": "Oxygeddon",
@@ -1717,6 +2427,21 @@
       "stockSha256": "56d09211c1bf32d4ca6b981bb31ddabae4858936747f84d261dfe6881ac30137"
     },
     {
+      "code": 59054773,
+      "file": "c59054773.lua",
+      "name": "Ignister A.I.Land",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "a6ab5fdd45a2fabe7b0deaca653b89cc0f1f9aff01d543a881e8b860d886a75e",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s.attr_list"
+      ]
+    },
+    {
       "code": 59094601,
       "file": "c59094601.lua",
       "name": "The Revived Sky God",
@@ -1725,6 +2450,37 @@
         "R1"
       ],
       "stockSha256": "bba517904b492d90fccdc1d5e2d9e32f5164bc4d8769d37286b3ec6e6863930b"
+    },
+    {
+      "code": 60018643,
+      "file": "c60018643.lua",
+      "name": "Cynet Codec",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "6bbe2b568e8fc3100b7c4ea7e97c435d6338ad9a85786f5d7bfeb65a8e8a7714",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s.attr_list"
+      ]
+    },
+    {
+      "code": 60187739,
+      "file": "c60187739.lua",
+      "name": "Turbo Booster",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "1b3dfeb5fed6f0d907e0477115b0b1bcffdb01ba825c159aad4e32e4317c1e48",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). Flag table.",
+      "seatTables": [
+        "s"
+      ],
+      "seatInit": "false"
     },
     {
       "code": 60375194,
@@ -1739,6 +2495,30 @@
       ],
       "replace": true,
       "stockSha256": "7aac19bfb7a3c913f48cbd1857201596c70e6488b19039fe7c6d256f372fca2b"
+    },
+    {
+      "code": 60406591,
+      "file": "c60406591.lua",
+      "name": "Sinister Seeds",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "d6e15fd8aeec771a69bd0a96205246aed311557132c197153086f70f89830ea9",
+      "note": "the condition compares the real seat of the player that took the battle damage (s[0], written by the global check) with tp, which a handler folds; it compares keys (seat in FFA, team in Tag) with the real seat of this card."
+    },
+    {
+      "code": 60621361,
+      "file": "c60621361.lua",
+      "name": "Monster Rebone",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "21694d57aceef2071ffbf5819935e1387ea1d0364755545784551258e2b428cd",
+      "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
     },
     {
       "code": 61622107,
@@ -1765,6 +2545,21 @@
       "chooserClass": "CH-EACH",
       "stockSha256": "6f2dcac2eb858d2f62110f83a6d40740336871b543a84a499199dceb3de9fc49",
       "note": "Each REAL controller seat of the summoned monsters banishes 1 card from its own hand (aux.MPForEachController binds the Lua value 1 to that seat), so two opponents that summon in the same event both banish; a controller that is gone is skipped."
+    },
+    {
+      "code": 61775475,
+      "file": "c61775475.lua",
+      "name": "Arms of Genex Return Zero",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "098e057e55f9809e78906322ada104b907247e1f4b651cdae237f9b2f8bd3d6c",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s.attr_list"
+      ]
     },
     {
       "code": 62015408,
@@ -1802,6 +2597,18 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "adc9c1eda8631d9395ad431329e51c9c29955815f65a9d28a2b865c6ac88513c"
+    },
+    {
+      "code": 62161698,
+      "file": "c62161698.lua",
+      "name": "Illusion Balloons",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "707fc24cac6724920a828927af59501733816d3dbe228c731759046faaabed13",
+      "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
     },
     {
       "code": 62320425,
@@ -1854,6 +2661,18 @@
       "stockSha256": "ead5481f7ca0d03da0a45f4dc9ff0765f82f7b2de25b41fc8c33bfa2b821e868"
     },
     {
+      "code": 65541655,
+      "file": "c65541655.lua",
+      "name": "Red Nova Dragon - Burning Soul",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LOOP",
+      "stockSha256": "154fbf125532273e3d698e36d97d9a730a00bdb064840dd9517456d313f76570",
+      "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
+    },
+    {
       "code": 65589010,
       "file": "c65589010.lua",
       "name": "Dogmatika Nation",
@@ -1862,6 +2681,18 @@
         "R1"
       ],
       "stockSha256": "1aa606fc269b4f15957a5aafc01b806a22ee8c77c35e6b3747b0ed48f8081dbd"
+    },
+    {
+      "code": 66078354,
+      "file": "c66078354.lua",
+      "name": "Magicore Warrior of the Relics",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "ab331b50fb528995cdb44c4130f02dcd5413347603f5c27d29449d62e784e128",
+      "note": "the global battle check asks Duel.GetBattleMonster(tp) with tp = the seat 0 of the global effect, so only a battle of seat 0 counted; it asks for every real seat and writes the flag of the seat of each battle monster (flag keyed by seat in FFA, team in Tag)."
     },
     {
       "code": 66362965,
@@ -1883,6 +2714,18 @@
       "stockSha256": "dba91e6dd8fbe138727e2d4e6909fb9e668087799ca082014e945de6b819297c"
     },
     {
+      "code": 66518509,
+      "file": "c66518509.lua",
+      "name": "Mementotlan Fusion",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LOOP",
+      "stockSha256": "8ac1774afa7caa2887764c12b80b5f4176b07359ae4d8bbe87406285eef0bef4",
+      "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
+    },
+    {
       "code": 66719324,
       "file": "c66719324.lua",
       "name": "Rain of Mercy",
@@ -1891,6 +2734,21 @@
         "R1"
       ],
       "stockSha256": "f6093deeed3880b6aa17251e5ddbdcfccbf590b96d2c4760cbd2685d65885929"
+    },
+    {
+      "code": 67231737,
+      "file": "c67231737.lua",
+      "name": "Link Bumper",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "4cd2a1ba988be14b7bd5605d2884f6071164c4b63c0342c1a519dee75de9b735",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
     },
     {
       "code": 67443336,
@@ -1912,6 +2770,18 @@
         "target"
       ],
       "stockSha256": "061576f8addd5a0bfa9711d72e93269ab65a9542e628a08b545725407ba36f89"
+    },
+    {
+      "code": 67630339,
+      "file": "c67630339.lua",
+      "name": "Confusion Chaff",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "f483a09591f9b11f39090611e60f1a31050fbd013dab15147c417a939936eae4",
+      "note": "count of direct attacks per ATTACKED duelist key (s.mpcount) and first attacker per key (s.mpfirst); the stock s[1-controller] and s[2] break at more than two seats."
     },
     {
       "code": 68078978,
@@ -1974,6 +2844,36 @@
       "stockSha256": "16c6302fae39792f9ea034398141cfb9d0d7cec90899cb831a9bbde9d4ed2d0b"
     },
     {
+      "code": 70335319,
+      "file": "c70335319.lua",
+      "name": "All-Eyes Phantom Dragon",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "c9f8cf4d43d705e39854282ddbbc5de729a7c4b51382664462d852f9cacf6726",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
+    },
+    {
+      "code": 70659412,
+      "file": "c70659412.lua",
+      "name": "Psychic Omnibuster",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "926c2d3a7d70de969071e8cae78a6a637c8dfd25d528b4bee060e1c5931d511f",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s.declared_types"
+      ]
+    },
+    {
       "code": 70914287,
       "file": "c70914287.lua",
       "name": "Kuribabylon",
@@ -1992,6 +2892,30 @@
       "note": "Reads the Graveyard and the banished zone (field class); today it sums all opponents. The triage text that calls it OK-BIND is wrong."
     },
     {
+      "code": 71095768,
+      "file": "c71095768.lua",
+      "name": "Bujinki Ahashima",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "f637773a7a97f279f069f74e7a157afdf2334abd618ec676da0f653c6210fdd4",
+      "note": "the global check compares the controller of a card with 1-p (p = controller of this card); it compares the keys (seat in FFA, team in Tag). The linked-zone bit 16+ still means one opponent side."
+    },
+    {
+      "code": 71108540,
+      "file": "c71108540.lua",
+      "name": "Invincible Demise Lord",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "c48cf7e761fc1d7cd4b952d04358291de1cef4f93802ac1d7e16cd9b4a5cb072",
+      "note": "global flags registered for the literal seats 0 and 1 (both are global): the initial_effect wrapper fans each of them out to every living duelist (seat in FFA, team in Tag)."
+    },
+    {
       "code": 71166481,
       "file": "c71166481.lua",
       "name": "Number 75: Bamboozling Gossip Shadow",
@@ -2000,6 +2924,34 @@
         "R1"
       ],
       "stockSha256": "e48e5cc488677ae837e0ed243fb9fbb7446e8cb67a139222b3c945524927bd1a"
+    },
+    {
+      "code": 71386411,
+      "file": "c71386411.lua",
+      "name": "Superheavy Samurai Fist",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "2f67f3db71033620d727b86f7d2b54cd3222d10d1b04ab4babc14c0c4f9742a9",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). Flag table.",
+      "seatTables": [
+        "s"
+      ],
+      "seatInit": "false"
+    },
+    {
+      "code": 71645242,
+      "file": "c71645242.lua",
+      "name": "Black Garden",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EVENT-BITS",
+      "stockSha256": "9228580aa26b101f7683a66efc82db6af6a7a161c6b1947013fc06b107a81617",
+      "note": "the check raises the event with a bit mask of the controller keys (stock: bit 0 and 1); the handlers ask for the own key and for any other key."
     },
     {
       "code": 71782404,
@@ -2065,6 +3017,18 @@
       "note": "Script fix (late-cards, R-COMMON-EACH-PLAYER): every living duelist discards the Monsters of its own hand (the Tag partner too), with no opponent pick. Each duelist is read in its own scope (aux.MPForEachDuelist). Not part of R1."
     },
     {
+      "code": 72554862,
+      "file": "c72554862.lua",
+      "name": "War Rock Skyler",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "65d71a9fffdd638fe287ed5597e7fb63f39d113fde9ef9d0fc7427ec92d62ae1",
+      "note": "the global battle check asks Duel.GetBattleMonster(0), which gives the monsters only when the seat 0 duelist is in the battle; it asks for every real seat and writes the flag of the seat of each battle monster (flag keyed by seat in FFA, team in Tag)."
+    },
+    {
       "code": 73082255,
       "file": "c73082255.lua",
       "name": "The Zombie Vampire",
@@ -2105,6 +3069,22 @@
       "stockSha256": "3410cb544be050a766afb918cb576344d3da9e24df72691c8afbba9d095424ab"
     },
     {
+      "code": 74733322,
+      "file": "c74733322.lua",
+      "name": "Artmage Academic Arcane Arts Acropolis",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "de3470a725c3adec762ed1307ab9fdae83358473fb4ffd803b02ff3036c0fbe7",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s.declared_names"
+      ],
+      "seatInit": "{}"
+    },
+    {
       "code": 75043725,
       "file": "c75043725.lua",
       "name": "Emissary of the Afterlife",
@@ -2115,6 +3095,18 @@
       "stockSha256": "9c30e6b42f2fdf5fec407b6a83e6db8cd6402a0bb3cc98c95895127d061f676a"
     },
     {
+      "code": 75782277,
+      "file": "c75782277.lua",
+      "name": "Harpies' Hunting Ground",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EVENT-BITS",
+      "stockSha256": "973689b5a187d5cbde192be7a6b5fdb86a4fbe9e090e3208ebc6e4911fba5561",
+      "note": "the global check raises the event for the players 0 and 1 with the Harpie groups of the controller; it raises it for every real seat with that seat as the event player."
+    },
+    {
       "code": 75797046,
       "file": "c75797046.lua",
       "name": "Photon Alexandra Queen",
@@ -2123,6 +3115,21 @@
         "R1"
       ],
       "stockSha256": "720a56596b8015cdb5b0fba6bae7f46f2434e58991569b4a056e774047239085"
+    },
+    {
+      "code": 76224717,
+      "file": "c76224717.lua",
+      "name": "Advance Zone",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "02f59e48ec264b520897446bd199e696845385543c2ab1554e4ba3154a4be3ef",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
     },
     {
       "code": 76375976,
@@ -2168,6 +3175,30 @@
       "stockSha256": "0df1dc036523fd7d87169c0d1c760750d98303125289eac58338cd9c60dd5680"
     },
     {
+      "code": 76504386,
+      "file": "c76504386.lua",
+      "name": "Number 39: Utopia the Envoy of Light",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "c643d795ba92d490c7446ad22dd42e6a268483bd5303bffa13d952f70e33173f",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 76636978,
+      "file": "c76636978.lua",
+      "name": "Stardust Dragon - Victim Sanctuary",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LITERAL",
+      "stockSha256": "b78d1d3cab2dc838b0cc7c0b24561fe9a4fb9400d1327dd2263868a2084c9d72",
+      "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
+    },
+    {
       "code": 77066768,
       "file": "c77066768.lua",
       "name": "Card Scanner",
@@ -2186,6 +3217,42 @@
         "R1"
       ],
       "stockSha256": "e216d9c5472d495c75aa60d9ffa834099683c559744d72e88594df621d5272aa"
+    },
+    {
+      "code": 77482666,
+      "file": "c77482666.lua",
+      "name": "Swiftwind Panther Warrior",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "a2df363b7ad5eb495dde30d1a5d8072b313ae7efa546e4829f94ef75a98ea70e",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 77894049,
+      "file": "c77894049.lua",
+      "name": "Vanquish Soul Rocks",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "b236e214ac84243cfe9beb8b20e487e45326cd0a0b81bab77a5d5e5f0a440594",
+      "note": "global flag registered for the literal seat 0 only, and the global check asks Duel.GetBattleMonster(0) (only a battle of seat 0): the regop reads the attacker and the attack target, and the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag)."
+    },
+    {
+      "code": 77910045,
+      "file": "c77910045.lua",
+      "name": "Fatal Abacus",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EACH-CONTROLLER",
+      "stockSha256": "3ef3d98b885a1aec3cf561be0dc6415e0c5b38fb62ddd9593c49ef99035a8623",
+      "note": "the damage is for tp and 1-tp by the controller of each destroyed monster; the monsters are split by real controller (aux.MPForEachController) and each controller takes 500 for each of its monsters."
     },
     {
       "code": 78098950,
@@ -2253,6 +3320,53 @@
       "stockSha256": "e41f6ee4fe55bfcc9d1c439c8032a1890405d25770021a725a72ce573323b878"
     },
     {
+      "code": 81167171,
+      "file": "c81167171.lua",
+      "name": "Hero Spirit",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "b5b2a5a691afe390663cd188005fc4343f48bf56224f31e4fbbee2678a27c7cf",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). Flag table.",
+      "seatTables": [
+        "s"
+      ],
+      "seatInit": "false"
+    },
+    {
+      "code": 81193865,
+      "file": "c81193865.lua",
+      "name": "Super Strident Blaze",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "f6373b1f5c28a683ec962fda35e7d6234c9fa4816c269b46a994263ac1170a93",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
+    },
+    {
+      "code": 82052602,
+      "file": "c82052602.lua",
+      "name": "Gagagaback",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "25ac4705331597c42585d3c6c04524b59259891ee28b9815c52cb1f5ffbdf5c7",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). Flag table.",
+      "seatTables": [
+        "s"
+      ],
+      "seatInit": "false"
+    },
+    {
       "code": 82385847,
       "file": "c82385847.lua",
       "name": "Dinowrestler Pankratops",
@@ -2268,6 +3382,18 @@
         "spcon"
       ],
       "stockSha256": "be6fdc99cef9346fe6ffb15b7290c38ac32bd96c3ec5e45aabd7e1066a34854a"
+    },
+    {
+      "code": 82670878,
+      "file": "c82670878.lua",
+      "name": "Ogre of the Scarlet Sorrow",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "3caddd4db24d26bae219c6cb75f336b9cfee75233b91a9f5e2150882fc1874fc",
+      "note": "count of direct attacks per ATTACKED duelist key (s.mpcount) and first attacker per key (s.mpfirst); the stock s[1-controller] and s[2] break at more than two seats."
     },
     {
       "code": 82734805,
@@ -2317,6 +3443,58 @@
       "stockSha256": "19ee01503d77d2109cfe9599245fed310dbc3c44358b7d33fe81cd92e44b44c2"
     },
     {
+      "code": 83725008,
+      "file": "c83725008.lua",
+      "name": "Jenis, Lightsworn Mender",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "bbbcedb1e147ccfdd92f944ac6ba3ca37c456ff3e92cd92e98c7ddfa2fc7133f",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The stock reset function clears every slot.",
+      "seatTables": [
+        "s"
+      ],
+      "seatInit": "false",
+      "seatResets": {
+        "reset": null
+      }
+    },
+    {
+      "code": 83957459,
+      "file": "c83957459.lua",
+      "name": "Rhinotaurus",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "396d5fd42441a635f580e2f428a8a40c9853556e4844c28a7227378e2373dfd1",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
+    },
+    {
+      "code": 83962752,
+      "file": "c83962752.lua",
+      "name": "Synchro Panic",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LOOP",
+      "stockSha256": "5cfc33b35ef11627c8857679ccc9d3bc5d19f6db1c46212ac8c9094109cbe7ac",
+      "note": "destroyed-Synchro groups per key (seat in FFA, team in Tag); the registering check loops over the seats 0..3 (stock: 0 and 1) and compares reason keys.",
+      "seatTables": [
+        "s.desgroup"
+      ],
+      "seatInit": "(function() local g=Group.CreateGroup() g:KeepAlive() return g end)()",
+      "seatExtra": "c83962752.extra.lua",
+      "seatNoReset": true
+    },
+    {
       "code": 84136000,
       "file": "c84136000.lua",
       "name": "The Grave of Enkindling",
@@ -2353,6 +3531,30 @@
       "stockSha256": "358ad8ddc2bc362107a5229ee33c46fb9974c445598d83374d3559e7da148405"
     },
     {
+      "code": 84813516,
+      "file": "c84813516.lua",
+      "name": "Thunder Ball",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "5c726ae42d0f79def5d7bcf28e5da6e4938871bee3993ce4ba263ae332991dde",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 85602018,
+      "file": "c85602018.lua",
+      "name": "Last Will",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "LOOP",
+      "stockSha256": "9c274f568345158e91c2209659b497b8da100c8ad96c7e8921c4d7add3d092da",
+      "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
+    },
+    {
       "code": 85862791,
       "file": "c85862791.lua",
       "name": "Fighting Dirty",
@@ -2361,6 +3563,24 @@
         "R1"
       ],
       "stockSha256": "f0a79bad5d47a018d6388b67fd08b3df27aaca47562441bbd55080e062ab85c0"
+    },
+    {
+      "code": 86066372,
+      "file": "c86066372.lua",
+      "name": "Accesscode Talker",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "2735f29deec5c1277f5c6bbda4c7eaa11d0b695c6a0a8673c35f12b0dff00eb6",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The stock reset function clears every slot.",
+      "seatTables": [
+        "s.attr_list"
+      ],
+      "seatResets": {
+        "resetop": "false"
+      }
     },
     {
       "code": 86209650,
@@ -2486,6 +3706,18 @@
       "stockSha256": "b60b87d28d97540dc4477a863a2c3cbf6fe3a2d235dfc965eecf408e50a93577"
     },
     {
+      "code": 89405199,
+      "file": "c89405199.lua",
+      "name": "Greed",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EACH-CONTROLLER",
+      "stockSha256": "2defb28adbd40be8df275ed47d9b58594a6d3bcf3ee2c7d0755a5ed5f9420fe5",
+      "note": "the draw counter is kept per card by the literal pair ep==0 / 1 (every opponent shares one counter); the counter is kept per key (seat in FFA, team in Tag) by a global draw check that sees the real drawing seat, and the damage goes to every side with a counter."
+    },
+    {
       "code": 89462956,
       "file": "c89462956.lua",
       "name": "Dealer's Choice",
@@ -2570,6 +3802,18 @@
       "stockSha256": "ef8d4ea053c455d6542b1901f2a883b8d5daf7a8a631c1211f6c6eb769c720cc"
     },
     {
+      "code": 90448279,
+      "file": "c90448279.lua",
+      "name": "Divine Arsenal AA-ZEUS - Sky Thunder",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "e244bcc3adf7c22d5c942e5ba45a8bb9fb42bb117ff7e9644043fcb7bca63e95",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
       "code": 90669991,
       "file": "c90669991.lua",
       "name": "Pineapple Blast",
@@ -2596,6 +3840,22 @@
       "chooserClass": "CH-OP",
       "stockSha256": "84326f5061c1d5173550bb93d4c5e8dfd8508688066366dbb72932fe1406ca8b",
       "note": "Compare card and chooser card (CH-OP). Not in the triage compare group."
+    },
+    {
+      "code": 90846359,
+      "file": "c90846359.lua",
+      "name": "Rivalry of Warlords",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "f0e3d2f61aef544c27bec8f332ccedefae4ad333df9687fd1661360076edce8b",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey). The adjust handler loops over every living duelist (stock: the two sides of the owner). The cannot-activate value function still gets a folded player.",
+      "seatTables": [
+        "s"
+      ],
+      "seatExtra": "c90846359.extra.lua"
     },
     {
       "code": 91668078,
@@ -2697,6 +3957,21 @@
       "stockSha256": "dc0cfca2f59c7bd6b6adca735f4e58e7a8b7e6f1367569c1bde4ce0eb415c563"
     },
     {
+      "code": 93211810,
+      "file": "c93211810.lua",
+      "name": "Sonic Boom",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "6c23af1d097b25d734a1cff42875a8454e5b87bf29d34ff2335a459088c7f0d2",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
+    },
+    {
       "code": 93469007,
       "file": "c93469007.lua",
       "name": "Assault Overload",
@@ -2724,6 +3999,30 @@
       "stockSha256": "1566c9d57d13f173e445ea38b818836d2336ac7e2987d05cabddd938ac729c2e"
     },
     {
+      "code": 93509766,
+      "file": "c93509766.lua",
+      "name": "Kyoro Ryu-Ge Kaiva",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "FLAG-L0",
+      "stockSha256": "7e9fec5c03f2ad168580a4c86d05c313593e0061d7507e8bac6fd186125c4d3b",
+      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 93671934,
+      "file": "c93671934.lua",
+      "name": "Morale Boost",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EACH-CONTROLLER",
+      "stockSha256": "4520559566f5d84b72b1d6dbd012b62e0b191f9ff4e1a0705cf5f8f9baf5c3e5",
+      "note": "the recover and the damage use the literals 0, 1 and PLAYER_ALL for the controller of the equip or leaving cards; the real controller seat (Duel.MPSeatOf) is kept as a key mask in the label and every living side in the mask recovers or takes 1000."
+    },
+    {
       "code": 94016752,
       "file": "c94016752.lua",
       "name": "Herald of the Abyss",
@@ -2742,6 +4041,30 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "add57826be3ec567caa57a00ab2164c486ad5fa58f3e8a1f25d03e08034b19e1"
+    },
+    {
+      "code": 94145021,
+      "file": "c94145021.lua",
+      "name": "Droll & Lock Bird",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EVENT-BITS",
+      "stockSha256": "a27f1c2c552b4a8f1df756c06f35730ed85ed1ef5c91903276e296963a202b68",
+      "note": "the check raises the event with a bit mask of the controller keys; the condition asks for any key except the own one (stock compared the value with 0, which is only the first seat at more than two seats)."
+    },
+    {
+      "code": 94585852,
+      "file": "c94585852.lua",
+      "name": "Pandemonium",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "EVENT-BITS",
+      "stockSha256": "d63b0ffbda54bf4a889acc64d0e8f66c796eed5999494833f9042b4fb7908d96",
+      "note": "the global check raises the event for the players 0 and 1 with the highest Level per controller; it raises it for every real seat with that seat as the event player."
     },
     {
       "code": 94641726,
@@ -2786,6 +4109,18 @@
         "R1"
       ],
       "stockSha256": "e0bac9c0e72ef94e2dc8468f1ca29ea93baa532af476165f6f8d3f665b5fbe35"
+    },
+    {
+      "code": 95308449,
+      "file": "c95308449.lua",
+      "name": "Final Countdown",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "cca817e908cbd7d33340f470d0291236d84b99a1f3905a2747669b2017814a30",
+      "note": "the end and win checks read the Final Countdown effects of one player and count them in t[0] and t[1] by the owner player (nil error for the owner seats 2 and 3); they read the effects of every living duelist once, count by the key of the owner (seat in FFA, team in Tag) and the best count wins (a tie is a draw)."
     },
     {
       "code": 95403418,
@@ -2878,6 +4213,21 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "2a70f6b5c9f9bdc331c35213c3f3b6349a873acb4a0e66cdea620f7920156058"
+    },
+    {
+      "code": 98864751,
+      "file": "c98864751.lua",
+      "name": "Air Cracking Storm",
+      "kind": "seat",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "a437dc2a40466e10968cb28776c4e78cbc996860c8252a08e7ffa9d27209f6f8",
+      "note": "per-player table: one slot per seat (FFA) or team (Tag); a global writer uses the real seat, a handler its own key (aux.MPKey).",
+      "seatTables": [
+        "s"
+      ]
     },
     {
       "code": 99505609,

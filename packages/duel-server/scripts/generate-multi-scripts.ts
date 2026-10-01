@@ -18,6 +18,14 @@
  *                  member of R1_NO_CHANGE (the stock script already acts on every living duelist). The R1 entries are not part of
  *                  the pinned `entries` count (that count is the compare and chooser entries, in other agents' lists).
  *
+ *   R2 (seat state) = a MANIFEST entry of class `R2`: kind `seat` (written here: the per-player tables of the stock script are moved to
+ *                  one slot per seat in FFA and per team in Tag, see seatFileText) or kind `hand` (a suffix written by hand). A card
+ *                  whose stock script works as it is after core patch 0053 is a member of R2_NO_CHANGE. The R2 entries are not part of
+ *                  the pinned `entries` count either.
+ *
+ *   npx tsx scripts/generate-multi-scripts.ts --register-r2 FILE.json
+ *                  read-modify-write: adds or replaces the R2 entries (items as R2Item, see registerR2); run the generator again to write
+ *                  the files of the `seat` entries.
  *   npx tsx scripts/generate-multi-scripts.ts --register-r1 FILE.json
  *                  read-modify-write: adds the R1 entries `[{ "code": 1, "name": "..." }]` to MANIFEST.json (sorted by code, stockSha256
  *                  from the stock script) and leaves every other entry as it is. A card that is listed already is skipped.
@@ -28,6 +36,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** The hand-written parts of the generated `seat` files (seatExtra). They are not loaded by the duel: their text is copied into the files. */
+export const SEAT_SOURCE_DIRECTORY = join(PACKAGE_DIR, "domain-core", "multi-scripts-src");
 export const OVERLAY_DIRECTORY = join(PACKAGE_DIR, "domain-core", "multi-scripts");
 export const TRIAGE_FILE = resolve(PACKAGE_DIR, "..", "..", ".status", "multiplayer-triage.json");
 
@@ -49,11 +59,32 @@ export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 10
  * 76895648 (Dangerous Machine Type-6) rolls one die for the owner and each result acts on the owner or on "your opponent" (the bound opponent).
  */
 export const R1_NO_CHANGE: number[] = [39513225, 76895648];
+/**
+ * R2 cards whose stock script works as it is after core patch 0053: the flag is written for the real seat by a global effect and read
+ * with the player value of the holder, and the core keys a flag by seat in FFA and by team in Tag. Pinned (a card is added here only
+ * after the script was read). A card is never an R2 entry and also in this list.
+ */
+export const R2_NO_CHANGE: number[] = [
+  4064925, 5063379, 7903368, 8700633, 12275533, 12958919, 13567610, 18969888, 19271881, 20822520, 25388971, 26285788, 27275398,
+  29948294, 31472884, 31699677, 33393090, 34800281, 35756798, 41850466, 52875873, 54475145, 55273560, 55795155, 57995165,
+  67100549, 69145169, 71612253, 75906310, 82570174, 84211599, 84544192, 85523502, 86541496, 88513608, 88851326, 89948817,
+  91269402, 92536468, 93039339, 93238626, 95134948, 95515789, 98715423, 99748883,
+];
 /** True when every one of the 92 R1 cards is an entry or a member of R1_NO_CHANGE (the strict count check). */
 export const R1_COMPLETE = true;
 
 export type Helper = "MPAny" | "MPValue" | "MPOne" | "MPPick" | "MPTarget";
-export type CardClass = "COMPARE" | "CHOOSER" | "R1";
+export type CardClass = "COMPARE" | "CHOOSER" | "R1" | "R2";
+/** The kind of seat state that the stock script of an R2 card keeps (a short tag for the note and the report). */
+export type R2Class =
+  | "TABLE" // a per-player table or counter (s[tp], s.list[ep]): one slot per seat (FFA) or team (Tag)
+  | "TABLE-CUSTOM" // the same, with a layout that needs its own code
+  | "EVENT-BITS" // a custom event whose value names the players (0, 1, PLAYER_ALL)
+  | "FLAG-L0" // a global flag that is written for player 0 and read by the holder: it is written for every seat
+  | "LITERAL" // a global effect that compares a player or a controller with 0 or 1
+  | "LABEL" // a label that keeps 1-tp for a monster that can belong to any opponent
+  | "LOOP" // a loop over the players 0 and 1
+  | "EACH-CONTROLLER"; // the effect acts on the real controller of each card
 
 export interface ManifestCard {
   code: number;
@@ -72,6 +103,18 @@ export interface ManifestCard {
   /** The file starts with `--@replace`. */
   replace?: boolean;
   chooserClass?: string;
+  /** R2 entries: the kind of seat state. */
+  r2Class?: R2Class;
+  /** Kind `seat`: the per-player tables of the stock script (`s`, `s.name_list`, ...). Slot 0 and 1 of each move to one slot per seat/team. */
+  seatTables?: string[];
+  /** Kind `seat`: a Lua expression of the empty value of a slot (`0`, `false`, `{}`). Default `0`. */
+  seatInit?: string;
+  /** Kind `seat`: stock functions that clear the table (they run in a global effect or in a handler): `{ name: returnExpr | null }`. */
+  seatResets?: Record<string, string | null>;
+  /** Kind `seat`: a Lua file in domain-core/multi-scripts-src whose text is put before the initial_effect wrapper (a hand-written part). */
+  seatExtra?: string;
+  /** Kind `seat`: the tables are not made again at the turn end (the stock script keeps them for the whole duel). */
+  seatNoReset?: boolean;
   stockSha256?: string;
   note?: string;
 }
@@ -92,6 +135,86 @@ export function wholeFileText(card: ManifestCard): string {
   if (wraps.length === 0) throw new Error(`card ${card.code} has kind whole but no wrap`);
   lines.push(`-- ${card.name}: ${card.note ?? "the compare asks if any one opponent passes (MPAny). Nothing else changes."}`);
   for (const [helper, names] of wraps) for (const name of names) lines.push(`s.${name}=aux.${helper}(s.${name})`);
+  return lines.join("\n") + "\n";
+}
+
+/**
+ * The text of a `seat` file (R2). A stock script keeps a counter or a flag per player in a table (`s[0]`, `s[1]`, `s.list[tp]`). A global
+ * effect writes it with the REAL player (core patch 0053: a seat 0..3) and a handler reads it with its Lua player value (0 own, 1 the
+ * bound opponent). The table gets one slot per key (aux.MPKey: the seat in FFA, the team in Tag) behind a metatable that maps the index
+ * with aux.MPKey in the scope of the access. Every slot is made again by the stock reset functions named in `seatResets` (a stock reset
+ * writes only s[0] and s[1]) and by aux.AddValuesReset at the turn end. A table is used for the players 0..3 only: a script that keeps
+ * another value in s[2] or s[3] needs a hand suffix.
+ */
+export function seatFileText(card: ManifestCard, sourceDirectory = SEAT_SOURCE_DIRECTORY): string {
+  const tables = card.seatTables ?? [];
+  if (tables.length === 0) throw new Error(`card ${card.code} has kind seat but no seatTables`);
+  const init = card.seatInit ?? "0";
+  const lines = [
+    "if not aux.MPKey then return end",
+    `-- ${card.name}: ${card.note ?? "the per-player table has one slot per seat (FFA) or team (Tag), not only 0 and 1."}`,
+    "local mp_resets={}",
+    "local mp_stores={}",
+    "-- the slot of a real seat (a value function gets a folded player value: use the seat of a card instead)",
+    "function s.mp_slot(t,seat)",
+    "\treturn mp_stores[t][aux.MPKeyOfSeat(seat)]",
+    "end",
+    "function s.mp_reset_all()",
+    "\tfor _,f in ipairs(mp_resets) do f() end",
+    "end",
+    "local function mp_seat_table(t)",
+    "\tlocal store={}",
+    "\tlocal function reset()",
+    `\t\tfor k=0,3 do store[k]=${init} end`,
+    "\tend",
+    "\treset()",
+    "\tmp_stores[t]=store",
+    "\trawset(t,0,nil)",
+    "\trawset(t,1,nil)",
+    "\tlocal old=getmetatable(t)",
+    "\tlocal meta={}",
+    "\tif old then for k,v in pairs(old) do meta[k]=v end end",
+    "\tlocal old_index=old and old.__index",
+    "\tlocal old_newindex=old and old.__newindex",
+    "\tmeta.__index=function(self,k)",
+    "\t\tif k==0 or k==1 or k==2 or k==3 then",
+    "\t\t\tlocal key=aux.MPKey(k)",
+    `\t\t\tif key>=0 then return store[key] end`,
+    `\t\t\treturn ${init}`,
+    "\t\tend",
+    "\t\tif type(old_index)==\"function\" then return old_index(self,k) end",
+    "\t\tif old_index then return old_index[k] end",
+    "\tend",
+    "\tmeta.__newindex=function(self,k,v)",
+    "\t\tif k==0 or k==1 or k==2 or k==3 then",
+    "\t\t\tlocal key=aux.MPKey(k)",
+    "\t\t\tif key>=0 then store[key]=v end",
+    "\t\telseif type(old_newindex)==\"function\" then",
+    "\t\t\told_newindex(self,k,v)",
+    "\t\telseif old_newindex then",
+    "\t\t\told_newindex[k]=v",
+    "\t\telse",
+    "\t\t\trawset(self,k,v)",
+    "\t\tend",
+    "\tend",
+    "\tsetmetatable(t,meta)",
+    "\tmp_resets[#mp_resets+1]=reset",
+    "end",
+  ];
+  for (const [name, ret] of Object.entries(card.seatResets ?? {})) {
+    lines.push(`function s.${name}()`, "\ts.mp_reset_all()", ...(ret ? [`\treturn ${ret}`] : []), "end");
+  }
+  if (card.seatExtra) lines.push(readFileSync(join(sourceDirectory, card.seatExtra), "utf8").replace(/\n+$/, ""));
+  lines.push(
+    "local mp_ie=s.initial_effect",
+    "function s.initial_effect(c)",
+    "\tmp_ie(c)",
+    "\tif s.mp_seat_ready then return end",
+    "\ts.mp_seat_ready=true",
+    ...tables.map((table) => `\tmp_seat_table(${table})`),
+    ...(card.seatNoReset ? [] : ["\taux.AddValuesReset(s.mp_reset_all)"]),
+    "end",
+  );
   return lines.join("\n") + "\n";
 }
 
@@ -116,13 +239,21 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
   if (compare.length !== EXPECTED_COUNTS.compare) problems.push(`COMPARE has ${compare.length} cards, expected ${EXPECTED_COUNTS.compare}`);
   if (chooser.length !== EXPECTED_COUNTS.chooser) problems.push(`CHOOSER has ${chooser.length} cards, expected ${EXPECTED_COUNTS.chooser}`);
   if (whole.length !== EXPECTED_COUNTS.whole) problems.push(`${whole.length} whole files, expected ${EXPECTED_COUNTS.whole}`);
-  const overlayEntries = manifest.cards.filter((card) => !card.classes.includes("R1"));
+  const overlayEntries = manifest.cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2"));
   if (overlayEntries.length !== EXPECTED_COUNTS.entries) problems.push(`${overlayEntries.length} entries, expected ${EXPECTED_COUNTS.entries}`);
   const r1Entries = manifest.cards.filter((card) => card.classes.includes("R1"));
   for (const card of r1Entries) {
     if (card.kind !== "hand") problems.push(`R1 card ${card.code} has kind ${card.kind}, expected hand`);
     if (card.classes.length !== 1) problems.push(`R1 card ${card.code} has another class besides R1`);
     if (R1_NO_CHANGE.includes(card.code)) problems.push(`R1 card ${card.code} has an entry and is in R1_NO_CHANGE`);
+  }
+  const r2Entries = manifest.cards.filter((card) => card.classes.includes("R2"));
+  for (const card of r2Entries) {
+    if (card.kind !== "hand" && card.kind !== "seat") problems.push(`R2 card ${card.code} has kind ${card.kind}, expected hand or seat`);
+    if (card.classes.length !== 1) problems.push(`R2 card ${card.code} has another class besides R2`);
+    if (!card.r2Class) problems.push(`R2 card ${card.code} has no r2Class`);
+    if (card.kind === "seat" && !(card.seatTables && card.seatTables.length > 0)) problems.push(`R2 card ${card.code} has kind seat but no seatTables`);
+    if (R2_NO_CHANGE.includes(card.code)) problems.push(`R2 card ${card.code} has an entry and is in R2_NO_CHANGE`);
   }
   const r1Total = r1Entries.length + R1_NO_CHANGE.length;
   if (r1Total > EXPECTED_COUNTS.r1) problems.push(`R1 has ${r1Total} cards (entries and R1_NO_CHANGE), expected at most ${EXPECTED_COUNTS.r1}`);
@@ -201,6 +332,47 @@ export function registerR1(items: { code: number; name: string; note?: string }[
   return added;
 }
 
+/** An R2 item of --register-r2: a `seat` card (the file is generated by `run`) or a `hand` card (the suffix exists already). */
+export type R2Item = Pick<ManifestCard, "code" | "name" | "note" | "r2Class" | "seatTables" | "seatInit" | "seatResets" | "seatExtra" | "seatNoReset"> & { kind?: "seat" | "hand" };
+
+/**
+ * Read-modify-write of MANIFEST.json for the R2 entries (class R2, seat state): re-reads the file right before the write, adds or
+ * replaces the entries of the items and keeps the list sorted by code. Returns the codes that were added or replaced. A `hand` item
+ * needs its suffix file; the file of a `seat` item is written by `run` (npx tsx scripts/generate-multi-scripts.ts).
+ */
+export function registerR2(items: R2Item[], stockDirectory: string, directory = OVERLAY_DIRECTORY): number[] {
+  const path = join(directory, "MANIFEST.json");
+  const manifest = readManifest(directory);
+  const done: number[] = [];
+  for (const item of items) {
+    const kind = item.kind ?? "seat";
+    if (kind === "hand" && !existsSync(join(directory, `c${item.code}.lua`))) throw new Error(`c${item.code}.lua is missing: write the suffix before registering the card`);
+    const old = manifest.cards.find((card) => card.code === item.code);
+    if (old && !old.classes.includes("R2")) throw new Error(`card ${item.code} is a ${old.classes.join("+")} entry: it cannot also be R2`);
+    const entry: ManifestCard = {
+      code: item.code,
+      file: `c${item.code}.lua`,
+      name: item.name,
+      kind,
+      classes: ["R2"],
+      r2Class: item.r2Class,
+      stockSha256: createHash("sha256").update(readFileSync(join(stockDirectory, `c${item.code}.lua`), "utf8")).digest("hex"),
+    };
+    if (item.note) entry.note = item.note;
+    if (item.seatTables) entry.seatTables = item.seatTables;
+    if (item.seatInit !== undefined) entry.seatInit = item.seatInit;
+    if (item.seatResets) entry.seatResets = item.seatResets;
+    if (item.seatExtra) entry.seatExtra = item.seatExtra;
+    if (item.seatNoReset) entry.seatNoReset = true;
+    manifest.cards = manifest.cards.filter((card) => card.code !== item.code);
+    manifest.cards.push(entry);
+    done.push(item.code);
+  }
+  manifest.cards.sort((a, b) => a.code - b.code);
+  writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
+  return done;
+}
+
 export interface RunResult {
   written: string[];
   problems: string[];
@@ -216,8 +388,8 @@ export function run(options: { check: boolean; directory?: string; triage?: Tria
   const written: string[] = [];
   for (const card of manifest.cards) {
     const path = join(directory, card.file);
-    if (card.kind === "whole") {
-      const text = wholeFileText(card);
+    if (card.kind === "whole" || card.kind === "seat") {
+      const text = card.kind === "whole" ? wholeFileText(card) : seatFileText(card);
       const current = existsSync(path) ? readFileSync(path, "utf8") : null;
       if (current !== text) {
         if (options.check) problems.push(`${card.file} differs from the generated text`);
@@ -234,6 +406,13 @@ export function run(options: { check: boolean; directory?: string; triage?: Tria
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const registerR2At = process.argv.indexOf("--register-r2");
+  if (registerR2At >= 0) {
+    const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(process.env.DUEL_DATA_DIR ?? "", "card-scripts/official");
+    const items = JSON.parse(readFileSync(process.argv[registerR2At + 1], "utf8")) as R2Item[];
+    console.log(`registered ${JSON.stringify(registerR2(items, stockDirectory))}`);
+    process.exit(0);
+  }
   const registerAt = process.argv.indexOf("--register-r1");
   if (registerAt >= 0) {
     const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(process.env.DUEL_DATA_DIR ?? "", "card-scripts/official");
