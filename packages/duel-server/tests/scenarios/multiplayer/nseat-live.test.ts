@@ -5,6 +5,7 @@ import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import type { Scenario } from "../../support/dsl.js";
+import { DSL_STEP_SCENARIOS } from "./nseat-dsl-steps.js";
 import { FFA_SCENARIOS } from "./nseat-ffa.js";
 import { TAG_SCENARIOS } from "./nseat-tag.js";
 
@@ -19,7 +20,11 @@ describeWithCores("live N-seat scenarios: FFA", liveNseat, () => {
   runScenarios("multiplayer/nseat-ffa", FFA_SCENARIOS);
 });
 
-const LISTS: Array<[string, Scenario[]]> = [["Tag", TAG_SCENARIOS], ["FFA", FFA_SCENARIOS]];
+describeWithCores("live N-seat scenarios: DSL steps", liveNseat, () => {
+  runScenarios("multiplayer/nseat-dsl-steps", DSL_STEP_SCENARIOS);
+});
+
+const LISTS: Array<[string, Scenario[]]> = [["Tag", TAG_SCENARIOS], ["FFA", FFA_SCENARIOS], ["DSL steps", DSL_STEP_SCENARIOS]];
 
 describe("live N-seat scenario lists", () => {
   for (const [name, list] of LISTS) {
