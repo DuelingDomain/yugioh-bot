@@ -205,7 +205,16 @@ export class NChecker {
       const declared = views.seats[seat]!.prompt!.seat;
       if (declared !== seat) add(CHECKS.promptLivingSeat, `Prompt of seat ${seat} says seat ${declared}`);
     }
-    if (!vs.result && eliminatedNow.has(vs.turnSeat)) add(CHECKS.eliminatedTurn, `Eliminated seat ${vs.turnSeat} has the turn (turn ${vs.turn})`);
+    // The turn player can lose in the middle of its own turn (battle damage, a cost, a chain). The core then lets the open
+    // chain or the open damage step finish (a Flip effect of another seat can still ask for a target) and ends the turn
+    // after it (core.force_turn_end). So the dead seat keeping the turn number for a short time is legal. What is not
+    // legal is a free action (idle or battle command) in the turn of a dead seat: that means the turn did not end.
+    if (!vs.result && eliminatedNow.has(vs.turnSeat)) {
+      const action = asked.find((seat) => views.seats[seat]!.prompt?.context?.type === "action");
+      if (action !== undefined) {
+        add(CHECKS.eliminatedTurn, `Eliminated seat ${vs.turnSeat} has the turn (turn ${vs.turn}) and seat ${action} is asked for a free action: "${views.seats[action]!.prompt!.title}"`);
+      }
+    }
 
     // 4. Turn order skips eliminated seats.
     if (this.prev && !vs.result) {
