@@ -9,10 +9,11 @@
 // F5 (opponent binding, core 29fff80): the first read of "1" binds one opponent for the whole chain link. On the turn of an
 // opponent the read of the turn player (the Standby Phase event) is that opponent. On a turn of the own team the core
 // asks the activator to pick one (MSG_SELECT_OPTION, every desc 0xFFFE0000|seat, ascending, living opponents only, in the
-// operation step: one kind (c) record). The harness answers option 0, the lowest living opponent. With one living
+// operation step: one kind (c) record). The harness answers option k % options for pick number k (a core that ignores the answer fails). Scope: every pick here is the
+// fallback pick of the operation step (the cards have no target or cost); the pick at activation is covered by opponent-pick. With one living
 // opponent the bind is silent (ffa3e: seat 2 eliminated, so no pick prompt and no record). There is never a guess:
 // no kind (a) record. Probes that read a single "1" (draw, sendtohand, moveopp) pick once per own-team firing.
-//   draw        Duel.Draw(1-tp,1,REASON_EFFECT): the bound opponent draws (own turn: the picked, lowest living opponent)
+//   draw        Duel.Draw(1-tp,1,REASON_EFFECT): the bound opponent draws (own turn: the picked opponent)
 //   confirm     Duel.ConfirmCards(1-tp,g): one MSG_CONFIRM_CARDS for every duelist of the other side
 //   sendtohand  Duel.SendtoHand(g,1-tp) with a card of the opponent, then Duel.SendtoHand(g2,tp)
 //   move        Duel.MoveToField(c,tp,tp,...): the place prompt goes to the card seat, the card lands on its field
@@ -42,7 +43,7 @@
 static const char* kScripts = check_scripts_dir();
 static const uint32_t kTestBase = 90001;
 static const uint32_t kDeckBase = 5000;
-// The pick is always option 0 (the lowest living opponent), so seat 0 is the target of most firings and loses 2 cards
+// The picks cycle over the opponents (option k % options), but a seat can still be the target of many firings and lose 2 cards
 // per firing: the Decks must outlast the whole duel.
 static const int kDeckSize = 90;
 static std::string g_probe;
@@ -144,8 +145,13 @@ struct Rec {
 	int hand[MAX_DUELISTS];
 	int deck[MAX_DUELISTS];
 	int mz[MAX_DUELISTS];
+	int chosen[MAX_DUELISTS];  // the seat that the last pick prompt of every seat bound (-1: none yet)
 };
 static std::vector<Rec> g_recs;
+// the harness answers pick prompt number k with option k % options, so a core that ignores the answer binds a seat
+// that the model does not expect
+static int g_chosen[MAX_DUELISTS];
+static size_t g_pick_no = 0;
 static long g_errors = 0;
 static std::vector<std::string> g_error_text;
 static OCG_Duel g_duel = nullptr;
@@ -173,6 +179,7 @@ static void on_log(void*, const char* text, int type) {
 		r.text = text;
 		auto& f = F(g_duel);
 		r.turn_player = f.infos.turn_player;
+		std::memcpy(r.chosen, g_chosen, sizeof(r.chosen));
 		for(int i = 0; i < MAX_DUELISTS; ++i) {
 			r.hand[i] = r.deck[i] = r.mz[i] = 0;
 			if(i < f.n_duelists) {
@@ -248,11 +255,12 @@ struct Model {
 	}
 	// the opponent that "1" means in the operation of the card of seat P (F5). The Standby Phase event names nobody and
 	// the operation does not read the turn player, so on every turn the first read of "1" is the pick, which the harness
-	// answers with option 0 (the lowest living opponent); or the only living opponent (silent bind)
-	int bound(int P, int /*T*/) const {
+	// answers with option k % options (chosen[P] is the seat of the last answer); or the only living opponent (silent bind)
+	int bound(int P, int /*T*/, const int* chosen) const {
 		if(n == 2) return 1 - P;
 		const auto o = opponents(P);
-		return o.empty() ? -1 : o[0];
+		if(o.empty()) return -1;
+		return o.size() == 1 ? o[0] : chosen[P];
 	}
 	// every duelist of the other side (FFA: every other seat, Tag: the other team, n == 2: the opponent)
 	std::set<int> others(int P) const {
@@ -268,6 +276,8 @@ static Model g_model;
 static Outcome play(const Scenario& sc) {
 	Outcome out;
 	g_recs.clear();
+	for(int& c : g_chosen) c = -1;
+	g_pick_no = 0;
 	g_confirms.clear();
 	g_places.clear();
 	g_place_turn.clear();
@@ -318,7 +328,7 @@ static Outcome play(const Scenario& sc) {
 		add_card(d, static_cast<uint8_t>(s), LOCATION_MZONE, kTestBase + s, POS_FACEUP_ATTACK);
 	OCG_StartDuel(d);
 	if(sc.eliminate >= 0)
-		F(d).player[sc.eliminate].eliminated = true;
+		F(d).eliminate(static_cast<uint8_t>(sc.eliminate), 0);  // as in a duel: the cards leave the field, a message 200 is sent
 
 	auto* pd = static_cast<duel*>(d);
 	out.hash = 1469598103934665603ull;
@@ -378,12 +388,15 @@ static Outcome play(const Scenario& sc) {
 				pick = pick && (desc >> 16) == 0xFFFE;
 				seats.push_back(static_cast<int>(desc & 0xff));
 			}
+			int idx = 0;
 			if(pick) {
 				++out.picks;
 				if(seats != g_model.opponents(who) || seats.size() < 2)
 					out.pick_bad.push_back("seat " + std::to_string(who) + " got " + std::to_string(seats.size()) + " options");
+				idx = static_cast<int>(g_pick_no++ % seats.size());
+				g_chosen[who] = seats[idx];
 			}
-			answer32(0);
+			answer32(idx);
 			break;
 		}
 		case MSG_SELECT_CHAIN: {
@@ -410,7 +423,7 @@ static Outcome play(const Scenario& sc) {
 			g_place_turn.push_back(g_cur_turn);
 			// the zone is on the field of the chooser (move) or of the bound opponent (moveopp)
 			// (a prompt that has no free zone on that field is answered on the field of the chooser)
-			int owner = g_probe == "moveopp" ? g_model.bound(g_cur_seat, g_cur_turn) : g_cur_seat;
+			int owner = g_probe == "moveopp" ? g_model.bound(g_cur_seat, g_cur_turn, g_chosen) : g_cur_seat;
 			int seq = -1;
 			for(int attempt = 0; attempt < 2 && seq < 0; ++attempt) {
 				const bool own = owner == prompt_player;
@@ -519,7 +532,8 @@ static void check_probe(const Scenario& sc, const Outcome& out, const std::vecto
 		const int P = seat_of(r.text);
 		if(P < 0) continue;
 		const int T = r.turn_player;
-		const int B = M.bound(P, T);
+		EXPECT(P != M.eliminate, "%s %s: the card of the eliminated seat %d wrote a record: %s", sc.name, g_probe.c_str(), P, r.text.c_str());
+		const int B = M.bound(P, T, r.chosen);
 		if(r.text.compare(0, 7, "F3 pre ") == 0) {
 			pre[P] = r;
 			++firings;
@@ -528,6 +542,12 @@ static void check_probe(const Scenario& sc, const Outcome& out, const std::vecto
 			mid[P] = r;
 		} else if(r.text.compare(0, 8, "F3 post ") == 0 && pre.count(P)) {
 			const Rec& a = pre[P];
+			if(B < 0 && (g_probe == "draw" || g_probe == "sendtohand" || g_probe == "moveopp")) {
+				EXPECT(false, "%s %s: seat %d turn %d: no bound opponent in the model", sc.name, g_probe.c_str(), P, T);
+				pre.erase(P);
+				mid.erase(P);
+				continue;
+			}
 			Delta d;
 			const bool did = do_of(r.text) == 1;
 			if(g_probe == "draw") {

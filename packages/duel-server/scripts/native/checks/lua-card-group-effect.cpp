@@ -9,8 +9,9 @@
 // The test card is a mandatory trigger on EVENT_PHASE+PHASE_STANDBY (as in the F1 check).
 // F5 binding: the operation reads Duel.GetTurnPlayer() first. On the turn of an opponent that read binds this opponent
 // (silent). On an own turn the first yieldable read of "1" (Card.IsType with the viewer 1-tp) asks the activator which
-// opponent it means (MSG_SELECT_OPTION, every desc 0xFFFE0000|seat, ascending, living opponents only). The driver answers 0:
-// the bound opponent is the lowest living opponent. Group.Select(1-tp) and SetOwnerPlayer(1-tp) then use that seat.
+// opponent it means (MSG_SELECT_OPTION, every desc 0xFFFE0000|seat, ascending, living opponents only). The driver answers option k % options for pick number
+// k, so the bound opponent is that seat (a core that ignores the answer fails). Every pick here is the fallback pick of the operation step
+// (the test card has no target or cost); the pick at activation is covered by opponent-pick. Group.Select(1-tp) and SetOwnerPlayer(1-tp) then use that seat.
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -177,8 +178,13 @@ struct Rec {
 	std::string text;
 	int turn_player;         // raw seat at the time of the log line
 	int lp[MAX_DUELISTS];    // raw lp_ref of every seat at the time of the log line
+	int chosen[MAX_DUELISTS];  // the seat that the last pick prompt of every seat bound (-1: none yet)
 };
 static std::vector<Rec> g_recs;
+// the harness answers pick prompt number k with option k % options, so a core that ignores the answer binds a seat
+// that the model does not expect
+static int g_chosen[MAX_DUELISTS];
+static size_t g_pick_no = 0;
 static long g_errors = 0;
 static std::vector<std::string> g_error_text;
 static OCG_Duel g_duel = nullptr;
@@ -199,6 +205,7 @@ static void on_log(void*, const char* text, int type) {
 		r.text = text;
 		auto& f = F(g_duel);
 		r.turn_player = f.infos.turn_player;
+		std::memcpy(r.chosen, g_chosen, sizeof(r.chosen));
 		for(int i = 0; i < MAX_DUELISTS; ++i)
 			r.lp[i] = i < f.n_duelists ? f.lp_ref(static_cast<uint8_t>(i)) : 0;
 		if(std::getenv("CHECK_LOG"))
@@ -251,6 +258,8 @@ static uint64_t fnv(uint64_t h, const uint8_t* p, size_t n) {
 static Outcome play(const Scenario& sc) {
 	Outcome out;
 	g_recs.clear();
+	for(int& c : g_chosen) c = -1;
+	g_pick_no = 0;
 	g_errors = 0;
 	g_error_text.clear();
 	OCG_DuelOptions options;
@@ -296,7 +305,7 @@ static Outcome play(const Scenario& sc) {
 			add_card(d, static_cast<uint8_t>(s), LOCATION_MZONE, kTestBase + s, POS_FACEUP_ATTACK);
 	OCG_StartDuel(d);
 	if(sc.eliminate >= 0)
-		F(d).player[sc.eliminate].eliminated = true;
+		F(d).eliminate(static_cast<uint8_t>(sc.eliminate), 0);  // as in a duel: the cards leave the field, a message 200 is sent
 
 	auto* pd = static_cast<duel*>(d);
 	out.hash = 1469598103934665603ull;
@@ -348,7 +357,7 @@ static Outcome play(const Scenario& sc) {
 		case MSG_SELECT_IDLECMD: answer32(7); break;
 		case MSG_SELECT_YESNO: case MSG_SELECT_EFFECTYN: answer32(1); break;
 		case MSG_SELECT_OPTION: {
-			// u8 player, u8 count, count x u64 desc: the F5 pick of an opponent is answered with option 0
+			// u8 player, u8 count, count x u64 desc: the F5 pick of an opponent is answered with option k % options
 			const int who = m->p[0], count = m->p[1];
 			std::vector<int> seats, want;
 			bool pick = count > 0;
@@ -365,7 +374,12 @@ static Outcome play(const Scenario& sc) {
 				if(seats != want || seats.size() < 2)
 					out.pick_bad.push_back("seat " + std::to_string(who) + " got " + std::to_string(seats.size()) + " options");
 			}
-			answer32(0);
+			int idx = 0;
+			if(pick && who >= 0 && who < MAX_DUELISTS) {
+				idx = static_cast<int>(g_pick_no++ % seats.size());
+				g_chosen[who] = seats[idx];
+			}
+			answer32(idx);
 			break;
 		}
 		case MSG_SELECT_CHAIN: {
@@ -380,6 +394,7 @@ static Outcome play(const Scenario& sc) {
 				pr.text = "F4 prompt p=" + std::to_string(m->p[0]);
 				pr.turn_player = F(d).infos.turn_player;
 				std::memset(pr.lp, 0, sizeof(pr.lp));
+				std::memcpy(pr.chosen, g_chosen, sizeof(pr.chosen));
 				g_recs.push_back(std::move(pr));
 			}
 			uint32_t min = 0;
@@ -462,12 +477,14 @@ struct Model {
 		return v;
 	}
 	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T: the turn player when it
-	// is an opponent (the GetTurnPlayer read binds it), else the pick (option 0 = the lowest living opponent)
-	int bound(int P, int T) const {
+	// is an opponent (the GetTurnPlayer read binds it), else the only living opponent (silent bind), else the pick (option
+	// k % options: chosen[P] is the seat of the last answer of seat P)
+	int bound(int P, int T, const int* chosen) const {
 		if(!fold()) return 1 - P;
 		if(!same_team(P, T)) return T;
 		const auto v = opponents(P);
-		return v.empty() ? -1 : v[0];
+		if(v.empty()) return -1;
+		return v.size() == 1 ? v[0] : chosen[P];
 	}
 };
 
@@ -518,11 +535,13 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 		}
 		if(sc.eliminate >= 0 && k == "sel2")
 			++sel2;   // the test card chose for 1-tp: it must have run, and no prompt went to the eliminated seat
+		if(sc.eliminate >= 0 && m.count("s") && as_int(m, "s") == sc.eliminate)
+			EXPECT(false, "%s: the card of the eliminated seat %d wrote a record: %s", sc.name, sc.eliminate, r.text.c_str());
 		if(m.count("s") == 0 || sc.eliminate >= 0)
 			continue;
 		const int P = as_int(m, "s");
 		const int T = r.turn_player;
-		const int B = M.bound(P, T);
+		const int B = M.bound(P, T, r.chosen);
 		if(k == "who") {
 			++firings;
 			prompts.clear();   // other card prompts (the end phase hand limit) are not ours
@@ -540,6 +559,7 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 		} else if(k == "info") {
 			EXPECT(m["type"] == "true" && m["race"] == "true" && m["attr"] == "true" && !m["code"].empty(), "%s: card info with a viewer: %s", sc.name, r.text.c_str());
 		} else if(k == "eff") {
+			if(B < 0) { EXPECT(false, "%s: eff seat %d turn %d: no bound opponent in the model", sc.name, P, T); continue; }
 			const int own = M.f(P, P);
 			EXPECT(as_int(m, "o1") == M.f(P, B) && as_int(m, "o2") == own && as_int(m, "o3") == own,
 			       "%s: SetOwnerPlayer round trip seat %d turn %d: %s, want o1=%d o2=%d o3=%d", sc.name, P, T, r.text.c_str(), M.f(P, B), own, own);
@@ -562,6 +582,7 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 			EXPECT(prompts.size() == 1, "%s: %s seat %d: %zu card prompts before the log line", sc.name, k.c_str(), P, prompts.size());
 			if(!prompts.empty()) {
 				const int want = k == "sel1" ? P : B;
+				EXPECT(want >= 0, "%s: %s seat %d turn %d: no bound opponent in the model", sc.name, k.c_str(), P, T);
 				EXPECT(prompts.back() == want, "%s: Group.Select(%s) seat %d turn %d: the prompt went to seat %d, want seat %d", sc.name, k == "sel1" ? "tp" : "1-tp", P, T, prompts.back(), want);
 			}
 			EXPECT(as_int(m, "got") == 1 && as_int(m, "tp") == M.f(P, P), "%s: after the Select yield seat %d: %s", sc.name, P, r.text.c_str());

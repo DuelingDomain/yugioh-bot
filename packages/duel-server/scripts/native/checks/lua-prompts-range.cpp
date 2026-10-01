@@ -8,8 +8,9 @@
 // SetAbsoluteRange + Duel.RegisterEffect and reads the ATK of every test card.
 // F5 binding: the operation reads Duel.GetTurnPlayer() first. On the turn of an opponent that read binds this opponent
 // (silent, no prompt). On an own turn the first "1-tp" asks the activator which opponent it means (MSG_SELECT_OPTION, every
-// desc 0xFFFE0000|seat, ascending, living opponents only); the driver answers 0, so the bound opponent is the lowest living
-// opponent. With one living opponent the bind is silent. The pick prompts are counted, not treated as library prompts.
+// desc 0xFFFE0000|seat, ascending, living opponents only); the driver answers option k % options for pick number k, so the bound opponent is that seat (a core
+// that ignores the answer fails). With one living opponent the bind is silent. Every pick here is the fallback pick of the operation
+// step; the pick at activation is covered by opponent-pick. The pick prompts are counted, not treated as library prompts.
 //   ffa3, ffa4, tag     n > 2
 //   ffa4e               FFA4 with seat 1 marked eliminated: no prompt may go to seat 1
 //   n2, n2s             n == 2 without and with Debug.SetupDuelists(2,0,1): same message bytes
@@ -186,8 +187,13 @@ struct Rec {
 	std::string text;
 	int turn_player;         // raw seat at the time of the log line
 	int lp[MAX_DUELISTS];    // raw lp_ref of every seat at the time of the log line
+	int chosen[MAX_DUELISTS];  // the seat that the last pick prompt of every seat bound (-1: none yet)
 };
 static std::vector<Rec> g_recs;
+// the harness answers pick prompt number k with option k % options, so a core that ignores the answer binds a seat
+// that the model does not expect
+static int g_chosen[MAX_DUELISTS];
+static size_t g_pick_no = 0;
 static long g_errors = 0;
 static std::vector<std::string> g_error_text;
 static OCG_Duel g_duel = nullptr;
@@ -208,6 +214,7 @@ static void on_log(void*, const char* text, int type) {
 		r.text = text;
 		auto& f = F(g_duel);
 		r.turn_player = f.infos.turn_player;
+		std::memcpy(r.chosen, g_chosen, sizeof(r.chosen));
 		for(int i = 0; i < MAX_DUELISTS; ++i)
 			r.lp[i] = i < f.n_duelists ? f.lp_ref(static_cast<uint8_t>(i)) : 0;
 		if(std::getenv("CHECK_LOG"))
@@ -260,6 +267,8 @@ static uint64_t fnv(uint64_t h, const uint8_t* p, size_t n) {
 static Outcome play(const Scenario& sc) {
 	Outcome out;
 	g_recs.clear();
+	for(int& c : g_chosen) c = -1;
+	g_pick_no = 0;
 	g_errors = 0;
 	g_error_text.clear();
 	OCG_DuelOptions options;
@@ -305,7 +314,7 @@ static Outcome play(const Scenario& sc) {
 			add_card(d, static_cast<uint8_t>(s), LOCATION_MZONE, kTestBase + s, POS_FACEUP_ATTACK);
 	OCG_StartDuel(d);
 	if(sc.eliminate >= 0)
-		F(d).player[sc.eliminate].eliminated = true;
+		F(d).eliminate(static_cast<uint8_t>(sc.eliminate), 0);  // as in a duel: the cards leave the field, a message 200 is sent
 
 	auto* pd = static_cast<duel*>(d);
 	out.hash = 1469598103934665603ull;
@@ -373,7 +382,9 @@ static Outcome play(const Scenario& sc) {
 						if(who >= 0 && who < sc.n && sc.team[q] != sc.team[who] && q != sc.eliminate) want.push_back(q);
 					if(seats != want || seats.size() < 2)
 						out.pick_bad.push_back("seat " + std::to_string(who) + " got " + std::to_string(seats.size()) + " options");
-					answer32(0);
+					const int idx = static_cast<int>(g_pick_no++ % seats.size());
+					if(who >= 0 && who < MAX_DUELISTS) g_chosen[who] = seats[idx];
+					answer32(idx);
 					break;
 				}
 			}
@@ -381,6 +392,7 @@ static Outcome play(const Scenario& sc) {
 			pr.text = "F3C prompt p=" + std::to_string(m->p[0]) + " id=" + std::to_string(m->id);
 			pr.turn_player = F(d).infos.turn_player;
 			std::memset(pr.lp, 0, sizeof(pr.lp));
+			std::memcpy(pr.chosen, g_chosen, sizeof(pr.chosen));
 			g_recs.push_back(std::move(pr));
 			answer32(m->id == MSG_SELECT_OPTION ? 0 : 1);
 			break;
@@ -398,6 +410,7 @@ static Outcome play(const Scenario& sc) {
 				pr.text = "F3C prompt p=" + std::to_string(m->p[0]) + " id=" + std::to_string(m->id);
 				pr.turn_player = F(d).infos.turn_player;
 				std::memset(pr.lp, 0, sizeof(pr.lp));
+				std::memcpy(pr.chosen, g_chosen, sizeof(pr.chosen));
 				g_recs.push_back(std::move(pr));
 			}
 			if(m->id == MSG_SELECT_CARD) {
@@ -527,12 +540,14 @@ struct Model {
 		return v;
 	}
 	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T: the turn player when it
-	// is an opponent (the GetTurnPlayer read binds it), else the pick (option 0 = the lowest living opponent)
-	int bound(int P, int T) const {
+	// is an opponent (the GetTurnPlayer read binds it), else the only living opponent (silent bind), else the pick (option
+	// k % options: chosen[P] is the seat of the last answer of seat P)
+	int bound(int P, int T, const int* chosen) const {
 		if(!fold()) return 1 - P;
 		if(!same_team(P, T)) return T;
 		const auto v = opponents(P);
-		return v.empty() ? -1 : v[0];
+		if(v.empty()) return -1;
+		return v.size() == 1 ? v[0] : chosen[P];
 	}
 };
 
@@ -573,6 +588,8 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	int firings = 0, calls = 0, abs_lines = 0;
 	std::string cur_fn, cur_who;
 	int cur_s = -1, cur_t = -1;
+	int snap[MAX_DUELISTS];  // chosen[] of the last record that was read (the pick of a call is answered before its prompts)
+	for(int& c : snap) c = -1;
 	std::vector<int> pl;     // the player byte of every prompt since the last call marker
 	std::map<std::string, int> ncalls;
 	auto close_call = [&]() {
@@ -583,7 +600,13 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 		const int P = cur_s, T = cur_t;
 		// MoveToField(card, move_player, field_owner, ...): the zone prompt goes to move_player (the card of seat P), never to the
 		// field owner, so the "moveo" call (field owner = who) has the chooser P in both rounds.
-		const int want = (cur_who == "a" || cur_fn == "moveo") ? P : M.bound(P, T);
+		const int want = (cur_who == "a" || cur_fn == "moveo") ? P : M.bound(P, T, snap);
+		if(want < 0) {
+			EXPECT(false, "%s: %s/%s seat %d turn seat %d: no bound opponent in the model", sc.name, cur_fn.c_str(), cur_who.c_str(), P, T);
+			cur_fn.clear();
+			pl.clear();
+			return;
+		}
 		if(sc.eliminate >= 0) {
 			for(int p : pl)
 				EXPECT(p != sc.eliminate, "%s: %s/%s seat %d: a prompt went to the eliminated seat %d", sc.name, cur_fn.c_str(), cur_who.c_str(), P, sc.eliminate);
@@ -599,11 +622,13 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 		auto m = fields_of(r.text);
 		const std::string& k = m["kind"];
 		if(k == "prompt") {
+			std::memcpy(snap, r.chosen, sizeof(snap));
 			pl.push_back(as_int(m, "p"));
 			continue;
 		}
 		if(k == "call") {
 			close_call();
+			std::memcpy(snap, r.chosen, sizeof(snap));
 			cur_fn = m["fn"];
 			cur_who = m["who"];
 			cur_s = as_int(m, "s");
@@ -612,10 +637,12 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 			continue;
 		}
 		if(k == "done") {
+			std::memcpy(snap, r.chosen, sizeof(snap));
 			close_call();
 			continue;
 		}
 		if(k == "who") {
+			EXPECT(as_int(m, "s") != sc.eliminate, "%s: the card of the eliminated seat %d fired: %s", sc.name, sc.eliminate, r.text.c_str());
 			++firings;
 			continue;
 		}
@@ -638,7 +665,9 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 			std::string wb = wo;
 			if(M.fold() && !M.tag) {
 				wb.assign(4, '0');
-				wb[M.bound(P, r.turn_player)] = '1';
+				const int bw = M.bound(P, r.turn_player, r.chosen);
+				EXPECT(bw >= 0, "%s: SetAbsoluteRange seat %d: no bound opponent in the model", sc.name, P);
+				if(bw >= 0) wb[bw] = '1';
 			}
 			EXPECT(m["tt"] == wt && m["oo"] == wb, "%s: SetAbsoluteRange seat %d: tt=%s oo=%s, want tt=%s oo=%s", sc.name, P, m["tt"].c_str(), m["oo"].c_str(), wt.c_str(), wb.c_str());
 			// ot: named 1-tp, owner stays tp (the effect is stored relative to the owner, so it is exact in FFA)

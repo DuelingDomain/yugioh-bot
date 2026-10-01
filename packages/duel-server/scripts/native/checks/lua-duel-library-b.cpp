@@ -7,13 +7,14 @@
 //   n2, n2s       2 duelists without and with Debug.SetupDuelists(2,0,1): same message bytes, same Lua log
 // The test card is a mandatory trigger on EVENT_PHASE+PHASE_STANDBY. It fires in the Standby Phase of every duelist.
 // Its operation (scope = the seat of the card) does, in this order:
-//   IsPlayerCanDiscardDeck(1-tp,20) and IsPlayerCanDraw(1-tp,1)   query, unbound: the best case over the opponents
+//   IsPlayerCanDiscardDeck(1-tp,20) and IsPlayerCanDraw(1-tp,1)   query: the first read of "1", so it asks the pick; the answer is for the bound opponent
 //   SelectYesNo / SelectOption / AnnounceNumber with 1-tp         the prompt goes to the bound opponent, a living one
 //   SelectDisableField / SelectFieldZone with tp                  the prompt goes to the seat of the card, the answer is accepted
-// F5 binding: at n > 2 the first prompt that reads "1-tp" (SelectYesNo) makes the core ask the activator which opponent
-// it means (MSG_SELECT_OPTION, every desc 0xFFFE0000|seat, ascending, living opponents only). The driver answers 0, so the
-// bound opponent is the lowest living opponent of the card seat, on every turn. The query before it is unbound: the best
-// case over the living opponents. The prompts SelectYesNo/SelectOption/AnnounceNumber go to the bound opponent.
+// F5 binding: at n > 2 the first read of "1-tp" in the operation (the IsPlayerCanDiscardDeck query) makes the core ask the
+// activator which opponent it means (MSG_SELECT_OPTION, every desc 0xFFFE0000|seat, ascending, living opponents only). The
+// driver answers option k % options for pick number k, so the bound opponent of a firing is that seat. The query and the
+// prompts SelectYesNo/SelectOption/AnnounceNumber all use the bound opponent. The Deck sizes of the seats differ, so a core
+// that ignores the answer fails the query check.
 // The driver notes the seat that got each prompt. No prompt may go to an eliminated seat.
 #include <algorithm>
 #include <cstdint>
@@ -129,8 +130,13 @@ struct Rec {
 	int answer_seq = -1;               // zone that the driver answered for a field prompt
 	size_t deck[MAX_DUELISTS] = {};
 	bool elim[MAX_DUELISTS] = {};
+	int chosen[MAX_DUELISTS] = { -1, -1, -1, -1 };  // the seat that the last pick prompt of every seat bound (-1: none yet)
 };
 static std::vector<Rec> g_recs;
+// the harness answers pick prompt number k with option k % options, so a core that ignores the answer binds a seat
+// that the model does not expect
+static int g_chosen[MAX_DUELISTS] = { -1, -1, -1, -1 };
+static size_t g_pick_no = 0;
 static long g_errors = 0;
 static std::vector<std::string> g_error_text;
 static OCG_Duel g_duel = nullptr;
@@ -155,6 +161,7 @@ static void on_log(void*, const char* text, int type) {
 		r.prompt_id = g_prompt_id;
 		r.prompt_player = g_prompt_player;
 		r.answer_seq = g_answer_seq;
+		std::memcpy(r.chosen, g_chosen, sizeof(r.chosen));
 		for(int i = 0; i < f.n_duelists; ++i) {
 			r.deck[i] = f.player[i].list_main.size();
 			r.elim[i] = f.player[i].eliminated;
@@ -210,6 +217,8 @@ static uint64_t fnv(uint64_t h, const uint8_t* p, size_t n) {
 static Outcome play(const Scenario& sc) {
 	Outcome out;
 	g_recs.clear();
+	for(int& c : g_chosen) c = -1;
+	g_pick_no = 0;
 	g_errors = 0;
 	g_error_text.clear();
 	g_prompt_id = 0; g_prompt_player = -1; g_answer_seq = -1;
@@ -256,7 +265,7 @@ static Outcome play(const Scenario& sc) {
 			add_card(d, static_cast<uint8_t>(s), LOCATION_MZONE, kTestBase + s, POS_FACEUP_ATTACK);
 	OCG_StartDuel(d);
 	if(sc.eliminated >= 0)
-		F(d).player[sc.eliminated].eliminated = true;
+		F(d).eliminate(static_cast<uint8_t>(sc.eliminated), 0);  // as in a duel: the cards leave the field, a message 200 is sent
 
 	auto* pd = static_cast<duel*>(d);
 	out.hash = 1469598103934665603ull;
@@ -328,7 +337,12 @@ static Outcome play(const Scenario& sc) {
 				if(seats != want || seats.size() < 2)
 					out.pick_bad.push_back("seat " + std::to_string(who) + " got " + std::to_string(seats.size()) + " options");
 			}
-			answer32(0);
+			int idx = 0;
+			if(pick && who >= 0 && who < MAX_DUELISTS) {
+				idx = static_cast<int>(g_pick_no++ % seats.size());
+				g_chosen[who] = seats[idx];
+			}
+			answer32(idx);
 			break;
 		}
 		case MSG_ANNOUNCE_NUMBER: answer32(0); break;
@@ -438,11 +452,13 @@ static void check_scenario(const Scenario& sc, const Outcome& out, const std::ve
 			if(!same_team(P, q) && !r.elim[q]) v.push_back(q);
 		return v;
 	};
-	// the opponent that 1-tp means for the card of seat P: the one the driver picked (option 0 = the lowest living opponent)
+	// the opponent that 1-tp means for the card of seat P: the one the driver picked (option k % options, the seat of
+	// the last answer of seat P), or the only living opponent (silent bind)
 	auto bound = [&](const Rec& r, int P, int /*T*/) {
 		if(!fold) return 1 - P;
 		const auto v = opponents_alive(r, P);
-		return v.empty() ? -1 : v[0];
+		if(v.empty()) return -1;
+		return v.size() == 1 ? v[0] : r.chosen[P];
 	};
 	std::map<std::string, int> seen;
 	int firings = 0, own_firings = 0;
@@ -452,26 +468,24 @@ static void check_scenario(const Scenario& sc, const Outcome& out, const std::ve
 			continue;
 		const int P = std::atoi(m["s"].c_str());
 		const int T = r.turn_player;
+		EXPECT(P != sc.eliminated, "%s: the card of the eliminated seat %d wrote a record: %s", sc.name, P, r.text.c_str());
 		const std::string& k = m["kind"];
 		++seen[k];
 		if(k == "can") {
 			++firings;
 			if(same_team(P, T)) ++own_firings;
-			bool disc = false, draw = false;
-			// the query comes before the first prompt, so nobody is bound yet: the best case over the living opponents,
-			// on every turn
-			std::vector<int> opps = opponents_alive(r, P);
-			for(int q : opps) {
-				disc = disc || r.deck[q] >= 20;
-				draw = draw || r.deck[q] >= 1;
-			}
+			// the query is the first read of "1" in the operation step: the core asks the pick (the logged fallback) and
+			// answers for the bound opponent. The Deck sizes differ, so a core that ignores the answer gives another result.
+			const int B = bound(r, P, T);
+			if(B < 0) { EXPECT(false, "%s: can seat %d turn %d: no bound opponent in the model", sc.name, P, T); continue; }
+			const bool disc = r.deck[B] >= 20, draw = r.deck[B] >= 1;
 			EXPECT(m["disc"] == (disc ? "true" : "false") && m["draw"] == (draw ? "true" : "false"),
-			       "%s: seat %d turn %d: %s, want disc=%d draw=%d (unbound: the best case over the living opponents)", sc.name, P, T, r.text.c_str(), disc, draw);
+			       "%s: seat %d turn %d: %s, want disc=%d draw=%d (the bound opponent, seat %d)", sc.name, P, T, r.text.c_str(), disc, draw, B);
 		} else if(k == "yn" || k == "opt" || k == "num") {
 			const int want_id = k == "yn" ? MSG_SELECT_YESNO : k == "opt" ? MSG_SELECT_OPTION : MSG_ANNOUNCE_NUMBER;
 			const int B = bound(r, P, T);
 			EXPECT(r.prompt_id == want_id, "%s: %s seat %d: last prompt %d, want %d", sc.name, k.c_str(), P, r.prompt_id, want_id);
-			EXPECT(r.prompt_player == B && !(r.prompt_player >= 0 && r.elim[r.prompt_player]),
+			EXPECT(B >= 0 && r.prompt_player == B && !(r.prompt_player >= 0 && r.elim[r.prompt_player]),
 			       "%s: %s with 1-tp: the card of seat %d on turn %d sent the prompt to seat %d, want the bound living opponent seat %d", sc.name, k.c_str(), P, T, r.prompt_player, B);
 			EXPECT(k != "yn" || m["r"] == "true", "%s: SelectYesNo gave %s", sc.name, m["r"].c_str());
 			EXPECT(k != "opt" || m["r"] == "0", "%s: SelectOption gave %s", sc.name, m["r"].c_str());
