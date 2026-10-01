@@ -43,3 +43,4 @@ opponent-pick	opponent-pick	-	ready	F5: one opponent bound at activation (0xFFFE
 place-seat-hint	place-seat-hint	-	ready	F8 x F5: seat hint of a place prompt (HINT 0xF0); the hint names the opponent that the F5 pick bound (option 0 = lowest living opponent on an own-team turn, the turn player on an opponent turn); needs core 5edcc84 or later
 domain-multi	domain-multi	ffa3	domain	Domain layer for 3 and 4 duelists; needs a core tree with domain_master.cpp (not in the merged tree, so it does not compile there)
 turn-handoff	turn-handoff	check	ready	F9: the turn player is eliminated at battle start, in the attack window, in the damage step: next living seat gets the turn, no prompt to a dead seat
+zone-seat-sset	zone-seat-sset	-	ready	F9: Duel.SSet toward the bound opponent at n>2; a bound opponent eliminated while the chain waits leaves no card on its field

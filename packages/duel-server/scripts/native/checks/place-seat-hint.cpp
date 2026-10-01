@@ -6,7 +6,7 @@
 //   movef     Duel.MoveToField(token, tp, 1-tp, MZONE, ...)
 //   sset      Duel.SSet(tp, spell, 1-tp)
 //   disfield  Duel.SelectDisableField(tp, 1, 0, MZONE, 0), the flag goes into EFFECT_DISABLE_FIELD: the hint seat
-//             (the next seat in turn order, as the disable code binds it) must be the only seat that gets the zone
+//             (the bound opponent, as for the other calls; F9 core) must be the only seat that gets the zone
 //   fieldzone Duel.SelectFieldZone(tp, 1, 0, MZONE, 0)
 // Which opponent "1" means (F5, core 29fff80): on the turn of an opponent the read of the turn player binds that opponent.
 // On a turn of the own team nothing is bound, so the core asks the activator to pick one opponent (MSG_SELECT_OPTION,
@@ -64,6 +64,22 @@ function s.op(e,tp,eg,ep,ev,re,r,rp)
 	local function clean(t)
 		if t:IsLocation(LOCATION_ONFIELD) then Duel.SendtoGrave(t,REASON_RULE) end
 	end
+	-- one disable effect per firing (the firings take turns between the two calls), gone at the end of the turn: the
+	-- disabled zones of all seats pile up on the one bound opponent, so more would leave no zone for the other calls
+	s.fired=(s.fired or 0)+1
+	local function reg(z,fn)
+		local mine=(fn=="disfield")==(s.fired%2==1)
+		if z and z~=0 and mine then
+			local e1=Effect.CreateEffect(c)
+			e1:SetType(EFFECT_TYPE_FIELD)
+			e1:SetCode(EFFECT_DISABLE_FIELD)
+			e1:SetValue(z)
+			e1:SetReset(RESET_PHASE+PHASE_END)
+			Duel.RegisterEffect(e1,tp)
+			Duel.AdjustInstantly(c)
+			Debug.Message(string.format("F8 dis s=%d z=%d fn=%s",seat,z,fn))
+		end
+	end
 	local calls={
 		{"spsum",function()
 			local t=Duel.CreateToken(tp,91001)
@@ -83,21 +99,13 @@ function s.op(e,tp,eg,ep,ev,re,r,rp)
 		{"disfield",function()
 			-- the zone that the prompt offers goes into an EFFECT_DISABLE_FIELD effect, as the cards do
 			local z=Duel.SelectDisableField(tp,1,0,LOCATION_MZONE,0)
-			-- two effects per seat are enough (no Reset, so the check does not depend on the end of turn)
-			s.applied=s.applied or {}
-			s.applied[seat]=(s.applied[seat] or 0)
-			if z and z~=0 and s.applied[seat]<2 then
-				s.applied[seat]=s.applied[seat]+1
-				local e1=Effect.CreateEffect(c)
-				e1:SetType(EFFECT_TYPE_FIELD)
-				e1:SetCode(EFFECT_DISABLE_FIELD)
-				e1:SetValue(z)
-				Duel.RegisterEffect(e1,tp)
-				Duel.AdjustInstantly(c)
-				Debug.Message(string.format("F8 dis s=%d z=%d",seat,z))
-			end
+			reg(z,"disfield")
 		end},
-		{"fieldzone",function() return Duel.SelectFieldZone(tp,1,0,LOCATION_MZONE,0) end},
+		{"fieldzone",function()
+			-- the same with Duel.SelectFieldZone (Springans Blast style: the zone is read back and disabled)
+			local z=Duel.SelectFieldZone(tp,1,0,LOCATION_MZONE,0)
+			reg(z,"fieldzone")
+		end},
 	}
 	for _,cl in ipairs(calls) do
 		Debug.Message(string.format("F8 call s=%d fn=%s",seat,cl[1]))
@@ -213,6 +221,7 @@ static std::map<std::string, int> g_counts;  // per fn: hint prompts, retries, a
 static int g_firings = 0;
 static int g_hint_msgs = 0;  // every MSG_HINT 0xF0 in the whole duel
 static int g_pick_prompts = 0;  // the 0xFFFE opponent pick prompts that were answered
+static uint32_t g_dis_turn = 0;
 static uint32_t g_dis_expect[4];  // per seat: the zones that the disable effects of this turn must have disabled
 
 static field& F(OCG_Duel d) { return *static_cast<duel*>(d)->game_field; }
@@ -249,15 +258,6 @@ static void on_log(void*, const char* text, int type) {
 		g_cur.P = s;
 		g_cur.T = F(g_duel).infos.turn_player;
 		g_cur.exp = g_model.n > 2 ? g_model.bound(s, g_cur.T) : -1;
-		if(g_model.n > 2 && g_cur.fn == "disfield") {
-			// SelectDisableField offers the seat that EFFECT_DISABLE_FIELD binds: the next living seat in turn order
-			int nx = -1;
-			for(int i = 1; i < g_model.n && nx < 0; ++i) {
-				const int q = (s + i) % g_model.n;
-				if(q != g_model.eliminate) nx = q;
-			}
-			g_cur.exp = (nx >= 0 && !g_model.same_team(s, nx)) ? nx : -1;
-		}
 		g_cur.in_call = true;
 	} else if(std::sscanf(text, "F8 at fn=%31s s=%d", fn, &s) == 2) {
 		// the card is on a field now: it must be the field of the seat that the hint named
@@ -274,13 +274,18 @@ static void on_log(void*, const char* text, int type) {
 		// harness collects the expected zones here and compares them at every idle prompt (see MSG_SELECT_IDLECMD).
 		unsigned z = 0;
 		std::sscanf(text, "F8 dis s=%*d z=%u", &z);
+		// the effects are gone at the end of the turn: the expectation starts again every turn
+		if(g_dis_turn != F(g_duel).infos.turn_id) {
+			g_dis_turn = F(g_duel).infos.turn_id;
+			std::memset(g_dis_expect, 0, sizeof(g_dis_expect));
+		}
 		if(g_model.n > 2)
 		EXPECT(g_cur.exp >= 0 && (z & 0xffff) == 0 && (z >> 16) != 0, "disfield seat %d: flag %08x does not name the hint seat %d", s, z, g_cur.exp);
 		if(g_model.n > 2 && g_cur.exp >= 0)
 			g_dis_expect[g_cur.exp] |= (z >> 16) & 0xff7f;
-		++g_counts["disfield.applied"];
+		++g_counts[g_cur.fn + ".applied"];
 		if(g_cur.exp != g_cur.T && g_cur.exp >= 0)
-			++g_counts["disfield.applied_not_turn"];
+			++g_counts[g_cur.fn + ".applied_not_turn"];
 	} else if(std::sscanf(text, "F8 done s=%d fn=%31s", &s, fn) == 2) {
 		g_cur.in_call = false;
 	}
@@ -473,7 +478,7 @@ static Outcome play(const Scenario& sc) {
 		switch(m->id) {
 		case MSG_SELECT_IDLECMD:
 			if(sc.n > 2) {
-				// the disable effects (no Reset) are in force: each seat has exactly the zones that the hint named for it
+				// the disable effects of this turn are in force: each seat has exactly the zones that the hint named for it
 				for(int q = 0; q < sc.n; ++q)
 					EXPECT((F(d).player[q].disabled_location & 0xffff) == g_dis_expect[q], "%s turn %d: seat %d has disabled zones %04x, want %04x",
 					       sc.name, out.turns, q, F(d).player[q].disabled_location & 0xffff, g_dis_expect[q]);
@@ -588,8 +593,11 @@ static void report(const Scenario& sc, const Outcome& out) {
 			EXPECT(g_counts[k + ".accepted"] == g_counts[k + ".hint"], "%s: %s: %d right answers accepted of %d hint prompts", sc.name, fn, g_counts[k + ".accepted"], g_counts[k + ".hint"]);
 		}
 		EXPECT(g_pick_prompts > 0, "%s: no opponent pick prompt (the own-turn cases must ask the activator)", sc.name);
-		EXPECT(g_counts["disfield.applied"] >= 2, "%s: disfield: the disable effect ran only %d times", sc.name, g_counts["disfield.applied"]);
-		EXPECT(g_counts["disfield.applied_not_turn"] > 0, "%s: no disfield call where the disabled seat is not the turn player", sc.name);
+		for(const char* fn : { "disfield", "fieldzone" }) {
+			const std::string k = fn;
+			EXPECT(g_counts[k + ".applied"] >= 2, "%s: %s: the disable effect ran only %d times", sc.name, fn, g_counts[k + ".applied"]);
+			EXPECT(g_counts[k + ".applied_not_turn"] > 0, "%s: no %s call where the disabled seat is not the turn player", sc.name, fn);
+		}
 		for(const char* fn : { "spsum", "movef", "sset" })
 			EXPECT(g_counts[std::string(fn) + ".landed"] == g_counts[std::string(fn) + ".hint"], "%s: %s: landed %d of %d", sc.name, fn, g_counts[std::string(fn) + ".landed"], g_counts[std::string(fn) + ".hint"]);
 	} else {
@@ -600,7 +608,7 @@ static void report(const Scenario& sc, const Outcome& out) {
 	            g_counts["spsum.hint"], g_counts["spsum.retry"], g_counts["spsum.accepted"], g_counts["spsum.landed"],
 	            g_counts["movef.hint"], g_counts["movef.retry"], g_counts["movef.accepted"], g_counts["movef.landed"],
 	            g_counts["sset.hint"], g_counts["sset.retry"], g_counts["sset.accepted"], g_counts["sset.landed"],
-	            g_counts["disfield.hint"], g_counts["disfield.retry"], g_counts["disfield.accepted"], g_counts["disfield.applied"], g_counts["disfield.applied_not_turn"],
+	            g_counts["disfield.hint"], g_counts["disfield.retry"], g_counts["disfield.accepted"], g_counts["disfield.applied"] + g_counts["fieldzone.applied"], g_counts["disfield.applied_not_turn"] + g_counts["fieldzone.applied_not_turn"],
 	            g_counts["fieldzone.hint"], g_counts["fieldzone.retry"], g_counts["fieldzone.accepted"]);
 }
 
