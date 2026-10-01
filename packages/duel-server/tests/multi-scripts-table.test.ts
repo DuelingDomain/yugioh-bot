@@ -89,27 +89,6 @@ interface KnownGap {
   reason: string;
 }
 const KNOWN_GAPS: Record<number, KnownGap[]> = {
-  84136000: [
-    {
-      format: "ffa3",
-      luaError: /SetOperationInfo with CATEGORY_SPECIAL_SUMMON and PLAYER_ALL but the group size wasn't exactly 2/,
-      reason: "The Grave of Enkindling: the target merges one monster per living duelist, and the core demands exactly 2 for PLAYER_ALL when only one opponent can summon",
-    },
-  ],
-  88021907: [
-    {
-      format: "ffa3",
-      luaError: /attempt to index a nil value \(field '\?'\)/,
-      reason: "Primathmech Laplacian: after the pick, SelectEffect returns an option that the window of the bound opponent has turned off, so options[op] is nil",
-    },
-  ],
-  34047456: [
-    {
-      format: "tag",
-      trap: "c",
-      reason: "Gigantic Thundercross: the operation reads Duel.GetLocationCount(1-tp) with no bound opponent in Tag; the overlay wraps the target only",
-    },
-  ],
 };
 
 function gapFor(code: number, format: DuelFormat): KnownGap | undefined {

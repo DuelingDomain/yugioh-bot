@@ -5,12 +5,19 @@
 // opponent only. Tag: the joined field of the two opposing duelists, and the picked opposing duelist chooses.
 
 import {
-  activate, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectPickSeats,
-  normalSummon, pickOpponent, select, expectTurn, specialSummon, yes, type Scenario, type Step,
+  activate, attack, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectPickSeats,
+  normalSummon, pass, pickOpponent, select, expectTurn, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
+/** The state of EVERY seat of a format (monsters, Spell and Trap zones, Graveyard, banished zone and Life Points exact; the hand is not checked). */
+function everySeat(format: "ffa3" | "ffa4" | "tag", spec: Partial<Record<Seat, DuelistExpect>>): Step {
+  const seats: Seat[] = format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"];
+  const board: BoardExpect = {};
+  for (const seat of seats) board[seat] = { lp: format === "tag" ? 16000 : 8000, monsters: [], spells: [], grave: [], banished: [], ...spec[seat] };
+  return expectBoard(board);
+}
 const passTurns = (...seats: Seat[]): Step[] => seats.map((seat) => endTurn(seat));
 // Vanilla monsters with no effect that matters here.
 const RAT = "Giant Rat";
@@ -297,6 +304,120 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       pickOpponent("p1", "p0"),
       select(OX, GUARDIAN),
       expectBoard({ p1: { monsters: [ELF] }, p2: { monsters: [AXE] } }),
+    ],
+  }),
+  defineScenario({
+    id: "compare-ffa3-thundercross-picked-opponent-special-summons-from-the-deck",
+    title: "FFA3: after Gigantic Thundercross banished 2 monsters (the banished count of the picked p1), the picked p1 is asked to Special Summon from the Deck; p2 is not asked",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "compare", "ffa3", "card:34047456"],
+    // p0 has 1 banished card, p1 has 3 and p2 has 2. Bound p1: 2 targets. Both opponents have a monster in the Deck.
+    setup: {
+      format: "ffa3",
+      p0: { spells: [{ card: "Gigantic Thundercross", pos: "set" }], banished: [ELF] },
+      p1: { monsters: [OX, GUARDIAN], banished: [SANGAN, WITCH, BUG], deck: [BEAVER, ELF] },
+      p2: { monsters: [AXE], banished: [FANG, RAT], deck: [BEAVER, ELF] },
+    },
+    steps: [
+      endTurn("p0"),
+      normalSummon(BEAVER, "p1"),
+      activate("Gigantic Thundercross", "p0"),
+      expectPickSeats(["p1", "p2"], "p0"),
+      pickOpponent("p1", "p0"),
+      select(OX, GUARDIAN),
+      yes("p1"),
+      select(ELF),
+      everySeat("ffa3", {
+        p0: { grave: ["Gigantic Thundercross"], banished: [ELF] },
+        p1: { monsters: [BEAVER, ELF], banished: [SANGAN, WITCH, BUG, OX, GUARDIAN] },
+        p2: { monsters: [AXE], banished: [FANG, RAT] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "compare-tag-thundercross-joined-banished-count-picked-duelist-special-summons",
+    title: "Tag: Gigantic Thundercross counts the joined banished zones (3 against 1 = 2 targets); the picked opposing duelist p3 is asked to Special Summon from the Deck (T2)",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "compare", "tag", "card:34047456"],
+    // Team 0 is p0 and p2, team 1 is p1 and p3. Team 0 has 1 banished card (p0), team 1 has 3 (p1 has 2, p3 has 1).
+    setup: {
+      format: "tag",
+      p0: { spells: [{ card: "Gigantic Thundercross", pos: "set" }], banished: [ELF] },
+      p1: { monsters: [OX], banished: [SANGAN, WITCH], deck: [BEAVER] },
+      p2: { monsters: [AXE] },
+      p3: { monsters: [GUARDIAN], banished: [BUG], deck: [ELF] },
+    },
+    steps: [
+      endTurn("p0"),
+      // The Trap is legal in every window of p0 (the joined banished count is 2): p0 declines in its End Phase, then activates in the Draw Phase of p1.
+      pass("p0"),
+      activate("Gigantic Thundercross", "p0"),
+      expectPickSeats(["p1", "p3"], "p0"),
+      pickOpponent("p3", "p0"),
+      select(OX, GUARDIAN),
+      yes("p3"),
+      select(ELF),
+      everySeat("tag", {
+        p0: { grave: ["Gigantic Thundercross"], banished: [ELF] },
+        p1: { banished: [SANGAN, WITCH, OX] },
+        p2: { monsters: [AXE] },
+        p3: { monsters: [ELF], banished: [BUG, GUARDIAN] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "compare-ffa3-grave-of-enkindling-every-living-duelist-with-a-monster-revives-one",
+    title: "FFA3: after p1 destroyed a monster of p0 in battle, The Grave of Enkindling lets p0 and each opponent with a monster in the Graveyard (p1 and p2) pick one; the picks are Special Summoned in Defense Position (one target per duelist, 3 targets)",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "chooser", "ffa3", "card:84136000"],
+    // The core accepts PLAYER_ALL in the operation info for a group of exactly 2 cards, so the info of the 3 targets is stored for the activator.
+    setup: {
+      format: "ffa3",
+      p0: { monsters: [RAT], spells: [{ card: "The Grave of Enkindling", pos: "set" }] },
+      p1: { monsters: [OX], grave: [GUARDIAN] },
+      p2: { grave: [AXE] },
+    },
+    steps: [
+      // No seat attacks in its first turn: the round goes once through all seats, then p1 attacks in turn 5.
+      ...passTurns("p0", "p1", "p2", "p0"),
+      changePhase("battle", "p1"),
+      attack(OX, { card: RAT, owner: "p0" }, "p1"),
+      // Each duelist has exactly one monster in the Graveyard, so the three targets are chosen without a prompt.
+      activate("The Grave of Enkindling", "p0"),
+      everySeat("ffa3", {
+        p0: { lp: 7700, monsters: [RAT], grave: ["The Grave of Enkindling"] },
+        p1: { monsters: [OX, GUARDIAN] },
+        p2: { monsters: [AXE] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "compare-tag-grave-of-enkindling-each-opposing-duelist-revives-for-itself",
+    title: "Tag: after p1 destroyed a monster of p0 in battle, The Grave of Enkindling revives the monster of p0 and one monster of each opposing duelist (p1 and p3), each for its own duelist",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "chooser", "tag", "card:84136000"],
+    // Team 0 is p0 and p2, team 1 is p1 and p3. The Life Points of a team are shared (16000 each, 300 damage from the battle).
+    setup: {
+      format: "tag",
+      p0: { monsters: [RAT], spells: [{ card: "The Grave of Enkindling", pos: "set" }] },
+      p1: { monsters: [OX], grave: [GUARDIAN] },
+      p3: { grave: [AXE] },
+    },
+    steps: [
+      ...passTurns("p0", "p1", "p2", "p3", "p0"),
+      changePhase("battle", "p1"),
+      attack(OX, { card: RAT, owner: "p0" }, "p1"),
+      activate("The Grave of Enkindling", "p0"),
+      everySeat("tag", {
+        p0: { lp: 15700, monsters: [RAT], grave: ["The Grave of Enkindling"] },
+        p1: { monsters: [OX, GUARDIAN] },
+        p2: { lp: 15700 },
+        p3: { monsters: [AXE] },
+      }),
     ],
   }),
   defineScenario({

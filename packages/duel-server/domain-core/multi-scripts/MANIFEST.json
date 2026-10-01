@@ -610,10 +610,11 @@
         "target"
       ],
       "redefined": [
-        "target"
+        "target",
+        "activate"
       ],
       "stockSha256": "5d376c4c525078587c6cef5e7ce8f2f4ea476477d4a6164ae3d08ffaf0dff14a",
-      "note": "Reads the Graveyard and the banished zone (field class); today it sums all opponents. The triage text that calls it OK-BIND is wrong."
+      "note": "Reads the Graveyard and the banished zone (field class) of the bound opponent. Tag: the target picks the opposing duelist (MPTarget) and the operation runs bound to that duelist (MPOne), who may Special Summon from the Deck. The triage text that calls it OK-BIND is wrong."
     },
     {
       "code": 34694160,
@@ -1518,10 +1519,12 @@
       ],
       "effectType": "ACTIVATE",
       "redefined": [
-        "target"
+        "target",
+        "activate"
       ],
       "chooserClass": "CH-EACH",
-      "stockSha256": "a529e9038c05c03bdea6e448683c62b41564ff84a6e920492ea1754450542a89"
+      "stockSha256": "a529e9038c05c03bdea6e448683c62b41564ff84a6e920492ea1754450542a89",
+      "note": "The target stores the operation info for the activator when the group is not 2 cards (the core demands 2 for PLAYER_ALL); the operation Special Summons each target for the duelist whose Graveyard holds it (windows)."
     },
     {
       "code": 84257883,
@@ -1578,8 +1581,12 @@
           "efftg"
         ]
       },
+      "redefined": [
+        "effcostmax"
+      ],
       "chooserClass": "CH-TRIG",
-      "stockSha256": "fc17b9b3ca18db87a679f38386e52e7dcbb00cb42e514b2170ba8d079da0b57a"
+      "stockSha256": "fc17b9b3ca18db87a679f38386e52e7dcbb00cb42e514b2170ba8d079da0b57a",
+      "note": "The cost maximum (one detached material per kind of card of the opponent) is read in the window of the bound opponent, so the target never has more picks than options."
     },
     {
       "code": 88406570,

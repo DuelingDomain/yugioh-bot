@@ -28,5 +28,33 @@ function s.target(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
 			g:Merge(Duel.SelectTarget(1-tp,s.spfilter,1-tp,LOCATION_GRAVE,0,1,1,nil,e,1-tp))
 		end
 	end)()
-	Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,#g,PLAYER_ALL,g:GetFirst():GetOwner())
+	-- The core accepts CATEGORY_SPECIAL_SUMMON with PLAYER_ALL only for a group of exactly 2 cards (both sides summon). With one target per
+	-- living duelist at 3 or 4 seats the group has more cards: it is stored for the activator then, the stock info of the group.
+	if #g==2 then
+		Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,#g,PLAYER_ALL,g:GetFirst():GetOwner())
+	else
+		Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,#g,tp,g:GetFirst():GetOwner())
+	end
+end
+-- The stock operation Special Summons each target for tc:GetControler(). The Lua value of a controller is 0 or 1 only, so at 3 or 4 seats a target of the
+-- second opponent would be summoned for the first one. Each target is summoned inside the window of the duelist that controls it (the own targets with no
+-- window; a window shows the Graveyard of one opponent only, and a card is not told apart by its controller value); the targets are one simultaneous Special Summon, so SpecialSummonComplete runs once after the last window.
+function s.activate(e,tp,eg,ep,ev,re,r,rp)
+	local g=Duel.GetChainInfo(0,CHAININFO_TARGET_CARDS)
+	local function summon(tg)
+		for tc in aux.Next(tg) do
+			if tc:IsRelateToEffect(e) and Duel.SpecialSummonStep(tc,0,tc:GetControler(),tc:GetControler(),false,false,POS_FACEUP_DEFENSE) then
+				local e1=Effect.CreateEffect(e:GetHandler())
+				e1:SetType(EFFECT_TYPE_SINGLE)
+				e1:SetCode(EFFECT_CANNOT_CHANGE_POSITION)
+				e1:SetReset(RESET_EVENT|RESETS_STANDARD)
+				tc:RegisterEffect(e1,true)
+			end
+		end
+	end
+	summon(Duel.GetFieldGroup(tp,LOCATION_GRAVE,0):Filter(function(c) return g:IsContains(c) end,nil))
+	aux.MPEachOpponent(function()
+		summon(Duel.GetFieldGroup(tp,0,LOCATION_GRAVE):Filter(function(c) return g:IsContains(c) end,nil))
+	end)()
+	Duel.SpecialSummonComplete()
 end
