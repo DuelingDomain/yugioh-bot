@@ -8,7 +8,7 @@ import { cx, sheetRoot, SheetButton } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./series.module.css";
 import { formatCountdown } from "./series-model";
-import { useSecondsUntil } from "./series-next";
+import { OpponentSideChip, useSecondsUntil } from "./series-next";
 import {
   deckCodes,
   deckCounts,
@@ -199,9 +199,11 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
               Pick a card from your Main or Extra Deck, then one from your Side Deck, to swap them.
               Your Side Deck keeps its size. Extra Deck cards swap only with Extra Deck monsters.
             </p>
+            <OpponentSideChip series={series} index={myIndex} />
           </div>
           <div className={styles.badges}>
-            {seconds != null ? <span className={styles.badge} data-tone="gold" role="timer">Game {series.gameNumber + 1} in {formatCountdown(seconds)}</span> : null}
+            <span className={styles.badge} data-tone="accent">Game {series.gameNumber + 1} of {series.bestOf}</span>
+            {seconds != null ? <span className={styles.badge} data-tone="gold" role="timer">Starts in {formatCountdown(seconds)}</span> : null}
             <span className={styles.badge}>Main {counts.main}</span>
             <span className={styles.badge}>Extra {counts.extra}</span>
             <span className={styles.badge}>Side {counts.side}</span>

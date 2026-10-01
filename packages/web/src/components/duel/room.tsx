@@ -56,7 +56,7 @@ import { isBattlePhase, phaseLabel, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { duelWindowPath, exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
 import { ownWindowGateVisible } from "./start-flow";
-import { SeriesBanner } from "./series-banner";
+import { SeriesBanner, SeriesGameLabel } from "./series-banner";
 import { SideDeckPanel } from "./side-deck-panel";
 import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
 import { SheetButton } from "./sheet-ui";
@@ -884,6 +884,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           ) : null}
         </div>
         <div className={styles.status}>
+          <SeriesGameLabel room={data} />
           <span className={styles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
             {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
             {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}

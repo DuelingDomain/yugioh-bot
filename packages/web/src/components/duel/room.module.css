@@ -647,8 +647,9 @@
   .identity a { font-size: 17px; }
   .viewerRole { padding: 0; border: 0; background: transparent; font-size: 10px; line-height: 12px; }
   .viewerRole svg { width: 12px; height: 12px; }
-  .turn { justify-content: flex-start; }
+  .turn { justify-content: flex-start; overflow: hidden; }
   .turn strong, .turn > span { font-size: 13px; }
+  .turn > .phaseName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .connectionStatus { padding: 0 4px; font-size: 11px; }
   .track { padding-bottom: 0; }
   .mobileBar {

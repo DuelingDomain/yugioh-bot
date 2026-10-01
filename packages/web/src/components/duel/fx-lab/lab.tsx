@@ -24,6 +24,7 @@ import fx from "./fx-lab.module.css";
 import { applyEdits, numberSteps, scriptDurationMs, type LabBoard, type LabScenario, type LabScript } from "./board";
 import { LAB_CATEGORIES, LAB_SCENARIOS, findScenario, scenariosIn } from "./scenarios";
 import { installTimeShim, type TimeShim } from "./time-shim";
+import { labSeriesRoom, SeriesLabHeader, SeriesLabScreen } from "./series-view";
 
 /**
  * The FX lab: the real duel board and effect layers, fed by a scripted engine instead of a server.
@@ -300,6 +301,8 @@ export function FxLab() {
   const stageHeight = "clamp(560px, calc(100dvh - 250px), 900px)";
   const battle = isBattlePhase(live.board.phase);
   const canvasReady = Boolean(getSharedFx3d());
+  // A Best of 3 scenario: the header label always shows; the between-games or match screen opens once it plays.
+  const seriesRoom = useMemo(() => (script.series ? labSeriesRoom(script.initial, script.series) : null), [script, live.runKey]);
 
   return (
     <div className={fx.page}>
@@ -364,6 +367,7 @@ export function FxLab() {
             data-turn={live.board.turnSeat === 0 ? "you" : "opp"}
             data-reduced={reduced ? "true" : "false"}
           >
+            {seriesRoom ? <SeriesLabHeader room={seriesRoom} /> : null}
             <div className={fx.row}>
               <div className={fx.boardWrap}>
                 <div className={styles.board}>
@@ -432,6 +436,9 @@ export function FxLab() {
       </div>
       {pickHint && pickHint.anchor.isConnected ? (
         <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} />
+      ) : null}
+      {seriesRoom && script.series && status !== "idle" ? (
+        <SeriesLabScreen key={`${scenario.id}-${live.runKey}`} room={seriesRoom} spec={script.series} reduced={reduced} sound={sound} />
       ) : null}
       {result ? (
         <DuelResultScreen

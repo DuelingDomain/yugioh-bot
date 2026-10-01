@@ -19,7 +19,7 @@ import styles from "./duel-result.module.css";
 import seriesStyles from "./series.module.css";
 import { SeriesBadges } from "./series-banner";
 import { SeriesNextControls } from "./series-next";
-import { isBetweenGames, seriesOutcome, seriesPlayerIndex, seriesRecordLabel, seriesScoreForViewer } from "./series-model";
+import { betweenGamesInfo, isBetweenGames, seriesOutcome, seriesPlayerIndex, seriesRecordLabel, seriesScoreForViewer } from "./series-model";
 
 
 /** The longest animation ends near 1.55 s; the timer settles just after it. */
@@ -258,6 +258,7 @@ function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
   const outcome = seriesOutcome(series, index);
   const record = seriesRecordLabel(series);
   const between = isBetweenGames(room, slug);
+  const info = betweenGamesInfo(room, slug);
   return (
     <section className={styles.seriesBlock} aria-label="Series">
       <SeriesBadges series={series} hideScore />
@@ -266,6 +267,12 @@ function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
           <p className={seriesStyles.resultHead}>{outcome.headline}</p>
           <p className={seriesStyles.resultLine}>{outcome.detail}</p>
           {record ? <p className={seriesStyles.resultRecord}>{record}</p> : null}
+        </div>
+      ) : info ? (
+        <div className={seriesStyles.result} data-testid="between-games-info">
+          <p className={seriesStyles.resultHead}>{info.result}</p>
+          <p className={seriesStyles.resultLine}>Up next: <b>{info.next}</b></p>
+          <p className={seriesStyles.resultRecord}>{info.first}</p>
         </div>
       ) : (
         <p className={seriesStyles.resultLine}>

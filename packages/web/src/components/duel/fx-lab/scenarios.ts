@@ -21,6 +21,7 @@ import {
   type SeatOptions,
 } from "./board";
 import { CARDS } from "./cards";
+import { SERIES_SCENARIOS } from "./series-scenarios";
 
 /**
  * The scenario catalog of the FX lab. Every scenario is a pure builder: it returns a start board and
@@ -1289,9 +1290,9 @@ const STATES: LabScenario[] = [
 
 /* ---------- catalog ---------- */
 
-export const LAB_CATEGORIES: readonly LabCategory[] = ["Attacks", "Destroy", "Summons", "Card moves", "Chain", "LP", "Banners", "Board states"];
+export const LAB_CATEGORIES: readonly LabCategory[] = ["Attacks", "Destroy", "Summons", "Card moves", "Chain", "LP", "Banners", "Board states", "Match"];
 
-export const LAB_SCENARIOS: readonly LabScenario[] = [...ATTACKS, ...DESTROY, ...SUMMONS, ...MOVES, ...CHAIN, ...LP, ...BANNERS, ...STATES];
+export const LAB_SCENARIOS: readonly LabScenario[] = [...ATTACKS, ...DESTROY, ...SUMMONS, ...MOVES, ...CHAIN, ...LP, ...BANNERS, ...STATES, ...SERIES_SCENARIOS];
 
 export function scenariosIn(category: LabCategory): LabScenario[] {
   return LAB_SCENARIOS.filter((scenario) => scenario.category === category);

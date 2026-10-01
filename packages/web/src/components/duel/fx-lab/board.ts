@@ -67,9 +67,25 @@ export type LabScript = {
   domain?: boolean;
   /** Whose view: seat 0 is the bottom player. */
   mySeat?: number;
+  /** A Best of 3 game: the header shows the game label; `screen` opens a between-games or match screen over the board. */
+  series?: LabSeries;
 };
 
-export type LabCategory = "Attacks" | "Destroy" | "Summons" | "Card moves" | "Chain" | "LP" | "Banners" | "Board states";
+/** What the series part of a Best of 3 lab scenario shows. Static for the whole run. */
+export type LabSeries = {
+  /** The score after the game on screen, you first. */
+  wins: [number, number];
+  /** Game number of the duel on screen. */
+  game: number;
+  /** Which screen opens over the board; "label" shows the board with the header label only. */
+  screen: "label" | "side" | "ready" | "won";
+  /** The player in seat 1 has not clicked Ready, or has. */
+  opponentReady?: boolean;
+  /** Seconds left in the side deck window (ready and side screens). */
+  secondsLeft?: number;
+};
+
+export type LabCategory = "Attacks" | "Destroy" | "Summons" | "Card moves" | "Chain" | "LP" | "Banners" | "Board states" | "Match";
 
 export type LabScenario = {
   id: string;
