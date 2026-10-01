@@ -77,6 +77,43 @@ const tualatin = (format: "ffa3" | "tag"): Scenario => {
 };
 
 /**
+ * Tualatin of a team-1 holder: the own key is `1<<aux.MPKey(tp)`, so the holder on team 1 (p1 or p3) is offered the Special Summon when ALL monsters of
+ * its team were destroyed by battle, and the Tualatin of the attacking team (p2) stays in the hand. p0 attacks in its second turn.
+ */
+const tualatinTeam1 = (holder: "p1" | "p3"): Scenario => {
+  const other: Seat = holder === "p1" ? "p3" : "p1";
+  return defineScenario({
+    id: `r2-checks-tag-tualatin-offered-to-${holder}-of-team-1-whose-monsters-were-all-destroyed`,
+    title: `Tag: p0 destroys both monsters of the team of ${other} (team 1) in battle: Tualatin of ${holder} (team 1) is offered and Special Summoned, the Tualatin of p2 (the partner of the attacker) stays in the hand`,
+    source: EACH,
+    rules: ["R-COMMON-EACH-PLAYER", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2-checks", "tag", "own-key", "card:27769400"],
+    setup: {
+      format: "tag",
+      p0: { monsters: [OX, OX], deck: [ELF, ELF] },
+      p1: { deck: [ELF, ELF] },
+      p2: { hand: [TUALATIN], deck: [ELF] },
+      p3: { deck: [ELF] },
+      [holder]: { hand: [TUALATIN], deck: [ELF, ELF] },
+      [other]: { monsters: [ELF, ELF], deck: [ELF, ELF] },
+    } as unknown as Scenario["setup"],
+    steps: [
+      endTurn("p0"), endTurn("p1"), endTurn("p2"), endTurn("p3"),
+      changePhase("battle", "p0"),
+      attack({ card: OX, nth: 0 }, { card: ELF, owner: other, nth: 0 }, "p0"),
+      attack({ card: OX, nth: 0 }, { card: ELF, owner: other, nth: 0 }, "p0"),
+      expectOffered("activate", TUALATIN, holder),
+      activate(TUALATIN, holder),
+      // Tualatin is Special Summoned; its forced trigger asks the holder for an Attribute: EARTH destroys the two Battle Ox of p0
+      zone(holder, "m0", holder),
+      choose("Face-up Attack", holder),
+      choose("EARTH", holder),
+      everySeat("tag", { p0: { grave: [OX, OX] }, p1: { lp: 14200 }, p2: { hand: [TUALATIN, ELF] }, p3: { lp: 14200 }, [holder]: { lp: 14200, monsters: [TUALATIN] }, [other]: { lp: 14200, grave: [ELF, ELF] } } as Partial<Record<Seat, DuelistExpect>>),
+    ],
+  });
+};
+
+/**
  * Raging Cloudian (a global watcher, registered with Duel.RegisterEffect(e,0)): the Cloudian monster of a duelist is destroyed by its own effect
  * (Cloudian - Altus destroys itself in face-up Defense Position). Only the Raging Cloudian of THAT duelist is offered; it Special Summons the
  * monster back. The other two duelists each hold a Raging Cloudian, and none is asked.
@@ -179,4 +216,4 @@ const castle = (format: "ffa3" | "ffa4"): Scenario => {
   });
 };
 
-export const R2_CHECK_SCENARIOS: Scenario[] = [castle("ffa3"), castle("ffa4"), skyler("ffa3"), skyler("tag"), tualatin("ffa3"), tualatin("tag"), raging("ffa3", "p0"), raging("ffa3", "p1"), raging("ffa3", "p2"), raging("ffa4", "p3")];
+export const R2_CHECK_SCENARIOS: Scenario[] = [castle("ffa3"), castle("ffa4"), skyler("ffa3"), skyler("tag"), tualatin("ffa3"), tualatin("tag"), tualatinTeam1("p1"), tualatinTeam1("p3"), raging("ffa3", "p0"), raging("ffa3", "p1"), raging("ffa3", "p2"), raging("ffa4", "p3")];

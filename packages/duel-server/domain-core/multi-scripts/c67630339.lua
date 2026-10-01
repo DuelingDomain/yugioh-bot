@@ -43,14 +43,14 @@ function s.check2(e,tp,eg,ep,ev,re,r,rp)
 	end
 end
 function s.condition(e,tp,eg,ep,ev,re,r,rp)
-	local k=aux.MPKey(0)
+	local k=aux.MPKey(tp)
 	local first=s.mpfirst[k]
 	return Duel.IsTurnPlayer(1-tp) and Duel.GetAttackTarget()==nil and s.mpcount[k]==2
 		and first~=nil and first:GetFlagEffect(id)~=0 and Duel.GetAttacker()~=first
 end
 function s.operation(e,tp,eg,ep,ev,re,r,rp)
 	local a=Duel.GetAttacker()
-	local d=s.mpfirst[aux.MPKey(0)]
+	local d=s.mpfirst[aux.MPKey(tp)]
 	if d and a:GetFlagEffect(id)~=0 and d:GetFlagEffect(id)~=0
 		and a:CanAttack() and not a:IsImmuneToEffect(e) and not d:IsImmuneToEffect(e) then
 		Duel.CalculateDamage(a,d)

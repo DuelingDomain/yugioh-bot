@@ -14,5 +14,5 @@ function s.regcon(e,tp,eg,ep,ev,re,r,rp)
 	return true
 end
 function s.condition(e,tp,eg,ep,ev,re,r,rp)
-	return (ev&~(1<<aux.MPKey(0)))~=0
+	return (ev&~(1<<aux.MPKey(tp)))~=0
 end

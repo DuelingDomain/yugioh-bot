@@ -35,6 +35,9 @@ const PREMATURE = "Premature Burial";
 const GARDEN = "Black Garden";
 const ROSE = "Rose Token";
 const GRAVEKEEPER = "Gravekeeper's Trap";
+const COUNTER = "Metalfoes Counter";
+const SILVERD = "Metalfoes Silverd";
+const CHAFF = "Confusion Chaff";
 const ELF_ATK = 800;
 
 /** The state of EVERY seat: LP, monsters, Spell and Trap zones, Graveyard and banished zone are exact; the hand only when the spec names it. */
@@ -47,6 +50,168 @@ function everySeat(format: Format, spec: Partial<Record<Seat, DuelistExpect>>): 
 
 /** The turns before the first attack (nobody attacks in the first round). */
 const passTurns = (...seats: Seat[]): Step[] => seats.map((seat) => endTurn(seat));
+
+/**
+ * The holder of a hand or Set card reads its OWN key (aux.MPKey(tp)), not the key of Lua player 0. In FFA the two are the same; in Tag the
+ * Lua value of team 1 is 1 and Lua 0 is the OTHER team, so a team-1 holder (p1 or p3) read the key of team 0. These scenarios put the holder on
+ * team 1 (and the partner of the actor on the same team), and FFA3 puts it on seat 2, and assert every seat at the end.
+ */
+const ownKeyScenarios = (): Scenario[] => [
+  defineScenario({
+    id: "seats-r2-tag-droll-and-lock-bird-of-team-1-answers-a-search-of-team-0",
+    title: "Tag: p2 (team 0) adds Axe Raider from the Deck with Reinforcement of the Army: Droll & Lock Bird of p1 (team 1) is offered and answers (the own key of p1 is the key of team 1, not the key of Lua player 0)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "own-key", "tag", "card:94145021"],
+    setup: { format: "tag", p1: { hand: [DROLL] }, p2: { hand: [REINFORCE], deck: [ELF, AXE] } },
+    steps: [
+      ...passTurns("p0", "p1"),
+      activate(REINFORCE, "p2"),
+      zone("p2", "s0", "p2"),
+      activate(DROLL, "p1"),
+      everySeat("tag", { p1: { hand: [ELF], grave: [DROLL] }, p2: { hand: [ELF, AXE], grave: [REINFORCE] } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-droll-and-lock-bird-of-team-1-answers-a-search-of-p0",
+    title: "Tag: p0 (team 0) adds Axe Raider from the Deck with Reinforcement of the Army: Droll & Lock Bird of p3 (team 1) is offered and answers",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "own-key", "tag", "card:94145021"],
+    setup: { format: "tag", p0: { hand: [REINFORCE], deck: [ELF, AXE] }, p3: { hand: [DROLL] } },
+    steps: [
+      activate(REINFORCE, "p0"),
+      zone("p0", "s0", "p0"),
+      activate(DROLL, "p3"),
+      everySeat("tag", { p0: { hand: [AXE], grave: [REINFORCE] }, p3: { hand: [], grave: [DROLL] } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-droll-and-lock-bird-of-team-1-is-not-offered-for-a-search-of-the-partner",
+    title: "Tag: p3 adds Axe Raider from the Deck with Reinforcement of the Army: Droll & Lock Bird of its partner p1 is not offered (a search of the own team does not count)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "own-key", "tag", "card:94145021"],
+    setup: { format: "tag", p1: { hand: [DROLL] }, p3: { hand: [REINFORCE], deck: [ELF, AXE] } },
+    steps: [
+      ...passTurns("p0", "p1", "p2"),
+      activate(REINFORCE, "p3"),
+      zone("p3", "s0", "p3"),
+      // p1 gets no chain prompt: the next prompt is the main phase action of p3
+      expectPrompt({ by: "p3", context: "action" }),
+      everySeat("tag", { p1: { hand: [DROLL, ELF] }, p3: { hand: [ELF, AXE], grave: [REINFORCE] } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-ogre-of-the-scarlet-sorrow-of-team-1-after-two-direct-attacks-at-its-team",
+    title: "Tag: p0 attacks the team of p1 directly twice: p1 (team 1) can Special Summon Ogre of the Scarlet Sorrow from the hand (the count is read with the own key of the holder)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "own-key", "tag", "card:82670878"],
+    setup: { format: "tag", p0: { monsters: [ELF, ELF] }, p1: { hand: [OGRE] } },
+    steps: [
+      ...passTurns("p0", "p1", "p2", "p3"),
+      changePhase("battle", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p1", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p1", "p0"),
+      activate(OGRE, "p1"),
+      everySeat("tag", {
+        p0: { monsters: [ELF, ELF] },
+        p1: { lp: 16000 - ELF_ATK, hand: [ELF], monsters: [OGRE] },
+        p3: { lp: 16000 - ELF_ATK },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-ffa3-ogre-of-the-scarlet-sorrow-two-direct-attacks-at-seat-2",
+    title: "FFA3: p0 attacks p2 directly twice: p2 can Special Summon Ogre of the Scarlet Sorrow from the hand (the count is kept per attacked seat)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-FFA-ATTACK"],
+    tags: ["multiplayer", "r2", "own-key", "ffa3", "card:82670878"],
+    setup: { format: "ffa3", p0: { monsters: [ELF, ELF] }, p2: { hand: [OGRE] } },
+    steps: [
+      ...passTurns("p0", "p1", "p2"),
+      changePhase("battle", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p2", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p2", "p0"),
+      activate(OGRE, "p2"),
+      everySeat("ffa3", {
+        p0: { monsters: [ELF, ELF] },
+        p2: { lp: 8000 - ELF_ATK, hand: [ELF], monsters: [OGRE] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-metalfoes-counter-of-team-1-after-its-monster-is-destroyed",
+    title: "Tag: Dark Hole of p0 destroys only the Mystical Elf of p1 (team 1): Metalfoes Counter of p1 is offered and Special Summons Metalfoes Silverd from the Deck (the own key of p1 is the key of team 1)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "own-key", "tag", "card:33327029"],
+    setup: { format: "tag", p0: { hand: [HOLE] }, p1: { monsters: [ELF], spells: [faceDown(COUNTER)], deck: [SILVERD] } },
+    steps: [
+      activate(HOLE, "p0"),
+      expectOffered("activate", COUNTER, "p1"),
+      activate(COUNTER, "p1"),
+      everySeat("tag", { p0: { grave: [HOLE] }, p1: { monsters: [SILVERD], grave: [ELF, COUNTER] } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-ffa3-metalfoes-counter-of-seat-2-after-its-monster-is-destroyed",
+    title: "FFA3: Dark Hole of p0 destroys only the Mystical Elf of p2: Metalfoes Counter of p2 is offered and Special Summons Metalfoes Silverd from the Deck",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-EACH-PLAYER"],
+    tags: ["multiplayer", "r2", "own-key", "ffa3", "card:33327029"],
+    setup: { format: "ffa3", p0: { hand: [HOLE] }, p2: { monsters: [ELF], spells: [faceDown(COUNTER)], deck: [SILVERD] } },
+    steps: [
+      activate(HOLE, "p0"),
+      expectOffered("activate", COUNTER, "p2"),
+      activate(COUNTER, "p2"),
+      everySeat("ffa3", { p0: { grave: [HOLE] }, p2: { monsters: [SILVERD], grave: [ELF, COUNTER] } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-confusion-chaff-of-team-1-at-the-second-direct-attack",
+    title: "Tag: p0 attacks the team of p1 directly with two monsters: at the second attack Confusion Chaff of p1 (team 1) is offered (the count and the first attacker are read with the own key of the holder)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "own-key", "tag", "card:67630339"],
+    setup: { format: "tag", p0: { monsters: [ELF, ELF] }, p1: { spells: [faceDown(CHAFF)] } },
+    steps: [
+      ...passTurns("p0", "p1", "p2", "p3"),
+      changePhase("battle", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p1", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p1", "p0"),
+      expectOffered("activate", CHAFF, "p1"),
+      activate(CHAFF, "p1"),
+      everySeat("tag", { p0: { grave: [ELF, ELF] }, p1: { lp: 16000 - ELF_ATK, grave: [CHAFF] }, p3: { lp: 16000 - ELF_ATK } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-ffa3-confusion-chaff-of-seat-2-at-the-second-direct-attack",
+    title: "FFA3: p0 attacks p2 directly with two monsters: at the second attack Confusion Chaff of p2 is offered",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-FFA-ATTACK"],
+    tags: ["multiplayer", "r2", "own-key", "ffa3", "card:67630339"],
+    setup: { format: "ffa3", p0: { monsters: [ELF, ELF] }, p2: { spells: [faceDown(CHAFF)] } },
+    steps: [
+      ...passTurns("p0", "p1", "p2"),
+      changePhase("battle", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p2", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p2", "p0"),
+      expectOffered("activate", CHAFF, "p2"),
+      activate(CHAFF, "p2"),
+      everySeat("ffa3", { p0: { grave: [ELF, ELF] }, p2: { lp: 8000 - ELF_ATK, grave: [CHAFF] } }),
+    ],
+  }),
+];
 
 export const SEATS_R2_SCENARIOS: Scenario[] = [
   // --- label fixes (Q10): Curse of the Circle ---------------------------------------------------------------------------------------
@@ -590,4 +755,5 @@ export const SEATS_R2_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
+  ...ownKeyScenarios(),
 ];

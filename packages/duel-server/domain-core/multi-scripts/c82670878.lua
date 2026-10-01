@@ -46,11 +46,11 @@ function s.check2(e,tp,eg,ep,ev,re,r,rp)
 	end
 end
 function s.condition(e,tp,eg,ep,ev,re,r,rp)
-	return Duel.IsTurnPlayer(1-tp) and Duel.GetAttackTarget()==nil and s.mpcount[aux.MPKey(0)]==2
+	return Duel.IsTurnPlayer(1-tp) and Duel.GetAttackTarget()==nil and s.mpcount[aux.MPKey(tp)]==2
 end
 function s.adop(e,tp,eg,ep,ev,re,r,rp)
 	local c=e:GetHandler()
-	local tc=s.mpfirst[aux.MPKey(0)]
+	local tc=s.mpfirst[aux.MPKey(tp)]
 	if c:IsFaceup() and c:IsRelateToEffect(e) then
 		if tc and tc:GetFlagEffect(id) then
 			local e1=Effect.CreateEffect(c)
