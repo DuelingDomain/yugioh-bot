@@ -78,6 +78,20 @@
       "stockSha256": "ffd2a8b2ca79cfe63bc96719f97a5c2eaa2e06a148ef54f5609edf2e2b830382"
     },
     {
+      "code": 3549275,
+      "file": "c3549275.lua",
+      "name": "Dice Jar",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "SINGLE+FLIP",
+      "redefined": [
+        "target",
+        "operation"
+      ],
+      "stockSha256": "b4a75c8c4cb74b109635d5cbb8fc97fd7ffd30feb8fa6f8389d2afad4bba0a45",
+      "note": "Script fix (late-cards, Q4 duel-style card): the activator picks the opponent at activation (aux.MPTarget) and the owner and that opponent each roll their own die, so the roller is the duelist that takes the damage. Tag: the die and the team LP of the picked side. Not part of R1."
+    },
+    {
       "code": 7373632,
       "file": "c7373632.lua",
       "name": "Divine Evolution",

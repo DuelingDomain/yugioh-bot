@@ -4,7 +4,7 @@
 // card scripts and the overlay, on the Standard multi core and again on the Domain multi core. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, no, yes, zone,
+  activate, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, faceDown, no, pickOpponent, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -22,6 +22,7 @@ const RAIGEKI = "Raigeki";
 const NECRO = "Necrovalley";
 const ROYAL = "Royal Tribute";
 const MESSENGER = "Messenger of Peace";
+const DICE_JAR = "Dice Jar";
 
 const seatsOf = (format: Format): Seat[] => (format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"]);
 
@@ -123,6 +124,42 @@ function messengerOfPeace(format: Format, pay: boolean): Scenario {
   });
 }
 
+// --- Dice Jar ----------------------------------------------------------------------------------------------------------------------
+// A duel-style card (ADR-0002 Q4): the owner and ONE picked opponent roll, the other opponents do nothing. Tag uses the team LP. The dice
+// come from the duel seed (the same stream on every format and on both cores), so the result is fixed: seed 2 gives the owner the higher die
+// (4 against 2: the picked opponent takes 4 x 500), seed 4 gives the opponent the higher die (5 against 3: the owner takes 5 x 500).
+const DICE = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q4: Dice Jar (a duel-style card: the owner and one picked opponent)`;
+const PICKS: Record<Format, Seat[]> = { ffa3: ["p1", "p2"], ffa4: ["p1", "p2", "p3"], tag: ["p1", "p3"] };
+
+function diceJar(format: Format, ownerWins: boolean): Scenario {
+  const seats = seatsOf(format);
+  const label = format === "tag" ? "Tag" : format.toUpperCase();
+  const lp = format === "tag" ? 16000 : 8000;
+  // The last opponent is picked, never the first one clockwise (p1), so a die or a loss that goes to the first opponent would show.
+  const picked = PICKS[format][PICKS[format].length - 1];
+  const loss = ownerWins ? 2000 : 2500;
+  const losers: Seat[] = ownerWins
+    ? seats.filter((seat) => (format === "tag" ? seat === "p1" || seat === "p3" : seat === picked))
+    : seats.filter((seat) => seat === "p0" || (format === "tag" && seat === "p2"));
+  const spec: Partial<Record<Seat, DuelistExpect>> = {};
+  for (const seat of seats) spec[seat] = { hand: { count: 0 }, monsters: seat === "p0" ? [DICE_JAR] : [], ...(losers.includes(seat) ? { lp: lp - loss } : {}) };
+  return defineScenario({
+    id: `late-${format}-dice-jar-${ownerWins ? "owner-wins-picked-opponent-takes-the-damage" : "owner-loses-and-takes-the-damage"}`,
+    title: `${label}: p0 flips Dice Jar and picks ${picked}: ${ownerWins ? `p0 rolls the higher die, only the picked side loses ${loss} LP` : `the picked opponent rolls the higher die, only p0 (its team) loses ${loss} LP`}; nobody else changes`,
+    source: DICE,
+    rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    tags: ["multiplayer", "late-cards", "duel-style", "dice", "opp-pick", format, "card:3549275"],
+    seed: [ownerWins ? "2" : "4", "2", "3", "4"],
+    setup: { format, p0: { monsters: [faceDown(DICE_JAR)] } },
+    steps: [
+      changePosition(DICE_JAR, "p0"),
+      expectPickSeats(PICKS[format], "p0"),
+      pickOpponent(picked, "p0"),
+      everySeat(format, spec, lp),
+    ],
+  });
+}
+
 export const LATE_CARD_SCENARIOS: Scenario[] = [
   royalTribute("ffa3"),
   royalTribute("ffa4"),
@@ -131,4 +168,10 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   messengerOfPeace("ffa4", true),
   messengerOfPeace("tag", true),
   messengerOfPeace("ffa3", false),
+  diceJar("ffa3", true),
+  diceJar("ffa4", true),
+  diceJar("tag", true),
+  diceJar("ffa3", false),
+  diceJar("ffa4", false),
+  diceJar("tag", false),
 ];
