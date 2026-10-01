@@ -6,7 +6,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 //
 // This list is an exclude list on purpose: a new test file runs here by default, so a new test that needs the engine
 // data fails loudly in the unit job until it is added below. An include list would skip it without a word.
-// A file in the list needs a core or cards.cdb for at least one of its tests. Checked on 2026-10-01: with DUEL_DATA_DIR and
+// A file in the list needs a core, cards.cdb or the bundle manifest for at least one of its tests. Checked on 2026-10-01: with DUEL_DATA_DIR and
 // MULTI_WASM pointing at an empty folder, each file below fails or skips most of its tests. A few files still pass some
 // tests there (for example tests/engine-nseat.test.ts and tests/engine.test.ts have pure projection and parsing tests),
 // so those tests do not run in the unit job. Every file not in the list passes.
@@ -20,6 +20,10 @@ const NEEDS_ENGINE = [
   "tests/deck-legality.test.ts",
   "tests/scenarios/registry.test.ts",
   "tests/scenarios/multiplayer/catalog.test.ts",
+  // the engine bundle manifest (the host reads it when it is made; the identity test hashes the legacy files)
+  "tests/host-engine-switch.test.ts",
+  "tests/host-multiplayer-flag.test.ts",
+  "tests/legacy-engine-identity.test.ts",
   // a wasm core (engine, host, summons, presets, scenarios, fuzz, differential)
   "tests/domain-extra-bridge-invariants.test.ts",
   "tests/domain-leave-tax.test.ts",
