@@ -1,11 +1,11 @@
-import { clamp01, easeOutCubic, ramp } from "../ease";
-import { BOTTOMLESS_OPEN_MS, MIRROR_RISE_MS, MONSTER_TRAVEL_MS, SAKURETSU_BOOM_MS, SAKURETSU_SLAM_MS, SPELL_SIGIL_MS, TRAP_CHAIN_MS, TRAP_GLYPH_MS, TRAP_HOLE_OPEN_MS, mirrorBarrier, mirrorHitPoint } from "../scene-plan";
+import { BOTTOMLESS_OPEN_MS, MONSTER_TRAVEL_MS, SAKURETSU_BOOM_MS, SAKURETSU_SLAM_MS, SPELL_SIGIL_MS, TRAP_CHAIN_MS, TRAP_GLYPH_MS, TRAP_HOLE_OPEN_MS } from "../scene-plan";
 import type { CutKind } from "../shard-layout";
 import type { FxScene, FxVictim, Rgb } from "../types";
-import { compose, setColor, type FxFactory, type FxPart } from "./base";
+import { compose, type FxFactory, type FxPart } from "./base";
 import { buildBanish } from "./wipes/banish";
 import { wipeFactory } from "./wipes/common";
 import { buildDarkHole } from "./wipes/darkhole";
+import { buildMirror } from "./wipes/mirror";
 import { buildRaigeki } from "./wipes/raigeki";
 import { buildShock } from "./wipes/shock";
 import { buildStorm } from "./wipes/storm";
@@ -25,7 +25,6 @@ import {
   runeCircle,
   sparks,
   Stage,
-  timedMesh,
   wave,
   WHITE,
   type P,
@@ -78,64 +77,6 @@ function breaks(c: Ctx, cut: CutKind, o: { dir?: (v: FxVictim) => P; mode?: "bur
 }
 
 /* ---------- pieces ---------- */
-
-function mirrorForce(c: Ctx): FxPart[] {
-  const { st, scene, tint } = c;
-  const barrier = mirrorBarrier(scene.field, scene.attacker, scene.ownerSide);
-  const hit = mirrorHitPoint(barrier, scene.attacker);
-  const hitT = sec(scene.hitMs);
-  const end = sec(scene.totalMs) - 0.1;
-  const bc = centreOf(barrier);
-  const parts: FxPart[] = [];
-  // ground: a faint reflection on the board under the barrier
-  parts.push(wave(st, hit, { at: hitT + 0.02, dur: 0.7, size: scene.field.w * 1.5, color: tint.alt, peak: 0.6, band: 0.16 }));
-  parts.push(
-    ...breaks(c, "shatter", {
-      dir: (v) => dirOf(hit, centreOf(v.rect)),
-      glow: tint.accent,
-    }),
-  );
-  parts.push(
-    timedMesh(
-      st,
-      "hex",
-      { p: bc, w: barrier.w, h: barrier.h, at: 0, end, fadeIn: 0.05, fadeOut: 0.3, peak: 1 },
-      (m) => {
-        setColor(m.material.uniforms.uColor, tint.main);
-        setColor(m.material.uniforms.uColor2, tint.accent);
-        m.material.uniforms.uAspect.value = barrier.w / barrier.h;
-        m.material.uniforms.uHit.value.set(clamp01((hit.x - barrier.x) / barrier.w), clamp01(1 - (hit.y - barrier.y) / barrier.h));
-      },
-      (m, s) => {
-        const u = m.material.uniforms;
-        u.uTime.value = s;
-        u.uReveal.value = 1.1 * easeOutCubic(ramp(s, 0, sec(MIRROR_RISE_MS)));
-        u.uHitT.value = s >= hitT ? s - hitT : -1;
-      },
-    ),
-  );
-  if (!scene.incoming) {
-    // the attack itself is not in this snapshot: a bolt from the attacker meets the barrier
-    const from = scene.attacker ? edgeOf(scene.attacker, hit, 2) : { x: hit.x, y: hit.y + (scene.ownerSide === "you" ? -1 : 1) * scene.field.h * 1.5 };
-    parts.push(bolt(st, { pts: jagged(from, hit, 8, 12, st.rand), start: hitT - 0.2, grow: 0.18, hold: hitT + 0.02, end: hitT + 0.25, width: 6, color: tint.main, core: WHITE, flick: 0.6, bloom: 0.6 }));
-  }
-  parts.push(
-    pool(st, hit, { at: hitT - 0.03, dur: 0.5, size: scene.field.h * 3.2, color: hot(tint.main, 0.5), peak: 1 }),
-    ring(st, hit, { at: hitT, dur: 0.55, from: scene.field.h * 0.3, to: scene.field.w * 0.8, color: tint.accent, width: 0.035, peak: 0.85 }),
-    sparks(st, hit, { at: hitT, count: 36, speed: [140, 520], life: [0.25, 0.7], size: [3, 8], colors: [tint.accent, tint.main, WHITE], shape: "star", gravity: [0, -300], radius: 4 }),
-  );
-  // the reflected wave: a bolt of light from the hit to every victim, and a glow that arrives with it
-  scene.victims.forEach((v, i) => {
-    const to = centreOf(v.rect);
-    const arrive = sec(v.atMs);
-    const start = hitT + 0.02 + i * 0.01;
-    parts.push(
-      bolt(st, { pts: jagged(hit, to, 8, 14, st.rand), start, grow: Math.max(0.06, arrive - start), hold: arrive + 0.05, end: arrive + 0.3, width: 5, color: tint.accent, core: WHITE, flick: 0.5, bloom: 0.6, alpha: 0.9 }),
-      pool(st, to, { at: arrive - 0.02, dur: 0.4, size: cardSize(v) * 2.2, color: hot(tint.main, 0.4), peak: 0.85 }),
-    );
-  });
-  return parts;
-}
 
 function sakuretsu(c: Ctx): FxPart[] {
   const { st, scene, tint } = c;
@@ -290,6 +231,7 @@ const WIPES: Partial<Record<FxScene["piece"], FxFactory>> = {
   "banish-all": wipeFactory(buildBanish),
   "mass-destroy": wipeFactory(buildShock),
   torrential: wipeFactory(buildTorrential),
+  "mirror-force": wipeFactory(buildMirror),
 };
 
 export const sceneEffect: FxFactory = (env, request) => {
@@ -302,8 +244,6 @@ export const sceneEffect: FxFactory = (env, request) => {
   const c: Ctx = { st, scene, tint: scene.tint, centre: centreOf(field), u: Math.max(60, field.h), last: Math.max(0, ...scene.victims.map((v) => v.atMs)) };
   const parts = (() => {
     switch (scene.piece) {
-      case "mirror-force":
-        return mirrorForce(c);
       case "sakuretsu":
         return sakuretsu(c);
       case "bottomless":

@@ -126,7 +126,7 @@ function sourceBox(code: number, seat: number): Box | null {
   return null;
 }
 
-function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], mySeat: number, now: number, three: boolean): Planned | null {
+function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], mySeat: number, now: number, three: boolean, log: readonly DuelEvent[] = events): Planned | null {
   const host = getSharedFx3d()?.host.getBoundingClientRect();
   const toRect = (box: Box): FxRect => (host ? viewportToHost(box, host) : { x: box.left, y: box.top, w: box.width, h: box.height });
   const wipe = isWipePiece(group.piece);
@@ -154,7 +154,8 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   const owner = group.sourceSeat >= 0 ? group.sourceSeat : 1 - firstZone.controller;
   const ownerSide = owner === mySeat ? "you" : "opp";
   const source = sourceBox(group.sourceCode, owner);
-  const attackEvent = [...events].reverse().find((event) => event.kind === "attack" && event.zone && event.id < group.events[0].id);
+  // Mirror Force is set off by an attack from an EARLIER snapshot, so it looks through the whole log.
+  const attackEvent = [...(group.piece === "mirror-force" ? log : events)].reverse().find((event) => event.kind === "attack" && event.zone && event.id < group.events[0].id);
   const attackerFound = group.piece === "mirror-force" || group.piece === "sakuretsu" || group.piece === "trap-hole"
     ? attackEvent?.zone ? artBox(zoneKey(attackEvent.zone.controller, attackEvent.zone.location, attackEvent.zone.sequence)) : null
     : null;
@@ -332,7 +333,7 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
       for (const group of groups) {
         const key = `${group.key}:${group.events[0].id}`;
         if (plannedRef.current.has(key)) continue;
-        const planned = planGroup(group, fresh, mySeat, now, three);
+        const planned = planGroup(group, fresh, mySeat, now, three, events);
         if (planned) plannedRef.current.set(key, planned);
       }
     }

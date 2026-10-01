@@ -55,6 +55,16 @@ describe("fx lab scenarios", () => {
       ["destroy-mass-two", "mass-destroy", 2],
       ["destroy-mass-full", "mass-destroy", 5],
       ["destroy-mass-monster", "mass-destroy", 5],
+      ["destroy-mirror-force", "mirror-force", 3],
+      ["destroy-mirror-force-one", "mirror-force", 1],
+      ["destroy-mirror-force-full", "mirror-force", 5],
+      ["destroy-mirror-force-defense", "mirror-force", 3],
+      ["destroy-mirror-force-one-defense", "mirror-force", 1],
+      ["destroy-mirror-force-incoming", "mirror-force", 3],
+      ["destroy-mirror-force-incoming-one", "mirror-force", 1],
+      ["destroy-mirror-force-no-attack", "mirror-force", 3],
+      ["destroy-mirror-force-opp", "mirror-force", 3],
+      ["destroy-mirror-force-opp-full", "mirror-force", 5],
     ];
     for (const [id, piece, count] of expected) {
       const built = findScenario(id)?.build();

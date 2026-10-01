@@ -26,9 +26,9 @@ describe("wipe routing", () => {
   });
 
   it("flags every wipe piece and no old piece", () => {
-    const wipes: FxScenePiece[] = ["dark-hole", "raigeki", "torrential", "feather-duster", "heavy-storm", "banish-all", "mass-destroy"];
+    const wipes: FxScenePiece[] = ["dark-hole", "raigeki", "torrential", "feather-duster", "heavy-storm", "banish-all", "mass-destroy", "mirror-force"];
     for (const piece of wipes) expect(isWipePiece(piece)).toBe(true);
-    for (const piece of ["mirror-force", "sakuretsu", "bottomless", "trap-hole", "trap", "spell", "monster"] as const) expect(isWipePiece(piece)).toBe(false);
+    for (const piece of ["sakuretsu", "bottomless", "trap-hole", "trap", "spell", "monster"] as const) expect(isWipePiece(piece)).toBe(false);
   });
 
   it("gives wipes a longer life cap than the old pieces", () => {

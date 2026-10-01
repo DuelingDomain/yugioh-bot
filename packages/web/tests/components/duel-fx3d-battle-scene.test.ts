@@ -3,7 +3,7 @@ import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import { armBattleDestroy, attackImpactAt, battleBreakIs3d, battleDestroyAt, BREAK_SETTLE_MS, clearBattleHolds, HELD_CRACK_MS, noteAttackImpact } from "../../src/components/duel/battle-hold";
 import { STYLE_IDS, battleKind, battleTiming, attackStyleFor } from "../../src/components/duel/attack-styles";
 import { hexToRgb, planBattle, SHARD_TAIL_MS } from "../../src/components/duel/fx3d/battle-plan";
-import { groupScenes, mirrorHitMs, pieceOf, planScene, MIRROR_RISE_MS, sceneCapMs } from "../../src/components/duel/fx3d/scene-plan";
+import { groupScenes, pieceOf, planScene, sceneCapMs } from "../../src/components/duel/fx3d/scene-plan";
 import { pickBattleRoute } from "../../src/components/duel/fx3d/routing";
 import { layoutShards, totalArea, type CutKind } from "../../src/components/duel/fx3d/shard-layout";
 import { shardAt, shardMotion } from "../../src/components/duel/fx3d/shard-motion";
@@ -74,10 +74,11 @@ describe("scene timing", () => {
   });
 
   it("Mirror Force meets an incoming attack exactly at its impact", () => {
-    expect(mirrorHitMs(900)).toEqual({ hitMs: 900, incoming: true });
-    expect(mirrorHitMs(null).incoming).toBe(false);
-    expect(mirrorHitMs(10).hitMs).toBeGreaterThan(MIRROR_RISE_MS);
+    const plain = planScene({ ...base, piece: "mirror-force" }).scene;
+    expect(plain.incoming).toBe(false);
     const { scene } = planScene({ ...base, piece: "mirror-force", attackImpactMs: 900 });
+    expect(scene.incoming).toBe(true);
+    expect(scene.hitMs).toBe(900);
     for (const v of scene.victims) expect(v.atMs).toBeGreaterThan(900);
   });
 

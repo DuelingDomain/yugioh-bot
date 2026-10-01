@@ -92,11 +92,18 @@ export function sceneSound(s: Synth, cue: SceneCueName, t: number, g: number, rn
       s.burst({ start: t, duration: 0.6, peak: 0.08 * g, filter: "lowpass", freq: 1800, freqEnd: 120 });
       clang(s, t + 0.02, 0.04 * g, 180);
       break;
+    case "glass-break":
+      // Glass lets go: a bright burst, a falling shimmer and a few short ticks.
+      s.burst({ start: t, duration: 0.25, peak: 0.07 * g, filter: "highpass", freq: 3200, freqEnd: 7000 });
+      shimmer(s, t, 0.5, 2400, [1, 1.41, 1.9, 2.7], 0.008 * g, 0.01, 9);
+      clang(s, t + 0.01, 0.045 * g, 1760);
+      crackle(s, t + 0.04, 0.35, 0.03 * g, rng);
+      break;
   }
 }
 
 /** The cues above, for the audio layer to test membership. */
 export const SCENE_CUES: readonly SceneCueName[] = [
   "mirror-rise", "mirror-reflect", "armor-clank", "armor-boom", "tidal", "black-hole",
-  "thunder", "fall-rumble", "chain-rattle", "trap-glyph", "spell-burst", "energy-strike", "gust", "rift", "shock-boom",
+  "thunder", "fall-rumble", "chain-rattle", "trap-glyph", "spell-burst", "energy-strike", "gust", "rift", "shock-boom", "glass-break",
 ];

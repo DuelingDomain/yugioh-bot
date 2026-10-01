@@ -1,5 +1,6 @@
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { clamp01, ramp } from "./ease";
+import { MIRROR, mirrorAt, mirrorGeo, mirrorHitSec } from "./mirror-math";
 import { DEMO_CW, DEMO_H, DEMO_W, hash1, timeWarp } from "./wipe-math";
 import type { FxPiles, FxRect, FxRows, FxScene, FxScenePiece, FxTint, FxVictim, FxWorld, Rgb } from "./types";
 
@@ -27,6 +28,7 @@ export const SOURCE_PIECES: Readonly<Record<number, FxScenePiece>> = {
 
 /** The pieces that wipe the board: the canvas draws the cards themselves (see effects/wipes). */
 export const WIPE_PIECES: ReadonlySet<FxScenePiece> = new Set<FxScenePiece>([
+  "mirror-force",
   "dark-hole",
   "raigeki",
   "torrential",
@@ -160,14 +162,6 @@ export const WIPE_TAIL_MS = 350;
 
 /** Per-piece life cap (ms). The engine limit (HARD_LIMIT_MS) is above every value here. */
 export const sceneCapMs = (piece: FxScenePiece): number => (isWipePiece(piece) ? SCENE_WIPE_CAP_MS : SCENE_LIFE_CAP_MS);
-/** The barrier rises for this long before anything can hit it. */
-export const MIRROR_RISE_MS = 380;
-/** Mirror Force's own projectile arrives here when no attack in the snapshot is the one it stops. */
-export const MIRROR_OWN_HIT_MS = 560;
-/** The reflected wave crosses the field at this speed (px per ms). */
-export const MIRROR_WAVE_SPEED = 1.5;
-export const MIRROR_WAVE_MAX_MS = 520;
-export const MIRROR_RANK_MS = 30;
 export const SAKURETSU_SLAM_MS = 520;
 export const SAKURETSU_BOOM_MS = 560;
 export const BOTTOMLESS_OPEN_MS = 450;
@@ -193,7 +187,8 @@ export type SceneCueName =
   | "energy-strike"
   | "gust"
   | "rift"
-  | "shock-boom";
+  | "shock-boom"
+  | "glass-break";
 
 export type SceneCue = { cue: SceneCueName; atMs: number; strength: number };
 
@@ -216,35 +211,8 @@ export type SceneInput = {
 const cx = (r: FxRect): number => r.x + r.w / 2;
 const cy = (r: FxRect): number => r.y + r.h / 2;
 
-/** Where the barrier stands: a band across the owner's row, between the owner and the attacker. */
-export function mirrorBarrier(field: FxRect, attacker: FxRect | null, ownerSide: "you" | "opp"): FxRect {
-  const rowY = cy(field);
-  const h = Math.max(24, field.h * 0.95);
-  let y: number;
-  if (attacker) {
-    y = cy(attacker) + (rowY - cy(attacker)) * 0.62;
-  } else {
-    // No attacker: stand just in front of the row, on the side of the opponent.
-    y = rowY + (ownerSide === "you" ? -1 : 1) * field.h * 0.62;
-  }
-  const w = field.w * 1.06;
-  return { x: cx(field) - w / 2, y: y - h / 2, w, h };
-}
-
-/** The point on the barrier where the attack strikes it (x of the attacker, y of the barrier). */
-export function mirrorHitPoint(barrier: FxRect, attacker: FxRect | null): { x: number; y: number } {
-  return { x: attacker ? Math.min(barrier.x + barrier.w - 8, Math.max(barrier.x + 8, cx(attacker))) : cx(barrier), y: cy(barrier) };
-}
-
-/** When the attack (or Mirror Force's own projectile) meets the barrier, ms from the start of the piece. */
-export function mirrorHitMs(attackImpactMs: number | null): { hitMs: number; incoming: boolean } {
-  if (attackImpactMs == null) return { hitMs: MIRROR_OWN_HIT_MS, incoming: false };
-  return { hitMs: Math.max(MIRROR_RISE_MS + 40, Math.round(attackImpactMs)), incoming: true };
-}
-
 function withBreaks(input: SceneInput, times: number[], extra: Partial<FxScene> & { hitMs?: number; incoming?: boolean; cues: SceneCue[] }): { scene: FxScene; cues: SceneCue[] } {
-  // Every break must land while the piece still draws (a late attack impact can push Mirror Force's
-  // wave past the life cap): a break the canvas never draws would leave its card only fading out.
+  // Every break must land while the piece still draws: a break the canvas never draws would leave its card only fading out.
   const cap = sceneCapMs(input.piece);
   const latest = cap - SCENE_TAIL_MS;
   const victims: FxVictim[] = input.victims.map((victim, index) => ({
@@ -271,38 +239,12 @@ function withBreaks(input: SceneInput, times: number[], extra: Partial<FxScene> 
   };
 }
 
-/** Rank of each victim when sorted by `key` (0 = first). */
-function ranks(values: readonly number[]): number[] {
-  const order = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);
-  const out: number[] = new Array(values.length).fill(0);
-  order.forEach((entry, rank) => {
-    out[entry.index] = rank;
-  });
-  return out;
-}
-
 /** Plans one piece: when each victim breaks, how long the piece lasts, and which sounds play when. */
 export function planScene(input: SceneInput): { scene: FxScene; cues: SceneCue[] } {
   const { piece, victims, field } = input;
   const n = victims.length;
   const index = victims.map((_, i) => i);
   switch (piece) {
-    case "mirror-force": {
-      const barrier = mirrorBarrier(field, input.attacker, input.ownerSide);
-      const hit = mirrorHitPoint(barrier, input.attacker);
-      const { hitMs, incoming } = mirrorHitMs(input.attackImpactMs);
-      const dist = victims.map((v) => Math.hypot(cx(v.rect) - hit.x, cy(v.rect) - hit.y));
-      const rank = ranks(dist);
-      const times = victims.map((_, i) => hitMs + 40 + Math.min(MIRROR_WAVE_MAX_MS, dist[i] / MIRROR_WAVE_SPEED) + rank[i] * MIRROR_RANK_MS);
-      return withBreaks(input, times, {
-        hitMs,
-        incoming,
-        cues: [
-          { cue: "mirror-rise", atMs: 0, strength: 1 },
-          { cue: "mirror-reflect", atMs: hitMs, strength: 1 },
-        ],
-      });
-    }
     case "sakuretsu":
       return withBreaks(input, index.map((i) => SAKURETSU_BOOM_MS + 80 + i * 30), {
         cues: [
@@ -310,6 +252,7 @@ export function planScene(input: SceneInput): { scene: FxScene; cues: SceneCue[]
           { cue: "armor-boom", atMs: SAKURETSU_BOOM_MS, strength: 1 },
         ],
       });
+    case "mirror-force":
     case "torrential":
     case "dark-hole":
     case "raigeki":
@@ -479,6 +422,32 @@ export function planWipe(input: SceneInput): { scene: FxScene; cues: SceneCue[] 
       cues.push({ cue: "shock-boom", atMs: ms(p.tr), strength: 1 });
       break;
     }
+    case "mirror-force": {
+      const p = MIRROR;
+      const incoming = input.attackImpactMs != null;
+      const hit = mirrorHitSec(input.attackImpactMs);
+      const rowY = (side: "you" | "opp"): number | null => {
+        const row = input.rows?.[side].m;
+        return row ? toWorldY(world, cy(row)) : null;
+      };
+      const attacker = input.attacker ? { x: toWorldX(world, cx(input.attacker)), y: toWorldY(world, cy(input.attacker)) } : null;
+      const geo = mirrorGeo({ wx, wy, attacker, ownerSide: input.ownerSide, rowYou: rowY("you"), rowOpp: rowY("opp"), incoming });
+      // The attacker leans back and forth from the start (no incoming attack); every other card is taken at the impact.
+      takeSec = victims.map((_, i) => (!incoming && i === geo.attacker ? 0.06 : hit));
+      goneSec = geo.tb.map((tb) => mirrorAt(tb + p.breakLag + p.hold, hit));
+      landT0Ms = ms(mirrorAt(p.landAt, hit));
+      params = { stagger: p.stagger, spread: p.spread, dur: p.landDur, dMin: p.d + (hit - p.th) };
+      marks.open = ms(mirrorAt(0.28, hit));
+      marks.strike = ms(hit);
+      marks.close = landT0Ms;
+      cues.push(
+        { cue: "mirror-rise", atMs: ms(mirrorAt(0.24, hit)), strength: 1 },
+        { cue: "mirror-reflect", atMs: ms(hit), strength: 1 },
+        { cue: "glass-break", atMs: ms(mirrorAt(geo.tbMin + p.breakLag, hit)), strength: 1 },
+        { cue: "glass-break", atMs: ms(mirrorAt(p.tsh, hit)), strength: 0.7 },
+      );
+      break;
+    }
     default: {
       // torrential
       const p = WIPE.torrential;
@@ -519,7 +488,7 @@ export function planWipe(input: SceneInput): { scene: FxScene; cues: SceneCue[] 
       ownerSide: input.ownerSide,
       tint: input.tint,
       hitMs: marks.strike ?? 0,
-      incoming: false,
+      incoming: piece === "mirror-force" && input.attackImpactMs != null,
       totalMs,
       world,
       rows: input.rows,

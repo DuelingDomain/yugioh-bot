@@ -9,6 +9,7 @@ import { sceneEffect } from "../../src/components/duel/fx3d/effects/scene";
 import { shakeAt, wipeFactory } from "../../src/components/duel/fx3d/effects/wipes/common";
 import { buildBanish } from "../../src/components/duel/fx3d/effects/wipes/banish";
 import { buildDarkHole } from "../../src/components/duel/fx3d/effects/wipes/darkhole";
+import { buildMirror } from "../../src/components/duel/fx3d/effects/wipes/mirror";
 import { buildRaigeki } from "../../src/components/duel/fx3d/effects/wipes/raigeki";
 import { buildShock } from "../../src/components/duel/fx3d/effects/wipes/shock";
 import { buildStorm } from "../../src/components/duel/fx3d/effects/wipes/storm";
@@ -39,7 +40,7 @@ const env = (): FxEnv =>
     post: createPostUniforms(),
   }) as FxEnv;
 
-const BUILDS = { "dark-hole": buildDarkHole, raigeki: buildRaigeki, "feather-duster": buildStorm, "heavy-storm": buildStorm, "banish-all": buildBanish, "mass-destroy": buildShock, torrential: buildTorrential } as const;
+const BUILDS = { "dark-hole": buildDarkHole, raigeki: buildRaigeki, "feather-duster": buildStorm, "heavy-storm": buildStorm, "banish-all": buildBanish, "mass-destroy": buildShock, torrential: buildTorrential, "mirror-force": buildMirror } as const;
 
 describe("wipe stubs", () => {
   for (const [piece, build] of Object.entries(BUILDS)) {

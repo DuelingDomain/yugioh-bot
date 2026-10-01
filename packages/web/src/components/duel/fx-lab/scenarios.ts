@@ -396,6 +396,89 @@ function torrentialScript(others: Victim[], summonZone: number): LabScript {
   );
 }
 
+type MirrorOptions = {
+  /** Attack-position monsters of the attacker that Mirror Force destroys. */
+  victims: number;
+  /** Defense-position monsters of the attacker that stay. */
+  survivors?: number;
+  /** "late": the trap resolves after the attack was declared and before it lands (the piece meets that attack). "none": no attack is in the log. */
+  attack: "late" | "early" | "none";
+  /** The seat that sets the trap. The other seat attacks. */
+  caster?: number;
+};
+
+/** Mirror Force: the caster Sets it, the other seat attacks, every attack-position monster of the attacker is destroyed. */
+function mirrorScenario(id: string, name: string, description: string, o: MirrorOptions): LabScenario {
+  const caster = o.caster ?? ME;
+  const other = caster === ME ? OPP : ME;
+  const survivors = o.survivors ?? 0;
+  const pool = other === OPP ? OPP_MONSTERS : MY_MONSTERS;
+  const total = o.victims + survivors;
+  const seqs = spread(total);
+  // the defense-position survivors stand at the edges of the row, the victims between them
+  const order = [...seqs].sort((x, y) => Math.abs(y - 2) - Math.abs(x - 2) || x - y);
+  const defenseSeqs = new Set(order.slice(0, survivors));
+  const victimSeqs = seqs.filter((q) => !defenseSeqs.has(q));
+  const attackSeq = victimSeqs[Math.floor(victimSeqs.length / 2)];
+  return {
+    id,
+    category: "Destroy",
+    name,
+    description,
+    build: () => {
+      const start = board((e) => {
+        e.push(edit.setSpell(caster, 2, C.mirrorForce), edit.monster(caster, 2, caster === ME ? C.celtic : C.blueEyes));
+        seqs.forEach((q, i) => e.push(edit.monster(other, q, pool[i % pool.length], defenseSeqs.has(q) ? POS_FACEUP_DEFENSE : POS_FACEUP_ATTACK)));
+      }, myHand, oppHand, "battle", other);
+      const why = { cause: "effect" as const, sourceCode: C.mirrorForce.code, sourceKind: "trap" as const, sourceSeat: caster };
+      const victims = victimSeqs.map((q) => ({ info: pool[seqs.indexOf(q) % pool.length], seq: q }));
+      const flow = chainFlow([{ info: C.mirrorForce, seat: caster, zone: SZ(caster, 2) }]);
+      const attackAt = o.attack === "none" ? -1 : 0;
+      const activateAt = o.attack === "late" ? 300 : o.attack === "early" ? 900 : 200;
+      const resolveAt = o.attack === "late" ? 700 : o.attack === "early" ? 2000 : 1300;
+      return script(
+        start,
+        [
+          ...(attackAt >= 0 ? [{ at: attackAt, events: [ev.attack(other, MZ(other, attackSeq), MZ(caster, 2))] }] : []),
+          { at: activateAt, events: flow.activations, edits: [edit.spell(caster, 2, C.mirrorForce)], chain: [link(1, caster, C.mirrorForce)] },
+          {
+            at: resolveAt,
+            events: [
+              ...flow.resolveHead(1),
+              ...victims.flatMap((v, i) => [ev.destroy(other, v.info, MZ(other, v.seq), why), ev.toGrave(other, v.info, MZ(other, v.seq), i, why)]),
+              ev.toGrave(caster, C.mirrorForce, SZ(caster, 2), 0, {}),
+              ev.chain("chain-resolved", caster, C.mirrorForce, 1),
+              ev.chainEnd(),
+            ],
+            edits: [
+              ...victims.map((v) => edit.monster(other, v.seq, null)),
+              ...victims.map((v) => edit.grave(other, v.info)),
+              edit.spell(caster, 2, null),
+              edit.grave(caster, C.mirrorForce),
+            ],
+            chain: [],
+          },
+        ],
+        resolveAt + 4000,
+      );
+    },
+  };
+}
+
+const MIRROR_SCENARIOS: LabScenario[] = [
+  mirrorScenario("destroy-mirror-force", "Mirror Force", "Set piece: a prism wall reflects the attack and shatters the attackers. Three.js scene.", { victims: 3, attack: "early" }),
+  mirrorScenario("destroy-mirror-force-one", "Mirror Force: one attacker", "One attack-position monster. The wall and the beams still play.", { victims: 1, attack: "early" }),
+  mirrorScenario("destroy-mirror-force-full", "Mirror Force: five attackers", "A full row of five attack-position monsters.", { victims: 5, attack: "early" }),
+  mirrorScenario("destroy-mirror-force-defense", "Mirror Force: defense monsters stay", "Three attack-position monsters break; two defense-position monsters at the edges stay on the board.", { victims: 3, survivors: 2, attack: "early" }),
+  mirrorScenario("destroy-mirror-force-one-defense", "Mirror Force: one attacker, two defenders", "One attack-position monster breaks; two defense-position monsters stay.", { victims: 1, survivors: 2, attack: "early" }),
+  mirrorScenario("destroy-mirror-force-incoming", "Mirror Force: meets the attack", "The trap resolves while the attack is still on its way. The wall is up when the attack lands and the scene draws no bolt of its own.", { victims: 3, survivors: 1, attack: "late" }),
+  mirrorScenario("destroy-mirror-force-incoming-one", "Mirror Force: meets the attack, one attacker", "One attacker and an attack still on its way.", { victims: 1, attack: "late" }),
+  mirrorScenario("destroy-mirror-force-no-attack", "Mirror Force: no attack in the log", "No attack is declared first, so the scene uses its own bolt.", { victims: 3, attack: "none" }),
+  mirrorScenario("destroy-mirror-force-opp", "Mirror Force: the opponent casts", "The opponent Sets Mirror Force and your monsters break. The wall stands on the opponent's side.", { victims: 3, survivors: 1, attack: "early", caster: OPP }),
+  mirrorScenario("destroy-mirror-force-opp-full", "Mirror Force: the opponent casts, five attackers", "Five of your attack-position monsters break under the opponent's wall.", { victims: 5, attack: "early", caster: OPP }),
+];
+
+
 const DESTROY: LabScenario[] = [
   ...WIPES,
   {
@@ -409,49 +492,7 @@ const DESTROY: LabScenario[] = [
         (e) => e.push(edit.hiddenSpell(OPP, 2), edit.monster(OPP, 2, C.harpie)),
       ),
   },
-  {
-    id: "destroy-mirror-force",
-    category: "Destroy",
-    name: "Mirror Force",
-    description: "Set piece: a barrier reflects an attack and destroys the attackers. Three.js scene.",
-    build: () => {
-      const start = board((e) => {
-        e.push(edit.setSpell(ME, 2, C.mirrorForce), edit.monster(ME, 2, C.celtic), edit.monster(OPP, 1, C.blueEyes), edit.monster(OPP, 2, C.summonedSkull), edit.monster(OPP, 3, C.gaia));
-      }, myHand, oppHand, "battle", OPP);
-      const why = { cause: "effect" as const, sourceCode: C.mirrorForce.code, sourceKind: "trap" as const, sourceSeat: ME };
-      const victims = [
-        { info: C.blueEyes, seq: 1 },
-        { info: C.summonedSkull, seq: 2 },
-        { info: C.gaia, seq: 3 },
-      ];
-      const flow = chainFlow([{ info: C.mirrorForce, seat: ME, zone: SZ(ME, 2) }]);
-      return script(
-        start,
-        [
-          { at: 0, events: [ev.attack(OPP, MZ(OPP, 2), MZ(ME, 2))] },
-          { at: 900, events: flow.activations, edits: [edit.spell(ME, 2, C.mirrorForce)], chain: [link(1, ME, C.mirrorForce)] },
-          {
-            at: 2000,
-            events: [
-              ...flow.resolveHead(1),
-              ...victims.flatMap((v, i) => [ev.destroy(OPP, v.info, MZ(OPP, v.seq), why), ev.toGrave(OPP, v.info, MZ(OPP, v.seq), i, why)]),
-              ev.toGrave(ME, C.mirrorForce, SZ(ME, 2), 0, {}),
-              ev.chain("chain-resolved", ME, C.mirrorForce, 1),
-              ev.chainEnd(),
-            ],
-            edits: [
-              ...victims.map((v) => edit.monster(OPP, v.seq, null)),
-              ...victims.map((v) => edit.grave(OPP, v.info)),
-              edit.spell(ME, 2, null),
-              edit.grave(ME, C.mirrorForce),
-            ],
-            chain: [],
-          },
-        ],
-        5200,
-      );
-    },
-  },
+  ...MIRROR_SCENARIOS,
   {
     id: "destroy-sakuretsu",
     category: "Destroy",
