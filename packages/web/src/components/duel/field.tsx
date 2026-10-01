@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats } from "./card-face";
 import { duelFontClasses } from "./fonts";
 import { LifePoints } from "./life-points";
+import { pileSummonTone } from "./summon-circle-model";
+import { SummonCircle, SummonGlow } from "./summon-circle";
 import {
   attributeLabel,
   cardArtUrl,
@@ -180,9 +182,13 @@ function NibIcon() {
   );
 }
 
-/** Legal or selected zones get a shape signal (dashed or solid outline plus a tag), never colour alone. */
-function ZoneMarks({ legal, selected }: { legal: boolean; selected: boolean }) {
+/**
+ * Legal or selected zones get a shape signal (dashed or solid outline plus a tag), never colour alone.
+ * A legal pile with a summoning circle already shows that signal, so it skips the outline and tag until selected.
+ */
+function ZoneMarks({ legal, selected, circle = false }: { legal: boolean; selected: boolean; circle?: boolean }) {
   if (!legal && !selected) return null;
+  if (circle && !selected) return null;
   return (
     <>
       <span className={styles.ring} aria-hidden="true" />
@@ -345,6 +351,7 @@ function PileSlot({
 }) {
   const legal = anyLegal(keys, legalKeys);
   const selected = anySelected(keys, selectedKeys);
+  const circleTone = pileSummonTone({ kind, side, count, keys, legalKeys });
   const fan = fanEntries(kind, cards, count);
   const chip = CHIP_TEXT[kind];
   const hoverTop = kind === "gy" || kind === "banish" ? (cards[cards.length - 1] ?? null) : null;
@@ -370,6 +377,7 @@ function PileSlot({
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
       data-occupied={count > 0 ? "true" : "false"}
+      data-summon={circleTone ?? undefined}
       data-side={side}
       data-col={column}
       data-fan={fan.length > 0 ? fan.length : undefined}
@@ -403,7 +411,13 @@ function PileSlot({
               </div>
             ))
           )}
-          <ZoneMarks legal={legal} selected={selected} />
+          {circleTone ? (
+            <>
+              <SummonGlow tone={circleTone} />
+              <SummonCircle tone={circleTone} />
+            </>
+          ) : null}
+          <ZoneMarks legal={legal} selected={selected} circle={circleTone != null} />
         </div>
         <PileLabel kind={kind} count={count} />
       </button>
