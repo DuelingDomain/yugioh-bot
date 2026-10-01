@@ -48,6 +48,9 @@ function s.condition(e,tp,eg,ep,ev,re,r,rp)
 	return Duel.IsTurnPlayer(1-tp) and Duel.GetAttackTarget()==nil and s.mpcount[k]==2
 		and first~=nil and first:GetFlagEffect(id)~=0 and Duel.GetAttacker()~=first
 end
+-- The count of a duelist stays 2 for the rest of the turn: a later direct attack at ANOTHER opponent must not offer the card again, so the
+-- condition also asks that the attack in progress goes to the holder (FFA seat; Tag has one opposing team and keeps the team key).
+s.condition=aux.MPAttackedAtMe(s.condition)
 function s.operation(e,tp,eg,ep,ev,re,r,rp)
 	local a=Duel.GetAttacker()
 	local d=s.mpfirst[aux.MPKey(tp)]
