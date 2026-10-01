@@ -450,6 +450,9 @@ static bool is_declarable(const OCG_CardData& cd, const std::vector<uint64_t>& o
 	       ((alias || !cd.alias) && (token || ((cd.type & (TYPE_MONSTER + TYPE_TOKEN)) != (TYPE_MONSTER + TYPE_TOKEN))));
 }
 
+static std::vector<int> team_of_seats();
+static const std::vector<bool>* g_eliminated = nullptr;  // host view of eliminated seats (set in main), for the place fallback list
+
 static Bytes answer_prompt(const Prompt& pr, int attempt) {
 	Rng& rng = *g_rng;
 	Reader r(pr.payload.data(), pr.payload.size(), pr.id);
@@ -666,9 +669,14 @@ static Bytes answer_prompt(const Prompt& pr, int attempt) {
 		uint32_t flag = r.get<uint32_t>();
 		// Free bits: low half = own side, high half = one opponent. mzone bits 0..6, szone bits 8..15.
 		Bytes b;
+		// Fallback list when the prompt has no seat hint: living seats of other teams only (a Tag partner is not an opponent).
 		std::vector<int> opponents;
-		for(int p = 0; p < opt.n; ++p) if(p != player) opponents.push_back(p);
-		if(opponents.empty()) opponents.push_back(player ^ 1);
+		{
+			const std::vector<int> tm = team_of_seats();
+			for(int p = 0; p < opt.n; ++p) if(tm[p] != tm[player] && !(g_eliminated && (*g_eliminated)[static_cast<size_t>(p)])) opponents.push_back(p);
+			if(opponents.empty()) for(int p = 0; p < opt.n; ++p) if(p != player && tm[p] != tm[player]) opponents.push_back(p);
+			if(opponents.empty()) opponents.push_back(player ^ 1);
+		}
 		// A place prompt that came with a seat hint (MSG_HINT 0xF0) is answered on that seat. The core accepts no other seat.
 		const bool hinted = pr.place_seat >= 0 && pr.place_seat < opt.n && pr.place_seat != player;
 		const int opp = hinted ? pr.place_seat : opponents[static_cast<size_t>(attempt) % opponents.size()];
@@ -891,6 +899,7 @@ int main(int argc, char** argv) {
 	// Run state.
 	int turn = 0, turn_player = -1, phase = 0;
 	std::vector<bool> eliminated(n, false);
+	g_eliminated = &eliminated;
 	int wins = 0, winner = -1;
 	long attacks = 0, retries = 0, steps_since_turn = 0, idle_loops = 0;
 	Prompt last_prompt;
