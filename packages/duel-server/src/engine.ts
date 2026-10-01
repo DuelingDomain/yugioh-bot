@@ -48,6 +48,7 @@ import {
 import { createDomainCore } from "./domain-core.js";
 import { chooseSurrenderedAnswer } from "./practice-bot.js";
 import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, parseDuelistMessages, rawMessageCapture, withoutDuelistParseWarnings, type RawDuelistMessage } from "./raw-messages.js";
+import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
 import { fillPlaceholders } from "./text.js";
 
 /** A wasm the engine loaded: the bytes, the file name and the sha256 of the bytes (core identity for reports). */
@@ -138,6 +139,11 @@ export interface EngineGameOptions {
    * when `mode` is "domain") instead of the file in the data directory.
    */
   multiWasmBinary?: ArrayBuffer;
+  /**
+   * Test hook for formats with more than two seats: read the Lua overlay (mp-utility.lua, card suffixes) from this
+   * folder instead of the lookup in src/multi-scripts.ts. A 1v1 duel never reads an overlay. Production callers leave this unset.
+   */
+  multiScriptsDirectory?: string;
 }
 
 export interface EngineStartupScript {
@@ -323,6 +329,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const flags = duelFlagsFor(options.masterRule);
   const seed = parseSeed(options.seed);
   const cards = loadCardDatabase(options.dataDirectory);
+  // Duels with more than two seats read the Lua overlay. 1v1 gets none, so its script text stays the original.
+  const overlay = multi ? loadMultiScriptsFor(options.dataDirectory, options.multiScriptsDirectory) : undefined;
   const errors: string[] = [];
   const eventContext = createEventContext(format);
   const cardReader = (code: number) => {
@@ -330,7 +338,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     return cards.cardData(code);
   };
   const scriptReader = (name: string) => {
-    const content = cards.readScript(name);
+    const content = cards.readScript(name, overlay);
     if (!content && !isOptionalCardScript(name, cards.cardData)) errors.push(`Missing script ${name}`);
     return content;
   };
@@ -421,8 +429,12 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     loadScriptOrThrow(lib, handle, cards, "constant.lua");
     loadScriptOrThrow(lib, handle, cards, "utility.lua");
     if (!lib.loadScript(handle, "duel-events.lua", DESTROY_NOTE_SCRIPT)) throw new Error("Failed to register destruction reporter");
+    if (options.mode === "domain") loadScriptOrThrow(lib, handle, cards, "domain.lua");
+    // After utility.lua and domain.lua, before any card exists. The overlay is never loaded at 1v1.
+    if (overlay && !lib.loadScript(handle, MP_UTILITY_FILE, overlay.utility)) {
+      throw new Error(`Failed to load ${MP_UTILITY_FILE}${errors.length > 0 ? `: ${errors.join("; ")}` : ""}`);
+    }
     if (options.mode === "domain") {
-      loadScriptOrThrow(lib, handle, cards, "domain.lua");
       // Card creation runs initial_effect; procedure libraries must be loaded first.
       for (let teamSeat = 0; teamSeat < seatCount; teamSeat += 1) {
         const code = options.decks[teamSeat]!.deckMaster;
