@@ -10,7 +10,7 @@ import type {
 import { readFileSync } from "node:fs";
 import createCore, { type OcgCardData } from "ocgcore-wasm";
 import { engineDataDirectory } from "../engine-data-dir.js";
-import { currentNseatWasm } from "./cores.js";
+import { currentDomainMultiWasm, currentNseatWasm } from "./cores.js";
 import { EngineAnswerError } from "../../src/prompts.js";
 
 
@@ -89,6 +89,16 @@ export function nseatWasmBinary(): ArrayBuffer | undefined {
   }
 }
 
+/** Multi-duelist Domain core for N-seat scenarios with `mode: "domain"`: DOMAIN_MULTI_WASM, else the current Domain multi core. */
+export function domainNseatWasmBinary(): ArrayBuffer | undefined {
+  try {
+    const bytes = readFileSync(currentDomainMultiWasm());
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  } catch {
+    return undefined;
+  }
+}
+
 /** True when the N-seat core has Debug.SetupDuelists. Live N-seat tests pass it to needs.setupDuelists / needs.liveNseat (tests/support/cores.ts). */
 export async function probeSetupDuelists(): Promise<boolean> {
   try {
@@ -126,7 +136,7 @@ export async function runScenario(scenario: Scenario): Promise<void> {
     ...compiled.options,
     seed: scenario.seed ?? ["1", "2", "3", "4"],
     dataDirectory: engineDataDirectory,
-    ...((scenario.setup.format ?? "1v1") !== "1v1" ? { multiWasmBinary: nseatWasmBinary() } : {}),
+    ...((scenario.setup.format ?? "1v1") !== "1v1" ? { multiWasmBinary: scenario.setup.mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary() } : {}),
   });
   try {
     const session = new Session(scenario, game);
