@@ -7,7 +7,7 @@
 
 import {
   attack, changePhase, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPrompt,
-  expectResult, pickOpponent, type Scenario, type Step,
+  expectResult, expectTurn, pickOpponent, type Scenario, type Step,
 } from "../../support/dsl.js";
 
 export const ELF = "Mystical Elf"; // 800 ATK vanilla, also the Deck filler
@@ -71,9 +71,24 @@ export const NSEAT_SCENARIOS: Scenario[] = [
     setup: { format: "tag", p0: elfAt(), p1: elfAt(), p2: elfAt(), p3: elfAt() },
     steps: [
       expectPrompt({ by: "p0", notOffers: ["to_bp"] }),
+      // The first duelist does not draw on turn 1.
+      expectBoard({ p0: { hand: { count: 0 }, deckCount: 20 } }),
       endTurn("p0"), expectPrompt({ by: "p1", notOffers: ["to_bp"] }),
+      expectBoard({ p1: { hand: { count: 1 }, deckCount: 19 } }),
       endTurn("p1"), expectPrompt({ by: "p2", notOffers: ["to_bp"] }),
       endTurn("p2"), expectPrompt({ by: "p3", offers: ["to_bp"] }),
+      // p3 attacks on turn 4. p3 and p0 have equal ATK, so both Elves are destroyed; the other two Elves stay.
+      expectTurn("p3", 4),
+      changePhase("battle", "p3"),
+      attack(ELF, { card: ELF, owner: "p0" }, "p3"),
+      expectBoard({
+        p0: { monsters: { count: 0 }, grave: [ELF] },
+        p3: { monsters: { count: 0 }, grave: [ELF] },
+        p1: { monsters: [ELF] },
+        p2: { monsters: [ELF] },
+      }),
+      expectLp({ team: 0 }, 16000),
+      expectLp({ team: 1 }, 16000),
     ],
   }),
   defineScenario({
@@ -118,7 +133,12 @@ export const NSEAT_SCENARIOS: Scenario[] = [
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION", "R-FFA-WINNER"],
     tags: ["multiplayer", "elimination", "ffa3"],
-    setup: { format: "ffa3", p0: { monsters: [ELF, ELF] }, p1: { lp: ELF_ATK }, p2: { lp: ELF_ATK } },
+    setup: {
+      format: "ffa3",
+      p0: { monsters: [ELF, ELF] },
+      p1: { lp: ELF_ATK, hand: [ELF], spells: [{ card: "Dark Hole", pos: "set" }], grave: ["Raigeki"] },
+      p2: { lp: ELF_ATK },
+    },
     steps: [
       ...passTurns("p0", "p1", "p2"),
       changePhase("battle", "p0"),
@@ -126,6 +146,8 @@ export const NSEAT_SCENARIOS: Scenario[] = [
       pickOpponent("p1", "p0"),
       expectEliminated("p1"),
       expectLp({ seat: "p1" }, 0),
+      // Their cards leave the game: hand, Spell & Trap Zones and Graveyard are empty. p0 and p2 keep theirs.
+      expectBoard({ p1: { hand: { count: 0 }, spells: { count: 0 }, grave: { count: 0 } }, p0: { monsters: { count: 2 } } }),
       // p1 is out, so p2 is the only opponent left: the core offers no pick, and the hit ends the duel.
       attack(ELF, "direct", "p0"),
       expectNoPrompt(),

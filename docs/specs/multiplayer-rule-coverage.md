@@ -16,7 +16,7 @@ which clauses a scenario proves, so read the scenario before you trust a rule th
 The outcome scenarios in `tests/scenarios/multiplayer/nseat-scenarios.ts` run on a real engine only with `NSEAT_LIVE=1` and a
 multi core that has `Debug.SetupDuelists`. Until the live core is the default (and the gate is removed), a default `npm test` skips them.
 
-Summary: 27 rules. 8 covered by an outcome scenario, 19 pending (allow-list), 0 with no test and no allow-list entry. 63 catalog sketches are still pending (not counted).
+Summary: 27 rules. 10 covered by an outcome scenario, 17 pending (allow-list), 0 with no test and no allow-list entry. 63 catalog sketches are still pending (not counted).
 
 | Rule | Text | Status | Outcome scenarios | Listed, not counted |
 | --- | --- | --- | --- | --- |
@@ -29,13 +29,13 @@ Summary: 27 rules. 8 covered by an outcome scenario, 19 pending (allow-list), 0 
 | `R-COMMON-EMZ` | Extra Monster Zones. Each duelist has their own two Extra Monster Zones (EMZ) on their... | pending: no DSL outcome scenario yet. Native checks zones and link-column-zones prove the zones at n > 2. The table counts DSL outcome scenarios only, so a native check does not make it covered. | - | - |
 | `R-COMMON-FL-LIST` | The Forbidden & Limited List applies per duelist (per Deck). | pending: no DSL outcome scenario yet. tests/deck-legality-multiplayer.test.ts proves the forbidden list per table in deck validation; it is a unit test, not a duel scenario. | - | - |
 | `R-TAG-LP` | Two teams of two duelists. Each team shares one LP total, equal to the sum of its membe... | covered | `nseat-tag-team-lp` | `src/presets/tag-lp-solemn-partner.ts` (preset) |
-| `R-TAG-ORDER` | Turn order is 1A, 2A, 1B, 2B. The first duelist does not draw on their first turn. The... | covered | `nseat-tag-first-battle-turn-4` | - |
+| `R-TAG-ORDER` | Turn order is 1A, 2A, 1B, 2B. The first duelist does not draw on their first turn. The... | covered | `nseat-tag-first-battle-turn-4`, `nseat-tag-deck-and-turn-order` | - |
 | `R-TAG-SHARED-CARDS` | "You control", "your field" and "your Graveyard" include your partner's cards. "Your ha... | pending: no DSL outcome scenario yet (1 catalog sketch only). No native check names this rule. | - | 1 catalog sketch |
 | `R-TAG-PARTNER-COST` | You may use your partner's cards for costs, Tributes, materials and summon conditions.... | pending: no DSL outcome scenario yet. No sketch, no preset and no native check names this rule. | - | - |
-| `R-TAG-PARTNER` | Your partner is not your opponent. Your effects on "your opponent" do not affect your p... | pending: no DSL outcome scenario yet (2 presets and 4 catalog sketches only). Native check tag-partner proves the partner negation with real cards. The table counts DSL outcome scenarios only, so a native check does not make it covered. | - | `src/presets/raigeki-dark-hole.ts` (preset), `src/presets/tag-lp-solemn-partner.ts` (preset), 4 catalog sketches |
+| `R-TAG-PARTNER` | Your partner is not your opponent. Your effects on "your opponent" do not affect your p... | covered | `nseat-tag-partner-is-never-an-attack-target`, `nseat-tag-partner-is-never-an-attack-target-team-0`, `nseat-tag-partner-attack-target-list`, `nseat-tag-burn-spares-partner` | `src/presets/raigeki-dark-hole.ts` (preset), `src/presets/tag-lp-solemn-partner.ts` (preset), 4 catalog sketches |
 | `R-TAG-VISIBILITY` | Partners may see each other's hands and Set cards. | pending: no DSL outcome scenario yet. The unit tests in tests/engine-nseat.test.ts (the tests named shows a Tag partner hand and shows a Tag partner Set cards) prove the partner view of hands and Set cards in the seat projection; they are not duel scenarios. Native check confirm-hint-sort covers the ConfirmCards event players. | - | - |
 | `R-TAG-RESPONSE` | After a Chain Link, the opposing team gets the first chance to respond. Simultaneous tr... | pending: no DSL outcome scenario yet. Native check response-order proves the priority windows at n > 2. The table counts DSL outcome scenarios only, so a native check does not make it covered. | - | - |
-| `R-TAG-LOSS` | A team loses when its LP reaches 0, or when either of its duelists must draw from an em... | pending: no DSL outcome scenario yet. Native check losses-team-lp proves team losses at the core level. The table counts DSL outcome scenarios only, so a native check does not make it covered. | - | - |
+| `R-TAG-LOSS` | A team loses when its LP reaches 0, or when either of its duelists must draw from an em... | covered | `nseat-tag-partners-lose-together`, `nseat-tag-deck-out-loses-team` | - |
 | `R-TAG-TURN-COUNT` | Turn-count effects (for example Final Countdown) count every duelist's turn. | pending: no DSL outcome scenario yet. No sketch, no preset and no native check names this rule. | - | - |
 | `R-FFA-LP` | Each duelist has their own LP (default 8,000). | covered | `nseat-ffa3-direct-attack-pick` | - |
 | `R-FFA-ORDER` | Turn order is clockwise in seat order. The first duelist does not draw on their first t... | covered | `nseat-ffa4-turn-order`, `nseat-ffa3-no-first-draw` | - |
