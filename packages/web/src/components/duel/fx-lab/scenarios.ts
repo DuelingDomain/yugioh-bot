@@ -1,0 +1,1084 @@
+import type { DuelCardInfo } from "@yugidraft/shared/duels";
+import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
+import {
+  BANISHED,
+  DECK,
+  EXTRA,
+  GY,
+  HAND,
+  MZ,
+  SZ,
+  edit,
+  ev,
+  link,
+  newBoard,
+  type Edit,
+  type EventSpec,
+  type LabCategory,
+  type LabScenario,
+  type LabScript,
+  type LabStep,
+  type SeatOptions,
+} from "./board";
+import { CARDS } from "./cards";
+
+/**
+ * The scenario catalog of the FX lab. Every scenario is a pure builder: it returns a start board and
+ * timed steps (engine events plus the board after them), in the shape the duel server sends them.
+ * Seat 0 is you (bottom), seat 1 is the opponent (top). Nothing here touches React or the DOM.
+ */
+
+const ME = 0;
+const OPP = 1;
+
+const C = CARDS;
+
+const myHand: SeatOptions = { hand: [C.sangan, C.kuriboh, C.potOfGreed, C.monsterReborn], deck: 28, extra: [C.darkPaladin, C.stardust, C.utopia] };
+const oppHand: SeatOptions = { hand: [null, null, null, null, null], deck: 29, extra: [null, null] };
+
+type Setup = (edits: Edit[]) => void;
+
+/** A board with the given pieces already placed. */
+function board(setup: Setup = () => {}, me: SeatOptions = myHand, opp: SeatOptions = oppHand, phase = "main1", turnSeat = ME) {
+  const start = newBoard(me, opp, phase, turnSeat);
+  const edits: Edit[] = [];
+  setup(edits);
+  for (const apply of edits) apply(start);
+  return start;
+}
+
+function script(initial: LabScript["initial"], steps: LabStep[], tailMs: number, extra: Partial<LabScript> = {}): LabScript {
+  return { initial, steps, tailMs, ...extra };
+}
+
+/* ---------- attacks ---------- */
+
+type Outcome = "direct" | "win" | "lose" | "tie" | "held" | "bounce";
+
+/**
+ * One fight. The attack is declared first; the battle resolves 900 ms later, as in a duel (the
+ * attack animation starts when damage or a battle destroy arrives).
+ */
+function attackScript(attacker: DuelCardInfo, defender: DuelCardInfo | null, outcome: Outcome): LabScript {
+  const defenderPosition = outcome === "held" || outcome === "bounce" ? POS_FACEUP_DEFENSE : POS_FACEUP_ATTACK;
+  const start = board((e) => {
+    e.push(edit.monster(ME, 2, attacker));
+    if (defender) e.push(edit.monster(OPP, 2, defender, defenderPosition));
+    e.push(edit.monster(OPP, 4, C.harpie));
+  }, myHand, oppHand, "battle");
+  const aZone = MZ(ME, 2);
+  const dZone = MZ(OPP, 2);
+  const declare: LabStep = { at: 0, events: [ev.attack(ME, aZone, defender ? dZone : undefined)] };
+  const events: EventSpec[] = [];
+  const edits: Edit[] = [];
+  const by = (card: DuelCardInfo) => ({ cause: "battle" as const, sourceCode: card.code, sourceKind: "monster" as const });
+  if (outcome === "direct") {
+    const dmg = attacker.attack;
+    events.push(ev.damage(OPP, dmg));
+    edits.push(edit.lp(OPP, 8000 - dmg));
+  } else if (defender) {
+    if (outcome === "win" || outcome === "tie") {
+      const dmg = Math.max(0, attacker.attack - defender.attack);
+      if (dmg > 0) {
+        events.push(ev.damage(OPP, dmg));
+        edits.push(edit.lp(OPP, 8000 - dmg));
+      }
+      events.push(ev.destroy(OPP, defender, dZone, { ...by(attacker), sourceSeat: ME }), ev.toGrave(OPP, defender, dZone, 0, { ...by(attacker), sourceSeat: ME }));
+      edits.push(edit.monster(OPP, 2, null), edit.grave(OPP, defender));
+    }
+    if (outcome === "lose" || outcome === "tie") {
+      const dmg = Math.abs(attacker.attack - defender.attack);
+      if (outcome === "lose") {
+        events.push(ev.damage(ME, dmg));
+        edits.push(edit.lp(ME, 8000 - dmg));
+      }
+      events.push(ev.destroy(ME, attacker, aZone, { ...by(defender), sourceSeat: OPP }), ev.toGrave(ME, attacker, aZone, 0, { ...by(defender), sourceSeat: OPP }));
+      edits.push(edit.monster(ME, 2, null), edit.grave(ME, attacker));
+    }
+    if (outcome === "bounce") {
+      const dmg = Math.max(0, defender.defense - attacker.attack);
+      events.push(ev.damage(ME, dmg));
+      edits.push(edit.lp(ME, 8000 - dmg));
+    }
+  }
+  const resolve: LabStep = { at: 900, events, edits };
+  // A held fight leaves no damage or destroy event; the next phase event closes it as a clash.
+  const steps = outcome === "held" ? [declare, { at: 900, events: [ev.phase("Main Phase 2")], edits: [edit.phase("main2")] }] : [declare, resolve];
+  return script(start, steps, 3600);
+}
+
+const attackScenario = (
+  id: string,
+  name: string,
+  description: string,
+  attacker: DuelCardInfo,
+  defender: DuelCardInfo | null,
+  outcome: Outcome,
+): LabScenario => ({ id, category: "Attacks", name, description, build: () => attackScript(attacker, defender, outcome) });
+
+const ATTACKS: LabScenario[] = [
+  attackScenario("attack-lightning", "Lightning: Blue-Eyes White Dragon", "A signature attack. Direct hit on the opponent, lightning style, LIGHT tint.", C.blueEyes, null, "direct"),
+  attackScenario("attack-arcane", "Arcane: Dark Magician", "A signature attack. Spellcasters fire arcane bolts.", C.darkMagician, C.celtic, "win"),
+  attackScenario("attack-arcane-girl", "Arcane: Dark Magician Girl", "Second signature arcane attack, with a different tint.", C.darkMagicianGirl, C.feralImp, "win"),
+  attackScenario("attack-flame", "Flame: Red-Eyes Black Dragon", "A signature attack. Fire breath.", C.redEyes, C.silverFang, "win"),
+  attackScenario("attack-beam", "Beam: Cyber Dragon", "A signature attack. A straight energy beam.", C.cyberDragon, C.mysticalElf, "win"),
+  attackScenario("attack-skull", "Lightning: Summoned Skull", "A signature attack. Lightning on a DARK monster.", C.summonedSkull, C.celtic, "win"),
+  attackScenario("attack-slash", "Slash: Gaia The Fierce Knight", "The name rule: knight gives a sword slash.", C.gaia, C.silverFang, "win"),
+  attackScenario("attack-claw", "Claw: Celestial Wolf Lord, Blue Sirius", "The name rule: wolf gives claw swipes.", C.blueSirius, C.feralImp, "win"),
+  attackScenario("attack-impact", "Impact: Giant Soldier of Stone", "The race rule: Rock gives a heavy impact.", C.giantSoldier, null, "direct"),
+  attackScenario("attack-win", "Fight: attacker wins", "ATK higher than the defender. The defender breaks and the Graveyard flight follows.", C.blueEyes, C.celtic, "win"),
+  attackScenario("attack-lose", "Fight: attacker loses (counter strike)", "ATK lower. The defender strikes back and the attacker breaks.", C.celtic, C.blueEyes, "lose"),
+  attackScenario("attack-tie", "Fight: both monsters break", "Equal ATK. Both break after the counter strike.", C.gaia, C.gaia, "tie"),
+  attackScenario("attack-held", "Fight: nobody breaks", "ATK equals DEF of a Defense Position monster. A short clash, no damage.", C.celtic, C.giantSoldier, "held"),
+  attackScenario("attack-bounce", "Fight: blow bounces back", "Attacker ATK below the DEF of a Defense Position monster. The attacker takes damage.", C.celtic, C.giantSoldier, "bounce"),
+];
+
+/* ---------- chains and trap/spell flows ---------- */
+
+type ChainCard = { info: DuelCardInfo; seat: number; zone: ReturnType<typeof SZ> };
+
+/** The events of one chain of effects: activations, then resolving, effect events and chain end. */
+function chainFlow(cards: ChainCard[]): { activations: EventSpec[]; resolveHead: (index: number) => EventSpec[] } {
+  const activations = cards.map((card, i) => ev.activate(card.seat, card.info, card.zone, i + 1));
+  return { activations, resolveHead: (index) => [ev.chain("chain-resolving", cards[index - 1].seat, cards[index - 1].info, index)] };
+}
+
+type SpellDestroy = {
+  card: DuelCardInfo;
+  /** The Spell/Trap zone of the activator. */
+  zone: ReturnType<typeof SZ>;
+  victims: Array<{ seat: number; info: DuelCardInfo; zone: ReturnType<typeof MZ> | ReturnType<typeof SZ> }>;
+  kind: "spell" | "trap";
+  /** Banish instead of destroy (Bottomless Trap Hole). */
+  banish?: boolean;
+};
+
+/** A spell or trap that destroys cards: activate first, then the chain resolves with the destroys. */
+function destroyChain(spec: SpellDestroy, setup: Setup, lead: LabStep[] = [], leadMs = 0): LabScript {
+  const activator = spec.zone.controller;
+  const start = board((e) => {
+    setup(e);
+    e.push(spec.kind === "trap" ? edit.setSpell(activator, spec.zone.sequence, spec.card) : edit.spell(activator, spec.zone.sequence, null));
+  });
+  const flow = chainFlow([{ info: spec.card, seat: activator, zone: spec.zone }]);
+  const effect: EventSpec[] = [];
+  const edits: Edit[] = [];
+  const counters = new Map<number, number>();
+  for (const victim of spec.victims) {
+    const grave = (counters.get(victim.seat) ?? 0);
+    counters.set(victim.seat, grave + 1);
+    const why = { cause: "effect" as const, sourceCode: spec.card.code, sourceKind: spec.kind, sourceSeat: activator };
+    const isMonster = victim.zone.location === MZ(0, 0).location;
+    effect.push(ev.destroy(victim.seat, victim.info, victim.zone, why));
+    if (spec.banish) {
+      effect.push(ev.move(victim.seat, victim.info, victim.zone, BANISHED(victim.seat, grave), "banish", why));
+      edits.push(edit.banish(victim.seat, victim.info));
+    } else {
+      effect.push(ev.toGrave(victim.seat, victim.info, victim.zone, grave, why));
+      edits.push(edit.grave(victim.seat, victim.info));
+    }
+    edits.push(isMonster ? edit.monster(victim.seat, victim.zone.sequence, null) : edit.spell(victim.seat, victim.zone.sequence, null));
+  }
+  // The activated card goes to the Graveyard after it resolves.
+  const used = counters.get(activator) ?? 0;
+  effect.push(ev.toGrave(activator, spec.card, spec.zone, used, {}));
+  edits.push(edit.spell(activator, spec.zone.sequence, null), edit.grave(activator, spec.card));
+  const base = leadMs;
+  const steps: LabStep[] = [
+    ...lead,
+    {
+      at: base,
+      events: flow.activations,
+      edits: [edit.spell(activator, spec.zone.sequence, spec.card)],
+      chain: [link(1, activator, spec.card)],
+    },
+    {
+      at: base + 1100,
+      events: [...flow.resolveHead(1), ...effect, ev.chain("chain-resolved", activator, spec.card, 1), ev.chainEnd()],
+      edits,
+      chain: [],
+    },
+  ];
+  return script(start, steps, 5200);
+}
+
+const dhMine = C.celtic;
+const DESTROY: LabScenario[] = [
+  {
+    id: "destroy-dark-hole",
+    category: "Destroy",
+    name: "Dark Hole",
+    description: "Set piece: a black hole opens over the field and every monster is pulled in. Three.js scene.",
+    build: () =>
+      destroyChain(
+        {
+          card: C.darkHole,
+          zone: SZ(ME, 1),
+          kind: "spell",
+          victims: [
+            { seat: ME, info: dhMine, zone: MZ(ME, 1) },
+            { seat: OPP, info: C.blueEyes, zone: MZ(OPP, 1) },
+            { seat: OPP, info: C.summonedSkull, zone: MZ(OPP, 2) },
+            { seat: OPP, info: C.harpie, zone: MZ(OPP, 3) },
+          ],
+        },
+        (e) => e.push(edit.monster(ME, 1, dhMine), edit.monster(OPP, 1, C.blueEyes), edit.monster(OPP, 2, C.summonedSkull), edit.monster(OPP, 3, C.harpie)),
+      ),
+  },
+  {
+    id: "destroy-raigeki",
+    category: "Destroy",
+    name: "Raigeki",
+    description: "Set piece: lightning strikes every monster of the opponent. The effect plays the code that ships.",
+    build: () =>
+      destroyChain(
+        {
+          card: C.raigeki,
+          zone: SZ(ME, 1),
+          kind: "spell",
+          victims: [
+            { seat: OPP, info: C.blueEyes, zone: MZ(OPP, 1) },
+            { seat: OPP, info: C.summonedSkull, zone: MZ(OPP, 2) },
+            { seat: OPP, info: C.harpie, zone: MZ(OPP, 3) },
+          ],
+        },
+        (e) => e.push(edit.monster(ME, 2, C.darkMagician), edit.monster(OPP, 1, C.blueEyes), edit.monster(OPP, 2, C.summonedSkull), edit.monster(OPP, 3, C.harpie)),
+      ),
+  },
+  {
+    id: "destroy-mst",
+    category: "Destroy",
+    name: "Mystical Space Typhoon (generic spell piece)",
+    description: "A spell with no set piece. The plain spell sigil and the break-up of the Set card.",
+    build: () =>
+      destroyChain(
+        { card: C.mst, zone: SZ(ME, 1), kind: "spell", victims: [{ seat: OPP, info: C.mirrorForce, zone: SZ(OPP, 2) }] },
+        (e) => e.push(edit.hiddenSpell(OPP, 2), edit.monster(OPP, 2, C.harpie)),
+      ),
+  },
+  {
+    id: "destroy-heavy-storm",
+    category: "Destroy",
+    name: "Heavy Storm (all Spells and Traps)",
+    description: "A spell that destroys cards on both sides. One piece plays for the whole group.",
+    build: () =>
+      destroyChain(
+        {
+          card: C.heavyStorm,
+          zone: SZ(ME, 1),
+          kind: "spell",
+          victims: [
+            { seat: ME, info: C.swords, zone: SZ(ME, 3) },
+            { seat: OPP, info: C.mirrorForce, zone: SZ(OPP, 1) },
+            { seat: OPP, info: C.trapHole, zone: SZ(OPP, 3) },
+          ],
+        },
+        (e) => e.push(edit.spell(ME, 3, C.swords), edit.hiddenSpell(OPP, 1), edit.hiddenSpell(OPP, 3)),
+      ),
+  },
+  {
+    id: "destroy-torrential",
+    category: "Destroy",
+    name: "Torrential Tribute",
+    description: "Set piece: a tide sweeps the field after the opponent summons. Three.js scene.",
+    build: () => {
+      const summonEvents = summonPair(OPP, C.blueSirius, HAND(OPP, 0), MZ(OPP, 3), "normal");
+      const lead: LabStep[] = [
+        { at: 0, events: summonEvents, edits: [edit.monster(OPP, 3, C.blueSirius), edit.removeHand(OPP, 0)] },
+      ];
+      return destroyChain(
+        {
+          card: C.torrential,
+          zone: SZ(ME, 2),
+          kind: "trap",
+          victims: [
+            { seat: ME, info: C.celtic, zone: MZ(ME, 1) },
+            { seat: OPP, info: C.summonedSkull, zone: MZ(OPP, 1) },
+            { seat: OPP, info: C.blueSirius, zone: MZ(OPP, 3) },
+          ],
+        },
+        (e) => e.push(edit.monster(ME, 1, C.celtic), edit.monster(OPP, 1, C.summonedSkull)),
+        lead,
+        1400,
+      );
+    },
+  },
+  {
+    id: "destroy-mirror-force",
+    category: "Destroy",
+    name: "Mirror Force",
+    description: "Set piece: a barrier reflects an attack and destroys the attackers. Three.js scene.",
+    build: () => {
+      const start = board((e) => {
+        e.push(edit.setSpell(ME, 2, C.mirrorForce), edit.monster(ME, 2, C.celtic), edit.monster(OPP, 1, C.blueEyes), edit.monster(OPP, 2, C.summonedSkull), edit.monster(OPP, 3, C.gaia));
+      }, myHand, oppHand, "battle", OPP);
+      const why = { cause: "effect" as const, sourceCode: C.mirrorForce.code, sourceKind: "trap" as const, sourceSeat: ME };
+      const victims = [
+        { info: C.blueEyes, seq: 1 },
+        { info: C.summonedSkull, seq: 2 },
+        { info: C.gaia, seq: 3 },
+      ];
+      const flow = chainFlow([{ info: C.mirrorForce, seat: ME, zone: SZ(ME, 2) }]);
+      return script(
+        start,
+        [
+          { at: 0, events: [ev.attack(OPP, MZ(OPP, 2), MZ(ME, 2))] },
+          { at: 900, events: flow.activations, edits: [edit.spell(ME, 2, C.mirrorForce)], chain: [link(1, ME, C.mirrorForce)] },
+          {
+            at: 2000,
+            events: [
+              ...flow.resolveHead(1),
+              ...victims.flatMap((v, i) => [ev.destroy(OPP, v.info, MZ(OPP, v.seq), why), ev.toGrave(OPP, v.info, MZ(OPP, v.seq), i, why)]),
+              ev.toGrave(ME, C.mirrorForce, SZ(ME, 2), 0, {}),
+              ev.chain("chain-resolved", ME, C.mirrorForce, 1),
+              ev.chainEnd(),
+            ],
+            edits: [
+              ...victims.map((v) => edit.monster(OPP, v.seq, null)),
+              ...victims.map((v) => edit.grave(OPP, v.info)),
+              edit.spell(ME, 2, null),
+              edit.grave(ME, C.mirrorForce),
+            ],
+            chain: [],
+          },
+        ],
+        5200,
+      );
+    },
+  },
+  {
+    id: "destroy-sakuretsu",
+    category: "Destroy",
+    name: "Sakuretsu Armor",
+    description: "Set piece: an armour slams into the attacker and explodes. Three.js scene.",
+    build: () => {
+      const start = board((e) => {
+        e.push(edit.setSpell(ME, 2, C.sakuretsu), edit.monster(ME, 2, C.celtic), edit.monster(OPP, 2, C.blueEyes));
+      }, myHand, oppHand, "battle", OPP);
+      const why = { cause: "effect" as const, sourceCode: C.sakuretsu.code, sourceKind: "trap" as const, sourceSeat: ME };
+      const flow = chainFlow([{ info: C.sakuretsu, seat: ME, zone: SZ(ME, 2) }]);
+      return script(
+        start,
+        [
+          { at: 0, events: [ev.attack(OPP, MZ(OPP, 2), MZ(ME, 2))] },
+          { at: 900, events: flow.activations, edits: [edit.spell(ME, 2, C.sakuretsu)], chain: [link(1, ME, C.sakuretsu)] },
+          {
+            at: 2000,
+            events: [
+              ...flow.resolveHead(1),
+              ev.destroy(OPP, C.blueEyes, MZ(OPP, 2), why),
+              ev.toGrave(OPP, C.blueEyes, MZ(OPP, 2), 0, why),
+              ev.toGrave(ME, C.sakuretsu, SZ(ME, 2), 0, {}),
+              ev.chain("chain-resolved", ME, C.sakuretsu, 1),
+              ev.chainEnd(),
+            ],
+            edits: [edit.monster(OPP, 2, null), edit.grave(OPP, C.blueEyes), edit.spell(ME, 2, null), edit.grave(ME, C.sakuretsu)],
+            chain: [],
+          },
+        ],
+        4800,
+      );
+    },
+  },
+  {
+    id: "destroy-bottomless",
+    category: "Destroy",
+    name: "Bottomless Trap Hole",
+    description: "Set piece: the floor falls away under a summoned monster, which is banished. Three.js scene.",
+    build: () =>
+      script(
+        board((e) => e.push(edit.setSpell(ME, 2, C.bottomless), edit.monster(OPP, 2, C.blueSirius))),
+        (() => {
+          const why = { cause: "effect" as const, sourceCode: C.bottomless.code, sourceKind: "trap" as const, sourceSeat: ME };
+          const flow = chainFlow([{ info: C.bottomless, seat: ME, zone: SZ(ME, 2) }]);
+          return [
+            { at: 0, events: flow.activations, edits: [edit.spell(ME, 2, C.bottomless)], chain: [link(1, ME, C.bottomless)] },
+            {
+              at: 1100,
+              events: [
+                ...flow.resolveHead(1),
+                ev.destroy(OPP, C.blueSirius, MZ(OPP, 2), why),
+                ev.move(OPP, C.blueSirius, MZ(OPP, 2), BANISHED(OPP, 0), "banish", why),
+                ev.toGrave(ME, C.bottomless, SZ(ME, 2), 0, {}),
+                ev.chain("chain-resolved", ME, C.bottomless, 1),
+                ev.chainEnd(),
+              ],
+              edits: [edit.monster(OPP, 2, null), edit.banish(OPP, C.blueSirius), edit.spell(ME, 2, null), edit.grave(ME, C.bottomless)],
+              chain: [],
+            },
+          ] satisfies LabStep[];
+        })(),
+        4800,
+      ),
+  },
+  {
+    id: "destroy-trap-hole",
+    category: "Destroy",
+    name: "Trap Hole",
+    description: "Set piece: a pit opens under the monster that was just summoned. Three.js scene.",
+    build: () => {
+      const why = { cause: "effect" as const, sourceCode: C.trapHole.code, sourceKind: "trap" as const, sourceSeat: ME };
+      const flow = chainFlow([{ info: C.trapHole, seat: ME, zone: SZ(ME, 2) }]);
+      return script(
+        board((e) => e.push(edit.setSpell(ME, 2, C.trapHole), edit.monster(OPP, 3, C.harpie)), myHand, { ...oppHand, hand: [C.summonedSkull, null, null, null] }, "main1", OPP),
+        [
+          {
+            at: 0,
+            events: summonPair(OPP, C.summonedSkull, HAND(OPP, 0), MZ(OPP, 2), "tribute"),
+            edits: [edit.monster(OPP, 2, C.summonedSkull), edit.removeHand(OPP, 0)],
+          },
+          { at: 1400, events: flow.activations, edits: [edit.spell(ME, 2, C.trapHole)], chain: [link(1, ME, C.trapHole)] },
+          {
+            at: 2500,
+            events: [
+              ...flow.resolveHead(1),
+              ev.destroy(OPP, C.summonedSkull, MZ(OPP, 2), why),
+              ev.toGrave(OPP, C.summonedSkull, MZ(OPP, 2), 0, why),
+              ev.toGrave(ME, C.trapHole, SZ(ME, 2), 0, {}),
+              ev.chain("chain-resolved", ME, C.trapHole, 1),
+              ev.chainEnd(),
+            ],
+            edits: [edit.monster(OPP, 2, null), edit.grave(OPP, C.summonedSkull), edit.spell(ME, 2, null), edit.grave(ME, C.trapHole)],
+            chain: [],
+          },
+        ],
+        4500,
+      );
+    },
+  },
+  {
+    id: "destroy-trap-generic",
+    category: "Destroy",
+    name: "Destroyed by a trap (generic trap piece)",
+    description: "A trap with no set piece of its own: the glyph and chain rattle, then the break-up.",
+    build: () =>
+      destroyChain(
+        { card: C.magicCylinder, zone: SZ(ME, 2), kind: "trap", victims: [{ seat: OPP, info: C.summonedSkull, zone: MZ(OPP, 2) }] },
+        (e) => e.push(edit.monster(OPP, 2, C.summonedSkull)),
+      ),
+  },
+  {
+    id: "destroy-monster-effect",
+    category: "Destroy",
+    name: "Destroyed by a monster effect",
+    description: "A monster that destroys a card by its effect: the travelling mark and the break-up.",
+    build: () => {
+      const why = { cause: "effect" as const, sourceCode: C.cyberDragon.code, sourceKind: "monster" as const, sourceSeat: ME };
+      const flow = chainFlow([{ info: C.cyberDragon, seat: ME, zone: MZ(ME, 2) }]);
+      return script(
+        board((e) => e.push(edit.monster(ME, 2, C.cyberDragon), edit.monster(OPP, 2, C.summonedSkull))),
+        [
+          { at: 0, events: flow.activations, chain: [link(1, ME, C.cyberDragon)] },
+          {
+            at: 1100,
+            events: [
+              ...flow.resolveHead(1),
+              ev.destroy(OPP, C.summonedSkull, MZ(OPP, 2), why),
+              ev.toGrave(OPP, C.summonedSkull, MZ(OPP, 2), 0, why),
+              ev.chain("chain-resolved", ME, C.cyberDragon, 1),
+              ev.chainEnd(),
+            ],
+            edits: [edit.monster(OPP, 2, null), edit.grave(OPP, C.summonedSkull)],
+            chain: [],
+          },
+        ],
+        4200,
+      );
+    },
+  },
+  {
+    id: "destroy-rule",
+    category: "Destroy",
+    name: "Plain break-up (game rule)",
+    description: "A destroy with no card cause. No set piece; the card breaks and goes to the Graveyard.",
+    build: () =>
+      script(
+        board((e) => e.push(edit.monster(OPP, 2, C.celtic))),
+        [
+          {
+            at: 0,
+            events: [ev.destroy(OPP, C.celtic, MZ(OPP, 2), { cause: "rule" }), ev.toGrave(OPP, C.celtic, MZ(OPP, 2), 0, {})],
+            edits: [edit.monster(OPP, 2, null), edit.grave(OPP, C.celtic)],
+          },
+        ],
+        2800,
+      ),
+  },
+];
+
+/* ---------- summons ---------- */
+
+/** The events of a summon the way the server sends them: the move from the origin, then the summon. */
+function summonPair(
+  seat: number,
+  info: DuelCardInfo,
+  from: ReturnType<typeof HAND>,
+  zone: ReturnType<typeof MZ>,
+  kind: NonNullable<EventSpec["summonKind"]>,
+): EventSpec[] {
+  return [ev.move(seat, info, from, zone, "summon"), ev.summon(seat, info, zone, kind)];
+}
+
+function summonScenario(
+  id: string,
+  name: string,
+  description: string,
+  info: DuelCardInfo,
+  kind: NonNullable<EventSpec["summonKind"]>,
+  options: { from?: "hand" | "extra"; tribute?: DuelCardInfo; position?: number } = {},
+): LabScenario {
+  return {
+    id,
+    category: "Summons",
+    name,
+    description,
+    build: () => {
+      const fromExtra = options.from === "extra";
+      const handIndex = 0;
+      const start = board(
+        (e) => {
+          if (options.tribute) e.push(edit.monster(ME, 3, options.tribute));
+          e.push(edit.monster(OPP, 2, C.celtic));
+        },
+        { ...myHand, hand: [info, ...(myHand.hand ?? [])], extra: fromExtra ? [info, ...(myHand.extra ?? [])] : myHand.extra },
+        oppHand,
+      );
+      const origin = fromExtra ? EXTRA(ME, 0) : HAND(ME, handIndex);
+      const events: EventSpec[] = [];
+      const edits: Edit[] = [];
+      if (options.tribute) {
+        events.push(ev.toGrave(ME, options.tribute, MZ(ME, 3), 0, {}));
+        edits.push(edit.monster(ME, 3, null), edit.grave(ME, options.tribute));
+      }
+      events.push(...summonPair(ME, info, origin, MZ(ME, 2), kind));
+      edits.push(edit.monster(ME, 2, info, options.position ?? POS_FACEUP_ATTACK), fromExtra ? edit.removeExtra(ME, 0) : edit.removeHand(ME, handIndex));
+      return script(start, [{ at: 0, events, edits }], 3600);
+    },
+  };
+}
+
+const SUMMONS: LabScenario[] = [
+  summonScenario("summon-normal", "Normal Summon", "A small monster from the hand. The plain arrival and the banner with the card portrait.", C.celtic, "normal"),
+  summonScenario("summon-tribute-heavy", "Tribute Summon (heavy, 2500 ATK or more)", "A tribute for a strong monster. The heavy arrival: hologram and shake.", C.summonedSkull, "tribute", { tribute: C.feralImp }),
+  summonScenario("summon-heavy-level", "Heavy Summon: Blue-Eyes White Dragon", "A level 7 or more monster counts as heavy, with the tribute.", C.blueEyes, "tribute", { tribute: C.sangan }),
+  summonScenario("summon-special", "Special Summon", "A Special Summon from the hand.", C.cyberDragon, "special"),
+  summonScenario("summon-flip", "Flip Summon", "A face-down monster turned face-up by a Flip Summon.", C.manEater, "flip"),
+  summonScenario("summon-fusion", "Fusion Summon", "A Fusion Monster from the Extra Deck.", C.darkPaladin, "fusion", { from: "extra" }),
+  summonScenario("summon-synchro", "Synchro Summon", "A Synchro Monster from the Extra Deck.", C.stardust, "synchro", { from: "extra" }),
+  summonScenario("summon-xyz", "Xyz Summon", "An Xyz Monster from the Extra Deck.", C.utopia, "xyz", { from: "extra" }),
+  summonScenario("summon-link", "Link Summon", "A Link Monster. The Link Rating 3 counts as heavy.", C.decodeTalker, "link", { from: "extra" }),
+  summonScenario("summon-ritual", "Ritual Summon", "A Ritual Monster from the hand.", C.blackChaos, "ritual"),
+  summonScenario("summon-pendulum", "Pendulum Summon", "A Pendulum Summon.", C.oddEyes, "pendulum"),
+  summonScenario("summon-ultimate", "Fusion Summon (4500 ATK)", "The strongest arrival: a very heavy Fusion Monster.", C.ultimateDragon, "fusion", { from: "extra" }),
+];
+
+/* ---------- card moves ---------- */
+
+function moveScenario(
+  id: string,
+  name: string,
+  description: string,
+  build: () => LabScript,
+): LabScenario {
+  return { id, category: "Card moves", name, description, build };
+}
+
+const MOVES: LabScenario[] = [
+  moveScenario("move-draw", "Draw a card", "A card flies from the Deck to the hand.", () =>
+    script(
+      board(),
+      [{ at: 0, events: [ev.draw(ME, C.heavyStorm, 4)], edits: [edit.drawFromDeck(ME), edit.addHand(ME, C.heavyStorm)] }],
+      2600,
+    ),
+  ),
+  moveScenario("move-draw-two", "Draw two cards", "Two draws in one batch, one after the other.", () =>
+    script(
+      board(),
+      [
+        {
+          at: 0,
+          events: [ev.draw(ME, C.polymerization, 4), ev.draw(ME, C.mst, 5)],
+          edits: [edit.drawFromDeck(ME, 2), edit.addHand(ME, C.polymerization), edit.addHand(ME, C.mst)],
+        },
+      ],
+      3200,
+    ),
+  ),
+  moveScenario("move-opp-draw", "Opponent draws", "The opponent draws a card you cannot see.", () =>
+    script(board(), [{ at: 0, events: [ev.draw(OPP, null, 5)], edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null)] }], 2600),
+  ),
+  moveScenario("move-added-search", "Added to hand: search from the Deck", "A card effect searches the Deck. The card shows in the \"Added to hand\" showcase first.", () => {
+    const flow = chainFlow([{ info: C.sangan, seat: ME, zone: MZ(ME, 2) }]);
+    return script(
+      board((e) => e.push(edit.monster(ME, 2, C.sangan))),
+      [
+        { at: 0, events: flow.activations, chain: [link(1, ME, C.sangan)] },
+        {
+          at: 1100,
+          events: [
+            ...flow.resolveHead(1),
+            ev.addToHand(ME, C.cyberDragon, DECK(ME), HAND(ME, 4)),
+            ev.chain("chain-resolved", ME, C.sangan, 1),
+            ev.chainEnd(),
+          ],
+          edits: [edit.drawFromDeck(ME), edit.addHand(ME, C.cyberDragon)],
+          chain: [],
+        },
+      ],
+      4800,
+    );
+  }),
+  moveScenario("move-added-salvage", "Added to hand: salvage from the Graveyard", "A monster comes back from the Graveyard to the hand.", () => {
+    const flow = chainFlow([{ info: C.potOfGreed, seat: ME, zone: SZ(ME, 2) }]);
+    return script(
+      board((e) => e.push(edit.spell(ME, 2, C.potOfGreed), edit.grave(ME, C.darkMagician))),
+      [
+        { at: 0, events: flow.activations, chain: [link(1, ME, C.potOfGreed)] },
+        {
+          at: 1100,
+          events: [
+            ...flow.resolveHead(1),
+            ev.addToHand(ME, C.darkMagician, GY(ME, 0), HAND(ME, 4)),
+            ev.chain("chain-resolved", ME, C.potOfGreed, 1),
+            ev.chainEnd(),
+          ],
+          edits: [edit.removeGrave(ME, 0), edit.addHand(ME, C.darkMagician)],
+          chain: [],
+        },
+      ],
+      4800,
+    );
+  }),
+  moveScenario("move-added-bounce", "Return to hand: bounce from the field", "A monster on the field returns to the hand.", () =>
+    script(
+      board((e) => e.push(edit.monster(ME, 2, C.celtic))),
+      [{ at: 0, events: [ev.move(ME, C.celtic, MZ(ME, 2), HAND(ME, 4), "return", { addedToHand: true })], edits: [edit.monster(ME, 2, null), edit.addHand(ME, C.celtic)] }],
+      3600,
+    ),
+  ),
+  moveScenario("move-opp-added", "Opponent adds a card to the hand", "A search by the opponent. You see only a card back.", () =>
+    script(
+      board(),
+      [{ at: 0, events: [ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5))], edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null)] }],
+      3200,
+    ),
+  ),
+  moveScenario("move-discard", "Discard from hand to the Graveyard", "A card flies from the hand to the Graveyard.", () =>
+    script(
+      board(),
+      [{ at: 0, events: [ev.move(ME, C.kuriboh, HAND(ME, 1), GY(ME, 0), "discard")], edits: [edit.removeHand(ME, 1), edit.grave(ME, C.kuriboh)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-send", "Send from the Deck to the Graveyard", "Foolish Burial: a card goes from the Deck to the Graveyard.", () =>
+    script(
+      board(),
+      [{ at: 0, events: [ev.move(ME, C.sangan, DECK(ME), GY(ME, 0), "send")], edits: [edit.drawFromDeck(ME), edit.grave(ME, C.sangan)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-banish", "Banish", "A card from the Graveyard is banished.", () =>
+    script(
+      board((e) => e.push(edit.grave(OPP, C.blueEyes))),
+      [{ at: 0, events: [ev.move(OPP, C.blueEyes, GY(OPP, 0), BANISHED(OPP, 0), "banish")], edits: [edit.removeGrave(OPP, 0), edit.banish(OPP, C.blueEyes)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-set-monster", "Set a monster", "A monster Set face-down in Defense Position.", () =>
+    script(
+      board(),
+      [
+        {
+          at: 0,
+          events: [ev.move(ME, C.sangan, HAND(ME, 0), MZ(ME, 2), "set", { faceDown: true }), ev.set(ME, C.sangan, MZ(ME, 2))],
+          edits: [edit.removeHand(ME, 0), edit.monster(ME, 2, C.sangan, POS_FACEDOWN_DEFENSE)],
+        },
+      ],
+      3000,
+    ),
+  ),
+  moveScenario("move-set-trap", "Set a Spell or Trap", "A card Set face-down in the Spell and Trap zone.", () =>
+    script(
+      board(),
+      [
+        {
+          at: 0,
+          events: [ev.move(ME, C.potOfGreed, HAND(ME, 2), SZ(ME, 1), "set", { faceDown: true }), ev.set(ME, C.potOfGreed, SZ(ME, 1))],
+          edits: [edit.removeHand(ME, 2), edit.setSpell(ME, 1, C.potOfGreed)],
+        },
+      ],
+      3000,
+    ),
+  ),
+  moveScenario("move-opp-set", "Opponent sets a card", "The opponent Sets a card. You see a card back.", () =>
+    script(
+      board(),
+      [
+        {
+          at: 0,
+          events: [ev.move(OPP, null, HAND(OPP, 0), SZ(OPP, 2), "set", { faceDown: true }), ev.set(OPP, C.mirrorForce, SZ(OPP, 2))],
+          edits: [edit.removeHand(OPP, 0), edit.hiddenSpell(OPP, 2)],
+        },
+      ],
+      3000,
+    ),
+  ),
+  moveScenario("move-flip", "Flip a Set monster face-up", "A face-down monster is flipped face-up (position event with the flip flag).", () =>
+    script(
+      board((e) => e.push(edit.monster(ME, 2, C.manEater, POS_FACEDOWN_DEFENSE))),
+      [
+        {
+          at: 0,
+          events: [ev.position(ME, C.manEater, MZ(ME, 2), POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, true)],
+          edits: [edit.position(ME, 2, POS_FACEUP_DEFENSE)],
+        },
+      ],
+      2800,
+    ),
+  ),
+  moveScenario("move-position", "Change battle position", "Attack Position to Defense Position.", () =>
+    script(
+      board((e) => e.push(edit.monster(ME, 2, C.celtic))),
+      [
+        {
+          at: 0,
+          events: [ev.position(ME, C.celtic, MZ(ME, 2), POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE)],
+          edits: [edit.position(ME, 2, POS_FACEUP_DEFENSE)],
+        },
+      ],
+      2400,
+    ),
+  ),
+  moveScenario("move-extra", "Return to the Extra Deck", "A card returns from the field to the Extra Deck.", () =>
+    script(
+      board((e) => e.push(edit.monster(ME, 2, C.stardust))),
+      [
+        {
+          at: 0,
+          events: [ev.move(ME, C.stardust, MZ(ME, 2), EXTRA(ME, 3), "return")],
+          edits: [edit.monster(ME, 2, null), (b) => { b.seats[ME].extra.push({ controller: ME, location: EXTRA(ME, 3).location, sequence: 3, position: POS_FACEDOWN_DEFENSE }); b.seats[ME].extraCount += 1; }],
+        },
+      ],
+      2800,
+    ),
+  ),
+];
+
+/* ---------- chain ---------- */
+
+function chainScenario(id: string, name: string, description: string, links: number, negateAt?: number): LabScenario {
+  return {
+    id,
+    category: "Chain",
+    name,
+    description,
+    build: () => {
+      const cards: ChainCard[] = [
+        { info: C.mst, seat: OPP, zone: SZ(OPP, 1) },
+        { info: C.solemn, seat: ME, zone: SZ(ME, 2) },
+        { info: C.magicCylinder, seat: OPP, zone: SZ(OPP, 3) },
+      ].slice(0, links);
+      const start = board((e) => {
+        e.push(edit.setSpell(ME, 2, C.solemn), edit.hiddenSpell(OPP, 1), edit.hiddenSpell(OPP, 3));
+        e.push(edit.monster(ME, 2, C.celtic), edit.monster(OPP, 2, C.harpie));
+      });
+      const flow = chainFlow(cards);
+      const steps: LabStep[] = [];
+      const snapshot = (n: number) => cards.slice(0, n).map((card, i) => link(i + 1, card.seat, card.info));
+      cards.forEach((card, i) => {
+        steps.push({
+          at: i * 1300,
+          events: [flow.activations[i]],
+          edits: [card.seat === OPP ? edit.spell(OPP, card.zone.sequence, card.info) : edit.spell(ME, card.zone.sequence, card.info)],
+          chain: snapshot(i + 1),
+        });
+      });
+      // The whole resolution arrives as one batch, last link first.
+      const events: EventSpec[] = [];
+      for (let index = links; index >= 1; index -= 1) {
+        const card = cards[index - 1];
+        events.push(...flow.resolveHead(index));
+        events.push(ev.chain(negateAt === index ? "chain-negated" : "chain-resolved", card.seat, card.info, index));
+      }
+      events.push(ev.chainEnd());
+      steps.push({ at: links * 1300 + 600, events, chain: [] });
+      return script(start, steps, 2000 + links * 1500);
+    },
+  };
+}
+
+const CHAIN: LabScenario[] = [
+  chainScenario("chain-one", "One link", "A single activation: badge, resolving pulse and clear.", 1),
+  chainScenario("chain-two", "Chain of two", "Two links. The last link resolves first.", 2),
+  chainScenario("chain-three", "Chain of three", "Three links, the full resolution beat by beat.", 3),
+  chainScenario("chain-negated", "Negated link", "Link 1 is negated: slash on the badge and the Negated banner.", 2, 1),
+];
+
+/* ---------- LP ---------- */
+
+function lpScenario(id: string, name: string, description: string, build: () => LabScript): LabScenario {
+  return { id, category: "LP", name, description, build };
+}
+
+const LP: LabScenario[] = [
+  lpScenario("lp-battle", "Battle damage to the opponent", "The LP number rolls down and the plate takes a hit.", () =>
+    script(board(), [{ at: 0, events: [ev.damage(OPP, 1800)], edits: [edit.lp(OPP, 6200)] }], 2800),
+  ),
+  lpScenario("lp-effect", "Effect damage to you", "Damage from a card effect on your own plate.", () =>
+    script(board(), [{ at: 0, events: [ev.damage(ME, 1000, "effect")], edits: [edit.lp(ME, 7000)] }], 2800),
+  ),
+  lpScenario("lp-cost", "Pay LP as a cost", "A cost is paid. The plate drops by half.", () =>
+    script(board(), [{ at: 0, events: [ev.damage(ME, 4000, "cost")], edits: [edit.lp(ME, 4000)] }], 2800),
+  ),
+  lpScenario("lp-big", "Big hit to low LP", "A large hit that leaves very few LP: the danger state.", () =>
+    script(board(), [{ at: 0, events: [ev.damage(OPP, 7500, "effect")], edits: [edit.lp(OPP, 500)] }], 3200),
+  ),
+  lpScenario("lp-gain", "LP gain", "LP goes up with no event. The number rolls up.", () =>
+    script(board((e) => e.push(edit.lp(ME, 3000))), [{ at: 0, edits: [edit.lp(ME, 5000)] }], 2600),
+  ),
+  lpScenario("lp-zero", "Zero LP", "The plate drops to zero.", () =>
+    script(board((e) => e.push(edit.lp(OPP, 1200))), [{ at: 0, events: [ev.damage(OPP, 1200, "effect")], edits: [edit.lp(OPP, 0)] }], 3000),
+  ),
+];
+
+/* ---------- banners ---------- */
+
+function bannerScenario(id: string, name: string, description: string, build: () => LabScript): LabScenario {
+  return { id, category: "Banners", name, description, build };
+}
+
+const BANNERS: LabScenario[] = [
+  bannerScenario("banner-spell", "Activate a Spell", "The activation banner with the card portrait and its text.", () => {
+    const flow = chainFlow([{ info: C.polymerization, seat: ME, zone: SZ(ME, 2) }]);
+    return script(
+      board(),
+      [
+        {
+          at: 0,
+          events: flow.activations,
+          edits: [edit.spell(ME, 2, C.polymerization)],
+          chain: [link(1, ME, C.polymerization)],
+        },
+        {
+          at: 1200,
+          events: [...flow.resolveHead(1), ev.chain("chain-resolved", ME, C.polymerization, 1), ev.chainEnd()],
+          edits: [edit.spell(ME, 2, null), edit.grave(ME, C.polymerization)],
+          chain: [],
+        },
+      ],
+      3600,
+    );
+  }),
+  bannerScenario("banner-trap", "Activate a Trap", "The activation banner of a Set trap that flips up.", () => {
+    const flow = chainFlow([{ info: C.solemn, seat: OPP, zone: SZ(OPP, 2) }]);
+    return script(
+      board((e) => e.push(edit.hiddenSpell(OPP, 2))),
+      [
+        { at: 0, events: flow.activations, edits: [edit.spell(OPP, 2, C.solemn)], chain: [link(1, OPP, C.solemn)] },
+        {
+          at: 1200,
+          events: [...flow.resolveHead(1), ev.chain("chain-resolved", OPP, C.solemn, 1), ev.chainEnd()],
+          edits: [edit.spell(OPP, 2, null), edit.grave(OPP, C.solemn)],
+          chain: [],
+        },
+      ],
+      3600,
+    );
+  }),
+  bannerScenario("banner-monster", "Monster effect", "The activation banner of a monster effect.", () => {
+    const flow = chainFlow([{ info: C.sangan, seat: ME, zone: MZ(ME, 2) }]);
+    return script(
+      board((e) => e.push(edit.monster(ME, 2, C.sangan))),
+      [
+        { at: 0, events: flow.activations, chain: [link(1, ME, C.sangan)] },
+        { at: 1200, events: [...flow.resolveHead(1), ev.chain("chain-resolved", ME, C.sangan, 1), ev.chainEnd()], chain: [] },
+      ],
+      3600,
+    );
+  }),
+  bannerScenario("banner-negated", "Negated banner", "A chain link is negated. The Negated banner shows with the slash.", () => {
+    const flow = chainFlow([
+      { info: C.polymerization, seat: OPP, zone: SZ(OPP, 1) },
+      { info: C.solemn, seat: ME, zone: SZ(ME, 2) },
+    ]);
+    return script(
+      board((e) => e.push(edit.setSpell(ME, 2, C.solemn), edit.hiddenSpell(OPP, 1))),
+      [
+        { at: 0, events: [flow.activations[0]], edits: [edit.spell(OPP, 1, C.polymerization)], chain: [link(1, OPP, C.polymerization)] },
+        {
+          at: 1300,
+          events: [flow.activations[1]],
+          edits: [edit.spell(ME, 2, C.solemn)],
+          chain: [link(1, OPP, C.polymerization), link(2, ME, C.solemn)],
+        },
+        {
+          at: 2600,
+          events: [
+            ...flow.resolveHead(2),
+            ev.chain("chain-resolved", ME, C.solemn, 2),
+            ...flow.resolveHead(1),
+            ev.chain("chain-negated", OPP, C.polymerization, 1),
+            ev.chainEnd(),
+          ],
+          chain: [],
+        },
+      ],
+      6000,
+    );
+  }),
+  bannerScenario("banner-phase", "Phase ribbon", "The ribbon that names a new phase.", () =>
+    script(board(), [{ at: 0, events: [ev.phase("Battle Phase")], edits: [edit.phase("battle")] }, { at: 2200, events: [ev.phase("Main Phase 2")], edits: [edit.phase("main2")] }], 3400),
+  ),
+  bannerScenario("banner-set", "Set banner", "The banner of a Set card, with a card back.", () =>
+    script(
+      board(),
+      [
+        {
+          at: 0,
+          events: [ev.move(ME, C.potOfGreed, HAND(ME, 2), SZ(ME, 1), "set", { faceDown: true }), ev.set(ME, C.potOfGreed, SZ(ME, 1))],
+          edits: [edit.removeHand(ME, 2), edit.setSpell(ME, 1, C.potOfGreed)],
+        },
+      ],
+      3000,
+    ),
+  ),
+];
+
+/* ---------- board states ---------- */
+
+const STATES: LabScenario[] = [
+  {
+    id: "state-equip",
+    category: "Board states",
+    name: "Equip: link and attach",
+    description: "An Equip Spell attaches to a monster. The line between the two cards and the equip chip.",
+    build: () => {
+      const flow = chainFlow([{ info: C.axe, seat: ME, zone: SZ(ME, 2) }]);
+      return script(
+        board((e) => e.push(edit.monster(ME, 2, C.celtic), edit.monster(OPP, 2, C.harpie))),
+        [
+          { at: 0, events: flow.activations, edits: [edit.spell(ME, 2, C.axe)], chain: [link(1, ME, C.axe)] },
+          {
+            at: 1200,
+            events: [...flow.resolveHead(1), ev.equip(ME, SZ(ME, 2), MZ(ME, 2)), ev.chain("chain-resolved", ME, C.axe, 1), ev.chainEnd()],
+            edits: [edit.equipTo(ME, 2, MZ(ME, 2))],
+            chain: [],
+          },
+        ],
+        4200,
+      );
+    },
+  },
+  {
+    id: "state-equip-still",
+    category: "Board states",
+    name: "Equip: standing link",
+    description: "A board that already has an equip link. The line is drawn with no event.",
+    build: () =>
+      script(board((e) => e.push(edit.monster(ME, 2, C.celtic), edit.spell(ME, 2, C.axe), edit.equipTo(ME, 2, MZ(ME, 2)))), [], 2400),
+  },
+  {
+    id: "state-usable",
+    category: "Board states",
+    name: "Glow on usable cards",
+    description: "Cards with a legal action glow: a monster, a Spell in the hand and a Set trap.",
+    build: () =>
+      script(
+        board((e) => e.push(edit.monster(ME, 2, C.celtic), edit.setSpell(ME, 1, C.solemn))),
+        [],
+        2400,
+        { legalKeys: ["0:2:0", "0:2:1", "0:4:2", "0:8:1"] },
+      ),
+  },
+  {
+    id: "state-aim",
+    category: "Board states",
+    name: "Attack aim arrow",
+    description: "The arrow BattleFx draws while you choose an attack target: preview, aim and locked.",
+    build: () =>
+      script(
+        board((e) => e.push(edit.monster(ME, 2, C.blueEyes), edit.monster(OPP, 2, C.celtic), edit.monster(OPP, 4, C.harpie)), myHand, oppHand, "battle"),
+        [],
+        2400,
+        { aim: { mode: "aim", from: "0:4:2", to: { zones: ["1:4:2"] } } },
+      ),
+  },
+  {
+    id: "state-aim-direct",
+    category: "Board states",
+    name: "Attack aim arrow: direct",
+    description: "The arrow points at the LP plate for a direct attack.",
+    build: () =>
+      script(
+        board((e) => e.push(edit.monster(ME, 2, C.blueEyes)), myHand, oppHand, "battle"),
+        [],
+        2400,
+        { aim: { mode: "locked", from: "0:4:2", to: { lpSeat: OPP } } },
+      ),
+  },
+  {
+    id: "state-master-return",
+    category: "Board states",
+    name: "Deck Master returns",
+    description: "A Domain duel: the Deck Master goes back to its zone from the Graveyard.",
+    build: () =>
+      script(
+        board((e) => e.push(edit.grave(ME, C.darkMagician), edit.deckMaster(ME, C.darkMagician, { inZone: false, returns: 0, nextCost: 1000 }), edit.deckMaster(OPP, C.blueEyes, { inZone: true, returns: 0, nextCost: 1000 }))),
+        [{ at: 0, edits: [edit.removeGrave(ME, 0), edit.deckMaster(ME, C.darkMagician, { inZone: true, returns: 1, nextCost: 2000 })] }],
+        3600,
+        { domain: true },
+      ),
+  },
+  {
+    id: "state-result-win",
+    category: "Board states",
+    name: "Result screen: you win",
+    description: "The result screen reveal after the last damage.",
+    build: () =>
+      script(
+        board((e) => e.push(edit.monster(ME, 2, C.blueEyes), edit.lp(OPP, 2000)), myHand, oppHand, "battle"),
+        [
+          { at: 0, events: [ev.attack(ME, MZ(ME, 2))] },
+          { at: 900, events: [ev.damage(OPP, 2000)], edits: [edit.lp(OPP, 0)] },
+          { at: 4200, result: { winnerSeat: ME, reason: "Life points reached 0" } },
+        ],
+        4000,
+      ),
+  },
+  {
+    id: "state-result-loss",
+    category: "Board states",
+    name: "Result screen: you lose",
+    description: "The result screen reveal when the opponent wins.",
+    build: () =>
+      script(
+        board((e) => e.push(edit.lp(ME, 1500))),
+        [
+          { at: 0, events: [ev.damage(ME, 1500, "effect")], edits: [edit.lp(ME, 0)] },
+          { at: 2800, result: { winnerSeat: OPP, reason: "Life points reached 0" } },
+        ],
+        4000,
+      ),
+  },
+  {
+    id: "state-result-draw",
+    category: "Board states",
+    name: "Result screen: draw",
+    description: "The result screen when the duel ends with no winner.",
+    build: () => script(board(), [{ at: 0, result: { winnerSeat: null, reason: "Both players ran out of time" } }], 3600),
+  },
+];
+
+/* ---------- catalog ---------- */
+
+export const LAB_CATEGORIES: readonly LabCategory[] = ["Attacks", "Destroy", "Summons", "Card moves", "Chain", "LP", "Banners", "Board states"];
+
+export const LAB_SCENARIOS: readonly LabScenario[] = [...ATTACKS, ...DESTROY, ...SUMMONS, ...MOVES, ...CHAIN, ...LP, ...BANNERS, ...STATES];
+
+export function scenariosIn(category: LabCategory): LabScenario[] {
+  return LAB_SCENARIOS.filter((scenario) => scenario.category === category);
+}
+
+export function findScenario(id: string): LabScenario | undefined {
+  return LAB_SCENARIOS.find((scenario) => scenario.id === id);
+}
