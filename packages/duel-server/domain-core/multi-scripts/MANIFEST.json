@@ -906,6 +906,16 @@
       "stockSha256": "4be782dd7f9beb1a4dea5875f3adfff3a9b2928ef57eed22c9bc710d8b4abc9f"
     },
     {
+      "code": 34004470,
+      "file": "c34004470.lua",
+      "name": "The Big Saturn",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "b6122128fb4c8b94aeaa98294e4629574e1f15b27178f0d2eb2ac93917416d1f"
+    },
+    {
       "code": 34047456,
       "file": "c34047456.lua",
       "name": "Gigantic Thundercross",
@@ -973,6 +983,26 @@
       "stockSha256": "e330441b5b04c4b2c200a4ec4bd929885ba9ee5cf3b51b46828252c4cc9505d4"
     },
     {
+      "code": 35842855,
+      "file": "c35842855.lua",
+      "name": "Pyrorex the Elemental Lord",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "76d357aeda1a516217b722b275252996e70e03b78cccd20dab427ca0b9cc62db"
+    },
+    {
+      "code": 35998832,
+      "file": "c35998832.lua",
+      "name": "Zohah, the Ogdoadic Boundless",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "741dec2cee2771d962b659961885de0a4286a908e3667603eba1212c0453aefd"
+    },
+    {
       "code": 36668118,
       "file": "c36668118.lua",
       "name": "Boot Sector Launch",
@@ -1020,6 +1050,16 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "326b6c2da53db6e5837a0df646f1286d72dd8c394fab613883418a8a7f8486de"
+    },
+    {
+      "code": 37780349,
+      "file": "c37780349.lua",
+      "name": "Destiny HERO - Dynatag",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "42f98b5f285c5e65180ef86610cc026ebe67f409b01e1024ad63f7a9cda5d554"
     },
     {
       "code": 38026562,
@@ -1093,6 +1133,16 @@
       "stockSha256": "4fd45c718cd3997813bf4402614e42b3023dab2f261190cbf4cdedd7fce3b1cc"
     },
     {
+      "code": 39552584,
+      "file": "c39552584.lua",
+      "name": "Grapha, Dragon Overlord of Dark World",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "3683ac156bec259cc0ea033d85641a7417a5129df4457ed9091ace1f2c1fc605"
+    },
+    {
       "code": 39618799,
       "file": "c39618799.lua",
       "name": "Cyber Angel Dakini",
@@ -1111,6 +1161,16 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "28aa31e9fe4dba30a4915dd4d40d75c5e97855c7e1de98f183094163493a349f"
+    },
+    {
+      "code": 39767432,
+      "file": "c39767432.lua",
+      "name": "Sorcerer of Sebek",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "89b8a47871586590b326fd569937b72b4f15a38ff8fae43c0212155444994ecf"
     },
     {
       "code": 39900763,
@@ -1179,6 +1239,16 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "100321adc2379201c936e524bdff4c35dc30b75e99f80f93df2698c00d6fdbb2"
+    },
+    {
+      "code": 42517468,
+      "file": "c42517468.lua",
+      "name": "Ojama Pink",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "aa45dff987f42d5803585456668e393f744ffbe11018b7f9a7760b5956227e3f"
     },
     {
       "code": 43434803,
@@ -1250,6 +1320,16 @@
       "stockSha256": "6abecfeb2cbc06c941b78d2b13c22b9951482655b7b30fdb9fe1d0be1bf358a8"
     },
     {
+      "code": 45742626,
+      "file": "c45742626.lua",
+      "name": "Pilgrim Reaper",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "4e63c009f801997702e177555659bfd37a4b059416c31f753c49c260ae0c9be4"
+    },
+    {
       "code": 45894482,
       "file": "c45894482.lua",
       "name": "Gilasaurus",
@@ -1285,6 +1365,26 @@
       "note": "Script fix (s2-duelstyle-swap-1): only the owner of the stolen monster gains the 1000 LP, in its own Standby Phase, with no pick (Duel.MPTurnOwns). Not part of R1."
     },
     {
+      "code": 46031686,
+      "file": "c46031686.lua",
+      "name": "Damage Polarizer",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "bdc84f5fca9de7cf25eccc4111a878fcf58d2e8e7952edd31e4bea76821c81c1"
+    },
+    {
+      "code": 46089249,
+      "file": "c46089249.lua",
+      "name": "Koa'ki Ring",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "55127880a2557cf77a7fc6de8bcd2ad38c9259a3306d37c9c64286633d8f54b1"
+    },
+    {
       "code": 46772449,
       "file": "c46772449.lua",
       "name": "Evilswarm Exciton Knight",
@@ -1317,6 +1417,26 @@
         "condition"
       ],
       "stockSha256": "1bf3f96b489d20378f9f070fe7a68d91aea7316a4d3855e1ceda7352649c39da"
+    },
+    {
+      "code": 47233801,
+      "file": "c47233801.lua",
+      "name": "Dark Snake Syndrome",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "f4e96c89c1eff53dfe005fc3bff00f1e23206d6358383ce71d03ca16af90f083"
+    },
+    {
+      "code": 48150362,
+      "file": "c48150362.lua",
+      "name": "Destiny HERO - Drawhand",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "efcc955398b73fd5d5ad4cb3de783c538a353d37cc3e06a6db338a55840d3fdb"
     },
     {
       "code": 48216773,
@@ -1357,6 +1477,16 @@
       "chooserClass": "CH-OP",
       "stockSha256": "151ce2ea5cb256fc768acb80d2545a0d655ee5fef375a26633d95e924de750d5",
       "note": "The Standby Phase effect keeps the REAL seat of the controller of the banished monster in the effect value (Duel.MPSeatOf) and binds it again with Duel.MPBindSeat when it runs; a dead seat gives no offer."
+    },
+    {
+      "code": 50470982,
+      "file": "c50470982.lua",
+      "name": "The Paths of Destiny",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "c8a2b8f67bef6ec6cc6c6ba3eda41eb8af32b1c5c280fa78e82929665b45a340"
     },
     {
       "code": 50599453,
@@ -1406,6 +1536,16 @@
         "R1"
       ],
       "stockSha256": "ac36ccebd90d1564a77f38918805e1090362cadf415e05194d1d7f7fdd679375"
+    },
+    {
+      "code": 52350806,
+      "file": "c52350806.lua",
+      "name": "Danger! Mothman!",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "8e2867e2106c21f98bbbfbd1f168d01559243bc351f9a63335317a1ee0d5a487"
     },
     {
       "code": 53244294,
@@ -1529,6 +1669,16 @@
       "note": "Numeron Dragon (review A item 2): desop keeps the window index per card and Sets each card in the window of its seat (the owner is folded in FFA). spcon in FFA counts only a direct attack that can only go to you (no other seat without a monster): the core has no read of the attacked duelist."
     },
     {
+      "code": 58071123,
+      "file": "c58071123.lua",
+      "name": "Oxygeddon",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "c93e4baf83872d4ae407f041a734c32c00fac7b8df2a83119cf52b2080576e60"
+    },
+    {
       "code": 58551308,
       "file": "c58551308.lua",
       "name": "Spear Cretin",
@@ -1542,6 +1692,16 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "56d09211c1bf32d4ca6b981bb31ddabae4858936747f84d261dfe6881ac30137"
+    },
+    {
+      "code": 59094601,
+      "file": "c59094601.lua",
+      "name": "The Revived Sky God",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "bba517904b492d90fccdc1d5e2d9e32f5164bc4d8769d37286b3ec6e6863930b"
     },
     {
       "code": 60375194,
@@ -1621,6 +1781,16 @@
       "stockSha256": "adc9c1eda8631d9395ad431329e51c9c29955815f65a9d28a2b865c6ac88513c"
     },
     {
+      "code": 62320425,
+      "file": "c62320425.lua",
+      "name": "Agido the Ancient Sentinel",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "fe36016acf4c4996df3baa7760bf71544d0786ffd6928452e16f8ca8bae99fa9"
+    },
+    {
       "code": 62383431,
       "file": "c62383431.lua",
       "name": "Keurse, the Ogdoadic Light",
@@ -1639,6 +1809,26 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "6e17185e669e90fc75bf6741cdd609471395d0bf6098d3f6b320c7857b07f43c"
+    },
+    {
+      "code": 63378869,
+      "file": "c63378869.lua",
+      "name": "Aiza the Dragoness of Deranged Devotion",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "f224f49c886c6b8e4e6d291e5d7205d4780c177a3beef6254591943c33e7de44"
+    },
+    {
+      "code": 64325438,
+      "file": "c64325438.lua",
+      "name": "Generaider Boss Room",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "ead5481f7ca0d03da0a45f4dc9ff0765f82f7b2de25b41fc8c33bfa2b821e868"
     },
     {
       "code": 65589010,
@@ -1670,6 +1860,16 @@
       "stockSha256": "dba91e6dd8fbe138727e2d4e6909fb9e668087799ca082014e945de6b819297c"
     },
     {
+      "code": 66719324,
+      "file": "c66719324.lua",
+      "name": "Rain of Mercy",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "f6093deeed3880b6aa17251e5ddbdcfccbf590b96d2c4760cbd2685d65885929"
+    },
+    {
       "code": 67443336,
       "file": "c67443336.lua",
       "name": "Balance of Judgment",
@@ -1689,6 +1889,16 @@
         "target"
       ],
       "stockSha256": "061576f8addd5a0bfa9711d72e93269ab65a9542e628a08b545725407ba36f89"
+    },
+    {
+      "code": 68078978,
+      "file": "c68078978.lua",
+      "name": "Fortune Fairy Chee",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "7d002b3547fd58d862faa59970b1aa719bb4eb04f1452f1670835ddc4f12ad4b"
     },
     {
       "code": 68199168,
@@ -1719,6 +1929,16 @@
         "R1"
       ],
       "stockSha256": "3693e2446758134c6e861dff80d9490027144da1606540e815640ae227af499d"
+    },
+    {
+      "code": 69402394,
+      "file": "c69402394.lua",
+      "name": "Dark Scheme",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "fbad42ee891317236159bcfca671bd7cd05a9f1919f835e9f7bf228958e84e04"
     },
     {
       "code": 70914287,
