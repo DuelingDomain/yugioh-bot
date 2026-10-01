@@ -16,6 +16,7 @@ Konami publishes official rules only for Tag Duels (TCG, revised 5 December 2019
 - `[R-COMMON-ALL-BOTH]` **"All" and both sides of the field.** An effect that affects "all" cards, or cards on both sides of the field (for example Dark Hole: "destroy all monsters on the field"), affects every duelist, you and your 2v2 partner included. An effect on "your opponent" affects only opponents, never your partner.
 - `[R-COMMON-EMZ]` **Extra Monster Zones.** Each duelist has their own two Extra Monster Zones (EMZ) on their own field. As in 1v1 (Master Rule 4 and 5), a duelist may use one of them. A second monster goes into the other EMZ only when the 1v1 rules allow it (for example, a Link Monster points to that zone). The EMZ of different duelists do not block each other.
 - `[R-COMMON-FL-LIST]` The Forbidden & Limited List applies per duelist (per Deck).
+- `[R-COMMON-SEAT-STATE]` **Per-player flags and counters (owner decision Q6).** A flag or counter that a card keeps for each player (for example Curse of the Circle, Wiseman's Chalice, Fatal Abacus) has one slot per seat in free-for-all and one slot per team in Tag. The key is the team in Tag and the seat in free-for-all (rule R2 of the triage).
 
 ## 2v2 Tag (official TCG Tag Duel rules)
 
