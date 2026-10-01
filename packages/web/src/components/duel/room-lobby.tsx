@@ -6,6 +6,7 @@ import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, X, type
 import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yugidraft/shared/duels";
 import { DeckCardPreview } from "./deck-card-preview";
 import { DeckEditor } from "./deck-editor";
+import { shouldCheckDeck, startButtonLabel } from "./start-flow";
 import { SeriesBadges } from "./series-banner";
 import { deckCounts } from "./side-deck-model";
 import { DuelSettingsSummary, RoomInvite } from "./room-settings";
@@ -66,7 +67,9 @@ export function RoomLobby({
   room,
   slug,
   busy,
+  starting = false,
   actionError,
+  onDeckLocked,
   onJoin,
   onAddBot,
   onRemoveBot,
@@ -79,7 +82,11 @@ export function RoomLobby({
   room: DuelRoom;
   slug: string;
   busy: boolean;
+  /** Start duel was clicked and the server has not answered yet. */
+  starting?: boolean;
   actionError: string | null;
+  /** A deck check was refused because the duel already started: refresh the room. */
+  onDeckLocked?: () => void;
   onJoin: () => void;
   onAddBot: () => void;
   /** Organizer only: takes the practice bot out of its seat so a human can join. */
@@ -172,7 +179,7 @@ export function RoomLobby({
                   </SheetButton>
                 ) : canStart ? (
                   <SheetButton kind="primary" size="lg" loading={busy} disabled={busy} onClick={onStart}>
-                    Start duel<Swords size={17} strokeWidth={1.6} aria-hidden />
+                    {startButtonLabel(starting)}{starting ? null : <Swords size={17} strokeWidth={1.6} aria-hidden />}
                   </SheetButton>
                 ) : lockedDeck ? (
                   <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || myMeta?.ready || !onMarkReady} onClick={onMarkReady}>
@@ -215,6 +222,8 @@ export function RoomLobby({
                   settings={session.settings}
                   initial={room.myDeck}
                   busy={busy}
+                  locked={starting || !shouldCheckDeck(session.status)}
+                  onLocked={onDeckLocked}
                   onReady={onReady}
                   onPreviewCard={setPreviewCode}
                 />

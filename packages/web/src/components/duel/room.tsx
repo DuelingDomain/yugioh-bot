@@ -54,6 +54,7 @@ import {
 import { cardArtUrl, isBattlePhase, phaseLabel, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { duelWindowPath, exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
+import { ownWindowGateVisible } from "./start-flow";
 import { SeriesBanner } from "./series-banner";
 import { SideDeckPanel } from "./side-deck-panel";
 import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
@@ -299,10 +300,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const [playHere, setPlayHere] = useState(false);
   const [windowBlocked, setWindowBlocked] = useState(false);
   const [windowOpened, setWindowOpened] = useState(false);
+  // Start duel was clicked and the server has not answered yet.
+  const [starting, setStarting] = useState(false);
   const openWindow = () => {
-    const opened = openDuelWindow(slug) != null;
-    setWindowOpened(opened);
-    setWindowBlocked(!opened);
+    const opened = openDuelWindow(slug);
+    setWindowOpened(opened != null);
+    setWindowBlocked(opened == null);
+    return opened;
   };
   useEffect(() => { if (isDuelWindow(slug)) setInDuelWindow(true); }, [slug]);
   const [menu, setMenu] = useState<CardMenuState | null>(null);
@@ -431,6 +435,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     setSideOpen(false);
     setMobileInspect(false);
     setActionError(null);
+    setStarting(false);
   }, [slug]);
 
   const run = useCallback(
@@ -613,9 +618,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     );
   }
   if (!data) return null;
-  if (data.session.status === "lobby") {
+  // The server flips to active before it answers Start duel; the pop-up already has the duel then.
+  const ownWindowGate = ownWindowGateVisible({
+    status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,
+    hasResult: Boolean(data.engine?.result), starting, windowOpened,
+  });
+  if (data.session.status === "lobby" && !ownWindowGate) {
     return (
-      <RoomLobby room={data} slug={slug} busy={busy} actionError={actionError}
+      <RoomLobby room={data} slug={slug} busy={busy} starting={starting} actionError={actionError}
+        onDeckLocked={() => void refreshRoom()}
         onJoin={() => void run(() => joinDuel(slug))}
         onAddBot={() => void run(() => addPracticeBot(slug))}
         onRemoveBot={() => void run(() => removePracticeBot(slug))}
@@ -623,8 +634,19 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         onMarkReady={() => void run(() => markDuelReady(slug))}
         onStart={() => {
           // Inside the click, so pop-up blockers allow it. Seated players on other devices get the prompt below.
-          if (!inDuelWindow) openWindow();
-          void run(() => startDuel(slug));
+          if (inFlight.current) return;
+          const opened = inDuelWindow ? null : openWindow();
+          setStarting(true);
+          void run(async () => {
+            try {
+              return await startDuel(slug);
+            } catch (err) {
+              // Back to the lobby with the error; the pop-up has nothing to show.
+              setStarting(false);
+              try { opened?.close(); } catch { /* the browser keeps it open */ }
+              throw err;
+            }
+          });
         }}
         onCancel={() => void run(() => cancelDuel(slug))}
         onLeave={() => void run(async () => {
@@ -655,7 +677,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
     else router.replace("/duels");
   };
-  if (data.session.status === "active" && data.mySeat != null && !inDuelWindow && !playHere && !engine?.result) {
+  if (ownWindowGate) {
     return (
       <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 text-center"
         data-testid="duel-window-gate">
