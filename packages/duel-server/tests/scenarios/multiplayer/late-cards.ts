@@ -246,6 +246,48 @@ function ante(format: Format, ownerWins: boolean): Scenario {
   });
 }
 
+// Ante: an opponent with no hand card cannot take part. The stock target needs a card in the hand of "your opponent" (chk == 0), the core runs
+// it for each opponent in turn (the bound-opponent probe), so the pick offers only the opponents with a hand card; when only one opponent is left it
+// is bound with no prompt. An opponent with an empty hand is never offered, never shows a card and never loses life points or a card.
+// p1 has no hand card in every format. FFA3: only p2 has one (no pick prompt). FFA4: p2 and p3 have one (the pick lists exactly them, p3 is picked).
+// Tag: p3 has one, p1 (the other opposing duelist) has none, and the partner p2 has one that must stay in its hand (no pick prompt).
+function anteEmptyHand(format: Format): Scenario {
+  const seats = seatsOf(format);
+  const label = format === "tag" ? "Tag" : format.toUpperCase();
+  const lp = format === "tag" ? 16000 : 8000;
+  // FFA3 and Tag: the owner wins (Summoned Skull against Mystical Elf), the opponent loses. FFA4: the owner loses.
+  const ownerWins = format !== "ffa4";
+  const picked: Seat = format === "ffa3" ? "p2" : "p3";
+  const ownerCard = ownerWins ? SKULL : ELF;
+  const pickedCard = ownerWins ? ELF : SKULL;
+  const others: Partial<Record<Seat, string>> = format === "ffa3" ? {} : format === "ffa4" ? { p2: AXE } : { p2: RAT };
+  const setup: Scenario["setup"] = { format };
+  const spec: Partial<Record<Seat, DuelistExpect>> = {};
+  const loserSeats: Seat[] = ownerWins
+    ? seats.filter((seat) => (format === "tag" ? seat === "p1" || seat === "p3" : seat === picked))
+    : seats.filter((seat) => seat === "p0");
+  for (const seat of seats) {
+    const hand: string[] = seat === "p0" ? [ANTE, ownerCard] : seat === picked ? [pickedCard] : others[seat] ? [others[seat] as string] : [];
+    (setup as Record<string, unknown>)[seat] = { hand };
+    const kept = seat === "p0" ? (ownerWins ? [ownerCard] : []) : seat === picked ? (ownerWins ? [] : [pickedCard]) : others[seat] ? [others[seat] as string] : [];
+    const grave = [...(seat === "p0" ? [ANTE] : []), ...(seat === "p0" && !ownerWins ? [ownerCard] : []), ...(seat === picked && ownerWins ? [pickedCard] : [])];
+    spec[seat] = { hand: kept, grave, ...(loserSeats.includes(seat) ? { lp: lp - 1000 } : {}) };
+  }
+  // After the activation: a pick prompt that lists exactly the opponents with a hand card (FFA4), or the main phase of p0 (one legal opponent).
+  const steps: Step[] = format === "ffa4"
+    ? [activate(ANTE, "p0"), expectPickSeats(["p2", "p3"], "p0"), pickOpponent(picked, "p0"), everySeat(format, spec, lp)]
+    : [activate(ANTE, "p0"), expectPrompt({ by: "p0", context: "action" }), everySeat(format, spec, lp)];
+  return defineScenario({
+    id: `late-${format}-ante-an-opponent-with-no-hand-is-not-offered`,
+    title: `${label}: p0 activates Ante while p1 has no hand card: ${format === "ffa4" ? "the pick lists only p2 and p3 (they have a hand card), p0 picks p3" : `p1 is not offered, ${picked} is the only opponent left and is bound with no pick prompt`}; ${ownerWins ? `p0 shows the higher Level, only ${format === "tag" ? "the team of p3" : picked} takes 1000 and ${picked} loses its shown card` : `p3 shows the higher Level, only p0 takes 1000 and loses its shown card`}; the opponent with no hand${format === "tag" ? " and the partner p2 are" : " is"} unchanged`,
+    source: ANTE_RULE,
+    rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    tags: ["multiplayer", "late-cards", "duel-style", "opp-pick", "hand", "empty-hand", format, "card:34236961"],
+    setup,
+    steps,
+  });
+}
+
 // --- Hero Counterattack and Foolish Revival in Tag, Foolish Revival with a Graveyard that is not the picked one ----------------------
 const HERO_RULE = `${SOURCE} [R-COMMON-OPP-PICK], the other cards use the defaults: Hero Counterattack (the opponent that attacked picks at random from your hand)`;
 const REVIVAL_RULE = `${SOURCE} [R-COMMON-OPP-PICK], [R-COMMON-OPP-FIELD], a summon to the field of an opponent: the summoning player picks one opponent, the target may be in the Graveyard of any opponent`;
@@ -528,6 +570,9 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   ante("ffa4", false),
   ante("tag", true),
   ante("tag", false),
+  anteEmptyHand("ffa3"),
+  anteEmptyHand("ffa4"),
+  anteEmptyHand("tag"),
   heroCounterattackTag,
   foolishRevivalOtherGrave("ffa3"),
   foolishRevivalOtherGrave("tag"),
