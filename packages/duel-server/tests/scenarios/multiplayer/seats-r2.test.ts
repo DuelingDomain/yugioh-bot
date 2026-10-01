@@ -3,15 +3,15 @@ import createCore, { type OcgCardData } from "ocgcore-wasm";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { R2_NO_CHANGE, readManifest } from "../../../scripts/generate-multi-scripts.js";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
-import { describeWithCores } from "../../support/cores.js";
+import { describeWithCores, needs } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { nseatWasmBinary } from "../../support/session.js";
 import { SEATS_R2_SCENARIOS } from "./seats-r2.js";
 
 // Live scenarios of the seat rules of the overlay (R2 seat state, Q10 label fixes). Same gate as the other live N-seat scenario files
-// (NSEAT_LIVE=1 and a multi core), and the core must have Duel.MPNthDuelist (patch 0053). A core without it (P52) skips the live run and the
-// skip names the patch. Run it on the Standard multi core and again on the Domain multi core:
+// (NSEAT_LIVE=1 and a multi core), and the core must have Duel.MPNthDuelist (patch 0053). A core without it (P52) is a missing need (a skip with a warning, a failure with DUEL_REQUIRE_CORES=1) and the
+// message names the patch. Run it on the Standard multi core and again on the Domain multi core:
 //   NSEAT_WASM=domain-core/dist/ocgcore.multi-P56.sync.wasm          (Standard)
 //   NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-P56.sync.wasm   (Domain)
 async function probeNthDuelist(): Promise<boolean> {
@@ -32,11 +32,11 @@ async function probeNthDuelist(): Promise<boolean> {
     return false;
   }
 }
-const hasNth = process.env.NSEAT_LIVE === "1" && (await probeNthDuelist());
+// A core without the seats is a missing need: it fails with DUEL_REQUIRE_CORES=1 and skips (with a warning) without it, never a silent it.skip.
+const nthDuelist = needs.coreFeature("multi core with patch 0053 (MPNthDuelist, MPSeat, MPSeatOf, MPBindSeat)", process.env.NSEAT_LIVE !== "1" || (await probeNthDuelist()), "Set NSEAT_WASM to a build with patch 0053 or later (ocgcore.multi-P59.sync.wasm).");
 
-describeWithCores("live scenarios of the seat rules (R2 seat state, Q10 label fixes)", liveNseat, () => {
-  if (hasNth) runScenarios("multiplayer/seats-r2", SEATS_R2_SCENARIOS);
-  else it.skip("needs a multi core with patch 0053 (MPNthDuelist, MPSeat, MPSeatOf, MPBindSeat): set NSEAT_WASM to ocgcore.multi-P53.sync.wasm", () => {});
+describeWithCores("live scenarios of the seat rules (R2 seat state, Q10 label fixes)", [liveNseat, nthDuelist], () => {
+  runScenarios("multiplayer/seats-r2", SEATS_R2_SCENARIOS);
 });
 
 describe("seats-r2 scenario list", () => {

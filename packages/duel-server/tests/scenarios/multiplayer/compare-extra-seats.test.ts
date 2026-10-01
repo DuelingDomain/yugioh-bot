@@ -2,20 +2,19 @@ import { describe, expect, it } from "vitest";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { readManifest } from "../../../scripts/generate-multi-scripts.js";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
-import { describeWithCores } from "../../support/cores.js";
+import { describeWithCores, needs } from "../../support/cores.js";
 import { probeCoreSeats } from "../../support/core-seats.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { COMPARE_EXTRA_SEAT_SCENARIOS } from "./compare-extra-seats.js";
 
 // Scenarios of overlay cards that need the core seats of patch 0053. Same gate as compare-extra.test.ts (NSEAT_LIVE=1 and a multi
-// core), and the core must have Duel.MPSeat, Duel.MPSeatOf and Duel.MPBindSeat. A core without them (P52) skips the live run, and
-// the skip names the missing patch. Set MULTI_WASM (and DOMAIN_MULTI_WASM) to the P53 builds to run it.
-const hasSeats = process.env.NSEAT_LIVE === "1" && (await probeCoreSeats());
+// core), and the core must have Duel.MPSeat, Duel.MPSeatOf and Duel.MPBindSeat. A core without them (P52) is a missing need: the suite
+// skips with a warning, and FAILS with DUEL_REQUIRE_CORES=1. Set MULTI_WASM (and DOMAIN_MULTI_WASM) to the P53 or later builds to run it.
+const coreSeats = needs.coreFeature("multi core with patch 0053 (MPSeat, MPSeatOf, MPBindSeat)", process.env.NSEAT_LIVE !== "1" || (await probeCoreSeats()), "Set NSEAT_WASM to a build with patch 0053 or later (ocgcore.multi-P59.sync.wasm).");
 
-describeWithCores("live scenarios that need the core seats of patch 0053", liveNseat, () => {
-  if (hasSeats) runScenarios("multiplayer/compare-extra-seats", COMPARE_EXTRA_SEAT_SCENARIOS);
-  else it.skip("needs a multi core with patch 0053 (MPSeat, MPSeatOf, MPBindSeat): set NSEAT_WASM to ocgcore.multi-P53.sync.wasm", () => {});
+describeWithCores("live scenarios that need the core seats of patch 0053", [liveNseat, coreSeats], () => {
+  runScenarios("multiplayer/compare-extra-seats", COMPARE_EXTRA_SEAT_SCENARIOS);
 });
 
 describe("seat scenario list", () => {

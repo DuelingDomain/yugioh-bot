@@ -134,6 +134,14 @@ export const needs = {
     return { kind: "multi", label: "multi core with Debug.SetupDuelists", where, ok: exists(where) && probeOk, hint: `${BUILD_HINT} MULTI_WASM or NSEAT_WASM names another build.` };
   },
   /**
+   * A feature of the multi core that a probe found (a Lua function that a patch adds, for example Duel.MPSeat of patch 0053).
+   * A core without it FAILS in require mode: a probe gate must never hide a suite with `it.skip` (see failIfRequired).
+   * `probeOk` is true when the probe found the feature; pass true when NSEAT_LIVE is not set (the live gate names that case).
+   */
+  coreFeature(label: string, probeOk: boolean, hint: string, path: string = currentNseatWasm()): CoreNeed {
+    return { kind: "multi", label, where: path, ok: exists(path) && probeOk, hint };
+  },
+  /**
    * The live N-seat scenarios. They also need NSEAT_LIVE=1: the synchronous core cannot be stopped by a test timeout,
    * and the default core build can hang when seat 1 ends its turn. REMOVE this gate when the merged core is installed
    * (ADVISOR-4 item 3). Until then DUEL_REQUIRE_CORES=1 without NSEAT_LIVE=1 fails these tests, on purpose,
