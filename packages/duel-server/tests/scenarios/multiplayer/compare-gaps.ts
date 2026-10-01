@@ -7,7 +7,7 @@
 // Decisions: docs/adr/0002-multiplayer-duel-rules.md (question 2): FFA, the activator compares with ONE opponent.
 
 import {
-  activate, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard, expectEliminated, expectNoPrompt, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectTurn,
+  activate, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard, expectEliminated, expectNoPrompt, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectRetry, expectTurn,
   normalSummon, pass, pickOpponent, position, select, surrender, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -463,11 +463,11 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
-  // W8: a seat gives up while the pick prompt of p0 is open. The engine applies the loss at its next Adjust, so the prompt stays open for p0.
-  // Open: p0 may still pick the seat with the pending loss (then the Sky asks for its targets before p1 is out).
+  // W8: a seat gives up while the pick prompt of p0 is open. The loss lands at the next Adjust, but a seat with a pending loss must not be
+  // picked: the core answers MSG_RETRY to an answer that names it, and p0 picks the other seat (core: SelectOption with a pick of an opponent).
   defineScenario({
     id: "compare-gaps-ffa3-surrender-while-the-opponent-pick-is-open",
-    title: "FFA3: p1 gives up while p0 picks an opponent for Ultimate Sky (p1 and p2 both pass): the pick prompt stays open (the loss lands at the next Adjust), p0 picks p2, the Sky resolves on p2, p1 is out and no other seat changes (W8)",
+    title: "FFA3: p1 gives up while p0 picks an opponent for Ultimate Sky (p1 and p2 both pass): the answer that names p1 is refused (it has a pending loss), p0 picks p2, the Sky resolves on p2, p1 is out and no other seat changes (W8)",
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK", "R-FFA-ELIMINATION"],
     tags: ["multiplayer", "compare", "elimination", "ffa3", "card:38817295"],
@@ -481,7 +481,8 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       activate("Ultimate Sky", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),
       surrender("p1"),
-      expectPickSeats(["p1", "p2"], "p0"),
+      // The prompt still lists p1 (it was built before the surrender). An answer that names p1 is refused; nothing changes.
+      expectRetry({ choice: "opt:0" }, { error: "Invalid answer", by: "p0" }),
       pickOpponent("p2", "p0"),
       select(BUG),
       expectEliminated("p1"),
