@@ -66,6 +66,7 @@ import { PositionFx } from "./position-fx";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
+import { usePickContinuation } from "./pick-continuation";
 import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
 import { PileViewer } from "./pile-viewer";
 import { shouldClosePileForPrompt } from "./pile-focus";
@@ -321,8 +322,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   // The centred panel waits a human beat and the board FX before it shows; until then nothing answers it.
   // It also waits until the room can take an answer (the last answer finished, no re-sync): until then every button
   // is disabled, so a panel shown early looks ready and is dead.
-  const revealBeat = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion });
-  const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp);
+  // A follow-up of the player's own material pick skips both waits and shows at once (its buttons stay off while busy).
+  // Between the click and that prompt the last bar stays up (pick.waiting), buttons off.
+  const pick = usePickContinuation(prompt);
+  const revealBeat = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion, skip: pick.continuing });
+  const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp, pick.continuing);
   const revealed = revealBeat && answerable;
   const activeMenu = !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
     menu?.revision === data?.engine?.revision ? menu : null;
@@ -468,6 +472,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       // The answer is on its way (e.g. an Extra Deck summon picked in the pile viewer): the next prompt decides
       // whether the viewer stays (it wants a card in the pile) or closes (materials on the field must not sit behind it).
       pileAnswered.current = true;
+      pick.noteAnswer(prompt, answer);
       // Remember the declared attacker so the target step can draw the arrow from it.
       const attack = prompt.context?.type === "action" && answer.choice?.startsWith("attack:")
         ? prompt.options.find((option) => option.id === answer.choice) : undefined;
@@ -476,7 +481,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         : null);
       void run(() => sendDuelAction(slug, command));
     },
-    [data, prompt, error, catchingUp, run, slug],
+    [data, prompt, error, catchingUp, run, slug, pick.noteAnswer],
   );
 
   /** A prompt tile or response row under the pointer: show the card in the inspector, as board cards do. */
@@ -938,8 +943,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                 <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
                   active={!error && !realtime.recovering} mySeat={localSeat} />
                 </FxBoundary>
-                <PromptCenter prompt={prompt} mySeat={data.mySeat} active={data.session.status === "active"} slug={slug}
-                  busy={busy || Boolean(error) || catchingUp} draft={draft} onSubmit={onSubmitAnswer}
+                <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active"} slug={slug}
+                  busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} draft={draft} onSubmit={onSubmitAnswer}
                   menuOpen={Boolean(activeMenu)} chain={engine.chain} aim={promptAim}
                   aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
                   reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
