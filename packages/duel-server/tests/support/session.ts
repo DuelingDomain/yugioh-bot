@@ -246,7 +246,8 @@ export class Session {
    * the choice itself uses zone(), position() or expectPrompt().
    */
   private settle(next: Step, stepNo: number): void {
-    if (["zone", "position", "raw", "auto", "choose"].includes(next.op)) return;
+    // A surrender keeps the routine prompt open too: giving up while a zone prompt is open is a case of its own.
+    if (["zone", "position", "raw", "auto", "choose", "surrender"].includes(next.op)) return;
     if (next.op === "expectPrompt") {
       const want = next.prompt;
       // Inspecting the routine prompt itself keeps it open; any other inspection settles it first.

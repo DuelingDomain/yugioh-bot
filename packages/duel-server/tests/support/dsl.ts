@@ -146,7 +146,9 @@ export const pass = (by?: DuelistId): Step => ({ op: "pass", by });
 
 /**
  * The seat gives up (FFA surrender): `game.eliminate` runs `Debug.EliminateDuelist`. The core applies the loss at its next Adjust, so
- * with a prompt open for another seat the loss lands after that seat answers. Works at any time, no prompt is needed.
+ * with a prompt open for another seat that prompt stays open (the engine does not answer it) and the loss lands after that seat
+ * answers. A prompt of the seat that gives up is answered by the engine. A routine zone or position prompt stays open for this step.
+ * Works at any time, no prompt is needed.
  */
 export const surrender = (seat: DuelistId): Step => ({ op: "surrender", seat });
 

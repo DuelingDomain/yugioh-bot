@@ -35,13 +35,13 @@ These are the defaults. The organizer may later get options for LP.
 
 - `[R-FFA-LP]` Each duelist has their own LP (default 8,000).
 - `[R-FFA-ORDER]` Turn order is clockwise in seat order. The first duelist does not draw on their first turn.
-- `[R-FFA-NO-ATTACK]` **No duelist attacks until every duelist has had one turn.**
+- `[R-FFA-NO-ATTACK]` **No duelist attacks until every duelist has had one turn.** Clarification: the window ends when every **living** duelist has had a turn. A duelist who is eliminated before their first turn never has one, and does not keep the window open. In a game of 3 the first attack is possible on turn 3 and in a game of 4 on turn 4, when one duelist was out before their first turn.
 - `[R-FFA-CHAIN]` **Chain responses.** After a duelist adds a Chain Link, the turn player gets the first chance to respond, because the turn player has priority. Then the chance goes clockwise from the turn player, and the duelist who added the link also gets a chance in their place in that order. When the turn player added the link, the first chance goes to the next duelist clockwise, and the turn player responds last. The chain resolves when every duelist passes in a row.
   - Example (4 players, player 1 is the turn player): player 1 activates a card. Players 2, 3, 4 and then 1 may respond. Player 2 chains. Player 1 responds first, then players 2, 3 and 4.
 - `[R-FFA-TRIGGERS]` **Simultaneous triggers** go on the chain in turn order: the turn player first, then clockwise.
 - `[R-FFA-NEGATE]` A card that negates an activation, an effect or a summon (for example Solemn Judgment or Ash Blossom & Joyous Spring) can negate the activation, effect or summon of any duelist, as in 1v1.
 - `[R-FFA-ATTACK]` The attacking duelist picks any opponent's monster, or makes a direct attack on an opponent who controls no monster.
-- `[R-FFA-ELIMINATION]` A duelist loses at 0 LP or when they must draw from an empty Deck. **Their cards leave the game**, including their cards that another duelist controls, and their ongoing effects stop. **Their Chain Links that are already on the chain resolve with no effect.**
+- `[R-FFA-ELIMINATION]` A duelist loses at 0 LP or when they must draw from an empty Deck. **Their cards leave the game**, including their cards that another duelist controls, and their ongoing effects stop. **Their Chain Links that are already on the chain resolve with no effect.** This holds from the moment the loss is flagged, also for a duelist who gives up while the chain is open: the loss lands after the chain, but the links of that duelist must not act.
 - `[R-FFA-WINNER]` The last duelist left wins.
 
 ## Decisions added on 2026-09-30 (product owner)
