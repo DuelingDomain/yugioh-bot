@@ -78,6 +78,11 @@ services:
       - DUEL_ARCHIVE_AFTER_MS=${DUEL_ARCHIVE_AFTER_MS:-600000}
       # Free an idle engine worker sooner than production does: memory is tight.
       - DUEL_IDLE_WORKER_MS=${STAGING_DUEL_IDLE_WORKER_MS:-120000}
+      # Test tools for the testers: the Report button, the stall watchdog reports, the scenario presets and the
+      # debug-trace route. The web needs the same flag (see the web service). The report folder is on the data
+      # volume, because the container user cannot write in /app.
+      - DUEL_SCENARIOS=1
+      - DUEL_REPORT_DIR=/app/data/duel-reports
     volumes:
       - ${STAGING_DATA_DIR:-./data-staging}:/app/data
     mem_limit: ${STAGING_MEM_DUEL:-768m}
@@ -107,6 +112,8 @@ services:
       - WS_INTERNAL_URL=http://ws:4002
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET:?WS_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
       - DUEL_INTERNAL_URL=http://duel:4003
+      # Shows the Report button and opens the scenario routes. Same flag as on the duel service.
+      - DUEL_SCENARIOS=1
       - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET:?DUEL_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
       # There is no bot here. An empty URL turns every announcement into a no-op.
       - BOT_ANNOUNCE_URL=

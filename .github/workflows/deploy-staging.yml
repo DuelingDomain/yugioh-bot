@@ -91,7 +91,7 @@ jobs:
       # The v1 is a literal: raise it when the build step below changes (the hash cannot see it).
       - name: Compute multi core cache key
         if: ${{ inputs.action == 'deploy' }}
-        run: echo "MULTI_CACHE_KEY=duel-multi-core-staging-v1-${{ hashFiles('packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'patches/ocgcore-wasm+0.1.2.patch') }}" >> "$GITHUB_ENV"
+        run: echo "MULTI_CACHE_KEY=duel-multi-core-staging-v2-${{ hashFiles('packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'patches/ocgcore-wasm+0.1.2.patch') }}" >> "$GITHUB_ENV"
 
       - name: Read the emsdk image from pins.json
         if: ${{ inputs.action == 'deploy' }}
@@ -141,7 +141,7 @@ jobs:
           path: packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
           key: ${{ env.MULTI_CACHE_KEY }}
 
-      # LUA_FIXED_SEED=1 and the other flags are the same as in test.yml, so staging runs the tested binary.
+      # No LUA_FIXED_SEED here, unlike test.yml (tests need a repeatable seed): staging must be production-like.
       # Only the plain multi core is built. The Domain multi core does not exist yet, and without its file the
       # duel server refuses Domain at 3 and 4 seats (packages/duel-server/src/multi-domain-guard.ts).
       - name: Build multi core
@@ -151,7 +151,7 @@ jobs:
           docker pull "$EMSDK_IMAGE"
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
             -e EM_CACHE=/src/packages/duel-server/domain-core/.emcache \
-            -e LUA_FIXED_SEED=1 -e OUT_NAME=ocgcore.multi.sync.wasm \
+            -e OUT_NAME=ocgcore.multi.sync.wasm \
             -e MULTI_TREE=/src/packages/duel-server/domain-core/.build/multi-core-tree \
             -v "$PWD":/src -w /src "$EMSDK_IMAGE" \
             bash packages/duel-server/scripts/build-multi-core.sh
@@ -178,7 +178,7 @@ jobs:
           cp "$wasm" "$RUNNER_TEMP/staging-bundle/ocgcore.multi.wasm"
           sum=$(sha256sum "$wasm" | cut -d' ' -f1)
           printf '%s  ocgcore.multi.wasm\n' "$sum" > "$RUNNER_TEMP/staging-bundle/ocgcore.multi.sha256"
-          printf 'ref=%s\ncommit=%s\nsha256=%s\nbuilt=%s\nnote=built by .github/workflows/deploy-staging.yml\n' \
+          printf 'ref=%s\ncommit=%s\nsha256=%s\nbuilt=%s\nnote=built by .github/workflows/deploy-staging.yml, production build, no LUA_FIXED_SEED\n' \
             "$INPUT_REF" "$GITHUB_SHA" "$sum" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             > "$RUNNER_TEMP/staging-bundle/ocgcore.multi.SOURCE"
           echo "ocgcore.multi.wasm sha256 $sum"
