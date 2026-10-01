@@ -174,7 +174,7 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "chooser", "ffa3", "card:80453041"],
-    // The operation of Phantom of Yubel is NOT run here: with core P52 it asks p1 for an opponent and destroys the Yubel of THAT opponent (finding, patch 0053 Duel.MPSeat).
+    // The operation of Phantom of Yubel is NOT run here: it needs the core seats of patch 0053 (Duel.MPSeatOf, Duel.MPBindSeat), see compare-extra-seats.ts.
     setup: {
       format: "ffa3",
       p0: { hand: ["Yubel"], monsters: ["Phantom of Yubel"] },

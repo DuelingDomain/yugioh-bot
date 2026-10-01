@@ -1433,7 +1433,7 @@
       ],
       "chooserClass": "CH-OP",
       "stockSha256": "03b0272d9cf59a5ab8e8c1d783320a5683f09704191e9142ec9235dff5100898",
-      "note": "Only the replacement operation is fixed (the activator, from rp). The inline condition rp==1-tp is left as it is."
+      "note": "Only the replacement operation is fixed: it destroys a Yubel of the controller of Phantom (the stock 1-tp is that duelist), run bound to that real seat (Duel.MPSeatOf, Duel.MPBindSeat; needs core patch 0053). The inline condition rp==1-tp is left as it is."
     },
     {
       "code": 80551022,
