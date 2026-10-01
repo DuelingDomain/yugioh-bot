@@ -4,8 +4,8 @@
 // with no Tribute needs a face-up Kaiju on the field of ANY opponent and goes to the own field. Every scenario asserts the FINAL
 // state of every seat (field, hand, Graveyard, banished, LP) after an action.
 //
-// The Winged Dragon of Ra - Sphere Mode is NOT here: the real engine offers a mixed Tribute and puts Ra on the field of seat 1
-// (see procedures.test.ts, it.todo "s1-procedures-1").
+// The Winged Dragon of Ra - Sphere Mode is a Normal Summon procedure (EFFECT_LIMIT_SUMMON_PROC) that Tributes 3 monsters of ONE
+// opponent (Q8), and Ra goes to the field of that opponent. A mixed Tribute of two opponents is not offered.
 
 import {
   activate, choose, defineScenario, endTurn, eliminate, expectBoard, expectEliminated, expectNotOffered, expectPickOptions, expectPrompt,
@@ -24,6 +24,8 @@ const RAT = "Giant Rat";
 const OX = "Battle Ox";
 const AXE = "Axe Raider";
 const VORSE = "Vorse Raider";
+const RA = "The Winged Dragon of Ra - Sphere Mode";
+const LEOGUN = "Leogun";
 
 /** The exact final state of one seat. Everything not named is empty. */
 const seat = (o: { monsters?: Cards; hand?: Cards; grave?: Cards; banished?: Cards; spells?: Cards } = {}, lp = 8000) => ({
@@ -218,6 +220,64 @@ export const PROCEDURE_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
+  // --- Q8: The Winged Dragon of Ra - Sphere Mode ------------------------------------------------------------------------
+  defineScenario({
+    id: "procedures-ffa3-ra-sphere-mode-split-rejected",
+    title: "FFA3: p1 and p2 control 2 monsters each (4 in all): Ra Sphere Mode is not offered (3 Tributes of ONE opponent are not possible)",
+    source: `${SRC} [Q8]`,
+    rules: ["R-COMMON-OPP-FIELD"],
+    tags: ["multiplayer", "summon", "procedure", "ra", "q8", "ffa3", "card:10000080"],
+    setup: { format: "ffa3", p0: { hand: [RA] }, p1: { monsters: [ELF, RAT] }, p2: { monsters: [OX, AXE] } },
+    steps: [
+      expectNotOffered("normalSummon", RA, "p0"),
+      endTurn("p0"),
+      expectBoard({
+        // p1 starts its turn and draws its only Deck card (a Mystical Elf).
+        p0: seat({ hand: [RA] }),
+        p1: seat({ monsters: [ELF, RAT], hand: [ELF] }),
+        p2: seat({ monsters: [OX, AXE] }),
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "procedures-ffa3-ra-sphere-mode-one-opponent-accepted",
+    title: "FFA3: only p2 controls 3 monsters: Ra Sphere Mode Tributes all 3 and goes to the field of p2, p1 is unchanged",
+    source: `${SRC} [Q8]`,
+    rules: ["R-COMMON-OPP-FIELD"],
+    tags: ["multiplayer", "summon", "procedure", "ra", "q8", "ffa3", "card:10000080"],
+    setup: { format: "ffa3", p0: { hand: [RA] }, p1: { monsters: [ELF, RAT] }, p2: { monsters: [OX, AXE, VORSE] } },
+    steps: [
+      normalSummon(RA, "p0"),
+      // Only p2 can pay: the opponent is bound with no pick, and the Tribute list holds the 3 monsters of p2.
+      expectPickOptions({ count: 3, exclude: [{ card: ELF }, { card: RAT }] }, "p0"),
+      select(OX, AXE, VORSE),
+      expectBoard({
+        p0: seat(),
+        p1: seat({ monsters: [ELF, RAT] }),
+        p2: seat({ monsters: [RA], grave: [OX, AXE, VORSE] }),
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "procedures-ffa3-ra-sphere-mode-picked-opponent",
+    title: "FFA3: p1 and p2 can both pay: p0 picks p2, Ra Sphere Mode Tributes the 3 monsters of p2 and goes to the field of p2",
+    source: `${SRC} [Q8]`,
+    rules: ["R-COMMON-OPP-FIELD", "R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "summon", "procedure", "ra", "q8", "ffa3", "card:10000080"],
+    setup: { format: "ffa3", p0: { hand: [RA] }, p1: { monsters: [ELF, RAT, LEOGUN] }, p2: { monsters: [OX, AXE, VORSE] } },
+    steps: [
+      normalSummon(RA, "p0"),
+      pickOpponent("p2", "p0"),
+      // The Tribute list holds the monsters of p2 only: a mixed Tribute is not offered.
+      expectPickOptions({ count: 3, exclude: [{ card: ELF }, { card: RAT }, { card: LEOGUN }] }, "p0"),
+      select(OX, AXE, VORSE),
+      expectBoard({
+        p0: seat(),
+        p1: seat({ monsters: [ELF, RAT, LEOGUN] }),
+        p2: seat({ monsters: [RA], grave: [OX, AXE, VORSE] }),
+      }),
+    ],
+  }),
   // --- W6 (Kaiju part): the bound seat is eliminated before the summon resolves -----------------------------------------
   defineScenario({
     id: "procedures-ffa3-kaiju-bound-seat-eliminated-no-widening",
@@ -234,7 +294,7 @@ export const PROCEDURE_SCENARIOS: Scenario[] = [
       expectEliminated("p2"),
       // The summon fails for the dead seat and does not move to the other opponent: p1 keeps its monster and gets no Kaiju.
       expectBoard({
-        p0: seat({ grave: [KAIJU] }),
+        p0: seat({ hand: [KAIJU] }),
         p1: seat({ monsters: [ELF] }),
         p2: GONE,
       }),
@@ -254,7 +314,7 @@ export const PROCEDURE_SCENARIOS: Scenario[] = [
       select(OX),
       expectEliminated("p2"),
       expectBoard({
-        p0: seat({ grave: [KAIJU] }),
+        p0: seat({ hand: [KAIJU] }),
         p1: seat({ monsters: [ELF] }),
         p2: GONE,
         p3: seat({ monsters: [AXE] }),

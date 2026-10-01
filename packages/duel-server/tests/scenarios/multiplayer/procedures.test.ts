@@ -7,7 +7,7 @@ import { runScenarios } from "../../support/runner.js";
 import type { Scenario } from "../../support/dsl.js";
 import { PROCEDURE_SCENARIOS, PROCEDURE_TAG_SCENARIOS } from "./procedures.js";
 
-// Summon procedures that Tribute one opponent (Kaiju, Lava Golem, Volcanic Queen), the Tribute of a monster of opponent 2 (Q8)
+// Summon procedures that Tribute one opponent (Kaiju, Lava Golem, Volcanic Queen, Ra Sphere Mode), the Tribute of a monster of opponent 2 (Q8)
 // and a dead bound seat (W6), on a real engine. Same gate as nseat-live.test.ts: NSEAT_LIVE=1 and a multi core with
 // Debug.SetupDuelists (tests/support/live-nseat.ts). With DUEL_REQUIRE_CORES=1 a closed gate fails the run instead of skipping.
 
@@ -54,11 +54,4 @@ describe("live procedure scenario lists", () => {
       }
     });
   }
-});
-
-// Real engine bugs found while writing these scenarios. The cases are NOT scenarios: they would fail today. Repro in
-// packages/duel-server/domain-core/.build/phase2/findings/.
-describe("The Winged Dragon of Ra - Sphere Mode (card:10000080, Q8)", () => {
-  it.todo("s1-procedures-1: all 3 Tributes come from ONE opponent (a mixed Tribute of p1 and p2 is not offered)");
-  it.todo("s1-procedures-2: Ra goes to the field of the opponent that paid the Tributes (it lands on p1 when p2 paid)");
 });
