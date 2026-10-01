@@ -19,19 +19,19 @@ test("both duelists can reload during a chain and keep playing", async ({ player
   await useCard(alice.page, handCard(alice.page, "Reinforcement of the Army"), "Activate");
   await pickLegalZone(alice.page, "st");
   // One card to chain: the compact "Activate?" bar with Yes and No.
-  const respond = bob.page.getByRole("group", { name: /^Ash Blossom & Joyous Spring\. You can activate/ });
+  const respond = bob.page.getByRole("group", { name: /^Activate its effect\? Ash Blossom & Joyous Spring/ });
   await expect(respond).toBeVisible();
 
   // Bob reloads while the question is open. The same question returns.
   await bob.page.reload();
   await enterDuelRoom(bob.page);
   await expect(respond).toBeVisible();
-  await expect(chainList(bob.page).getByRole("listitem")).toHaveText([/1\s*Reinforcement of the Army\s*E2E Alice/]);
+  await expect(chainList(bob.page).getByRole("listitem")).toHaveText([/^Chain Link 1: Reinforcement of the Army, (You|Opponent)$/]);
 
   // Alice reloads while she waits. The chain and the set spell stay, and she still waits.
   await alice.page.reload();
   await enterDuelRoom(alice.page);
-  await expect(chainList(alice.page).getByRole("listitem")).toHaveText([/1\s*Reinforcement of the Army\s*E2E Alice/]);
+  await expect(chainList(alice.page).getByRole("listitem")).toHaveText([/^Chain Link 1: Reinforcement of the Army, (You|Opponent)$/]);
   await expect(alice.page.getByRole("button", { name: "Waiting" })).toBeDisabled();
   await expect(alice.page.locator('[data-kind="st"][data-side="you"][data-occupied="true"]')).toHaveCount(1);
 

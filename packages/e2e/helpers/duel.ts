@@ -39,10 +39,11 @@ export async function enterDuelRoom(page: Page): Promise<void> {
   await expect(board).toBeVisible();
 }
 
+/** Opens the Settings tab of the side panel (Surrender and the table options live there). Main replaced the old Options gear with tabs. */
 export async function openOptions(page: Page): Promise<void> {
-  const gear = page.getByRole("button", { name: "Options" });
-  if ((await gear.getAttribute("aria-pressed")) !== "true") await gear.click();
-  await expect(gear).toHaveAttribute("aria-pressed", "true");
+  const tab = page.getByRole("tab", { name: "Settings" });
+  if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
 }
 
 export async function surrender(page: Page): Promise<void> {

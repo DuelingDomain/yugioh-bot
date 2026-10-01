@@ -88,7 +88,7 @@ export async function activateSingleResponse(page: Page): Promise<void> {
   await (await yes.isVisible() ? yes : activate).click();
 }
 
-export const chainList = (page: Page): Locator => page.getByRole("region", { name: "Current chain" });
+export const chainList = (page: Page): Locator => page.getByRole("list", { name: "Current chain" });
 
 /** Count label on a pile button: "Your Graveyard (2)", "Opponent Main Deck (7)". */
 export const pile = (page: Page, owner: "Your" | "Opponent", name: "Graveyard" | "Banished" | "Main Deck" | "Extra Deck"): Locator =>
@@ -113,7 +113,7 @@ export async function openLog(page: Page): Promise<Locator> {
   const tab = page.getByRole("tab", { name: "Log" });
   if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
   await expect(tab).toHaveAttribute("aria-selected", "true");
-  return page.getByRole("region", { name: "Duel history" });
+  return page.getByRole("region", { name: "Duel history", exact: true });
 }
 
 /** The "Turn N" counter in the room header. */
