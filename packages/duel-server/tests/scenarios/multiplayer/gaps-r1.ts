@@ -4,7 +4,7 @@
 // the real card scripts plus the overlay, and ends with the state of EVERY seat (LP, field, hand, GY, banished zone).
 
 import {
-  activate, choose, defineScenario, endTurn, expectBoard, expectPickSeats, no, pickOpponent, select, specialSummon, yes, zone,
+  activate, choose, defineScenario, endTurn, expectBoard, expectPickSeats, no, pickOpponent, select, specialSummon, xyz, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -20,6 +20,7 @@ const ELF = "Mystical Elf";
 const HOLE = "Dark Hole";
 const MACHINE = "Dangerous Machine Type-6";
 const GRAPHA = "Grapha, Dragon Overlord of Dark World";
+const JORMUNGANDR = "Jormungandr, Generaider Boss of Eternity";
 
 const seatsOf = (format: Format): Seat[] => (format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"]);
 const labelOf = (format: Format) => (format === "tag" ? "Tag" : format.toUpperCase());
@@ -269,6 +270,31 @@ function darkScheme(format: "ffa3" | "tag", negate: boolean): Scenario {
   });
 }
 
+// --- Jormungandr, Generaider Boss of Eternity --------------------------------------------------------------------------------------
+// Detach 1 material: EVERY duelist draws 1 card, then every duelist that drew attaches 1 card of its own (hand or field) to Jormungandr (Q3).
+// The material check is made for the CONTROLLER of Jormungandr (the stock check passes the effect tp), not for the duelist that attaches.
+function jormungandr(format: Format): Scenario {
+  const tag = format === "tag";
+  const seats = seatsOf(format);
+  const given: Record<Seat, string> = { p0: AXE, p1: OX, p2: FANG, p3: RAT };
+  const setup: Record<string, unknown> = { format, p0: { hand: [AXE], monsters: [xyz(JORMUNGANDR, [ELF, ELF])] } };
+  for (const seat of seats.slice(1)) setup[seat] = { hand: [given[seat]] };
+  return defineScenario({
+    id: `gaps-r1-${format}-jormungandr-every-duelist-draws-and-attaches-one-card`,
+    title: `${labelOf(format)}: p0 detaches 1 material of Jormungandr: every duelist draws 1 card and attaches 1 card of its own to Jormungandr (${seats.length + 1} materials in all, ${tag ? "the partners p2 and p3 attach too" : "p1 and p2 attach too"})`,
+    source: `${SOURCE} [R-COMMON-EACH-PLAYER]`,
+    rules: ["R-COMMON-EACH-PLAYER"],
+    tags: ["multiplayer", "gaps-r1", format, "card:2665273"],
+    setup: setup as unknown as Scenario["setup"],
+    steps: [
+      activate(JORMUNGANDR, "p0"),
+      select({ card: ELF, nth: 0 }), // the cost: detach 1 of the 2 materials
+      ...seats.map((seat) => select({ card: given[seat], owner: seat })),
+      everySeat(format, { p0: { hand: [ELF], monsters: [JORMUNGANDR], grave: [ELF], zones: { m0: { card: JORMUNGANDR, materials: seats.length + 1 } } }, ...Object.fromEntries(seats.slice(1).map((seat) => [seat, { hand: [ELF] }])) }),
+    ],
+  });
+}
+
 export const GAPS_R1_SCENARIOS: Scenario[] = [
   darkScheme("ffa3", false),
   darkScheme("tag", false),
@@ -282,5 +308,7 @@ export const GAPS_R1_SCENARIOS: Scenario[] = [
   gagigobyte("tag", "1"),
   grapha("ffa3"),
   grapha("tag"),
+  jormungandr("ffa3"),
+  jormungandr("tag"),
   ...([2, 4, 5] as const).flatMap((die) => [dangerousMachine("ffa3", die), dangerousMachine("tag", die)]),
 ];

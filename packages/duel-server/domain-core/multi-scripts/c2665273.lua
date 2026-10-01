@@ -19,8 +19,10 @@ function s.operation(e,tp,eg,ep,ev,re,r,rp)
 	Duel.BreakEffect()
 	aux.MPForEachDuelist(function(tp_i,seat_i)
 		if not drew[seat_i] then return end
+		-- the stock check passes the controller of this card (the tp of the effect); here Lua 0 is tp_i, so the outer tp is not read (design 3.D):
+		-- c:GetControler() read inside the scope is that player as this duelist sees it (0 when tp_i controls c, else the opposing value)
 		Duel.Hint(HINT_SELECTMSG,tp_i,HINTMSG_ATTACH)
-		local tc=Duel.SelectMatchingCard(tp_i,Card.IsCanBeXyzMaterial,tp_i,LOCATION_HAND|LOCATION_ONFIELD,0,1,1,c,c,tp,REASON_EFFECT):GetFirst()
+		local tc=Duel.SelectMatchingCard(tp_i,Card.IsCanBeXyzMaterial,tp_i,LOCATION_HAND|LOCATION_ONFIELD,0,1,1,c,c,c:GetControler(),REASON_EFFECT):GetFirst()
 		if tc then
 			tc:CancelToGrave()
 			Duel.Overlay(c,tc,true)
