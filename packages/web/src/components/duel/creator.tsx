@@ -3,9 +3,10 @@
 import { useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Globe, Info, Lock, Swords } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Copy, Globe, Info, Lock, Swords } from "lucide-react";
 import {
   defaultDuelSettings,
+  type DuelBestOf,
   DUEL_BANLIST_OPTIONS,
   duelClockRulesText,
   isCustomDomain,
@@ -13,7 +14,8 @@ import {
   type DuelMode,
   type DuelSettings,
 } from "@yugidraft/shared/duels";
-import { createDuel } from "./api";
+import { createDuel, type DuelPlayerOption } from "./api";
+import { OpponentPicker } from "./opponent-picker";
 import { cx, sheetButtonClass, SheetButton, SheetSegmented, SheetSelect, sheetPage, type Choice } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./creator.module.css";
@@ -50,17 +52,30 @@ const TIMEOUTS: readonly Choice<DuelSettings["timeout"]>[] = [
 ];
 const VALIDATION: readonly Choice<boolean>[] = [{ value: true, label: "Forbid invalid decks" }, { value: false, label: "Allow invalid decks" }];
 const SHUFFLE: readonly Choice<boolean>[] = [{ value: true, label: "Shuffled" }, { value: false, label: "Not shuffled" }];
+const SERIES_LENGTHS: readonly Choice<DuelBestOf>[] = [
+  { value: 1, label: "Best of 1" },
+  { value: 3, label: "Best of 3" },
+];
 const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label: `Banlist: ${label}` }));
 
-export function DuelCreator() {
+/** `focusOpponent` opens the page with the opponent search focused (the "Challenge a player" entry). */
+export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean } = {}) {
   const router = useRouter();
   const [name, setName] = useState("Table");
   const [mode, setMode] = useState<DuelMode>("normal");
   const [masterRule, setMasterRule] = useState<DuelMasterRule>(5);
   const [settings, setSettings] = useState(() => defaultDuelSettings("normal"));
+  const [opponent, setOpponent] = useState<DuelPlayerOption | null>(null);
+  const [bestOf, setBestOf] = useState<DuelBestOf>(1);
+  const [ranked, setRanked] = useState(false);
+  const [sent, setSent] = useState<{ slug: string; opponent: string; notified: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
+  // A challenge room is always private; the server forces it, so the form shows it that way.
+  const challenge = opponent != null;
+  const visibility = challenge ? "private" : settings.visibility;
   const customDomain = mode === "domain" && isCustomDomain(masterRule, settings);
 
   function update<K extends keyof DuelSettings>(key: K, value: DuelSettings[K]) {
@@ -74,7 +89,15 @@ export function DuelCreator() {
     setCreating(true);
     setError(null);
     try {
-      const { session } = await createDuel(name.trim(), mode, masterRule, settings);
+      const { session, notified } = await createDuel(name.trim(), mode, masterRule, { ...settings, visibility }, {
+        opponentPlayerId: opponent?.id ?? null, bestOf, ranked,
+      });
+      if (opponent) {
+        // Stay on this page so the challenge note and the link can be used; the room is one click away.
+        setSent({ slug: session.slug, opponent: opponent.displayName, notified: notified === true });
+        setCreating(false);
+        return;
+      }
       router.push(`/duels/${session.slug}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not create the game.");
@@ -83,11 +106,23 @@ export function DuelCreator() {
     }
   }
 
+  async function copyLink() {
+    if (!sent) return;
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/duels/${sent.slug}`);
+      setCopied(true);
+    } catch {
+      setError("Could not copy the link. Open the table and copy it from the address bar.");
+    }
+  }
+
   const timerShort = settings.turnSeconds === 0 ? "No timer" : `${settings.turnSeconds / 60} min`;
   const formatName = mode === "domain" ? (customDomain ? "Custom Domain" : "Domain") : "Standard";
   const banlistLabel = DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist;
   const summaryRows: [string, string][] = [
-    ["Visibility", settings.visibility === "private" ? "Invite only" : "Public"],
+    ["Match", `${bestOf === 3 ? "Best of 3" : "Best of 1"} · ${ranked ? "Ranked" : "Unranked"}`],
+    ["Opponent", opponent ? opponent.displayName : "Open table"],
+    ["Visibility", visibility === "private" ? "Invite only" : "Public"],
     ["Banlist", banlistLabel],
     ["Card pool", settings.cardPool === "both" ? "TCG + OCG" : settings.cardPool.toUpperCase()],
     ["Turn clock", settings.turnSeconds === 0 ? "Off" : settings.timeout === "loss" ? "Lose on timeout" : "Play on at zero"],
@@ -107,7 +142,7 @@ export function DuelCreator() {
         </header>
 
         <div className={styles.layout}>
-          <fieldset disabled={creating} className={styles.sections}>
+          <fieldset disabled={creating || sent != null} className={styles.sections}>
             <legend className={ui.srOnly}>Game setup</legend>
 
             <section className={styles.section} aria-labelledby="creator-table">
@@ -120,10 +155,40 @@ export function DuelCreator() {
                   <span className={ui.label}>Table name</span>
                   <input className={ui.input} value={name} onChange={(event) => setName(event.target.value)} required maxLength={100} disabled={creating} />
                 </label>
-                <SheetSegmented label="Visibility" value={settings.visibility} choices={VISIBILITY} onChange={(value) => update("visibility", value)} full />
+                <SheetSegmented label="Visibility" value={visibility} choices={VISIBILITY} onChange={(value) => update("visibility", value)} disabled={challenge} full />
                 <p className={cx(ui.hint, styles.wide)}>
-                  {settings.visibility === "private" ? "Only invited server members can enter or watch. Your invite is available inside the room." : "Visible to members of this Discord server. Players and spectators must sign in."}
+                  {challenge ? "Challenge tables are always private. Only you and the player you challenge can enter." : visibility === "private" ? "Only invited server members can enter or watch. Your invite is available inside the room." : "Visible to members of this Discord server. Players and spectators must sign in."}
                 </p>
+              </div>
+            </section>
+
+            <section className={styles.section} aria-labelledby="creator-match">
+              <div className={styles.side}>
+                <h2 id="creator-match" className={ui.sectionTitle}>Match</h2>
+                <p className={ui.hint}>Challenge someone by name, or leave it open for anyone to join.</p>
+              </div>
+              <div className={styles.fields}>
+                <div className={styles.wide}>
+                  <OpponentPicker value={opponent} onChange={setOpponent} disabled={creating || sent != null} autoFocus={focusOpponent} />
+                  {opponent ? <p className={cx(ui.hint, styles.below)}>The bot tries to send {opponent.displayName} a direct message with a link to the table. If it cannot, you get the link to share.</p> : null}
+                </div>
+                <div className={styles.wide}>
+                  <SheetSegmented label="Series length" value={bestOf} choices={SERIES_LENGTHS} onChange={setBestOf} />
+                </div>
+                <div className={styles.wide}>
+                  <label className={styles.toggle}>
+                    <input type="checkbox" checked={ranked} onChange={(event) => setRanked(event.target.checked)} />
+                    <span>
+                      Ranked
+                      <small>The result counts toward the player rankings. Off by default.</small>
+                    </span>
+                  </label>
+                </div>
+                {!challenge && (bestOf === 3 || ranked) ? (
+                  <p className={cx(ui.hint, styles.wide)} data-testid="practice-note">
+                    Best of 3 and Ranked only count when two players play each other. A game against the practice bot never counts.
+                  </p>
+                ) : null}
               </div>
             </section>
 
@@ -233,12 +298,31 @@ export function DuelCreator() {
                 ))}
               </dl>
               {error ? <p className={cx(ui.alert, styles.error)} role="alert">{error}</p> : null}
-              <div className={styles.actions}>
-                <SheetButton type="submit" kind="primary" size="lg" block loading={creating} disabled={creating || !name.trim()}>
-                  {creating ? "Creating game…" : <>Create game<Swords size={17} strokeWidth={1.6} aria-hidden /></>}
-                </SheetButton>
-                <Link href="/duels" className={sheetButtonClass("quiet", "md", true)}>Back</Link>
-              </div>
+              {sent ? (
+                <div className={styles.sent}>
+                  <p className={styles.sentTitle} role="status">
+                    {sent.notified
+                      ? `Challenge sent — the bot sent ${sent.opponent} a DM`
+                      : `Challenge created — the bot could not DM ${sent.opponent}. Copy the link and send it to them.`}
+                  </p>
+                  <div className={styles.sentRow}>
+                    <SheetButton onClick={() => void copyLink()}>
+                      {copied ? <Check size={15} strokeWidth={1.6} aria-hidden /> : <Copy size={15} strokeWidth={1.6} aria-hidden />}
+                      {copied ? "Link copied" : "Copy link"}
+                    </SheetButton>
+                  </div>
+                  <Link href={`/duels/${sent.slug}`} className={sheetButtonClass("primary", "lg", true)}>
+                    Open the table<Swords size={17} strokeWidth={1.6} aria-hidden />
+                  </Link>
+                </div>
+              ) : (
+                <div className={styles.actions}>
+                  <SheetButton type="submit" kind="primary" size="lg" block loading={creating} disabled={creating || !name.trim()}>
+                    {creating ? "Creating game…" : <>{opponent ? "Send challenge" : "Create game"}<Swords size={17} strokeWidth={1.6} aria-hidden /></>}
+                  </SheetButton>
+                  <Link href="/duels" className={sheetButtonClass("quiet", "md", true)}>Back</Link>
+                </div>
+              )}
             </div>
           </aside>
         </div>
