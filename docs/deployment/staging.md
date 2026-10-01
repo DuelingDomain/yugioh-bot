@@ -31,6 +31,8 @@ Rules that keep production safe:
 - The web in staging keeps `DISCORD_TOKEN`. It uses it only to check that a user is in the guild (a REST call).
   It does not open a Discord gateway connection.
 - Every service has a memory limit and no swap. If the VM runs out of memory, the kernel stops a staging process first.
+- Every service has a lower CPU weight than production (`cpu_shares: 256`). Staging containers never restart by themselves
+  (`restart: "no"`): after a crash or a VM reboot staging stays off until you run the workflow again.
 
 ## Memory (read this first)
 

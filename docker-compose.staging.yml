@@ -14,8 +14,12 @@
 name: yugidraft-staging
 
 x-staging-service: &staging-service
-  # on-failure: after a VM reboot staging stays off until someone starts it on purpose.
-  restart: "on-failure:5"
+  # "no": staging never starts by itself, not after a crash and not after a VM reboot. (With on-failure the
+  # Docker daemon could restart a container at boot without any memory check, because Node exits with a
+  # non-zero code on SIGTERM.) Run the staging workflow to start it again.
+  restart: "no"
+  # Under CPU pressure staging gets a quarter of the weight of a default container (1024).
+  cpu_shares: 256
   networks:
     - staging
   security_opt:
