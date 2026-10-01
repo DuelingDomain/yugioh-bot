@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   MULTI_SCRIPTS_ENV,
   REPLACE_MARKER,
+  activeMultiScriptsHash,
   cardCodeOfScript,
   installMultiScripts,
   loadMultiScripts,
@@ -202,6 +203,21 @@ describe("finding the folder", () => {
     expect(resolveMultiScriptsDirectory(data, { env: { NODE_ENV: "production", [MULTI_SCRIPTS_ENV]: named }, repoDirectory: repo })).toBeNull();
     mkdirSync(join(data, "multi-scripts"));
     expect(resolveMultiScriptsDirectory(data, { env: { NODE_ENV: "production", [MULTI_SCRIPTS_ENV]: named }, repoDirectory: repo })).toBe(join(data, "multi-scripts"));
+  });
+});
+
+describe("the hash of the folder a duel would load", () => {
+  it("is the hash of the resolved folder, and null when there is none", () => {
+    const named = makeOverlay([{ code: 1, text: "A" }]);
+    expect(activeMultiScriptsHash(temp("ms-data-"), { [MULTI_SCRIPTS_ENV]: named })).toBe(multiScriptsFolderHash(named));
+    const data = temp("ms-data-");
+    expect(activeMultiScriptsHash(data, { NODE_ENV: "production" })).toBeNull();
+    installMultiScripts(data, named);
+    expect(activeMultiScriptsHash(data, { NODE_ENV: "production" })).toBe(multiScriptsFolderHash(named));
+  });
+
+  it("is null, not a throw, when the env folder does not exist", () => {
+    expect(activeMultiScriptsHash(temp("ms-data-"), { [MULTI_SCRIPTS_ENV]: "/no/such/folder" })).toBeNull();
   });
 });
 

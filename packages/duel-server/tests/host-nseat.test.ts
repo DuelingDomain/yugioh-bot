@@ -2,7 +2,7 @@ import { createHash, createHmac } from "node:crypto";
 import { copyFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelPrompt } from "@yugidraft/shared/duels";
@@ -14,6 +14,8 @@ import { multiCoreAvailable } from "../src/presets/index.js";
 import { failIfRequired, needs } from "./support/cores.js";
 import type { DuelGameWorker, GameOptions } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
+import { makeOverlay, removeOverlays } from "./support/multi-scripts.js";
 
 const SECRET = "nseat-secret";
 
@@ -803,5 +805,59 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
       delete process.env.DUEL_REPORT_DIR;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the engine version a duel pins", () => {
+  const bundleVersion = (JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { bundleVersion: string }).bundleVersion;
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    removeOverlays();
+  });
+
+  async function activated(format: DuelFormat, humans: number, version: string) {
+    const t = await table(format, humans, []);
+    t.duels.activate(t.slug, "g1", t.players[0]!, ["seed"], version, null);
+    return t;
+  }
+  const view = (t: Awaited<ReturnType<typeof table>>) => post(t.host, { op: "view", ...t.organizer });
+
+  it("recovers a duel with 3 seats while the Lua overlay is the one it pinned", async () => {
+    const t = await activated("ffa3", 3, pinnedEngineVersion(bundleVersion, 3, activeMultiScriptsHash(DATA)));
+    expect((await view(t)).status).toBe(200);
+    expect(t.duels.get(t.slug, "g1").status).toBe("active");
+  });
+
+  it("interrupts a duel with 3 seats when the Lua overlay changed", async () => {
+    const t = await activated("ffa3", 3, pinnedEngineVersion(bundleVersion, 3, activeMultiScriptsHash(DATA)));
+    vi.stubEnv("DUEL_MULTI_SCRIPTS_DIR", makeOverlay([{ code: 1, text: "-- changed\n" }]));
+    const answer = await view(t);
+    expect(answer.status).toBe(409);
+    expect(t.duels.get(t.slug, "g1").status).toBe("interrupted");
+  });
+
+  it("never lets an overlay edit touch a duel with 2 seats: it pins the bundle alone", async () => {
+    const t = await activated("1v1", 2, bundleVersion);
+    vi.stubEnv("DUEL_MULTI_SCRIPTS_DIR", makeOverlay([{ code: 1, text: "-- changed\n" }]));
+    expect((await view(t)).status).toBe(200);
+    expect(t.duels.get(t.slug, "g1").status).toBe("active");
+  });
+
+  it("pins the overlay when a duel with 3 seats starts, and the 2-seat pin is the plain bundle version", async () => {
+    const three = await table("ffa3", 3, []);
+    expect((await post(three.host, { op: "start", ...three.organizer })).status).toBe(200);
+    expect(three.duels.privateState(three.slug, "g1").bundleVersion).toBe(pinnedEngineVersion(bundleVersion, 3, activeMultiScriptsHash(DATA)));
+    const two = await table("1v1", 2, []);
+    expect((await post(two.host, { op: "start", ...two.organizer })).status).toBe(200);
+    expect(two.duels.privateState(two.slug, "g1").bundleVersion).toBe(bundleVersion);
+  });
+
+  it("is the bundle version at 2 seats, and changes with the overlay at 3", () => {
+    expect(pinnedEngineVersion("b", 2, "x")).toBe("b");
+    expect(pinnedEngineVersion("b", 2, null)).toBe("b");
+    expect(pinnedEngineVersion("b", 3, "x")).not.toBe("b");
+    expect(pinnedEngineVersion("b", 3, "x")).not.toBe(pinnedEngineVersion("b", 3, "y"));
+    expect(pinnedEngineVersion("b", 4, "x")).toBe(pinnedEngineVersion("b", 3, "x"));
+    expect(pinnedEngineVersion("b", 3, null)).not.toBe(pinnedEngineVersion("b", 3, "x"));
   });
 });

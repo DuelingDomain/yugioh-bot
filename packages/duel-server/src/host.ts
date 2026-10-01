@@ -23,6 +23,7 @@ import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugStat
 import { inspectDeck, validateDeck } from "./deck-legality.js";
 import { normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
+import { activeMultiScriptsHash, pinnedEngineVersion } from "./multi-scripts.js";
 import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
 import {
   freezeContinueClock,
@@ -209,6 +210,8 @@ export function createDuelHost(options: {
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as { bundleVersion: string };
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
   setCatalogDirectory(options.dataDirectory);
+  const pinnedVersionFor = (format: DuelFormat): string =>
+    pinnedEngineVersion(manifest.bundleVersion, seatCountFor(format), seatCountFor(format) > 2 ? activeMultiScriptsHash(options.dataDirectory) : null);
   const games = new Map<string, LiveGame>();
   const replayCache = new Map<string, DuelReplay>();
   const queues = new Map<string, Promise<unknown>>();
@@ -746,7 +749,7 @@ export function createDuelHost(options: {
     const state = service.privateState(slug, guildId);
     if (state.session.status !== "active") throw new RequestError("This duel is not active", 409);
     if (!state.seed || !state.bundleVersion) throw new RequestError("Duel has not started", 409);
-    if (state.bundleVersion !== manifest.bundleVersion) {
+    if (state.bundleVersion !== pinnedVersionFor(state.session.format)) {
       service.interrupt(slug, guildId, "The pinned engine resources changed; this duel cannot be replayed safely.");
       await emitChange(slug, guildId);
       throw new RequestError("Duel interrupted: engine resource version changed", 409);
@@ -959,7 +962,7 @@ export function createDuelHost(options: {
     if (!state.seed || !state.bundleVersion) {
       throw new RequestError("This duel has no recorded moves to replay.", 409);
     }
-    if (state.bundleVersion !== manifest.bundleVersion) {
+    if (state.bundleVersion !== pinnedVersionFor(state.session.format)) {
       throw new RequestError(
         "Replay unavailable: the duel engine changed after this game was played. The final board is still available.",
         409,
@@ -1110,7 +1113,7 @@ export function createDuelHost(options: {
         throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
       }
       const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
-      service.activate(slug, guildId, actor, seed, manifest.bundleVersion, clock, {
+      service.activate(slug, guildId, actor, seed, pinnedVersionFor(preset.format), clock, {
         scenarioId: preset.id,
         presetId: preset.id,
         startupScripts: scripts,
@@ -1240,6 +1243,9 @@ export function createDuelHost(options: {
         createdAt: session.createdAt,
         endedAt: session.endedAt,
         bundleVersion: state.bundleVersion,
+        // The Lua overlay a duel with more than two seats loads, as it is when the journal is written. bundleVersion
+        // above pins it at the start, but only as one hash, so this field says which folder to look for.
+        multiScriptsHash: seatCountFor(session.format) > 2 ? activeMultiScriptsHash(options.dataDirectory) : null,
         seed: state.seed,
         settings: session.settings,
         setup: state.setup ?? null,
@@ -1632,7 +1638,7 @@ export function createDuelHost(options: {
           state.session.format,
         ));
         const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
-        service.activate(slug, guildId, actor, seed, manifest.bundleVersion, clock);
+        service.activate(slug, guildId, actor, seed, pinnedVersionFor(state.session.format), clock);
         games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
         await emitChange(slug, guildId);
         await driveBot(slug, guildId, game);

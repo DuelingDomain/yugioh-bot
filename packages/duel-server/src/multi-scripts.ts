@@ -107,6 +107,30 @@ export function multiScriptsFolderHash(directory: string): string {
   return hash.digest("hex");
 }
 
+/**
+ * Hash of the overlay folder a duel with more than two seats would load from this data directory, or null when
+ * there is none (or it cannot be read). The host pins this value for such duels, so an edit of the overlay
+ * interrupts only duels that used it. Resolves the folder the same way as the engine does.
+ */
+export function activeMultiScriptsHash(dataDirectory: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  try {
+    const directory = resolveMultiScriptsDirectory(dataDirectory, { env });
+    return directory ? multiScriptsFolderHash(directory) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The engine version a duel pins when it starts, and recovery and replay compare. A duel of two seats pins the
+ * bundle alone. A duel with more than two seats also pins the Lua overlay it loads (`overlayHash`, null when
+ * there is none), so an edit of the overlay interrupts only the duels that used it and never a 1v1 duel.
+ */
+export function pinnedEngineVersion(bundleVersion: string, seatCount: number, overlayHash: string | null): string {
+  if (seatCount <= 2) return bundleVersion;
+  return createHash("sha256").update(`${bundleVersion}\0multi-scripts:${overlayHash ?? "none"}`).digest("hex");
+}
+
 /** Reads and checks `MANIFEST.json`. Throws one error that names the folder and the fault. */
 export function readMultiScriptsManifest(directory: string): MultiScriptsCard[] {
   const path = join(directory, MULTI_MANIFEST_FILE);

@@ -76,7 +76,9 @@ manifest.integrity ??= {};
 manifest.sources.standardCore = standardCore;
 manifest.integrity.wrapper = expected.wrapper;
 manifest.integrity.standardWasm = expected.wasm;
-manifest.bundleVersion = hash(JSON.stringify({ sources: manifest.sources, integrity: manifest.integrity }));
+// integrity.multiScripts is not part of bundleVersion (the host pins it for duels with more than two seats only).
+const { multiScripts: _overlay, ...engineIntegrity } = manifest.integrity;
+manifest.bundleVersion = hash(JSON.stringify({ sources: manifest.sources, integrity: engineIntegrity }));
 writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n');
 JS
 }
