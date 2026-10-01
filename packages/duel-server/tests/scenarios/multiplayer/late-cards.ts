@@ -4,7 +4,7 @@
 // card scripts and the overlay, on the Standard multi core and again on the Domain multi core. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, faceDown, no, pickOpponent, select, yes, zone,
+  activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectEliminated, expectTurn, expectNotOffered, expectOffered, expectPickSeats, faceDown, no, pickOpponent, select, surrender, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -308,6 +308,67 @@ function foolishRevivalOtherGrave(format: "ffa3" | "tag"): Scenario {
   });
 }
 
+// --- R3 (Q1): cards that last "until the end of your opponent's next turn" or for N opponent turns ------------------------------------
+// Every turn of an opposing duelist counts, in turn order; a partner turn does not count; a seat that lost takes no turn. The stock scripts are
+// used (the core counts the turns, patch 0048). The state of EVERY living seat is asserted after each step that matters.
+const R3_RULE = `${SOURCE} [R-FFA-ORDER] Q1 R3: every turn of any opponent counts; in Tag only a turn of an opposing duelist; a seat that lost takes no turn`;
+const TIME_SEAL = "Time Seal";
+
+/** The table of the living `seats`: every seat has the hand size of `hands` (0 when it is missing), p0 has the Graveyard and Spell/Trap zones given. */
+function table(seats: Seat[], hands: Partial<Record<Seat, number>>, p0: { grave?: string[]; spells?: string[] } = {}, lp = 8000): Step {
+  const board: BoardExpect = {};
+  for (const seat of seats) {
+    board[seat] = {
+      lp, hand: { count: hands[seat] ?? 0 }, monsters: [], banished: [],
+      spells: seat === "p0" ? p0.spells ?? [] : [], grave: seat === "p0" ? p0.grave ?? [] : [],
+    };
+  }
+  return expectBoard(board);
+}
+
+const timeSealSetup = { spells: [{ card: TIME_SEAL, pos: "set" as const }] };
+const timeSealFfa3 = defineScenario({
+  id: "r3-ffa3-time-seal-skips-the-draw-of-the-next-opponent-turn-in-turn-order",
+  title: "FFA3: p0 activates Time Seal in its turn: the Draw Phase of the NEXT opponent turn (p1) is skipped, p2 draws in its own turn, and p1 draws again in its next turn",
+  source: R3_RULE,
+  rules: ["R-FFA-ORDER"],
+  tags: ["multiplayer", "late-cards", "turn-count", "r3", "ffa3", "card:35316708"],
+  setup: { format: "ffa3", p0: timeSealSetup },
+  steps: [
+    activate(TIME_SEAL, "p0"),
+    table(["p0", "p1", "p2"], {}, { grave: [TIME_SEAL] }),
+    endTurn("p0"), expectTurn("p1", 2),
+    // The next opponent turn is the turn of p1: no draw.
+    table(["p0", "p1", "p2"], {}, { grave: [TIME_SEAL] }),
+    endTurn("p1"), expectTurn("p2", 3),
+    // The skip ended with the turn of p1: p2 draws.
+    table(["p0", "p1", "p2"], { p2: 1 }, { grave: [TIME_SEAL] }),
+    endTurn("p2"), expectTurn("p0", 4),
+    endTurn("p0"), expectTurn("p1", 5),
+    table(["p0", "p1", "p2"], { p0: 1, p1: 1, p2: 1 }, { grave: [TIME_SEAL] }),
+  ],
+});
+
+// p1 gives up before its turn comes: the next opponent turn is the turn of p2, so the skip moves to the Draw Phase of p2.
+const timeSealCutShort = defineScenario({
+  id: "r3-ffa3-time-seal-opponent-out-before-its-turn-the-skip-moves-to-the-next-living-opponent",
+  title: "FFA3: p0 activates Time Seal, p1 gives up before its turn: p1 takes no turn, so the Draw Phase of p2 (the next opponent turn) is skipped and p2 draws in its following turn",
+  source: `${R3_RULE} [R-FFA-ELIMINATION]`,
+  rules: ["R-FFA-ORDER", "R-FFA-ELIMINATION"],
+  tags: ["multiplayer", "late-cards", "turn-count", "r3", "elimination", "ffa3", "card:35316708"],
+  setup: { format: "ffa3", p0: timeSealSetup },
+  steps: [
+    activate(TIME_SEAL, "p0"),
+    surrender("p1"),
+    endTurn("p0"), expectEliminated("p1"), expectTurn("p2", 2),
+    table(["p0", "p2"], {}, { grave: [TIME_SEAL] }),
+    endTurn("p2"), expectTurn("p0", 3),
+    table(["p0", "p2"], { p0: 1 }, { grave: [TIME_SEAL] }),
+    endTurn("p0"), expectTurn("p2", 4),
+    table(["p0", "p2"], { p0: 1, p2: 1 }, { grave: [TIME_SEAL] }),
+  ],
+});
+
 export const LATE_CARD_SCENARIOS: Scenario[] = [
   royalTribute("ffa3"),
   royalTribute("ffa4"),
@@ -332,4 +393,6 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   heroCounterattackTag,
   foolishRevivalOtherGrave("ffa3"),
   foolishRevivalOtherGrave("tag"),
+  timeSealFfa3,
+  timeSealCutShort,
 ];
