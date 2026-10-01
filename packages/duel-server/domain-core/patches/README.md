@@ -15,6 +15,16 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 | `0002-deterministic-effect-order.patch` | Containers keyed by an address become ordered by `effect::initial_id` or `card::cardid`. See "Why the order must not depend on addresses". | None in the rules. Only the order of ties that stock left to the address. |
 | `0003-n-duelist-player-array.patch` | `player` becomes `std::array<player_info, MAX_DUELISTS>`. `MAX_DUELISTS` is 4. `n_duelists` is 2. It adds `opponent_of`, `for_each_duelist` and `same_team`. | None. A duel has 2 duelists. |
 | `0004-duelist-ids-and-helpers.patch` | Core-private ids `DUELIST_NONE` (0xFF) and `DUELIST_ALL` (0xFE). `player_info::team` (each duelist is its own team) and `player_info::eliminated`. `field::n_teams`. Helpers `is_duelist`, `is_alive`, `team_of`, `next_in_turn_order`, `for_each_opponent`. `same_team` compares teams. | None. Nothing calls the new helpers yet. |
+| `0005-per-duelist-state-arrays.patch` | 28 member arrays of `field_info`, `processor`, `card` and `SendTo` change from `[2]` to `[MAX_DUELISTS]`. `MAX_DUELISTS`, `DUELIST_NONE` and `DUELIST_ALL` move to `common.h`. | None with 2 duelists. Only entries 0 and 1 are used. |
+| `0006-helpers-processor-part-1.patch` | `processor.cpp` up to `calculate_battle_damage`: explicit pairs become loops over `n_duelists`. `1 - x` becomes `opponent_of(x)`. Player checks use `is_duelist`. | None with 2 duelists. Same values, same order. |
+| `0007-helpers-processor-part-2.patch` | `processor.cpp` from `calculate_battle_damage` to `AddChain` step 8: the same conversion. The turn player switch uses `next_in_turn_order`. | None with 2 duelists. |
+| `0008-helpers-processor-part-3.patch` | `processor.cpp` from `SortChain` to the end: the same conversion. Turn player first loops use `next_in_turn_order`. | None with 2 duelists. Messages, events and random calls keep their order. |
+| `0009-helpers-operations.patch` | `operations.cpp`: the same conversion. Local arrays of size 2 become `MAX_DUELISTS`. | None with 2 duelists. Messages, events and shuffles keep their order. |
+| `0010-helpers-field.patch` | `field.cpp`: 34 sites use the duelist helpers. The two `target_player[2]` message blocks become one loop. | None with 2 duelists. Same message bytes and order. |
+| `0011-helpers-card-effect-duel-playerop.patch` | `card.cpp`, `playerop.cpp` and `ocgapi.cpp`: `opponent_of`, `n_duelists` and `is_duelist` replace the two-player forms. | None with 2 duelists. |
+| `0012-helpers-libduel.patch` | `libduel.cpp`: 101 validity checks use `is_duelist`. 12 `1 - x` use `opponent_of`. Loops use `n_duelists`. | None with 2 duelists. The accept set stays {0, 1}. |
+| `0013-helpers-libcard-libeffect-libgroup.patch` | `libcard.cpp`, `libeffect.cpp`, `libgroup.cpp` and `libdebug.cpp`: 12 checks use `is_duelist`. 4 linked zone sites use `opponent_of`. The `Debug.ReloadFieldEnd` pairs become loops. | None with 2 duelists. |
+| `0014-helpers-phase-1b-sites.patch` | The rest of the explicit pairs: 7 pairs of `HINT_EVENT` messages, disabled zone resets, spsummon counter resets and 4 checks on `uint8_t` values. | None with 2 duelists. Same bytes and order. |
 
 ## Commands
 
