@@ -1206,7 +1206,8 @@
         "rmop"
       ],
       "chooserClass": "CH-EACH",
-      "stockSha256": "6f2dcac2eb858d2f62110f83a6d40740336871b543a84a499199dceb3de9fc49"
+      "stockSha256": "6f2dcac2eb858d2f62110f83a6d40740336871b543a84a499199dceb3de9fc49",
+      "note": "Each REAL controller seat of the summoned monsters banishes 1 card from its own hand (aux.MPForEachController binds the Lua value 1 to that seat), so two opponents that summon in the same event both banish; a controller that is gone is skipped."
     },
     {
       "code": 62015408,

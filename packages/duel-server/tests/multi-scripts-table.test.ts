@@ -15,7 +15,7 @@ import { compileBoard, type BoardSpec, type CardEntry, type DuelistSetup } from 
 import { currentEngineDataDirectory, engineDataDirectory } from "./engine-data-dir.js";
 import { planAnswer } from "./fuzz/answers.js";
 import { Rng } from "./fuzz/rng.js";
-import { describeWithCores, needs } from "./support/cores.js";
+import { CURRENT_MULTI_TAG, describeWithCores, needs } from "./support/cores.js";
 import { liveNseat } from "./support/live-nseat.js";
 
 // F7 design section 5, row "Table": every card of the overlay lists on the real engine, at three seats and in Tag, on the DEBUG build
@@ -24,12 +24,13 @@ import { liveNseat } from "./support/live-nseat.js";
 // A scan test also fails when a listed card reads overlay materials or counters on a field and has no MANIFEST entry.
 //
 // The debug core is not in git. Build it with
-//   MULTI_TREE=<tree> PATCH_LIMIT=<n> OUT_NAME=ocgcore.multi-trap.sync.wasm EXTRA_CXXFLAGS=-DYGO_N_TRAP scripts/build-multi-core.sh
-// and put the file in domain-core/dist, or name it with TABLE_TRAP_WASM. Without it the live table is skipped (a local file).
+//   MULTI_TREE=<tree> OUT_NAME=ocgcore.multi-<tag>-trap.sync.wasm EXTRA_CXXFLAGS=-DYGO_N_TRAP scripts/build-multi-core.sh
+// and put the file in domain-core/dist (the tag is CURRENT_MULTI_TAG of tests/support/cores.ts), or name it with TABLE_TRAP_WASM.
+// Without it the live table is skipped (a local file).
 
 const TRAP_WASM = process.env.TABLE_TRAP_WASM
   ? resolve(process.env.TABLE_TRAP_WASM)
-  : fileURLToPath(new URL("../domain-core/dist/ocgcore.multi-trap.sync.wasm", import.meta.url));
+  : fileURLToPath(new URL(`../domain-core/dist/ocgcore.multi-${CURRENT_MULTI_TAG}-trap.sync.wasm`, import.meta.url));
 const trapWasm = needs.localFile("debug multi core (-DYGO_N_TRAP)", TRAP_WASM, "Build it with EXTRA_CXXFLAGS=-DYGO_N_TRAP (see the head of tests/multi-scripts-table.test.ts) or set TABLE_TRAP_WASM.");
 
 const manifest = readManifest();
