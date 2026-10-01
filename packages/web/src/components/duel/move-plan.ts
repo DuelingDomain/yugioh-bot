@@ -268,6 +268,11 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
         notBefore += BREAK_SETTLE_MS;
         lead = 0;
         style = "fade";
+      } else if (notBefore > 0 && !reduced) {
+        // The DOM slice draws the halves at the break: the card leaves for the pile only after they were
+        // seen. The crack and the break of the card itself keep their time (the lead grows by the same wait).
+        notBefore += BREAK_SETTLE_MS;
+        lead += BREAK_SETTLE_MS;
       }
       break;
     }

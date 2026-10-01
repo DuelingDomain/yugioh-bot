@@ -53,7 +53,7 @@ describe("attack sounds", () => {
 
   it("only produces finite, non-negative times and levels", () => {
     for (const a of STYLE_IDS) {
-      for (const kind of ["win", "lose", "tie", "held", "direct"] as const) {
+      for (const kind of ["win", "lose", "tie", "held", "bounce", "direct"] as const) {
         for (const reduced of [false, true]) {
           const r = recorder();
           const d = kind === "direct" ? null : "claw";
@@ -86,12 +86,14 @@ describe("attack sounds", () => {
     expect(counterImpact).toBeGreaterThan(impactAt);
   });
 
-  it("adds the recoil of a tie after the first hit", () => {
-    const r = recorder();
-    const p = plan("tie", "impact", "impact", { lpAt: [] });
-    scheduleBattleSound(r.synth, p, 0);
-    const late = r.tones.filter((o) => o.start > p.timing.impactMs / 1000 + 0.15);
-    expect(late.length).toBeGreaterThan(0);
+  it("sounds the counter strike of a tie and of a blow that bounced off, after the first hit", () => {
+    for (const kind of ["tie", "bounce"] as const) {
+      const r = recorder();
+      const p = plan(kind, "impact", "impact", { lpAt: [] });
+      scheduleBattleSound(r.synth, p, 0);
+      const late = r.tones.filter((o) => o.start > p.timing.impactMs / 1000 + 0.1);
+      expect(late.length).toBeGreaterThan(0);
+    }
   });
 
   it("layers a signature on top of its style", () => {

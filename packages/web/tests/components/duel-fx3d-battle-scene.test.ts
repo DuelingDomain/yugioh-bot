@@ -104,6 +104,21 @@ describe("battle plan", () => {
     }
   });
 
+  it("strikes back after a tie and a bounce too, and breaks both cards together on a tie", () => {
+    const tint0 = attackStyleFor({}).tint;
+    const s = (x: number) => ({ rect: rect(x, 0), code: 5, style: "slash" as const, tint: tint0, signature: null, defense: false });
+    for (const kind of ["tie", "bounce"] as const) {
+      const timing = battleTiming(kind, "slash", "beam");
+      const plan = planBattle({ kind, timing, attacker: s(0), defender: { ...s(200), style: "beam" }, hit: rect(200, 0) });
+      expect(plan.strikes).toHaveLength(2);
+      expect(plan.strikes[1].startMs).toBeGreaterThan(timing.impactMs);
+      expect(plan.strikes[1].impactMs).toBe(timing.attackerDamageMs);
+      // every break comes after the counter strike landed
+      for (const entry of plan.breaks) expect(entry.atMs).toBeGreaterThan(timing.attackerDamageMs);
+      expect(plan.breaks).toHaveLength(kind === "tie" ? 2 : 0);
+    }
+  });
+
   it("breaks the target on a win and nothing on a held fight", () => {
     const tint0 = attackStyleFor({}).tint;
     const s = (x: number) => ({ rect: rect(x, 0), code: 5, style: "slash" as const, tint: tint0, signature: null, defense: false });
@@ -180,7 +195,9 @@ describe("holds and claims", () => {
     armBattleDestroy("s", z(0, MZONE, 2), 900, 100);
     const [plan] = planMoves(events, { now: 100, reduced: false, duelKey: "t", geometry: () => ({ distance: 300 }) });
     expect(plan.style).not.toBe("fade");
-    expect(plan.leadMs).toBe(HELD_CRACK_MS);
+    // the card cracks at the hold; the flight waits for the DOM halves to be seen, so the lead grows by that wait
+    expect(plan.leadMs).toBe(HELD_CRACK_MS + BREAK_SETTLE_MS);
+    expect(plan.startAt - plan.leadMs).toBe(900 + 100 - HELD_CRACK_MS);
   });
 
   it("a scene hold keeps the prompt panel hidden until the piece is done", async () => {

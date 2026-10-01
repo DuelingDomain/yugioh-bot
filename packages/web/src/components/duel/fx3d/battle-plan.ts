@@ -1,4 +1,4 @@
-import { COUNTER_GAP_MS, COUNTER_SCALE, DESTROY_BEAT_MS, type AttackStyleId, type BattleKind, type BattleTiming, type Tint } from "../attack-styles";
+import { COUNTER_GAP_MS, COUNTER_SCALE, DESTROY_BEAT_MS, hasCounterStrike, type AttackStyleId, type BattleKind, type BattleTiming, type Tint } from "../attack-styles";
 import type { FxBattle, FxBreak, FxRect, FxStrike, FxTint, Rgb } from "./types";
 
 /**
@@ -89,7 +89,8 @@ export function planBattle(input: BattlePlanInput): FxBattle {
     },
   ];
   const breaks: FxBreak[] = [];
-  if (defender && kind === "lose") {
+  // The defender strikes back (a lost fight, a tie, a blow that bounced off) after a short pause.
+  if (defender && hasCounterStrike(kind)) {
     strikes.push({
       style: defender.style,
       signature: defender.signature,
