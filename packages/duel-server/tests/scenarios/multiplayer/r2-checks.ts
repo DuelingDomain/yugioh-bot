@@ -3,7 +3,7 @@
 // live core (NSEAT_LIVE=1) with the real card scripts and the overlay. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, attack, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, zone,
+  activate, attack, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, normalSummon, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -18,6 +18,8 @@ const SKYLER = "War Rock Skyler"; // 2200 ATK, +100 per monster of the opponents
 const ELF = "Mystical Elf"; // 800 ATK
 const ALTUS = "Cloudian - Altus"; // destroys itself in face-up Defense Position
 const RAGING = "Raging Cloudian";
+const CASTLE = "Ancient Gear Castle";
+const BEAST = "Ancient Gear Beast"; // Level 6, 2000 ATK
 
 const seatsOf = (format: Format): Seat[] => (format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"]);
 
@@ -151,4 +153,30 @@ const skyler = (format: Format): Scenario => {
   });
 };
 
-export const R2_CHECK_SCENARIOS: Scenario[] = [skyler("ffa3"), skyler("tag"), tualatin("ffa3"), tualatin("tag"), raging("ffa3", "p0"), raging("ffa3", "p1"), raging("ffa3", "p2"), raging("ffa4", "p3")];
+/**
+ * Ancient Gear Castle: the Tribute-by-Castle summon procedure is one GLOBAL field effect (range of both hands) that looks only at the Castle in the
+ * Spell/Trap Zone of the SUMMONING duelist (c:GetControler(), "LOCATION_SZONE, 0"). p0 plays the Castle and gets a counter from a Normal Summon. The
+ * opponents hold an Ancient Gear Beast (Level 6, one Tribute) and no monster: they are NOT offered the Tribute Summon through the Castle of p0 in their
+ * turns. p0 itself is offered it, releases the Castle and summons the Beast.
+ */
+const castle = (format: "ffa3" | "ffa4"): Scenario => {
+  const seats = seatsOf(format);
+  const opponents = seats.filter((seat) => seat !== "p0");
+  const setup: Record<string, unknown> = { format, p0: { hand: [CASTLE, ELF, BEAST], deck: [ELF, ELF] } };
+  for (const seat of opponents) setup[seat] = { hand: [BEAST], deck: [ELF, ELF] };
+  const steps: Step[] = [activate(CASTLE, "p0"), normalSummon(ELF, "p0"), endTurn("p0")];
+  for (const seat of opponents) steps.push(expectNotOffered("tributeSummon", BEAST, seat), endTurn(seat));
+  steps.push(expectOffered("tributeSummon", BEAST, "p0"), normalSummon(BEAST, "p0"), choose("Tribute \"Ancient Gear Castle\" to Tribute Summon", "p0"));
+  const spec: Partial<Record<Seat, DuelistExpect>> = { p0: { monsters: [ELF, BEAST], grave: [CASTLE] } };
+  return defineScenario({
+    id: `r2-checks-${format}-ancient-gear-castle-serves-only-its-own-controller`,
+    title: `${format.toUpperCase()}: the Ancient Gear Castle of p0 (1 counter) is not used for the Tribute Summon of an Ancient Gear Beast by any opponent; p0 is offered it, releases the Castle and summons the Beast`,
+    source: EACH,
+    rules: ["R-COMMON-EACH-PLAYER"],
+    tags: ["multiplayer", "r2-checks", format, "card:92001300", "card:10509340"],
+    setup: setup as unknown as Scenario["setup"],
+    steps: [...steps, everySeat(format, spec)],
+  });
+};
+
+export const R2_CHECK_SCENARIOS: Scenario[] = [castle("ffa3"), castle("ffa4"), skyler("ffa3"), skyler("tag"), tualatin("ffa3"), tualatin("tag"), raging("ffa3", "p0"), raging("ffa3", "p1"), raging("ffa3", "p2"), raging("ffa4", "p3")];
