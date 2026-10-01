@@ -194,6 +194,48 @@ function cupOfAce(format: Format): Scenario {
   });
 }
 
+// --- Ante (a duel-style card: you and ONE picked opponent) -------------------------------------------------------------------------
+// Each side shows one hand card; the higher Level wins: the loser takes 1000 damage and its shown card goes to the Graveyard. The picked
+// opponent is chosen at activation (Q4); in Tag the damage hits the team LP of the loser. The stock script is used. Every other seat keeps
+// its hand card, so a show or a discard that reaches the wrong seat would change the final state.
+const ANTE_RULE = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q4: Ante (you + one picked opponent; Tag uses the team LP)`;
+
+function ante(format: Format, ownerWins: boolean): Scenario {
+  const seats = seatsOf(format);
+  const label = format === "tag" ? "Tag" : format.toUpperCase();
+  const lp = format === "tag" ? 16000 : 8000;
+  const picked = PICKS[format][PICKS[format].length - 1];
+  // Summoned Skull (Level 6) beats Mystical Elf (Level 4).
+  const ownerCard = ownerWins ? SKULL : ELF;
+  const pickedCard = ownerWins ? ELF : SKULL;
+  const loserSeats: Seat[] = ownerWins
+    ? seats.filter((seat) => (format === "tag" ? seat === "p1" || seat === "p3" : seat === picked))
+    : seats.filter((seat) => seat === "p0" || (format === "tag" && seat === "p2"));
+  const setup: Scenario["setup"] = { format };
+  const spec: Partial<Record<Seat, DuelistExpect>> = {};
+  for (const seat of seats) {
+    const hand = seat === "p0" ? [ANTE, ownerCard] : seat === picked ? [pickedCard] : [HANDS[seat]];
+    (setup as Record<string, unknown>)[seat] = { hand };
+    const kept = seat === "p0" ? (ownerWins ? [ownerCard] : []) : seat === picked ? (ownerWins ? [] : [pickedCard]) : [HANDS[seat]];
+    const grave = [...(seat === "p0" ? [ANTE] : []), ...(seat === "p0" && !ownerWins ? [ownerCard] : []), ...(seat === picked && ownerWins ? [pickedCard] : [])];
+    spec[seat] = { hand: kept, grave, ...(loserSeats.includes(seat) ? { lp: lp - 1000 } : {}) };
+  }
+  return defineScenario({
+    id: `late-${format}-ante-${ownerWins ? "owner-wins-the-picked-opponent-loses-1000-and-its-card" : "owner-loses-1000-and-its-card"}`,
+    title: `${label}: p0 activates Ante and picks ${picked}: ${ownerWins ? `p0 shows the higher Level, only the picked side takes 1000 and ${picked} loses its shown card` : `${picked} shows the higher Level, only p0 (its team) takes 1000 and p0 loses its shown card`}; nobody else changes`,
+    source: ANTE_RULE,
+    rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    tags: ["multiplayer", "late-cards", "duel-style", "opp-pick", "hand", format, "card:34236961"],
+    setup,
+    steps: [
+      activate(ANTE, "p0"),
+      expectPickSeats(PICKS[format], "p0"),
+      pickOpponent(picked, "p0"),
+      everySeat(format, spec, lp),
+    ],
+  });
+}
+
 export const LATE_CARD_SCENARIOS: Scenario[] = [
   royalTribute("ffa3"),
   royalTribute("ffa4"),
@@ -211,4 +253,8 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   cupOfAce("ffa3"),
   cupOfAce("ffa4"),
   cupOfAce("tag"),
+  ante("ffa3", true),
+  ante("ffa4", false),
+  ante("tag", true),
+  ante("tag", false),
 ];
