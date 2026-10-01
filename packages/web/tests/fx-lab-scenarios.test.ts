@@ -4,6 +4,7 @@ import { applyEdits, numberSteps, scriptDurationMs, type LabBoard } from "@/comp
 import { LAB_CATEGORIES, LAB_SCENARIOS, findScenario, scenariosIn } from "@/components/duel/fx-lab/scenarios";
 import { LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_REMOVED, LOCATION_SZONE } from "@/components/duel/constants";
 import { CARDS } from "@/components/duel/fx-lab/cards";
+import { groupScenes } from "@/components/duel/fx3d/scene-plan";
 
 const KINDS = new Set<DuelEvent["kind"]>([
   "summon", "set", "activate", "chain-resolving", "chain-resolved", "chain-negated", "chain-end",
@@ -28,6 +29,42 @@ describe("fx lab scenarios", () => {
     for (const category of LAB_CATEGORIES) expect(scenariosIn(category).length).toBeGreaterThan(0);
     expect(LAB_SCENARIOS.every((scenario) => LAB_CATEGORIES.includes(scenario.category))).toBe(true);
     expect(findScenario("destroy-dark-hole")?.name).toBe("Dark Hole");
+  });
+
+  it("plays the right wipe piece, with the right number of victims, in each wipe scenario", () => {
+    const expected: Array<[string, string, number]> = [
+      ["destroy-dark-hole", "dark-hole", 5],
+      ["destroy-dark-hole-one", "dark-hole", 1],
+      ["destroy-dark-hole-full", "dark-hole", 10],
+      ["destroy-raigeki", "raigeki", 3],
+      ["destroy-raigeki-one", "raigeki", 1],
+      ["destroy-raigeki-full", "raigeki", 5],
+      ["destroy-feather-duster", "feather-duster", 3],
+      ["destroy-feather-duster-one", "feather-duster", 1],
+      ["destroy-feather-duster-full", "feather-duster", 5],
+      ["destroy-heavy-storm", "heavy-storm", 4],
+      ["destroy-heavy-storm-one", "heavy-storm", 1],
+      ["destroy-heavy-storm-full", "heavy-storm", 9],
+      ["destroy-banish-all", "banish-all", 4],
+      ["destroy-banish-two", "banish-all", 2],
+      ["destroy-banish-full", "banish-all", 9],
+      ["destroy-torrential", "torrential", 3],
+      ["destroy-torrential-one", "torrential", 1],
+      ["destroy-torrential-full", "torrential", 10],
+      ["destroy-mass", "mass-destroy", 3],
+      ["destroy-mass-two", "mass-destroy", 2],
+      ["destroy-mass-full", "mass-destroy", 5],
+      ["destroy-mass-monster", "mass-destroy", 5],
+    ];
+    for (const [id, piece, count] of expected) {
+      const built = findScenario(id)?.build();
+      expect(built, id).toBeDefined();
+      const events = numberSteps(built!.steps, 100).flatMap((entry) => entry.events);
+      const groups = groupScenes(events);
+      expect(groups.map((g) => g.piece), id).toEqual([piece]);
+      // A banish moves each card once; a destroy has a destroy event per card.
+      expect(groups[0].events.length, id).toBe(count);
+    }
   });
 
   it("gives every scenario a name and a description", () => {

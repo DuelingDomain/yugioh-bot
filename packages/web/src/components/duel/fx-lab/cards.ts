@@ -72,10 +72,13 @@ export const CARDS = {
   decodeTalker: info(1861629, "Decode Talker", TYPE_MONSTER | TYPE_LINK, 2300, 0, 3, ATTRIBUTE.DARK, "Cyberse"),
   blackChaos: info(30208479, "Magician of Black Chaos", TYPE_MONSTER | TYPE_RITUAL, 2800, 2600, 8, ATTRIBUTE.DARK, "Spellcaster"),
   oddEyes: info(16178681, "Odd-Eyes Pendulum Dragon", EFFECT | TYPE_PENDULUM, 2500, 2000, 7, ATTRIBUTE.DARK, "Dragon"),
+  chaosEmperor: info(82301904, "Chaos Emperor Dragon - Envoy of the End", EFFECT, 3000, 2500, 8, ATTRIBUTE.DARK, "Dragon"),
   // Spells
   darkHole: spell(53129443, "Dark Hole", 0, "Destroy all monsters on the field."),
   raigeki: spell(12580477, "Raigeki", 0, "Destroy all monsters your opponent controls."),
   mst: spell(5318639, "Mystical Space Typhoon", TYPE_QUICKPLAY, "Target 1 Spell/Trap on the field; destroy that target."),
+  featherDuster: spell(18144506, "Harpie's Feather Duster", 0, "Destroy all Spells and Traps your opponent controls."),
+  lightningVortex: spell(14472500, "Lightning Vortex", 0, "Discard 1 card; destroy all face-up monsters your opponent controls."),
   heavyStorm: spell(19613556, "Heavy Storm", 0, "Destroy all Spells and Traps on the field."),
   monsterReborn: spell(83764718, "Monster Reborn", 0, "Target 1 monster in either GY; Special Summon it."),
   potOfGreed: spell(55144522, "Pot of Greed", 0, "Draw 2 cards."),
@@ -89,6 +92,7 @@ export const CARDS = {
   torrential: trap(53582587, "Torrential Tribute", 0, "When a monster is Summoned: destroy all monsters on the field."),
   bottomless: trap(29401950, "Bottomless Trap Hole", 0, "When your opponent Summons a monster: destroy and banish it."),
   trapHole: trap(4206964, "Trap Hole", 0, "When your opponent Normal or Flip Summons a monster with 1000 or more ATK: destroy it."),
+  evenlyMatched: trap(15693423, "Evenly Matched", 0, "Banish cards your opponent controls until they control as many as you."),
   solemn: trap(41420027, "Solemn Judgment", 0, "Negate the Summon of a monster, or the activation of a Spell/Trap card."),
   magicCylinder: trap(62279055, "Magic Cylinder", 0, "When an opponent's monster declares an attack: negate the attack, then inflict damage."),
 } as const satisfies Record<string, DuelCardInfo>;

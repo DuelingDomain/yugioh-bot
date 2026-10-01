@@ -48,7 +48,7 @@ import {
   type DuelFxCueDetail,
   type SummonStyle,
 } from "./event-queue";
-import { battleBreakIs3d, battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
+import { battleBreakIs3d, battleDestroyAt, battleTakeover, HELD_CRACK_MS } from "./battle-hold";
 import { chainEffectAt } from "./chain-beats";
 import { hiddenHoldMs } from "./big-summon";
 import { getSharedFx3d, setSharedFx3d } from "./fx3d/shared";
@@ -2055,6 +2055,8 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
       const planned_ = planKind(event, fresh);
       if (!planned_ || !findZoneElement(event.zone)) continue;
       const { kind, style } = planned_;
+      // A wipe piece (DestroyFx) keeps the card whole on its own ghost and draws it on the canvas: no ghost here.
+      if (kind === "destroy" && battleTakeover(event.zone, now)) continue;
       const plan = pairedMovePlan(event.id);
       // A light summon or a set is the landing of its flight: no second animation of the same move.
       if (plan && (kind === "light" || kind === "set")) continue;

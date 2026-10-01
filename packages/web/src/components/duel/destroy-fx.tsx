@@ -2,13 +2,13 @@
 
 import { useEffect, useRef } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
-import { LOCATION_MZONE, zoneKey } from "./constants";
+import { LOCATION_GRAVE, LOCATION_MZONE, LOCATION_REMOVED, LOCATION_SZONE, zoneKey } from "./constants";
 import { armBattleDestroy, attackImpactAt } from "./battle-hold";
 import { collectFreshEvents, emitDuelFxCue, maxEventId } from "./event-queue";
-import { PIECE_TINTS, groupScenes, planScene, tintForCode, type SceneCue, type SceneGroup } from "./fx3d/scene-plan";
+import { PIECE_TINTS, groupScenes, isWipePiece, planScene, tintForCode, type SceneCue, type SceneGroup } from "./fx3d/scene-plan";
 import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
-import type { FxRect, FxScene } from "./fx3d/types";
+import type { FxPiles, FxRect, FxRows, FxScene, FxWorld } from "./fx3d/types";
 import { safeAnimate } from "./safe-animate";
 import { chainEffectAt } from "./chain-beats";
 import { holdPromptReveal } from "./prompt-reveal";
@@ -47,8 +47,12 @@ type Planned = {
   seed: number;
   /** DOM boxes for the fallback flash. */
   flash: Box[];
+  /** Wipes: the page card of each victim stays whole on a ghost until the canvas takes it (see wipeGhosts). */
+  ghosts: WipeGhost[];
   started: boolean;
 };
+
+type WipeGhost = { box: Box; src: string; defense: boolean; takeMs: number; endMs: number };
 
 function boxOf(el: Element): Box {
   const r = el.getBoundingClientRect();
@@ -91,6 +95,24 @@ function monsterRow(seat: number): Box | null {
   return union(boxes);
 }
 
+/** The bounds of the spell/trap zones of one seat (zones 0..4 and the field zone are skipped when empty). */
+function stRow(seat: number): Box | null {
+  const boxes: Box[] = [];
+  for (let sequence = 0; sequence < 8; sequence += 1) {
+    const found = artBox(zoneKey(seat, LOCATION_SZONE, sequence));
+    if (found) boxes.push(found.box);
+  }
+  return union(boxes);
+}
+
+/** A graveyard or banish pile of one seat (the whole stack). */
+function pileBox(seat: number, location: number): Box | null {
+  const node = zoneNode(zoneKey(seat, location, 0));
+  if (!node) return null;
+  const box = boxOf(node);
+  return box.width > 0 && box.height > 0 ? box : null;
+}
+
 /** The board zone that holds the card with this passcode in a spell/trap zone or the monster row. */
 function sourceBox(code: number, seat: number): Box | null {
   if (code <= 0) return null;
@@ -107,10 +129,13 @@ function sourceBox(code: number, seat: number): Box | null {
 function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], mySeat: number, now: number, three: boolean): Planned | null {
   const host = getSharedFx3d()?.host.getBoundingClientRect();
   const toRect = (box: Box): FxRect => (host ? viewportToHost(box, host) : { x: box.left, y: box.top, w: box.width, h: box.height });
-  const victims: Array<{ rect: FxRect; code: number; defense: boolean; turned: boolean; box: Box; event: DuelEvent }> = [];
+  const wipe = isWipePiece(group.piece);
+  const victims: Array<{ rect: FxRect; code: number; defense: boolean; turned: boolean; box: Box; event: DuelEvent; st: boolean; src: string; zone: { controller: number; location: number; sequence: number } }> = [];
   for (const event of group.events) {
-    if (!event.zone) continue;
-    const found = artBox(zoneKey(event.zone.controller, event.zone.location, event.zone.sequence));
+    // A destroy stands on the zone it was destroyed in; a banish or send is a move that leaves `from`.
+    const zone = event.kind === "move" ? event.from : event.zone;
+    if (!zone) continue;
+    const found = artBox(zoneKey(zone.controller, zone.location, zone.sequence));
     if (!found) continue;
     victims.push({
       rect: toRect(found.box),
@@ -119,10 +144,13 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
       turned: found.node.closest('[data-side="opp"]') != null,
       box: found.box,
       event,
+      st: zone.location !== LOCATION_MZONE,
+      src: found.node.querySelector("[data-card-art] img")?.getAttribute("src") ?? "",
+      zone,
     });
   }
   if (victims.length === 0) return null;
-  const firstZone = victims[0].event.zone as { controller: number };
+  const firstZone = victims[0].zone;
   const owner = group.sourceSeat >= 0 ? group.sourceSeat : 1 - firstZone.controller;
   const ownerSide = owner === mySeat ? "you" : "opp";
   const source = sourceBox(group.sourceCode, owner);
@@ -131,7 +159,7 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     ? attackEvent?.zone ? artBox(zoneKey(attackEvent.zone.controller, attackEvent.zone.location, attackEvent.zone.sequence)) : null
     : null;
   const rows: Box[] = [];
-  const rowSeats = group.piece === "mirror-force" ? [owner] : Array.from(new Set(victims.map((v) => (v.event.zone as { controller: number }).controller)));
+  const rowSeats = group.piece === "mirror-force" ? [owner] : Array.from(new Set(victims.map((v) => v.zone.controller)));
   for (const seat of rowSeats) {
     const row = monsterRow(seat);
     if (row) rows.push(row);
@@ -140,21 +168,69 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   // A destroy that is the effect of a resolving chain link starts while its badge is lit, never before.
   const startAt = Math.max(now, ...group.events.map((event) => chainEffectAt(event.id)));
   const attackImpact = attackEvent ? attackImpactAt(attackEvent.id) : 0;
+
+  // Wipes: the world of the demo (origin = middle of all card zones, u = card width / 96), rows and piles.
+  let world: FxWorld | undefined;
+  let rowRects: FxRows | undefined;
+  let pileRects: FxPiles | undefined;
+  const seatOf = (seat: number): "you" | "opp" => (seat === mySeat ? "you" : "opp");
+  if (wipe) {
+    const mine = [mySeat, 1 - mySeat];
+    const all: Box[] = [];
+    rowRects = { you: { m: null, st: null }, opp: { m: null, st: null } };
+    pileRects = { you: { gy: null, banish: null }, opp: { gy: null, banish: null } };
+    for (const seat of mine) {
+      const side = seatOf(seat);
+      const m = monsterRow(seat);
+      const st = stRow(seat);
+      if (m) all.push(m);
+      if (st) all.push(st);
+      rowRects[side] = { m: m ? toRect(m) : null, st: st ? toRect(st) : null };
+      const gy = pileBox(seat, LOCATION_GRAVE);
+      const banish = pileBox(seat, LOCATION_REMOVED);
+      pileRects[side] = { gy: gy ? toRect(gy) : null, banish: banish ? toRect(banish) : null };
+    }
+    const zones = union(all) ?? field;
+    const sample = artBox(zoneKey(firstZone.controller, LOCATION_MZONE, 0)) ?? artBox(zoneKey(1 - firstZone.controller, LOCATION_MZONE, 0));
+    const cardW = sample ? Math.min(sample.box.width, sample.box.height) : Math.min(victims[0].box.width, victims[0].box.height);
+    const zr = toRect(zones);
+    world = { cx: zr.x + zr.w / 2, cy: zr.y + zr.h / 2, u: Math.max(0.1, cardW / 96), vw: host?.width ?? zr.w, vh: host?.height ?? zr.h };
+  }
+  const pileOf = (victim: (typeof victims)[number]): FxRect | null => {
+    if (!pileRects) return null;
+    const side = seatOf(victim.zone.controller);
+    const to = victim.event.kind === "move" ? victim.event.zone : null;
+    const banish = to != null ? to.location === LOCATION_REMOVED : group.piece === "banish-all";
+    return banish ? pileRects[side].banish : pileRects[side].gy;
+  };
+
   const { scene, cues } = planScene({
     piece: group.piece,
-    victims: victims.map(({ rect, code, defense, turned }) => ({ rect, code, defense, turned })),
+    victims: victims.map((v) => ({ rect: v.rect, code: v.code, defense: v.defense, turned: v.turned, st: v.st, pile: pileOf(v) })),
     source: source ? toRect(source) : null,
     attacker: attackerFound ? toRect(attackerFound.box) : null,
     field: toRect(field),
     ownerSide,
     tint: group.piece === "monster" ? tintForCode(group.sourceCode) : PIECE_TINTS[group.piece],
     attackImpactMs: attackImpact > startAt ? attackImpact - startAt : null,
+    world,
+    rows: rowRects,
+    piles: pileRects,
   });
+  const ghosts: WipeGhost[] = [];
   if (three) {
     // The victims stay on their zones until their shards break: SummonFx keeps the ghosts, MoveFx waits.
+    // A wipe keeps its own ghost whole until the canvas takes the card (takeMs); the move to the pile waits for endMs.
     scene.victims.forEach((victim, index) => {
-      const event = victims[index].event;
-      if (event.zone) armBattleDestroy(`scene:${group.key}:${event.id}`, event.zone, victim.atMs, startAt, true);
+      const v = victims[index];
+      const event = v.event;
+      if (wipe) {
+        const takeMs = victim.takeMs ?? 0;
+        armBattleDestroy(`scene:${group.key}:${event.id}`, v.zone, takeMs, startAt, true, { moveAfterMs: victim.endMs ?? victim.atMs });
+        if (v.src) ghosts.push({ box: v.box, src: v.src, defense: v.defense, takeMs, endMs: victim.endMs ?? victim.atMs });
+      } else if (event.zone) {
+        armBattleDestroy(`scene:${group.key}:${event.id}`, event.zone, victim.atMs, startAt, true);
+      }
     });
   }
   return {
@@ -165,7 +241,48 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     cues,
     seed: (group.events[0].id * 2654435761) >>> 0,
     flash: victims.map((v) => v.box),
+    ghosts,
     started: false,
+  };
+}
+
+/**
+ * Wipes: the page card of each victim is gone from the board when the snapshot renders, so a plain ghost
+ * of it stays where it stood, whole, until the canvas takes over at `takeMs` (the canvas draws the same
+ * card in the same place). The ghost is hidden then, with no fade. Returns the undo.
+ */
+function wipeGhosts(planned: Planned): () => void {
+  const nodes: HTMLElement[] = [];
+  const timers: number[] = [];
+  for (const ghost of planned.ghosts) {
+    const wait = planned.startAt + ghost.takeMs - performance.now();
+    if (wait <= 0) continue;
+    const el = document.createElement("div");
+    el.setAttribute("aria-hidden", "true");
+    Object.assign(el.style, {
+      position: "fixed", left: `${ghost.box.left}px`, top: `${ghost.box.top}px`, width: `${ghost.box.width}px`, height: `${ghost.box.height}px`,
+      pointerEvents: "none", zIndex: "40", overflow: "hidden",
+    });
+    const img = document.createElement("img");
+    img.src = ghost.src;
+    img.alt = "";
+    img.draggable = false;
+    if (ghost.defense) {
+      Object.assign(img.style, {
+        position: "absolute", left: "50%", top: "50%", width: `${ghost.box.height}px`, height: `${ghost.box.width}px`,
+        transform: "translate(-50%, -50%) rotate(90deg)", objectFit: "cover",
+      });
+    } else {
+      Object.assign(img.style, { width: "100%", height: "100%", objectFit: "cover", display: "block" });
+    }
+    el.appendChild(img);
+    document.body.appendChild(el);
+    nodes.push(el);
+    timers.push(window.setTimeout(() => el.remove(), wait));
+  }
+  return () => {
+    for (const t of timers) window.clearTimeout(t);
+    for (const n of nodes) n.remove();
   };
 }
 
@@ -231,16 +348,18 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
       planned.started = true;
       // A chain link's destroy waits for its badge beat; the prompt waits for it as well.
       const wait = Math.max(0, planned.startAt - performance.now());
+      if (planned.three && planned.ghosts.length > 0) cleanupsRef.current.add(wipeGhosts(planned));
       const shared = planned.three ? getSharedFx3d() : null;
       // The prompt waits for what actually plays: the whole piece on the canvas, or (DOM) the flash
       // plus, when holds were armed for the canvas, the held cards breaking on their zones.
-      const lastBreak = planned.three ? planned.scene.victims.reduce((max, v) => Math.max(max, v.atMs), 0) : 0;
+      const lastBreak = planned.three ? planned.scene.victims.reduce((max, v) => Math.max(max, v.atMs, v.endMs ?? 0), 0) : 0;
       const playMs = shared ? planned.scene.totalMs : Math.max(DOM_FLASH_HOLD_MS, lastBreak + DOM_FLASH_HOLD_MS);
       holdPromptReveal(Math.max(0, wait + playMs - Math.max(0, performance.now() - planned.startAt)));
       const begin = () => {
         const late = Math.max(0, performance.now() - planned.startAt);
         const live = planned.three ? getSharedFx3d() : null;
         if (live) {
+
           for (const victim of planned.scene.victims) if (victim.code > 0) live.api.prefetchArt(victim.code);
           const host = live.host.getBoundingClientRect();
           const controller = new AbortController();

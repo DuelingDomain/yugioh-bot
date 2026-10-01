@@ -194,7 +194,8 @@ export const GATE_TIMING: Record<"resultPauseMs" | "resultCapMs" | "resultReduce
   /** A prompt panel waits this long before it shows, and settles this long after the board is quiet. */
   promptBeatMs: 600,
   promptSettleMs: 500,
-  promptCapMs: 6500,
+  /** Raised from 6500 so a whole wipe piece (up to 6000 ms, see fx3d/scene-plan.ts) can finish before the prompt. */
+  promptCapMs: 8000,
   promptReducedMs: 200,
   /** After a pick, the board holds this long before the next prompt. */
   pickHoldMs: 1600,

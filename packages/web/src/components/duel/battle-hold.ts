@@ -24,6 +24,13 @@ type Zone = { controller: number; location: number; sequence: number };
 export const BREAK_SETTLE_MS = MOVE_PACE.breakSettleMs;
 
 const holds = new Map<string, number>();
+/**
+ * Wipe takeovers (see fx3d/effects/wipes): the canvas draws the whole card from `takeAt`, and the card
+ * reaches its pile at `moveAt`. Keyed by the zone the card stands on. The page keeps the card whole until
+ * `takeAt` (SummonFx ghost, or the ghost of DestroyFx for a banish), and the move to the pile waits for
+ * `moveAt` and then only fades in (no flight, no gap in the move queue).
+ */
+const takeovers = new Map<string, { takeAt: number; moveAt: number }>();
 /** Zones whose break the 3D layer draws (a claim), so the DOM skips its own shards. */
 const claims = new Set<string>();
 const impacts = new Map<number, number>();
@@ -35,7 +42,9 @@ const now = (): number => (typeof performance !== "undefined" ? performance.now(
  * Holds the destroy of the card on `zone` until `delayMs` from now. `key` (the attack event and
  * zone) makes it idempotent: BattleFx arms while rendering, and a render may repeat.
  */
-export function armBattleDestroy(key: string, zone: Zone, delayMs: number, at: number = now(), claim3d = false): void {
+export type BattleTakeover = { takeAt: number; moveAt: number };
+
+export function armBattleDestroy(key: string, zone: Zone, delayMs: number, at: number = now(), claim3d = false, takeover?: { moveAfterMs: number }): void {
   if (armedKeys.has(key)) return;
   armedKeys.add(key);
   // Forget the oldest key only: clearing them all could let a repeat render of the current
@@ -44,6 +53,27 @@ export function armBattleDestroy(key: string, zone: Zone, delayMs: number, at: n
   const zoneId = zoneKey(zone.controller, zone.location, zone.sequence);
   holds.set(zoneId, Math.max(holds.get(zoneId) ?? 0, at + delayMs));
   if (claim3d) claims.add(zoneId);
+  if (takeover) {
+    const known = takeovers.get(zoneId);
+    const moveAt = at + Math.max(delayMs, takeover.moveAfterMs);
+    takeovers.set(zoneId, { takeAt: Math.max(known?.takeAt ?? 0, at + delayMs), moveAt: Math.max(known?.moveAt ?? 0, moveAt) });
+  }
+}
+
+/**
+ * The takeover armed for the card on `zone`, or null when there is none or its move time has passed.
+ * `takeAt` is when the canvas starts to draw the card; `moveAt` is when the card may reach its pile.
+ */
+export function battleTakeover(zone: Zone | undefined | null, at: number = now()): BattleTakeover | null {
+  if (!zone) return null;
+  const id = zoneKey(zone.controller, zone.location, zone.sequence);
+  const found = takeovers.get(id);
+  if (!found) return null;
+  if (found.moveAt <= at) {
+    takeovers.delete(id);
+    return null;
+  }
+  return found;
 }
 
 /** True while the 3D layer draws the break of the card on `zone` (its hold has not passed). */
@@ -79,6 +109,7 @@ export function battleDestroyAt(zone: Zone | undefined | null, at: number = now(
 
 export function clearBattleHolds(): void {
   holds.clear();
+  takeovers.clear();
   claims.clear();
   impacts.clear();
   armedKeys.clear();

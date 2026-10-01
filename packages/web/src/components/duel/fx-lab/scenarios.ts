@@ -145,51 +145,60 @@ function chainFlow(cards: ChainCard[]): { activations: EventSpec[]; resolveHead:
 
 type SpellDestroy = {
   card: DuelCardInfo;
-  /** The Spell/Trap zone of the activator. */
-  zone: ReturnType<typeof SZ>;
+  /** The zone of the activator: a Spell/Trap zone, or a monster zone for a monster effect. */
+  zone: ReturnType<typeof SZ> | ReturnType<typeof MZ>;
   victims: Array<{ seat: number; info: DuelCardInfo; zone: ReturnType<typeof MZ> | ReturnType<typeof SZ> }>;
-  kind: "spell" | "trap";
-  /** Banish instead of destroy (Bottomless Trap Hole). */
-  banish?: boolean;
+  kind: "spell" | "trap" | "monster";
+  /** "destroy": destroy, then banish (Bottomless Trap Hole). "only": banish with no destroy (Evenly Matched). */
+  banish?: "destroy" | "only";
 };
 
-/** A spell or trap that destroys cards: activate first, then the chain resolves with the destroys. */
-function destroyChain(spec: SpellDestroy, setup: Setup, lead: LabStep[] = [], leadMs = 0): LabScript {
+/** A spell, trap or monster effect that destroys (or banishes) cards: activate first, then the chain resolves. */
+function destroyChain(spec: SpellDestroy, setup: Setup, lead: LabStep[] = [], leadMs = 0, tailMs = 5200): LabScript {
   const activator = spec.zone.controller;
+  const fromMonster = spec.kind === "monster";
   const start = board((e) => {
     setup(e);
-    e.push(spec.kind === "trap" ? edit.setSpell(activator, spec.zone.sequence, spec.card) : edit.spell(activator, spec.zone.sequence, null));
+    if (fromMonster) e.push(edit.monster(activator, spec.zone.sequence, spec.card));
+    else e.push(spec.kind === "trap" ? edit.setSpell(activator, spec.zone.sequence, spec.card) : edit.spell(activator, spec.zone.sequence, null));
   });
   const flow = chainFlow([{ info: spec.card, seat: activator, zone: spec.zone }]);
   const effect: EventSpec[] = [];
   const edits: Edit[] = [];
-  const counters = new Map<number, number>();
+  const graves = new Map<number, number>();
+  const banished = new Map<number, number>();
   for (const victim of spec.victims) {
-    const grave = (counters.get(victim.seat) ?? 0);
-    counters.set(victim.seat, grave + 1);
+    const grave = graves.get(victim.seat) ?? 0;
+    const pile = banished.get(victim.seat) ?? 0;
     const why = { cause: "effect" as const, sourceCode: spec.card.code, sourceKind: spec.kind, sourceSeat: activator };
     const isMonster = victim.zone.location === MZ(0, 0).location;
-    effect.push(ev.destroy(victim.seat, victim.info, victim.zone, why));
-    if (spec.banish) {
-      effect.push(ev.move(victim.seat, victim.info, victim.zone, BANISHED(victim.seat, grave), "banish", why));
+    if (spec.banish === "only") {
+      effect.push(ev.move(victim.seat, victim.info, victim.zone, BANISHED(victim.seat, pile), "banish", why));
+      banished.set(victim.seat, pile + 1);
+      edits.push(edit.banish(victim.seat, victim.info));
+    } else if (spec.banish === "destroy") {
+      effect.push(ev.destroy(victim.seat, victim.info, victim.zone, why), ev.move(victim.seat, victim.info, victim.zone, BANISHED(victim.seat, pile), "banish", why));
+      banished.set(victim.seat, pile + 1);
       edits.push(edit.banish(victim.seat, victim.info));
     } else {
-      effect.push(ev.toGrave(victim.seat, victim.info, victim.zone, grave, why));
+      effect.push(ev.destroy(victim.seat, victim.info, victim.zone, why), ev.toGrave(victim.seat, victim.info, victim.zone, grave, why));
+      graves.set(victim.seat, grave + 1);
       edits.push(edit.grave(victim.seat, victim.info));
     }
     edits.push(isMonster ? edit.monster(victim.seat, victim.zone.sequence, null) : edit.spell(victim.seat, victim.zone.sequence, null));
   }
-  // The activated card goes to the Graveyard after it resolves.
-  const used = counters.get(activator) ?? 0;
-  effect.push(ev.toGrave(activator, spec.card, spec.zone, used, {}));
-  edits.push(edit.spell(activator, spec.zone.sequence, null), edit.grave(activator, spec.card));
+  if (!fromMonster) {
+    // The activated card goes to the Graveyard after it resolves.
+    effect.push(ev.toGrave(activator, spec.card, spec.zone, graves.get(activator) ?? 0, {}));
+    edits.push(edit.spell(activator, spec.zone.sequence, null), edit.grave(activator, spec.card));
+  }
   const base = leadMs;
   const steps: LabStep[] = [
     ...lead,
     {
       at: base,
       events: flow.activations,
-      edits: [edit.spell(activator, spec.zone.sequence, spec.card)],
+      edits: fromMonster ? [] : [edit.spell(activator, spec.zone.sequence, spec.card)],
       chain: [link(1, activator, spec.card)],
     },
     {
@@ -199,52 +208,196 @@ function destroyChain(spec: SpellDestroy, setup: Setup, lead: LabStep[] = [], le
       chain: [],
     },
   ];
-  return script(start, steps, 5200);
+  return script(start, steps, tailMs);
 }
 
-const dhMine = C.celtic;
+/* ---------- field wipes ---------- */
+
+type Victim = SpellDestroy["victims"][number];
+
+/** Zone numbers of n cards in a row of five, centred. */
+const SPREAD: Record<number, number[]> = { 1: [2], 2: [1, 3], 3: [1, 2, 3], 4: [0, 1, 3, 4], 5: [0, 1, 2, 3, 4] };
+const spread = (n: number): number[] => SPREAD[Math.max(1, Math.min(5, n))].slice(0, n);
+
+const OPP_MONSTERS = [C.blueEyes, C.summonedSkull, C.harpie, C.gaia, C.redEyes];
+const MY_MONSTERS = [C.celtic, C.darkMagician, C.cyberDragon, C.silverFang, C.mysticalElf];
+const OPP_BACKS = [C.mirrorForce, C.trapHole, C.solemn, C.magicCylinder, C.sakuretsu];
+const MY_BACKS = [C.swords, C.solemn, C.bottomless, C.magicCylinder, C.trapHole];
+
+const monsterRow = (seat: number, infos: readonly DuelCardInfo[], seqs: readonly number[] = spread(infos.length)): Victim[] =>
+  infos.map((info, i) => ({ seat, info, zone: MZ(seat, seqs[i]) }));
+const spellRow = (seat: number, infos: readonly DuelCardInfo[], seqs: readonly number[] = spread(infos.length)): Victim[] =>
+  infos.map((info, i) => ({ seat, info, zone: SZ(seat, seqs[i]) }));
+
+/** Puts every victim on the board: monsters face-up, the opponent's Spells and Traps Set (hidden), yours Set (known). */
+function place(victims: readonly Victim[]): Setup {
+  return (e) => {
+    for (const v of victims) {
+      const seq = v.zone.sequence;
+      if (v.zone.location === MZ(0, 0).location) e.push(edit.monster(v.seat, seq, v.info));
+      else if (v.info === C.swords) e.push(edit.spell(v.seat, seq, v.info));
+      else e.push(v.seat === OPP ? edit.hiddenSpell(v.seat, seq) : edit.setSpell(v.seat, seq, v.info));
+    }
+  };
+}
+
+const WIPE_TAIL = 6900;
+
+/** A wipe of the field by one spell (or trap) of the activator at `zone`. */
+function wipeScenario(
+  id: string,
+  name: string,
+  description: string,
+  card: DuelCardInfo,
+  kind: "spell" | "trap" | "monster",
+  victims: Victim[],
+  options: { zone?: SpellDestroy["zone"]; banish?: SpellDestroy["banish"]; extra?: Setup; lead?: LabStep[]; leadMs?: number } = {},
+): LabScenario {
+  return {
+    id,
+    category: "Destroy",
+    name,
+    description,
+    build: () =>
+      destroyChain(
+        { card, zone: options.zone ?? SZ(ME, kind === "monster" ? 2 : 1), kind, victims, banish: options.banish },
+        (e) => {
+          options.extra?.(e);
+          place(victims)(e);
+        },
+        options.lead,
+        options.leadMs,
+        WIPE_TAIL + (options.leadMs ?? 0),
+      ),
+  };
+}
+
+const WIPES: LabScenario[] = [
+  // Dark Hole: every monster of both sides
+  wipeScenario("destroy-dark-hole", "Dark Hole", "Set piece: a black hole opens over the field and every monster of both sides is pulled in. Three.js scene.", C.darkHole, "spell", [
+    ...monsterRow(ME, [C.celtic, C.darkMagician], [1, 3]),
+    ...monsterRow(OPP, [C.blueEyes, C.summonedSkull, C.harpie], [1, 2, 3]),
+  ]),
+  wipeScenario("destroy-dark-hole-one", "Dark Hole: one monster", "Dark Hole with a single monster on the whole field. The hole still opens and swallows it.", C.darkHole, "spell", monsterRow(OPP, [C.blueEyes])),
+  wipeScenario("destroy-dark-hole-full", "Dark Hole: full board (10 monsters)", "Five monsters on each side. The heaviest Dark Hole load.", C.darkHole, "spell", [...monsterRow(ME, MY_MONSTERS), ...monsterRow(OPP, OPP_MONSTERS)]),
+  // Raigeki: the monsters of the opponent
+  wipeScenario(
+    "destroy-raigeki",
+    "Raigeki",
+    "Set piece: one giant bolt from the sky strikes every monster of the opponent. Your own monster stays. Three.js scene.",
+    C.raigeki,
+    "spell",
+    monsterRow(OPP, [C.blueEyes, C.summonedSkull, C.harpie], [1, 2, 3]),
+    { extra: (e) => e.push(edit.monster(ME, 2, C.darkMagician)) },
+  ),
+  wipeScenario("destroy-raigeki-one", "Raigeki: one monster", "Raigeki with one monster on the opponent's side.", C.raigeki, "spell", monsterRow(OPP, [C.summonedSkull]), { extra: (e) => e.push(edit.monster(ME, 2, C.darkMagician)) }),
+  wipeScenario("destroy-raigeki-full", "Raigeki: five monsters", "A full row of five monsters of the opponent.", C.raigeki, "spell", monsterRow(OPP, OPP_MONSTERS), { extra: (e) => e.push(edit.monster(ME, 2, C.darkMagician)) }),
+  // Harpie's Feather Duster: the Spells and Traps of the opponent
+  wipeScenario(
+    "destroy-feather-duster",
+    "Harpie's Feather Duster",
+    "Set piece: a flurry of feathers sweeps the Spell and Trap row of the opponent. Your own cards stay. Three.js scene.",
+    C.featherDuster,
+    "spell",
+    spellRow(OPP, [C.mirrorForce, C.trapHole, C.solemn], [1, 2, 3]),
+    { extra: (e) => e.push(edit.monster(OPP, 2, C.harpie), edit.setSpell(ME, 3, C.solemn)) },
+  ),
+  wipeScenario("destroy-feather-duster-one", "Harpie's Feather Duster: one card", "One Set card of the opponent. The feather piece still plays.", C.featherDuster, "spell", spellRow(OPP, [C.mirrorForce]), { extra: (e) => e.push(edit.monster(OPP, 2, C.harpie)) }),
+  wipeScenario("destroy-feather-duster-full", "Harpie's Feather Duster: five cards", "A full Spell and Trap row of the opponent.", C.featherDuster, "spell", spellRow(OPP, OPP_BACKS), { extra: (e) => e.push(edit.monster(OPP, 2, C.harpie)) }),
+  // Heavy Storm: every Spell and Trap
+  wipeScenario(
+    "destroy-heavy-storm",
+    "Heavy Storm (all Spells and Traps)",
+    "Set piece: a storm front crosses the field and tears out the Spells and Traps of both sides. Three.js scene.",
+    C.heavyStorm,
+    "spell",
+    [...spellRow(ME, [C.swords], [3]), ...spellRow(OPP, [C.mirrorForce, C.trapHole, C.solemn], [1, 2, 3])],
+    { extra: (e) => e.push(edit.monster(OPP, 2, C.harpie), edit.monster(ME, 2, C.celtic)) },
+  ),
+  wipeScenario("destroy-heavy-storm-one", "Heavy Storm: one card", "Only one other Spell or Trap on the field.", C.heavyStorm, "spell", spellRow(OPP, [C.mirrorForce]), { extra: (e) => e.push(edit.monster(OPP, 2, C.harpie)) }),
+  wipeScenario(
+    "destroy-heavy-storm-full",
+    "Heavy Storm: full board (9 cards)",
+    "Four cards of yours and five of the opponent.",
+    C.heavyStorm,
+    "spell",
+    [...spellRow(ME, MY_BACKS.slice(0, 4), [0, 2, 3, 4]), ...spellRow(OPP, OPP_BACKS)],
+    { extra: (e) => e.push(edit.monster(OPP, 2, C.harpie), edit.monster(ME, 2, C.celtic)) },
+  ),
+  // Banish all
+  wipeScenario(
+    "destroy-banish-all",
+    "Banish all (Evenly Matched)",
+    "Set piece: a rift opens and the cards of the opponent are banished. One chain link banishes two or more cards. Three.js scene.",
+    C.evenlyMatched,
+    "trap",
+    [...monsterRow(OPP, [C.blueEyes, C.summonedSkull, C.harpie], [1, 2, 3]), ...spellRow(OPP, [C.mirrorForce], [2])],
+    { banish: "only", zone: SZ(ME, 2), extra: (e) => e.push(edit.monster(ME, 2, C.darkMagician)) },
+  ),
+  wipeScenario("destroy-banish-two", "Banish all: two cards", "The smallest group: two cards banished by one link.", C.evenlyMatched, "trap", monsterRow(OPP, [C.blueEyes, C.summonedSkull]), { banish: "only", zone: SZ(ME, 2) }),
+  wipeScenario(
+    "destroy-banish-full",
+    "Banish all: eight cards of both sides",
+    "Five monsters and three Set cards, with one monster of yours.",
+    C.evenlyMatched,
+    "trap",
+    [...monsterRow(OPP, OPP_MONSTERS), ...spellRow(OPP, OPP_BACKS.slice(0, 3), [0, 2, 4]), ...monsterRow(ME, [C.celtic], [0])],
+    { banish: "only", zone: SZ(ME, 1) },
+  ),
+  // Torrential Tribute: every monster after a summon
+  {
+    id: "destroy-torrential",
+    category: "Destroy",
+    name: "Torrential Tribute",
+    description: "Set piece: a flood tears across the field after the opponent summons, and every monster of both sides is washed away. Three.js scene.",
+    build: () => torrentialScript([{ seat: ME, info: C.celtic, zone: MZ(ME, 1) }, { seat: OPP, info: C.summonedSkull, zone: MZ(OPP, 1) }], 3),
+  },
+  {
+    id: "destroy-torrential-one",
+    category: "Destroy",
+    name: "Torrential Tribute: only the summoned monster",
+    description: "An empty field except the monster that was just summoned. One jet of water.",
+    build: () => torrentialScript([], 2),
+  },
+  {
+    id: "destroy-torrential-full",
+    category: "Destroy",
+    name: "Torrential Tribute: full board (10 monsters)",
+    description: "Five monsters of yours and five of the opponent, the last one just summoned.",
+    build: () => torrentialScript([...monsterRow(ME, MY_MONSTERS).map((v) => ({ ...v })), ...monsterRow(OPP, OPP_MONSTERS.slice(0, 4), [0, 1, 2, 3])], 4),
+  },
+  // Mass destroy: a card with no set piece that destroys two or more cards
+  wipeScenario("destroy-mass", "Mass destroy (Lightning Vortex)", "A spell with no piece of its own that destroys three monsters in one link: the shock ring. Three.js scene.", C.lightningVortex, "spell", monsterRow(OPP, [C.blueEyes, C.summonedSkull, C.harpie], [1, 2, 3])),
+  wipeScenario("destroy-mass-two", "Mass destroy: two monsters", "The smallest group: two cards, one link, no named piece.", C.lightningVortex, "spell", monsterRow(OPP, [C.blueEyes, C.summonedSkull])),
+  wipeScenario("destroy-mass-full", "Mass destroy: five monsters", "A full row of the opponent.", C.lightningVortex, "spell", monsterRow(OPP, OPP_MONSTERS)),
+  wipeScenario(
+    "destroy-mass-monster",
+    "Mass destroy by a monster effect (mixed cards)",
+    "A monster on the field destroys monsters and Set cards of both sides. The ring leaves the monster.",
+    C.chaosEmperor,
+    "monster",
+    [...monsterRow(OPP, [C.blueEyes, C.harpie], [0, 4]), ...spellRow(OPP, [C.mirrorForce, C.trapHole], [1, 3]), ...monsterRow(ME, [C.celtic], [0])],
+    { zone: MZ(ME, 2) },
+  ),
+];
+
+/** Torrential Tribute: the opponent summons into zone `summonZone`, then the trap destroys every monster. */
+function torrentialScript(others: Victim[], summonZone: number): LabScript {
+  const summoned = C.blueSirius;
+  const summonEvents = summonPair(OPP, summoned, HAND(OPP, 0), MZ(OPP, summonZone), "normal");
+  const lead: LabStep[] = [{ at: 0, events: summonEvents, edits: [edit.monster(OPP, summonZone, summoned), edit.removeHand(OPP, 0)] }];
+  const victims: Victim[] = [...others, { seat: OPP, info: summoned, zone: MZ(OPP, summonZone) }];
+  return destroyChain(
+    { card: C.torrential, zone: SZ(ME, 2), kind: "trap", victims },
+    (e) => place(others)(e),
+    lead,
+    1400,
+    WIPE_TAIL + 1400,
+  );
+}
+
 const DESTROY: LabScenario[] = [
-  {
-    id: "destroy-dark-hole",
-    category: "Destroy",
-    name: "Dark Hole",
-    description: "Set piece: a black hole opens over the field and every monster is pulled in. Three.js scene.",
-    build: () =>
-      destroyChain(
-        {
-          card: C.darkHole,
-          zone: SZ(ME, 1),
-          kind: "spell",
-          victims: [
-            { seat: ME, info: dhMine, zone: MZ(ME, 1) },
-            { seat: OPP, info: C.blueEyes, zone: MZ(OPP, 1) },
-            { seat: OPP, info: C.summonedSkull, zone: MZ(OPP, 2) },
-            { seat: OPP, info: C.harpie, zone: MZ(OPP, 3) },
-          ],
-        },
-        (e) => e.push(edit.monster(ME, 1, dhMine), edit.monster(OPP, 1, C.blueEyes), edit.monster(OPP, 2, C.summonedSkull), edit.monster(OPP, 3, C.harpie)),
-      ),
-  },
-  {
-    id: "destroy-raigeki",
-    category: "Destroy",
-    name: "Raigeki",
-    description: "Set piece: lightning strikes every monster of the opponent. The effect plays the code that ships.",
-    build: () =>
-      destroyChain(
-        {
-          card: C.raigeki,
-          zone: SZ(ME, 1),
-          kind: "spell",
-          victims: [
-            { seat: OPP, info: C.blueEyes, zone: MZ(OPP, 1) },
-            { seat: OPP, info: C.summonedSkull, zone: MZ(OPP, 2) },
-            { seat: OPP, info: C.harpie, zone: MZ(OPP, 3) },
-          ],
-        },
-        (e) => e.push(edit.monster(ME, 2, C.darkMagician), edit.monster(OPP, 1, C.blueEyes), edit.monster(OPP, 2, C.summonedSkull), edit.monster(OPP, 3, C.harpie)),
-      ),
-  },
+  ...WIPES,
   {
     id: "destroy-mst",
     category: "Destroy",
@@ -255,53 +408,6 @@ const DESTROY: LabScenario[] = [
         { card: C.mst, zone: SZ(ME, 1), kind: "spell", victims: [{ seat: OPP, info: C.mirrorForce, zone: SZ(OPP, 2) }] },
         (e) => e.push(edit.hiddenSpell(OPP, 2), edit.monster(OPP, 2, C.harpie)),
       ),
-  },
-  {
-    id: "destroy-heavy-storm",
-    category: "Destroy",
-    name: "Heavy Storm (all Spells and Traps)",
-    description: "A spell that destroys cards on both sides. One piece plays for the whole group.",
-    build: () =>
-      destroyChain(
-        {
-          card: C.heavyStorm,
-          zone: SZ(ME, 1),
-          kind: "spell",
-          victims: [
-            { seat: ME, info: C.swords, zone: SZ(ME, 3) },
-            { seat: OPP, info: C.mirrorForce, zone: SZ(OPP, 1) },
-            { seat: OPP, info: C.trapHole, zone: SZ(OPP, 3) },
-          ],
-        },
-        (e) => e.push(edit.spell(ME, 3, C.swords), edit.hiddenSpell(OPP, 1), edit.hiddenSpell(OPP, 3)),
-      ),
-  },
-  {
-    id: "destroy-torrential",
-    category: "Destroy",
-    name: "Torrential Tribute",
-    description: "Set piece: a tide sweeps the field after the opponent summons. Three.js scene.",
-    build: () => {
-      const summonEvents = summonPair(OPP, C.blueSirius, HAND(OPP, 0), MZ(OPP, 3), "normal");
-      const lead: LabStep[] = [
-        { at: 0, events: summonEvents, edits: [edit.monster(OPP, 3, C.blueSirius), edit.removeHand(OPP, 0)] },
-      ];
-      return destroyChain(
-        {
-          card: C.torrential,
-          zone: SZ(ME, 2),
-          kind: "trap",
-          victims: [
-            { seat: ME, info: C.celtic, zone: MZ(ME, 1) },
-            { seat: OPP, info: C.summonedSkull, zone: MZ(OPP, 1) },
-            { seat: OPP, info: C.blueSirius, zone: MZ(OPP, 3) },
-          ],
-        },
-        (e) => e.push(edit.monster(ME, 1, C.celtic), edit.monster(OPP, 1, C.summonedSkull)),
-        lead,
-        1400,
-      );
-    },
   },
   {
     id: "destroy-mirror-force",

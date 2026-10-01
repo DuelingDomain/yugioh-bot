@@ -702,6 +702,10 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
         // and the pile counts it when the flight lands, not before.
         releases.push(beginDestroyHide(`move:${plan.id}`, plan.event.from, plan.event.card?.code, waitMs));
         releases.push(beginPileHold(`move:${plan.id}`, plan.event.zone, waitMs));
+      } else if (plan.takeover && plan.event.zone) {
+        // A wipe piece drew the card on the canvas (its own layer keeps the zone clear): the pile counts it
+        // when the streak arrives, not before.
+        releases.push(beginPileHold(`move:${plan.id}`, plan.event.zone, waitMs));
       }
       if (releases.length > 0) {
         const release = () => releases.forEach((fn) => fn());

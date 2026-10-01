@@ -3,7 +3,7 @@ import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import { armBattleDestroy, attackImpactAt, battleBreakIs3d, battleDestroyAt, BREAK_SETTLE_MS, clearBattleHolds, HELD_CRACK_MS, noteAttackImpact } from "../../src/components/duel/battle-hold";
 import { STYLE_IDS, battleKind, battleTiming, attackStyleFor } from "../../src/components/duel/attack-styles";
 import { hexToRgb, planBattle, SHARD_TAIL_MS } from "../../src/components/duel/fx3d/battle-plan";
-import { groupScenes, mirrorHitMs, pieceOf, planScene, MIRROR_RISE_MS, SCENE_LIFE_CAP_MS } from "../../src/components/duel/fx3d/scene-plan";
+import { groupScenes, mirrorHitMs, pieceOf, planScene, MIRROR_RISE_MS, sceneCapMs } from "../../src/components/duel/fx3d/scene-plan";
 import { pickBattleRoute } from "../../src/components/duel/fx3d/routing";
 import { layoutShards, totalArea, type CutKind } from "../../src/components/duel/fx3d/shard-layout";
 import { shardAt, shardMotion } from "../../src/components/duel/fx3d/shard-motion";
@@ -67,7 +67,7 @@ describe("scene timing", () => {
     for (const piece of ["mirror-force", "sakuretsu", "torrential", "dark-hole", "raigeki", "bottomless", "trap-hole", "trap", "spell", "monster"] as const) {
       const { scene, cues } = planScene({ ...base, piece });
       expect(scene.victims).toHaveLength(3);
-      expect(scene.totalMs).toBeLessThanOrEqual(SCENE_LIFE_CAP_MS);
+      expect(scene.totalMs).toBeLessThanOrEqual(sceneCapMs(piece));
       expect(scene.totalMs).toBeGreaterThan(Math.max(...scene.victims.map((v) => v.atMs)));
       expect(cues.length).toBeGreaterThan(0);
     }
@@ -81,10 +81,10 @@ describe("scene timing", () => {
     for (const v of scene.victims) expect(v.atMs).toBeGreaterThan(900);
   });
 
-  it("Torrential Tribute breaks the cards from the left to the right", () => {
+  it("Torrential Tribute takes all cards in one flood, inside 0.1 s of each other", () => {
     const { scene } = planScene({ ...base, piece: "torrential" });
     const times = scene.victims.map((v) => v.atMs);
-    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(Math.max(...times) - Math.min(...times)).toBeLessThanOrEqual(100);
   });
 });
 

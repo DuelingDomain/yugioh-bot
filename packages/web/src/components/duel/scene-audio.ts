@@ -75,11 +75,28 @@ export function sceneSound(s: Synth, cue: SceneCueName, t: number, g: number, rn
       s.tone({ freq: 900, freqEnd: 180, type: "sawtooth", start: t, duration: 0.33, peak: 0.03 * g, attack: 0.01, lowpass: 2600 });
       thump(s, t + 0.3, 0.1 * g, 110, 38, 0.3);
       break;
+    case "gust":
+      // Wind: a band of noise that sweeps up and fades.
+      s.burst({ start: t, duration: 0.9, peak: 0.07 * g, filter: "bandpass", freq: 500, freqEnd: 2200, q: 0.9, attack: 0.3 });
+      whoosh(s, t + 0.1, 0.6, 900, 3000, 0.035 * g, 2);
+      break;
+    case "rift":
+      // A tear in the air: a rising shimmer over a low pulse.
+      shimmer(s, t, 0.7, 520, [1, 1.5, 2.01, 3], 0.01 * g, 0.2, 6);
+      s.tone({ freq: 90, freqEnd: 50, type: "sine", start: t, duration: 0.7, peak: 0.07 * g, attack: 0.2 });
+      crackle(s, t + 0.1, 0.4, 0.03 * g, rng);
+      break;
+    case "shock-boom":
+      // One big pulse: a deep thump and a short roar.
+      thump(s, t, 0.2 * g, 90, 28, 0.6);
+      s.burst({ start: t, duration: 0.6, peak: 0.08 * g, filter: "lowpass", freq: 1800, freqEnd: 120 });
+      clang(s, t + 0.02, 0.04 * g, 180);
+      break;
   }
 }
 
 /** The cues above, for the audio layer to test membership. */
 export const SCENE_CUES: readonly SceneCueName[] = [
   "mirror-rise", "mirror-reflect", "armor-clank", "armor-boom", "tidal", "black-hole",
-  "thunder", "fall-rumble", "chain-rattle", "trap-glyph", "spell-burst", "energy-strike",
+  "thunder", "fall-rumble", "chain-rattle", "trap-glyph", "spell-burst", "energy-strike", "gust", "rift", "shock-boom",
 ];
