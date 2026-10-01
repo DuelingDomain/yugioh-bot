@@ -15,6 +15,8 @@ import { SOURCE } from "./nseat-scenarios.js";
 type Seat = "p0" | "p1" | "p2" | "p3";
 const RAT = "Giant Rat"; // 1400 ATK Beast, Level 4
 const OX = "Battle Ox"; // 1700 ATK
+const NUMBER_62 = "Number 62: Galaxy-Eyes Prime Photon Dragon"; // 4000 ATK Xyz, LIGHT Dragon
+const NUMBER_90 = "Number 90: Galaxy-Eyes Photon Lord"; // 2500 ATK Xyz
 const DARK_HOLE = "Dark Hole";
 const REBORN = "Monster Reborn";
 const OPP_PICK = `${SOURCE} [R-COMMON-OPP-PICK]`;
@@ -155,6 +157,27 @@ export const ATTACK_DIRECT_SCENARIOS: Scenario[] = [
     answer: [activate("Offering to the Immortals", "p0")],
     atP0: { p0: { lp: 3000, monsters: { count: 2 }, grave: ["Offering to the Immortals"], hand: [DARK_HOLE, "Earthbound Immortal Uru"] }, p1: { monsters: [OX] } },
     atP2: { p0: { lp: 3000, spells: ["Offering to the Immortals"], hand: [DARK_HOLE] }, p1: { monsters: [OX] }, p2: { lp: 6300 } },
+  }),
+  // Group of the conditions that read the controller of the attacker (`eg:GetFirst():IsControler(1-tp)`): a Trap that Special Summons
+  // from the Extra Deck, and a Trap that acts on the monsters of the attacker side.
+  ...pair({
+    slug: "double-dragon-descent", name: "Double Dragon Descent", code: 13166648,
+    p0: { spells: [faceDown("Double Dragon Descent")], extra: [NUMBER_62], deck: [DARK_HOLE] },
+    p1: { monsters: [NUMBER_90] },
+    attacker: NUMBER_90,
+    answer: [activate("Double Dragon Descent", "p0")],
+    // Number 62 is summoned, its ATK becomes the 2500 of the attacker, and the attack goes to it: both are destroyed.
+    atP0: { p0: { grave: ["Double Dragon Descent", NUMBER_62], hand: [DARK_HOLE] }, p1: { grave: [NUMBER_90] } },
+    atP2: { p0: { spells: ["Double Dragon Descent"], hand: [DARK_HOLE] }, p1: { monsters: [NUMBER_90] }, p2: { lp: 5500 } },
+  }),
+  ...pair({
+    slug: "drowning-mirror-force", name: "Drowning Mirror Force", code: 47475363,
+    p0: { spells: [faceDown("Drowning Mirror Force")] },
+    p1: { monsters: [RAT, OX] },
+    attacker: RAT,
+    answer: [activate("Drowning Mirror Force", "p0")],
+    atP0: { p0: { grave: ["Drowning Mirror Force"] } },
+    atP2: { p0: { spells: ["Drowning Mirror Force"] }, p1: { monsters: [RAT, OX] }, p2: { lp: 6600 } },
   }),
   // Tag keeps the team value: a direct attack at a seat of the team asks the partner of the target as well (p2 holds the Trap, p0 holds nothing).
   defineScenario({

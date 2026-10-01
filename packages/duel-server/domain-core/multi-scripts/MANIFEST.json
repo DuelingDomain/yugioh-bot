@@ -604,6 +604,24 @@
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
+      "code": 13166648,
+      "file": "c13166648.lua",
+      "name": "Double Dragon Descent",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "336b8930bedc3d57725d59711a45ac991f1d81c6279041db08b5a99f409457a2",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 13243124,
       "file": "c13243124.lua",
       "name": "Favorite HERO Flame Wingman",
@@ -1262,6 +1280,24 @@
       ],
       "replace": true,
       "stockSha256": "9e3c4c3787d7eda606ba1d80444ea47aaa0836b459cf074ae13afc6afa1b08bc"
+    },
+    {
+      "code": 24590232,
+      "file": "c24590232.lua",
+      "name": "King's Consonance",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "621bfebf422e175db7fb55f55937a811183e09e3380a33aee9c6ed32eed817ed",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 24731453,
@@ -2234,6 +2270,24 @@
       "note": "Script fix (Q7, Q10): at:IsControler(tp) in the condition. Not part of R1."
     },
     {
+      "code": 44046281,
+      "file": "c44046281.lua",
+      "name": "Dimension Gate",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "47e773cbe00617034a52c966950431af95617be1186e6828c0cccbef0c757d26",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "tgcon"
+        ]
+      },
+      "compareIn": [
+        "tgcon"
+      ]
+    },
+    {
       "code": 44656491,
       "file": "c44656491.lua",
       "name": "Messenger of Peace",
@@ -2417,6 +2471,24 @@
         "R1"
       ],
       "stockSha256": "f4e96c89c1eff53dfe005fc3bff00f1e23206d6358383ce71d03ca16af90f083"
+    },
+    {
+      "code": 47475363,
+      "file": "c47475363.lua",
+      "name": "Drowning Mirror Force",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "415cbbcf792a9708972dec87f31fe51d85a0e943db0ff02064b378172f5dab63",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 48150362,
@@ -4029,6 +4101,24 @@
         "R1"
       ],
       "stockSha256": "5b85c1dd408241a719667c65f5c97548e73ca6b6b326bb16654515319b5adacb"
+    },
+    {
+      "code": 78161960,
+      "file": "c78161960.lua",
+      "name": "Reject Reborn",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "3012d22114c2e73ce7ecaa03d811b6d2da8bb2aed57803ebb4a72b2b0647a497",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
     },
     {
       "code": 78706415,
