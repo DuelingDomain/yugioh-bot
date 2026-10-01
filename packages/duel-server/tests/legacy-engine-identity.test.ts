@@ -41,7 +41,7 @@ function npmCoreFile(): string {
 
 describe("legacy 1v1 engine core identity", () => {
   it("Standard runs the npm package core, byte for byte", async () => {
-    const game = await createLegacyEngineGame({ mode: "standard", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
+    const game = await createLegacyEngineGame({ mode: "normal", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
     try {
       const info = game.coreInfo();
       expect(info.wasmSha).toBe(sha256(npmCoreFile()));
@@ -70,7 +70,7 @@ describe("legacy 1v1 engine core identity", () => {
   });
 
   it("the pinned engine reports the standard core of the bundle, not the npm core", async () => {
-    const game = await createEngineGame({ mode: "standard", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
+    const game = await createEngineGame({ mode: "normal", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
     try {
       expect(game.coreInfo().wasmSha).toBe(MANIFEST.integrity.standardWasm);
     } finally {
@@ -79,7 +79,7 @@ describe("legacy 1v1 engine core identity", () => {
   });
 
   it("the legacy engine refuses what only the merged engine can do", async () => {
-    await expect(createLegacyEngineGame({ mode: "standard", format: "ffa3", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings })).rejects.toThrow(/1v1/);
-    await expect(createLegacyEngineGame({ mode: "standard", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings, startupScripts: ["x"] } as never)).rejects.toThrow(/startup/);
+    await expect(createLegacyEngineGame({ mode: "normal", format: "ffa3", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings })).rejects.toThrow(/1v1/);
+    await expect(createLegacyEngineGame({ mode: "normal", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings, startupScripts: ["x"] } as never)).rejects.toThrow(/startup/);
   });
 });
