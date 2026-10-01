@@ -54,6 +54,21 @@ export interface NViews {
 
 const FACEDOWN = 0x2 | 0x8;
 const REVEAL_WORDS = /reveal|show|confirm|excavat|look|hand/i;
+/**
+ * Face-up cards whose script gives hand cards EFFECT_PUBLIC (the core then reports QUERY_IS_PUBLIC, so the view shows the
+ * card with its code although it is face-down in the hand): Ceremonial Bell, Click & Echo, Clear World, Mind Scan, The
+ * Eye of Truth, Contract with Don Thousand, Mind on Air, Thousand-Eyes Jellyfish, Respect Play, Mutually Affured
+ * Destruction. While one of them is on a field, a revealed hand card is no leak (seed 12 at Tag: Don Thousand revealed
+ * the card that seat 3 drew).
+ */
+const PUBLIC_HAND_EFFECT_CODES = new Set([20228463, 2992467, 33900648, 34298391, 34694160, 56673480, 66690411, 81434470, 8951260, 75364199]);
+
+/** True when a face-up card of PUBLIC_HAND_EFFECT_CODES is on any field of the view. */
+function publicHandEffectOnField(view: DuelEngineView): boolean {
+  return view.seats.some((seat) =>
+    [...seat.monsters, ...seat.spells].some((card) => card && card.code !== undefined && (card.position & FACEDOWN) === 0 && PUBLIC_HAND_EFFECT_CODES.has(card.code)),
+  );
+}
 
 export function sha1(value: unknown): string {
   return createHash("sha1").update(JSON.stringify(value)).digest("hex");
@@ -365,6 +380,7 @@ export class NChecker {
     for (const view of views.seats) {
       for (const event of view.events) if (event.kind === "summon" && event.seat !== undefined) note(event.card?.code);
     }
+    const handEffectOnField = publicHandEffectOnField(vs);
     const revealNow = views.seats.map((view, viewer) => {
       const fresh = view.log.filter((entry) => entry.id > (this.lastLogId[viewer] ?? 0));
       for (const entry of fresh) this.lastLogId[viewer] = Math.max(this.lastLogId[viewer] ?? 0, entry.id);
@@ -387,6 +403,10 @@ export class NChecker {
           }
           if (card.code === undefined) return;
           if (this.publicCodes.has(card.code)) return;
+          if (mustBeHidden && handEffectOnField) {
+            this.bump("hand-public-by-effect");
+            return;
+          }
           // A legal reveal (CONFIRM_CARDS, a flip effect that looks at Set cards) covers face-down field cards too.
           if (this.revealLenient[viewer]) return;
           add(CHECKS.privacy, `Viewer seat ${viewer} sees ${what} of seat ${owner}: ${card.name ?? card.code}`, card);
@@ -404,6 +424,7 @@ export class NChecker {
         if (!card || card.code === undefined) return;
         // A hand card that is being summoned is public (see the summon events above).
         if (mustBeHidden && this.publicCodes.has(card.code)) return;
+        if (mustBeHidden && handEffectOnField) return;
         const faceDown = (card.position & FACEDOWN) !== 0;
         if ((mustBeHidden || faceDown) && !(mustBeHidden && !faceDown)) add(CHECKS.privacy, `Spectator sees ${what} of seat ${owner}: ${card.name ?? card.code}`, card);
       };
