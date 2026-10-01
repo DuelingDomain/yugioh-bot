@@ -439,6 +439,19 @@ describe("quiet response windows", () => {
     expect(autoResponse(mapPrompt(chainWindow({ spe_count: 1 }), cards, "p0-1"), { stopAtEveryWindow: false })).toBeNull();
   });
 
+  it("offers a window that lists a card in the Draw Phase and the Standby Phase", () => {
+    for (const phase of ["draw", "standby"]) {
+      expect(autoResponse(mapPrompt(chainWindow({ spe_count: 0 }), cards, "p0-1"), { stopAtEveryWindow: false, phase })).toBeNull();
+    }
+    expect(autoResponse(mapPrompt(chainWindow({ spe_count: 0 }), cards, "p0-1"), { stopAtEveryWindow: false, phase: "main1" })).toEqual(pass);
+  });
+
+  it("still passes an empty window in the Draw Phase and the Standby Phase", () => {
+    for (const phase of ["draw", "standby"]) {
+      expect(autoResponse(mapPrompt(chainWindow({ selects: 0 }), cards, "p0-1"), { stopAtEveryWindow: false, phase })).toEqual(pass);
+    }
+  });
+
   it("never passes a mandatory effect", () => {
     expect(autoResponse(mapPrompt(chainWindow({ spe_count: 0, forced: true, selects: 2 }), cards, "p0-1"), { stopAtEveryWindow: false })).toBeNull();
     expect(autoResponse(mapPrompt(chainWindow({ spe_count: 0, forced: true }), cards, "p0-1"), { stopAtEveryWindow: false })).toEqual({
@@ -946,11 +959,11 @@ describe("duel events", () => {
     expect(attack?.text).toMatch(/direct attack/);
   });
 
-  it("announces main/battle/end from NEW_PHASE and skips auto draw/standby/substeps", () => {
+  it("announces draw/standby/main/battle/end from NEW_PHASE and skips the battle sub-steps", () => {
     const chain: StoredChainLink[] = [];
     const sequence: Array<{ phase: typeof OcgPhase[keyof typeof OcgPhase]; title: string | null }> = [
-      { phase: OcgPhase.DRAW, title: null },
-      { phase: OcgPhase.STANDBY, title: null },
+      { phase: OcgPhase.DRAW, title: "Draw Phase" },
+      { phase: OcgPhase.STANDBY, title: "Standby Phase" },
       { phase: OcgPhase.MAIN1, title: "Main Phase 1" },
       { phase: OcgPhase.BATTLE_START, title: "Battle Phase" },
       { phase: OcgPhase.BATTLE_STEP, title: null },
@@ -959,8 +972,8 @@ describe("duel events", () => {
       { phase: OcgPhase.BATTLE, title: null },
       { phase: OcgPhase.MAIN2, title: "Main Phase 2" },
       { phase: OcgPhase.END, title: "End Phase" },
-      { phase: OcgPhase.DRAW, title: null },
-      { phase: OcgPhase.STANDBY, title: null },
+      { phase: OcgPhase.DRAW, title: "Draw Phase" },
+      { phase: OcgPhase.STANDBY, title: "Standby Phase" },
       { phase: OcgPhase.MAIN1, title: "Main Phase 1" },
     ];
     const stored = sequence.map((step, index) =>
@@ -968,18 +981,22 @@ describe("duel events", () => {
     );
     expect(stored.map((event) => event?.text ?? null)).toEqual(sequence.map((step) => step.title));
     const announced = stored.filter((event): event is NonNullable<typeof event> => event != null);
-    expect(announced.map((event) => event.kind)).toEqual(["phase", "phase", "phase", "phase", "phase"]);
+    expect(announced.map((event) => event.kind)).toEqual(Array(announced.length).fill("phase"));
     expect(announced.map((event) => event.text)).toEqual([
+      "Draw Phase",
+      "Standby Phase",
       "Main Phase 1",
       "Battle Phase",
       "Main Phase 2",
       "End Phase",
+      "Draw Phase",
+      "Standby Phase",
       "Main Phase 1",
     ]);
     for (const viewer of [0, 1, null]) {
       const projected = projectStoredEvent(announced[0]!, viewer);
       expect(projected.kind).toBe("phase");
-      expect(projected.text).toBe("Main Phase 1");
+      expect(projected.text).toBe("Draw Phase");
       expect(projected.card).toBeUndefined();
       expect(projected.description).toBeUndefined();
     }

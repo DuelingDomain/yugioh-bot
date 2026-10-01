@@ -285,6 +285,10 @@
   min-height: 0;
   overflow: visible;
 }
+/* The opening hands wait hidden until the card layers are ready to deal them. */
+.board[data-deal-wait="true"] [data-hand-seat] {
+  visibility: hidden;
+}
 .board::after {
   content: "";
   position: absolute;

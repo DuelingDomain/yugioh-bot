@@ -21,6 +21,7 @@ import { battleDestroyAt } from "./battle-hold";
 import { chainBeatAt, chainEffectAt } from "./chain-beats";
 import { createDuelFeedbackAudio, type DuelFeedbackAudio } from "./feedback-audio";
 import { pairedMovePlan } from "./move-plan";
+import { getPhaseBeat, planPhaseBeats } from "./phase-beats";
 import styles from "./feedback.module.css";
 
 export type DuelFeedbackProps = {
@@ -30,6 +31,11 @@ export type DuelFeedbackProps = {
   /** Master volume 0..1; missing means full level (the audio default). */
   soundVolume?: number;
   reducedMotion: boolean;
+  /**
+   * Where the first render starts playing: events with a larger id are shown instead of dropped as
+   * history. 0 plays the opening of a duel (its phases). Missing or null: no replay.
+   */
+  replayFrom?: number | null;
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -168,6 +174,7 @@ export function DuelFeedback({
   soundEnabled,
   soundVolume = DEFAULT_SOUND_VOLUME,
   reducedMotion,
+  replayFrom = null,
 }: DuelFeedbackProps) {
   const [current, setCurrent] = useState<{ event: DuelEvent; durationMs: number } | null>(null);
   const currentRef = useRef<DuelEvent | null>(null);
@@ -181,11 +188,13 @@ export function DuelFeedback({
   const soundRef = useRef(soundEnabled);
   const volumeRef = useRef(soundVolume);
   const reducedRef = useRef(reducedMotion);
+  const replayRef = useRef(replayFrom);
   const startNextRef = useRef<() => void>(() => undefined);
 
   soundRef.current = soundEnabled;
   volumeRef.current = soundVolume;
   reducedRef.current = reducedMotion;
+  replayRef.current = replayFrom;
   startNextRef.current = () => {
     if (currentRef.current) return;
     const next = queueRef.current.shift();
@@ -259,6 +268,10 @@ export function DuelFeedback({
     return () => {
       for (const timer of timers) window.clearTimeout(timer);
       timers.clear();
+      // A remount (React strict mode) reads the first events again, so a replayed opening is not lost.
+      queueRef.current = [];
+      currentRef.current = null;
+      cursorRef.current = null;
     };
   }, []);
 
@@ -279,15 +292,18 @@ export function DuelFeedback({
     }
 
     if (cursorRef.current == null) {
-      cursorRef.current = maxEventId(events) ?? 0;
-      return;
+      cursorRef.current = replayRef.current ?? maxEventId(events) ?? 0;
+      if (replayRef.current == null) return;
     }
 
-    const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
+    const before = cursorRef.current;
+    const { nextCursor, fresh } = collectFreshEvents(events, before);
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
     const toasts: DuelEvent[] = [];
     const now = performance.now();
+    // The phases of a turn start come one beat at a time, after the cards that come before them have landed.
+    planPhaseBeats(events, before, { now, reduced: reducedRef.current, duelKey });
     // A sound waits for the moment its picture plays on the board.
     const playAfter = (kind: DuelEvent["kind"], waitMs: number) => {
       if (!soundRef.current) return;
@@ -319,7 +335,8 @@ export function DuelFeedback({
       const landAt = pairedMovePlan(event.id)?.landAt;
       // A card a fight destroyed is announced once the fight has landed its last strike.
       const battleAt = event.kind === "destroy" ? battleDestroyAt(event.zone, now) : 0;
-      const holdMs = Math.max(landAt != null ? landAt - now : 0, battleAt > 0 ? battleAt - now : 0, chainMs);
+      const beat = event.kind === "phase" ? getPhaseBeat(event.id) : null;
+      const holdMs = Math.max(landAt != null ? landAt - now : 0, battleAt > 0 ? battleAt - now : 0, chainMs, beat ? beat.startAt - now : 0);
       if (isDrawnOnBoard(event, reducedRef.current)) {
         // SummonFx draws it on the zone; heavy, typed and destroy effects sound their own cues at their moment.
         if (!fxSoundsItself(event)) playAfter(event.kind, holdMs);

@@ -45,6 +45,11 @@ export type MoveFxProps = {
   /** Changes when the room changes; reset the cursor on change. */
   duelKey: string;
   reducedMotion: boolean;
+  /**
+   * Where the first render starts playing: events with a larger id are played instead of dropped as
+   * history. 0 plays the opening of a duel (both hands dealt from the decks). Missing or null: no replay.
+   */
+  replayFrom?: number | null;
 };
 
 const CARD_ASPECT = 0.686;
@@ -193,6 +198,8 @@ function hideTargetOf(dest: HTMLElement, plan: MovePlan): HTMLElement | null {
   const location = plan.event.zone?.location ?? 0;
   // A card added to a hand shows only when its showcase lands: the whole hand slot waits (a sleeve too).
   if (plan.style === "add" && location === LOCATION_HAND) return dest;
+  // A drawn card, sleeve or face, shows only when it lands (the deal at the start of a duel is a row of these).
+  if (plan.style === "draw" && location === LOCATION_HAND) return dest;
   if (location === LOCATION_GRAVE || location === LOCATION_REMOVED) {
     return dest.querySelector<HTMLElement>('[data-fi="0"]');
   }
@@ -634,7 +641,7 @@ function useHandFlip(boardOf: () => HTMLElement | null, reducedRef: { current: b
 
 /* ---------- layer ---------- */
 
-export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
+export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: MoveFxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<MovePlan[]>([]);
   const [overlay, setOverlay] = useState<HTMLDivElement | null>(null);
@@ -644,6 +651,8 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
   const releasesRef = useRef<Map<number, () => void>>(new Map());
   const reducedRef = useRef(reducedMotion);
   reducedRef.current = reducedMotion;
+  const replayRef = useRef(replayFrom);
+  replayRef.current = replayFrom;
 
   useLayoutEffect(() => {
     setOverlay(overlayRef.current);
@@ -658,6 +667,13 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
   // The hands close up and make room with a slide instead of a jump.
   useHandFlip(() => overlayRef.current?.parentElement ?? null, reducedRef);
 
+  // A plan is shown once, even when a remount replays the same events.
+  const addItems = (list: MovePlan[]) =>
+    setItems((current) => {
+      const have = new Set(current.map((item) => item.id));
+      return [...current, ...list.filter((item) => !have.has(item.id))].slice(-MAX_GHOSTS);
+    });
+
   const clearAll = () => {
     for (const timer of timersRef.current) window.clearTimeout(timer);
     timersRef.current.clear();
@@ -665,7 +681,14 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
     releasesRef.current.clear();
   };
 
-  useEffect(() => () => clearAll(), []);
+  useEffect(
+    () => () => {
+      clearAll();
+      // A remount (React strict mode) reads the first events again, so a replayed opening is not lost.
+      cursorRef.current = null;
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     if (keyRef.current !== duelKey) {
@@ -676,8 +699,8 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
       setItems([]);
     }
     if (cursorRef.current == null) {
-      cursorRef.current = maxEventId(events) ?? 0;
-      return;
+      cursorRef.current = replayRef.current ?? maxEventId(events) ?? 0;
+      if (replayRef.current == null) return;
     }
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
@@ -719,12 +742,12 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
       } else {
         const timer = window.setTimeout(() => {
           timersRef.current.delete(timer);
-          setItems((current) => [...current, plan].slice(-MAX_GHOSTS));
+          addItems([plan]);
         }, wait);
         timersRef.current.add(timer);
       }
     }
-    if (started.length > 0) setItems((current) => [...current, ...started].slice(-MAX_GHOSTS));
+    if (started.length > 0) addItems(started);
   }, [duelKey, events]);
 
   const release = (id: number) => {

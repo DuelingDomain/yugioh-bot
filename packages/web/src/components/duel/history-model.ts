@@ -474,6 +474,9 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
       case "phase": {
         battleKey = null;
         phase = event.text;
+        // The Draw and Standby Phase play as beats on the board (phase-beats.ts); the log keeps one
+        // header per turn, Main Phase 1, as it always had.
+        if (/^(draw|standby)\b/i.test(event.text.trim())) break;
         const label = isMainPhaseOne(event.text);
         const last = items[items.length - 1];
         if (!label && last && last.type === "sep" && last.turn == null) items.pop();

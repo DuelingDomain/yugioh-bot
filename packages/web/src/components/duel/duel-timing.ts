@@ -170,6 +170,23 @@ export const BANNER_TIMING = {
   leaveMax: 260,
 } as const;
 
+/**
+ * The phase beats: Draw, Standby and Main Phase 1 of every turn (the opening of the duel too) each show
+ * their ribbon and light the phase bar in turn, so no phase is skipped past. An empty phase is a short
+ * beat; a phase with a card flight (the draw) lasts until the card has landed.
+ */
+export const PHASE_TIMING = {
+  /** One phase ribbon, and the least time a phase stays lit on the phase bar. */
+  beatMs: 900,
+  reducedBeatMs: 600,
+  /** A phase starts this long after the last card flight before it has landed (the deal, the draw). */
+  afterMovesMs: 220,
+  /** The player may act this long after the Main Phase 1 ribbon starts. */
+  releaseLeadMs: 250,
+  /** Nothing holds the player for longer than this, whatever the timers do. */
+  capMs: 15000,
+} as const;
+
 export const CHAIN_TIMING = {
   activateMs: 950,
   resolvingMs: 1150,
@@ -227,6 +244,7 @@ export const VISIBLE_EFFECT_MS: Readonly<Record<string, number>> = {
   "heavy summon": CARD_FX.heavyTimeline.totalMs,
   "activate banner": BANNER_TIMING.activateMs,
   "event banner": BANNER_TIMING.eventMs,
+  "phase ribbon": PHASE_TIMING.beatMs,
   "default banner": BANNER_TIMING.defaultMs,
   "chain activate": CHAIN_TIMING.activateMs,
   "chain resolving": CHAIN_TIMING.resolvingMs,
