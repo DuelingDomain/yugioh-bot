@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { formatLp } from "./constants";
 import { duelFontClasses } from "./fonts";
+import { noteLpMotion } from "./lp-motion";
 import styles from "./life-points.module.css";
 
 // Squared, heavy, near-tabular sans that reads like the anime duel-disk counter.
@@ -534,6 +535,10 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
       hold = holdMsRef.current ?? (Number.isFinite(seat) ? takeLpHold(seat) : 0);
     }
     setTallyHold(hold > 0 ? hold : 0);
+    // Tell the result screen a roll is coming (hold, then the reels), so it never covers the roll to 0.
+    if (!reducedMotion && !unchanged && from != null && next != null) {
+      noteLpMotion(Math.max(0, hold) + rollDurationMs(Math.abs(next - from)));
+    }
     if (hold > 0) {
       holdTimerRef.current = window.setTimeout(() => {
         holdTimerRef.current = null;

@@ -26,7 +26,7 @@ function optionIcon(id: string): LucideIcon {
  * an activation's effect text into a note line. The button keeps the full label
  * as its accessible name.
  */
-function optionParts(option: DuelPromptOption, title: string): { main: string; note: string | null } {
+export function optionParts(option: DuelPromptOption, title: string): { main: string; note: string | null } {
   let text = option.label;
   let note: string | null = null;
   // Engine format: "Activate <card name>: <effect>". Card names can contain ": "
@@ -41,7 +41,8 @@ function optionParts(option: DuelPromptOption, title: string): { main: string; n
     text = text.slice(0, colon);
   }
   if (title && title !== "Card" && text.includes(title)) {
-    const stripped = text.replace(title, "").replace(/\s{2,}/g, " ").replace(/\s+(of|with|to)$/i, "").trim();
+    // Trim before the dangling-word check: removing a trailing name leaves "Attack directly with ".
+    const stripped = text.replace(title, "").replace(/\s{2,}/g, " ").trim().replace(/\s+(of|with|to)$/i, "");
     if (stripped) text = stripped;
   }
   return { main: text, note };

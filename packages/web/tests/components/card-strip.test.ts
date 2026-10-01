@@ -1,0 +1,131 @@
+import { describe, expect, it, vi } from "vitest";
+import type { DuelCardInfo, DuelPrompt } from "@yugidraft/shared/duels";
+
+vi.mock("next/font/google", () => {
+  const font = () => ({ className: "font", variable: "font-var", style: {} });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
+
+import { stripScrollLeft } from "@/components/duel/card-strip";
+import { choiceStripItems, isChainStripPrompt, isStripPrompt } from "@/components/duel/prompt-center";
+import { nextAnswerableId } from "@/components/duel/prompt-reveal";
+
+const card = (code: number): DuelCardInfo => ({
+  code, name: `Card ${code}`, description: "", type: 1, attack: 0, defense: 0, level: 1, attribute: 1, race: "Warrior",
+});
+const cardOptions = [1, 2, 3].map((code) => ({ id: `select:${code}`, label: `Card ${code}`, card: card(code) }));
+
+function prompt(overrides: Partial<DuelPrompt>): DuelPrompt {
+  return { id: "p", seat: 0, kind: "toggle", title: "Select the card(s) to add to your hand", options: cardOptions, ...overrides };
+}
+
+describe("isStripPrompt", () => {
+  it("shows a pick among cards as a strip", () => {
+    expect(isStripPrompt(prompt({ kind: "toggle" }))).toBe(true);
+    expect(isStripPrompt(prompt({ kind: "cards", min: 1, max: 2 }))).toBe(true);
+    expect(isStripPrompt(prompt({ kind: "tribute" }))).toBe(true);
+    expect(isStripPrompt(prompt({ kind: "sum" }))).toBe(true);
+    expect(isStripPrompt(prompt({ kind: "order" }))).toBe(true);
+  });
+
+  it("leaves option lists without cards, and the other layouts, alone", () => {
+    expect(isStripPrompt(prompt({ options: [] }))).toBe(false);
+    expect(isStripPrompt(prompt({ options: [...cardOptions, { id: "x", label: "Zone" }] }))).toBe(false);
+    expect(isStripPrompt(prompt({ kind: "places" }))).toBe(false);
+    expect(isStripPrompt(prompt({ kind: "counters" }))).toBe(false);
+    expect(isStripPrompt(prompt({ kind: "number" }))).toBe(false);
+    expect(isStripPrompt(prompt({ kind: "choice", context: { type: "chain", forced: false } }))).toBe(false);
+    expect(isStripPrompt(prompt({ kind: "choice", context: { type: "position" } }))).toBe(false);
+    expect(isStripPrompt(prompt({ kind: "choice", context: { type: "action", phase: "main" } }))).toBe(false);
+    expect(isStripPrompt(prompt({
+      kind: "choice",
+      options: [{ id: "yes", label: "Yes", card: card(1) }, { id: "no", label: "No", card: card(1) }],
+    }))).toBe(false);
+  });
+});
+
+describe("isChainStripPrompt", () => {
+  const chain = { type: "chain", forced: false } as const;
+  const chainOptions = [1, 2].map((code) => ({ id: `card:${code}`, label: `Card ${code}: Special Summon`, card: card(code) }));
+
+  it("shows every chain response made of cards as a strip, optional or forced", () => {
+    expect(isChainStripPrompt(prompt({ kind: "choice", context: chain, options: chainOptions }))).toBe(true);
+    expect(isChainStripPrompt(prompt({ kind: "choice", context: { type: "chain", forced: true }, options: chainOptions }))).toBe(true);
+  });
+
+  it("keeps rows when an option is not a card, and ignores other prompts", () => {
+    expect(isChainStripPrompt(prompt({ kind: "choice", context: chain, options: [...chainOptions, { id: "x", label: "Pass" }] }))).toBe(false);
+    expect(isChainStripPrompt(prompt({ kind: "choice", context: chain, options: [] }))).toBe(false);
+    expect(isChainStripPrompt(prompt({ kind: "choice", options: chainOptions }))).toBe(false);
+    expect(isChainStripPrompt(prompt({ kind: "toggle", context: chain, options: chainOptions }))).toBe(false);
+  });
+});
+
+describe("choiceStripItems", () => {
+  const chain = { type: "chain", forced: false } as const;
+  const option = (id: string, code: number, label: string, extra: object = {}) =>
+    ({ id, label, card: card(code), ...extra });
+
+  it("shows only the name for a card with one option", () => {
+    const items = choiceStripItems(prompt({
+      kind: "choice",
+      context: chain,
+      options: [option("a", 1, "Card 1: Special Summon"), option("b", 2, "Card 2: Set 1 Spell/Trap")],
+    }));
+    expect(items.map((item) => item.label)).toEqual(["Card 1", "Card 2"]);
+    expect(items.every((item) => item.detail === undefined)).toBe(true);
+  });
+
+  it("labels the options of one card with the short effect, full text as the tooltip", () => {
+    const items = choiceStripItems(prompt({
+      kind: "choice",
+      context: chain,
+      options: [
+        option("a", 1, "Card 1", { effectText: 'Special Summon 1 "Blue-Eyes White Dragon". Your opponent cannot target it.' }),
+        option("b", 1, "Card 1", { effectText: 'Set 1 Spell/Trap that lists "Blue-Eyes White Dragon"' }),
+        option("c", 2, "Card 2: Negate"),
+      ],
+    }));
+    expect(items[0].detail).toBe('Special Summon 1 "Blue-Eyes White Dragon"');
+    expect(items[0].detailTitle).toBe('Special Summon 1 "Blue-Eyes White Dragon". Your opponent cannot target it.');
+    expect(items[1].detail).toBe('Set 1 Spell/Trap that lists "Blue-Eyes White Dragon"');
+    expect(items[2].detail).toBeUndefined();
+  });
+});
+
+describe("stripScrollLeft", () => {
+  const view = { scrollLeft: 200, clientWidth: 500 };
+
+  it("keeps the scroll when the card is fully in view", () => {
+    expect(stripScrollLeft(view, { left: 300, width: 124 })).toBe(200);
+  });
+
+  it("scrolls left to a card cut off at the left edge", () => {
+    expect(stripScrollLeft(view, { left: 150, width: 124 })).toBe(138);
+    expect(stripScrollLeft(view, { left: 4, width: 124 })).toBe(0);
+  });
+
+  it("scrolls right to a card cut off at the right edge", () => {
+    expect(stripScrollLeft(view, { left: 640, width: 124 })).toBe(276);
+  });
+});
+
+describe("nextAnswerableId", () => {
+  it("remembers a prompt the first time the room is settled", () => {
+    expect(nextAnswerableId(null, "p1", true)).toBe("p1");
+  });
+
+  it("does not remember a prompt that appears while an answer is in flight or the room re-syncs", () => {
+    expect(nextAnswerableId(null, "p1", false)).toBeNull();
+    expect(nextAnswerableId("p0", "p1", false)).toBe("p0");
+  });
+
+  it("keeps a prompt answerable through a later short sync", () => {
+    const seen = nextAnswerableId(null, "p1", true);
+    expect(nextAnswerableId(seen, "p1", false)).toBe("p1");
+  });
+
+  it("ignores a missing prompt", () => {
+    expect(nextAnswerableId("p0", null, true)).toBe("p0");
+  });
+});

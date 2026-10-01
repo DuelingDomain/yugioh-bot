@@ -1,4 +1,5 @@
 import { defaultDuelSettings, type DuelBestOf, type DuelMode } from "@yugidraft/shared/duels";
+import { turnTimerLabel } from "../duel/turn-timer";
 import type { DuelSeriesSummary, Match, TournamentDetail } from "./types";
 
 /** The basic duel rules an organizer can set for a tournament. */
@@ -21,7 +22,7 @@ export function turnSecondsChoices(current: number): Array<{ value: number; labe
   const values = TURN_SECONDS_CHOICES.includes(current) ? TURN_SECONDS_CHOICES : [...TURN_SECONDS_CHOICES, current].sort((a, b) => a - b);
   return values.map((value) => ({
     value,
-    label: value === 0 ? "No turn timer" : value % 60 === 0 ? `${value / 60} ${value === 60 ? "minute" : "minutes"} per turn` : `${value} seconds per turn`,
+    label: turnTimerLabel(value),
   }));
 }
 

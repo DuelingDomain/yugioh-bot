@@ -17,6 +17,8 @@ import {
 } from "./constants";
 import { duelFontClasses } from "./fonts";
 import styles from "./pile-viewer.module.css";
+import { UsableGlow } from "./usable-glow";
+import { usableGlowToneForPile } from "./usable-glow-model";
 
 export type PileViewerProps = {
   title: string;
@@ -32,7 +34,7 @@ export type PileViewerProps = {
   /** Called instead of onInspectCard when the clicked card is legal in the current prompt. */
   onActivateCard?: (card: DuelCard, anchor: HTMLElement) => void;
   reducedMotion: boolean;
-  /** Zone keys legal in the current prompt: those cards get the purple ring and activate on click. */
+  /** Zone keys legal in the current prompt: those cards glow (in the pile's summoning-circle tone, with a "Use" tag) and activate on click. */
   legalKeys?: Set<string>;
   selectedKeys?: Set<string>;
 };
@@ -40,16 +42,6 @@ export type PileViewerProps = {
 type Entry = { card: DuelCard; key: string; index: number };
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function NibIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 21.5 6.8 11 12 2.5 17.2 11Z" />
-      <path d="M12 21.5V13" />
-      <circle cx="12" cy="11" r="1.4" />
-    </svg>
-  );
-}
 
 function cardName(card: DuelCard): string {
   if (isHiddenCard(card) || card.code == null) return "Face-down card";
@@ -126,6 +118,8 @@ export function PileViewer({
   }, [cards]);
 
   const preview = entries.find((entry) => entry.key === previewKey) ?? entries[0] ?? null;
+  const tone = usableGlowToneForPile(cards);
+  const anyLegal = entries.some((entry) => legalKeys?.has(zoneKey(entry.card.controller, entry.card.location, entry.card.sequence)));
 
   // Open: remember where focus was and move it inside. Close: give it back.
   useEffect(() => {
@@ -216,7 +210,7 @@ export function PileViewer({
   const text = previewCard && !previewHidden ? previewCard.description?.trim() ?? "" : "";
 
   return (
-    <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner}>
+    <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}>
       <div className={styles.scrim} onClick={onClose} aria-hidden="true" />
       <aside
         ref={panelRef}
@@ -302,13 +296,15 @@ export function PileViewer({
                     ) : (
                       <img src={cardArtUrl(card.code as number, "small")} alt="" draggable={false} loading="lazy" />
                     )}
-                    {legal || selected ? (
+                    {selected ? (
                       <>
                         <span className={styles.ring} aria-hidden="true" />
                         <span className={styles.mark} aria-hidden="true">
-                          {selected ? <Check size={11} strokeWidth={2.4} /> : <NibIcon />}
+                          <Check size={11} strokeWidth={2.4} />
                         </span>
                       </>
+                    ) : legal ? (
+                      <UsableGlow tone={tone} label="Use" still={reducedMotion} />
                     ) : null}
                   </span>
                   <span className={styles.name}>{name}</span>

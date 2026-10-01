@@ -55,6 +55,8 @@ export type FxBreak = {
   /** Card passcode: the shards are cut from its picture. 0 = unknown (a flat colour). */
   code: number;
   defense: boolean;
+  /** The card is the far player's: it faces the other way, so its picture is turned half a circle. */
+  turned?: boolean;
   atMs: number;
   /** The way the blow came (unit vector, y down): shards fly away along it. */
   dir: { x: number; y: number };
@@ -83,7 +85,7 @@ export type FxScenePiece =
   | "spell"
   | "monster";
 
-export type FxVictim = { rect: FxRect; code: number; defense: boolean; atMs: number };
+export type FxVictim = { rect: FxRect; code: number; defense: boolean; turned?: boolean; atMs: number };
 
 export type FxScene = {
   piece: FxScenePiece;

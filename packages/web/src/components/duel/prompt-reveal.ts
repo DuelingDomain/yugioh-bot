@@ -113,6 +113,11 @@ export function clearPromptRevealHold(): void {
   boardHoldUntil = 0;
 }
 
+/** Time left on the FX hold (see holdPromptReveal); 0 when no FX layer holds the board. */
+export function promptRevealHoldMs(): number {
+  return Math.max(0, boardHoldUntil - Date.now());
+}
+
 /**
  * Resolves when the prompt panel may appear: true when the wait ran its course, false when it was
  * aborted (the prompt changed or the room unmounted).
@@ -157,17 +162,22 @@ export type UsePromptRevealOptions = {
   /** The board element whose animations must finish first. */
   board: RefObject<HTMLElement | null>;
   reducedMotion: boolean;
+  /**
+   * The prompt continues the player's own pick (see continuesPick): show it at once, no beat.
+   * Decided once per prompt id by the caller.
+   */
+  skip?: boolean;
 };
 
 /**
  * True when the centred panel for `promptId` may be shown. It turns false the moment a new prompt
- * arrives and true again once the board is quiet (see waitForReveal). With no prompt it is true.
+ * arrives and true again once the board is quiet (see waitForReveal). With no prompt, or with `skip`, it is true.
  */
-export function usePromptReveal({ promptId, board, reducedMotion }: UsePromptRevealOptions): boolean {
+export function usePromptReveal({ promptId, board, reducedMotion, skip = false }: UsePromptRevealOptions): boolean {
   const [revealedId, setRevealedId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!promptId) return undefined;
+    if (!promptId || skip) return undefined;
     const controller = new AbortController();
     const source = () => board.current;
     void waitForReveal({ source, reducedMotion, signal: controller.signal }).then((done) => {
@@ -178,5 +188,33 @@ export function usePromptReveal({ promptId, board, reducedMotion }: UsePromptRev
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promptId]);
 
-  return !promptId || revealedId === promptId;
+  return !promptId || skip || revealedId === promptId;
+}
+
+/**
+ * The prompt id to remember as "answerable": the first time the room was settled (no answer in
+ * flight, no sync, no connection error) while this prompt was up. Pure so it can be tested.
+ */
+export function nextAnswerableId(
+  current: string | null,
+  promptId: string | null | undefined,
+  settled: boolean,
+): string | null {
+  return promptId && settled ? promptId : current;
+}
+
+/**
+ * True when the centred panel for `promptId` may be shown because it can be answered. A panel that
+ * appears while the previous answer is still in flight, or while the room re-syncs, shows every
+ * button disabled: it looks ready and is dead. This holds the panel back until the room is settled
+ * once for that prompt; a later short sync does not hide it again (it would flicker and lose state).
+ * With no prompt it is true. `skip` (a follow-up of the player's own pick) shows it at once: the buttons
+ * stay off while the room is busy, so nothing can be clicked early, and the bar does not blink out.
+ */
+export function usePromptAnswerable(promptId: string | null | undefined, settled: boolean, skip = false): boolean {
+  const [answerableId, setAnswerableId] = useState<string | null>(null);
+  useEffect(() => {
+    setAnswerableId((current) => nextAnswerableId(current, promptId, settled));
+  }, [promptId, settled]);
+  return !promptId || skip || answerableId === promptId;
 }

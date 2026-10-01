@@ -14,8 +14,7 @@ import {
   COUNTER_GAP_MS,
   DESTROY_BEAT_MS,
   COUNTER_SCALE,
-  STYLE_TIMING,
-  TIE_RECOIL_MS,
+  hasCounterStrike,
   type AttackStyleId,
   type BattleKind,
   type BattleTiming,
@@ -1003,10 +1002,11 @@ function runReduced(cx: Ctx, plan: AttackFxPlan): void {
   };
   if (attacker.caption) caption(cx, geoFor(attacker, plan.hit, null, attacker.tint, plan.seed, !defender, cx.u), attacker.caption, attacker.tint, 0);
   mark(attacker.box, 0, attacker.tint.main);
-  mark(plan.hit, 200, plan.kind === "held" && plan.defenderInDefense ? "#dbe9ff" : attacker.tint.main);
+  mark(plan.hit, 200, (plan.kind === "held" || plan.kind === "bounce") && plan.defenderInDefense ? "#dbe9ff" : attacker.tint.main);
+  // The counter flash on the attacker comes before any break: hit, counter, then the loser fades.
+  if (hasCounterStrike(plan.kind) && defender) mark(attacker.box, plan.timing.attackerDamageMs, defender.tint.main);
   if (plan.kind === "win" || plan.kind === "tie") fade(defender?.cut ?? null, "target", plan.timing.targetBreakMs ?? 300);
-  if (plan.kind === "lose" && defender) mark(attacker.box, 420, defender.tint.main);
-  if (plan.kind === "lose" || plan.kind === "tie") fade(attacker.cut, "attacker", plan.timing.attackerBreakMs ?? (plan.kind === "lose" ? 520 : 340));
+  if (plan.kind === "lose" || plan.kind === "tie") fade(attacker.cut, "attacker", plan.timing.attackerBreakMs ?? 520);
   for (const hit of plan.lpHits) lpFlash(cx, hit.box, hit.at);
 }
 
@@ -1042,7 +1042,7 @@ const LUNGE_AT: Record<AttackStyleId, number> = { slash: 120, claw: 220, beam: 2
 /**
  * The 3D layer draws the strikes and the breaks. What stays in the DOM: the lean of the attacker
  * card, the jolt of the card that is hit (at the exact impact time), the clash or shield of a held
- * fight, the recoil flash of a tie, and the LP flashes.
+ * fight, the counter's jolt and ring on the attacker, and the LP flashes.
  */
 function playBeats3d(cx: Ctx, plan: AttackFxPlan, gA: Geo, geo: typeof geoFor): void {
   const { attacker, defender } = plan;
@@ -1058,20 +1058,19 @@ function playBeats3d(cx: Ctx, plan: AttackFxPlan, gA: Geo, geo: typeof geoFor): 
       }
       break;
     case "tie":
-      if (defender) {
-        clash(cx, defender.box, impact, attacker.tint);
-        flashDisc(cx, centre(attacker.box), impact + 180, defender.tint.hi, Math.min(attacker.box.width, attacker.box.height) * 0.6, 300);
-        hitRing(cx, attacker.box, impact + 180, defender.tint.main);
-      }
-      break;
     case "lose":
+    case "bounce":
       if (defender) {
-        clash(cx, defender.box, impact, attacker.tint);
+        // The first strike lands, a short pause, then the defender strikes back in its own style.
+        if (plan.kind === "bounce" && plan.defenderInDefense) shield(cx, gA, defender.box, impact);
+        else clash(cx, defender.box, impact, attacker.tint);
         const gD = geo(defender, attacker.box, attacker.el, defender.tint, plan.seed + 100, false, u);
         const t0 = impact + COUNTER_GAP_MS;
         if (defender.caption) caption(cx, gD, defender.caption, defender.tint, t0);
         lunge(cx, gD, t0 + LUNGE_AT[defender.style] * COUNTER_SCALE, COUNTER_SCALE);
-        shake(cx, attacker.el, plan.timing.attackerDamageMs, 3.5 * u, 240);
+        const counterAt = plan.timing.attackerDamageMs;
+        shake(cx, attacker.el, counterAt, 3.5 * u, 240);
+        if (plan.kind !== "lose") hitRing(cx, attacker.box, counterAt, defender.tint.main);
       }
       break;
     default:
@@ -1079,7 +1078,7 @@ function playBeats3d(cx: Ctx, plan: AttackFxPlan, gA: Geo, geo: typeof geoFor): 
   }
   for (const lp of plan.lpHits) {
     lpFlash(cx, lp.box, lp.at);
-    if (lp.toAttacker && defender && plan.kind !== "lose") reflectPulse(cx, defender.box, lp.box, Math.max(0, lp.at - 140));
+    if (lp.toAttacker && defender && !hasCounterStrike(plan.kind)) reflectPulse(cx, defender.box, lp.box, Math.max(0, lp.at - 140));
   }
 }
 
@@ -1107,27 +1106,23 @@ function playFull(cx: Ctx, plan: AttackFxPlan): void {
       }
       break;
     case "tie":
-      if (defender) {
-        clash(cx, defender.box, impact, attacker.tint);
-        if (defender.cut) styleA.destroy(cx, gA, defender.cut, "target", plan.timing.targetBreakMs ?? impact + DESTROY_BEAT_MS);
-        // the recoil breaks the attacker in the defender's style
-        const gD = geoFor(defender, attacker.box, attacker.el, defender.tint, plan.seed + 100, false, u);
-        if (attacker.cut) STYLES[defender.style].destroy(cx, gD, attacker.cut, "attacker", plan.timing.attackerBreakMs ?? impact + TIE_RECOIL_MS + DESTROY_BEAT_MS);
-        flashDisc(cx, centre(attacker.box), impact + 180, defender.tint.hi, Math.min(attacker.box.width, attacker.box.height) * 0.6, 300);
-        hitRing(cx, attacker.box, impact + 180, defender.tint.main);
-      }
-      break;
     case "lose":
+    case "bounce":
       if (defender) {
-        clash(cx, defender.box, impact, attacker.tint);
-        // the defender strikes back in its own style, compressed, and the attacker breaks
+        // 1 the first strike lands, 2 a short pause, 3 the defender strikes back in its own style,
+        // 4 that strike lands on the attacker, 5 only then the loser is sliced (never before the counter).
+        if (plan.kind === "bounce" && plan.defenderInDefense) shield(cx, gA, defender.box, impact);
+        else clash(cx, defender.box, impact, attacker.tint);
         const gD = geoFor(defender, attacker.box, attacker.el, defender.tint, plan.seed + 100, false, u);
         const styleD = STYLES[defender.style];
         const t0 = impact + COUNTER_GAP_MS;
         if (defender.caption) caption(cx, gD, defender.caption, defender.tint, t0);
         styleD.strike(cx, gD, t0, COUNTER_SCALE);
-        const impact2 = t0 + STYLE_TIMING[defender.style].impact * COUNTER_SCALE;
-        if (attacker.cut) styleD.destroy(cx, gD, attacker.cut, "attacker", plan.timing.attackerBreakMs ?? impact2 + DESTROY_BEAT_MS);
+        const counterAt = plan.timing.attackerDamageMs;
+        if (plan.kind === "bounce") hitRing(cx, attacker.box, counterAt, defender.tint.main);
+        // a tie slices the target in the attacker's style, together with the attacker
+        if (plan.kind === "tie" && defender.cut) styleA.destroy(cx, gA, defender.cut, "target", plan.timing.targetBreakMs ?? counterAt + DESTROY_BEAT_MS);
+        if (plan.kind !== "bounce" && attacker.cut) styleD.destroy(cx, gD, attacker.cut, "attacker", plan.timing.attackerBreakMs ?? counterAt + DESTROY_BEAT_MS);
       }
       break;
     default:
@@ -1136,6 +1131,6 @@ function playFull(cx: Ctx, plan: AttackFxPlan): void {
 
   for (const lp of plan.lpHits) {
     lpFlash(cx, lp.box, lp.at);
-    if (lp.toAttacker && defender && plan.kind !== "lose") reflectPulse(cx, defender.box, lp.box, Math.max(0, lp.at - 140));
+    if (lp.toAttacker && defender && !hasCounterStrike(plan.kind)) reflectPulse(cx, defender.box, lp.box, Math.max(0, lp.at - 140));
   }
 }

@@ -49,6 +49,7 @@ import {
   type SummonStyle,
 } from "./event-queue";
 import { battleBreakIs3d, battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
+import { hiddenHoldMs } from "./big-summon";
 import { getSharedFx3d, setSharedFx3d } from "./fx3d/shared";
 import { parseRgbTriplet } from "./fx3d/coords";
 import { pickSummonRoute, summon3dKeyOf, summonEffectId } from "./fx3d/routing";
@@ -154,7 +155,8 @@ const MAX_STAGGER_STEPS = 5;
 /** A second slam waits this long after the first starts; the first one's aftermath overlaps it a little. */
 const HEAVY_LOCK_MS = 1150;
 const MAX_ITEMS = 10;
-const HIDE_FAILSAFE_MS = 4000;
+/** The WebGL summon holds the real card this much past its hand-over, in case the timer is late. */
+const HAND_OVER_MARGIN_MS = 400;
 const GY_LOCATION = LOCATION_GRAVE;
 
 type FxKind = "heavy" | "typed" | "light" | "set" | "activate" | "destroy" | "impact";
@@ -275,6 +277,13 @@ function placeAnchor(anchor: HTMLElement, geo: Geo): void {
   anchor.style.setProperty("--fx-w", `${geo.w}px`);
   anchor.style.setProperty("--fx-h", `${geo.h}px`);
   anchor.style.setProperty("--fx-r", `${geo.radius}px`);
+  // The opponent's cards face the other way: the copies drawn here turn with them (see summon-fx.module.css).
+  anchor.dataset.side = geo.side;
+}
+
+/** The turn a card copy needs to match the real card: 180 degrees for the opponent, plus 90 in Defense Position. */
+function copyTurn(geo: Geo): number {
+  return (geo.side === "opp" ? 180 : 0) + (geo.defense ? 90 : 0);
 }
 
 function artOf(zone: HTMLElement): HTMLElement | null {
@@ -358,10 +367,14 @@ export class Track {
   }
 }
 
-/** Keeps the real card invisible for `ms` (fill both), then lets it back on its own. */
+/**
+ * Keeps the real card (art and stat plate) invisible from now for `ms`, then lets it back on its own.
+ * That end is also the safety net: the hold is capped (see hiddenHoldMs), and cancelling the returned
+ * animation, or disposing the track, shows the card at once.
+ */
 function holdHidden(track: Track, zone: HTMLElement, ms: number): Animation | null {
   const body = cardBodyOf(zone);
-  return track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: Math.min(ms, HIDE_FAILSAFE_MS), fill: "backwards" });
+  return track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: hiddenHoldMs(ms, 0), fill: "backwards" });
 }
 
 function shakeFrames(amp: number, seed: number): Keyframe[] {
@@ -776,14 +789,10 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
             shards.current[index] = el;
           }}
           className={styles.shard}
-          style={
-            {
-              clipPath: shard.clip,
-              transformOrigin: `${shard.cx}% ${shard.cy}%`,
-              backgroundImage: card ? `url(${cardArtUrl(card.code, "small")})` : undefined,
-            } as CSSProperties
-          }
-        />
+          style={{ clipPath: shard.clip, transformOrigin: `${shard.cx}% ${shard.cy}%` } as CSSProperties}
+        >
+          <i className={styles.shardArt} style={{ backgroundImage: card ? `url(${cardArtUrl(card.code, "small")})` : undefined }} />
+        </span>
       ))}
       <span ref={flash} className={styles.breakFlash} />
     </div>
@@ -875,8 +884,9 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
       { duration: T.handOver, delay: d, fill: "backwards", easing: "linear" },
     );
     if (geo.defense) {
-      // A monster summoned in Defense Position turns as it lands.
-      track.play(art.current, [{ rotate: "0deg", offset: 0 }, { rotate: "0deg", offset: at(T.hoverEnd) }, { rotate: "90deg", offset: at(T.impact) }, { rotate: "90deg" }], {
+      // A monster summoned in Defense Position turns as it lands (from the owner's upright turn).
+      const base = geo.side === "opp" ? 180 : 0;
+      track.play(art.current, [{ rotate: `${base}deg`, offset: 0 }, { rotate: `${base}deg`, offset: at(T.hoverEnd) }, { rotate: `${base + 90}deg`, offset: at(T.impact) }, { rotate: `${base + 90}deg` }], {
         duration: T.handOver,
         delay: d,
         fill: "backwards",
@@ -1313,7 +1323,7 @@ function useTypedSetup(
     const { handOver, total } = TYPED_AUTHORED[style];
     if (refs.anchor.current) placeAnchor(refs.anchor.current, geo);
     applyTone(refs.anchor.current, style);
-    if (refs.copyBody.current && geo.defense) refs.copyBody.current.style.rotate = "90deg";
+    if (refs.copyBody.current && copyTurn(geo) !== 0) refs.copyBody.current.style.rotate = `${copyTurn(geo)}deg`;
     holdHidden(track, zone, d + handOver * TYPED_SCALE);
     // Everything below is written on the authored timeline and plays at TYPED_SCALE of it.
     track.pace(d, TYPED_SCALE);
@@ -1619,6 +1629,7 @@ function LinkFx(props: EffectProps) {
       fill: "both",
       easing: "cubic-bezier(0.4, 0, 0.6, 1)",
     });
+    // The fill keeps its own turn to the Defense Position only: its wipe (a clip) must run down the screen for both sides.
     if (fill.current && geo.defense) fill.current.style.rotate = "90deg";
     track.play(copyArt, [{ filter: "brightness(1) saturate(1)" }, { filter: "brightness(0.35) saturate(0.4) sepia(1) hue-rotate(170deg)", offset: 0.35 }, { filter: "brightness(0.35) saturate(0.4) sepia(1) hue-rotate(170deg)" }], {
       duration: sweepStart,
@@ -1898,7 +1909,8 @@ function Summon3dFx({ item, overlay, done }: EffectProps) {
     const d = item.delayMs;
     const tl = SUMMON3D_TIMELINE[three.key];
     const weight = heavyWeight(item.card, item.event.summonKind === "tribute");
-    const hidden = holdHidden(track, zone, d + tl.handOver);
+    // The hold outlasts the hand-over by a margin; the real card is shown exactly at the slam below.
+    const hidden = holdHidden(track, zone, d + tl.handOver + HAND_OVER_MARGIN_MS);
     // Keeps the item alive until the last light has faded.
     track.play(anchor.current, [{ opacity: 1 }, { opacity: 1 }], { duration: tl.total, delay: d });
     holdPromptReveal(d + tl.total);
@@ -1926,7 +1938,10 @@ function Summon3dFx({ item, overlay, done }: EffectProps) {
         hidden?.cancel();
         return;
       }
-      void three.api.play(summonEffectId(three.key), request, abort.signal);
+      // The portrait starts now: the real card shows when it lands, measured from this moment.
+      track.after(tl.handOver, () => hidden?.cancel());
+      // An effect that ends early (it failed to start, the canvas was lost) never leaves the zone empty.
+      void three.api.play(summonEffectId(three.key), request, abort.signal).then(() => hidden?.cancel());
     });
   });
   return <div ref={anchor} className={styles.anchor} data-fx="summon3d" />;

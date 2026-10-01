@@ -1,4 +1,4 @@
-import { COUNTER_GAP_MS, TIE_RECOIL_MS, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
+import { COUNTER_GAP_MS, hasCounterStrike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 
 /**
  * Sounds for the battle animation, synthesised (there are no audio files).
@@ -331,19 +331,15 @@ export function scheduleBattleSound(synth: Synth, plan: BattleSoundPlan, t: numb
   const impactAt = timing.impactMs / 1000;
   strike(synth, plan.attacker, t, impactAt, g, rng);
 
-  if (plan.defender && (kind === "lose" || kind === "tie" || kind === "held")) {
+  if (plan.defender && (hasCounterStrike(kind) || kind === "held")) {
     clash(synth, t + impactAt, g);
   }
-  if (kind === "lose" && plan.defender) {
+  // The defender strikes back after a short pause: a lost fight, a tie, or a blow that bounced off.
+  if (hasCounterStrike(kind) && plan.defender) {
     const start = (timing.impactMs + COUNTER_GAP_MS) / 1000;
     const counterDur = Math.max(0.12, (timing.attackerDamageMs - timing.impactMs - COUNTER_GAP_MS) / 1000);
     reversal(synth, t + start - 0.1, g);
     strike(synth, plan.defender, t + start, counterDur, 0.75 * g, rng);
-  }
-  if (kind === "tie") {
-    const recoil = t + impactAt + TIE_RECOIL_MS / 1000;
-    thump(synth, recoil, 0.1 * g, 100, 30, 0.35);
-    clang(synth, recoil, 0.04 * g, 500);
   }
   for (const at of plan.lpAt) lpTick(synth, t + at / 1000, g);
 }

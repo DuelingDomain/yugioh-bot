@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Check, EyeOff, Link2 } from "lucide-react";
 import type { DuelAnswer, DuelCardInfo, DuelChainLink, DuelPrompt, DuelPromptOption, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
@@ -33,7 +33,13 @@ import {
   POS_FACEUP_DEFENSE,
 } from "./constants";
 import { CardBack } from "./card-face";
+import { CardStrip, type StripCard } from "./card-strip";
+import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
+import { PrecheckBar } from "./prompt-precheck";
+import { placeSelectBar, samePlace, type BarPlace, type BarRect } from "./select-bar-place";
+import { barTitleLabel } from "./select-bar-copy";
+import { backOutAnswer, backOutLabel } from "./pick-backout";
 import base from "./prompts.module.css";
 import styles from "./prompt-center.module.css";
 
@@ -212,23 +218,142 @@ export function declineAnswer(prompt: DuelPrompt): DuelAnswer | null {
   return null;
 }
 
+/**
+ * What right-click and Esc answer. A one-card-at-a-time pick (materials) backs out: unselect the card under
+ * the pointer, else cancel the pick, else step back one card (see pick-backout.ts). Everything else declines.
+ */
+export function dismissAnswer(prompt: DuelPrompt, zoneKeys: readonly string[] = []): DuelAnswer | null {
+  return prompt.kind === "toggle" ? backOutAnswer(prompt, zoneKeys) : declineAnswer(prompt);
+}
+
+/** The board zones under a pointer event (the zone's data-zones keys), for dismissAnswer. */
+function zoneKeysAt(target: Element | null): string[] {
+  const zones = target?.closest("[data-zones]")?.getAttribute("data-zones");
+  return zones ? zones.split(/\s+/).filter(Boolean) : [];
+}
+
 function declineLabel(prompt: DuelPrompt): string {
   if (prompt.context?.type === "chain") return "Pass";
   if (isYesNo(prompt)) return "No";
   return "Cancel";
 }
 
+/* -------------------------------------------------------- yes/no pre-check */
+
+/**
+ * Prompts that open as the compact "activate an effect?" bar before any list:
+ *   chain   an optional chain response (a quick effect, an optional trigger): one or more effects, Pass
+ *   effect  an engine yes/no about one card's effect ("Use the effect of X?")
+ * Everything else keeps its own prompt: mandatory chain links (no pass), select / position / counters /
+ * number / announce, Deck Master recall, and yes/no questions that name no card.
+ */
+export type PrecheckKind = "chain" | "effect";
+
+export function precheckKind(prompt: DuelPrompt | null): PrecheckKind | null {
+  if (!prompt || prompt.kind !== "choice") return null;
+  const context = prompt.context;
+  if (context?.type === "chain") {
+    return !context.forced && prompt.cancelable && prompt.options.length > 0 ? "chain" : null;
+  }
+  if (context) return null;
+  return isYesNo(prompt) && promptSource(prompt) ? "effect" : null;
+}
+
+/**
+ * What Yes does: answer at once (one effect to activate, or an engine yes/no), or open the list when
+ * more than one effect can be activated. Null when the prompt has no pre-check.
+ */
+export function precheckYes(prompt: DuelPrompt): { answer: DuelAnswer } | { list: true } | null {
+  const kind = precheckKind(prompt);
+  if (kind === "effect") return { answer: { choice: "yes" } };
+  if (kind === "chain") return prompt.options.length === 1 ? { answer: { choice: prompt.options[0].id } } : { list: true };
+  return null;
+}
+
+/** What No does: the same answer as the Pass / No button and right-click. Null when the prompt has no pre-check. */
+export function precheckNo(prompt: DuelPrompt): DuelAnswer | null {
+  return precheckKind(prompt) ? declineAnswer(prompt) : null;
+}
+
+/**
+ * Keys on the bar. Enter on a focused button is left to that button. Number keys would pick an effect
+ * from a list the player has not seen, so they are swallowed while Yes opens the list.
+ */
+export function precheckKeyAction(key: string, onButton: boolean, listFollows: boolean): "yes" | "no" | "swallow" | null {
+  if (key === "Enter") return onButton ? null : "yes";
+  if (key === "y" || key === "Y") return "yes";
+  if (key === "n" || key === "N" || key === "Escape") return "no";
+  if (listFollows && (/^[1-9]$/.test(key) || /^Numpad[1-9]$/.test(key))) return "swallow";
+  return null;
+}
+
+export interface PrecheckCopy {
+  name: string;
+  ask: string;
+  /** Phase / step and what is being answered, short. Empty when there is nothing to say. */
+  context: string;
+  cards: Array<{ code: number; card?: DuelCardInfo }>;
+}
+
+/** Short wording for the bar: the card (or "N effects"), the question, and the step it is in. */
+export function precheckCopy(prompt: DuelPrompt, chain: readonly DuelChainLink[], stepName: string | null): PrecheckCopy | null {
+  const kind = precheckKind(prompt);
+  if (!kind) return null;
+  const source = promptSource(prompt);
+  const last = chain[chain.length - 1];
+  const context = [stepName, kind === "chain" && last?.name ? `in response to ${last.name}` : null].filter(Boolean).join(" · ");
+  if (kind === "effect") {
+    const yes = prompt.options.find((option) => option.id === "yes");
+    const card = yes?.card;
+    return {
+      name: source?.name ?? card?.name ?? "Effect",
+      ask: "Activate its effect?",
+      context,
+      cards: source || card ? [{ code: (source?.code ?? card?.code) as number, card }] : [],
+    };
+  }
+  const options = prompt.options;
+  const cards = options
+    .slice(0, 3)
+    .map((option) => ({ code: option.card?.code ?? (options.length === 1 ? source?.code : undefined), card: option.card }))
+    .filter((entry): entry is { code: number; card: DuelCardInfo | undefined } => entry.code != null)
+    .filter((entry, index, all) => all.findIndex((other) => other.code === entry.code) === index);
+  return {
+    name: options.length === 1 ? (source?.name ?? effectText(options[0]).name) : `${options.length} effects`,
+    ask: "You can activate an effect. Activate?",
+    context,
+    cards,
+  };
+}
+
 const OFF_BOARD_LOCATIONS = LOCATION_DECK | LOCATION_GRAVE | LOCATION_REMOVED | LOCATION_EXTRA | LOCATION_OVERLAY;
 
-/** True when every option can be clicked where it sits on the board (both hands and all zones count). */
-function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
+/**
+ * True when every option can be clicked where it sits on the board (both hands and all zones count).
+ * `hasZone` says whether the board draws a zone for a key. Pure so the routing can be tested.
+ */
+export function optionsOnBoard(prompt: DuelPrompt, hasZone: (key: string) => boolean): boolean {
   if (prompt.options.length === 0) return true;
   return prompt.options.every((option) => {
     if (option.location != null && (option.location & OFF_BOARD_LOCATIONS) !== 0) return false;
     const keys = optionZoneKeys(option);
-    if (keys.length === 0) return false;
-    return scope.querySelector(`[data-zones~="${keys[0]}"]`) != null;
+    return keys.length > 0 && hasZone(keys[0]);
   });
+}
+
+function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
+  return optionsOnBoard(prompt, (key) => scope.querySelector(`[data-zones~="${key}"]`) != null);
+}
+
+/**
+ * A pick made one card at a time (the engine's select / unselect step: Synchro, Xyz, Link and Fusion
+ * materials, discards) is a "toggle" prompt. It is answered on the board like a card pick, with the bar,
+ * when every card is on the board; a card in the Deck, GY, Extra Deck or banished keeps the card strip.
+ */
+export function isBoardTogglePrompt(prompt: DuelPrompt | null): boolean {
+  if (!prompt || prompt.kind !== "toggle" || prompt.options.length === 0) return false;
+  const context = prompt.context?.type;
+  return context !== "chain" && context !== "position" && context !== "deck-master-recall" && context !== "action";
 }
 
 /** Name + effect line for a chain option, from the resolved texts when the server sends them, else the label. */
@@ -276,10 +401,11 @@ function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: s
   );
 }
 
-function selectionStatus(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean): string {
+export function selectionStatus(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean): string {
   if (aiming) return "Point at a target, then confirm";
   const { min, max } = selectionBounds(prompt);
-  const count = draft.selected.length;
+  // A one-at-a-time pick keeps its chosen cards on the options, not in the draft.
+  const count = prompt.kind === "toggle" ? prompt.options.filter((option) => option.selected).length : draft.selected.length;
   if (prompt.kind === "sum") {
     const values = draft.selected
       .map((id) => prompt.options.find((option) => option.id === id)?.values?.join("/"))
@@ -348,11 +474,11 @@ function Actions({
 
 /* ---------------------------------------------------------- response panel */
 
-function ChainStrip({ chain }: { chain: readonly DuelChainLink[] }) {
+function ChainStrip({ chain, compact = false }: { chain: readonly DuelChainLink[]; compact?: boolean }) {
   if (chain.length === 0) return null;
   const shown = chain.slice(-4);
   return (
-    <div className={styles.chainStrip} aria-label="Chain so far">
+    <div className={styles.chainStrip} data-compact={compact ? "true" : undefined} aria-label="Chain so far">
       <Link2 size={13} strokeWidth={1.75} aria-hidden />
       <ol>
         {shown.map((link) => (
@@ -553,10 +679,16 @@ function ResponseBody({
   }
 
   if (context?.type === "chain") {
+    // Every option names a card: the cards side by side, no text. Else the numbered rows.
+    const cards = isChainStripPrompt(prompt);
     return (
       <>
-        <ChainStrip chain={chain} />
-        <ChainRows prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} choose={choose} onInspectCard={onInspectCard} />
+        <ChainStrip chain={chain} compact={cards} />
+        {cards ? (
+          <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} />
+        ) : (
+          <ChainRows prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} choose={choose} onInspectCard={onInspectCard} />
+        )}
       </>
     );
   }
@@ -600,6 +732,9 @@ function ResponseBody({
   if (context?.type === "position") {
     return <PositionTiles prompt={prompt} draft={draft} busy={busy} choose={choose} />;
   }
+
+  // A pick among cards (unselect/select one at a time): a strip of large cards, not rows.
+  if (isStripPrompt(prompt)) return <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} />;
 
   // Any other list of options: numbered rows, with art when the option names a card.
   return (
@@ -723,6 +858,93 @@ export function responseTitle(
   return { title, sub: description && description !== title ? description : undefined, source };
 }
 
+/* ------------------------------------------------------------- card strip */
+
+/**
+ * True when the options are all cards the player picks by looking at them (select / tribute / sum /
+ * order grids, and the one-at-a-time select-unselect list): they show as a wide strip of large cards
+ * instead of tall rows or a tile grid. Counters, places, announce lists, chain rows, positions and
+ * yes/no keep their own layouts.
+ */
+export function isStripPrompt(prompt: DuelPrompt): boolean {
+  switch (prompt.kind) {
+    case "cards":
+    case "tribute":
+    case "sum":
+    case "order":
+    case "toggle":
+    case "choice":
+      break;
+    default:
+      return false;
+  }
+  const context = prompt.context?.type;
+  if (context === "chain" || context === "position" || context === "deck-master-recall" || context === "action") return false;
+  if (isYesNo(prompt)) return false;
+  return prompt.options.length > 0 && prompt.options.every((option) => option.card != null);
+}
+
+/**
+ * True for a chain response (optional "You can respond" list, or mandatory triggers to choose from)
+ * whose every option is a card: the cards show side by side with no effect text, a click activates.
+ * A chain list with an option that has no card keeps its rows.
+ */
+export function isChainStripPrompt(prompt: DuelPrompt): boolean {
+  return (
+    prompt.kind === "choice" &&
+    prompt.context?.type === "chain" &&
+    prompt.options.length > 0 &&
+    prompt.options.every((option) => option.card != null)
+  );
+}
+
+/** The strip items for a choice prompt: the card, its name, and a short line only where one card has many options. */
+export function choiceStripItems(prompt: DuelPrompt): StripCard[] {
+  const notes = optionNotes(
+    prompt.options.map((option) => ({ code: option.card?.code ?? null, effect: effectText(option).effect })),
+  );
+  return prompt.options.map((option, index) => ({
+    id: option.id,
+    card: option.card as DuelCardInfo,
+    label: option.card?.name ?? humanizeLabel(option.label),
+    selected: prompt.kind === "toggle" && Boolean(option.selected),
+    order: null,
+    detail: notes[index]?.detail,
+    detailTitle: notes[index]?.title,
+  }));
+}
+
+/** Select-unselect and choice prompts answer at once: a click on a card is the answer. */
+function StripChoice({
+  prompt,
+  draft,
+  busy,
+  choose,
+  onInspectCard,
+}: {
+  prompt: DuelPrompt;
+  draft: PromptDraft;
+  busy: boolean;
+  choose: (id: string) => void;
+  onInspectCard?: InspectCardHandler;
+}) {
+  const chainResponse = prompt.context?.type === "chain";
+  return (
+    <CardStrip
+      items={choiceStripItems(prompt)}
+      highlight={draft.highlight}
+      busy={busy}
+      multi={false}
+      tone={chainResponse ? "chain" : undefined}
+      hint={chainResponse ? "Click a card to activate it · hover to read it" : undefined}
+      label={fillPlaceholders(prompt.title, promptSource(prompt)?.name)}
+      onPick={(index) => choose(prompt.options[index].id)}
+      onEnter={draft.setHighlight}
+      onInspect={onInspectCard}
+    />
+  );
+}
+
 /* -------------------------------------------------------------- grid picker */
 
 function GridPicker({
@@ -772,6 +994,19 @@ function GridPicker({
     }));
   }
 
+  // Cards to pick: one wide strip of large cards. Zones, counters and the rest keep the tile grid.
+  const strip = isStripPrompt(prompt);
+  const stripItems: StripCard[] = strip
+    ? prompt.options.map((option) => ({
+        id: option.id,
+        card: option.card as DuelCardInfo,
+        label: option.card?.name ?? humanizeLabel(option.label),
+        selected: aim ? aim.lockedId === option.id : draft.selected.includes(option.id),
+        order: prompt.kind === "order" ? draft.selected.indexOf(option.id) + 1 || null : null,
+        note: valueDetail && option.values?.length ? option.values.join(" / ") : undefined,
+      }))
+    : [];
+
   return (
     <>
       <header className={styles.head}>
@@ -783,6 +1018,22 @@ function GridPicker({
           <EyeOff size={16} strokeWidth={1.75} aria-hidden />
         </button>
       </header>
+      {strip ? (
+        <CardStrip
+          items={stripItems}
+          highlight={draft.highlight}
+          busy={busy}
+          multi
+          label={title}
+          onPick={(index) => pick(prompt.options[index], index)}
+          onDouble={(index) => {
+            if (single && !aim && !busy) onSubmit({ selected: [prompt.options[index].id] });
+          }}
+          onEnter={(index) => aim?.onHover(prompt.options[index])}
+          onLeave={aim ? () => aim.onHover(null) : undefined}
+          onInspect={onInspectCard}
+        />
+      ) : (
       <ul className={styles.grid}>
         {prompt.options.map((option, index) => {
           const selected = counters ? (draft.counts[option.id] ?? 0) > 0 : draft.selected.includes(option.id);
@@ -848,6 +1099,7 @@ function GridPicker({
           );
         })}
       </ul>
+      )}
       <footer className={styles.foot}>
         {prompt.kind === "order" && draft.selected.length > 0 ? (
           <button type="button" className={styles.btn} data-kind="quiet" disabled={busy} onClick={() => draft.setSelected([])}>
@@ -902,13 +1154,18 @@ export function PromptCenter(props: PromptCenterProps) {
   const { prompt, mySeat, active, draft, busy, onSubmit, chain, aim, reducedMotion, revision, slug, battleStep, onInspectCard } = props;
   const revealed = props.revealed ?? true;
   const answering = prompt != null && mySeat != null && prompt.seat === mySeat && active;
-  const kind = answering ? centerKind(prompt) : null;
+  const baseKind = answering ? centerKind(prompt) : null;
+  // A one-card-at-a-time pick may be answered on the board with the bar; onBoard (measured below) decides.
+  const boardToggle = baseKind === "response" && isBoardTogglePrompt(prompt);
 
   const layerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [onBoard, setOnBoard] = useState<boolean | null>(null);
-  const [barTop, setBarTop] = useState(8);
+  const kind: CenterKind | null = boardToggle && onBoard === true ? "select" : baseKind;
+  // Prompt id whose full effect list is open. A prompt with a pre-check starts on the compact bar.
+  const [listFor, setListFor] = useState<string | null>(null);
+  const [barPlace, setBarPlace] = useState<BarPlace>({ mode: "mid", top: null, left: null, fit: null, stack: false });
 
   const promptRef = useRef(prompt);
   const kindRef = useRef(kind);
@@ -928,6 +1185,32 @@ export function PromptCenter(props: PromptCenterProps) {
   lockedRef.current = props.aimLocked;
   collapsedRef.current = collapsed;
   barRef.current = kind === "select" && onBoard !== false;
+  // The compact yes/no bar is up (kind "response" with a pre-check, list not opened), or the list behind it.
+  const precheck = kind === "response" ? precheckKind(prompt) : null;
+  const checking = precheck != null && listFor !== prompt?.id;
+  const precheckRef = useRef<{ checking: boolean; backable: boolean; listFollows: boolean; yes: () => void; no: () => void; back: () => void } | null>(null);
+  const answerYes = () => {
+    if (!prompt || busy) return;
+    const plan = precheckYes(prompt);
+    if (!plan) return;
+    if ("answer" in plan) onSubmit(plan.answer);
+    else setListFor(prompt.id);
+  };
+  const answerNo = () => {
+    if (!prompt || busy) return;
+    const answer = precheckNo(prompt);
+    if (answer) onSubmit(answer);
+  };
+  const backToCheck = () => setListFor(null);
+  precheckRef.current = {
+    checking,
+    // The list opened from the bar: Back and Esc return to the bar.
+    backable: precheck === "chain" && !checking,
+    listFollows: precheck === "chain" && (prompt?.options.length ?? 0) > 1,
+    yes: answerYes,
+    no: answerNo,
+    back: backToCheck,
+  };
 
   const promptId = prompt?.id;
   useEffect(() => setCollapsed(false), [promptId]);
@@ -935,28 +1218,33 @@ export function PromptCenter(props: PromptCenterProps) {
   // Which way to answer a card pick: on the board, or in a centred grid.
   useLayoutEffect(() => {
     const scope = layerRef.current?.parentElement;
-    if (kind !== "select" || !prompt || !scope) {
+    if ((baseKind !== "select" && !boardToggle) || !prompt || !scope) {
       setOnBoard(null);
       return;
     }
     setOnBoard(allOptionsOnBoard(prompt, scope));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, promptId, revision]);
+  }, [baseKind, boardToggle, promptId, revision]);
 
-  // The instruction bar sits under the opponent's hand so it never covers a card you can pick there.
+  // The instruction bar sits in the middle band of the board, between the Extra Monster Zones, so it is
+  // easy to see and hits no hand card or field row you can pick (see select-bar-place.ts).
   const placeBar = useCallback(() => {
     const layer = layerRef.current;
     const board = layer?.parentElement;
     if (!layer || !board) return;
-    const boardRect = board.getBoundingClientRect();
-    let top = 8;
-    board.querySelectorAll<HTMLElement>("[data-hand-seat]").forEach((hand) => {
-      const rect = hand.getBoundingClientRect();
-      if (rect.height > 0 && rect.top + rect.height / 2 < boardRect.top + boardRect.height / 2) {
-        top = Math.max(top, Math.min(rect.bottom - boardRect.top + 6, boardRect.height * 0.3));
-      }
+    const rectOf = (element: Element): BarRect => {
+      const { left, right, top, bottom } = element.getBoundingClientRect();
+      return { left, right, top, bottom };
+    };
+    const next = placeSelectBar({
+      board: rectOf(board),
+      emz: Array.from(board.querySelectorAll<HTMLElement>('[data-kind="emz"][data-zones]')).map((zone) => ({
+        ...rectOf(zone),
+        legal: zone.dataset.legal === "true",
+      })),
+      hands: Array.from(board.querySelectorAll<HTMLElement>("[data-hand-seat]")).map(rectOf),
     });
-    setBarTop(Math.round(top));
+    setBarPlace((current) => (samePlace(current, next) ? current : next));
   }, []);
   useLayoutEffect(() => {
     if (kind !== "select" || onBoard !== true) return;
@@ -966,7 +1254,7 @@ export function PromptCenter(props: PromptCenterProps) {
     const observer = new ResizeObserver(placeBar);
     observer.observe(board);
     return () => observer.disconnect();
-  }, [kind, onBoard, placeBar, revision]);
+  }, [kind, onBoard, placeBar, revision, promptId]);
 
   // Focus moves into the panel so Enter takes the primary answer.
   useEffect(() => {
@@ -976,7 +1264,7 @@ export function PromptCenter(props: PromptCenterProps) {
     const target = kind === "response" ? panel?.querySelector<HTMLElement>("[data-primary]:not(:disabled)") : panel;
     target?.focus({ preventScroll: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promptId, collapsed, kind, onBoard, revealed]);
+  }, [promptId, collapsed, kind, onBoard, revealed, checking]);
 
   // Arrow keys (handled by the tray) move the highlight; the focused row follows it.
   const highlight = draft.highlight;
@@ -1005,7 +1293,7 @@ export function PromptCenter(props: PromptCenterProps) {
         event.preventDefault();
         return;
       }
-      const decline = declineAnswer(current);
+      const decline = dismissAnswer(current, zoneKeysAt(target));
       if (decline) {
         event.preventDefault();
         if (!busyRef.current) submitRef.current(decline);
@@ -1018,17 +1306,35 @@ export function PromptCenter(props: PromptCenterProps) {
       }
     };
     const key = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      if (event.defaultPrevented || event.isComposing) return;
       if (event.metaKey || event.ctrlKey || event.altKey || menuRef.current) return;
       if (kindRef.current == null || barRef.current) return;
       const current = promptRef.current;
       if (!current || !revealedRef.current) return;
+      const check = precheckRef.current;
+      if (check?.checking) {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest("input,textarea,select,[contenteditable='true'],[role='dialog']")) return;
+        const action = precheckKeyAction(event.key, target?.closest("button,a,summary,[role='button']") != null, check.listFollows);
+        if (!action) return;
+        event.preventDefault();
+        if (action === "swallow" || event.repeat || busyRef.current) return;
+        if (action === "yes") check.yes();
+        else check.no();
+        return;
+      }
+      if (event.key !== "Escape") return;
       event.preventDefault();
+      if (check?.backable && !collapsedRef.current) {
+        // Esc in the list goes back to the bar; Esc there says no.
+        if (!event.repeat) check.back();
+        return;
+      }
       if (collapsedRef.current) {
         setCollapsed(false);
         return;
       }
-      const decline = declineAnswer(current);
+      const decline = dismissAnswer(current);
       if (decline) {
         if (!busyRef.current && !event.repeat) submitRef.current(decline);
       } else {
@@ -1045,7 +1351,10 @@ export function PromptCenter(props: PromptCenterProps) {
     };
   }, [kind, promptId]);
 
-  if (!prompt || !kind || !revealed) return <div ref={layerRef} className={styles.layer} aria-hidden hidden />;
+  // A one-card-at-a-time pick shows nothing until it is known whether the cards are on the board.
+  if (!prompt || !kind || !revealed || (boardToggle && onBoard === null)) {
+    return <div ref={layerRef} className={styles.layer} aria-hidden hidden />;
+  }
 
   const optional = declineAnswer(prompt) != null;
   const chainKind = prompt.context?.type === "chain";
@@ -1053,9 +1362,9 @@ export function PromptCenter(props: PromptCenterProps) {
   const dataReduced = reducedMotion ? "true" : "false";
   const stepName = battleStepLabel(battleStep);
   const stepLine = stepName ? (
-    <span className={styles.stepChip} data-tone={tone}>
+    <span className={styles.stepChip} data-tone={tone} title={`Battle Phase · ${stepName}${chainKind ? " · respond?" : ""}`}>
       <i aria-hidden />
-      Battle Phase · {stepName}{chainKind ? " · respond?" : ""}
+      <span className={styles.stepText}>Battle Phase · {stepName}{chainKind ? " · respond?" : ""}</span>
     </span>
   ) : null;
 
@@ -1065,19 +1374,33 @@ export function PromptCenter(props: PromptCenterProps) {
     if (onBoard === null) return <div ref={layerRef} className={styles.layer} aria-hidden hidden />;
     const aiming = Boolean(aim);
     const explicit = needsExplicitConfirm(prompt);
-    const ok = canConfirm(prompt, draft);
+    const toggling = prompt.kind === "toggle";
+    // A one-at-a-time pick is done when Finish is offered; every other pick when its count rules hold.
+    const ok = toggling ? Boolean(prompt.finishable) : canConfirm(prompt, draft);
     const source = promptSource(prompt);
     const barTitle = fillPlaceholders(prompt.title, source?.name);
+    // The bar shows a short label; the tooltip carries the full title and the description.
+    const barTip = [barTitle, prompt.description ? fillPlaceholders(prompt.description, source?.name) : ""].filter(Boolean).join("\n");
+    // After the first material the engine drops Cancel; Undo unselects the last pick instead.
+    const canUndo = toggling && backOutLabel(prompt) === "Undo";
+    const barStyle = {
+      top: barPlace.top ?? (barPlace.mode === "mid" ? "50%" : 8),
+      left: barPlace.left ?? "50%",
+      ...(barPlace.fit != null ? { "--bar-fit": `${barPlace.fit}px` } : null),
+    } as CSSProperties;
     body = (
       <div
         className={styles.bar}
         data-reduced={dataReduced}
-        style={{ top: barTop }}
+        data-place={barPlace.mode}
+        data-stack={barPlace.stack ? "true" : "false"}
+        data-ready={ok ? "true" : "false"}
+        style={barStyle}
         role="group"
         aria-label={barTitle}
       >
-        <div className={styles.barText} title={prompt.description ? fillPlaceholders(prompt.description, source?.name) : undefined}>
-          <b>{barTitle}</b>
+        <div className={styles.barText} title={barTip}>
+          <b>{barTitleLabel(barTitle)}</b>
           <span>{selectionStatus(prompt, draft, aiming)}</span>
         </div>
         <div className={styles.barBtns}>
@@ -1093,8 +1416,29 @@ export function PromptCenter(props: PromptCenterProps) {
             </button>
           ) : null}
           {prompt.finishable ? (
-            <button type="button" className={styles.btn} disabled={busy} onClick={() => onSubmit({ finish: true })}>
+            <button
+              type="button"
+              className={styles.btn}
+              data-kind={toggling ? "primary" : undefined}
+              disabled={busy}
+              onClick={() => onSubmit({ finish: true })}
+            >
               Finish
+            </button>
+          ) : null}
+          {canUndo ? (
+            <button
+              type="button"
+              className={styles.btn}
+              data-kind="quiet"
+              disabled={busy}
+              title="Unselect the last card (Esc or right-click)"
+              onClick={() => {
+                const undo = backOutAnswer(prompt);
+                if (undo) onSubmit(undo);
+              }}
+            >
+              Undo
             </button>
           ) : null}
           {prompt.cancelable ? (
@@ -1110,6 +1454,29 @@ export function PromptCenter(props: PromptCenterProps) {
         {body}
       </div>
     );
+  }
+
+  // An effect you may activate opens as a small yes/no bar low on the board; Yes then answers or opens the list.
+  if (kind === "response" && precheck && checking) {
+    const copy = precheckCopy(prompt, chain, stepName);
+    if (copy) {
+      return (
+        <div ref={layerRef} className={styles.layer}>
+          <PrecheckBar
+            name={copy.name}
+            ask={copy.ask}
+            context={copy.context}
+            cards={copy.cards}
+            tone={tone}
+            busy={busy}
+            reducedMotion={reducedMotion}
+            onYes={answerYes}
+            onNo={answerNo}
+            onInspectCard={onInspectCard}
+          />
+        </div>
+      );
+    }
   }
 
   const pill = (
@@ -1158,6 +1525,7 @@ export function PromptCenter(props: PromptCenterProps) {
         data-prompt-panel
         data-tone={tone}
         data-forced={prompt.context?.type === "chain" && prompt.context.forced ? "true" : "false"}
+        data-strip={isStripPrompt(prompt) || isChainStripPrompt(prompt) ? "true" : undefined}
         data-reduced={dataReduced}
         role="group"
         aria-label={title}
@@ -1183,6 +1551,11 @@ export function PromptCenter(props: PromptCenterProps) {
           <footer className={styles.foot}>
             {optional ? <span className={styles.hint}>Right-click to pass</span> : null}
             <span className={styles.spacer} />
+            {precheck === "chain" ? (
+              <button type="button" className={styles.btn} data-kind="quiet" disabled={busy} onClick={backToCheck}>
+                Back
+              </button>
+            ) : null}
             {actions}
           </footer>
         ) : null}
@@ -1197,6 +1570,7 @@ export function PromptCenter(props: PromptCenterProps) {
         tabIndex={-1}
         data-tone="action"
         data-wide="true"
+        data-strip={isStripPrompt(prompt) ? "true" : undefined}
         data-reduced={dataReduced}
         role="group"
         aria-label={fillPlaceholders(prompt.title, promptSource(prompt)?.name)}

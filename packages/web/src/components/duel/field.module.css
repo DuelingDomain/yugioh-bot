@@ -813,16 +813,29 @@
   transform-origin: center;
 }
 
+/* The sleeve is a layer of its own so it can turn (see "the far side of the table") while the box,
+   its border and the animations that move the box stay put. */
 .cardBack {
   position: relative;
   isolation: isolate;
-  background: #120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat;
+  background: #120e0c;
   border: 1px solid #b08a3e;
 }
 
+.cardBack::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("/duel/card-back-main-hd.webp") center / cover no-repeat;
+}
+
 .cardBackExtra {
-  background: #140e1c url("/duel/card-back-extra-hd.webp") center / cover no-repeat;
+  background: #140e1c;
   border-color: #8a6bb0;
+}
+
+.cardBackExtra::before {
+  background-image: url("/duel/card-back-extra-hd.webp");
 }
 
 .art {
@@ -831,6 +844,32 @@
   height: 100%;
   object-fit: cover;
   pointer-events: none;
+}
+
+/* ---------- the far side of the table ----------
+   Cards the top player controls (zones, hand, piles) face the bottom player: the picture turns half
+   way, like a card laid down by someone sitting across the table. Only the picture turns. The card
+   box keeps its Defense quarter turn (so Defense becomes 90deg + 180deg), its shadow, the stat plate,
+   counters and labels, and every effect that moves the box (lunge, shake, lift) still moves it in
+   screen directions. `data-turned` marks a clone made outside the zone (attack-fx fragments). */
+.zone[data-side="opp"] .art,
+.cardFace[data-turned="true"] .art,
+.zone[data-side="opp"] .cardBack::before,
+.cardBack[data-turned="true"]::before {
+  rotate: 180deg;
+}
+
+/* Their card's own bottom edge (printed ATK / DEF) is the top: the plate sits there, over the same
+   printed line it covers on your cards. Hand cards hang from the top edge and are clipped there, so
+   the plate stays at the bottom for them. Counters go to the bottom, away from the plate. */
+.zone[data-side="opp"]:not([data-kind="hand"]) .plate {
+  top: 3px;
+  bottom: auto;
+}
+
+.zone[data-side="opp"] .overlayBadge {
+  top: auto;
+  bottom: 3px;
 }
 
 .overlayBadge {
@@ -889,6 +928,11 @@
 .frame[data-stack-size] {
   --stack-art: url("/duel/card-back-main-hd.webp");
   --stack-step: calc(var(--z) * 0.018);
+}
+
+/* The stack steps away from the owner: up and right for you, down and left for them. */
+.zone[data-side="opp"] .frame[data-stack-size] {
+  --stack-step: calc(var(--z) * -0.018);
 }
 
 .frame[data-stack-size="2"]::before,
@@ -1020,12 +1064,14 @@
 
 /* ---------- legal and selected: an outline shape and a tag, never colour alone ---------- */
 
+/* A card you can pick: a 2px dashed outline with a dark underlay so it reads on any card art. */
 .ring {
   position: absolute;
-  inset: -4px;
+  inset: -5px;
   z-index: 4;
-  border: 1px dashed var(--pen);
+  border: 2px dashed var(--pen);
   border-radius: calc(var(--r) + 3px);
+  box-shadow: 0 0 0 1px rgb(7 11 21 / 0.75);
   pointer-events: none;
 }
 
@@ -1036,10 +1082,6 @@
 
 /* Rotated (defense) cards: outline the landscape shape, not the portrait guide. */
 .zone[data-defense="true"] .ring {
-  inset: calc((var(--z) - var(--cw)) / 2 - 4px) calc((var(--z) - var(--cw)) / -2 - 4px);
-}
-
-.zone[data-defense="true"][data-selected="true"] .ring {
   inset: calc((var(--z) - var(--cw)) / 2 - 5px) calc((var(--z) - var(--cw)) / -2 - 5px);
 }
 

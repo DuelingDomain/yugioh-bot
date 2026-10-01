@@ -70,6 +70,16 @@
 }
 
 .panel[data-wide="true"] { width: min(640px, calc(100% - 24px)); }
+/* A card strip is as wide as its cards need and no wider, so most of the field stays in view. */
+.panel[data-strip="true"] {
+  width: fit-content;
+  min-width: min(calc(300 * var(--duel-unit, 1px)), calc(100% - 24px));
+  max-width: min(calc(720 * var(--duel-unit, 1px)), calc(100% - 24px));
+  gap: calc(4 * var(--duel-unit, 1px));
+  padding: calc(9 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px)) calc(10 * var(--duel-unit, 1px));
+}
+.panel[data-strip="true"] .titles h2 { font-size: var(--duel-t-head, 14px); font-weight: 600; line-height: 1.25; }
+.panel[data-strip="true"] .titles p { margin-top: calc(1 * var(--duel-unit, 1px)); font-size: var(--duel-t-xs, 11px); }
 
 .panel[data-reduced="true"], .bar[data-reduced="true"], .pill[data-reduced="true"] { animation: none; }
 
@@ -162,6 +172,13 @@
   line-height: 1;
 }
 .chainNote { margin-left: auto; color: var(--duel-ink-3, #958f81); }
+
+/* Above a card strip: one slim line; a long chain is cut at the end, not wrapped. */
+.chainStrip[data-compact="true"], .chainStrip[data-compact="true"] ol { flex-wrap: nowrap; }
+.chainStrip[data-compact="true"] { padding-block: calc(3 * var(--duel-unit, 1px)); overflow: hidden; }
+.chainStrip[data-compact="true"] ol { min-width: 0; overflow: hidden; }
+.chainStrip[data-compact="true"] li { min-width: 0; white-space: nowrap; }
+.chainStrip[data-compact="true"] .chainNote { flex: none; white-space: nowrap; }
 
 /* ---------- activatable rows (chain, option lists) ---------- */
 .rows {
@@ -382,10 +399,12 @@
 
 /* ---------- battle step chip (which step the response is in) ---------- */
 .stepChip {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: calc(6 * var(--duel-unit, 1px));
   width: fit-content;
+  max-width: 100%;
+  min-width: 0;
   margin-bottom: calc(4 * var(--duel-unit, 1px));
   padding: 0 calc(8 * var(--duel-unit, 1px)) 0 calc(6 * var(--duel-unit, 1px));
   border: 1px solid rgb(217 141 82 / 0.7);
@@ -395,7 +414,9 @@
   line-height: 1.7;
   white-space: nowrap;
 }
-.stepChip i { width: 6px; height: 6px; border-radius: 50%; background: rgb(217 141 82); box-shadow: 0 0 6px rgb(217 141 82); }
+.stepChip i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: rgb(217 141 82); box-shadow: 0 0 6px rgb(217 141 82); }
+/* The chip never grows past its column, so it cannot run under the badge or the hide button: the text cuts with an ellipsis. */
+.stepText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stepRow { display: flex; }
 
 /* ---------- position tiles (upright = attack, sideways = defense, back = face-down) ---------- */
@@ -626,42 +647,73 @@
 }
 
 /* ---------- instruction bar (on-board picks) ---------- */
-/* The bar itself lets clicks through to the zones behind it: only its buttons take them. */
+/* The bar is the current step, so it sits in the middle band of the board (between the two fields, centred
+   on the gap between the Extra Monster Zones). prompt-center.tsx sets top/left and --bar-fit (the free width
+   between those zones). The bar itself lets clicks through to the zones behind it: only its buttons take them.
+   data-place="top" is the fallback under the opponent's hand, used only when an Extra Monster Zone is a legal
+   pick and the gap is too narrow to keep it clear. */
 .bar {
   position: absolute;
   left: 50%;
-  translate: -50% 0;
+  translate: -50% -50%;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: calc(14 * var(--duel-unit, 1px));
-  max-width: min(680px, calc(100% - 24px));
-  padding: calc(6 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px)) calc(6 * var(--duel-unit, 1px)) calc(14 * var(--duel-unit, 1px));
-  border: 1px solid rgb(155 126 255 / 0.6);
-  border-radius: 999px;
-  background: rgb(10 16 31 / 0.88);
+  justify-content: center;
+  gap: calc(6 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px));
+  width: max-content;
+  max-width: min(520px, calc(100% - 24px), var(--bar-fit, 520px));
+  padding: calc(5 * var(--duel-unit, 1px)) calc(6 * var(--duel-unit, 1px)) calc(5 * var(--duel-unit, 1px)) calc(14 * var(--duel-unit, 1px));
+  border: 1px solid rgb(239 231 213 / 0.16);
+  border-radius: calc(20 * var(--duel-unit, 1px));
+  background: rgb(10 16 31 / 0.92);
   backdrop-filter: blur(6px);
-  box-shadow: 0 10px 28px rgb(0 0 0 / 0.5);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.42);
   pointer-events: none;
-  animation: fall 0.2s ease-out both;
+  animation: settle 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-.barText { display: flex; align-items: baseline; gap: calc(10 * var(--duel-unit, 1px)); min-width: 0; }
+.bar[data-place="top"] { translate: -50% 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .bar[data-place="top"][data-reduced="false"] { animation-name: fall; }
+}
+@keyframes settle {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+/* Title on one line (ellipsis), the count as a small muted label beside it. */
+.barText { display: flex; flex: 1 1 auto; align-items: baseline; gap: calc(8 * var(--duel-unit, 1px)); min-width: 0; }
 .barText b {
   min-width: 0;
   overflow: hidden;
-  font-size: var(--duel-t-head, 14px);
-  font-weight: 500;
+  font-size: calc(13 * var(--duel-unit, 1px));
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .barText span {
   flex: none;
-  color: var(--duel-pen-ink, #c6b6ff);
-  font-size: var(--duel-t-sm, 12px);
+  color: var(--duel-ink-2, #c3bba8);
+  font-size: calc(11.5 * var(--duel-unit, 1px));
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* Purple only when the pick can be confirmed. */
+.bar[data-ready="true"] .barText span { color: var(--duel-pen-ink, #c6b6ff); }
 .barBtns { display: flex; flex: none; gap: calc(6 * var(--duel-unit, 1px)); pointer-events: auto; }
-.bar .btn { min-height: calc(30 * var(--duel-unit, 1px)); padding: 0 calc(14 * var(--duel-unit, 1px)); border-radius: 999px; }
+.bar .btn {
+  min-height: calc(26 * var(--duel-unit, 1px));
+  padding: 0 calc(12 * var(--duel-unit, 1px));
+  border-radius: 999px;
+  font-size: calc(12.5 * var(--duel-unit, 1px));
+}
+.bar .btn:disabled { border-style: solid; border-color: var(--duel-rule, rgb(181 153 99 / 0.34)); background: transparent; color: var(--duel-ink-2, #c3bba8); opacity: 0.45; }
+
+/* Narrow gap between the Extra Monster Zones: the count drops under the title, buttons under that. */
+.bar[data-stack="true"] { padding: calc(8 * var(--duel-unit, 1px)) calc(10 * var(--duel-unit, 1px)); text-align: center; }
+.bar[data-stack="true"] .barText { flex-wrap: wrap; justify-content: center; gap: 0 calc(8 * var(--duel-unit, 1px)); }
+.bar[data-stack="true"] .barText b { flex: 1 1 100%; }
+.bar[data-stack="true"] .barBtns { flex: 1 1 100%; justify-content: center; }
+.bar[data-stack="true"] .btn { flex: 1 1 auto; justify-content: center; }
 
 /* ---------- collapsed pill ---------- */
 .pill {
@@ -702,7 +754,7 @@
 
 /* ---------- phones: a bottom sheet above the station track; right-click is desktop only ---------- */
 @media (max-width: 900px) {
-  .panel, .panel[data-wide="true"] {
+  .panel, .panel[data-wide="true"], .panel[data-strip="true"] {
     inset: auto 0 0 0;
     margin: 0;
     width: auto;
@@ -715,15 +767,10 @@
   .panel::before { display: none; }
   .hint { display: none; }
   .pill { inset: auto 0 12px 0; }
-  .bar {
-    border-radius: 12px;
-    flex-wrap: wrap;
-    gap: 6px 12px;
-  }
-  .barText { flex-wrap: wrap; gap: 0 10px; }
   .rowGo { display: none; }
 }
 
 @media (pointer: coarse) {
   .hint { display: none; }
+  .bar .btn { min-height: 40px; }
 }
