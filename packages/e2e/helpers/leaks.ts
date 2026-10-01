@@ -18,7 +18,7 @@
 // Limits (on purpose, so a failure is never a false alarm about a legal reveal)
 // - The clock of the journal has a resolution of 1 s, so a leak that is less than 2 s before the reveal is not reported.
 // - Deck Master codes are public by design and are not secret.
-// - `myDeck` and `deckMaster` keys of the room JSON are removed before the scan: the page shows your own deck list.
+// - `myDeck`, `mySide` (the viewer's own series decks) and `deckMaster` keys of the room JSON are removed before the scan: the page shows your own deck list.
 // - A card that appears by name only (no code) is not found. The engine fuzz test (tests/fuzz/invariants.ts) checks names.
 
 export type Viewer = number | "spectator";
@@ -71,7 +71,7 @@ export function stripOwnDeck(value: unknown): unknown {
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      if (key === "myDeck" || key === "deckMaster") continue;
+      if (key === "myDeck" || key === "deckMaster" || key === "mySide") continue;
       out[key] = stripOwnDeck(item);
     }
     return out;

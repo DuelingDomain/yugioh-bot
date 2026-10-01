@@ -1,5 +1,5 @@
 import { test, expect, type Seat } from "../helpers/fixtures";
-import { attackWithFirstMonster, endTurn, expectOpponentBoards, handCard, pickLegalZone, startTable, turnLabel, useCard } from "../helpers/board";
+import { activateSingleResponse, attackWithFirstMonster, endTurn, expectOpponentBoards, handCard, pickLegalZone, startTable, turnLabel, useCard } from "../helpers/board";
 import { FILLER, withFiller } from "../helpers/decks";
 import { surrender } from "../helpers/duel";
 import type { Page } from "@playwright/test";
@@ -93,8 +93,7 @@ test.describe("4-player FFA", () => {
     await useCard(alice.page, handCard(alice.page, "Mind Crush"), "Set Spell/Trap");
     await pickLegalZone(alice.page, "st");
     await endTurn(alice.page, 2);
-    await expect(alice.page.getByText("You can respond")).toBeVisible();
-    await alice.page.getByText("Activate", { exact: true }).click();
+    await activateSingleResponse(alice.page);
 
     // The pick names the 3 opponents (never the own seat), on the turn order strip and in the prompt.
     for (const name of ["E2E Bob", "E2E Carol", "E2E Dave"]) {

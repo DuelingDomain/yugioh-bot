@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../helpers/fixtures";
-import { attackWithFirstMonster, endTurn, handCard, pickLegalZone, respondPanel, startDuel, useCard } from "../helpers/board";
+import { attackWithFirstMonster, endTurn, handCard, pickLegalZone, activateSingleResponse, startDuel, useCard } from "../helpers/board";
 import { FILLER, withFiller } from "../helpers/decks";
 
 const DECK_MASTER = "Celtic Guardian";
@@ -51,7 +51,7 @@ test("a Deck Master is summoned from its zone, destroyed, recalled, and summoned
 
   // Turn 3: the master attacks into Mirror Force and is destroyed. Alice is asked to recall it.
   await attackWithFirstMonster(alice.page);
-  await respondPanel(bob.page).getByText("Activate", { exact: true }).click();
+  await activateSingleResponse(bob.page);
   const recall = alice.page.getByRole("group", { name: /Deck Master/i });
   await expect(recall).toBeVisible();
   await expect(recall).toContainText("Next summon after this recall: 500 LP");

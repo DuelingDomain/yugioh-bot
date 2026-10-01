@@ -83,7 +83,7 @@ export async function createTable(page: Page, name: string, options: TableOption
   await page.getByLabel("Table name").fill(name);
   if (options.format && options.format !== "1v1") await page.getByLabel("Table type").selectOption(options.format);
   if (options.domain) await chooseOption(page, "Duel type", "Domain");
-  await page.getByLabel("Turn timer").selectOption({ label: "No turn timer" });
+  await page.getByLabel("Turn timer").selectOption({ label: "Unlimited" });
   if (options.noBanlist) await page.getByLabel("Forbidden & Limited list").selectOption({ index: 0 });
   if (options.ordered) await chooseOption(page, "Opening deck order", "Not shuffled");
   if (options.looseDecks) await chooseOption(page, "Deck validation", "Allow invalid decks");

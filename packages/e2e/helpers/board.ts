@@ -77,6 +77,17 @@ export async function pickLegalZone(page: Page, kind: "mz" | "st"): Promise<void
 /** A chain response window. Returns the panel. */
 export const respondPanel = (page: Page, title: RegExp | string = /^You can respond/): Locator => page.getByRole("group", { name: title });
 
+/**
+ * Activates the only card of a chain response window. A window with one card shows the compact "Activate? Yes / No" bar;
+ * a window with several cards shows the "You can respond" panel with an Activate button per card.
+ */
+export async function activateSingleResponse(page: Page): Promise<void> {
+  const yes = page.locator("[data-prompt-panel]").getByRole("button", { name: "Yes", exact: true });
+  const activate = respondPanel(page).getByText("Activate", { exact: true });
+  await expect(yes.or(activate)).toBeVisible();
+  await (await yes.isVisible() ? yes : activate).click();
+}
+
 export const chainList = (page: Page): Locator => page.getByRole("region", { name: "Current chain" });
 
 /** Count label on a pile button: "Your Graveyard (2)", "Opponent Main Deck (7)". */
