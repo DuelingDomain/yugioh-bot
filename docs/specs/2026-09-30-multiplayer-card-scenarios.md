@@ -17,7 +17,7 @@ This page tables are made from the catalog data. Change the data first, then cha
 - **Script evidence**: `cNNN.lua:line` in `data/duel-engine-next/card-scripts/official/`. A line was read and checked for each item.
 - **Tables**: 3-FFA (3 players, 8,000 LP each), 4-FFA (4 players, 8,000 LP each), Tag (2v2, shared 16,000 LP, seats P0+P2 against P1+P3).
 - **Rule class**: U = unchanged (the script works with the union or the bound opponent with no new rule). C = core rule (a rule in the core makes the script work). O = per-card override (the script needs a patch).
-- **Layer 1 sketch**: setup, action and expected result. Seat P0 is the activator. All sketches are pending until the core supports P2, P3 and teams.
+- **Layer 1 sketch**: setup, action and expected result. Seat P0 is the activator. A sketch is data. When a live scenario already proves the card on the real core, the sketch shows as a test in `catalog.test.ts` (list `LIVE_PROOF` in `catalog.ts`). The other sketches stay `todo`.
 
 ## Rules that decide the edge cases
 
@@ -301,9 +301,25 @@ Error message format: `<card> is forbidden in 4-player free-for-all: <reason>`. 
 
 ### Card rules (owner decisions, 2026-10-01)
 
-The deck check does NOT refuse these cards and does NOT read this list. The list is `MULTIPLAYER_CARD_RULES` in `multiplayer.ts`. The engine (Phase 3 Lua fold and the per-card multiplayer scripts) must implement each rule (`engine: "pending"`). The scenario sketches above check the rules later.
+The deck check does NOT refuse these cards and does NOT read this list. The list is `MULTIPLAYER_CARD_RULES` in `multiplayer.ts`. `rule` is the decided rule. `engine` is `"native"` when the engine (a core patch or an overlay script) does the rule AND a live scenario proves it for this card. `engine` is `"pending"` when no live scenario proves it for this card yet. `proven` names the tables that a live scenario proves. The check test compares both fields with the live scenarios (`LIVE_PROOF` in `catalog.ts`). Only a card with a scenario of its own is `native`. A card that shares script code with a proven card stays `pending` until it has its own scenario.
 
-Decision 2: Kaiju and Lava Golem. The card goes to the field of the player whose monster was Tributed. The scan of `data/duel-engine-next/card-scripts` found 12 cards that use `aux.AddKaijuProcedure` or `aux.AddLavaProcedure`, and the catalog test checks that every one has a rule entry. The Winged Dragon of Ra - Sphere Mode is added to this table by the owner answer of 2026-10-01 (it has its own Tribute procedure). In Tag, the Tributed monster belongs to an opposing member, so the card goes to that member's field. The Kaiju summon with no Tribute (an opponent controls a Kaiju) goes to your own field.
+Live proof, by card (status 2026-10-01):
+
+| Card | Tables proven by a live scenario |
+|---|---|
+| Gameciel, the Sea Turtle Kaiju (Tribute goes to the field of the Tributed player, no Tribute needs a Kaiju of an opponent, bound opponent eliminated: no summon, stays in hand) | 3-FFA, 4-FFA, Tag |
+| Lava Golem | 3-FFA, 4-FFA, Tag |
+| Volcanic Queen | 3-FFA |
+| The Winged Dragon of Ra - Sphere Mode | 3-FFA |
+| Pineapple Blast, Evenly Matched | 3-FFA, 4-FFA, Tag |
+| Ojama Trio, Black Garden, Foolish Revival | 3-FFA, Tag |
+| Mimighoul Slime | 3-FFA |
+| Mystic Mine, Number 100: Numeron Dragon, Ultimate Sky | 3-FFA |
+| Dice Jar, Royal Tribute, Messenger of Peace | 3-FFA, 4-FFA, Tag |
+
+No scenario proves these rules yet (`pending`): the other 6 Kaiju, Alien Skull, Santa Claws, Surgical Striker - H.A.M.P., Jormungardr the Nordic Serpent, Fenrir the Nordic Wolf, Grinder Golem, Fallen of Argyros, Soul Exchange, Snatch Steal, and the cards with an effect that summons to the field of an opponent (Ojama Trio, Black Garden, Mimighoul Slime and Foolish Revival above are the exceptions). The Tag result of Volcanic Queen, Ra, Mimighoul Slime, Mystic Mine, Numeron Dragon and Ultimate Sky also has no scenario. The target cap of Ultimate Sky has no scenario, so this page does not claim it.
+
+Decision 2: Kaiju and Lava Golem. The card goes to the field of the player whose monster was Tributed. If the opponent that was picked for the Tribute is eliminated before the summon is done, the card is not summoned and stays in the hand (lead decision 2026-10-01, proven for Gameciel in 3-FFA and 4-FFA). The scan of `data/duel-engine-next/card-scripts` found 12 cards that use `aux.AddKaijuProcedure` or `aux.AddLavaProcedure`, and the catalog test checks that every one has a rule entry. The Winged Dragon of Ra - Sphere Mode is added to this table by the owner answer of 2026-10-01 (it has its own Tribute procedure). In Tag, the Tributed monster belongs to an opposing member, so the card goes to that member's field. The Kaiju summon with no Tribute (an opponent controls a Kaiju) goes to your own field.
 
 | Card | Passcode | Rule | Script evidence |
 |---|---|---|---|
@@ -319,7 +335,7 @@ Decision 2: Kaiju and Lava Golem. The card goes to the field of the player whose
 | Alien Skull | 25920413 | Goes to the field of the player whose monster was Tributed. | `c25920413.lua:6` |
 | Santa Claws | 46565218 | Goes to the field of the player whose monster was Tributed. | `c46565218.lua:6` |
 | Surgical Striker - H.A.M.P. | 33331231 | In the procedure for an opponent field, goes to the field of the player whose monster was Tributed. | `c33331231.lua:19` |
-| The Winged Dragon of Ra - Sphere Mode | 10000080 | All Tributed monsters come from ONE opponent, and it goes to the field of that opponent (owner answer 2026-10-01). It has its own procedure, not `aux.AddKaijuProcedure`. | `c10000080.lua:12` |
+| The Winged Dragon of Ra - Sphere Mode | 10000080 | All Tributed monsters come from ONE opponent, and it goes to the field of that opponent (owner answer 2026-10-01). In Tag, that opponent is an opposing member. It has its own procedure, not `aux.AddKaijuProcedure`. It does not use the rule of a summon to the field of an opponent (the summoning player picks one opponent): the Tribute decides the field. | `c10000080.lua:12` |
 
 Decision 3: count rules (one opponent in free-for-all, joined fields in Tag). These two cards are now in group (b), with an explicit pick. The same rule holds for all count and compare cards (rule 8). In Tag, the picked opposing duelist is the one chooser (rule 9).
 
@@ -340,6 +356,17 @@ Decision 5: a summon to the field of an opponent. The summoning player picks one
 | Fallen of Argyros | 82090807 | `c82090807.lua:20` |
 
 - 102 cards with an effect that calls `Duel.SpecialSummon` or `Duel.SpecialSummonStep` with summoning player `tp` and target player `1-tp`. The first four by passcode are Miracle Flipper, Poisonous Viper, Branded Expulsion, Arcana Force V - The Hierophant. The full list is `OPPONENT_FIELD_EFFECT_SUMMON` in `multiplayer.ts`. The script line of each effect is in `OPPONENT_FIELD_LINES` in `catalog.ts`. The Winged Dragon of Ra - Sphere Mode is not in this group. It Tributes monsters of an opponent, so it uses the Tribute rule (owner answer 2026-10-01, rule 10).
+
+Decision 6: cards that compare with the opponents or roll against one (lead decisions 2026-10-01, the user may override).
+
+| Card | Passcode | Rule | Script evidence |
+|---|---|---|---|
+| Mystic Mine | 76375976 | Only an opponent that alone controls more monsters than you is locked (no monster effect, no attack). The sum of two opponents does not count. It destroys itself in the End Phase when your count equals the count of any one opponent. | `c76375976.lua:53`, `c76375976.lua:57`, `c76375976.lua:63` |
+| Number 100: Numeron Dragon | 57314798 | It is offered only when a direct attack goes at YOU (in Tag, at your team). A direct attack at another seat does not offer it. Each duelist Sets from its own Graveyard. | `c57314798.lua:98` |
+| Ultimate Sky | 38817295 | In free-for-all, you pick one opponent when you activate it. It is offered when ONE opponent controls more monsters than you, and it reads only that opponent. | `c38817295.lua:15`, `c38817295.lua:30` |
+| Dice Jar | 3549275 | You and one opponent, picked when it flips, each roll a die. Only the side that loses the roll takes the damage. In Tag, the team LP takes it. | `c3549275.lua:22`, `c3549275.lua:26`, `c3549275.lua:32` |
+
+The same direct-attack rule holds for the other cards that start with "your opponent's monster declares a direct attack": they are offered only when the attack goes at you (in Tag, at your team). In the overlay these are the cards of class ATTACK (they use `aux.MPAttackedAtMe`). `tests/scenarios/multiplayer/attack-direct.ts` has 22 scenarios in 3-FFA and 1 in Tag (a counter card offered to the partner). Most cards of the class have no scenario of their own yet.
 
 Decision 4: the other cards use the defaults.
 

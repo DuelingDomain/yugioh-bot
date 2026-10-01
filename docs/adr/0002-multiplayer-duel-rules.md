@@ -78,7 +78,7 @@ The triage of 457 cards that needed a product decision is in `.status/multiplaye
 9. **Defeated duelists (Q9): accepted.** "Each player" effects skip a duelist who has lost, as `[R-FFA-ELIMINATION]` says.
 10. **New bans (Q10): none.** The owner said "make those fixes now". Five cards get a per-card script fix: Contract with Don Thousand, Tsumuha-Kutsunagi the Lord of Swords, Infernoid Tierra, Two-for-One Team and Mirror Gate (it needs a check that the attacked monster belongs to the activating duelist). Two cards get a label fix, because the label must keep the real seat: Curse of the Circle and Wiseman's Chalice. The 5 turn-count bans above are not new. The ban list of the deck check does not change.
 
-These cards stay legal in the deck check. Their rules are listed in `MULTIPLAYER_CARD_RULES` (`packages/duel-server/src/banlists/multiplayer.ts`). The engine (Phase 3 Lua fold and per-card multiplayer scripts) must implement each rule. The scenario tests check them later. The details are in `docs/specs/2026-09-30-multiplayer-card-scenarios.md`.
+These cards stay legal in the deck check. Their rules are listed in `MULTIPLAYER_CARD_RULES` (`packages/duel-server/src/banlists/multiplayer.ts`). `engine: "native"` means that the engine does the rule and a live scenario proves it for that card (the proven tables are in `proven`). `engine: "pending"` means that no live scenario proves it for that card yet. The details, and the list of proven cards, are in `docs/specs/2026-09-30-multiplayer-card-scenarios.md`.
 
 ## Open points for the engine test
 

@@ -1,5 +1,5 @@
-// Multiplayer card scenario catalog (Layer 1 sketches). Every entry is pending.
-// The sketches become real Layer 1 scenarios when the multiplayer core supports p2/p3 and teams.
+// Multiplayer card scenario catalog (Layer 1 sketches). The sketch data stays as written (`pending: true`).
+// LIVE_PROOF at the end of this file lists the cards whose multiplayer result a live scenario already proves on the real core.
 // Rules: docs/adr/0002-multiplayer-duel-rules.md. Spec: docs/specs/2026-09-30-multiplayer-core-design.md.
 // Doc: docs/specs/2026-09-30-multiplayer-card-scenarios.md (generated tables use this data).
 // Seats: P0 is the activator. In Tag, P0 and P2 are one team, P1 and P3 are the other team.
@@ -814,6 +814,122 @@ export const CARD_RULE_EVIDENCE: Record<number, Evidence[]> = {
   72405967: [ev(72405967, 22, "GetMatchingGroup(Card.IsMonster,tp,LOCATION_HAND,LOCATION_HAND")],
   68005187: [ev(68005187, 35, "IsControler(1-tp)"), ev(68005187, 45, "EFFECT_EXTRA_RELEASE")],
   45986603: [ev(45986603, 33, "IsTurnPlayer(1-tp)"), ev(45986603, 37, "SetTargetPlayer(1-tp)")],
+  // Cards that compare the field with the opponents, or roll against one opponent.
+  76375976: [
+    ev(76375976, 53, "GetFieldGroupCount(tp,LOCATION_MZONE,0)>"),
+    ev(76375976, 57, "GetFieldGroupCount(tp,LOCATION_MZONE,0)<"),
+    ev(76375976, 63, "GetFieldGroupCount(tp,LOCATION_MZONE,0)=="),
+  ],
+  57314798: [ev(57314798, 98, "Duel.GetAttacker():IsControler(1-tp)")],
+  38817295: [
+    ev(38817295, 15, "GetFieldGroupCount(tp,0,LOCATION_MZONE)>"),
+    ev(38817295, 30, "GetMatchingGroupCount(Card.IsFaceup,tp,0,LOCATION_MZONE"),
+  ],
+  3549275: [ev(3549275, 22, "Duel.TossDice(tp,1,1)"), ev(3549275, 26, "Duel.Damage(tp,6000"), ev(3549275, 32, "Duel.Damage(1-tp,6000")],
 };
 
 export const SCENARIOS: CatalogScenario[] = [...GROUP_ALL, ...GROUP_ONE];
+
+/**
+ * Live scenarios (tests/scenarios/multiplayer/*.ts, run on the real core) that prove the multiplayer result of ONE card, by
+ * passcode. List a card only when the outcome asserts of the scenario show the rule of that card. A card that only appears
+ * in a scenario as a helper (a chain link, a cost, a fodder monster) is not listed. The table of each scenario is its
+ * setup.format. catalog.test.ts checks that every id exists, and that the formats here equal CARD_RULE_PROOF in
+ * src/banlists/multiplayer.ts for the cards of the rule list. A sketch in SCENARIOS whose card is listed runs as a test.
+ * Not claimed (no scenario shows it yet): the Tag result of most cards, the FFA result of Solemn Judgment, and the
+ * target cap of Ultimate Sky.
+ */
+export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
+  // Group (a) and (b) sketches.
+  12580477: ["compare-ffa3-window-closes-after-evenly-matched"], // Raigeki (FFA3: both opponents lose their monsters)
+  53129443: [
+    "seats-r2-ffa3-fatal-abacus-damages-each-real-controller-of-the-destroyed-monsters",
+    "seats-r2-tag-fatal-abacus-damages-the-team-of-each-real-controller",
+  ], // Dark Hole (every seat, the partner included)
+  15800838: ["nseat-ffa3-mind-crush-pick", "nseat-ffa4-mind-crush-pick-after-elimination"], // Mind Crush
+  41420027: ["nseat-tag-partner-trap-does-not-answer", "nseat-tag-opponent-trap-answers"], // Solemn Judgment (Tag)
+  46130346: [
+    "nseat-ffa3-effect-elimination-last-wins",
+    "nseat-ffa4-effect-elimination-skips-turn",
+    "nseat-tag-burn-spares-partner",
+  ], // Hinotama
+  // Sketches that are also on the rule list.
+  55063751: [
+    "procedures-ffa3-kaiju-tribute-goes-to-tributed-field",
+    "procedures-ffa4-kaiju-tribute-goes-to-tributed-field",
+    "procedures-tag-kaiju-tribute-goes-to-opposing-member",
+    "procedures-ffa3-kaiju-bound-seat-eliminated-no-widening",
+    "procedures-ffa4-kaiju-bound-seat-eliminated-no-widening",
+  ], // Gameciel
+  102380: [
+    "procedures-ffa3-lava-golem-split-rejected",
+    "procedures-ffa3-lava-golem-one-opponent-accepted",
+    "procedures-ffa4-lava-golem-picked-opponent",
+    "procedures-tag-lava-golem-split-rejected",
+    "procedures-tag-lava-golem-one-opposing-member-accepted",
+    "procedures-tag-lava-golem-partner-monsters-do-not-pay",
+  ], // Lava Golem
+  90669991: [
+    "compare-ffa3-pineapple-blast-pick-and-choice",
+    "compare-ffa3-first-opponent-fails-second-passes",
+    "compare-ffa3-sum-passes-no-single-opponent",
+    "compare-ffa4-pineapple-blast-three-opponents",
+    "compare-tag-pineapple-blast-joined-field-picked-duelist-chooses",
+  ], // Pineapple Blast
+  15693423: [
+    "compare-ffa3-window-closes-after-evenly-matched",
+    "compare-ffa4-evenly-matched-three-opponents",
+    "compare-tag-evenly-matched-joined-field-picked-duelist-banishes",
+  ], // Evenly Matched
+  29843091: ["w9-ffa3-opponent-pick-and-place-refuse-wrong-answers", "w9-tag-opponent-pick-and-place-refuse-wrong-answers"], // Ojama Trio
+  72405967: [
+    "late-ffa3-royal-tribute-every-duelist-discards-its-monsters",
+    "late-ffa4-royal-tribute-every-duelist-discards-its-monsters",
+    "late-tag-royal-tribute-every-duelist-discards-its-monsters",
+  ], // Royal Tribute
+  // Rule list only.
+  63014935: ["procedures-ffa3-volcanic-queen-goes-to-tributed-field"], // Volcanic Queen
+  10000080: [
+    "procedures-ffa3-ra-sphere-mode-split-rejected",
+    "procedures-ffa3-ra-sphere-mode-one-opponent-accepted",
+    "procedures-ffa3-ra-sphere-mode-picked-opponent",
+  ], // The Winged Dragon of Ra - Sphere Mode
+  71645242: [
+    "seats-r2-ffa3-black-garden-token-goes-to-one-picked-opponent-or-to-the-controller",
+    "seats-r2-tag-black-garden-token-goes-to-one-picked-opponent-or-to-the-controller",
+  ], // Black Garden
+  80551022: ["compare-gaps-ffa3-mimighoul-slime-picked-opponent-does-not-pass"], // Mimighoul Slime
+  83778600: [
+    "late-ffa3-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked",
+    "late-tag-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked",
+  ], // Foolish Revival
+  76375976: [
+    "compare-gaps-ffa3-mystic-mine-only-the-opponent-with-more-monsters-is-locked",
+    "compare-gaps-ffa3-mystic-mine-no-opponent-has-more-nobody-is-locked",
+    "compare-ffa3-mystic-mine-destroys-itself-on-any-equal-opponent",
+  ], // Mystic Mine
+  57314798: [
+    "compare-extra-ffa3-numeron-dragon-summons-itself-when-p0-is-attacked-directly",
+    "compare-extra-ffa3-numeron-dragon-not-offered-when-the-direct-attack-may-go-to-another-seat",
+    "compare-extra-ffa3-numeron-dragon-offered-when-the-direct-attack-is-picked-at-p0",
+    "compare-gaps-ffa3-numeron-dragon-every-seat-sets-its-own-card",
+  ], // Number 100: Numeron Dragon
+  38817295: [
+    "compare-ffa3-activation-condition-one-opponent",
+    "compare-extra-ffa3-w10-sky-and-evenly-matched-chain",
+    "compare-ffa3-chain-of-three-each-link-its-own-opponent",
+  ], // Ultimate Sky
+  3549275: [
+    "late-ffa3-dice-jar-owner-wins-picked-opponent-takes-the-damage",
+    "late-ffa4-dice-jar-owner-wins-picked-opponent-takes-the-damage",
+    "late-tag-dice-jar-owner-wins-picked-opponent-takes-the-damage",
+    "late-ffa3-dice-jar-owner-loses-and-takes-the-damage",
+    "late-ffa4-dice-jar-owner-loses-and-takes-the-damage",
+    "late-tag-dice-jar-owner-loses-and-takes-the-damage",
+  ], // Dice Jar
+  44656491: [
+    "late-ffa3-messenger-of-peace-limit-for-all-and-payment-only-in-own-standby",
+    "late-ffa4-messenger-of-peace-limit-for-all-and-payment-only-in-own-standby",
+    "late-tag-messenger-of-peace-limit-for-all-and-payment-only-in-own-standby",
+  ], // Messenger of Peace
+};

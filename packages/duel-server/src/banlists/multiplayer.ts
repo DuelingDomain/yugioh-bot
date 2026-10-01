@@ -95,20 +95,37 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
 
 /**
  * Cards that stay legal but need a per-card multiplayer rule (product owner, 2026-10-01, ADR-0002).
- * The deck check does NOT use this list. The engine (Phase 3 Lua fold and the per-card multiplayer
- * scripts) must implement each rule. The scenario tests check it later: `engine` is "pending" until then.
+ * The deck check does NOT use this list. `rule` is the decided rule. `engine` is "native" when the engine (core patch or
+ * overlay script) does the rule AND a live scenario of tests/scenarios/multiplayer proves it for this card, and "pending"
+ * when no live scenario proves it for this card yet (the shared script code may still work). `proven` names the table formats
+ * that a live scenario proves, in the order ffa3, ffa4, tag (empty when pending). Both come from CARD_RULE_PROOF below.
+ * catalog.test.ts compares CARD_RULE_PROOF with LIVE_PROOF in catalog.ts, which names the scenarios.
  */
 export interface MultiplayerCardRule {
   code: number;
   name: string;
   /** The decided rule, in one or two short sentences. */
   rule: string;
-  engine: "pending";
+  engine: "pending" | "native";
+  proven: MultiplayerFormat[];
 }
+
+/** An entry of the rule list before `engine` and `proven` are set from CARD_RULE_PROOF. */
+type MultiplayerCardRuleDraft = Omit<MultiplayerCardRule, "engine" | "proven">;
 
 const TRIBUTE_TO_FIELD =
   "The card goes to the field of the player whose monster was Tributed. In Tag, that player is an opposing member.";
-const KAIJU_RULE = `${TRIBUTE_TO_FIELD} The summon with no Tribute needs a Kaiju on the field of any opponent and goes to your own field.`;
+const KAIJU_RULE = `${TRIBUTE_TO_FIELD} The summon with no Tribute needs a Kaiju on the field of any opponent and goes to your own field. If the opponent picked for the Tribute is eliminated before the summon is done, the card is not summoned and stays in your hand.`;
+const RA_RULE = "All Tributed monsters come from ONE opponent, and the card goes to the field of that opponent. In Tag, that opponent is an opposing member.";
+
+const MYSTIC_MINE_RULE =
+  "Only an opponent that alone controls more monsters than you is locked (no monster effect, no attack). The sum of two opponents does not count. It destroys itself in the End Phase when your count equals the count of any one opponent.";
+const NUMERON_DRAGON_RULE =
+  "It is offered only when a direct attack goes at YOU (in Tag, at your team). A direct attack at another seat does not offer it. Each duelist Sets from its own Graveyard.";
+const ULTIMATE_SKY_RULE =
+  "In free-for-all, you pick one opponent when you activate it. The card is offered when ONE opponent controls more monsters than you, and it reads only that opponent.";
+const DICE_JAR_RULE =
+  "You and one opponent, picked when it flips, each roll a die. Only the side that loses the roll takes the damage, and nobody else changes. In Tag, the team LP takes it.";
 
 const PICK_ONE_COUNT =
   "In free-for-all, you pick one opponent when you activate it. The card compares you with that opponent only.";
@@ -226,37 +243,71 @@ const OPPONENT_FIELD_EFFECT_SUMMON: readonly (readonly [number, string])[] = [
   [99330325, "Interrupted Kaiju Slumber"],
 ];
 
-export const MULTIPLAYER_CARD_RULES: readonly MultiplayerCardRule[] = [
+const CARD_RULE_DRAFTS: readonly MultiplayerCardRuleDraft[] = [
   // --- Kaiju and Lava summon: Tribute a monster of an opponent, the card goes to that opponent's field
-  { code: 55063751, name: "Gameciel, the Sea Turtle Kaiju", rule: KAIJU_RULE, engine: "pending" },
-  { code: 28674152, name: "Radian, the Multidimensional Kaiju", rule: KAIJU_RULE, engine: "pending" },
-  { code: 29726552, name: "Kumongous, the Sticky String Kaiju", rule: KAIJU_RULE, engine: "pending" },
-  { code: 36956512, name: "Gadarla, the Mystery Dust Kaiju", rule: KAIJU_RULE, engine: "pending" },
-  { code: 48770333, name: "Thunder King, the Lightningstrike Kaiju", rule: KAIJU_RULE, engine: "pending" },
-  { code: 63941210, name: "Jizukiru, the Star Destroying Kaiju", rule: KAIJU_RULE, engine: "pending" },
-  { code: 93332803, name: "Dogoran, the Mad Flame Kaiju", rule: KAIJU_RULE, engine: "pending" },
-  { code: 102380, name: "Lava Golem", rule: `${TRIBUTE_TO_FIELD} It must Tribute 2 monsters of the same opponent.`, engine: "pending" },
-  { code: 63014935, name: "Volcanic Queen", rule: TRIBUTE_TO_FIELD, engine: "pending" },
-  { code: 25920413, name: "Alien Skull", rule: TRIBUTE_TO_FIELD, engine: "pending" },
-  { code: 46565218, name: "Santa Claws", rule: TRIBUTE_TO_FIELD, engine: "pending" },
-  { code: 33331231, name: "Surgical Striker - H.A.M.P.", rule: "In the procedure for an opponent field, the card goes to the field of the player whose monster was Tributed. In Tag, that player is an opposing member.", engine: "pending" },
+  { code: 55063751, name: "Gameciel, the Sea Turtle Kaiju", rule: KAIJU_RULE },
+  { code: 28674152, name: "Radian, the Multidimensional Kaiju", rule: KAIJU_RULE },
+  { code: 29726552, name: "Kumongous, the Sticky String Kaiju", rule: KAIJU_RULE },
+  { code: 36956512, name: "Gadarla, the Mystery Dust Kaiju", rule: KAIJU_RULE },
+  { code: 48770333, name: "Thunder King, the Lightningstrike Kaiju", rule: KAIJU_RULE },
+  { code: 63941210, name: "Jizukiru, the Star Destroying Kaiju", rule: KAIJU_RULE },
+  { code: 93332803, name: "Dogoran, the Mad Flame Kaiju", rule: KAIJU_RULE },
+  { code: 102380, name: "Lava Golem", rule: `${TRIBUTE_TO_FIELD} It must Tribute 2 monsters of the same opponent.` },
+  { code: 63014935, name: "Volcanic Queen", rule: TRIBUTE_TO_FIELD },
+  { code: 25920413, name: "Alien Skull", rule: TRIBUTE_TO_FIELD },
+  { code: 46565218, name: "Santa Claws", rule: TRIBUTE_TO_FIELD },
+  { code: 10000080, name: "The Winged Dragon of Ra - Sphere Mode", rule: RA_RULE },
+  { code: 33331231, name: "Surgical Striker - H.A.M.P.", rule: "In the procedure for an opponent field, the card goes to the field of the player whose monster was Tributed. In Tag, that player is an opposing member." },
   // --- Special Summon procedure to the field of an opponent (the card, or tokens, goes to the opponent's field)
-  { code: 64203620, name: "Jormungardr the Nordic Serpent", rule: OPPONENT_FIELD_SUMMON, engine: "pending" },
-  { code: 91697229, name: "Fenrir the Nordic Wolf", rule: OPPONENT_FIELD_SUMMON, engine: "pending" },
-  { code: 75732622, name: "Grinder Golem", rule: OPPONENT_FIELD_SUMMON, engine: "pending" },
-  { code: 82090807, name: "Fallen of Argyros", rule: OPPONENT_FIELD_SUMMON, engine: "pending" },
-  { code: 10000080, name: "The Winged Dragon of Ra - Sphere Mode", rule: OPPONENT_FIELD_SUMMON, engine: "pending" },
+  { code: 64203620, name: "Jormungardr the Nordic Serpent", rule: OPPONENT_FIELD_SUMMON },
+  { code: 91697229, name: "Fenrir the Nordic Wolf", rule: OPPONENT_FIELD_SUMMON },
+  { code: 75732622, name: "Grinder Golem", rule: OPPONENT_FIELD_SUMMON },
+  { code: 82090807, name: "Fallen of Argyros", rule: OPPONENT_FIELD_SUMMON },
   // --- count rules: one opponent in free-for-all, the joined opposing fields in Tag
-  { code: 90669991, name: "Pineapple Blast", rule: `${PICK_ONE_COUNT} Only the monsters of that opponent are destroyed, and that opponent chooses their own monsters, as in 1v1. ${JOINED_COUNT} The count uses the monsters of both opposing members together.`, engine: "pending" },
-  { code: 15693423, name: "Evenly Matched", rule: `${PICK_ONE_COUNT} Only the cards of that opponent are banished, and that opponent chooses their own cards, as in 1v1. ${JOINED_COUNT} The count uses the cards of both opposing members together.`, engine: "pending" },
+  { code: 90669991, name: "Pineapple Blast", rule: `${PICK_ONE_COUNT} Only the monsters of that opponent are destroyed, and that opponent chooses their own monsters, as in 1v1. ${JOINED_COUNT} The count uses the monsters of both opposing members together.` },
+  { code: 15693423, name: "Evenly Matched", rule: `${PICK_ONE_COUNT} Only the cards of that opponent are banished, and that opponent chooses their own cards, as in 1v1. ${JOINED_COUNT} The count uses the cards of both opposing members together.` },
   // --- effect that Special Summons a card or tokens to the field of an opponent
-  ...OPPONENT_FIELD_EFFECT_SUMMON.map(([code, name]) => ({ code, name, rule: OPPONENT_FIELD_SUMMON, engine: "pending" as const })),
+  ...OPPONENT_FIELD_EFFECT_SUMMON.map(([code, name]) => ({ code, name, rule: OPPONENT_FIELD_SUMMON })),
+  // --- other cards that compare you with the opponents, or roll against one opponent (owner-reviewed 2026-10-01)
+  { code: 76375976, name: "Mystic Mine", rule: MYSTIC_MINE_RULE },
+  { code: 57314798, name: "Number 100: Numeron Dragon", rule: NUMERON_DRAGON_RULE },
+  { code: 38817295, name: "Ultimate Sky", rule: ULTIMATE_SKY_RULE },
+  { code: 3549275, name: "Dice Jar", rule: DICE_JAR_RULE },
   // --- the other cards use the defaults
-  { code: 44656491, name: "Messenger of Peace", rule: "You pay the 100 LP only in your own Standby Phase. In Tag, only the Standby Phase of your own duelist turn counts, and the team LP pays.", engine: "pending" },
-  { code: 72405967, name: "Royal Tribute", rule: "Every opponent discards the monsters in their hand. As in 1v1, you discard yours too. In Tag, 'both players' means every duelist, the partner included (R-COMMON-EACH-PLAYER).", engine: "pending" },
-  { code: 68005187, name: "Soul Exchange", rule: "You may target 1 monster of any opponent. This turn, a Tribute may use it as if you controlled it.", engine: "pending" },
-  { code: 45986603, name: "Snatch Steal", rule: "The owner of the monster gains the 1000 LP, in the own Standby Phase of that owner. In Tag, the Standby Phase of the own duelist turn counts, and the team LP gains.", engine: "pending" },
+  { code: 44656491, name: "Messenger of Peace", rule: "You pay the 100 LP only in your own Standby Phase. In Tag, only the Standby Phase of your own duelist turn counts, and the team LP pays." },
+  { code: 72405967, name: "Royal Tribute", rule: "Every opponent discards the monsters in their hand. As in 1v1, you discard yours too. In Tag, 'both players' means every duelist, the partner included (R-COMMON-EACH-PLAYER)." },
+  { code: 68005187, name: "Soul Exchange", rule: "You may target 1 monster of any opponent. This turn, a Tribute may use it as if you controlled it." },
+  { code: 45986603, name: "Snatch Steal", rule: "The owner of the monster gains the 1000 LP, in the own Standby Phase of that owner. In Tag, the Standby Phase of the own duelist turn counts, and the team LP gains." },
 ];
+
+/**
+ * Table formats where a live scenario proves the rule of one card (by passcode). Add a card here only when the outcome of a
+ * scenario in tests/scenarios/multiplayer asserts the rule of THAT card at that table. A card whose script shares code with a
+ * proven card stays "pending" until it has a scenario of its own. catalog.test.ts compares this with LIVE_PROOF in catalog.ts.
+ */
+export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat[]>> = {
+  55063751: ["ffa3", "ffa4", "tag"], // Gameciel (Kaiju procedure)
+  102380: ["ffa3", "ffa4", "tag"], // Lava Golem
+  63014935: ["ffa3"], // Volcanic Queen
+  10000080: ["ffa3"], // The Winged Dragon of Ra - Sphere Mode
+  90669991: ["ffa3", "ffa4", "tag"], // Pineapple Blast
+  15693423: ["ffa3", "ffa4", "tag"], // Evenly Matched
+  29843091: ["ffa3", "tag"], // Ojama Trio
+  71645242: ["ffa3", "tag"], // Black Garden
+  80551022: ["ffa3"], // Mimighoul Slime
+  83778600: ["ffa3", "tag"], // Foolish Revival
+  76375976: ["ffa3"], // Mystic Mine
+  57314798: ["ffa3"], // Number 100: Numeron Dragon
+  38817295: ["ffa3"], // Ultimate Sky
+  3549275: ["ffa3", "ffa4", "tag"], // Dice Jar
+  72405967: ["ffa3", "ffa4", "tag"], // Royal Tribute
+  44656491: ["ffa3", "ffa4", "tag"], // Messenger of Peace
+};
+
+export const MULTIPLAYER_CARD_RULES: readonly MultiplayerCardRule[] = CARD_RULE_DRAFTS.map((draft) => {
+  const proven = [...(CARD_RULE_PROOF[draft.code] ?? [])];
+  return { ...draft, engine: proven.length > 0 ? "native" : "pending", proven };
+});
 
 const TABLE_FORMAT: Record<Exclude<MultiplayerTable, "1v1">, MultiplayerFormat> = {
   tag: "tag",
