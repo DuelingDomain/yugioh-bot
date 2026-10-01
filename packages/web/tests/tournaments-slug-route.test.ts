@@ -172,3 +172,54 @@ describe("GET /api/tournaments/[slug] exposes timing fields", () => {
     expect(json.reportConfirmWindowHours).toBe(12);
   });
 });
+
+describe("PUT /api/tournaments/[slug] is atomic", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    auth.mockReset();
+    auth.mockResolvedValue({ user: { id: "host", name: "Host" } });
+  });
+  afterEach(() => {
+    delete process.env.DATABASE_PATH;
+    delete process.env.DISCORD_GUILD_ID;
+    while (tempDirs.length) {
+      const d = tempDirs.pop();
+      if (d) rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  const put = async (body: unknown) => {
+    const { PUT } = await import("../app/api/tournaments/[slug]/route");
+    return PUT(
+      new Request("http://localhost/api/tournaments/abc123", { method: "PUT", body: JSON.stringify(body) }) as never,
+      { params },
+    );
+  };
+  const row = () =>
+    readDb((db) =>
+      db.prepare("select name, deadline_at, report_confirm_window_hours, best_of from tournaments where web_slug = ?").get(SLUG),
+    );
+
+  it("a failing rules update leaves the name and settings unchanged", async () => {
+    await setupDb({ status: "pending" });
+    const before = await row();
+    const res = await put({ name: "Renamed", deadlineAt: futureIso(), reportConfirmWindowHours: 6, bestOf: 2 });
+    expect(res.status).toBe(400);
+    expect(await row()).toEqual(before);
+  });
+
+  it("a failing settings update leaves the name unchanged", async () => {
+    await setupDb({ status: "pending" });
+    const before = await row();
+    const res = await put({ name: "Renamed", reportConfirmWindowHours: -5 });
+    expect(res.status).toBe(400);
+    expect(await row()).toEqual(before);
+  });
+
+  it("applies name, settings and rules together when all are valid", async () => {
+    await setupDb({ status: "pending" });
+    const res = await put({ name: "Renamed", reportConfirmWindowHours: 6, bestOf: 1 });
+    expect(res.status).toBe(200);
+    expect(await row()).toMatchObject({ name: "Renamed", report_confirm_window_hours: 6, best_of: 1 });
+  });
+});

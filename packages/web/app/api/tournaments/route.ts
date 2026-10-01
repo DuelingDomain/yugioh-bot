@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { createPlayerService, createTournamentService } from "@yugidraft/shared/services";
+import { createPlayerService, createTournamentService, TournamentDuelError } from "@yugidraft/shared/services";
 
 const VALID_FORMATS = ["round_robin", "single_elim"] as const;
 
@@ -77,10 +77,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { deadlineAt, reportConfirmWindowHours } = body as {
+  const { deadlineAt, reportConfirmWindowHours, bestOf, duelRules } = body as {
     deadlineAt?: string | null;
     reportConfirmWindowHours?: number | null;
+    bestOf?: 1 | 3;
+    duelRules?: { mode?: unknown; masterRule?: unknown; settings?: unknown } | null;
   };
+
+  if (bestOf != null && bestOf !== 1 && bestOf !== 3) {
+    return NextResponse.json({ error: "bestOf must be 1 or 3" }, { status: 400 });
+  }
+  if (duelRules != null && (typeof duelRules !== "object" || Array.isArray(duelRules))) {
+    return NextResponse.json({ error: "duelRules must be an object" }, { status: 400 });
+  }
 
   if (deadlineAt != null) {
     const ts = Date.parse(deadlineAt);
@@ -124,6 +133,8 @@ export async function POST(request: NextRequest) {
       {
         deadlineAt: deadlineAt ?? null,
         reportConfirmWindowHours: reportConfirmWindowHours ?? null,
+        bestOf: bestOf ?? undefined,
+        duelRules: duelRules ?? null,
       },
     );
     tournaments.join(tournament.id, organizerPlayer.id);
@@ -141,6 +152,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create tournament";
     console.error("[api/tournaments POST] error:", error);
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: message }, { status: error instanceof TournamentDuelError ? error.status : 400 });
   }
 }

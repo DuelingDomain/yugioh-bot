@@ -3,6 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { DuelRulesFields } from "./duel-rules-fields";
+import { buildRulesPayload, defaultDuelRulesValue } from "./duel-rules";
 
 type Channel = {
   id: string;
@@ -16,6 +18,7 @@ export function CreateTournamentForm() {
   const [channelId, setChannelId] = React.useState("");
   const [deadline, setDeadline] = React.useState("");
   const [confirmHours, setConfirmHours] = React.useState("");
+  const [rules, setRules] = React.useState(defaultDuelRulesValue);
   const [channels, setChannels] = React.useState<Channel[]>([]);
   const [channelsLoading, setChannelsLoading] = React.useState(true);
   const [submitting, setSubmitting] = React.useState(false);
@@ -57,6 +60,7 @@ export function CreateTournamentForm() {
           format,
           deadlineAt: deadline ? new Date(deadline).toISOString() : null,
           reportConfirmWindowHours: confirmHours.trim() ? Number(confirmHours) : null,
+          ...buildRulesPayload(rules),
         }),
       });
 
@@ -172,6 +176,13 @@ export function CreateTournamentForm() {
         <p className="mt-1 text-xs text-text-secondary">
           Reports auto-approve if the opponent doesn&apos;t confirm in time (default 24).
         </p>
+      </div>
+
+      <div className="rounded-xl border border-border bg-surface p-4">
+        <h2 className="mb-3 font-body text-sm font-semibold uppercase tracking-wider text-text-secondary">
+          Online duels
+        </h2>
+        <DuelRulesFields idPrefix="tournament-rules" value={rules} onChange={setRules} />
       </div>
 
       <Button type="submit" loading={submitting} size="lg" className="w-full">

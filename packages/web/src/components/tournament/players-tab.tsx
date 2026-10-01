@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Users, UserPlus, X, LogOut } from "lucide-react";
+import { DeckMarker } from "./deck-marker";
 import type { TournamentDetail } from "./types";
 
 export function PlayersTab({
@@ -122,6 +123,7 @@ export function PlayersTab({
                     You
                   </span>
                 )}
+                {isCreator && <DeckMarker participant={p} />}
                 {canKick && (
                   <button
                     type="button"
