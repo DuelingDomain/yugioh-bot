@@ -1,0 +1,139 @@
+# Staging for 3-player and 4-player duel tests
+
+Staging is a second copy of the web app, the websocket server and the duel server. It runs on the same VM as
+production, but it shares nothing with production. People can test 3-player and 4-player duels there. Production
+does not change.
+
+## What staging is
+
+| Part | Production | Staging |
+| --- | --- | --- |
+| Folder on the VM | `/opt/yugioh-bot` | `/opt/yugioh-bot-staging` |
+| Compose project | default | `yugidraft-staging` |
+| Services | bot, ws, duel, web, caddy | ws, duel, web, caddy (no bot) |
+| Database | `data/bot.sqlite` | a copy: `data-staging/bot.sqlite` |
+| Engine files | `data/duel-engine` | `data-staging/duel-engine` (with the multi core `ocgcore.multi.wasm`) |
+| Docker network | the default network of the project | `yugidraft-staging-net` |
+| Address | port 80 | port 8080 (plain HTTP) or your own domain (HTTPS) |
+| Secrets | `.env` | `.env.staging` (new internal secrets) |
+
+Files: `docker-compose.staging.yml`, `Caddyfile.staging`, `scripts/staging/`, `.github/workflows/deploy-staging.yml`.
+
+Rules that keep production safe:
+
+- The workflow only runs compose with `scripts/staging/compose.sh`. That script always uses the project name
+  `yugidraft-staging`, the file `docker-compose.staging.yml` and the file `.env.staging`. It refuses to run in `/opt/yugioh-bot`.
+- Staging reads three things from `/opt/yugioh-bot`: the file `.env` (only to build `.env.staging` the first time),
+  `data/bot.sqlite` (read-only, to make the copy) and the git remote address (only for the first clone). It writes nothing there.
+- There is no bot in staging. A second bot with the same Discord token would answer every command twice.
+  So there are no Discord announcements from staging, and no draft timers (the draft timer runs in the bot).
+  Duels do not need the bot.
+- The web in staging keeps `DISCORD_TOKEN`. It uses it only to check that a user is in the guild (a REST call).
+  It does not open a Discord gateway connection.
+- Every service has a memory limit and no swap. If the VM runs out of memory, the kernel stops a staging process first.
+
+## Memory (read this first)
+
+The VM has 4 GB of RAM. Production uses most of it at busy times. The limits of staging add up to 1536 MB:
+
+| Service | Limit |
+| --- | --- |
+| duel | 768 MB |
+| web | 512 MB |
+| ws | 192 MB |
+| caddy | 64 MB |
+
+The weak point is the build: `next build` needs about 1 GB or more for a short time. The workflow protects production like this:
+
+1. It stops the old staging containers before it builds.
+2. It stops if another build is running on the VM (for example the production deploy).
+3. It stops if the VM has less than 1100 MB of available memory before the build, or less than 3000 MB of free disk.
+4. It stops if the VM has less than 1700 MB of available memory before it starts the containers.
+
+If a check stops the run, staging stays down and production is not touched. Run the workflow again when the VM is quiet.
+Do not run the staging workflow at the same time as a production deploy.
+
+To look at the memory by hand, on the VM:
+
+```sh
+free -m
+cd /opt/yugioh-bot-staging
+docker stats --no-stream $(sh scripts/staging/compose.sh ps -q)
+sh scripts/staging/check-resources.sh now 1000 3000 /opt
+```
+
+## One-time steps for the owner
+
+1. **Push the branch** `feat/multiplayer-nseat-duels` to GitHub. (Nobody and nothing has pushed it for you.)
+2. **Put the workflow on `main`.** GitHub lists a manual workflow in the Actions tab only when its file is on the default
+   branch. Make a small pull request that adds only `.github/workflows/deploy-staging.yml`. The workflow uses the input
+   `ref` to check out the feature branch, so the scripts and the code come from that branch. Note: a push to `main`
+   starts the normal production deploy of `main`. That deploy is the usual one and does not include staging.
+3. **Open the network.** Pick one:
+   - **Plain HTTP (default).** In the Hetzner Cloud Firewall, allow inbound TCP `8080`. If you can, allow only the IP
+     addresses of the testers. Docker publishes ports around `ufw`, so the Hetzner firewall is the real gate.
+     Staging is then at `http://178.105.36.104:8080`.
+   - **HTTPS with a domain.** Add a DNS A record, for example `staging.example.org`, that points to the VM. Allow inbound TCP `443`
+     in the Hetzner firewall. Production publishes only port 80, so port 443 is free. Caddy gets its certificate through the
+     port-443 challenge. Then set the repository variable `STAGING_DOMAIN` (GitHub, Settings, Secrets and variables, Actions,
+     Variables) to the domain name.
+4. **Add the Discord redirect address.** In the Discord developer portal (the same application that production uses),
+   OAuth2, Redirects, add one of:
+   - `http://178.105.36.104:8080/api/auth/callback/discord`
+   - `https://staging.example.org/api/auth/callback/discord`
+5. **Optional repository variables.** They are read only the first time, when `.env.staging` does not exist yet.
+   `STAGING_DOMAIN`, `STAGING_HOST` (default: the secret `VM_HOST`) and `STAGING_HTTP_PORT` (default `8080`).
+   The secrets `VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY` and `VM_PORT` are the ones that production already uses.
+6. **Run the workflow.** GitHub, Actions, "Deploy Staging", Run workflow. Use `ref` = `feat/multiplayer-nseat-duels`,
+   `refresh_db` = off, `action` = `deploy`. The first run is slow (it builds three images and the multi core).
+   If the VM user is not `root`, make the folder first: `sudo mkdir /opt/yugioh-bot-staging && sudo chown $USER: /opt/yugioh-bot-staging`.
+
+When the run is green, the job log ends with the container list, the memory use and `staging is running`.
+Open the address and sign in with Discord.
+
+## Normal use
+
+- **Update staging to a newer commit.** Push the branch. Run the workflow again with `action` = `deploy`.
+  The staging database is kept.
+- **Refresh the database from production.** Run the workflow with `refresh_db` on. Staging duels and anything
+  else that was only in staging are lost. Active duels in the copy are set to `interrupted`.
+  The old staging database stays as `data-staging/bot.sqlite.before-copy` (one older copy).
+- **Stop staging.** Run the workflow with `action` = `stop`. This removes the staging containers and the staging network.
+  The data folder and the images stay. It does not touch production.
+- **Start it again.** Run `deploy` again.
+- **Look at the logs.** On the VM: `cd /opt/yugioh-bot-staging && sh scripts/staging/compose.sh logs -f --tail=100 duel`
+  (or `web`, `ws`, `caddy`).
+- **Change the address or the ports.** On the VM, delete `/opt/yugioh-bot-staging/.env.staging`, change the repository
+  variables, and run `deploy`. A new file gets new internal secrets.
+- **Remove staging completely.** Stop it. Then on the VM:
+  `rm -rf /opt/yugioh-bot-staging; docker image rm yugidraft-staging-ws yugidraft-staging-duel yugidraft-staging-web`.
+  Take the port out of the Hetzner firewall and the redirect out of Discord.
+
+## Limits for testers
+
+- **At 3 and 4 seats, only the Standard format works.** Domain duels at 3 seats, 4 seats and Tag are blocked on purpose.
+  The creator hides Domain for them, the web route refuses it, and the duel server refuses it, until the Domain multi core
+  (`ocgcore.multi-domain.wasm`) exists. This staging does not build or ship that file.
+- **Rules that are not proven by a test yet.** `docs/specs/multiplayer-rule-coverage.md` lists 19 rules that have no outcome
+  test yet (8 are covered). In plain words, five groups. Cards that rely on them can behave wrongly:
+  1. Cards that say "opponent", "each player" or "all" (separate fields, Extra Monster Zones, picking an opponent for hand
+     and Deck effects, ongoing effects on opponents, the Forbidden and Limited list per Deck).
+  2. Chains and triggers at 3 and 4 seats (who may respond first, trigger order) and the response order in Tag.
+  3. Negation and lock cards (for example Solemn Judgment, Jinzo).
+  4. Tag partners (sharing cards and costs, the partner is not an opponent, seeing the partner's hand).
+  5. Tag loss and turn-count cards (a team loss from an empty Deck, Final Countdown).
+- The Standard core in npm is older than the card scripts. A Standard duel can throw on some cards.
+- Staging has a copy of the production database. Testers sign in with their real Discord accounts, and the guild check applies.
+- Sign-in cookies are tied to the host name, not to the port. At the same IP address, staging and production share the
+  session cookie. This is fine because `NEXTAUTH_SECRET` is the same. If it confuses you, use a staging domain.
+
+## Open risks
+
+- **RAM.** See the memory section. A very busy production plus a staging duel can still use all 4 GB. The limits and
+  `oom_score_adj` make the kernel stop staging first, but nothing can promise it.
+- **Disk.** Three new images and their build cache use several GB. The workflow stops below 3000 MB free. It does not run
+  `docker system prune` because that would also remove production leftovers.
+- **Database copy on a read-only mount.** If the VM has no `python3`, the copy runs `node` inside the staging duel image with
+  the production data folder mounted read-only. This path is not tested with a live WAL database.
+- **First-run clone.** It uses the git remote address of `/opt/yugioh-bot`. If that address needs a key that only works from there, the clone fails and you
+  must clone `/opt/yugioh-bot-staging` by hand once.
