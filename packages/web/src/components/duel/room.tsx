@@ -31,7 +31,7 @@ import { RoomLobby } from "./room-lobby";
 import { DeckMasterRail, DuelField } from "./field";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
-import { AttackConfirm, CardActionMenu, CardHoverInfo } from "./card-interactions";
+import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
 import { FxBoundary } from "./fx-boundary";
 import { BattleFx, type BattleAim } from "./battle-fx";
@@ -287,6 +287,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   useEffect(() => { if (isDuelWindow(slug)) setInDuelWindow(true); }, [slug]);
   const [menu, setMenu] = useState<CardMenuState | null>(null);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
+  // A click the pick refused (full): a short note on the card, which also shakes.
+  const [pickHint, setPickHint] = useState<{ anchor: HTMLElement; text: string; promptId: string } | null>(null);
+  const clearPickHint = useCallback(() => setPickHint(null), []);
   const [pile, setPile] = useState<PileView | null>(null);
   const preferences = useDuelPreferences();
   // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
@@ -295,6 +298,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const legalKeys = useMemo(() => promptLegalKeys(prompt), [prompt]);
   const selectedKeys = useMemo(() => promptSelectedKeys(prompt, draft.selected), [draft.selected, prompt]);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const pickHintShown = pickHint != null && pickHint.promptId === prompt?.id && !menu && pickHint.anchor.isConnected;
   const boardRef = useRef<HTMLDivElement>(null);
   // The result screen waits for the last attack, LP roll and card flights to finish, then a short human pause.
   const resultReady = useResultGate({
@@ -577,7 +581,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       }
     }
     closeMenu();
-    const handled = activatePromptFromField(prompt, Boolean(mine), keys, card, draft, onSubmitAnswer);
+    const handled = activatePromptFromField(prompt, Boolean(mine), keys, card, draft, onSubmitAnswer, (refusal) => {
+      if (!prompt) return;
+      shakeRefusedCard(anchor, preferences.reducedMotion);
+      setPickHint({ anchor, text: refusal.text, promptId: prompt.id });
+    });
     if (card && !handled) showInspector({ type: "card", card }, true);
   }
 
@@ -989,7 +997,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           prefer={confirmSide(attackerKey, aimLock.anchor)} onConfirm={confirmAim}
           onBack={() => setAimLock(null)} />
       ) : null}
-      {hover && !activeMenu && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
+      {pickHintShown && pickHint ? <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} /> : null}
+      {hover && !activeMenu && !pickHintShown && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
         title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Settings"}>
         {sidePanes(false)}

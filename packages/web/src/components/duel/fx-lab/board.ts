@@ -60,6 +60,8 @@ export type LabScript = {
     battleStep?: BattleStep;
     /** Option ids shown as already picked. */
     selected?: string[];
+    /** Clicks on the legal cards toggle the pick, as in a duel (nothing is ever sent). */
+    interactive?: boolean;
   };
   /** Show the Deck Master rail (a Domain duel). */
   domain?: boolean;

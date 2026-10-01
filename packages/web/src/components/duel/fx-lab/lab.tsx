@@ -13,6 +13,7 @@ import { ChainFx } from "../chain-fx";
 import { MasterReturnFx } from "../master-return-fx";
 import { PromptCenter } from "../prompt-center";
 import { activatePromptFromField, promptSelectedKeys, type PromptDraft } from "../prompts";
+import { PickRefusalHint, shakeRefusedCard } from "../card-interactions";
 import { DuelResultScreen } from "../duel-result";
 import { FxBoundary } from "../fx-boundary";
 import { duelFontClasses } from "../fonts";
@@ -149,6 +150,28 @@ export function FxLab() {
   const script = useMemo<LabScript>(() => scenario.build(), [scenario]);
   const expectedMs = useMemo(() => scriptDurationMs(script), [script]);
   const legalKeys = useMemo(() => new Set(script.legalKeys ?? []), [script]);
+  // An interactive pick scenario: clicks toggle the pick here, with the same rules and feedback as a duel.
+  const interactive = script.prompt?.interactive === true;
+  const [picked, setPicked] = useState<string[]>([]);
+  const [pickHint, setPickHint] = useState<{ anchor: HTMLElement; text: string } | null>(null);
+  const clearPickHint = useCallback(() => setPickHint(null), []);
+  useEffect(() => {
+    setPicked(script.prompt?.selected ?? []);
+    setPickHint(null);
+  }, [script, live.runKey]);
+  const pickedIds = interactive ? picked : (script.prompt?.selected ?? []);
+  const pickedKeys = useMemo(
+    () => (interactive && script.prompt ? promptSelectedKeys(script.prompt.prompt, picked) : NO_KEYS),
+    [interactive, script, picked],
+  );
+  const onActivate = (keys: string[], card: DuelCard | null, anchor: HTMLElement) => {
+    if (!interactive || !script.prompt) return;
+    const draft: PromptDraft = { ...labDraft(picked), setSelected: setPicked };
+    activatePromptFromField(script.prompt.prompt, true, keys, card, draft, undefined, (refusal) => {
+      shakeRefusedCard(anchor, reduced);
+      setPickHint({ anchor, text: refusal.text });
+    });
+  };
 
   useEffect(() => {
     shimRef.current = installTimeShim();
@@ -351,8 +374,8 @@ export function FxLab() {
                       masterRule={5}
                       reducedMotion={reduced}
                       legalKeys={legalKeys as Set<string>}
-                      selectedKeys={NO_KEYS as Set<string>}
-                      onActivate={noop}
+                      selectedKeys={pickedKeys as Set<string>}
+                      onActivate={onActivate}
                       onInspect={noop}
                       bottomName="You"
                       topName="Practice Bot"
@@ -407,6 +430,9 @@ export function FxLab() {
           </div>
         </main>
       </div>
+      {pickHint && pickHint.anchor.isConnected ? (
+        <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} />
+      ) : null}
       {result ? (
         <DuelResultScreen
           room={resultRoom(live.board, result)}

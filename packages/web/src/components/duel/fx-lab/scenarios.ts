@@ -1213,6 +1213,13 @@ const STATES: LabScenario[] = [
       ),
   },
   selectScenario("state-select-discard", "Select prompt: discard 2", "The on-board pick bar with nothing picked yet. Confirm is off.", []),
+  selectScenario(
+    "state-select-discard-try",
+    "Select prompt: discard 2, try it",
+    "Click the hand cards to pick two. Hover and leave: a card is large only under the pointer, also after a click. A third card shakes with a hint; click a picked card to undo it.",
+    [],
+    true,
+  ),
   selectScenario("state-select-discard-done", "Select prompt: discard 2, done", "The same bar with 2 of 2 picked. Confirm is the gold button.", ["card:0", "card:2"]),
   {
     id: "state-aim-direct",
