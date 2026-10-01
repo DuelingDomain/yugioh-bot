@@ -3,8 +3,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  COMPARE_EXTRA, COMPARE_FALSE_POSITIVES, EXPECTED_COUNTS, MIRROR_GATE, OVERLAY_DIRECTORY, TRIAGE_FILE,
-  checkLists, r1Codes, readManifest, readTriage, run, wholeFileText, type Manifest, type ManifestCard, type Triage,
+  COMPARE_EXTRA, COMPARE_FALSE_POSITIVES, EXPECTED_COUNTS, MIRROR_GATE, OVERLAY_DIRECTORY, R1_NO_CHANGE, TRIAGE_FILE,
+  checkLists, r1Codes, r1Entry, readManifest, readTriage, run, wholeFileText, type Manifest, type ManifestCard, type Triage,
 } from "../scripts/generate-multi-scripts.js";
 import { scanCorpus } from "../scripts/scan-multiplayer-scripts.js";
 import { currentEngineDataDirectory } from "./engine-data-dir.js";
@@ -28,7 +28,7 @@ const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.
 describe("MANIFEST.json of the overlay", () => {
   it("lists 103 cards with a valid kind, a file named after the code and a name", () => {
     expect(manifest.version).toBe(1);
-    expect(cards).toHaveLength(EXPECTED_COUNTS.entries);
+    expect(cards.filter((card) => !card.classes.includes("R1"))).toHaveLength(EXPECTED_COUNTS.entries);
     for (const card of cards) {
       expect(KINDS, String(card.code)).toContain(card.kind);
       expect(card.file).toBe(`c${card.code}.lua`);
@@ -90,6 +90,39 @@ describe("MANIFEST.json of the overlay", () => {
   });
 });
 
+describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)", () => {
+  const r1Cards = cards.filter((card) => card.classes.includes("R1"));
+
+  it("have kind hand, only the class R1, the loop guard and a loop over the living duelists", () => {
+    for (const card of r1Cards) {
+      expect(card.kind, card.file).toBe("hand");
+      expect(card.classes, card.file).toEqual(["R1"]);
+      expect(text(card).split("\n")[0], card.file).toBe("if not aux.MPForEachDuelist then return end");
+      expect(text(card), card.file).toMatch(/aux\.MPForEachDuelist\(function\(tp_i(,seat_i)?\)/);
+    }
+  });
+
+  it("stay within the 92 R1 cards, and no card is an entry and also in R1_NO_CHANGE", () => {
+    expect(r1Cards.length + R1_NO_CHANGE.length).toBeLessThanOrEqual(EXPECTED_COUNTS.r1);
+    expect(r1Cards.filter((card) => R1_NO_CHANGE.includes(card.code))).toEqual([]);
+  });
+
+  it("are reported when they have a wrong kind, a second class, or are over the count", () => {
+    const wrong = clone();
+    wrong.cards.push({ ...r1Entry(1, "x", "y"), kind: "expr" }, { ...r1Entry(2, "z", "y"), classes: ["R1", "COMPARE"] });
+    const problems = checkLists(wrong, null).join("\n");
+    expect(problems).toContain("R1 card 1 has kind expr");
+    expect(problems).toContain("R1 card 2 has another class");
+  });
+
+  it("makes an entry with the stock hash", () => {
+    expect(r1Entry(5, "Name", "text")).toEqual({
+      code: 5, file: "c5.lua", name: "Name", kind: "hand", classes: ["R1"],
+      stockSha256: createHash("sha256").update("text").digest("hex"),
+    });
+  });
+});
+
 describe("the generator", () => {
   it("--check has no problem and writes nothing", () => {
     const result = run({ check: true, triage: null });
@@ -125,7 +158,7 @@ describe("the overlay files", () => {
     for (const card of cards) {
       const first = text(card).split("\n")[0];
       if (card.replace) expect(first, card.file).toBe("--@replace");
-      else expect(first.startsWith("--@replace") || first === "if not aux.MPAny then return end" || card.kind === "fix", `${card.file}: ${first}`).toBe(true);
+      else expect(first.startsWith("--@replace") || first === "if not aux.MPAny then return end" || first === "if not aux.MPForEachDuelist then return end" || card.kind === "fix", `${card.file}: ${first}`).toBe(true);
     }
   });
 
@@ -134,7 +167,7 @@ describe("the overlay files", () => {
   });
 
   it("uses only helpers that mp-utility.lua defines and core functions of the F7 window", () => {
-    const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPSeatOf", "MPBindSeat"]);
+    const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPSeatOf", "MPBindSeat", "MPNthDuelist", "MPSeat"]);
     for (const card of cards) {
       for (const [, helper] of text(card).matchAll(/\baux\.(MP\w+)/g)) {
         expect(helperText, `${card.file}: aux.${helper}`).toContain(`function aux.${helper}(`);

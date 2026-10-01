@@ -1100,6 +1100,16 @@
       "stockSha256": "cd73860122707474e79fd5e30196443420e778d5d40a7eaedfbaac0a653354ba"
     },
     {
+      "code": 56673480,
+      "file": "c56673480.lua",
+      "name": "Contract with Don Thousand",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "29487b2a30b53a90d7e5a2ce9bbe7eccd25c77fd98ea0a3c75ee1cec196fa7b6"
+    },
+    {
       "code": 56830749,
       "file": "c56830749.lua",
       "name": "Share the Pain",
@@ -1218,7 +1228,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil★Twins Ki-sikil & Lil-la",
+      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"

@@ -14,7 +14,15 @@
  *                  plus 7 cards of the scan gap (COMPARE_SCAN_ADDED, in other triage groups).
  *   CHOOSER (44) = triage rule starting with `CHOOSER`.
  *   R1 (92)      = triage rule starting with `EACH-DUELIST` or `SCRIPT`, minus Mirror Gate 43452193 (it belongs to Q7).
+ *                  An R1 card is a MANIFEST entry of class `R1` (kind `hand`: a suffix that loops with aux.MPForEachDuelist) or a
+ *                  member of R1_NO_CHANGE (the stock script already acts on every living duelist). The R1 entries are not part of
+ *                  the pinned `entries` count (that count is the compare and chooser entries, in other agents' lists).
+ *
+ *   npx tsx scripts/generate-multi-scripts.ts --register-r1 FILE.json
+ *                  read-modify-write: adds the R1 entries `[{ "code": 1, "name": "..." }]` to MANIFEST.json (sorted by code, stockSha256
+ *                  from the stock script) and leaves every other entry as it is. A card that is listed already is skipped.
  */
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -35,9 +43,16 @@ export const COMPARE_SCAN_ADDED = [25388971, 46772449, 50838440, 55273560, 62015
 export const COMPARE_EXTRA = [15693423, 90669991];
 export const MIRROR_GATE = 43452193;
 export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 103, r1: 92 } as const;
+/**
+ * R1 cards whose stock script already acts on every living duelist after core patch 0053, so they need no suffix and no entry.
+ * Pinned (a card is added here only after the script was read). Empty when every R1 card has a suffix.
+ */
+export const R1_NO_CHANGE: number[] = [];
+/** True when every one of the 92 R1 cards is an entry or a member of R1_NO_CHANGE (the strict count check). */
+export const R1_COMPLETE = false;
 
 export type Helper = "MPAny" | "MPValue" | "MPOne" | "MPPick" | "MPTarget";
-export type CardClass = "COMPARE" | "CHOOSER";
+export type CardClass = "COMPARE" | "CHOOSER" | "R1";
 
 export interface ManifestCard {
   code: number;
@@ -100,7 +115,17 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
   if (compare.length !== EXPECTED_COUNTS.compare) problems.push(`COMPARE has ${compare.length} cards, expected ${EXPECTED_COUNTS.compare}`);
   if (chooser.length !== EXPECTED_COUNTS.chooser) problems.push(`CHOOSER has ${chooser.length} cards, expected ${EXPECTED_COUNTS.chooser}`);
   if (whole.length !== EXPECTED_COUNTS.whole) problems.push(`${whole.length} whole files, expected ${EXPECTED_COUNTS.whole}`);
-  if (manifest.cards.length !== EXPECTED_COUNTS.entries) problems.push(`${manifest.cards.length} entries, expected ${EXPECTED_COUNTS.entries}`);
+  const overlayEntries = manifest.cards.filter((card) => !card.classes.includes("R1"));
+  if (overlayEntries.length !== EXPECTED_COUNTS.entries) problems.push(`${overlayEntries.length} entries, expected ${EXPECTED_COUNTS.entries}`);
+  const r1Entries = manifest.cards.filter((card) => card.classes.includes("R1"));
+  for (const card of r1Entries) {
+    if (card.kind !== "hand") problems.push(`R1 card ${card.code} has kind ${card.kind}, expected hand`);
+    if (card.classes.length !== 1) problems.push(`R1 card ${card.code} has another class besides R1`);
+    if (R1_NO_CHANGE.includes(card.code)) problems.push(`R1 card ${card.code} has an entry and is in R1_NO_CHANGE`);
+  }
+  const r1Total = r1Entries.length + R1_NO_CHANGE.length;
+  if (r1Total > EXPECTED_COUNTS.r1) problems.push(`R1 has ${r1Total} cards (entries and R1_NO_CHANGE), expected at most ${EXPECTED_COUNTS.r1}`);
+  if (R1_COMPLETE && r1Total !== EXPECTED_COUNTS.r1) problems.push(`R1 has ${r1Total} cards (entries and R1_NO_CHANGE), expected ${EXPECTED_COUNTS.r1}`);
   if (!manifest.cards.some((card) => card.code === MIRROR_GATE && card.kind === "fix")) problems.push("Mirror Gate 43452193 is not listed with kind fix");
   if (triage) {
     const expectedCompare = sorted([
@@ -113,6 +138,13 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
     if (!same(chooser, expectedChooser)) problems.push(`CHOOSER differs from the triage: ${diff(chooser, expectedChooser)}`);
     const r1 = r1Codes(triage);
     if (r1.length !== EXPECTED_COUNTS.r1) problems.push(`R1 has ${r1.length} cards, expected ${EXPECTED_COUNTS.r1}`);
+    const listed = [...r1Entries.map((card) => card.code), ...R1_NO_CHANGE];
+    const outside = listed.filter((code) => !r1.includes(code));
+    if (outside.length > 0) problems.push(`R1 entries or R1_NO_CHANGE outside the triage R1 list: ${JSON.stringify(outside)}`);
+    if (R1_COMPLETE) {
+      const missing = r1.filter((code) => !listed.includes(code));
+      if (missing.length > 0) problems.push(`R1 cards of the triage without entry: ${JSON.stringify(missing)}`);
+    }
   }
   return problems;
 }
@@ -132,6 +164,39 @@ export function readTriage(file = TRIAGE_FILE): Triage[] | null {
   if (!existsSync(file)) return null;
   const value = JSON.parse(readFileSync(file, "utf8")) as Triage[] | { entries: Triage[] };
   return Array.isArray(value) ? value : value.entries;
+}
+
+/** The R1 entry of a card: kind hand, class R1, the stock hash. `stock` is the text of the stock script. */
+export function r1Entry(code: number, name: string, stock: string): ManifestCard {
+  return {
+    code,
+    file: `c${code}.lua`,
+    name,
+    kind: "hand",
+    classes: ["R1"],
+    stockSha256: createHash("sha256").update(stock).digest("hex"),
+  };
+}
+
+/**
+ * Read-modify-write of MANIFEST.json for the R1 entries: re-reads the file right before the write, adds the new entries and keeps the
+ * list sorted by code (the other agents' entries stay as they are). Returns the codes that were added. `note` is a per-code text.
+ */
+export function registerR1(items: { code: number; name: string; note?: string }[], stockDirectory: string, directory = OVERLAY_DIRECTORY): number[] {
+  const path = join(directory, "MANIFEST.json");
+  const manifest = readManifest(directory);
+  const added: number[] = [];
+  for (const item of items) {
+    if (manifest.cards.some((card) => card.code === item.code)) continue;
+    if (!existsSync(join(directory, `c${item.code}.lua`))) throw new Error(`c${item.code}.lua is missing: write the suffix before registering the card`);
+    const entry = r1Entry(item.code, item.name, readFileSync(join(stockDirectory, `c${item.code}.lua`), "utf8"));
+    if (item.note) entry.note = item.note;
+    manifest.cards.push(entry);
+    added.push(item.code);
+  }
+  manifest.cards.sort((a, b) => a.code - b.code);
+  writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
+  return added;
 }
 
 export interface RunResult {
@@ -167,6 +232,13 @@ export function run(options: { check: boolean; directory?: string; triage?: Tria
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const registerAt = process.argv.indexOf("--register-r1");
+  if (registerAt >= 0) {
+    const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(process.env.DUEL_DATA_DIR ?? "", "card-scripts/official");
+    const items = JSON.parse(readFileSync(process.argv[registerAt + 1], "utf8")) as { code: number; name: string; note?: string }[];
+    console.log(`registered ${JSON.stringify(registerR1(items, stockDirectory))}`);
+    process.exit(0);
+  }
   const check = process.argv.includes("--check");
   const result = run({ check });
   for (const file of result.written) console.log(`wrote ${file}`);
