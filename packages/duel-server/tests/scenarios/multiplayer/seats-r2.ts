@@ -1,0 +1,375 @@
+// Live scenarios of the seat state in the overlay (F7 design, part P3b): R2 (ADR 0002, R-COMMON-SEAT-STATE, Q6: a per-player flag or counter
+// is kept per seat in FFA and per team in Tag) and the Q10 label fixes (Curse of the Circle, Wiseman's Chalice). Plain data, also read by
+// scripts/rule-coverage.ts; tests/scenarios/multiplayer/seats-r2.test.ts runs them on a live core with the core seats (patch 0053 and later,
+// NSEAT_LIVE=1). Every scenario uses the real card scripts plus the overlay, and ends with the state of EVERY seat.
+
+import {
+  activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, pickOpponent,
+  select, setCard, zone, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+} from "../../support/dsl.js";
+import { SOURCE } from "./nseat-scenarios.js";
+
+type Seat = "p0" | "p1" | "p2" | "p3";
+type Format = "ffa3" | "ffa4" | "tag";
+const STATE = `${SOURCE} [R-COMMON-SEAT-STATE]`;
+
+const CURSE = "Curse of the Circle";
+const CHALICE = "Wiseman's Chalice";
+const ABACUS = "Fatal Abacus";
+const JAR = "Absorbing Jar";
+const HOLE = "Dark Hole";
+const BURIAL = "Extra-Foolish Burial";
+const DROLL = "Droll & Lock Bird";
+const OGRE = "Ogre of the Scarlet Sorrow";
+const REINFORCE = "Reinforcement of the Army";
+const GOYO = "Goyo Guardian";
+const TUNER = "Kagemusha of the Six Samurai";
+const OX = "Battle Ox";
+const AXE = "Axe Raider";
+const FANG = "Silver Fang";
+const ELF = "Mystical Elf";
+const RAT = "Giant Rat";
+const SANGAN = "Sangan";
+const ELF_ATK = 800;
+
+/** The state of EVERY seat: LP, monsters, Spell and Trap zones, Graveyard and banished zone are exact; the hand only when the spec names it. */
+function everySeat(format: Format, spec: Partial<Record<Seat, DuelistExpect>>): Step {
+  const seats: Seat[] = format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"];
+  const board: BoardExpect = {};
+  for (const seat of seats) board[seat] = { lp: format === "tag" ? 16000 : 8000, monsters: [], spells: [], grave: [], banished: [], ...spec[seat] };
+  return expectBoard(board);
+}
+
+/** The turns before the first attack (nobody attacks in the first round). */
+const passTurns = (...seats: Seat[]): Step[] => seats.map((seat) => endTurn(seat));
+
+export const SEATS_R2_SCENARIOS: Scenario[] = [
+  // --- label fixes (Q10): Curse of the Circle ---------------------------------------------------------------------------------------
+  defineScenario({
+    id: "seats-r2-ffa3-curse-of-the-circle-blocks-only-the-seat-of-the-cursed-monster",
+    title: "FFA3: p0 activates Curse of the Circle on the Battle Ox of p1: p1 cannot use that Battle Ox as Synchro Material, p0 and p2 can use their own Battle Ox",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "r2", "label", "q10", "ffa3", "card:12863633"],
+    // The stock label is 1-tp (the folded opponent). The overlay keeps the real seat of the cursed monster and compares it with the seat of the Synchro Monster.
+    // Every seat has a Tuner and a Battle Ox (level 2 + 4 = 6) and a Goyo Guardian in the Extra Deck.
+    setup: {
+      format: "ffa3",
+      p0: { monsters: [TUNER, OX], spells: [faceDown(CURSE)], extra: [GOYO] },
+      p1: { monsters: [TUNER, OX], extra: [GOYO] },
+      p2: { monsters: [TUNER, OX], extra: [GOYO] },
+    },
+    steps: [
+      expectOffered("specialSummon", GOYO, "p0"),
+      activate(CURSE, "p0"),
+      select({ card: OX, owner: "p1" }),
+      expectOffered("specialSummon", GOYO, "p0"),
+      endTurn("p0"),
+      expectNotOffered("specialSummon", GOYO, "p1"),
+      endTurn("p1"),
+      expectOffered("specialSummon", GOYO, "p2"),
+      everySeat("ffa3", {
+        p0: { monsters: [TUNER, OX], grave: [CURSE] },
+        p1: { monsters: [TUNER, OX] },
+        p2: { monsters: [TUNER, OX] },
+      }),
+    ],
+  }),
+
+  // --- label fixes (Q10): Wiseman's Chalice -----------------------------------------------------------------------------------------
+  defineScenario({
+    id: "seats-r2-ffa3-wisemans-chalice-gives-the-monster-back-to-the-seat-it-came-from",
+    title: "FFA3: p0 summons the Giant Rat of the Graveyard of p2 with Wiseman's Chalice: at the end of the turn the Giant Rat goes back to p2 (not to p1)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "r2", "label", "q10", "ffa3", "card:35262428"],
+    // The stock label is 1-tp, a folded value: in FFA3 the monster of p2 would go to p1. The overlay keeps the real seat it came from.
+    setup: {
+      format: "ffa3",
+      p0: { hand: [CHALICE] },
+      p1: { grave: [AXE] },
+      p2: { grave: [RAT] },
+    },
+    steps: [
+      activate(CHALICE, "p0"),
+      zone("p0", "s0", "p0"),
+      select({ card: RAT, owner: "p2" }),
+      endTurn("p0"),
+      everySeat("ffa3", {
+        p0: { grave: [CHALICE] },
+        p1: { grave: [AXE] },
+        p2: { monsters: [RAT] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-wisemans-chalice-gives-the-monster-back-to-the-duelist-it-came-from",
+    title: "Tag: p0 summons the Giant Rat of the Graveyard of p3 with Wiseman's Chalice: at the end of the turn the Giant Rat goes back to p3 (not to its partner p1); the key of the card is the team",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-OPP-PICK", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "label", "q10", "tag", "card:35262428"],
+    setup: {
+      format: "tag",
+      p0: { hand: [CHALICE] },
+      p1: { grave: [AXE] },
+      p3: { grave: [RAT] },
+    },
+    steps: [
+      activate(CHALICE, "p0"),
+      zone("p0", "s0", "p0"),
+      select({ card: RAT, owner: "p3" }),
+      endTurn("p0"),
+      everySeat("tag", {
+        p0: { grave: [CHALICE] },
+        p1: { grave: [AXE] },
+        p3: { monsters: [RAT] },
+      }),
+    ],
+  }),
+
+  // --- a card of the real controller (aux.MPForEachController) -----------------------------------------------------------------------
+  defineScenario({
+    id: "seats-r2-ffa3-absorbing-jar-each-controller-draws-for-its-own-destroyed-cards",
+    title: "FFA3: p0 flips Absorbing Jar: the 4 set cards are destroyed and p0 draws 1 card, p1 draws 2 and p2 draws 1 (each real controller draws for its own cards)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-EACH-PLAYER"],
+    tags: ["multiplayer", "r2", "each-controller", "ffa3", "card:3900605"],
+    setup: {
+      format: "ffa3",
+      p0: { monsters: [faceDown(JAR)], spells: [faceDown(HOLE)], deck: [RAT, OX] },
+      p1: { spells: [faceDown(HOLE), faceDown(HOLE)], deck: [AXE, FANG] },
+      p2: { spells: [faceDown(HOLE)], deck: [ELF, SANGAN] },
+    },
+    steps: [
+      changePosition(JAR, "p0"),
+      everySeat("ffa3", {
+        p0: { hand: [RAT], monsters: [JAR], grave: [HOLE] },
+        p1: { hand: [AXE, FANG], grave: [HOLE, HOLE] },
+        p2: { hand: [ELF], grave: [HOLE] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-absorbing-jar-each-controller-draws-for-its-own-destroyed-cards",
+    title: "Tag: p0 flips Absorbing Jar: p0 and its partner p2 draw 1 card each for their own set card, p1 draws 2, p3 draws nothing (the controller is the real seat, not the team)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-EACH-PLAYER", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "each-controller", "tag", "card:3900605"],
+    setup: {
+      format: "tag",
+      p0: { monsters: [faceDown(JAR)], spells: [faceDown(HOLE)], deck: [RAT] },
+      p1: { spells: [faceDown(HOLE), faceDown(HOLE)], deck: [AXE, FANG] },
+      p2: { spells: [faceDown(HOLE)], deck: [ELF] },
+      p3: { deck: [SANGAN] },
+    },
+    steps: [
+      changePosition(JAR, "p0"),
+      everySeat("tag", {
+        p0: { hand: [RAT], monsters: [JAR], grave: [HOLE] },
+        p1: { hand: [AXE, FANG], grave: [HOLE, HOLE] },
+        p2: { hand: [ELF], grave: [HOLE] },
+        p3: { hand: [] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-ffa3-fatal-abacus-damages-each-real-controller-of-the-destroyed-monsters",
+    title: "FFA3: with Fatal Abacus on the field p0 destroys all monsters with Dark Hole: p0 loses 500 LP for its 1 monster, p1 loses 1000 LP for its 2 and p2 loses 500 LP for its 1",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-EACH-PLAYER"],
+    tags: ["multiplayer", "r2", "each-controller", "ffa3", "card:77910045"],
+    setup: {
+      format: "ffa3",
+      p0: { hand: [HOLE], spells: [faceDown(ABACUS)], monsters: [OX] },
+      p1: { monsters: [AXE, FANG] },
+      p2: { monsters: [ELF] },
+    },
+    steps: [
+      activate(ABACUS, "p0"),
+      activate(HOLE, "p0"),
+      zone("p0", "s1", "p0"),
+      everySeat("ffa3", {
+        p0: { lp: 7500, spells: [ABACUS], grave: [HOLE, OX] },
+        p1: { lp: 7000, grave: [AXE, FANG] },
+        p2: { lp: 7500, grave: [ELF] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-fatal-abacus-damages-the-team-of-each-real-controller",
+    title: "Tag: with Fatal Abacus on the field p0 destroys all monsters with Dark Hole: team 0 loses 500 LP for the monster of p0 and 500 LP for the monster of p2, team 1 loses 1000 LP for the 2 monsters of p1",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-EACH-PLAYER", "R-TAG-LP"],
+    tags: ["multiplayer", "r2", "each-controller", "tag", "card:77910045"],
+    setup: {
+      format: "tag",
+      p0: { hand: [HOLE], spells: [faceDown(ABACUS)], monsters: [OX] },
+      p1: { monsters: [AXE, FANG] },
+      p2: { monsters: [ELF] },
+    },
+    steps: [
+      activate(ABACUS, "p0"),
+      activate(HOLE, "p0"),
+      zone("p0", "s1", "p0"),
+      everySeat("tag", {
+        p0: { lp: 15000, spells: [ABACUS], grave: [HOLE, OX] },
+        p1: { lp: 15000, grave: [AXE, FANG] },
+        p2: { lp: 15000, grave: [ELF] },
+        p3: { lp: 15000 },
+      }),
+    ],
+  }),
+
+  // --- a global flag of a duelist (R2_NO_CHANGE: the core rule keeps the flag of the real seat, the team in Tag) -------------------------
+  defineScenario({
+    id: "seats-r2-ffa3-extra-foolish-burial-is-locked-after-p2-sets-a-card",
+    title: "FFA3: p2 can activate Extra-Foolish Burial until p2 Sets a card; after that the global check has set the flag of seat 2 and the card is no longer offered",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "r2", "global-flag", "no-change", "ffa3", "card:57995165"],
+    // No overlay file: the card is in the R2 no-change list, and this scenario is the live proof for seat 2.
+    setup: {
+      format: "ffa3",
+      p2: { hand: [BURIAL, HOLE], extra: [GOYO] },
+    },
+    steps: [
+      ...passTurns("p0", "p1"),
+      expectOffered("activate", BURIAL, "p2"),
+      setCard(HOLE, "p2"),
+      zone("p2", "s0", "p2"),
+      expectNotOffered("activate", BURIAL, "p2"),
+      everySeat("ffa3", { p2: { hand: [BURIAL, ELF], spells: [HOLE] } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-extra-foolish-burial-is-locked-after-p3-sets-a-card",
+    title: "Tag: p3 can activate Extra-Foolish Burial until p3 Sets a card; after that the flag of team 1 is set and the card is no longer offered to p3",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "global-flag", "no-change", "tag", "card:57995165"],
+    setup: {
+      format: "tag",
+      p3: { hand: [BURIAL, HOLE], extra: [GOYO] },
+    },
+    steps: [
+      ...passTurns("p0", "p1", "p2"),
+      expectOffered("activate", BURIAL, "p3"),
+      setCard(HOLE, "p3"),
+      zone("p3", "s0", "p3"),
+      expectNotOffered("activate", BURIAL, "p3"),
+      everySeat("tag", { p3: { hand: [BURIAL, ELF], spells: [HOLE] } }),
+    ],
+  }),
+
+  // --- Droll & Lock Bird: the added card at seat 2 and seat 3 -----------------------------------------------------------------------
+  defineScenario({
+    id: "seats-r2-ffa3-droll-and-lock-bird-answers-a-search-of-seat-2",
+    title: "FFA3: p2 adds Axe Raider from the Deck with Reinforcement of the Army: p0 holds Droll & Lock Bird and gets the answer (the event names seat 2, the stock literals 0 and 1 did not)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "r2", "global-flag", "ffa3", "card:94145021"],
+    setup: {
+      format: "ffa3",
+      p0: { hand: [DROLL] },
+      p2: { hand: [REINFORCE], deck: [ELF, AXE] },
+    },
+    steps: [
+      ...passTurns("p0", "p1"),
+      activate(REINFORCE, "p2"),
+      zone("p2", "s0", "p2"),
+      activate(DROLL, "p0"),
+      everySeat("ffa3", { p0: { hand: [], grave: [DROLL] }, p2: { hand: [ELF, AXE], grave: [REINFORCE] } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-ffa4-droll-and-lock-bird-answers-a-search-of-seat-3",
+    title: "FFA4: p3 adds Axe Raider from the Deck with Reinforcement of the Army: p0 holds Droll & Lock Bird and gets the answer (the event names seat 3)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "r2", "global-flag", "ffa4", "card:94145021"],
+    setup: {
+      format: "ffa4",
+      p0: { hand: [DROLL] },
+      p3: { hand: [REINFORCE], deck: [ELF, AXE] },
+    },
+    steps: [
+      ...passTurns("p0", "p1", "p2"),
+      activate(REINFORCE, "p3"),
+      zone("p3", "s0", "p3"),
+      activate(DROLL, "p0"),
+      everySeat("ffa4", { p0: { hand: [], grave: [DROLL] }, p3: { hand: [ELF, AXE], grave: [REINFORCE] } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-ffa3-droll-and-lock-bird-is-not-offered-to-the-seat-that-added-the-card",
+    title: "FFA3: p2 holds Droll & Lock Bird and adds Axe Raider from the Deck itself: Droll & Lock Bird is not offered to p2 (only an addition by another seat counts)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "r2", "global-flag", "ffa3", "card:94145021"],
+    setup: {
+      format: "ffa3",
+      p2: { hand: [DROLL, REINFORCE], deck: [ELF, AXE] },
+    },
+    steps: [
+      ...passTurns("p0", "p1"),
+      activate(REINFORCE, "p2"),
+      zone("p2", "s0", "p2"),
+      expectNotOffered("activate", DROLL, "p2"),
+      everySeat("ffa3", { p2: { hand: [DROLL, ELF, AXE], grave: [REINFORCE] } }),
+    ],
+  }),
+
+  // --- Ogre of the Scarlet Sorrow: direct attacks counted per attacked seat ----------------------------------------------------------
+  defineScenario({
+    id: "seats-r2-ffa4-ogre-of-the-scarlet-sorrow-two-direct-attacks-at-seat-3",
+    title: "FFA4: p0 attacks p3 directly twice: p3 can Special Summon Ogre of the Scarlet Sorrow from the hand (the count is kept per attacked seat)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-FFA-ATTACK"],
+    tags: ["multiplayer", "r2", "global-counter", "ffa4", "card:82670878"],
+    setup: {
+      format: "ffa4",
+      p0: { monsters: [ELF, ELF] },
+      p3: { hand: [OGRE] },
+    },
+    steps: [
+      ...passTurns("p0", "p1", "p2", "p3"),
+      changePhase("battle", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p3", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p3", "p0"),
+      activate(OGRE, "p3"),
+      everySeat("ffa4", {
+        p0: { monsters: [ELF, ELF] },
+        p3: { lp: 8000 - ELF_ATK, hand: [ELF], monsters: [OGRE] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-ffa4-ogre-of-the-scarlet-sorrow-one-direct-attack-at-each-of-two-seats",
+    title: "FFA4: p0 attacks p2 directly once and p3 directly once: Ogre of the Scarlet Sorrow in the hand of p3 is not offered (each seat faced one attack, the stock count would have been 2)",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-FFA-ATTACK"],
+    tags: ["multiplayer", "r2", "global-counter", "ffa4", "card:82670878"],
+    setup: {
+      format: "ffa4",
+      p0: { monsters: [ELF, ELF] },
+      p3: { hand: [OGRE] },
+    },
+    steps: [
+      ...passTurns("p0", "p1", "p2", "p3"),
+      changePhase("battle", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p2", "p0"),
+      attack(ELF, "direct", "p0"),
+      pickOpponent("p3", "p0"),
+      // p3 gets no chain prompt: the next prompt is the battle action of p0.
+      expectPrompt({ by: "p0", offers: ["to_m2", "to_ep"] }),
+      everySeat("ffa4", {
+        p0: { monsters: [ELF, ELF] },
+        p2: { lp: 8000 - ELF_ATK },
+        p3: { lp: 8000 - ELF_ATK, hand: [OGRE, ELF] },
+      }),
+    ],
+  }),
+];
