@@ -36,7 +36,6 @@ const KIND_LABEL: Record<string, string> = {
   "chain-resolving": "Resolving",
   "chain-resolved": "Resolved",
   "chain-negated": "Negated",
-  "chain-end": "Chain end",
   attack: "Attack",
   phase: "Phase",
   damage: "Damage",
@@ -292,6 +291,11 @@ export function DuelFeedback({
       // The battle layer draws damage on the life points; MoveFx draws card movement and
       // PositionFx the turn or flip of a monster: none of them get a toast.
       if (event.kind === "damage" || event.kind === "move" || isPositionEvent(event)) continue;
+      // The chain badges clear themselves when the chain ends, so it gets no banner: only its quiet cue.
+      if (event.kind === "chain-end") {
+        if (soundRef.current) audioRef.current?.play(event.kind);
+        continue;
+      }
       // A card flying onto the board is heard and announced when it lands, not when it leaves.
       const landAt = pairedMovePlan(event.id)?.landAt;
       // A card a fight destroyed is announced once the fight has landed its last strike.

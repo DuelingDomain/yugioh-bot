@@ -287,8 +287,6 @@ export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number
     case "chain-resolved":
     case "chain-negated":
       return 900;
-    case "chain-end":
-      return 600;
     default:
       return 900;
   }
