@@ -2,7 +2,7 @@ import type { SceneCueName } from "./fx3d/scene-plan";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import type { BattleSoundPlan } from "./attack-audio";
 import {
-  isDefense,
+  isDefenseAt,
   isFacedown,
   LOCATION_EXTRA,
   TYPE_FUSION,
@@ -152,8 +152,8 @@ export type PositionChange = {
 };
 
 export function positionChangeOf(event: PositionEvent): PositionChange {
-  const fromDefense = isDefense(event.fromPosition);
-  const toDefense = isDefense(event.toPosition);
+  const fromDefense = isDefenseAt(event.zone.location, event.fromPosition);
+  const toDefense = isDefenseAt(event.zone.location, event.toPosition);
   const fromDown = isFacedown(event.fromPosition);
   const toDown = isFacedown(event.toPosition);
   return {

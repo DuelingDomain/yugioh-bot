@@ -809,12 +809,29 @@ export function sortCardResponse(order: number[] | null): OcgResponse {
   return { type: OcgResponseType.SELECT_PLACE, places };
 }
 
-export function autoResponse(pending: PendingPrompt): OcgResponse | null {
+export interface AutoResponseOptions {
+  /**
+   * Ask about every response window that lists a card, even when none fits the window's timing. Off, a
+   * window with spe_count 0 is passed silently. Undefined counts as on: engines without duel settings
+   * (and duels saved before the setting existed) must keep producing the prompts they were played with.
+   */
+  stopAtEveryWindow?: boolean;
+}
+
+export function autoResponse(pending: PendingPrompt, options: AutoResponseOptions = {}): OcgResponse | null {
   const { message, prompt } = pending;
   switch (message.type) {
     case OcgMessageType.SELECT_CHAIN:
       if (message.selects.length === 0) return { type: OcgResponseType.SELECT_CHAIN, index: null };
       if (message.forced && message.selects.length === 1) return { type: OcgResponseType.SELECT_CHAIN, index: 0 };
+      // spe_count is the core's count of listed effects that belong to this window: optional triggers, and
+      // free-chain or quick effects whose declared hint timing matches it (every listed card during an
+      // attack declaration or a chain). The EDOPro client passes a non-forced window at 0; a Battle Step or
+      // Damage Step with only off-timing cards is the case that stalled a direct attack. A card that can
+      // really act there (an ATK boost in the Damage Step) declares the timing, so its window stays.
+      if (options.stopAtEveryWindow === false && !message.forced && message.spe_count === 0) {
+        return { type: OcgResponseType.SELECT_CHAIN, index: null };
+      }
       return null;
     case OcgMessageType.SELECT_CARD:
       if (message.min === message.max && message.max === message.selects.length && message.selects.length > 0) {

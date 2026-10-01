@@ -44,6 +44,9 @@ function info(code: number, name = `Card ${code}`): DuelCardInfo {
 
 const cards: CardDatabase = {
   search: () => [],
+  deckCard: () => undefined,
+  all: () => [],
+  setnames: () => new Map(),
   get: (code) => info(code),
   cardData: (code): OcgCardData | null => ({
     code,
@@ -304,6 +307,58 @@ describe("forced choices", () => {
     expect(autoResponse(mapPrompt(idleMessage(), cards, "p0-1"))).toBeNull();
     expect(autoResponse(mapPrompt({ type: OcgMessageType.ROCK_PAPER_SCISSORS, player: 0 }, cards, "p0-2"))).toBeNull();
     expect(autoResponse(mapPrompt({ type: OcgMessageType.SELECT_YESNO, player: 0, description: 1n }, cards, "p0-3"))).toBeNull();
+  });
+});
+
+describe("quiet response windows", () => {
+  function chainWindow(overrides: { spe_count?: number; forced?: boolean; selects?: number }): OcgMessage {
+    const count = overrides.selects ?? 1;
+    return {
+      type: OcgMessageType.SELECT_CHAIN,
+      player: 0,
+      spe_count: overrides.spe_count ?? 0,
+      forced: overrides.forced ?? false,
+      hint_timing: 0 as OcgHintTiming,
+      hint_timing_other: 0 as OcgHintTiming,
+      selects: Array.from({ length: count }, (_, sequence) => ({
+        code: 1,
+        controller: 0,
+        location: OcgLocation.SZONE,
+        sequence,
+        position: OcgPosition.FACEUP,
+        description: 1n,
+        client_mode: OcgEffectClientMode.NORMAL,
+      })),
+    };
+  }
+  const pass = { type: OcgResponseType.SELECT_CHAIN, index: null };
+
+  it("keeps asking about every window unless the duel opted into quiet windows", () => {
+    // Saved duels and engine callers without settings keep the old behaviour, so replays still line up.
+    expect(autoResponse(mapPrompt(chainWindow({ spe_count: 0 }), cards, "p0-1"))).toBeNull();
+    expect(autoResponse(mapPrompt(chainWindow({ spe_count: 0 }), cards, "p0-1"), { stopAtEveryWindow: true })).toBeNull();
+  });
+
+  it("passes a window when no listed card matches its timing", () => {
+    // spe_count 0 is the core saying nothing here is a hinted or triggered response (the EDOPro client passes it too).
+    expect(autoResponse(mapPrompt(chainWindow({ spe_count: 0 }), cards, "p0-1"), { stopAtEveryWindow: false })).toEqual(pass);
+    expect(autoResponse(mapPrompt(chainWindow({ spe_count: 0, selects: 3 }), cards, "p0-2"), { stopAtEveryWindow: false })).toEqual(pass);
+  });
+
+  it("still asks when a card matches the timing (for example an ATK boost in the Damage Step)", () => {
+    expect(autoResponse(mapPrompt(chainWindow({ spe_count: 1 }), cards, "p0-1"), { stopAtEveryWindow: false })).toBeNull();
+  });
+
+  it("never passes a mandatory effect", () => {
+    expect(autoResponse(mapPrompt(chainWindow({ spe_count: 0, forced: true, selects: 2 }), cards, "p0-1"), { stopAtEveryWindow: false })).toBeNull();
+    expect(autoResponse(mapPrompt(chainWindow({ spe_count: 0, forced: true }), cards, "p0-1"), { stopAtEveryWindow: false })).toEqual({
+      type: OcgResponseType.SELECT_CHAIN,
+      index: 0,
+    });
+  });
+
+  it("always passes an empty window", () => {
+    expect(autoResponse(mapPrompt(chainWindow({ selects: 0 }), cards, "p0-1"))).toEqual(pass);
   });
 });
 

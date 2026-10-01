@@ -2,25 +2,32 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, type LucideIcon } from "lucide-react";
+import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, X, type LucideIcon } from "lucide-react";
 import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yugidraft/shared/duels";
 import { DeckCardPreview } from "./deck-card-preview";
 import { DeckEditor } from "./deck-editor";
 import { formatLabel as tableFormatLabel, formatSeatCount, seatGroups, tagSeatCode } from "./table-format";
+import { shouldCheckDeck, startButtonLabel } from "./start-flow";
+import { SeriesBadges } from "./series-banner";
+import { deckCounts } from "./side-deck-model";
 import { DuelSettingsSummary, RoomInvite } from "./room-settings";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./room-lobby.module.css";
+import seriesStyles from "./series.module.css";
 
 function SeatCard({
-  index, taken, mine, code, onAddBot, botBusy,
+  index, taken, mine, code, waitLabel, onAddBot, onRemoveBot, botBusy,
 }: {
   index: number;
   taken: DuelSeat | undefined;
   mine: boolean;
   code: string | null;
+  waitLabel: string;
   /** Set only when the viewer may fill this empty seat with a practice bot. */
   onAddBot?: (seat: number) => void;
+  /** Set only for the organizer of a lobby table: shows the quiet remove control on a bot's seat. */
+  onRemoveBot?: (seat: number) => void;
   botBusy: boolean;
 }) {
   const seatLabel = `Seat ${index + 1}${code ? ` · ${code}` : ""}`;
@@ -57,8 +64,14 @@ function SeatCard({
       </span>
       <span className={cx(styles.status, taken.ready && styles.statusReady)}>
         <Icon size={15} strokeWidth={1.7} aria-hidden />
-        {taken.ready ? "Ready" : "Deck needed"}
+        {taken.ready ? "Ready" : waitLabel}
       </span>
+      {taken.isBot && onRemoveBot ? (
+        <button type="button" className={styles.seatRemove} onClick={() => onRemoveBot(index)} disabled={botBusy}
+          aria-label="Remove practice bot" title="Remove practice bot">
+          <X size={15} strokeWidth={1.7} aria-hidden />
+        </button>
+      ) : null}
     </li>
   );
 }
@@ -68,10 +81,14 @@ export function RoomLobby({
   room,
   slug,
   busy,
+  starting = false,
   actionError,
+  onDeckLocked,
   onJoin,
   onAddBot,
+  onRemoveBot,
   onReady,
+  onMarkReady,
   onStart,
   onCancel,
   onLeave,
@@ -79,11 +96,19 @@ export function RoomLobby({
   room: DuelRoom;
   slug: string;
   busy: boolean;
+  /** Start duel was clicked and the server has not answered yet. */
+  starting?: boolean;
   actionError: string | null;
+  /** A deck check was refused because the duel already started: refresh the room. */
+  onDeckLocked?: () => void;
   onJoin: () => void;
   /** `seat` is the 0-based empty seat the organizer picked. */
   onAddBot: (seat?: number) => void;
+  /** Organizer only: takes a practice bot out of its seat so a human can join. `seat` is the bot's 0-based seat. */
+  onRemoveBot: (seat?: number) => void;
   onReady: (deck: DuelDeck) => void;
+  /** Tournament games: ready up with the registered deck. */
+  onMarkReady?: () => void;
   onStart: () => void;
   onCancel: () => void;
   onLeave: () => void;
@@ -96,8 +121,6 @@ export function RoomLobby({
   const myMeta = mySeat != null ? session.seats.find((seat) => seat.seat === mySeat) : undefined;
   const isOrganizer = myMeta?.playerId === session.organizerPlayerId;
   const seatCount = formatSeatCount(session.format);
-  const canStart = isOrganizer && occupied === seatCount && readyCount === seatCount && session.status === "lobby";
-  const canAddBot = isOrganizer && occupied >= 1 && occupied < seatCount && session.status === "lobby";
   const groups = seatGroups(session.format);
   const everyoneWord = seatCount === 2 ? "Both seats" : `All ${seatCount} seats`;
 
@@ -105,7 +128,20 @@ export function RoomLobby({
     ? isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : (session.format && session.format !== "1v1" ? "Domain · singleton" : "Domain 1v1 · singleton")
     : `Master Rule ${session.masterRule}`;
   const isPrivate = session.settings.visibility === "private";
-  const showPreview = mySeat != null;
+  const series = room.series;
+  const tournamentGame = series != null && series.tournamentId != null;
+  const lockedDeck = tournamentGame && mySeat != null;
+  // A series game starts by itself once both players are ready, so the organizer has no Start button.
+  const autoStart = series != null;
+  const showPreview = mySeat != null && !lockedDeck;
+  const seriesCancel = series != null && mySeat != null && occupied >= 2;
+  const canAddBot = isOrganizer && occupied >= 1 && occupied < seatCount && session.status === "lobby";
+  const showBotPanel = canAddBot;
+  // A bot game never makes a series, so a Best of 3 or Ranked table plays one uncounted game against it.
+  const botNote = series == null && (session.bestOf === 3 || session.ranked === true) && (showBotPanel || session.seats.some((seat) => seat.isBot))
+    ? <p className={ui.hint} data-testid="practice-bot-note">Games against the practice bot do not count. This table plays one game and records nothing.</p>
+    : null;
+  const canStart = !autoStart && isOrganizer && occupied === seatCount && readyCount === seatCount && session.status === "lobby";
 
   return (
     <div className={cx(sheetPage, styles.page)}>
@@ -117,6 +153,7 @@ export function RoomLobby({
               <span className={cx(ui.chip, ui.chipAccent)}>{tableFormatLabel(session.format)}</span>
               <span className={cx(ui.chip, ui.chipAccent)}>{formatLabel}</span>
               <span className={ui.chip}>Lobby</span>
+              {series ? <SeriesBadges series={series} showGame /> : null}
               <span className={ui.chip}>
                 {isPrivate ? <Lock size={13} strokeWidth={1.6} aria-hidden /> : <Globe size={13} strokeWidth={1.6} aria-hidden />}
                 {isPrivate ? "Private" : "Public"}
@@ -148,7 +185,9 @@ export function RoomLobby({
                         taken={session.seats.find((item) => item.seat === seat)}
                         mine={seat === mySeat}
                         code={tagSeatCode(session.format, seat)}
+                        waitLabel={tournamentGame ? "Not ready" : "Deck needed"}
                         onAddBot={canAddBot ? onAddBot : undefined}
+                        onRemoveBot={isOrganizer && session.status === "lobby" ? onRemoveBot : undefined}
                         botBusy={busy}
                       />
                     ))}
@@ -157,9 +196,13 @@ export function RoomLobby({
               ))}
               {mySeat != null ? (
                 <p className={styles.help} role="status">
-                  {myMeta?.ready
-                    ? `Your deck is ready. ${everyoneWord} must be ready before the organizer starts.`
-                    : "Import your deck, then click Ready with this deck. Deck needed means no valid deck has been submitted yet."}
+                  {tournamentGame
+                    ? myMeta?.ready
+                      ? "You are ready. The game starts when both players are ready."
+                      : "Your registered deck is locked for this tournament. Click Ready when you can play."
+                    : myMeta?.ready
+                      ? autoStart ? "Your deck is ready. The game starts when both players are ready." : `Your deck is ready. ${everyoneWord} must be ready before the organizer starts.`
+                      : "Import your deck, then click Ready with this deck. Deck needed means no valid deck has been submitted yet."}
                 </p>
               ) : null}
               {actionError ? <p role="alert" className={ui.alert}>{actionError}</p> : null}
@@ -170,12 +213,20 @@ export function RoomLobby({
                   </SheetButton>
                 ) : canStart ? (
                   <SheetButton kind="primary" size="lg" loading={busy} disabled={busy} onClick={onStart}>
-                    Start duel<Swords size={17} strokeWidth={1.6} aria-hidden />
+                    {startButtonLabel(starting)}{starting ? null : <Swords size={17} strokeWidth={1.6} aria-hidden />}
                   </SheetButton>
+                ) : lockedDeck ? (
+                  <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || myMeta?.ready || !onMarkReady} onClick={onMarkReady}>
+                    Ready<CheckCircle2 size={17} strokeWidth={1.6} aria-hidden />
+                  </SheetButton>
+                ) : autoStart && mySeat != null ? (
+                  <p className={styles.startHint}>Starts when both players are ready</p>
                 ) : isOrganizer ? (
                   <p className={styles.startHint}>Start unlocks when {seatCount === 2 ? "both seats are" : `all ${seatCount} seats are`} ready.</p>
                 ) : null}
-                {isOrganizer ? (
+                {seriesCancel ? (
+                  <SheetButton kind="quiet" disabled={busy} onClick={onCancel}>Cancel series</SheetButton>
+                ) : isOrganizer ? (
                   <SheetButton kind="quiet" disabled={busy} onClick={onCancel}>Cancel table</SheetButton>
                 ) : mySeat != null ? (
                   <SheetButton kind="quiet" disabled={busy} onClick={onLeave}>Leave table</SheetButton>
@@ -183,7 +234,21 @@ export function RoomLobby({
               </div>
             </section>
 
-            {mySeat != null ? (
+            {lockedDeck ? (
+              <section className={cx(styles.panel, seriesStyles.lockedDeck)} aria-label="Registered deck">
+                <h2 className={ui.sectionTitle}>Registered deck (locked)</h2>
+                {room.myDeck ? (
+                  <dl className={seriesStyles.lockedCounts}>
+                    {(["main", "extra", "side"] as const).map((key) => (
+                      <div key={key}><dt style={{ display: "inline" }}>{key[0].toUpperCase() + key.slice(1)}</dt><dd style={{ display: "inline" }}><b>{deckCounts(room.myDeck!)[key]}</b></dd></div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className={ui.hint}>Your registered deck loads when the game opens.</p>
+                )}
+                <p className={ui.hint}>The deck you registered for this tournament is used for every game. You cannot change it here.</p>
+              </section>
+            ) : mySeat != null ? (
               <section className={cx(styles.panel, styles.deckPanel)} aria-label="Deck import">
                 <DeckEditor
                   slug={slug}
@@ -191,6 +256,8 @@ export function RoomLobby({
                   settings={session.settings}
                   initial={room.myDeck}
                   busy={busy}
+                  locked={starting || !shouldCheckDeck(session.status)}
+                  onLocked={onDeckLocked}
                   onReady={onReady}
                   onPreviewCard={setPreviewCode}
                 />
@@ -202,7 +269,7 @@ export function RoomLobby({
             <section className={styles.panel}>
               <DuelSettingsSummary session={session} />
             </section>
-            {canAddBot ? (
+            {showBotPanel ? (
               <section className={cx(styles.panel, styles.bot)} aria-label="Practice bot">
                 <h2 className={ui.sectionTitle}>Practice bot</h2>
                 <p className={ui.hint}>
@@ -212,7 +279,10 @@ export function RoomLobby({
                 <SheetButton loading={busy} disabled={busy} onClick={() => onAddBot()}>
                   <Bot size={16} strokeWidth={1.6} aria-hidden />Add practice bot
                 </SheetButton>
+                {botNote}
               </section>
+            ) : botNote ? (
+              <section className={styles.panel}>{botNote}</section>
             ) : null}
           </aside>
         </div>

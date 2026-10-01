@@ -663,3 +663,14 @@
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ---- Series (Best of 3, ranked, tournament) ---------------------------- */
+
+.seriesBlock {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+.root[data-phase="play"] .seriesBlock { animation: rise 0.4s 1s ease-out both; pointer-events: none; }

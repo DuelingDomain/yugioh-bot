@@ -76,6 +76,32 @@ describe("tournament timer service", () => {
     expect(closed).toEqual([t.id]);
   });
 
+  it("notifies each duel game closed with a tournament past its deadline", async () => {
+    const app = setup();
+    const t = app.tournaments.create("g1", "Cup", "round_robin", "u1", { deadlineAt: "2026-05-20T00:00:00.000Z" });
+    app.tournaments.join(t.id, app.p1);
+    app.tournaments.join(t.id, app.p2);
+    app.tournaments.start(t.id);
+    const real = app.tournaments.closeForDeadlineWithChanges;
+    vi.spyOn(app.tournaments, "closeForDeadlineWithChanges").mockImplementation((id) => ({
+      ...real(id),
+      changedDuelSlugs: ["duel-a", "duel-b"],
+    }));
+
+    const notify = vi.fn(async (_slug: string, _guildId: string) => {});
+    const timer = createTournamentTimerService({
+      tournaments: app.tournaments,
+      matches: app.matches,
+      onMatchAutoResolved: async () => {},
+      onTournamentClosed: async () => {},
+      notifyDuelChange: notify,
+    });
+
+    await timer.tick(new Date("2026-05-21T00:00:00.000Z"));
+
+    expect(notify.mock.calls).toEqual([["duel-a", "g1"], ["duel-b", "g1"]]);
+  });
+
   it("continues past a callback that throws", async () => {
     const app = setup();
     const mk = (name: string) => {
@@ -103,6 +129,75 @@ describe("tournament timer service", () => {
     // both closed in DB; callback failure on t1 didn't stop t2's callback
     expect(closed).toContain(t2.id);
     expect((app.db.prepare("select status from tournaments where id = ?").get(t2.id) as { status: string }).status).toBe("completed");
+  });
+
+  describe("completion sweep", () => {
+    function completedTournament(app: ReturnType<typeof setup>, name: string) {
+      const t = app.tournaments.create("g1", name, "round_robin", "u1");
+      app.db.prepare("update tournaments set status = 'completed', ended_at = ? where id = ?").run("2026-05-20T00:00:00.000Z", t.id);
+      return t;
+    }
+
+    function timerWith(app: ReturnType<typeof setup>, announced: number[], ids: () => number[]) {
+      return createTournamentTimerService({
+        tournaments: app.tournaments,
+        matches: app.matches,
+        onMatchAutoResolved: async () => {},
+        onTournamentClosed: async () => {},
+        completedSweep: {
+          findUnannounced: ids,
+          announce: async (id) => { announced.push(id); },
+        },
+      });
+    }
+
+    it("announces an unannounced completed tournament once", async () => {
+      const app = setup();
+      const t = completedTournament(app, "Online Cup");
+      const announced: number[] = [];
+      const timer = timerWith(app, announced, () => [t.id]);
+
+      await timer.tick(new Date("2026-05-20T01:00:00.000Z"));
+      await timer.tick(new Date("2026-05-20T01:01:00.000Z"));
+
+      // The second tick finds the claim already taken.
+      expect(announced).toEqual([t.id]);
+      const row = app.db.prepare("select completed_announced_at from tournaments where id = ?").get(t.id) as { completed_announced_at: string | null };
+      expect(row.completed_announced_at).not.toBeNull();
+    });
+
+    it("skips a tournament another path already announced", async () => {
+      const app = setup();
+      const t = completedTournament(app, "Done Cup");
+      expect(app.matches.claimTournamentCompletionAnnouncement(t.id)).toBe(true);
+      const announced: number[] = [];
+      await timerWith(app, announced, () => [t.id]).tick(new Date("2026-05-20T01:00:00.000Z"));
+      expect(announced).toEqual([]);
+    });
+
+    it("continues past an announce that throws", async () => {
+      const app = setup();
+      const t1 = completedTournament(app, "A");
+      const t2 = completedTournament(app, "B");
+      const announced: number[] = [];
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const timer = createTournamentTimerService({
+        tournaments: app.tournaments,
+        matches: app.matches,
+        onMatchAutoResolved: async () => {},
+        onTournamentClosed: async () => {},
+        completedSweep: {
+          findUnannounced: () => [t1.id, t2.id],
+          announce: async (id) => {
+            if (id === t1.id) throw new Error("boom");
+            announced.push(id);
+          },
+        },
+      });
+      await timer.tick(new Date("2026-05-20T01:00:00.000Z"));
+      expect(announced).toEqual([t2.id]);
+      warn.mockRestore();
+    });
   });
 
   it("polls every 60 seconds while running", () => {

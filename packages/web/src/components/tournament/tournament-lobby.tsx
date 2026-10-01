@@ -4,6 +4,9 @@ import { useState } from "react";
 import { Link as LinkIcon, Check, Play, UserPlus, X, LogOut, Megaphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TournamentSettingsForm } from "./tournament-settings-form";
+import { TournamentRulesForm } from "./tournament-rules-form";
+import { MyDeckPanel } from "./my-deck-panel";
+import { DeckMarker } from "./deck-marker";
 import type { TournamentDetail } from "./types";
 
 interface TournamentLobbyProps {
@@ -224,6 +227,7 @@ export function TournamentLobby({
                     You
                   </span>
                 )}
+                {isCreator && <DeckMarker participant={p} />}
                 {canKick && (
                   <button
                     type="button"
@@ -329,6 +333,16 @@ export function TournamentLobby({
             initialReportConfirmWindowHours={tournament.reportConfirmWindowHours}
             onSaved={onChanged}
           />
+          <div className="mt-6">
+            <TournamentRulesForm tournament={tournament} tournamentSlug={tournamentSlug} onSaved={onChanged} />
+          </div>
+        </section>
+      )}
+
+      {/* Deck registration — participants can register before the start */}
+      {isParticipant && (
+        <section className="mb-6">
+          <MyDeckPanel tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
         </section>
       )}
 

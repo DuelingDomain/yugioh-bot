@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   defaultDuelSettings,
   DUEL_FORMATS,
+  duelClockBankMs,
+  duelClockRulesText,
   isCustomDomain,
   isDuelFormat,
   normalizeDuelClockState,
@@ -9,6 +11,7 @@ import {
   opponentSeatsOf,
   parseStoredDuelClock,
   partnerSeatOf,
+  parseStoredDuelSettings,
   PINNED_TCG_BANLIST_ID,
   seatCountFor,
   seatsOfTeam,
@@ -108,5 +111,34 @@ describe("N-seat clock state", () => {
     expect(() => normalizeDuelClockState({ ...base, remainingMs: [1, 2, 3, 4, 5], activeSeat: 0 })).toThrow(/remainingMs/);
     expect(() => normalizeDuelClockState({ ...base, remainingMs: [1, 2, 3], activeSeat: 3 })).toThrow(/activeSeat/);
     expect(() => normalizeDuelClockState({ ...base, remainingMs: [1, -2], activeSeat: null })).toThrow(/remainingMs/);
+  });
+});
+
+describe("unlimited turn time", () => {
+  it("accepts 0 as unlimited and keeps it in stored settings", () => {
+    expect(normalizeDuelSettings("normal", { turnSeconds: 0 }).turnSeconds).toBe(0);
+    expect(parseStoredDuelSettings(JSON.stringify({ turnSeconds: 0 })).turnSeconds).toBe(0);
+    expect(duelClockBankMs(0)).toBeNull();
+    expect(duelClockRulesText(0)).toBe("");
+  });
+});
+
+describe("stopAtEveryWindow", () => {
+  it("is quiet for new duels and keeps asking for saved ones", () => {
+    expect(defaultDuelSettings("normal").stopAtEveryWindow).toBe(false);
+    expect(normalizeDuelSettings("domain", undefined).stopAtEveryWindow).toBe(false);
+    // Rows saved before the setting existed replay with the old stop-everywhere engine behaviour.
+    expect(parseStoredDuelSettings(JSON.stringify({ turnSeconds: 0 })).stopAtEveryWindow).toBe(true);
+    expect(parseStoredDuelSettings(null).stopAtEveryWindow).toBe(true);
+  });
+
+  it("accepts a boolean and rejects anything else", () => {
+    expect(normalizeDuelSettings("normal", { stopAtEveryWindow: true }).stopAtEveryWindow).toBe(true);
+    expect(parseStoredDuelSettings(JSON.stringify({ stopAtEveryWindow: false })).stopAtEveryWindow).toBe(false);
+    expect(() => normalizeDuelSettings("normal", { stopAtEveryWindow: "yes" })).toThrow(/stopAtEveryWindow/);
+  });
+
+  it("does not make a domain duel custom", () => {
+    expect(isCustomDomain(5, { ...defaultDuelSettings("domain"), stopAtEveryWindow: true })).toBe(false);
   });
 });

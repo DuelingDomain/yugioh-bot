@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { httpTransport } from "@yugidraft/shared/notify";
-import { createDuelService, createPlayerService, DuelServiceError, type DuelService } from "@yugidraft/shared/services";
-import type { DuelCommand, DuelDeck } from "@yugidraft/shared/duels";
+import {
+  createDuelService,
+  createPlayerService,
+  DuelServiceError,
+  SavedDeckServiceError,
+  TournamentDuelError,
+  type DuelService,
+} from "@yugidraft/shared/services";
+import type { CardQuery, DuelCommand, DuelDeck, DuelMasterRule, DuelMode } from "@yugidraft/shared/duels";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "list-presets" | "start-preset" | "report" | "debug-trace";
+export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "series-side" | "series-ready" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace";
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
@@ -51,7 +58,11 @@ export async function requireDuelActor(): Promise<DuelActor> {
 }
 
 export function duelErrorResponse(error: unknown) {
-  if (error instanceof DuelServiceError) {
+  if (
+    error instanceof DuelServiceError ||
+    error instanceof TournamentDuelError ||
+    error instanceof SavedDeckServiceError
+  ) {
     return NextResponse.json({ error: error.message }, { status: error.status });
   }
   console.error("[api/duels]", error);
@@ -97,6 +108,11 @@ export async function callDuelHost(input: {
   seed?: string[];
   /** report only: the tester's note. */
   note?: string;
+  cardQuery?: CardQuery;
+  /** Rules for `check-deck`. */
+  mode?: DuelMode;
+  masterRule?: DuelMasterRule;
+  settings?: unknown;
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
@@ -119,6 +135,10 @@ export async function callDuelHost(input: {
   if (input.presetId !== undefined) payload.presetId = input.presetId;
   if (input.seed !== undefined) payload.seed = input.seed;
   if (input.note !== undefined) payload.note = input.note;
+  if (input.cardQuery !== undefined) payload.cardQuery = input.cardQuery;
+  if (input.mode !== undefined) payload.mode = input.mode;
+  if (input.masterRule !== undefined) payload.masterRule = input.masterRule;
+  if (input.settings !== undefined) payload.settings = input.settings;
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {

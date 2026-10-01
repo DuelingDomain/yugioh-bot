@@ -12,6 +12,8 @@
  * have their own passcode, so add each id you want covered.
  */
 
+import { BREAK_SETTLE_MS } from "./battle-hold";
+
 export const ATTRIBUTE = { EARTH: 0x01, WATER: 0x02, FIRE: 0x04, WIND: 0x08, LIGHT: 0x10, DARK: 0x20, DIVINE: 0x40 } as const;
 
 export type AttackStyleId = "slash" | "claw" | "beam" | "arcane" | "lightning" | "flame" | "impact";
@@ -177,24 +179,24 @@ export function attackStyleFor(card: AttackCardLike | null | undefined): AttackS
 /* ---------- timing of one whole attack ---------- */
 
 /**
- * How the fight reads on screen. `held` = neither monster is destroyed (a defender holds, or the
- * fight is not a plain battle); `lose` = the attacker dies alone and the defender strikes back.
+ * How the fight reads on screen. `held` = neither monster is destroyed and nobody is hurt (a
+ * defender holds); `bounce` = neither is destroyed, but the attacker's controller takes the damage
+ * (a Defense Position defender with higher DEF: the blow bounces back); `lose` = the attacker dies
+ * alone and the defender strikes back; `tie` = both die, after the defender's counter strike.
  */
-export type BattleKind = "direct" | "win" | "lose" | "tie" | "held";
+export type BattleKind = "direct" | "win" | "lose" | "tie" | "held" | "bounce";
 
-export function battleKind(direct: boolean, destroyed: { attacker: boolean; target: boolean }): BattleKind {
+export function battleKind(direct: boolean, destroyed: { attacker: boolean; target: boolean }, attackerHurt = false): BattleKind {
   if (direct) return "direct";
   if (destroyed.attacker && destroyed.target) return "tie";
   if (destroyed.attacker) return "lose";
   if (destroyed.target) return "win";
-  return "held";
+  return attackerHurt ? "bounce" : "held";
 }
 
-/** Counter strike: starts this long after the attacker's impact, at this speed. */
-export const COUNTER_GAP_MS = 100;
-export const COUNTER_SCALE = 0.7;
-/** In a tie the defender's recoil breaks the attacker this long after the impact. */
-export const TIE_RECOIL_MS = 200;
+/** Counter strike: starts this long after the attacker's impact (a short pause to read the first hit), at this speed. */
+export const COUNTER_GAP_MS = 135;
+export const COUNTER_SCALE = 0.92;
 /** How long after the impact the destroyed card's break-up takes at most. */
 export const DESTROY_TAIL_MS = 700;
 /**
@@ -202,13 +204,15 @@ export const DESTROY_TAIL_MS = 700;
  * start of the LP roll are seen first (the card never breaks before, or while, the strike travels).
  */
 export const DESTROY_BEAT_MS = 320;
-/** No fight holds the prompts longer than this. */
-export const MAX_BATTLE_MS = 1850;
+/** The Graveyard flight starts this long after the slice, so the halves are seen before the card leaves. */
+export const GRAVEYARD_AFTER_SLICE_MS = BREAK_SETTLE_MS;
+/** No fight holds the prompts longer than this (the slowest counter fight is about 2.2 s). */
+export const MAX_BATTLE_MS = 2400;
 
 export type BattleTiming = {
   /** The attacker's strike lands (damage to the defender rolls here). */
   impactMs: number;
-  /** When damage that lands on the attacker's own seat rolls (the counter's impact when the attacker loses). */
+  /** When damage that lands on the attacker's own seat rolls (the counter's impact when the defender strikes back). */
   attackerDamageMs: number;
   /** When the destroyed target breaks (null when it survives). Always after the strike that killed it landed. */
   targetBreakMs: number | null;
@@ -218,32 +222,67 @@ export type BattleTiming = {
   totalMs: number;
 };
 
+/** Kinds where the defender strikes back with its own style. */
+export function hasCounterStrike(kind: BattleKind): boolean {
+  return kind === "lose" || kind === "tie" || kind === "bounce";
+}
+
 export function battleTiming(kind: BattleKind, attacker: AttackStyleId, defender: AttackStyleId | null): BattleTiming {
   const a = STYLE_TIMING[attacker];
-  if (kind === "lose" && defender) {
+  if (hasCounterStrike(kind) && defender) {
     const d = STYLE_TIMING[defender];
     const start = a.impact + COUNTER_GAP_MS;
     const counterImpact = Math.round(start + d.impact * COUNTER_SCALE);
+    const slice = kind === "bounce" ? null : counterImpact + DESTROY_BEAT_MS;
+    const fightMs = Math.round(Math.max(a.total, start + d.total * COUNTER_SCALE));
     return {
       impactMs: a.impact,
       attackerDamageMs: counterImpact,
-      targetBreakMs: null,
-      attackerBreakMs: counterImpact + DESTROY_BEAT_MS,
-      totalMs: Math.min(MAX_BATTLE_MS, Math.round(Math.max(a.total, start + d.total * COUNTER_SCALE)) + DESTROY_BEAT_MS),
-    };
-  }
-  if (kind === "tie") {
-    const attackerBreak = a.impact + TIE_RECOIL_MS + DESTROY_BEAT_MS;
-    return {
-      impactMs: a.impact,
-      attackerDamageMs: a.impact,
-      targetBreakMs: a.impact + DESTROY_BEAT_MS,
-      attackerBreakMs: attackerBreak,
-      totalMs: Math.max(a.total + DESTROY_BEAT_MS, attackerBreak + DESTROY_TAIL_MS - 100),
+      // A tie slices both cards together, after the counter landed: the defender never breaks while it strikes.
+      targetBreakMs: kind === "tie" ? slice : null,
+      attackerBreakMs: kind === "lose" || kind === "tie" ? slice : null,
+      totalMs: Math.min(MAX_BATTLE_MS, fightMs + (slice == null ? 0 : DESTROY_BEAT_MS)),
     };
   }
   if (kind === "win") {
     return { impactMs: a.impact, attackerDamageMs: a.impact + 140, targetBreakMs: a.impact + DESTROY_BEAT_MS, attackerBreakMs: null, totalMs: a.total + DESTROY_BEAT_MS };
   }
   return { impactMs: a.impact, attackerDamageMs: a.impact + 140, targetBreakMs: null, attackerBreakMs: null, totalMs: a.total };
+}
+
+export type BattleBeatId =
+  | "strike-start"
+  | "strike-impact"
+  | "counter-start"
+  | "counter-impact"
+  | "slice-target"
+  | "slice-attacker"
+  | "graveyard-target"
+  | "graveyard-attacker";
+
+export type BattleBeat = { id: BattleBeatId; atMs: number };
+
+/**
+ * The fight as an ordered list of beats, from the same numbers the picture, the sound, the LP
+ * roll and the destroy holds use. The order the player must see:
+ *   1 the attacker's strike lands, 2 a short pause, 3 the defender strikes back in its own style,
+ *   4 the counter lands on the attacker, 5 only then the loser is sliced, 6 then it goes to the Graveyard.
+ * A win has no counter: strike, slice, Graveyard. Beats with the same time keep this order.
+ */
+export function battleTimeline(kind: BattleKind, attacker: AttackStyleId, defender: AttackStyleId | null): BattleBeat[] {
+  const t = battleTiming(kind, attacker, defender);
+  const beats: BattleBeat[] = [
+    { id: "strike-start", atMs: 0 },
+    { id: "strike-impact", atMs: t.impactMs },
+  ];
+  if (hasCounterStrike(kind) && defender) {
+    beats.push({ id: "counter-start", atMs: t.impactMs + COUNTER_GAP_MS }, { id: "counter-impact", atMs: t.attackerDamageMs });
+  }
+  if (t.targetBreakMs != null) {
+    beats.push({ id: "slice-target", atMs: t.targetBreakMs }, { id: "graveyard-target", atMs: t.targetBreakMs + GRAVEYARD_AFTER_SLICE_MS });
+  }
+  if (t.attackerBreakMs != null) {
+    beats.push({ id: "slice-attacker", atMs: t.attackerBreakMs }, { id: "graveyard-attacker", atMs: t.attackerBreakMs + GRAVEYARD_AFTER_SLICE_MS });
+  }
+  return beats.map((beat, index) => ({ beat, index })).sort((x, y) => x.beat.atMs - y.beat.atMs || x.index - y.index).map((entry) => entry.beat);
 }

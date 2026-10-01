@@ -3,12 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { ArrowRight, Eye, Lock, Plus, Users } from "lucide-react";
+import { ArrowRight, Eye, Lock, Plus, Swords, Users } from "lucide-react";
 import { isCustomDomain, type DuelHistoryScope, type DuelListItem } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { formatLabel, formatSeatCount } from "./table-format";
 import { DUEL_LIST_KEY, cancelDuel, leaveDuel, listDuels, surrenderDuel } from "./api";
+import { isNotableSeries, SeriesBadges } from "./series-banner";
 import { cx, SheetButton, sheetButtonClass, SheetSegmented, sheetRoot } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./lobby.module.css";
@@ -125,6 +126,7 @@ function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelLi
           <span className={styles.chips}>
             <span className={ui.chip}>{modeLabel(duel)}</span>
             <span className={cx(ui.chip, duel.status === "active" && ui.chipGold)}>{statusLabel(duel.status)}</span>
+            {isNotableSeries(duel.series) ? <SeriesBadges series={duel.series} showGame plain /> : null}
             <span className={ui.chip}><Users size={13} strokeWidth={1.6} aria-hidden />{duel.seats.length}/{formatSeatCount(duel.format)}</span>
             {duel.format && duel.format !== "1v1" ? <span className={ui.chip}>{formatLabel(duel.format)}</span> : null}
             {duel.settings.visibility === "private" ? <span className={ui.chip}><Lock size={13} strokeWidth={1.6} aria-hidden />Private</span> : null}
@@ -156,6 +158,7 @@ function HistoryRow({ duel }: { duel: DuelListItem }) {
         <span className={styles.name}>{duel.name}</span>
         <span className={styles.chips}>
           <span className={ui.chip}>{modeLabel(duel)}</span>
+          {isNotableSeries(duel.series) ? <SeriesBadges series={duel.series} plain /> : null}
           {duel.endedAt ? <span className={styles.activity}>{formatDate(duel.endedAt)}</span> : null}
         </span>
         <p className={styles.versus}>
@@ -216,9 +219,14 @@ export function DuelLobby({ initialView = "live" }: { initialView?: DuelListView
           <h1 className={ui.title}>Duels</h1>
           <p className={ui.lede}>Automated 1v1 tables.</p>
         </div>
-        <Link href="/duels/new" className={sheetButtonClass("primary", "lg")}>
-          <Plus size={17} strokeWidth={1.7} aria-hidden />Create game
-        </Link>
+        <div className={styles.headActions}>
+          <Link href="/duels/new?challenge=1" className={sheetButtonClass("secondary", "lg")}>
+            <Swords size={17} strokeWidth={1.7} aria-hidden />Challenge a player
+          </Link>
+          <Link href="/duels/new" className={sheetButtonClass("primary", "lg")}>
+            <Plus size={17} strokeWidth={1.7} aria-hidden />Create game
+          </Link>
+        </div>
       </header>
 
       <section className={styles.section}>

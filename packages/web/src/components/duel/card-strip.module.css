@@ -1,0 +1,178 @@
+/* Card strip: a wide, short row of large cards for card picks in the middle of the board.
+   Purple marks your pick, the near-white ring marks the card under the pointer or key focus. */
+
+.wrap {
+  --cs-u: var(--duel-unit, 1px);
+  --cs-w: calc(84 * var(--cs-u));
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--cs-u));
+  min-width: 0;
+  min-height: 0;
+}
+
+.caption {
+  margin: 0;
+  min-height: calc(16 * var(--cs-u));
+  color: var(--duel-ink-3, #958f81);
+  font-size: var(--duel-t-xs, 11px);
+  line-height: 1.4;
+  text-align: right;
+}
+.caption[data-busy="true"] { color: var(--duel-chain-ink, #f4d690); }
+
+.strip {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: calc(10 * var(--cs-u));
+  margin: 0;
+  /* Room for the lift on hover and the order mark that hangs off a card's corner. */
+  padding: calc(10 * var(--cs-u)) calc(8 * var(--cs-u)) calc(6 * var(--cs-u));
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(155 126 255 / 0.5) transparent;
+}
+/* Few cards sit in the middle; many cards scroll from the left (auto margins never clip). */
+.cell:first-child { margin-left: auto; }
+.cell:last-child { margin-right: auto; }
+.cell { flex: none; width: var(--cs-w); min-width: 0; }
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6 * var(--cs-u));
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--duel-ink, #efe7d5);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+.card:disabled { cursor: not-allowed; opacity: 0.55; }
+.card:focus-visible { outline: none; }
+
+.art {
+  position: relative;
+  display: block;
+  aspect-ratio: 59 / 86;
+  border-radius: calc(5 * var(--cs-u));
+  background: var(--duel-panel-3, #132037) center / cover no-repeat;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6), 0 8px 18px rgb(0 0 0 / 0.5);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+.art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+/* Under the pointer or key focus: lift and a light ring. */
+.card[data-active="true"]:not(:disabled) .art,
+.card:hover:not(:disabled) .art {
+  transform: translateY(calc(-4 * var(--cs-u)));
+  box-shadow: 0 0 0 2px var(--duel-ink, #efe7d5), 0 12px 22px rgb(0 0 0 / 0.55);
+}
+.card:focus-visible .art { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 3px; }
+
+/* Selected: a heavy purple ring, a glow and the order mark. Kept apart from the light hover ring. */
+.card[data-selected="true"] .art,
+.card[data-selected="true"][data-active="true"]:not(:disabled) .art,
+.card[data-selected="true"]:hover:not(:disabled) .art {
+  box-shadow:
+    0 0 0 3px var(--duel-pen, #9b7eff),
+    0 0 0 5px rgb(7 11 21 / 0.85),
+    0 0 26px rgb(155 126 255 / 0.6);
+}
+.card[data-selected="true"] .name { color: var(--duel-pen-ink, #c6b6ff); font-weight: 600; }
+
+.num {
+  position: absolute;
+  top: calc(5 * var(--cs-u));
+  left: calc(5 * var(--cs-u));
+  display: grid;
+  place-items: center;
+  min-width: calc(22 * var(--cs-u));
+  height: calc(22 * var(--cs-u));
+  padding: 0 calc(4 * var(--cs-u));
+  border: 1.5px solid var(--duel-pen, #9b7eff);
+  border-radius: 999px;
+  background: rgb(7 11 21 / 0.86);
+  color: var(--duel-pen-ink, #c6b6ff);
+  font-family: var(--duel-f-num, var(--font-display));
+  font-size: var(--duel-t-sm, 12px);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.mark {
+  position: absolute;
+  top: calc(-9 * var(--cs-u));
+  right: calc(-9 * var(--cs-u));
+  display: grid;
+  place-items: center;
+  min-width: calc(28 * var(--cs-u));
+  height: calc(28 * var(--cs-u));
+  border-radius: 50%;
+  background: var(--duel-pen-fill, #5733d1);
+  box-shadow: 0 0 0 2px var(--duel-pen-ink, #c6b6ff), 0 4px 10px rgb(0 0 0 / 0.5);
+  color: #fff;
+  font-family: var(--duel-f-num, var(--font-display));
+  font-size: var(--duel-t-body, 13px);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--duel-t-sm, 12px);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.note {
+  color: var(--duel-ink-2, #c3bba8);
+  font-family: var(--duel-f-num, var(--font-display));
+  font-size: var(--duel-t-sm, 12px);
+}
+
+.detail {
+  display: block;
+  overflow: hidden;
+  color: var(--duel-ink-2, #c3bba8);
+  font-size: var(--duel-t-xs, 11px);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Chain responses use gold, as their panel does. */
+.wrap[data-tone="chain"] .num {
+  border-color: var(--duel-chain, #e4b64f);
+  color: var(--duel-chain-ink, #f4d690);
+}
+.wrap[data-tone="chain"] .detail { color: var(--duel-chain-ink, #f4d690); }
+
+:global([data-reduced="true"]) .art { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .art { transition: none; }
+}
+
+/* Phones: smaller cards, and the inspector is a sheet rather than the pane on the left. */
+@media (max-width: 900px) {
+  .wrap { --cs-w: calc(72 * var(--cs-u)); }
+  .hint { display: none; }
+}
+@media (pointer: coarse) {
+  .hint { display: none; }
+}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { callDuelHost, duelErrorResponse, requireDuelActor, sessionFromHost } from "@/lib/duel-host";
+import { notifyDuelChange } from "@/lib/notify-duel";
 
 export const runtime = "nodejs";
 
@@ -57,4 +58,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   });
   if (!result.ok) return result.response;
   return NextResponse.json(sessionFromHost(result.data));
+}
+
+/** Takes the practice bot out of its seat. A lobby-only seat change, so it needs no duel engine (like join and leave). */
+export async function DELETE(request: Request, { params }: { params: Promise<{ slug: string }> }) {
+  const actor = await requireDuelActor();
+  if (!actor.ok) return actor.response;
+  const { slug } = await params;
+
+  // Body is optional: `{ seat }` removes the bot in that seat (a table can hold several bots); with no body every bot goes.
+  const parsed = await readSeat(request);
+  if (!parsed.ok) return parsed.response;
+
+  try {
+    const session = actor.duels.removePracticeBot(slug, actor.guildId, actor.playerId, parsed.seat);
+    await notifyDuelChange(session.slug, actor.guildId);
+    return NextResponse.json({ session });
+  } catch (error) {
+    return duelErrorResponse(error);
+  }
 }

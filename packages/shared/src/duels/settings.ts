@@ -77,6 +77,7 @@ const SETTINGS_KEYS = [
   "timeout",
   "validateDeck",
   "shuffleDeck",
+  "stopAtEveryWindow",
 ] as const;
 
 /**
@@ -129,6 +130,13 @@ export interface DuelSettings {
   timeout: DuelTimeout;
   validateDeck: boolean;
   shuffleDeck: boolean;
+  /**
+   * true = the engine asks about every response window that lists a card (the pre-existing behaviour);
+   * false = it passes a window silently when no listed card fits its timing (what EDOPro does).
+   * It changes which prompts a duel has, so it is stored with the duel: rows saved without it read as
+   * true, and a replay of a saved duel therefore sees the same prompts it was played with.
+   */
+  stopAtEveryWindow?: boolean;
 }
 
 export interface DuelClockState {
@@ -225,6 +233,7 @@ function parseSettingsObject(value: Record<string, unknown>, fallback: DuelSetti
     timeout,
     validateDeck: readSetting(value, "validateDeck", fallback.validateDeck, (field) => asBoolean(field, "validateDeck")),
     shuffleDeck: readSetting(value, "shuffleDeck", fallback.shuffleDeck, (field) => asBoolean(field, "shuffleDeck")),
+    stopAtEveryWindow: readSetting(value, "stopAtEveryWindow", fallback.stopAtEveryWindow, (field) => asBoolean(field, "stopAtEveryWindow")),
   };
 }
 
@@ -240,6 +249,7 @@ export function defaultDuelSettings(mode: DuelSettingsMode): DuelSettings {
     timeout: "loss",
     validateDeck: true,
     shuffleDeck: true,
+    stopAtEveryWindow: false,
   };
 }
 
@@ -256,6 +266,7 @@ export function legacyDuelSettings(): DuelSettings {
     timeout: "loss",
     validateDeck: true,
     shuffleDeck: true,
+    stopAtEveryWindow: true,
   };
 }
 

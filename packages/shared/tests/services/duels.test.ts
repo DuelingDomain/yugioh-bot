@@ -423,6 +423,45 @@ describe("practice bot seats", () => {
     }
   });
 
+  it("lets the organizer remove the bot, leaving the seat open for a human and the bot addable again", () => {
+    const app = setup();
+    const session = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Solo", mode: "normal" });
+    app.duels.addPracticeBot(session.slug, "g1", app.p1, validDeck(9000));
+    const without = app.duels.removePracticeBot(session.slug, "g1", app.p1);
+
+    expect(without.seats).toHaveLength(1);
+    expect(without.seats[0].playerId).toBe(app.p1);
+    expect(app.db.prepare<[], { n: number }>("select count(*) as n from duel_seats where is_bot = 1").get()?.n).toBe(0);
+
+    const joined = app.duels.join(session.slug, "g1", app.p2);
+    expect(joined.seats).toHaveLength(2);
+    app.duels.leave(session.slug, "g1", app.p2);
+    expect(app.duels.addPracticeBot(session.slug, "g1", app.p1, validDeck(8000)).seats.some((seat) => seat.isBot)).toBe(true);
+  });
+
+  it("rejects removing a bot for non-organizers, tables without a bot and started duels", () => {
+    const app = setup();
+    const session = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Solo", mode: "normal" });
+    const status = (fn: () => unknown) => {
+      try {
+        fn();
+      } catch (error) {
+        return (error as DuelServiceError).status;
+      }
+      return null;
+    };
+    expect(status(() => app.duels.removePracticeBot(session.slug, "g1", app.p1))).toBe(409);
+
+    app.duels.addPracticeBot(session.slug, "g1", app.p1, validDeck(9000));
+    expect(status(() => app.duels.removePracticeBot(session.slug, "g1", app.p2))).toBe(403);
+    expect(app.duels.get(session.slug, "g1").seats).toHaveLength(2);
+
+    app.duels.setDeck(session.slug, "g1", app.p1, validDeck(1, 99));
+    start(app, session.slug);
+    expect(status(() => app.duels.removePracticeBot(session.slug, "g1", app.p1))).toBe(409);
+    expect(app.duels.get(session.slug, "g1").seats.some((seat) => seat.isBot)).toBe(true);
+  });
+
   it("starts a human-vs-bot lobby and records a bot win as winnerSeat without a player id", () => {
     const app = setup();
     const session = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Solo", mode: "domain" });

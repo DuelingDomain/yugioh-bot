@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DuelDeck, DuelDeckValidation, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 import { AlertTriangle, CheckCircle2, FileUp, Info, Loader2, Plus, X } from "lucide-react";
 import { cardArtUrl } from "./constants";
@@ -11,6 +11,7 @@ import { applyDomainMaster, parseDeckText, selectDomainMaster, serializeYdk, typ
 import { validateDuelDeck } from "./api";
 import { DeckMasterPicker } from "./deck-master-picker";
 import { SavedDeckPicker } from "./saved-deck-picker";
+import { isDeckLockedError } from "./start-flow";
 
 type CardProblem = { name?: string; messages: string[] };
 
@@ -87,6 +88,8 @@ export function DeckEditor({
   settings,
   initial,
   busy,
+  locked = false,
+  onLocked,
   onReady,
   onPreviewCard,
 }: {
@@ -95,6 +98,10 @@ export function DeckEditor({
   settings: DuelSettings;
   initial: DuelDeck | null;
   busy: boolean;
+  /** The duel is starting or live: decks are locked, so no deck check runs. */
+  locked?: boolean;
+  /** The server answered a deck check with "locked": the room changed, so refresh it. */
+  onLocked?: () => void;
   onReady: (deck: DuelDeck) => void;
   /** Called with the passcode of the deck card under the pointer or focus. */
   onPreviewCard?: (code: number) => void;
@@ -110,6 +117,8 @@ export function DeckEditor({
   const [addSection, setAddSection] = useState<"main" | "extra" | "side">("main");
   const [parseError, setParseError] = useState<string | null>(null);
   const [edited, setEdited] = useState(false);
+  // The deck as it came from the room or a saved deck. Replacing it asks for no confirmation.
+  const [pristineDeck, setPristineDeck] = useState<DuelDeck>(deck);
   const [retry, setRetry] = useState(0);
   const [fileName, setFileName] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -118,7 +127,11 @@ export function DeckEditor({
     deck: DuelDeck;
     report?: DuelDeckValidation;
     error?: string;
+    /** The room moved on while the check ran; nothing to show. */
+    locked?: boolean;
   } | null>(null);
+  const onLockedRef = useRef(onLocked);
+  onLockedRef.current = onLocked;
   const sideAllowed = mode === "normal" || !settings.validateDeck;
 
   const currentValidation = validation?.slug === slug && validation.deck === deck ? validation : null;
@@ -147,6 +160,7 @@ export function DeckEditor({
   }, [leadCard]);
 
   useEffect(() => {
+    if (locked) return undefined;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       void validateDuelDeck(slug, deck, controller.signal).then(
@@ -154,9 +168,13 @@ export function DeckEditor({
           if (!controller.signal.aborted) setValidation({ slug, deck, report: result });
         },
         (error: unknown) => {
-          if (!controller.signal.aborted) {
-            setValidation({ slug, deck, error: error instanceof Error ? error.message : "Could not validate this deck." });
+          if (controller.signal.aborted) return;
+          if (isDeckLockedError(error)) {
+            setValidation({ slug, deck, locked: true });
+            onLockedRef.current?.();
+            return;
           }
+          setValidation({ slug, deck, error: error instanceof Error ? error.message : "Could not validate this deck." });
         },
       );
     }, 150);
@@ -164,7 +182,7 @@ export function DeckEditor({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [slug, deck, retry]);
+  }, [slug, deck, retry, locked]);
 
   function commitSelection(next: DeckMasterSelection) {
     setSelection(next);
@@ -254,7 +272,7 @@ export function DeckEditor({
               {sideAllowed || side.length > 0 ? <span>Side <b className={ui.num}>{side.length}</b></span> : null}
             </p>
           </div>
-          <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || !canReady} onClick={submit}>
+          <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || locked || !canReady} onClick={submit}>
             Ready with this deck
           </SheetButton>
         </div>
@@ -263,15 +281,18 @@ export function DeckEditor({
 
       <SavedDeckPicker mode={mode} disabled={busy} onLoad={(saved) => {
         const hasCards = main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined;
-        if (hasCards && !window.confirm("Replace the deck currently loaded at this table? Your saved deck is unchanged.")) return;
+        if (hasCards && deck !== pristineDeck
+          && !window.confirm("Replace the deck you changed at this table? Your saved deck is unchanged.")) return false;
         const localDeck = mode === "normal"
           ? { main: saved.main, extra: saved.extra, side: saved.side }
           : saved;
         commitSelection({ deck: localDeck, masterOrigin: null });
+        setPristineDeck(localDeck);
         setFileName(null);
+        return true;
       }} />
 
-      {showValidation ? (
+      {showValidation && !locked && !currentValidation?.locked ? (
         <div aria-live="polite" role="status">
           {currentValidation?.error ? (
             <div className={cx(ui.banner, ui.bannerBad)}>

@@ -5,7 +5,8 @@ import { createPortal } from "react-dom";
 import type { DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
 import { LOCATION_DMZONE, isDefense, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
-import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
+import { battleTrigger } from "./battle-trigger";
+import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { armBattleDestroy, attackImpactAt, clearBattleHolds, noteAttackImpact } from "./battle-hold";
 import { planBattle } from "./fx3d/battle-plan";
@@ -22,7 +23,10 @@ import styles from "./battle-fx.module.css";
 /**
  * Battle effects, drawn in one fixed overlay above the board (pointer-events: none).
  *
- *  - Attack playback: engine "attack" events, for both players and the bot. The attacker's
+ *  - Attack playback: engine "attack" events, for both players and the bot. An attack event only
+ *    DECLARES the attack: it marks the attacker and its target (the aim arrow and rings stay up
+ *    while the duel waits for responses). The full animation starts when the battle RESOLVES, on its
+ *    battle damage or battle destroy event (battle-trigger.ts); a negated attack plays none. The attacker's
  *    monster plays its own attack style (attack-styles.ts picks it from the card's passcode,
  *    name and race; attack-fx.ts draws it): a slash, claw rakes, a beam, an arcane orb, a
  *    lightning bolt, a fireball or a heavy smash, tinted by its attribute. The card(s) the
@@ -192,6 +196,9 @@ type AttackCapture = {
   attackerCard: BattleCard;
   targetCard: BattleCard | null;
   targetInDefense: boolean;
+  /** The attacker / target stands on the far side of the table: its picture is turned half a circle. */
+  attackerTurned: boolean;
+  targetTurned: boolean;
   /** LP tally boxes by seat, for the damage flash. */
   lp: Record<number, Box | undefined>;
 };
@@ -205,7 +212,14 @@ function cutSourceOf(node: HTMLElement): CutSource | null {
   if (!art) return null;
   const box = boxOf(art);
   if (box.width <= 0 || box.height <= 0) return null;
-  return { box, innerW: art.offsetWidth || box.width, innerH: art.offsetHeight || box.height, html: art.outerHTML };
+  // The copy is drawn outside its zone, so it carries the opponent's half turn (field.module.css) as an attribute.
+  let html = art.outerHTML;
+  if (art.closest('[data-side="opp"]')) {
+    const clone = art.cloneNode(true) as HTMLElement;
+    clone.setAttribute("data-turned", "true");
+    html = clone.outerHTML;
+  }
+  return { box, innerW: art.offsetWidth || box.width, innerH: art.offsetHeight || box.height, html };
 }
 
 /**
@@ -226,6 +240,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     attacker: cutSourceOf(fromNode),
     fromEl: fromNode.querySelector("[data-card-art]"),
     attackerCard: readCard(fromKey, fromNode, prev, now),
+    attackerTurned: fromNode.closest('[data-side="opp"]') != null,
     lp,
   };
   if (event.target) {
@@ -237,11 +252,11 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     if (to.width <= 0 || to.height <= 0) return null;
     const targetCard = readCard(targetKey, node, prev, now);
     const targetInDefense = node.getAttribute("data-defense") === "true" || isDefense(prev.get(targetKey)?.position ?? now.get(targetKey)?.position);
-    return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense };
+    return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: node.closest('[data-side="opp"]') != null };
   }
   const to = lpBox(1 - zone.controller);
   if (!to) return null;
-  return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false };
+  return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false, targetTurned: false };
 }
 
 /* ---------- playback model ---------- */
@@ -274,31 +289,34 @@ type Resolved = {
 
 /** Reduced motion: one flash on each side, the loser fades; no travel. */
 function reducedTiming(kind: BattleKind): BattleTiming {
-  // Same order as the full play (hit, damage, then the break), only shorter.
+  // Same order as the full play (hit, then the counter, then the break), only shorter.
+  const counter = hasCounterStrike(kind);
   return {
     impactMs: 260,
-    attackerDamageMs: kind === "lose" ? 420 : 400,
-    targetBreakMs: kind === "win" || kind === "tie" ? 460 : null,
-    attackerBreakMs: kind === "lose" ? 620 : kind === "tie" ? 520 : null,
-    totalMs: BATTLE_REDUCED_MS + (kind === "lose" ? 100 : 0),
+    attackerDamageMs: counter ? 420 : 400,
+    targetBreakMs: kind === "win" ? 460 : kind === "tie" ? 620 : null,
+    attackerBreakMs: kind === "lose" || kind === "tie" ? 620 : null,
+    totalMs: BATTLE_REDUCED_MS + (counter && kind !== "bounce" ? 100 : 0),
   };
 }
 
 /** Pure: who fights, how it ends, and when things land. Called at capture (LP holds) and at play time. */
 function resolveBattle(capture: AttackCapture, events: readonly DuelEvent[], attack: DuelEvent, reduced: boolean): Resolved {
   const outcome = battleOutcome(events, attack);
-  const kind = battleKind(capture.direct, outcome);
+  // A blow that bounces off a Defense Position monster hurts the attacker's own controller.
+  const attackerHurt = battleDamageEvents(events, attack).some((event) => event.seat === attack.zone?.controller);
+  const kind = battleKind(capture.direct, outcome, attackerHurt);
   const attackerStyle = attackStyleFor(capture.attackerCard);
   const defenderStyle = capture.direct ? null : attackStyleFor(capture.targetCard);
   const timing = reduced ? reducedTiming(kind) : battleTiming(kind, attackerStyle.style, defenderStyle?.style ?? null);
   return { kind, outcome, attackerStyle, defenderStyle, timing };
 }
 
-/** Damage that follows an attack in the same snapshot (battle or effect). */
+/** The battle damage that follows an attack. Effect damage in a response window is not the fight's. */
 function battleDamageEvents(events: readonly DuelEvent[], attack: DuelEvent): DuelEvent[] {
   return events.filter((event) => {
     if (event.kind !== "damage" || event.id <= attack.id || event.seat == null) return false;
-    return event.cause == null || event.cause === "battle" || event.cause === "effect";
+    return event.cause == null || event.cause === "battle";
   });
 }
 
@@ -338,7 +356,7 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events
   };
   return {
     seq, reduced, fx, style: attackerStyle.style,
-    counterStyle: kind === "lose" && defenderStyle ? defenderStyle.style : null,
+    counterStyle: hasCounterStrike(kind) && defenderStyle ? defenderStyle.style : null,
     kind, totalMs: timing.totalMs, sound,
   };
 }
@@ -501,12 +519,12 @@ function startBattle3d(capture: AttackCapture, play: Play, skipMs: number, contr
   const { fx } = play;
   const attackerSide = {
     rect: to(fx.attacker.box), code: attackerCard.code ?? 0, style: fx.attacker.style, tint: fx.attacker.tint,
-    signature: play.sound.attacker.signature, defense: false,
+    signature: play.sound.attacker.signature, defense: false, turned: capture.attackerTurned,
   };
   const defenderSide = fx.defender
     ? {
         rect: to(fx.defender.box), code: targetCard?.code ?? 0, style: fx.defender.style, tint: fx.defender.tint,
-        signature: play.sound.defender?.signature ?? null, defense: capture.targetInDefense,
+        signature: play.sound.defender?.signature ?? null, defense: capture.targetInDefense, turned: capture.targetTurned,
       }
     : null;
   const battle = planBattle({ kind: fx.kind, timing: fx.timing, attacker: attackerSide, defender: defenderSide, hit: to(fx.hit) });
@@ -519,14 +537,28 @@ function startBattle3d(capture: AttackCapture, play: Play, skipMs: number, contr
   return Math.max(0, battle.totalMs - skipMs);
 }
 
+/** An attack that was declared and has not resolved yet: its board was read at the declaration. */
+type PendingAttack = { attack: DuelEvent; capture: AttackCapture | null; at: number };
+
+/** The marker of a declared attack: the attacker and what it attacks stay ringed until it resolves. */
+function declaredAim(attack: DuelEvent): BattleAim | null {
+  if (!attack.zone) return null;
+  const from = keyOfZone(attack.zone);
+  if (attack.target) return { mode: "locked", from, to: { zones: [keyOfZone(attack.target)] } };
+  return { mode: "locked", from, to: { lpSeat: 1 - attack.zone.controller } };
+}
+
 export function BattleFx({ events, reducedMotion, active = true, aim = null, seats }: BattleFxProps) {
   const [mounted, setMounted] = useState(false);
   const [play, setPlay] = useState<Play | null>(null);
+  const [declared, setDeclared] = useState<BattleAim | null>(null);
   const initialRef = useRef<number | null>(null);
   const processedRef = useRef(0);
   const capturesRef = useRef(new Map<number, AttackCapture | null>());
+  // The declared attack that waits for its battle to resolve (see battle-trigger.ts).
+  const pendingRef = useRef<PendingAttack | null>(null);
   const seqRef = useRef(0);
-  // Per attack: which layer draws it (chosen once, in the render phase) and when it was captured.
+  // Per attack: which layer draws it (chosen once, in the render phase) and when it started.
   const routeRef = useRef(new Map<number, { three: boolean; at: number }>());
   const controllersRef = useRef(new Set<AbortController>());
   const reducedRef = useRef(reducedMotion);
@@ -542,27 +574,32 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   // Render phase on purpose. The DOM still shows the board BEFORE this snapshot, so the geometry
   // and the art of a card that is about to die can be read, and the LP hold is armed before the
   // LP counters (rendered in this same commit) start their roll. Both writes are keyed and idempotent.
-  if (active) {
+  // A new attack is only read here (its board is captured); the holds are armed for the attack
+  // whose battle RESOLVES in this snapshot, which is the pending one or the one declared with it.
+  if (active && typeof document !== "undefined") {
     const after = Math.max(initialRef.current, processedRef.current);
     let latest: DuelEvent | null = null;
     for (const event of events) {
       if (event.id > after && event.kind === "attack" && event.zone && (!latest || event.id > latest.id)) latest = event;
     }
-    if (latest && typeof document !== "undefined") {
-      if (!capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
-      if (!reducedMotion) armBattleDamage(events, latest, capturesRef.current.get(latest.id) ?? null);
-      let route = routeRef.current.get(latest.id);
+    if (latest && !capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
+    const stamp = performance.now();
+    const incoming: PendingAttack | null = latest ? { attack: latest, capture: capturesRef.current.get(latest.id) ?? null, at: stamp } : null;
+    const ready = [pendingRef.current, incoming].find((entry) => entry != null && battleTrigger(events, entry.attack, stamp - entry.at).action === "play") ?? null;
+    if (ready) {
+      const cap = ready.capture;
+      if (!reducedMotion) armBattleDamage(events, ready.attack, cap);
+      let route = routeRef.current.get(ready.attack.id);
       if (!route) {
-        const three = pickBattleRoute({ reduced: reducedMotion, ready: getSharedFx3d() != null }) === "three" && capturesRef.current.get(latest.id) != null;
-        route = { three, at: performance.now() };
-        routeRef.current.set(latest.id, route);
+        const three = pickBattleRoute({ reduced: reducedMotion, ready: getSharedFx3d() != null }) === "three" && cap != null;
+        route = { three, at: stamp };
+        routeRef.current.set(ready.attack.id, route);
         if (routeRef.current.size > 20) routeRef.current.delete(routeRef.current.keys().next().value as number);
       }
-      const cap = capturesRef.current.get(latest.id) ?? null;
-      if (!reducedMotion && cap && attackImpactAt(latest.id) === 0) {
-        noteAttackImpact(latest.id, route.at + resolveBattle(cap, events, latest, false).timing.impactMs);
+      if (!reducedMotion && cap && attackImpactAt(ready.attack.id) === 0) {
+        noteAttackImpact(ready.attack.id, route.at + resolveBattle(cap, events, ready.attack, false).timing.impactMs);
       }
-      armBattleDestroys(events, latest, cap, reducedMotion, route.three);
+      armBattleDestroys(events, ready.attack, cap, reducedMotion, route.three);
     }
   }
 
@@ -584,20 +621,40 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     const after = Math.max(initialRef.current ?? 0, processedRef.current);
     const { nextCursor, fresh } = collectFreshEvents(events, after);
     processedRef.current = nextCursor;
-    for (const id of Array.from(capturesRef.current.keys())) {
-      if (id <= nextCursor && !fresh.some((event) => event.id === id)) capturesRef.current.delete(id);
+    const forget = () => {
+      const keep = pendingRef.current?.attack.id;
+      for (const id of Array.from(capturesRef.current.keys())) if (id !== keep) capturesRef.current.delete(id);
+    };
+    if (!active) {
+      pendingRef.current = null;
+      setDeclared(null);
+      forget();
+      return;
     }
-    if (!active || fresh.length === 0) return;
-    // A burst (reload, poll catch-up) plays only the newest attack, never the old ones.
+    if (fresh.length === 0) return;
+    // A burst (reload, poll catch-up) declares only the newest attack, never the old ones.
     let latest: DuelEvent | null = null;
     for (const event of fresh) if (event.kind === "attack" && event.zone) latest = event;
-    if (!latest) return;
-    const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest, prevIndexRef.current, indexSeats(seats));
-    capturesRef.current.delete(latest.id);
+    const stamp = performance.now();
+    let incoming: PendingAttack | null = null;
+    if (latest) {
+      const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest, prevIndexRef.current, indexSeats(seats));
+      incoming = { attack: latest, capture, at: stamp };
+    }
+    const earlier = pendingRef.current;
+    const decide = (entry: PendingAttack | null) => (entry ? battleTrigger(events, entry.attack, stamp - entry.at).action : null);
+    // The battle that resolves in this snapshot plays; one that is still open stays pending.
+    const ready = [earlier, incoming].find((entry) => decide(entry) === "play") ?? null;
+    pendingRef.current = incoming ? (decide(incoming) === "wait" ? incoming : null) : decide(earlier) === "wait" ? earlier : null;
+    const marker = pendingRef.current ? declaredAim(pendingRef.current.attack) : null;
+    setDeclared((current) => (aimSignature(current) === aimSignature(marker) ? current : marker));
+    forget();
+    if (!ready) return;
+    const { attack: resolved, capture } = ready;
     // The destroy events after the attack (in this snapshot) say which card(s) the battle took.
-    const route = routeRef.current.get(latest.id);
+    const route = routeRef.current.get(resolved.id);
     const three = route?.three === true && !reducedRef.current && getSharedFx3d() != null;
-    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, latest, three) : null;
+    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, resolved, three) : null;
     if (next && capture) {
       // The 3D fight can outlast the DOM one: its shards keep falling after the last break.
       const long3d = three ? startBattle3d(capture, next, Math.min(120, Math.max(0, performance.now() - (route?.at ?? performance.now()))), controllersRef.current) : 0;
@@ -620,9 +677,10 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   }, [play]);
 
   if (!mounted) return null;
+  const shownAim = aim ?? declared;
   return createPortal(
     <div className={`${styles.layer} ${duelFontClasses}`} aria-hidden>
-      {aim ? <AimLayer aim={aim} reduced={reducedMotion} /> : null}
+      {shownAim ? <AimLayer aim={shownAim} reduced={reducedMotion} /> : null}
       {play ? <AttackPlay key={play.seq} play={play} /> : null}
     </div>,
     document.body,

@@ -23,6 +23,7 @@ const info = (code: number): DuelCardInfo => ({
 const cards: CardDatabase = {
   search: () => [], get: info, cardData: () => null, resolveLabel: () => "", system: () => undefined,
   victory: () => undefined, counter: () => undefined, readScript: () => null, close() {},
+  deckCard: () => undefined, all: () => [], setnames: () => new Map(),
 };
 // The wrapper types a controller as 0 | 1, but the multi core writes seats up to 3 and 0xFF.
 const place = (controller: number, location: OcgLocation, sequence: number, position: OcgPosition = OcgPosition.FACEUP_ATTACK): never =>

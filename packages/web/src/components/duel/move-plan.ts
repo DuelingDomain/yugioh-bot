@@ -23,7 +23,8 @@ import {
   zoneKey,
 } from "./constants";
 import { battleBreakIs3d, battleDestroyAt, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
-import { findZoneElement, isHeavySummon, summonStyleOf } from "./event-queue";
+import { playsBigSummon } from "./big-summon";
+import { findZoneElement } from "./event-queue";
 
 export const MOVE_TIMING = {
   placeMin: 480,
@@ -46,8 +47,6 @@ export const MOVE_TIMING = {
   /** Destroy: the card cracks and breaks in place first, then flies off. */
   destroyBreakMs: 260,
   destroyBreakBattleMs: 460,
-  /** A heavy or typed summon's ghost stays this long after landing so the effect can take over from it. */
-  heavyHoldMs: 160,
 } as const;
 
 export type MoveStyle = "place" | "toss" | "draw" | "return" | "search" | "fade";
@@ -63,8 +62,14 @@ export type MovePlan = {
   durationMs: number;
   /** Destroy hand-off: ms the card cracks in place before `startAt` (already inside `startAt`). */
   leadMs: number;
-  /** Extra ms the ghost stays after landing (heavy summons). */
+  /** Extra ms the ghost stays after landing. */
   holdMs: number;
+  /**
+   * The flight carries a big summon: nothing is drawn (MoveFx skips it) because the portrait is the
+   * arrival, and the real card stays hidden until the slam. `landAt` equals `startAt`, the moment the
+   * summon effect starts.
+   */
+  silent: boolean;
   /** Ids of the summon/set/activate/destroy events this flight stands in for. */
   pairedIds: number[];
   reduced: boolean;
@@ -94,6 +99,17 @@ export function getMovePlan(id: number): MovePlan | null {
 export function pairedMovePlan(eventId: number): MovePlan | null {
   const moveId = pairs.get(eventId);
   return moveId == null ? null : (plans.get(moveId) ?? null);
+}
+
+/**
+ * performance.now() timestamp at which every planned card flight (and its landing hold) is over;
+ * `now` when none is running. Effects that must come after the cards have settled (the Deck Master
+ * returning to its zone) start then.
+ */
+export function movesSettleAt(now: number): number {
+  let end = now;
+  for (const plan of plans.values()) end = Math.max(end, plan.landAt + plan.holdMs);
+  return end;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -149,6 +165,7 @@ type Candidate = {
   base: number;
   lead: number;
   hold: number;
+  silent: boolean;
   /** A battle holds this destroy: the flight starts no earlier than this (performance.now(), 0 = free). */
   notBefore: number;
   paired: number[];
@@ -221,6 +238,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     const paired: number[] = [];
     let lead = 0;
     let hold = 0;
+    let silent = false;
     let notBefore = 0;
 
     // The summon, set or activation this card lands for.
@@ -230,7 +248,8 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       if ((next.kind === "summon" || next.kind === "set" || next.kind === "activate") && sameZone(next.zone, to)) {
         paired.push(next.id);
         claimed.add(next.id);
-        if ((isHeavySummon(next) || summonStyleOf(next, from.location) != null) && !reduced) hold = MOVE_TIMING.heavyHoldMs;
+        // A big summon is drawn by its own effect: the card does not fly in first.
+        if (playsBigSummon(next, from.location, reduced)) silent = true;
         break;
       }
     }
@@ -249,10 +268,17 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
         notBefore += BREAK_SETTLE_MS;
         lead = 0;
         style = "fade";
+      } else if (notBefore > 0 && !reduced) {
+        // The DOM slice draws the halves at the break: the card leaves for the pile only after they were
+        // seen. The crack and the break of the card itself keep their time (the lead grows by the same wait).
+        notBefore += BREAK_SETTLE_MS;
+        lead += BREAK_SETTLE_MS;
       }
       break;
     }
-    candidates.push({ event, style, base: baseDuration(style, geo.distance), lead, hold, notBefore, paired, source: resolveSource(from) });
+    // A card that also breaks away from a destroyed zone keeps its flight.
+    if (lead > 0) silent = false;
+    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance), lead, hold, silent, notBefore, paired, source: resolveSource(from) });
   }
   if (candidates.length === 0) return [];
 
@@ -296,6 +322,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       durationMs: dur,
       leadMs: item.lead,
       holdMs: item.hold,
+      silent: item.silent,
       pairedIds: item.paired,
       reduced,
       source: item.source,
@@ -346,7 +373,7 @@ export function captureZoneSnapshots(root: ParentNode = document): void {
     if (r.width < 4 || r.height < 4) return;
     handRails.set(el.dataset.handSeat ?? "", {
       rect: { left: r.left, top: r.top, width: r.width, height: r.height },
-      side: "you",
+      side: el.dataset.side === "opp" ? "opp" : "you",
       faceUp: false,
       defense: false,
     });

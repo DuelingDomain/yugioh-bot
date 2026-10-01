@@ -566,4 +566,71 @@ export function migrate(db: Database.Database) {
     );
     create index if not exists saved_decks_owner_list_idx on saved_decks (guild_id, owner_user_id, updated_at);
   `);
+
+  // Duel series: a match of 1 or 3 games between two players. Every game is a
+  // duels row with series_id. When the series has a winner it writes one
+  // approved matches row (tournament or ranked casual) in the same transaction
+  // that finishes the last game.
+  db.exec(`
+    create table if not exists duel_series (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      best_of integer not null default 1,
+      ranked integer not null default 0,
+      player0_id integer not null references players(id),
+      player1_id integer not null references players(id),
+      wins0 integer not null default 0,
+      wins1 integer not null default 0,
+      status text not null default 'active',
+      winner_player_id integer references players(id),
+      tournament_match_id integer references tournament_matches(id),
+      match_id integer references matches(id),
+      mode text not null,
+      master_rule integer not null default 5,
+      settings_json text not null,
+      base_deck0_json text,
+      base_deck1_json text,
+      deck0_json text,
+      deck1_json text,
+      side_ready0 integer not null default 0,
+      side_ready1 integer not null default 0,
+      next_game_at text,
+      created_by_player_id integer not null references players(id),
+      created_at text not null default current_timestamp,
+      ended_at text,
+      check (best_of in (1, 3)),
+      check (status in ('active', 'between_games', 'completed', 'cancelled'))
+    );
+    create unique index if not exists duel_series_open_tournament_match_idx
+      on duel_series (tournament_match_id)
+      where tournament_match_id is not null and status in ('active', 'between_games');
+    create index if not exists duel_series_between_games_idx on duel_series (next_game_at) where status = 'between_games';
+  `);
+  addColumnIfMissing(db, "duels", "series_id", "integer references duel_series(id)");
+  addColumnIfMissing(db, "duels", "game_number", "integer");
+  // Match options chosen at create time. A series game copies its series.
+  addColumnIfMissing(db, "duels", "best_of", "integer not null default 1");
+  addColumnIfMissing(db, "duels", "ranked", "integer not null default 0");
+  db.exec("create index if not exists duels_series_idx on duels (series_id, game_number) where series_id is not null");
+
+  // Tournament duel rules and match length. duel_rules_json holds
+  // { mode, masterRule, settings }; null means the defaults for a normal duel.
+  addColumnIfMissing(db, "tournaments", "best_of", "integer not null default 3");
+  addColumnIfMissing(db, "tournaments", "duel_rules_json", "text");
+
+  // One registered deck per participant. deck_json is a copy taken at
+  // registration; deck_locked_at is set when the player's first tournament
+  // game starts.
+  addColumnIfMissing(db, "tournament_participants", "saved_deck_id", "integer references saved_decks(id) on delete set null");
+  addColumnIfMissing(db, "tournament_participants", "deck_json", "text");
+  addColumnIfMissing(db, "tournament_participants", "deck_registered_at", "text");
+  addColumnIfMissing(db, "tournament_participants", "deck_locked_at", "text");
+
+  // A deck built from a player's draft pool. One per owner per draft.
+  addColumnIfMissing(db, "saved_decks", "draft_id", "integer references drafts(id) on delete set null");
+  db.exec(`
+    create unique index if not exists saved_decks_owner_draft_idx
+      on saved_decks (guild_id, owner_user_id, draft_id)
+      where draft_id is not null;
+  `);
 }

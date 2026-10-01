@@ -7,13 +7,15 @@ import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats } from "./card-face";
 import { duelFontClasses } from "./fonts";
 import { LifePoints } from "./life-points";
+import { pileSummonTone } from "./summon-circle-model";
+import { SummonCircle, SummonGlow } from "./summon-circle";
 import {
   attributeLabel,
   cardArtUrl,
   cardDetailsText,
   cardStatsText,
   isBattlePhase,
-  isDefense,
+  isDefenseAt,
   LOCATION_DECK,
   LOCATION_DMZONE,
   LOCATION_EXTRA,
@@ -181,9 +183,13 @@ function NibIcon() {
   );
 }
 
-/** Legal or selected zones get a shape signal (dashed or solid outline plus a tag), never colour alone. */
-function ZoneMarks({ legal, selected }: { legal: boolean; selected: boolean }) {
+/**
+ * Legal or selected zones get a shape signal (dashed or solid outline plus a tag), never colour alone.
+ * A legal pile with a summoning circle already shows that signal, so it skips the outline and tag until selected.
+ */
+function ZoneMarks({ legal, selected, circle = false }: { legal: boolean; selected: boolean; circle?: boolean }) {
   if (!legal && !selected) return null;
+  if (circle && !selected) return null;
   return (
     <>
       <span className={styles.ring} aria-hidden="true" />
@@ -251,7 +257,7 @@ function ZoneSlot({
   const selected = anySelected(keys, selectedKeys);
   const stats = cardFieldStats(card, showStats);
   const [atk, def] = stats ? stats.split(" / ") : [null, null];
-  const defense = card != null && card.location === LOCATION_MZONE && isDefense(card.position);
+  const defense = card != null && isDefenseAt(card.location, card.position);
 
   return (
     <div
@@ -351,6 +357,7 @@ function PileSlot({
 }) {
   const legal = anyLegal(keys, legalKeys);
   const selected = anySelected(keys, selectedKeys);
+  const circleTone = pileSummonTone({ kind, side, count, keys, legalKeys });
   const fan = fanEntries(kind, cards, count);
   const chip = CHIP_TEXT[kind];
   const hoverTop = kind === "gy" || kind === "banish" ? (cards[cards.length - 1] ?? null) : null;
@@ -376,6 +383,7 @@ function PileSlot({
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
       data-occupied={count > 0 ? "true" : "false"}
+      data-summon={circleTone ?? undefined}
       data-side={side}
       data-col={column}
       data-fan={fan.length > 0 ? fan.length : undefined}
@@ -409,7 +417,13 @@ function PileSlot({
               </div>
             ))
           )}
-          <ZoneMarks legal={legal} selected={selected} />
+          {circleTone ? (
+            <>
+              <SummonGlow tone={circleTone} />
+              <SummonCircle tone={circleTone} />
+            </>
+          ) : null}
+          <ZoneMarks legal={legal} selected={selected} circle={circleTone != null} />
         </div>
         <PileLabel kind={kind} count={count} />
       </button>
@@ -491,6 +505,7 @@ function HandStrip({
         role="group"
         aria-label={`${ownerLabel} hand`}
         data-hand-seat={seat}
+        data-side={mine ? "you" : "opp"}
         data-many={cards.length >= 7 ? "true" : "false"}
         style={vars}
       >
@@ -859,6 +874,7 @@ export function DuelField({
                   legalKeys={legalKeys}
                   selectedKeys={selectedKeys}
                   showStats
+                  flip={leftEmz != null && leftEmz.controller === topIndex}
                   onActivate={onActivate}
                   onHoverCard={onHoverCard}
                 />
@@ -872,6 +888,7 @@ export function DuelField({
                   legalKeys={legalKeys}
                   selectedKeys={selectedKeys}
                   showStats
+                  flip={rightEmz != null && rightEmz.controller === topIndex}
                   onActivate={onActivate}
                   onHoverCard={onHoverCard}
                 />
@@ -981,7 +998,7 @@ function MasterDock({
             onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
             onBlur={() => onHoverCard?.(null, null)}
           >
-            <div className={styles.masterArt} data-away={status === "Elsewhere" ? "true" : "false"}>
+            <div className={styles.masterArt} data-master-dock={view.seat} data-away={status === "Elsewhere" ? "true" : "false"}>
               <img src={cardArtUrl(master.card.code, "full")} alt="" draggable={false} />
               <ZoneMarks legal={legal} selected={selected} />
             </div>

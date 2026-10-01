@@ -6,7 +6,18 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
-import { centerKind, declineAnswer, fillPlaceholders, humanizeLabel, positionOf, responseTitle } from "@/components/duel/prompt-center";
+import {
+  centerKind,
+  declineAnswer,
+  fillPlaceholders,
+  humanizeLabel,
+  isBoardTogglePrompt,
+  isStripPrompt,
+  optionsOnBoard,
+  positionOf,
+  responseTitle,
+  selectionStatus,
+} from "@/components/duel/prompt-center";
 
 function prompt(overrides: Partial<DuelPrompt>): DuelPrompt {
   return { id: "p", seat: 0, kind: "choice", title: "t", options: [], ...overrides };
@@ -116,5 +127,60 @@ describe("responseTitle", () => {
   it("keeps the chain wording and drops the generic engine title", () => {
     const p = prompt({ title: "Select a chain link or pass", context: { type: "chain", forced: false } });
     expect(responseTitle(p, [{ index: 1, seat: 1, name: "Raigeki" }], 0)).toMatchObject({ title: "You can respond to Raigeki", sub: undefined });
+  });
+});
+
+describe("answering a pick on the board or in a strip", () => {
+  const field = (sequence: number, extra = {}) => ({
+    id: `card:${sequence}`,
+    label: "Card",
+    controller: 0,
+    location: 0x04,
+    sequence,
+    card: { code: 1 + sequence, name: "Card" } as never,
+    ...extra,
+  });
+  const drawn = new Set(["0:4:0", "0:4:1", "0:2:0"]);
+  const hasZone = (key: string) => drawn.has(key);
+
+  it("answers on the board when every option sits in a drawn field or hand zone", () => {
+    expect(optionsOnBoard(prompt({ kind: "sum", options: [field(0), field(1)] }), hasZone)).toBe(true);
+    expect(optionsOnBoard(prompt({ kind: "cards", options: [field(0), field(0, { location: 0x02 })] }), hasZone)).toBe(true);
+  });
+
+  it("falls back to the strip when a card is in the Deck, GY, Extra Deck, banished or an Xyz material", () => {
+    for (const location of [0x01, 0x10, 0x20, 0x40, 0x80]) {
+      expect(optionsOnBoard(prompt({ kind: "cards", options: [field(0), field(1, { location })] }), hasZone)).toBe(false);
+    }
+  });
+
+  it("falls back to the strip when an option has no place or the board does not draw its zone", () => {
+    expect(optionsOnBoard(prompt({ options: [field(0, { sequence: undefined })] }), hasZone)).toBe(false);
+    expect(optionsOnBoard(prompt({ options: [field(3)] }), hasZone)).toBe(false);
+  });
+
+  it("treats a one-card-at-a-time material pick as a board pick candidate, not a response panel", () => {
+    const materials = prompt({ kind: "toggle", title: "Select the card(s) to use as Synchro Material", options: [field(0), field(1)] });
+    expect(centerKind(materials)).toBe("response");
+    expect(isBoardTogglePrompt(materials)).toBe(true);
+    expect(optionsOnBoard(materials, hasZone)).toBe(true);
+    // Off the board, the same prompt keeps its card strip.
+    const graveyard = prompt({ kind: "toggle", options: [field(0, { location: 0x10 })] });
+    expect(isBoardTogglePrompt(graveyard)).toBe(true);
+    expect(optionsOnBoard(graveyard, hasZone)).toBe(false);
+    expect(isStripPrompt(graveyard)).toBe(true);
+  });
+
+  it("keeps chain, position and yes/no prompts out of the board toggle", () => {
+    expect(isBoardTogglePrompt(prompt({ kind: "toggle", options: [field(0)], context: { type: "chain", forced: false } }))).toBe(false);
+    expect(isBoardTogglePrompt(prompt({ kind: "toggle", options: [] }))).toBe(false);
+    expect(isBoardTogglePrompt(prompt({ kind: "choice", options: [field(0)] }))).toBe(false);
+    expect(isBoardTogglePrompt(null)).toBe(false);
+  });
+
+  it("counts the chosen cards of a one-at-a-time pick from the options", () => {
+    const draft = { selected: [] } as never;
+    const base = prompt({ kind: "toggle", min: 2, max: 3, options: [field(0, { selected: true }), field(1)] });
+    expect(selectionStatus(base, draft, false)).toBe("1 selected \u00b7 2 to 3");
   });
 });

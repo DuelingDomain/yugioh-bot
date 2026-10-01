@@ -110,7 +110,7 @@ export type SceneCue = { cue: SceneCueName; atMs: number; strength: number };
 
 export type SceneInput = {
   piece: FxScenePiece;
-  victims: ReadonlyArray<{ rect: FxRect; code: number; defense: boolean }>;
+  victims: ReadonlyArray<{ rect: FxRect; code: number; defense: boolean; turned?: boolean }>;
   source: FxRect | null;
   attacker: FxRect | null;
   field: FxRect;

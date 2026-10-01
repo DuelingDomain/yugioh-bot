@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
-import { armBattleDestroy, battleDestroyAt, clearBattleHolds, HELD_CRACK_MS } from "../../src/components/duel/battle-hold";
-import { battleTiming, COUNTER_GAP_MS, DESTROY_BEAT_MS, STYLE_IDS, STYLE_TIMING } from "../../src/components/duel/attack-styles";
+import { armBattleDestroy, battleDestroyAt, BREAK_SETTLE_MS, clearBattleHolds, HELD_CRACK_MS } from "../../src/components/duel/battle-hold";
+import { battleTiming, COUNTER_GAP_MS, COUNTER_SCALE, DESTROY_BEAT_MS, STYLE_IDS, STYLE_TIMING } from "../../src/components/duel/attack-styles";
 import { MOVE_TIMING, pairedMovePlan, planMoves, resetMoveSchedule } from "../../src/components/duel/move-plan";
 
 const MZONE = 0x04;
@@ -30,19 +30,25 @@ describe("battle timing order", () => {
         // the attacker breaks after the COUNTER strike lands, never while it is still travelling
         expect(lose.attackerDamageMs).toBeGreaterThan(counterStart);
         expect(lose.attackerBreakMs).toBe(lose.attackerDamageMs + DESTROY_BEAT_MS);
-        expect(lose.attackerBreakMs).toBeGreaterThan(counterStart + STYLE_TIMING[d].impact * 0.7);
+        expect(lose.attackerBreakMs).toBeGreaterThan(counterStart + STYLE_TIMING[d].impact * COUNTER_SCALE);
         expect(lose.targetBreakMs).toBeNull();
       }
 
-      const tie = battleTiming("tie", a, "slash");
-      expect(tie.targetBreakMs).toBeGreaterThan(tie.impactMs);
-      expect(tie.attackerBreakMs).toBeGreaterThan(tie.impactMs);
+      // a tie: the defender strikes back first, and both cards break together after that counter landed
+      for (const d of STYLE_IDS) {
+        const tie = battleTiming("tie", a, d);
+        const counterStart = STYLE_TIMING[a].impact + COUNTER_GAP_MS;
+        expect(tie.attackerDamageMs).toBeGreaterThan(counterStart);
+        expect(tie.targetBreakMs).toBe(tie.attackerDamageMs + DESTROY_BEAT_MS);
+        expect(tie.attackerBreakMs).toBe(tie.attackerDamageMs + DESTROY_BEAT_MS);
+        expect(tie.totalMs).toBeGreaterThan(tie.attackerBreakMs as number);
+      }
     }
   });
 
-  it("breaks nothing when the defender holds or the attack is direct", () => {
-    for (const kind of ["held", "direct"] as const) {
-      const t = battleTiming(kind, "beam", kind === "held" ? "impact" : null);
+  it("breaks nothing when the defender holds, the blow bounces or the attack is direct", () => {
+    for (const kind of ["held", "bounce", "direct"] as const) {
+      const t = battleTiming(kind, "beam", kind === "direct" ? null : "impact");
       expect(t.targetBreakMs).toBeNull();
       expect(t.attackerBreakMs).toBeNull();
     }
@@ -73,7 +79,9 @@ describe("destroy flights wait for the battle", () => {
     armBattleDestroy("7:attacker", z(0, MZONE, 2), 1120, 100);
     const [plan] = planMoves(events(), { now: 100, reduced: false, duelKey: "t", geometry });
     expect(plan.startAt).toBeGreaterThanOrEqual(1220);
-    expect(plan.leadMs).toBe(HELD_CRACK_MS);
+    // the card leaves for the pile only after the slice was seen: the break at the hold, the flight a settle later
+    expect(plan.startAt).toBeGreaterThanOrEqual(1120 + BREAK_SETTLE_MS);
+    expect(plan.leadMs).toBe(HELD_CRACK_MS + BREAK_SETTLE_MS);
     // the crack begins no earlier than the hit (100 ms + 1000 ms), and the destroy effect follows the flight
     expect(plan.startAt - plan.leadMs).toBeGreaterThanOrEqual(100 + 1000);
     expect(pairedMovePlan(1)?.id).toBe(2);

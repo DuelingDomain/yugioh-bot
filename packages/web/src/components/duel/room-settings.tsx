@@ -21,7 +21,7 @@ export function DuelSettingsSummary({ session }: { session: DuelSession }) {
     [session.format === "tag" ? "Team LP (shared)" : "Starting LP", startingLpFor(session.format ?? "1v1", settings).toLocaleString("en-US")],
     ["Starting hand", `${settings.startingHand} ${settings.startingHand === 1 ? "card" : "cards"}`],
     ["Draw Phase", `${settings.drawPerTurn} ${settings.drawPerTurn === 1 ? "card" : "cards"}`],
-    ["Timeout", settings.turnSeconds === 0 ? "No timer" : settings.timeout === "loss" ? "Lose on timeout" : "Continue at zero"],
+    ["Timeout", settings.turnSeconds === 0 ? "None, nobody loses on time" : settings.timeout === "loss" ? "Lose on timeout" : "Continue at zero"],
     ["Deck validation", settings.validateDeck ? "Valid decks only" : "Format checks off; engine safety enforced"],
     ["Opening order", settings.shuffleDeck ? "Shuffled" : "Imported order"],
   ];

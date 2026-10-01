@@ -12,6 +12,7 @@ import type {
 import { Button } from "@/components/ui/button";
 import { searchDuelCards } from "./api";
 import { cardArtUrl, LOCATION_MZONE, zoneKey } from "./constants";
+import { backOutAnswer } from "./pick-backout";
 import styles from "./prompts.module.css";
 
 export interface PromptDraft {
@@ -638,10 +639,14 @@ export function PromptTray({
         }
         return;
       }
-      if (event.key === "Escape" && current.cancelable) {
-        event.preventDefault();
-        submitAnswer({ cancel: true });
-        return;
+      if (event.key === "Escape") {
+        // A material pick backs out (cancel, or one card back once the engine drops Cancel).
+        const back = current.kind === "toggle" ? backOutAnswer(current) : current.cancelable ? { cancel: true } : null;
+        if (back) {
+          event.preventDefault();
+          submitAnswer(back);
+          return;
+        }
       }
       if ((event.key === "f" || event.key === "F") && current.finishable) {
         event.preventDefault();

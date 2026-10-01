@@ -68,6 +68,7 @@ interface DraftData {
   playerCount: number;
   participantPickCount?: number;
   tournamentId?: number | null;
+  myDeckId?: number | null;
   isParticipant: boolean;
   currentPack?: Array<{
     id: number;

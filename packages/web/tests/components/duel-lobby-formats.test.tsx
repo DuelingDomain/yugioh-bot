@@ -43,7 +43,7 @@ function room(format: DuelFormat, seats: Array<{ seat: number; ready?: boolean; 
   };
 }
 
-const handlers = { onJoin: vi.fn(), onReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
+const handlers = { onJoin: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
 
 describe("table format helpers", () => {
   it("counts seats and groups Tag into teams", () => {
@@ -94,6 +94,16 @@ describe("RoomLobby seats", () => {
     expect(screen.getAllByText("Open seat")).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: "Add bot to seat 3" }));
     expect(onAddBot).toHaveBeenCalledWith(2);
+  });
+
+  it("removes the practice bot of the clicked seat", () => {
+    const onRemoveBot = vi.fn();
+    const seats = [{ seat: 0, ready: true }, { seat: 1, ready: true, isBot: true }, { seat: 2, ready: true, isBot: true }];
+    render(<RoomLobby room={room("ffa3", seats)} slug="t" busy={false} actionError={null} onAddBot={vi.fn()} {...handlers} onRemoveBot={onRemoveBot} />);
+    const buttons = screen.getAllByRole("button", { name: "Remove practice bot" });
+    expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[1]!);
+    expect(onRemoveBot).toHaveBeenCalledWith(2);
   });
 
   it("unlocks Start only when every FFA seat is ready", () => {

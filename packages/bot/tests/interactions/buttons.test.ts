@@ -6,7 +6,7 @@ import { createPlayerRepository } from "../../src/repositories/players.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { createDraftService } from "../../src/services/drafts.js";
 import { createMatchService } from "@yugidraft/shared/services";
-import { createTournamentService } from "@yugidraft/shared/services";
+import { createDuelSeriesService, createTournamentService } from "@yugidraft/shared/services";
 import { recordingTransport, createBroadcaster } from "@yugidraft/shared/notify";
 
 function seedDraftCatalog(app: ReturnType<typeof setup>, count: number) {
@@ -413,6 +413,32 @@ describe("button interactions", () => {
     await expect(handleButton(interaction, app)).rejects.toThrow("Tournament match is not open");
   });
 
+  it("refuses a dashboard match result while an online duel series is open", async () => {
+    const app = setup();
+    const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "user-2", "Kaiba");
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "creator-1");
+    app.tournaments.join(tournament.id, yugi.id);
+    app.tournaments.join(tournament.id, kaiba.id);
+    app.tournaments.start(tournament.id);
+    const openMatch = app.tournaments.openMatches(tournament.id)[0];
+    const deck = JSON.stringify({ main: [1], extra: [], side: [] });
+    app.db.prepare("update tournament_participants set deck_json = ? where tournament_id = ?").run(deck, tournament.id);
+    const series = createDuelSeriesService(app.db).startTournamentMatch({
+      guildId: "guild-1",
+      tournamentMatchId: openMatch.id,
+      actorPlayerId: yugi.id,
+    });
+    const { interaction, replies } = fakeButton({ customId: `dashboard_report_result:${openMatch.id}:win` });
+
+    // The error reaches the interactionCreate catch, which replies with its message as an ephemeral reply.
+    await expect(handleButton(interaction, app)).rejects.toThrow(/online duel series/);
+
+    expect(replies).toEqual([]);
+    expect(app.tournaments.openMatches(tournament.id)[0].status).toBe("open");
+    expect(series.created).toBe(true);
+  });
+
   it("shows pending approvals with approve and deny buttons", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "user-1", "Yugi");
@@ -532,6 +558,23 @@ describe("button interactions", () => {
     expect(replies[0].content).toContain("Creator tools: locals");
     expect(JSON.stringify(replies[0])).toContain(`dashboard_start:${tournament.id}`);
     expect(JSON.stringify(replies[0])).toContain(`dashboard_cancel:${tournament.id}`);
+  });
+
+  it("dashboard cancel notifies each duel game closed with the event", async () => {
+    const app = setup();
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    const real = app.tournaments.cancelWithChanges;
+    vi.spyOn(app.tournaments, "cancelWithChanges").mockImplementation((id) => ({
+      ...real(id),
+      changedDuelSlugs: ["duel-a", "duel-b"],
+    }));
+    const notifyDuelChange = vi.fn(async (_slug: string, _guildId: string) => {});
+    const { interaction } = fakeButton({ customId: `dashboard_cancel:${tournament.id}` });
+
+    await handleButton(interaction, { ...app, notifyDuelChange });
+
+    expect(app.tournaments.findById(tournament.id).status).toBe("cancelled");
+    expect(notifyDuelChange.mock.calls).toEqual([["duel-a", "guild-1"], ["duel-b", "guild-1"]]);
   });
 
   it("rejects non-creators from dashboard cancel", async () => {
