@@ -65,8 +65,9 @@ import { PositionFx } from "./position-fx";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
-import { usePromptReveal } from "./prompt-reveal";
+import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
 import { PileViewer } from "./pile-viewer";
+import { shouldClosePileForPrompt } from "./pile-focus";
 
 
 type CardMenuState = {
@@ -281,6 +282,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   });
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
+  // Set when an answer is sent; the next prompt then decides whether an open pile viewer stays.
+  const pileAnswered = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [pane, setPane] = useState<Pane>("card");
@@ -315,7 +318,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   // only the action prompt's Cancel / Finish and the live region; unknown kinds fall back to the old tray.
   const centered = promptMine && centerKind(prompt) != null;
   // The centred panel waits a human beat and the board FX before it shows; until then nothing answers it.
-  const revealed = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion });
+  // It also waits until the room can take an answer (the last answer finished, no re-sync): until then every button
+  // is disabled, so a panel shown early looks ready and is dead.
+  const revealBeat = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion });
+  const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp);
+  const revealed = revealBeat && answerable;
   const activeMenu = !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
     menu?.revision === data?.engine?.revision ? menu : null;
 
@@ -348,6 +355,28 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   useEffect(() => {
     if (!activeMenu) setActionPreview(null);
   }, [activeMenu]);
+
+  // A new prompt that wants cards outside the open pile (summon materials on the field) must not stay hidden
+  // behind the pile viewer's scrim. A prompt that wants cards inside the pile keeps it open.
+  useEffect(() => {
+    const engine = data?.engine;
+    if (!engine) return;
+    const answered = pileAnswered.current;
+    pileAnswered.current = false;
+    if (!prompt) {
+      // Answered and now waiting (no prompt for anyone yet): let the player watch the board, not the pile.
+      if (answered) setPile((current) => (current?.open ? { ...current, open: false } : current));
+      return;
+    }
+    const seat = data?.mySeat ?? 0;
+    setPile((current) => {
+      if (!current?.open) return current;
+      const cards = livePileCards(current, engine, seat);
+      return shouldClosePileForPrompt(cards, promptLegalKeys(prompt), promptMine, answered) ? { ...current, open: false } : current;
+    });
+    // Only a new prompt decides this; later revisions of the same prompt must not close a pile the player opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt?.id]);
 
   // Hovering or focusing a legal target on the board aims the arrow at it.
   useEffect(() => {
@@ -435,6 +464,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       if (!data?.engine || !prompt || error || catchingUp || data.mySeat !== prompt.seat ||
           data.session.status !== "active" || inFlight.current) return;
       const command = { promptId: prompt.id, revision: data.engine.revision, answer };
+      // The answer is on its way (e.g. an Extra Deck summon picked in the pile viewer): the next prompt decides
+      // whether the viewer stays (it wants a card in the pile) or closes (materials on the field must not sit behind it).
+      pileAnswered.current = true;
       // Remember the declared attacker so the target step can draw the arrow from it.
       const attack = prompt.context?.type === "action" && answer.choice?.startsWith("attack:")
         ? prompt.options.find((option) => option.id === answer.choice) : undefined;

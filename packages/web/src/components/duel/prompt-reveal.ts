@@ -180,3 +180,30 @@ export function usePromptReveal({ promptId, board, reducedMotion }: UsePromptRev
 
   return !promptId || revealedId === promptId;
 }
+
+/**
+ * The prompt id to remember as "answerable": the first time the room was settled (no answer in
+ * flight, no sync, no connection error) while this prompt was up. Pure so it can be tested.
+ */
+export function nextAnswerableId(
+  current: string | null,
+  promptId: string | null | undefined,
+  settled: boolean,
+): string | null {
+  return promptId && settled ? promptId : current;
+}
+
+/**
+ * True when the centred panel for `promptId` may be shown because it can be answered. A panel that
+ * appears while the previous answer is still in flight, or while the room re-syncs, shows every
+ * button disabled: it looks ready and is dead. This holds the panel back until the room is settled
+ * once for that prompt; a later short sync does not hide it again (it would flicker and lose state).
+ * With no prompt it is true.
+ */
+export function usePromptAnswerable(promptId: string | null | undefined, settled: boolean): boolean {
+  const [answerableId, setAnswerableId] = useState<string | null>(null);
+  useEffect(() => {
+    setAnswerableId((current) => nextAnswerableId(current, promptId, settled));
+  }, [promptId, settled]);
+  return !promptId || answerableId === promptId;
+}
