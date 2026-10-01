@@ -77,9 +77,15 @@ jobs:
           ref: ${{ inputs.ref }}
 
       # Same inputs as the key in deploy.yml: the standard and domain bundle is the same as production.
+      # BUNDLE_CACHE_KEY is the production key. This workflow only READS it. It saves under the
+      # staging-prefixed key, so a staging run can never put a bundle where the production deploy reads it.
       - name: Compute bundle cache key
         if: ${{ inputs.action == 'deploy' }}
         run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
+
+      - name: Compute staging bundle cache key
+        if: ${{ inputs.action == 'deploy' }}
+        run: echo "STAGING_BUNDLE_CACHE_KEY=staging-$BUNDLE_CACHE_KEY" >> "$GITHUB_ENV"
 
       # The multi core has its own key: the series of patches and the multi build scripts.
       # The v1 is a literal: raise it when the build step below changes (the hash cannot see it).
@@ -91,23 +97,27 @@ jobs:
         if: ${{ inputs.action == 'deploy' }}
         run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
 
+      # Look for the staging key first, then for the production key (read only). cache-matched-key is empty
+      # when neither exists, and only then the bundle is built.
       - name: Restore pinned duel-engine bundle
         if: ${{ inputs.action == 'deploy' }}
         id: bundle
         uses: actions/cache/restore@v4
         with:
           path: data/duel-engine
-          key: ${{ env.BUNDLE_CACHE_KEY }}
+          key: ${{ env.STAGING_BUNDLE_CACHE_KEY }}
+          restore-keys: |
+            ${{ env.BUNDLE_CACHE_KEY }}
 
       - name: Setup Node.js
-        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-matched-key == '' }}
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
 
       - name: Build pinned duel-engine bundle
-        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-matched-key == '' }}
         run: |
           npm ci --ignore-scripts
           npx patch-package --error-on-fail
@@ -117,11 +127,11 @@ jobs:
           npx tsx packages/duel-server/scripts/build-domain-core.ts standard
 
       - name: Save pinned duel-engine bundle
-        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-hit != 'true' }}
+        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-matched-key == '' }}
         uses: actions/cache/save@v4
         with:
           path: data/duel-engine
-          key: ${{ env.BUNDLE_CACHE_KEY }}
+          key: ${{ env.STAGING_BUNDLE_CACHE_KEY }}
 
       - name: Restore multi core
         if: ${{ inputs.action == 'deploy' }}
