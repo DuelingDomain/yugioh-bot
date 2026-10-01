@@ -146,7 +146,8 @@ export const NSEAT_SCENARIOS: Scenario[] = [
       pickOpponent("p1", "p0"),
       expectEliminated("p1"),
       expectLp({ seat: "p1" }, 0),
-      // Their cards leave the game: hand, Spell & Trap Zones and Graveyard are empty. p0 and p2 keep theirs.
+      // The view of p1 shows an empty seat (the view does not read the core for an eliminated seat), and p0 keeps its monsters.
+      // That the core really releases the cards of an eliminated seat is proven in nseat-ffa.ts (Swords, Change of Heart, chain link).
       expectBoard({ p1: { hand: { count: 0 }, spells: { count: 0 }, grave: { count: 0 } }, p0: { monsters: { count: 2 } } }),
       // p1 is out, so p2 is the only opponent left: the core offers no pick, and the hit ends the duel.
       attack(ELF, "direct", "p0"),

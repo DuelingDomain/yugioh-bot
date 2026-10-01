@@ -4,7 +4,7 @@
 
 import {
   activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectPickSeats,
-  expectResult, expectTurn, normalSummon, pickOpponent, select, type Scenario, type Step,
+  expectPrompt, expectResponseOrder, expectResult, expectTurn, normalSummon, pickOpponent, select, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, ELF_ATK, SOURCE } from "./nseat-scenarios.js";
 
@@ -46,7 +46,8 @@ export const TAG_SCENARIOS: Scenario[] = [
       // Each Deck has one card. p0 skips the draw of turn 1, so p0 draws on turn 5 and p1 is the first duelist to find an empty Deck.
       ...passTurns("p0", "p1", "p2", "p3", "p0"),
       expectEliminated("p1", "p3"),
-      expectBoard({ p0: { deckCount: 0 }, p1: { deckCount: 0 } }),
+      // p0 is alive and drew its only card. (An eliminated seat shows deckCount 0 in any case, so p1 is not checked.)
+      expectBoard({ p0: { deckCount: 0 } }),
       expectResult({ team: 0 }),
     ],
   }),
@@ -150,6 +151,38 @@ export const TAG_SCENARIOS: Scenario[] = [
       // The first duelist draws for the first time on turn 5.
       expectTurn("p0", 5),
       expectBoard({ p0: { hand: ["Raigeki"], deckCount: 19 } }),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-tag-partner-trap-does-not-answer",
+    title: "Tag: a set Solemn Judgment of the partner (p2) gets no chain window on the Normal Summon of p0 and the Elf stays",
+    source: `${SOURCE} [R-TAG-PARTNER]`,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "chain", "tag", "card:41420027"],
+    setup: { format: "tag", p0: { hand: [ELF] }, p2: { spells: [{ card: "Solemn Judgment", pos: "set" }] } },
+    steps: [
+      normalSummon(ELF, "p0"),
+      expectResponseOrder(),
+      expectPrompt({ by: "p0", context: "action" }),
+      expectBoard({ p0: { monsters: [ELF] } }),
+      expectLp({ team: 0 }, 16000),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-tag-opponent-trap-answers",
+    title: "Tag control: the same set Solemn Judgment on an opposing seat (p1) answers the Normal Summon, negates it and halves its team LP",
+    source: `${SOURCE} [R-TAG-PARTNER]`,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "chain", "tag", "card:41420027"],
+    setup: { format: "tag", p0: { hand: [ELF] }, p1: { spells: [{ card: "Solemn Judgment", pos: "set" }] } },
+    steps: [
+      normalSummon(ELF, "p0"),
+      expectPrompt({ by: "p1", context: "chain" }),
+      activate("Solemn Judgment", "p1"),
+      expectResponseOrder("p1"),
+      expectBoard({ p0: { monsters: { count: 0 }, hand: { count: 0 } } }),
+      expectLp({ team: 1 }, 8000),
+      expectLp({ team: 0 }, 16000),
     ],
   }),
 ];
