@@ -9,10 +9,24 @@
 //   activate opens a chain-link tile. chain-resolving / resolved / negated update the SAME tile by chain index.
 //            Effect damage and destroy events that arrive while a link resolves merge into that link's tile.
 //   summon / set   one tile each.
+//   move     draw, discard, banish, send to the Graveyard and return events get a tile (destroy, summon, set and
+//            activate moves already have their own tile). Back-to-back draws by one seat fold into one tile.
+//   position battle position changes and flip reveals get a tile.
+//   heal     the engine sends no LP gain event, so a rise in LP that damage events do not explain becomes a tile.
 //   damage / destroy that belong to no open attack or chain become their own tile.
 //   phase    a thin separator (not a tile). "Main Phase 1" also marks the turn start.
-import type { DuelCard, DuelCardInfo, DuelEvent, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels";
-import { LOCATION_MZONE, LOCATION_SZONE, phaseLabel, zoneKey } from "./constants";
+import type { DuelCard, DuelCardInfo, DuelEvent, DuelMoveReason, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels";
+import {
+  LOCATION_DECK,
+  LOCATION_EXTRA,
+  LOCATION_GRAVE,
+  LOCATION_HAND,
+  LOCATION_MZONE,
+  LOCATION_REMOVED,
+  LOCATION_SZONE,
+  phaseLabel,
+  zoneKey,
+} from "./constants";
 
 export type HistoryCard = DuelCard | DuelCardInfo;
 export type SummonKind = DuelSummonKind;
@@ -23,6 +37,14 @@ export interface HistoryHit {
   seat: number;
   amount: number;
   cause: DamageCause;
+}
+
+export type MoveDest = "hand" | "deck" | "extra" | "grave" | "banished" | "field";
+
+/** An LP rise the engine did not report as an event (a recovery effect). */
+export interface HistoryGain {
+  seat: number;
+  amount: number;
 }
 
 export interface HistoryLoss {
@@ -36,7 +58,7 @@ export interface HistoryTile {
   /** Id of the first event in the group. Stable React key. */
   key: number;
   lastEventId: number;
-  kind: "summon" | "set" | "activate" | "attack" | "damage" | "destroy";
+  kind: "summon" | "set" | "activate" | "attack" | "damage" | "destroy" | "move" | "position" | "heal";
   seat: number | null;
   /** The subject: summoned / set / activated card, the attacker, or the destroyed card. */
   card: HistoryCard | null;
@@ -53,6 +75,12 @@ export interface HistoryTile {
   destroyed: HistoryLoss[];
   attackerZone?: string;
   targetZone?: string;
+  /** move only. `count` is above 1 when back-to-back draws were folded in. */
+  move?: { dest: MoveDest; reason: DuelMoveReason; count: number; faceDown: boolean };
+  /** position only: POS_* bitmasks before and after. */
+  position?: { from?: number; to?: number; flip: boolean };
+  /** heal only */
+  gain?: HistoryGain;
 }
 
 export interface HistorySeparator {
@@ -73,6 +101,10 @@ export interface HistoryState {
   /** Tiles whose first event id is above this slide in; older ones (first render, reload) do not. */
   animateAfter: number;
   phase: string | null;
+  /** LP per seat at the last ingest, to spot recovery. */
+  lp: number[] | null;
+  /** How many heal tiles exist, so each gets a fresh fractional key. */
+  healCount: number;
   memory: Record<string, HistoryCard>;
   battleKey: number | null;
   chain: { keys: Record<number, number>; current: number | null; size: number } | null;
@@ -84,11 +116,13 @@ export interface HistoryContext {
   turnSeat: number;
   phase: string;
   seatCount: number;
+  /** LP per seat right now. Omit when unknown: no recovery tiles are made then. */
+  lp?: readonly number[];
   /** Cards on the field right now (monsters and spells). Used to look up attackers and targets. */
   cards: readonly DuelCard[];
 }
 
-const MAX_ITEMS = 90;
+const MAX_ITEMS = 400;
 
 export function emptyHistory(): HistoryState {
   return {
@@ -97,6 +131,8 @@ export function emptyHistory(): HistoryState {
     revision: -1,
     animateAfter: -1,
     phase: null,
+    lp: null,
+    healCount: 0,
     memory: {},
     battleKey: null,
     chain: null,
@@ -139,6 +175,42 @@ export function shouldResetHistory(state: HistoryState, events: readonly DuelEve
   return events.length > 0 && max < state.lastId;
 }
 
+const MOVE_SHOWN: ReadonlySet<DuelMoveReason> = new Set(["draw", "discard", "banish", "send", "return"]);
+
+function moveDest(location: number | undefined): MoveDest {
+  switch (location) {
+    case LOCATION_HAND:
+      return "hand";
+    case LOCATION_DECK:
+      return "deck";
+    case LOCATION_EXTRA:
+      return "extra";
+    case LOCATION_GRAVE:
+      return "grave";
+    case LOCATION_REMOVED:
+      return "banished";
+    default:
+      return "field";
+  }
+}
+
+/** Seats whose LP rose by more than the damage events in this batch explain. */
+export function detectGains(
+  before: readonly number[] | null,
+  after: readonly number[] | undefined,
+  damage: ReadonlyMap<number, number> = new Map(),
+): HistoryGain[] {
+  if (!before || !after) return [];
+  const gains: HistoryGain[] = [];
+  after.forEach((lp, seat) => {
+    const prev = before[seat];
+    if (prev == null) return;
+    const rise = lp - (prev - (damage.get(seat) ?? 0));
+    if (rise > 0) gains.push({ seat, amount: rise });
+  });
+  return gains;
+}
+
 export function ingestHistory(state: HistoryState, events: readonly DuelEvent[], ctx: HistoryContext): HistoryState {
   const fresh = events
     .filter((event) => typeof event.id === "number" && event.id > state.lastId)
@@ -147,7 +219,23 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
   const batch = fresh.filter((event) => (seen.has(event.id) ? false : (seen.add(event.id), true)));
   if (batch.length === 0) {
     if (state.revision === ctx.revision) return state;
-    return { ...state, revision: ctx.revision, memory: snapshotMemory(ctx.cards) };
+    const gains = detectGains(state.lp, ctx.lp);
+    const lp = ctx.lp ? [...ctx.lp] : state.lp;
+    if (gains.length === 0) return { ...state, revision: ctx.revision, lp, memory: snapshotMemory(ctx.cards) };
+    const grown = state.items.slice();
+    let healCount = state.healCount;
+    for (const gain of gains) {
+      grown.push(healTile(state.lastId + 1 - 1 / (healCount + 2), gain, ctx, state.phase ?? ""));
+      healCount += 1;
+    }
+    return {
+      ...state,
+      items: grown.length > MAX_ITEMS ? grown.slice(grown.length - MAX_ITEMS) : grown,
+      revision: ctx.revision,
+      lp,
+      healCount,
+      memory: snapshotMemory(ctx.cards),
+    };
   }
 
   const isFirst = state.lastId < 0;
@@ -335,21 +423,77 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
         }
         break;
       }
+      case "move": {
+        if (!event.reason || !MOVE_SHOWN.has(event.reason)) break;
+        const dest = moveDest(event.zone?.location);
+        const seat = event.seat ?? event.zone?.controller ?? null;
+        const last = items[items.length - 1];
+        if (event.reason === "draw" && last && last.type === "tile" && last.kind === "move" &&
+            last.move?.reason === "draw" && last.seat === seat) {
+          patch(last.key, (tile) => ({
+            ...tile,
+            lastEventId: event.id,
+            move: tile.move ? { ...tile.move, count: tile.move.count + 1 } : tile.move,
+          }));
+          break;
+        }
+        const tile = make(event, index, "move", event.card ?? null);
+        tile.seat = seat;
+        tile.move = { dest, reason: event.reason, count: 1, faceDown: event.faceDown === true };
+        items.push(tile);
+        break;
+      }
+      case "position": {
+        const tile = make(event, index, "position", event.card ?? lookupZone(event.zone));
+        tile.position = { from: event.fromPosition, to: event.toPosition, flip: event.flip === true };
+        items.push(tile);
+        break;
+      }
       default:
         break;
     }
   });
 
   const lastId = batch[batch.length - 1].id;
+  const damage = new Map<number, number>();
+  for (const event of batch) {
+    if (event.kind === "damage" && event.seat != null && event.amount && event.amount > 0) {
+      damage.set(event.seat, (damage.get(event.seat) ?? 0) + event.amount);
+    }
+  }
+  let healCount = state.healCount;
+  for (const gain of detectGains(state.lp, ctx.lp, damage)) {
+    items.push(healTile(lastId + 1 - 1 / (healCount + 2), gain, ctx, phase ?? ""));
+    healCount += 1;
+  }
   return {
     items: items.length > MAX_ITEMS ? items.slice(items.length - MAX_ITEMS) : items,
     lastId,
     revision: ctx.revision,
     animateAfter: isFirst ? lastId : state.animateAfter,
     phase,
+    lp: ctx.lp ? [...ctx.lp] : state.lp,
+    healCount,
     memory: snapshotMemory(ctx.cards),
     battleKey,
     chain,
+  };
+}
+
+function healTile(key: number, gain: HistoryGain, ctx: HistoryContext, phase: string): HistoryTile {
+  return {
+    type: "tile",
+    key,
+    lastEventId: key,
+    kind: "heal",
+    seat: gain.seat,
+    card: null,
+    text: "",
+    turn: Math.max(1, ctx.turn),
+    phase,
+    hits: [],
+    destroyed: [],
+    gain,
   };
 }
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Circle, Diamond, ExternalLink, Eye, Radio, Settings, Volume2, VolumeX } from "lucide-react";
+import { Circle, Diamond, ExternalLink, Eye, Radio, Settings, Volume2, VolumeX, X } from "lucide-react";
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -261,7 +261,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const pileAnswered = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
-  const [pane, setPane] = useState<Pane>("card");
+  const [pane, setPane] = useState<Pane>("log");
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [hideResult, setHideResult] = useState(false);
@@ -489,8 +489,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       return;
     }
     setInspect(target);
-    setPane("card");
-    if (mobile && window.matchMedia("(max-width: 900px)").matches) setMobileInspect(true);
+    // On desktop the Log tab keeps the whole column and shows the card in its pinned dock; elsewhere go to the Card tab.
+    const narrow = window.matchMedia("(max-width: 900px)").matches;
+    if (pane !== "log" || narrow) setPane("card");
+    if (mobile && narrow) setMobileInspect(true);
   }
 
   function playerNameOf(seat: number): string {
@@ -744,6 +746,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       {engine ? <DuelHistoryRail events={engine.events} engine={engine} mySeat={data.mySeat} playerName={playerName}
         onInspectCard={(card) => showInspector("location" in card ? { type: "card", card } : { type: "info", card })}
         reducedMotion={preferences.reducedMotion} /> : null}
+      {inspect ? (
+        <section className={styles.cardDock} aria-label="Pinned card">
+          <div className={styles.cardDockHead}>
+            <span>Card</span>
+            <button type="button" aria-label="Close pinned card" onClick={() => setInspect(null)}><X size={14} aria-hidden="true" /></button>
+          </div>
+          <div className={styles.cardDockBody}>{inspector}</div>
+        </section>
+      ) : null}
       <details className={styles.textLog}>
         <summary>Text log</summary>
         <MatchSheetLog entries={engine?.log ?? []} playerName={playerName}
@@ -814,8 +825,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   );
   const tabs = (mobile = false) => {
     const panes: readonly Pane[] = mobile
-      ? (domain ? ["card", "log", "options", "masters"] : ["card", "log", "options"])
-      : ["card", "log"];
+      ? (domain ? ["log", "card", "options", "masters"] : ["log", "card", "options"])
+      : ["log", "card"];
     return (
       <div className={styles.tabs} role={mobile ? undefined : "tablist"} aria-label={mobile ? "Mobile duel panels" : "Duel panels"}
         onKeyDown={(event) => {
@@ -831,7 +842,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         {panes.map((tab) => (
           <button key={tab} type="button" role={mobile ? undefined : "tab"}
             aria-selected={mobile ? undefined : pane === tab} aria-haspopup={mobile ? "dialog" : undefined}
-            tabIndex={mobile || pane === tab || (!mobile && pane === "options" && tab === "card") ? 0 : -1}
+            tabIndex={mobile || pane === tab || (!mobile && pane === "options" && tab === "log") ? 0 : -1}
             onClick={() => { setPane(tab); if (mobile) setMobileInspect(true); }}>
             {tab[0].toUpperCase() + tab.slice(1)}
           </button>
@@ -957,7 +968,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                 {pile ? (
                   <PileViewer title={pile.title} owner={pile.owner} open={pile.open}
                     cards={livePileCards(pile, engine, localSeat)} onClose={closePile}
-                    onInspectCard={(card) => { setInspect({ type: "card", card }); setPane("card"); }}
+                    onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
                     onHoverCard={(card) => { if (pane === "card") setInspect({ type: "card", card }); }}
                     onActivateCard={onInspectorActivate}
                     legalKeys={legalKeys} selectedKeys={selectedKeys}

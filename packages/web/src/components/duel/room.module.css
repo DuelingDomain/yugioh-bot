@@ -60,10 +60,10 @@
   /* The field is height-bound (its width follows from the rows), so on wide screens the spare width
      goes to the side panes. --duel-free is the viewport width left once the field has what it needs
      (about 1.12 x the height under the header and track, plus the sheet margins); the panes share it,
-     up to a vw ceiling. */
+     up to a vw ceiling. The left pane holds the duel history, so it gets the larger share (62%, up to 26vw). */
   --duel-free: max(0px, calc(100vw - (100dvh - 140px) * 1.12 - 40px));
-  --duel-insp-w: clamp(240px, min(22vw, calc(var(--duel-free) * 0.55)), 640px);
-  --duel-dock-w: clamp(212px, min(16vw, calc(var(--duel-free) * 0.45)), 460px);
+  --duel-insp-w: clamp(260px, min(26vw, calc(var(--duel-free) * 0.62)), 560px);
+  --duel-dock-w: clamp(212px, min(16vw, calc(var(--duel-free) * 0.38)), 460px);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -221,10 +221,9 @@
   min-height: 0;
   display: grid;
   grid-template-columns: var(--duel-insp-w) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas:
     "insp board"
-    "chain board"
     "prompt board";
   background: linear-gradient(90deg, rgb(9 15 29 / 0.9) var(--duel-insp-w), transparent var(--duel-insp-w));
 }
@@ -232,7 +231,6 @@
   grid-template-columns: var(--duel-insp-w) minmax(0, 1fr) var(--duel-dock-w);
   grid-template-areas:
     "insp board masters"
-    "chain board masters"
     "prompt board masters";
   background: linear-gradient(90deg, rgb(9 15 29 / 0.9) var(--duel-insp-w), transparent var(--duel-insp-w));
 }
@@ -349,71 +347,6 @@
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* ---------- chain block ---------- */
-.chain {
-  grid-area: chain;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  max-height: min(26dvh, calc(240 * var(--duel-unit)));
-  margin: 0 calc(8 * var(--duel-unit)) calc(8 * var(--duel-unit));
-  overflow: hidden;
-  border: 1px solid rgb(228 182 79 / 0.55);
-  border-radius: 6px;
-  background: var(--duel-chain-soft);
-  color: var(--duel-ink);
-  font-size: var(--duel-t-body);
-}
-.chain > strong {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: calc(6 * var(--duel-unit)) calc(10 * var(--duel-unit)) calc(5 * var(--duel-unit));
-  border-bottom: 1px solid rgb(228 182 79 / 0.35);
-  color: var(--duel-chain-ink);
-  font-size: var(--duel-t-body);
-  font-weight: 600;
-}
-.chain ol { min-height: 0; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
-.chain li {
-  display: flex;
-  align-items: center;
-  gap: calc(9 * var(--duel-unit));
-  padding: calc(6 * var(--duel-unit)) calc(10 * var(--duel-unit));
-  border-bottom: 1px solid rgb(228 182 79 / 0.2);
-}
-.chain li:last-child { border-bottom: 0; }
-.chain b {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: calc(32 * var(--duel-unit));
-  height: calc(32 * var(--duel-unit));
-  border: 1.5px solid var(--duel-chain);
-  border-radius: 50%;
-  color: var(--duel-chain-ink);
-  font-family: var(--duel-f-num);
-  font-size: var(--duel-t-num);
-  font-variant-numeric: tabular-nums lining-nums;
-  font-weight: 600;
-  line-height: 1;
-}
-.chainArt {
-  flex: none;
-  width: calc(36 * var(--duel-unit));
-  height: calc(36 * var(--duel-unit));
-  border-radius: 4px;
-  background-color: #06080e;
-  background-position: 50% 36%;
-  background-repeat: no-repeat;
-  background-size: 131% auto;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.4);
-}
-.chainText { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
-.chain small { display: block; color: var(--duel-ink-2); font-size: var(--duel-t-xs); line-height: 1.35; }
-
 /* ---------- prompt dock ---------- */
 .promptDock { position: relative; min-width: 0; }
 /* Replay keeps its controls in the board column. */
@@ -430,7 +363,7 @@
   white-space: nowrap;
   border: 0;
 }
-/* A prompt for you sits in the left sheet under the chain, so the board never resizes. */
+/* A prompt for you sits in the left sheet under the log, so the board never resizes. */
 .promptDock[data-mode="float"], .promptDock[data-mode="flow"] {
   grid-area: prompt;
   min-height: 0;
@@ -673,11 +606,10 @@
     background: none;
   }
   .inspector { display: none; }
-  .inspector, .boardColumn, .masters, .chain, .promptDock[data-mode="float"], .promptDock[data-mode="flow"] { grid-area: auto; }
+  .inspector, .boardColumn, .masters, .promptDock[data-mode="float"], .promptDock[data-mode="flow"] { grid-area: auto; }
   .boardColumn, .shell[data-domain="true"] .boardColumn { padding: 0; border: 0; }
   .board { flex: none; height: clamp(480px, calc(100dvh - 13rem), 780px); }
   .masters { border: 0; padding: 4px 0; background: none; }
-  .chain { margin: 6px 0 0; }
   .promptDock[data-mode="float"], .promptDock[data-mode="flow"] { margin: 6px 0 0; max-height: none; }
 
   /* The live room: everything fits one screen, nothing scrolls. */
@@ -692,20 +624,7 @@
   .shell[data-fit="true"] .boardColumn { grid-row: 2; min-height: 0; }
   .shell[data-fit="true"] .board { flex: 1; height: auto; }
   .shell[data-fit="true"] .masters { display: none; }
-  /* A chain becomes a slim strip above the board; the prompt overlays the bottom. */
-  .shell[data-fit="true"] .chain {
-    grid-row: 1;
-    max-height: none;
-    margin: 0 0 4px;
-    flex-direction: row;
-    align-items: stretch;
-  }
-  .shell[data-fit="true"] .chain > strong { flex: none; align-items: center; padding: 0 10px; border-bottom: 0; border-right: 1px solid rgb(228 182 79 / 0.35); }
-  .chainNote { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
-  .shell[data-fit="true"] .chain ol { display: flex; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; }
-  .shell[data-fit="true"] .chain li { flex: none; width: max-content; max-width: 210px; padding: 5px 10px; border-bottom: 0; border-right: 1px solid rgb(228 182 79 / 0.2); }
-  .shell[data-fit="true"] .chain b { width: 26px; height: 26px; font-size: 18px; }
-  .shell[data-fit="true"] .chainArt { width: 30px; height: 30px; }
+  /* The prompt overlays the bottom of the board. */
   .shell[data-fit="true"] .promptDock[data-mode="float"],
   .shell[data-fit="true"] .promptDock[data-mode="flow"] {
     position: absolute;
@@ -741,12 +660,48 @@
   .log li { font-size: 13px; }
 }
 
-/* Log tab: history rail above the match sheet; the sheet keeps the remaining height. */
-.logPane { display: flex; flex-direction: column; gap: 10px; min-height: 0; height: 100%; overflow: hidden; }
-.logPane > :first-child { flex: none; }
+/* Log tab: the history list takes the whole column; the pinned card dock and the text log sit under it. */
+.logPane { display: flex; flex-direction: column; gap: 8px; min-height: 0; height: 100%; padding: 6px 8px 8px; overflow: hidden; }
+.logPane > :first-child { flex: 1 1 0; min-height: 0; }
+.logPane > .cardDock { flex: 0 1 auto; }
 /* The sheet fills the rest of the pane and scrolls its own list, so the history rail stays in view. */
 .logPane > .sheet { flex: 1; min-height: 0; }
 .logPane > .sheet .log { min-height: 0; overflow-y: auto; justify-content: flex-start; }
+
+/* A card pinned by clicking it on the board or in the history. It never takes more than half the column. */
+.cardDock {
+  display: flex;
+  flex-direction: column;
+  max-height: 50%;
+  min-height: 0;
+  border: 1px solid var(--duel-rule-hi);
+  border-radius: 4px;
+  background: var(--duel-panel-2);
+}
+.cardDockHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(3 * var(--duel-unit)) calc(6 * var(--duel-unit)) calc(3 * var(--duel-unit)) calc(12 * var(--duel-unit));
+  border-bottom: 1px solid var(--duel-rule);
+  color: var(--duel-ink-3);
+  font-size: var(--duel-t-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.cardDockHead button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  color: var(--duel-ink-2);
+  cursor: pointer;
+}
+.cardDockHead button:hover { color: var(--duel-ink); background: var(--duel-lamp); }
+.cardDockHead button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -2px; }
+.cardDockBody { min-height: 0; overflow-y: auto; }
 
 /* The Hearthstone-style history owns the pane; the plain text log folds into a drawer under it. */
 .textLog { flex: none; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--duel-rule); }
@@ -774,4 +729,6 @@
 /* In the mobile sheet the pane has no fixed parent height, so give the history a definite one. */
 @media (max-width: 900px) {
   .logPane { height: min(72dvh, 600px); }
+  /* The sheet already switches to the Card tab for a pinned card. */
+  .cardDock { display: none; }
 }
