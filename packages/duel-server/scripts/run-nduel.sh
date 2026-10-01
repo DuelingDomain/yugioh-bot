@@ -3,7 +3,7 @@
 #
 #   bash packages/duel-server/scripts/run-nduel.sh
 #   NDUEL_SEEDS=5 NDUEL_CASES="n2 n3" bash packages/duel-server/scripts/run-nduel.sh
-#   NDUEL_PATCHES=/path/to/out/0001-x.patch bash packages/duel-server/scripts/run-nduel.sh
+#   NDUEL_PATCHES=/path/to/out/0046-x.patch bash packages/duel-server/scripts/run-nduel.sh
 #
 # Steps: (1) build libocgcore-multi.a with -DYGO_N_TRAP -D_GLIBCXX_ASSERTIONS into its own folder,
 # (2) compile nduel.cpp against it, (3) run the matrix with at most NDUEL_JOBS processes,
@@ -12,8 +12,14 @@
 # Environment (all optional):
 #   NDUEL_DIR        work folder (default domain-core/.build/nduel)
 #   NDUEL_TREE       MULTI_TREE for the core source tree (default $NDUEL_DIR/tree)
-#   NDUEL_PATCHES    EXTRA_PATCHES mbox list (default: phase 1 merged series)
-#   NDUEL_PATCH_LIMIT PATCH_LIMIT (default 4 with the default mbox, else 0 = all installed patches)
+#   NDUEL_PATCHES    EXTRA_PATCHES: patch files (or mbox files) applied AFTER the repo series. Default: none, so the core is
+#                    the repo series domain-core/patches/NNNN-*.patch on the pinned ygopro-core (prepare-multi-core-tree.sh).
+#   NDUEL_PATCH_LIMIT PATCH_LIMIT: apply only the first N repo patches. Default 0 = ALL repo patches. Do not set it in CI:
+#                    the nightly fuzz must test the core that ships. Use it to bisect (for example 2 = the two base fixes).
+#   NDUEL_NO_LOCK=1  do not wait for a build slot. The default uses domain-core/.build/phase1/run-locked.sh when that file
+#                    exists (a local convenience that keeps parallel agents from overloading the machine) and runs the
+#                    commands directly when it does not (CI, a clean checkout).
+#   DUEL_DATA_DIR    engine data with cards.cdb and card-scripts (default $REPO/data/duel-engine-next, as in CI)
 #   NDUEL_SEEDS      seeds per case (default 20)    NDUEL_TURNS  turn limit (default 60)
 #   NDUEL_LP         starting LP (default 3000)     NDUEL_JOBS   parallel runs (default 3, max 3)
 #   NDUEL_CASES      space list of: n2 n2b n2s n3 n4 tag d3 d4 dtag (default: the first six, plus d* with NDUEL_DOMAIN=1; n2b = repeat of n2, n2s = --setup-always)
@@ -58,6 +64,10 @@ done
 PKG="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$(cd "$PKG/../.." && pwd)"
 P1="$PKG/domain-core/.build/phase1"
+DATA_DIR="${DUEL_DATA_DIR:-$REPO/data/duel-engine-next}"
+# Build slots: only where the local lock script exists (it is gitignored, so CI has none).
+LOCKER=()
+if [[ "${NDUEL_NO_LOCK:-0}" != 1 && -f "$P1/run-locked.sh" ]]; then LOCKER=(bash "$P1/run-locked.sh" build 2); fi
 CENSUS="${NDUEL_CENSUS:-0}"
 if [[ "$CENSUS" == 1 ]]; then DIR="${NDUEL_DIR:-$PKG/domain-core/.build/nduel/census}"; DEFS="-DYGO_N_TRAP_LOG -D_GLIBCXX_ASSERTIONS"
 else DIR="${NDUEL_DIR:-$PKG/domain-core/.build/nduel}"; DEFS="-DYGO_N_TRAP -D_GLIBCXX_ASSERTIONS"; fi
@@ -73,14 +83,8 @@ if [[ "$DOMAIN" != 1 ]]; then
   KEEP=""; for c in $CASES; do case "$c" in d3|d4|dtag) echo "note: case $c skipped: it needs NDUEL_DOMAIN=1" >&2 ;; *) KEEP="$KEEP $c" ;; esac; done
   CASES="${KEEP# }"
 fi
-DEFAULT_MBOX="$P1/MERGED/out/0001-merged-series.patch"
-PATCHES="${NDUEL_PATCHES:-$DEFAULT_MBOX}"
-if [[ -z "${NDUEL_PATCHES:-}" ]]; then
-  echo "note: NDUEL_PATCHES is unset. The default is the phase 1 MERGED series. Census runs need the B2 patch (or a later base)." >&2
-fi
-if [[ -n "${NDUEL_PATCH_LIMIT:-}" ]]; then LIMIT="$NDUEL_PATCH_LIMIT"
-elif [[ "$PATCHES" == "$DEFAULT_MBOX" ]]; then LIMIT=4
-else LIMIT=0; fi
+PATCHES="${NDUEL_PATCHES:-}"
+LIMIT="${NDUEL_PATCH_LIMIT:-0}"
 TREE="${NDUEL_TREE:-$DIR/tree}"
 NATIVE="$DIR/native"
 BIN="$DIR/nduel"
@@ -98,7 +102,7 @@ fi
 [[ "$MODE_RUN" == record ]] && CASES="${NDUEL_CASES:-n2 n3 n4 tag}"
 
 if [[ "${NDUEL_SKIP_BUILD:-0}" != 1 ]]; then
-  echo "== build core ($PATCHES, PATCH_LIMIT=$LIMIT)"
+  echo "== build core (repo series, PATCH_LIMIT=$LIMIT, extra patches: ${PATCHES:-none})"
   if [[ "$CENSUS" == 1 ]]; then
     MULTI_TREE="$TREE" EXTRA_PATCHES="$PATCHES" PATCH_LIMIT="$LIMIT" bash "$PKG/scripts/prepare-multi-core-tree.sh" > "$DIR/prepare.log" 2>&1 \
       || { tail -20 "$DIR/prepare.log"; echo "tree prepare failed"; exit 2; }
@@ -109,13 +113,13 @@ if [[ "${NDUEL_SKIP_BUILD:-0}" != 1 ]]; then
         || { echo "census commit failed"; exit 2; }
     fi
   fi
-  if ! bash "$P1/run-locked.sh" build 2 env JOBS=3 SKIP_SMOKE=1 NATIVE_OUT="$NATIVE" MULTI_TREE="$TREE" \
+  if ! ${LOCKER[@]+"${LOCKER[@]}"} env JOBS="${NDUEL_BUILD_JOBS:-3}" SKIP_SMOKE=1 NATIVE_OUT="$NATIVE" MULTI_TREE="$TREE" \
       EXTRA_PATCHES="$PATCHES" PATCH_LIMIT="$LIMIT" EXTRA_CXXFLAGS="$DEFS" \
       bash "$PKG/scripts/build-native-core.sh" > "$DIR/build.log" 2>&1; then
     tail -30 "$DIR/build.log"; echo "core build failed (see $DIR/build.log)"; exit 2
   fi
   echo "== compile nduel"
-  if ! bash "$P1/run-locked.sh" build 2 \
+  if ! ${LOCKER[@]+"${LOCKER[@]}"} \
       "${CXX:-g++}" -std=c++17 -Wall -Wextra -Wno-unused-parameter -O1 -g1 -fsanitize=address,undefined \
       -fno-omit-frame-pointer -fno-sanitize-recover=undefined -fno-rtti -I"$NATIVE/lua-src" -I"$TREE" \
       $DEFS "$PKG/scripts/native/nduel.cpp" "$NATIVE/libocgcore-multi.a" -o "$BIN" \
@@ -124,12 +128,12 @@ if [[ "${NDUEL_SKIP_BUILD:-0}" != 1 ]]; then
   fi
   if [[ "$DOMAIN" == 1 && "$CENSUS" != 1 ]]; then
     echo "== build Domain core (APPLY_DOMAIN=1 DOMAIN_MULTI=1)"
-    if ! bash "$P1/run-locked.sh" build 2 env JOBS=3 SKIP_SMOKE=1 NATIVE_OUT="$DNATIVE" MULTI_TREE="$DTREE" \
+    if ! ${LOCKER[@]+"${LOCKER[@]}"} env JOBS="${NDUEL_BUILD_JOBS:-3}" SKIP_SMOKE=1 NATIVE_OUT="$DNATIVE" MULTI_TREE="$DTREE" \
         EXTRA_PATCHES="$PATCHES" PATCH_LIMIT="$LIMIT" EXTRA_CXXFLAGS="$DEFS" APPLY_DOMAIN=1 DOMAIN_MULTI="${NDUEL_DOMAIN_MULTI:-1}" \
         bash "$PKG/scripts/build-native-core.sh" > "$DIR/domain-build.log" 2>&1; then
       tail -30 "$DIR/domain-build.log"; echo "Domain core build failed (see $DIR/domain-build.log). Needs the D1 layer in build-native-core.sh."; exit 2
     fi
-    if ! bash "$P1/run-locked.sh" build 2 \
+    if ! ${LOCKER[@]+"${LOCKER[@]}"} \
         "${CXX:-g++}" -std=c++17 -Wall -Wextra -Wno-unused-parameter -O1 -g1 -fsanitize=address,undefined \
         -fno-omit-frame-pointer -fno-sanitize-recover=undefined -fno-rtti -I"$DNATIVE/lua-src" -I"$DNATIVE/domain-tree" \
         $DEFS "$PKG/scripts/native/nduel.cpp" "$DNATIVE/libocgcore-multi.a" -o "$BIN_DOMAIN" \
@@ -143,7 +147,7 @@ if [[ "$DOMAIN" == 1 ]]; then [[ -x "$BIN_DOMAIN" ]] || { echo "missing $BIN_DOM
 
 if [[ ! -f "$DIR/data/cards.tsv" || ! -f "$DIR/data/pool.txt" ]]; then
   echo "== dump card data"
-  (cd "$REPO" && node "$PKG/scripts/native/dump-card-data.mjs" --out "$DIR/data") || exit 2
+  (cd "$REPO" && node "$PKG/scripts/native/dump-card-data.mjs" --data "$DATA_DIR" --out "$DIR/data") || exit 2
 fi
 
 # Job list: case|n|mode|extra|seed
@@ -163,7 +167,7 @@ if [[ "$MODE_RUN" == one ]]; then
   esac > "$JOBFILE"
   CASES=""
   read -r c n mode extra seed < "$JOBFILE"
-  args=(--n "$n" --mode "$mode" --seed "$seed" --turns "$TURNS" --lp "$LP" --data "$DIR/data")
+  args=(--n "$n" --mode "$mode" --seed "$seed" --turns "$TURNS" --lp "$LP" --data "$DIR/data" --scripts "$DATA_DIR/card-scripts")
   [[ "$extra" != "-" ]] && args+=("$extra")
   [[ "${NDUEL_FUTURE:-0}" == 1 ]] && args+=(--check-future)
   [[ "${NDUEL_TRACE:-1}" != 0 ]] && args+=(--trace)
@@ -197,7 +201,7 @@ done
 run_one() {
   local c=$1 n=$2 mode=$3 extra=$4 seed=$5
   local out="$RUNS/$c-$seed"
-  local args=(--n "$n" --mode "$mode" --seed "$seed" --turns "$TURNS" --lp "$LP" --data "$DIR/data")
+  local args=(--n "$n" --mode "$mode" --seed "$seed" --turns "$TURNS" --lp "$LP" --data "$DIR/data" --scripts "$DATA_DIR/card-scripts")
   [[ "$extra" != "-" ]] && args+=("$extra")
   [[ "${NDUEL_FUTURE:-0}" == 1 ]] && args+=(--check-future)
   cd "$REPO"
@@ -206,18 +210,18 @@ run_one() {
   echo $? > "$out.rc"
 }
 export -f run_one
-export RUNS REPO BIN BIN_DOMAIN DIR TURNS LP NDUEL_FUTURE
+export RUNS REPO BIN BIN_DOMAIN DIR TURNS LP NDUEL_FUTURE DATA_DIR
 echo "== run $(wc -l < "$JOBFILE") duels, $JOBS at a time"
 xargs -P "$JOBS" -L 1 bash -c 'run_one "$@"' _ < "$JOBFILE"
 
 if [[ "$MODE_RUN" != matrix ]]; then
-  NDUEL_REPO="$REPO" NDUEL_BIN="$BIN" NDUEL_DIRV="$DIR" python3 - "$MODE_RUN" "$RUNS" "$GOLDEN" "$TURNS" "$LP" "$JOBFILE" "$STATUS_DIR/nduel-check.json" <<'PY'
+  NDUEL_DATA_DIR="$DATA_DIR" NDUEL_REPO="$REPO" NDUEL_BIN="$BIN" NDUEL_DIRV="$DIR" python3 - "$MODE_RUN" "$RUNS" "$GOLDEN" "$TURNS" "$LP" "$JOBFILE" "$STATUS_DIR/nduel-check.json" <<'PY'
 import os, re, sys
 mode, runs, golden, turns, lp, jobfile, checkout = sys.argv[1:8]
 import json, datetime
 def cmd_for(n, m, seed):
     extra = " --check-future" if os.environ.get("NDUEL_FUTURE") == "1" else ""
-    return f"cd {os.environ['NDUEL_REPO']} && {os.environ['NDUEL_BIN']} --n {n} --mode {m} --seed {seed} --turns {turns} --lp {lp} --data {os.environ['NDUEL_DIRV']}/data{extra} --trace"
+    return f"cd {os.environ['NDUEL_REPO']} && {os.environ['NDUEL_BIN']} --n {n} --mode {m} --seed {seed} --turns {turns} --lp {lp} --data {os.environ['NDUEL_DIRV']}/data --scripts {os.environ['NDUEL_DATA_DIR']}/card-scripts{extra} --trace"
 def read(p):
     try: return open(p, errors="replace").read()
     except OSError: return ""
@@ -276,7 +280,7 @@ PY
   exit $?
 fi
 
-NDUEL_REPO="$REPO" NDUEL_BIN="$BIN" NDUEL_BIN_DOMAIN="$BIN_DOMAIN" NDUEL_DIRV="$DIR" python3 - "$RUNS" "$STATUS_DIR/nduel-summary.json" "$SEEDS" "$TURNS" "$LP" "$PATCHES" "$LIMIT" "$CASES" "$CENSUS" "$TREE" <<'PY'
+NDUEL_DATA_DIR="$DATA_DIR" NDUEL_REPO="$REPO" NDUEL_BIN="$BIN" NDUEL_BIN_DOMAIN="$BIN_DOMAIN" NDUEL_DIRV="$DIR" python3 - "$RUNS" "$STATUS_DIR/nduel-summary.json" "$SEEDS" "$TURNS" "$LP" "$PATCHES" "$LIMIT" "$CASES" "$CENSUS" "$TREE" <<'PY'
 import json, os, re, sys, collections, datetime
 runs, outp, seeds, turns, lp, patches, limit, cases, census_mode, tree = sys.argv[1:11]
 census_mode = census_mode == "1"
@@ -296,7 +300,7 @@ CASE_ARGS = {"n2": "--n 2 --mode ffa", "n2b": "--n 2 --mode ffa", "n2s": "--n 2 
 def cmd_for(c, s):
     fut = " --check-future" if os.environ.get("NDUEL_FUTURE") == "1" else ""
     b = os.environ.get("NDUEL_BIN_DOMAIN", BIN_) if c[0] == "d" else BIN_
-    return f"cd {REPO_} && {b} {CASE_ARGS[c]} --seed {s} --turns {turns} --lp {lp} --data {DIR_}/data{fut} --trace"
+    return f"cd {REPO_} && {b} {CASE_ARGS[c]} --seed {s} --turns {turns} --lp {lp} --data {DIR_}/data --scripts {os.environ.get('NDUEL_DATA_DIR', '')}/card-scripts{fut} --trace"
 def enclosing_fn(base, line):
     try: lines = open(os.path.join(tree, base), errors="replace").read().split("\n")
     except OSError: return "?"
