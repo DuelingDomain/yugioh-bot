@@ -33,19 +33,19 @@ afterEach(() => {
 describe("the overlay folder of the repo", () => {
   const repo = repoMultiScriptsDirectory();
 
-  it("is a stub: MP_OVERLAY_ACTIVE first, then the guard, and an empty card list", () => {
+  it("keeps the two stub statements first (the flag, then the guard) and defines the helpers after them", () => {
     const lines = readFileSync(join(repo, "mp-utility.lua"), "utf8").split("\n").filter((line) => line.trim() !== "");
     expect(lines[0]).toBe("MP_OVERLAY_ACTIVE = true");
     expect(lines[1]).toBe("if not Duel.MPBindOpponent then return end");
-    // P3a replaces the stub with the helpers. Until then nothing may come after the guard.
-    expect(lines).toHaveLength(2);
-    expect(JSON.parse(readFileSync(join(repo, "MANIFEST.json"), "utf8"))).toEqual({ version: 1, cards: [] });
+    const text = lines.slice(2).join("\n");
+    for (const helper of ["MPAny", "MPValue", "MPOne", "MPPick", "MPEachOpponent"]) {
+      expect(text).toContain(`function aux.${helper}(fn)`);
+    }
   });
 
   it("loads and passes the checks", () => {
     const overlay = loadMultiScripts(repo);
-    expect(overlay.cards).toEqual([]);
-    expect(overlay.utility).toBe(STUB_UTILITY);
+    expect(overlay.utility.startsWith(STUB_UTILITY)).toBe(true);
     expect(overlay.hash).toMatch(/^[0-9a-f]{64}$/);
   });
 });
