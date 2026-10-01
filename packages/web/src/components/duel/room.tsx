@@ -282,6 +282,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     () => mutate(() => getDuelRoom(slug), { revalidate: false }),
     [mutate, slug],
   );
+  // The duel host answers with the last view it built when its queue is blocked (stale). Ask again until it is fresh.
+  const roomStale = data?.stale === true;
+  useEffect(() => {
+    if (!roomStale) return;
+    const timer = setInterval(() => void refreshRoom(), 2000);
+    return () => clearInterval(timer);
+  }, [roomStale, refreshRoom]);
   const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom);
   const catchingUp = realtime.syncing || realtime.recovering;
   useDuelLeaveGuard({
@@ -713,7 +720,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       </div>
     );
   }
-  const connectionLabel = terminal ? "Finished" : realtime.syncing ? "Catching up…" :
+  const connectionLabel = terminal ? "Finished" : realtime.syncing || roomStale ? "Catching up…" :
     error || realtime.recovering ? "Reconnecting" : realtime.connected ? "Live" : "Polling";
   const domain = data.session.mode === "domain";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];

@@ -429,6 +429,8 @@ export interface DuelRoom {
   series?: DuelSeriesSummary | null;
   /** The viewer's series decks when the viewer is a series player; otherwise null. */
   mySide?: DuelSeriesSideState | null;
+  /** True when the duel host was busy and answered with the last view it built for this seat. The client asks again soon. */
+  stale?: boolean;
 }
 
 /** A table row in the lobby list or match history, as seen by one viewer. */
