@@ -7,8 +7,8 @@
 // Decisions: docs/adr/0002-multiplayer-duel-rules.md (question 2): FFA, the activator compares with ONE opponent.
 
 import {
-  activate, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectTurn,
-  normalSummon, pass, pickOpponent, select, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+  activate, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard, expectEliminated, expectNoPrompt, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectTurn,
+  normalSummon, pass, pickOpponent, position, select, surrender, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
@@ -33,6 +33,10 @@ const EXCITON = "Evilswarm Exciton Knight";
 const SLIME = "Mimighoul Slime";
 const MINE = "Mystic Mine";
 const PIPER = "Mystic Piper";
+const OFFERINGS = "Offerings to the Doomed";
+const POT = "Pot of Greed";
+const MIRROR = "Mirror Force";
+const HOLE = "Trap Hole";
 
 /**
  * The state of EVERY seat of a format, exact for the monster zones, the Spell and Trap zones, the Graveyard, the banished zone and
@@ -103,8 +107,8 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
     ],
   }),
   defineScenario({
-    id: "compare-gaps-ffa3-three-in-one-one-opponent-has-more",
-    title: "FFA3: p2 holds 4 cards, more than p0 (3): Three in One is offered in the End Phase of p1 and Special Summons 3 Normal Monsters from the Graveyard of p0",
+    id: "compare-gaps-ffa3-three-in-one-only-the-turn-player-counts",
+    title: "FFA3: p2 holds 4 cards, more than p0 (3), but it is the End Phase of p1 (3 cards): Three in One is not offered, the opponent whose turn it is does not have more",
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "compare", "ffa3", "card:50838440"],
@@ -116,6 +120,30 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
     },
     steps: [
       endTurn("p0"),
+      // p0 gets no window in the End Phase of p1: the turn goes on to p2.
+      endTurn("p1"),
+      expectTurn("p2", 3),
+      everySeat("ffa3", {
+        p0: { hand: [FANG, BEAVER], spells: [TIO], grave: [OX, GUARDIAN, AXE] },
+        p1: { hand: [RAT, FANG, ELF] },
+        p2: { hand: [RAT, OX, GUARDIAN, ELF, ELF] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "compare-gaps-ffa3-three-in-one-one-opponent-has-more",
+    title: "FFA3: p1 holds 4 cards in its own End Phase, more than p0 (3), and p2 holds 3: Three in One is offered and Special Summons 3 Normal Monsters from the Graveyard of p0",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "compare", "ffa3", "card:50838440"],
+    setup: {
+      format: "ffa3",
+      p0: { hand: [FANG, BEAVER], spells: [{ card: TIO, pos: "set" }], grave: [OX, GUARDIAN, AXE] },
+      p1: { hand: [RAT, FANG, OX] },
+      p2: { hand: [RAT, OX, GUARDIAN] },
+    },
+    steps: [
+      endTurn("p0"),
       changePhase("end", "p1"),
       expectOffered("activate", TIO, "p0"),
       activate(TIO, "p0"),
@@ -123,8 +151,8 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       expectTurn("p2", 3),
       everySeat("ffa3", {
         p0: { hand: [FANG, BEAVER], monsters: [OX, GUARDIAN, AXE], grave: [TIO] },
-        p1: { hand: [RAT, FANG, ELF] },
-        p2: { hand: [RAT, OX, GUARDIAN, ELF, ELF] },
+        p1: { hand: [RAT, FANG, OX, ELF] },
+        p2: { hand: [RAT, OX, GUARDIAN, ELF] },
       }),
     ],
   }),
@@ -378,6 +406,88 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
         p0: { hand: [ELF], monsters: [ELF, RAT], spells: [MINE] },
         p1: { hand: [ELF, ELF], monsters: [PIPER] },
         p2: { hand: [ELF, ELF], monsters: [PIPER] },
+      }),
+    ],
+  }),
+  // Number 100: Numeron Dragon (destroy trigger): destroys every monster, then EVERY duelist Sets 1 Spell/Trap from its own Graveyard.
+  // Each Set is done in the window of the seat that chose the card (the owner of a card is folded to 1 in FFA).
+  defineScenario({
+    id: "compare-gaps-ffa3-numeron-dragon-every-seat-sets-its-own-card",
+    title: "FFA3: Numeron Dragon of p0 is destroyed by an effect: every monster is destroyed, then p0, p1 and p2 each Set 1 Spell/Trap from their OWN Graveyard",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "chooser", "trigger", "ffa3", "card:57314798"],
+    setup: {
+      format: "ffa3",
+      p0: { hand: [OFFERINGS], monsters: [NUMERON], grave: [POT] },
+      p1: { monsters: [OX], grave: [MIRROR] },
+      p2: { monsters: [GUARDIAN], grave: [HOLE] },
+    },
+    steps: [
+      activate(OFFERINGS, "p0"),
+      select(NUMERON),
+      yes("p0"),
+      select(POT),
+      // p1 and p2 have one candidate each, so their windows pick without a prompt.
+      everySeat("ffa3", {
+        p0: { hand: [], monsters: [], spells: [POT], grave: [NUMERON, OFFERINGS] },
+        p1: { monsters: [], spells: [MIRROR], grave: [OX] },
+        p2: { monsters: [], spells: [HOLE], grave: [GUARDIAN] },
+      }),
+    ],
+  }),
+  // W7: the only opponent that passes the compare gives up. A seat that is out is not an opponent: nothing is offered, no pick.
+  defineScenario({
+    id: "compare-gaps-ffa3-eliminated-seat-is-the-only-one-that-passes-not-offered",
+    title: "FFA3: p2 is the only opponent with more monsters than p0 and gives up: Ultimate Sky is not offered and no pick prompt opens (W7)",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK", "R-FFA-ELIMINATION"],
+    tags: ["multiplayer", "compare", "elimination", "ffa3", "card:38817295"],
+    setup: {
+      format: "ffa3",
+      p0: { hand: ["Ultimate Sky"], monsters: [ELF, RAT] },
+      p1: { monsters: [SANGAN] },
+      p2: { monsters: [WITCH, BUG, OX] },
+    },
+    steps: [
+      expectOffered("activate", "Ultimate Sky", "p0"),
+      surrender("p2"),
+      // The loss lands at the next Adjust: p0 changes the position of a monster, then p2 is out.
+      changePosition(ELF, "p0"),
+      expectEliminated("p2"),
+      expectNotOffered("activate", "Ultimate Sky", "p0"),
+      endTurn("p0"),
+      expectBoard({
+        p0: { lp: 8000, hand: ["Ultimate Sky"], monsters: [ELF, RAT] },
+        p1: { lp: 8000, monsters: [SANGAN] },
+      }),
+    ],
+  }),
+  // W8: a seat gives up while the pick prompt of p0 is open. The engine applies the loss at its next Adjust, so the prompt stays open for p0.
+  // Open: p0 may still pick the seat with the pending loss (then the Sky asks for its targets before p1 is out).
+  defineScenario({
+    id: "compare-gaps-ffa3-surrender-while-the-opponent-pick-is-open",
+    title: "FFA3: p1 gives up while p0 picks an opponent for Ultimate Sky (p1 and p2 both pass): the pick prompt stays open (the loss lands at the next Adjust), p0 picks p2, the Sky resolves on p2, p1 is out and no other seat changes (W8)",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK", "R-FFA-ELIMINATION"],
+    tags: ["multiplayer", "compare", "elimination", "ffa3", "card:38817295"],
+    setup: {
+      format: "ffa3",
+      p0: { hand: ["Ultimate Sky"], monsters: [ELF] },
+      p1: { monsters: [SANGAN, WITCH] },
+      p2: { monsters: [BUG, OX] },
+    },
+    steps: [
+      activate("Ultimate Sky", "p0"),
+      expectPickSeats(["p1", "p2"], "p0"),
+      surrender("p1"),
+      expectPickSeats(["p1", "p2"], "p0"),
+      pickOpponent("p2", "p0"),
+      select(BUG),
+      expectEliminated("p1"),
+      everySeat("ffa3", {
+        p0: { lp: 7200, hand: [], monsters: [ELF], grave: ["Ultimate Sky"] },
+        p2: { monsters: [BUG, OX] },
       }),
     ],
   }),

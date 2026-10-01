@@ -5,7 +5,7 @@
 
 import {
   activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered,
-  expectPickOptions, expectPickSeats, pass, pickOpponent, position, select, auto, choose, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+  expectPickOptions, expectPickSeats, expectPrompt, pass, pickOpponent, position, select, auto, choose, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
@@ -201,13 +201,14 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "compare-extra-ffa3-numeron-dragon-summons-itself-when-p0-is-attacked-directly",
-    title: "FFA3: Number 100: Numeron Dragon (spcon unchanged) is offered from the Graveyard when p1 attacks p0 directly and p0 has no card on the field or in the hand",
+    title: "FFA3: Number 100: Numeron Dragon is offered from the Graveyard when p1 attacks p0 directly (p0 is the only seat the attack can go to: p2 controls a monster) and p0 has no card on the field or in the hand",
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "chooser", "trigger", "ffa3", "card:57314798"],
     // A Xyz monster in the Graveyard of the setup was never properly summoned, so it cannot return. Numeron Dragon starts on the field and Elf destroys it in battle.
     // p0 does not draw on turn 1 and draws a Dian Keto on turn 4, which p0 plays, so the hand and the field are empty when the Rat attacks directly.
-    setup: { format: "ffa3", p0: { monsters: [NUMERON], deck: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: {} },
+    // p2 controls a monster, so a direct attack of p1 can only go to p0 (no pick prompt).
+    setup: { format: "ffa3", p0: { monsters: [NUMERON], deck: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { monsters: [SANGAN] } },
     steps: [
       endTurn("p0"),
       endTurn("p1"),
@@ -217,19 +218,18 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
       changePhase("battle", "p1"),
       attack(ELF, { card: NUMERON, owner: "p0" }, "p1"),
       attack(RAT, "direct", "p1"),
-      pickOpponent("p0", "p1"),
+      yes("p1"),
       yes("p0"),
-      everySeat("ffa3", { p0: { lp: 8200, monsters: [NUMERON], grave: [DIAN] }, p1: { monsters: [ELF, RAT] } }),
+      everySeat("ffa3", { p0: { lp: 8200, monsters: [NUMERON], grave: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { monsters: [SANGAN] } }),
     ],
   }),
   defineScenario({
-    id: "compare-extra-ffa3-numeron-dragon-is-offered-to-p0-also-when-p2-is-attacked",
-    title: "FFA3: Number 100: Numeron Dragon (spcon unchanged) is offered to p0 also when p1 attacks p2 directly (the stock condition does not read the attacked duelist; owner decision open), and p0 may summon it",
+    id: "compare-extra-ffa3-numeron-dragon-not-offered-when-the-direct-attack-may-go-to-another-seat",
+    title: "FFA3: Number 100: Numeron Dragon is NOT offered when p1 attacks p2 directly: p0 has an empty field and hand, but p2 has no monster either, so the attack is not known to be at p0 (the core gives no read of the attacked duelist)",
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "chooser", "trigger", "ffa3", "card:57314798"],
-    // A Xyz monster in the Graveyard of the setup was never properly summoned, so it cannot return. Numeron Dragon starts on the field and Elf destroys it in battle.
-    // p0 does not draw on turn 1 and draws a Dian Keto on turn 4, which p0 plays, so the hand and the field are empty when the Rat attacks directly.
+    // Same set-up as above, but p2 has no monster: the direct attack of the Rat can go to p0 or to p2, and p1 picks p2.
     setup: { format: "ffa3", p0: { monsters: [NUMERON], deck: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: {} },
     steps: [
       endTurn("p0"),
@@ -241,9 +241,8 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
       attack(ELF, { card: NUMERON, owner: "p0" }, "p1"),
       attack(RAT, "direct", "p1"),
       pickOpponent("p2", "p1"),
-      // The stock condition reads "attacker is an opponent, no attack target, my field and hand are empty": it does not check who is attacked.
-      yes("p0"),
-      everySeat("ffa3", { p0: { lp: 8200, monsters: [NUMERON], grave: [DIAN] }, p1: { monsters: [ELF, RAT] } }),
+      expectPrompt({ by: "p1", offers: ["to_m2", "to_ep"] }),
+      everySeat("ffa3", { p0: { lp: 8200, grave: [NUMERON, DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { lp: 6600 } }),
     ],
   }),
   defineScenario({
