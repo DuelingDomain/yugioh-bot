@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Thu, 17 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: RESET_SELF_TURN counts the own turns of the duelist,
+ not of the partner, at n > 2
+
+ee46639 made a Tag partner's turn count as an own turn for every effect with
+RESET_SELF_TURN. Effects with RESET_SELF_TURN alone (Duel.SkipPhase builds
+RESET_PHASE|RESET_SELF_TURN; "RESET_SELF_TURN,2" locks) then lost a turn count
+when the partner played. ADR 0002 says "your own duelist turn".
+
+field::reset_counts_turn(pid, tp, flag) is the one rule now. n == 2 keeps the
+stock test. At n > 2: both flags (the default of SetReset) count every turn,
+SELF alone counts the turns of pid only, OPPO alone counts the turns of the other
+team. effect::reset (RESET_PHASE) and the control-return trigger of the
+phase event (processor.cpp, EFFECT_SET_CONTROL, used pid != tp) use it.
+---
+ effect.cpp    |  8 ++------
+ field.h       | 15 +++++++++++++++
+ processor.cpp |  2 +-
+ 3 files changed, 18 insertions(+), 7 deletions(-)
+
+diff --git a/effect.cpp b/effect.cpp
+index 7859680..8aeda6a 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -683,12 +683,8 @@ int32_t effect::reset(uint32_t reset_level, uint32_t reset_type) {
+ 			return FALSE;
+ 		uint8_t pid = get_handler_player();
+ 		uint8_t tp = pduel->game_field->infos.turn_player;
+-		const auto& gf = *pduel->game_field;
+-		const bool oppo_turn = gf.n_duelists == 2 ? pid != tp : (gf.is_duelist(pid) && !gf.same_team(pid, tp));
+-		// at n > 2 "own turn" is a turn of the own team (the Tag partner's turn counts), as "opponent turn" already is
+-		const bool self_turn = gf.n_duelists == 2 ? pid == tp : (gf.is_duelist(pid) && gf.same_team(pid, tp));
+-		if((((reset_flag & RESET_SELF_TURN) && self_turn) || ((reset_flag & RESET_OPPO_TURN) && oppo_turn))
+-				&& (reset_level & 0x3ff & reset_flag))
++		// at n > 2 see field::reset_counts_turn (both flags: every turn; SELF alone: own turns; OPPO alone: other team)
++		if(pduel->game_field->reset_counts_turn(pid, tp, reset_flag) && (reset_level & 0x3ff & reset_flag))
+ 			--reset_count;
+ 		if(reset_count == 0)
+ 			return TRUE;
+diff --git a/field.h b/field.h
+index 153bfed..6eeb9cd 100644
+--- a/field.h
++++ b/field.h
+@@ -510,6 +510,21 @@ public:
+ 	bool same_team(uint8_t a, uint8_t b) const {
+ 		return player[a].team == player[b].team;
+ 	}
++	// Does a turn of tp count for the RESET_SELF_TURN / RESET_OPPO_TURN flags of an effect of duelist pid
++	// (effect::reset and the control return at the end of a phase)? With 2 duelists this is the stock test
++	// (own turn = pid is the turn player, opponent turn = it is not). With more: an effect that has both flags
++	// (the default of RESET_PHASE, "this turn") counts every turn; RESET_SELF_TURN alone counts the turns of pid
++	// only ("your next turn": the Tag partner's turn is not one of them); RESET_OPPO_TURN alone counts the turns
++	// of the other team.
++	bool reset_counts_turn(uint8_t pid, uint8_t tp, uint32_t flag) const {
++		if(n_duelists == 2)
++			return ((flag & RESET_SELF_TURN) && pid == tp) || ((flag & RESET_OPPO_TURN) && pid != tp);
++		if(!is_duelist(pid))
++			return false;
++		if((flag & RESET_SELF_TURN) && (flag & RESET_OPPO_TURN))
++			return true;
++		return ((flag & RESET_SELF_TURN) && pid == tp) || ((flag & RESET_OPPO_TURN) && !same_team(pid, tp));
++	}
+ 	// The next duelist clockwise after p that is not eliminated, starting at p + 1 (mod n_duelists).
+ 	// If no other duelist is alive, p. With 2 duelists and none eliminated this is (p + 1) % 2.
+ 	// Note: a loop that calls this n_duelists times visits a duelist twice after an elimination.
+diff --git a/processor.cpp b/processor.cpp
+index 73fbc88..deccf3c 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -385,7 +385,7 @@ bool field::process(Processors::PhaseEvent& arg) {
+ 			if(pid != check_player)
+ 				continue;
+ 			uint8_t tp = infos.turn_player;
+-			if(!(((peffect->reset_flag & RESET_SELF_TURN) && pid == tp) || ((peffect->reset_flag & RESET_OPPO_TURN) && pid != tp)))
++			if(!reset_counts_turn(pid, tp, peffect->reset_flag))
+ 				continue;
+ 			if(peffect->reset_count != 1)
+ 				continue;
