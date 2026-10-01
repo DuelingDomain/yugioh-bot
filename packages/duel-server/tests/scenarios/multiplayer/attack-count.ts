@@ -5,7 +5,7 @@
 // real card scripts and the overlay. Every scenario ends with the state of EVERY seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, attack, changePhase, defineScenario, endTurn, expectBoard, expectOffered, expectPrompt, faceDown, pass, pickOpponent,
+  activate, attack, changePhase, defineScenario, endTurn, expectBoard, expectOffered, expectPrompt, faceDown, no, pass, pickOpponent,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -16,7 +16,9 @@ type Format = "ffa3" | "ffa4" | "tag";
 const RAT = "Giant Rat"; // 1400 ATK
 const OX = "Battle Ox"; // 1700 ATK
 const AXE = "Axe Raider"; // 1700 ATK
+const FANG = "Silver Fang"; // 1200 ATK
 const CHAFF = "Confusion Chaff";
+const OGRE = "Ogre of the Scarlet Sorrow";
 
 const seatsOf = (format: Format): Seat[] => (format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"]);
 
@@ -106,10 +108,84 @@ function chaffStale(format: "ffa3" | "ffa4"): Scenario {
   });
 }
 
+/** Ogre of the Scarlet Sorrow: the SECOND direct attack at the holder offers the Special Summon from the hand. */
+function ogreResolves(format: Format): Scenario {
+  const holder = holderOf(format);
+  const setup: Record<string, unknown> = { format, attackFirstTurn: true, p1: { monsters: [RAT, OX] } };
+  setup[holder] = { hand: [OGRE] };
+  for (const seat of seatsOf(format)) if (!(seat in setup)) setup[seat] = {};
+  const tag = format === "tag";
+  return defineScenario({
+    id: `attack-count-${format}-ogre-of-the-scarlet-sorrow-second-direct-attack-at-the-holder-is-offered`,
+    title: `${label(format)}: Ogre of the Scarlet Sorrow of ${holder} is offered at the 2nd direct attack of p1 at ${tag ? "the team of p0" : "p0"} (not at the 1st) and is Special Summoned`,
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK", "R-FFA-ATTACK"],
+    tags: ["multiplayer", "attack", "trigger", format, "card:82670878"],
+    setup: setup as Scenario["setup"],
+    steps: [
+      endTurn("p0"),
+      changePhase("battle", "p1"),
+      attack(RAT, "direct", "p1"),
+      pickOpponent("p0", "p1"),
+      attack(OX, "direct", "p1"),
+      pickOpponent("p0", "p1"),
+      activate(OGRE, holder),
+      // Ogre is Special Summoned in the replay of the attack; p1 does not continue it (p0 took the 1400 of the first attack only).
+      expectPrompt({ by: "p1", offers: ["yes", "no"] }),
+      no("p1"),
+      everySeat(format, {
+        p0: { lp: (tag ? 16000 : 8000) - 1400, monsters: holder === "p0" ? [OGRE] : [] },
+        p1: { monsters: [RAT, OX] },
+        ...(tag ? { p2: { monsters: [OGRE] } } : {}),
+      }),
+    ],
+  });
+}
+
+/** Two direct attacks at p0 (offered and passed), then TWO direct attacks at ANOTHER opponent: its count reaches 2 and raises the event, p0 is not asked. */
+function ogreStale(format: "ffa3" | "ffa4"): Scenario {
+  const other = OTHER[format];
+  const setup: Record<string, unknown> = { format, attackFirstTurn: true, p0: { hand: [OGRE] }, p1: { monsters: [RAT, OX, AXE, FANG] } };
+  for (const seat of seatsOf(format)) if (!(seat in setup)) setup[seat] = {};
+  return defineScenario({
+    id: `attack-count-${format}-ogre-of-the-scarlet-sorrow-not-offered-again-when-the-count-of-another-opponent-reaches-2`,
+    title: `${label(format)}: Ogre of p0 is offered at the 2nd direct attack at p0 and passed; the 2nd direct attack at ${other} raises the event too: p0 is NOT offered the card again`,
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK", "R-FFA-ATTACK"],
+    tags: ["multiplayer", "attack", "trigger", format, "card:82670878"],
+    setup: setup as Scenario["setup"],
+    steps: [
+      endTurn("p0"),
+      changePhase("battle", "p1"),
+      attack(RAT, "direct", "p1"),
+      pickOpponent("p0", "p1"),
+      attack(OX, "direct", "p1"),
+      pickOpponent("p0", "p1"),
+      expectOffered("activate", OGRE, "p0"),
+      pass("p0"),
+      attack(AXE, "direct", "p1"),
+      pickOpponent(other, "p1"),
+      attack(FANG, "direct", "p1"),
+      pickOpponent(other, "p1"),
+      expectPrompt({ by: "p1", offers: ["to_m2", "to_ep"] }),
+      everySeat(format, {
+        p0: { lp: 8000 - 1400 - 1700, hand: [OGRE] },
+        p1: { monsters: [RAT, OX, AXE, FANG] },
+        [other]: { lp: 8000 - 1700 - 1200 },
+      }),
+    ],
+  });
+}
+
 export const ATTACK_COUNT_SCENARIOS: Scenario[] = [
   chaffResolves("ffa3"),
   chaffResolves("ffa4"),
   chaffResolves("tag"),
   chaffStale("ffa3"),
   chaffStale("ffa4"),
+  ogreResolves("ffa3"),
+  ogreResolves("ffa4"),
+  ogreResolves("tag"),
+  ogreStale("ffa3"),
+  ogreStale("ffa4"),
 ];

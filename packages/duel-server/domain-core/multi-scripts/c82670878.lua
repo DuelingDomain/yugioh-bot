@@ -48,6 +48,9 @@ end
 function s.condition(e,tp,eg,ep,ev,re,r,rp)
 	return Duel.IsTurnPlayer(1-tp) and Duel.GetAttackTarget()==nil and s.mpcount[aux.MPKey(tp)]==2
 end
+-- The event is raised when the count of ANY duelist reaches 2, and the count of the holder stays 2 for the rest of the turn: the condition also
+-- asks that the attack in progress goes to the holder (FFA seat; Tag has one opposing team and keeps the team key).
+s.condition=aux.MPAttackedAtMe(s.condition)
 function s.adop(e,tp,eg,ep,ev,re,r,rp)
 	local c=e:GetHandler()
 	local tc=s.mpfirst[aux.MPKey(tp)]
