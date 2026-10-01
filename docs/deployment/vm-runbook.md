@@ -60,8 +60,8 @@ The deploy workflow requires these GitHub Actions secrets:
 1. Code is pushed to `main` on GitHub.
 2. GitHub Actions starts the `Deploy` workflow on `ubuntu-latest` (amd64).
 3. The workflow builds or restores the pinned duel-engine resource bundle
-   (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `manifest.json`)
-   using `npm run duel:prepare` and `packages/duel-server/scripts/build-domain-core.ts`
+   (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`)
+   using `npm run duel:prepare`, `packages/duel-server/scripts/build-domain-core.ts` (Domain wasm) and `packages/duel-server/scripts/build-domain-core.ts standard` (Standard wasm: stock rules plus the shared fixes in `domain-core/src/apply-core-fixes.mjs`, `build-standard-core.sh`)
    inside `docker.io/emscripten/emsdk:4.0.9` (digest from `packages/duel-server/domain-core/pins.json`).
    Identical pins hit the Actions cache and skip regenerate.
 4. The workflow SSHes into the VM, resets `/opt/yugioh-bot` to `origin/main`,
