@@ -1,10 +1,12 @@
 // F9 native check: Duel.SSet toward the bound opponent (n = 3 and n = 4).
-// A Spell of seat 0 reads the hand of "1" (the F5 pick binds one opponent: seat 1), then runs
-// Duel.SSet(tp, Trap, 1): toplayer 1 is the bound opponent. Control: the Trap lands on seat 1 (the place prompt goes
-// to the setter). Loss case: the host eliminates seat 1 while the chain waits for answers (Debug.EliminateDuelist; the
-// loss is applied only after the chain, so the operation still sees a living seat 1). The elimination must then
-// leave no card on the field of the dead seat. The core also refuses a toplayer that is not alive (SSet checks
-// is_alive at n > 2, not only is_duelist); a dead toplayer cannot be reached by a script today, so this is a guard.
+// A Spell of seat 0 reads the hand of "1" (the F5 pick binds one opponent), then runs Duel.SSet(tp, Trap, 1): toplayer 1
+// is the bound opponent. The harness answers the pick with option 1: SEAT 2, the second opponent, not seat 1 (the next
+// seat in turn order), so the Trap can only land on seat 2 when the core uses the bound seat and not the turn order.
+// Control: the Trap lands on seat 2 (the place prompt goes to the setter). Loss case: the host eliminates seat 2 while
+// the chain waits for answers (Debug.EliminateDuelist; the loss is applied only after the chain, so the operation still
+// sees a living seat 2). The elimination must then leave no card on the field of the dead seat. A bound opponent that
+// is eliminated BEFORE the operation (SSet returns 0 and sets nothing, no fallback to the own field) is in
+// disfield-register, variant sset.
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -104,7 +106,7 @@ static int count_szone(OCG_Duel d, int seat) {
 }
 
 struct Result { int on_bound = 0, on_setter = 0, on_others = 0, ok = 0, dead_at_end = 0, sset_msgs = 0; };
-// kill = the host eliminates seat 1 at the first chain window of another seat.
+// kill = the host eliminates seat 2 (the bound opponent) at the first chain window of another seat.
 static Result play(int n, bool kill) {
 	OCG_DuelOptions options;
 	std::memset(&options, 0, sizeof(options));
@@ -168,11 +170,11 @@ static Result play(int n, bool kill) {
 			}
 			break;
 		case MSG_SELECT_OPTION:
-			answer32(0); // the first living opponent: seat 1
+			answer32(1); // the second living opponent: seat 2 (seat 1 is the next seat in turn order)
 			break;
 		case MSG_SELECT_CHAIN:
 			if(!killed && who != 0) {
-				run_lua(d, "Debug.EliminateDuelist(1,4)");
+				run_lua(d, "Debug.EliminateDuelist(2,4)");
 				killed = true;
 			}
 			answer32(-1);
@@ -185,7 +187,7 @@ static Result play(int n, bool kill) {
 			uint8_t seq = 0;
 			for(int i = 8; i < 13; ++i)
 				if(!(flag & (1u << (own ? i : 16 + i)))) { seq = static_cast<uint8_t>(i - 8); break; }
-			const uint8_t resp[3] = { static_cast<uint8_t>(own ? who : 1), LOCATION_SZONE, seq };
+			const uint8_t resp[3] = { static_cast<uint8_t>(own ? who : 2), LOCATION_SZONE, seq };
 			if(std::getenv("CHECK_LOG")) std::fprintf(stderr, "place who %d flag %08x -> seat %d seq %d\n", who, flag, resp[0], seq);
 			OCG_DuelSetResponse(d, resp, sizeof(resp));
 			break;
@@ -206,10 +208,11 @@ static Result play(int n, bool kill) {
 		}
 	}
 	r.ok = done;
-	r.dead_at_end = !F(d).is_alive(1);
+	r.dead_at_end = !F(d).is_alive(2);
 	r.on_setter = count_szone(d, 0);
-	r.on_bound = count_szone(d, 1);
-	for(int p = 2; p < n; ++p) r.on_others += count_szone(d, p);
+	r.on_bound = count_szone(d, 2);
+	for(int p = 1; p < n; ++p)
+		if(p != 2) r.on_others += count_szone(d, p);
 	OCG_DestroyDuel(d);
 	return r;
 }
@@ -220,15 +223,15 @@ int main(int argc, char**) {
 		g_lua_errors = 0;
 		const Result a = play(n, true);
 		EXPECT(a.ok, "n=%d bound opponent eliminated: the chain never ended", n);
-		EXPECT(a.dead_at_end, "n=%d bound opponent eliminated: seat 1 is still alive at the end (the scenario did not kill it)", n);
+		EXPECT(a.dead_at_end, "n=%d bound opponent eliminated: seat 2 is still alive at the end (the scenario did not kill it)", n);
 		EXPECT(a.on_bound == 0, "n=%d bound opponent eliminated: %d card(s) left on the field of the dead seat", n, a.on_bound);
 		EXPECT(a.on_others == 0, "n=%d bound opponent eliminated: %d card(s) on other seats", n, a.on_others);
 		std::printf("ok   n=%d bound opponent eliminated: dead seat %d card(s), setter %d, others %d\n", n, a.on_bound, a.on_setter, a.on_others);
 		const Result b = play(n, false);
 		EXPECT(b.ok, "n=%d living bound opponent: the chain never ended", n);
-		EXPECT(b.on_bound == 1, "n=%d living bound opponent: seat 1 has %d card(s), want 1", n, b.on_bound);
+		EXPECT(b.on_bound == 1, "n=%d living bound opponent: seat 2 has %d card(s), want 1", n, b.on_bound);
 		EXPECT(b.on_setter == 0 && b.on_others == 0, "n=%d living bound opponent: %d on the setter, %d on other seats", n, b.on_setter, b.on_others);
-		std::printf("ok   n=%d living bound opponent: seat 1 %d, setter %d\n", n, b.on_bound, b.on_setter);
+		std::printf("ok   n=%d living bound opponent: seat 2 %d, setter %d\n", n, b.on_bound, b.on_setter);
 		EXPECT(g_lua_errors == 0, "n=%d: %d unexpected core log line(s)", n, g_lua_errors);
 	}
 	std::printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
