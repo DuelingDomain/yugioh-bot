@@ -193,7 +193,7 @@
       ],
       "r2Class": "EACH-CONTROLLER",
       "stockSha256": "ccf44bba42540cac836b1675afc12d6530321c524f1f9a12c61bcadbff34fcde",
-      "note": "each player draws as many cards as destroyed cards on their side: the destroyed cards are counted by real controller seat (Duel.MPSeatOf) inside aux.MPForEachDuelist and each living duelist draws its own count (stock: tp and 1-tp only). Not aux.MPForEachController: it runs the Tag partner of the activator without a bind, so the draw of the partner would go to the activator."
+      "note": "each player draws as many cards as destroyed cards on their side: the destroyed cards are grouped by real controller seat with aux.MPForEachController and each controller draws its own count (stock: tp and 1-tp only). The helper binds an opponent to its seat and rebinds the scope to the Tag partner of the activator, so the draw of the partner reaches the partner."
     },
     {
       "code": 3972721,

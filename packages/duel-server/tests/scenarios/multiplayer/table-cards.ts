@@ -363,6 +363,38 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     ],
   }),
   defineScenario({
+    id: "table-tag-summoning-curse-the-partner-of-the-owner-banishes-from-its-own-hand",
+    title: "Tag: Summoning Curse of p0, then its partner p2 Special Summons the Giant Rat from its Graveyard with Monster Reborn: p2 (not p0) banishes 1 card from its own hand; the hand of p0 stays whole",
+    source: OPP_FIELD,
+    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "trigger", "banish", "tag", "card:61650133"],
+    setup: {
+      format: "tag",
+      p0: { hand: [ELF], spells: [{ card: "Summoning Curse", pos: "set" }] },
+      p1: { hand: [ELF] },
+      p2: { hand: ["Monster Reborn", ELF], grave: ["Giant Rat"] },
+      p3: { hand: [ELF] },
+    },
+    steps: [
+      ...["p0", "p1", "p2", "p3"].map((seat) => endTurn(seat as Seat)),
+      activate("Summoning Curse", "p0"),
+      endTurn("p0"),
+      yes("p0"),
+      endTurn("p1"),
+      activate("Monster Reborn", "p2"),
+      selectBy("p2", ELF),
+      // The team life points: 16000 - 500 (maintenance of the Curse) for team 0 (p0, p2), team 1 (p1, p3) is untouched. The summoned monster of p2 is
+      // controlled by p2: p2 banishes 1 Mystical Elf of its OWN hand (2 are left) and p0 is not asked, so its hand keeps both cards. Every seat drew
+      // for its turns (p0 2 cards in all, p1 3, p2 3 before the banish, p3 2 in all).
+      everySeat("tag", {
+        p0: { lp: 15500, hand: [ELF, ELF], spells: ["Summoning Curse"] },
+        p1: { hand: [ELF, ELF, ELF] },
+        p2: { lp: 15500, hand: [ELF, ELF], monsters: ["Giant Rat"], grave: ["Monster Reborn"], banished: [ELF] },
+        p3: { hand: [ELF, ELF] },
+      }),
+    ],
+  }),
+  defineScenario({
     id: "table-tag-summoning-curse-two-opposing-duelists-summon-at-once-both-banish",
     title: "Tag: Summoning Curse of p0, then The Grave of Enkindling Special Summons a monster for p0, p1 and p3 at once: p0, p1 and p3 each banish 1 card from their own hand (p2 summoned nothing)",
     source: OPP_FIELD,

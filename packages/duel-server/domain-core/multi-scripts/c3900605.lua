@@ -4,12 +4,9 @@ function s.operation(e,tp,eg,ep,ev,re,r,rp)
 	Duel.Destroy(g,REASON_EFFECT)
 	local dg=Duel.GetOperatedGroup()
 	Duel.BreakEffect()
-	-- Each living duelist draws for its own destroyed cards. The loop names the duelist (a Tag partner too: aux.MPForEachController runs
-	-- the partner without a bind, so its draw would go to the duelist that runs the effect).
-	aux.MPForEachDuelist(function(tp_i,seat_i)
-		local ct=dg:FilterCount(function(c) return Duel.MPSeatOf(c)==seat_i end,nil)
-		if ct~=0 then Duel.Draw(tp_i,ct,REASON_EFFECT) end
-	end)
+	-- Each controller of a destroyed card draws for its own destroyed cards. The helper groups the cards by real controller seat and runs the
+	-- draw for that duelist (an opponent bound to its seat, the Tag partner rebound to its seat).
+	aux.MPForEachController(dg,function(sg,seat,p) Duel.Draw(p,#sg,REASON_EFFECT) end)
 	--cannot set
 	local e1=Effect.CreateEffect(e:GetHandler())
 	e1:SetType(EFFECT_TYPE_FIELD)

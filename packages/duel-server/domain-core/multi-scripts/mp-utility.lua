@@ -172,12 +172,38 @@ local function mp_own_value()
 	return own
 end
 
+-- Puts the scope on the living duelist with the real seat `seat` (Duel.MPNthDuelist counts from the duelist that runs the effect).
+-- The duelist that runs the effect itself needs no rebind. Gives true when the scope is that duelist's now, false (scope given back) when
+-- no living duelist has that seat. Outside any duelist scope (no first duelist) it gives true and rebinds nothing: the stock reads.
+-- The caller gives the scope back with Duel.MPNthDuelist(0).
+local function mp_enter_seat(seat)
+	local i=1
+	while true do
+		local ok,s=Duel.MPNthDuelist(i)
+		if not ok then
+			if i==1 then return true end
+			break
+		end
+		if s==seat then
+			if i==1 then Duel.MPNthDuelist(0) end
+			return true
+		end
+		i=i+1
+	end
+	Duel.MPNthDuelist(0)
+	return false
+end
+
 -- "The controller of the card" reads: fn(sg,seat,p) runs once for every real controller seat of the cards in g, in seat order.
 -- sg is the part of g that this duelist controls, seat the real seat (Duel.MPSeatOf), p the Lua player value of the controller
 -- (the value that c:GetControler() gives). For an opponent controller the Lua value 1 is bound to that seat (Duel.MPBindSeat) while fn
--- runs, so Duel.Damage(p,...) and the other reads of "1" reach that duelist, not "the next opponent". The own side (Tag: the partner
--- too) runs with no bind. A controller that is not a living duelist is skipped. fn returns true to stop. The bind is removed on every
--- exit (it replaces a bind that the caller made). Two seats (or no seat functions): the same loop with the real controller, no bind.
+-- runs, so Duel.Damage(p,...) and the other reads of "1" reach that duelist, not "the next opponent". For the Tag partner of the duelist
+-- that runs the effect the scope is rebound to the partner (Duel.MPNthDuelist) while fn runs, so p (the team value) reaches the partner
+-- and not the activator. The duelist that runs the effect runs with no bind. A controller that is not a living duelist is skipped.
+-- fn returns true to stop. Bind and rebind are removed after every fn and on every exit (they replace a bind that the caller made).
+-- Do not call it inside aux.MPForEachDuelist (the scope of that loop would be given back). Two seats (or no seat functions): the same
+-- loop with the real controller, no bind. A core with Duel.MPBindSeat and no Duel.MPNthDuelist: the partner has no rebind. FFA: no rebind
+-- (the only controller of the own side is the duelist that runs the effect).
 function aux.MPForEachController(g,fn)
 	local order={}
 	local by={}
@@ -193,15 +219,27 @@ function aux.MPForEachController(g,fn)
 	end
 	table.sort(order)
 	local bind=Duel.MPBindSeat and Duel.MPMode()~=0
+	local rebind=bind and Duel.MPMode()==2 and Duel.MPNthDuelist
 	local own=bind and mp_own_value()
 	for _,seat in ipairs(order) do
 		local sg=by[seat]
 		local p=sg:GetFirst():GetControler()
 		local ok=true
+		local entered=false
 		if bind then
-			if p==own then Duel.MPBindSeat() else ok=Duel.MPBindSeat(seat) end
+			if p==own then
+				Duel.MPBindSeat()
+				if rebind then
+					ok=mp_enter_seat(seat)
+					entered=ok
+				end
+			else
+				ok=Duel.MPBindSeat(seat)
+			end
 		end
-		if ok and fn(sg,seat,p) then break end
+		local stop=ok and fn(sg,seat,p)
+		if entered then Duel.MPNthDuelist(0) end
+		if stop then break end
 	end
 	if bind then Duel.MPBindSeat() end
 end

@@ -251,17 +251,63 @@ ${EXPECT_LOG("bx f0 b1 f1 bx")}`;
       expect(await run("ffa3", lua)).toBe("");
     });
 
-    it("Tag: the own team (the partner too) has no bind, the opposing duelists are bound one by one", async () => {
-      // Seats 0 and 2 are team 0 (the own side), 1 and 3 are team 1. The fakes: c:GetControler() is the team id (what the fold gives in Tag),
-      // and the bind accepts the seats of team 1 only. The first three binds find the own team id (the first seat that the bind accepts is an opponent).
-      const lua = `${TWO_EACH([0, 1, 2, 3])}
+    // Tag fakes. Seats 0 and 2 are team 0 (the own side), 1 and 3 are team 1. c:GetControler() is the team id (what the fold gives in Tag),
+    // the bind accepts the seats of team 1 only (the first three binds find the own team id: the first seat that the bind accepts is an
+    // opponent), and Duel.MPNthDuelist (FAKE_NTH) lists the living duelists from the duelist that runs the effect, seat 0.
+    const TAG = (seats: number[], living = [0, 1, 2, 3]) => `${TWO_EACH(seats)}${FAKE_NTH(living)}
 local seat_of=Card.GetControler
 Duel.MPSeatOf=function(c) return seat_of(c) end
 Card.GetControler=function(c) return seat_of(c)%2 end
 Duel.MPBindSeat=function(seat) LOG[#LOG+1]='b'..(seat or 'x') return seat==nil or seat%2==1 end
-aux.MPForEachController(g,function(sg,seat,p) LOG[#LOG+1]='f'..seat..'/'..p end)
-${EXPECT_LOG("b0 b1 bx bx f0/0 b1 f1/1 bx f2/0 b3 f3/1 bx")}`;
+`;
+    const TAG_EACH = "aux.MPForEachController(g,function(sg,seat,p) LOG[#LOG+1]='f'..seat..'/'..p..(REBOUND and 'R' or '') end)";
+
+    it("Tag: the opposing duelists are bound one by one, the duelist that runs the effect has no bind and no rebind, the partner runs rebound to its seat", async () => {
+      const lua = `${TAG([0, 1, 2, 3])}
+${TAG_EACH}
+${EXPECT_LOG("b0 b1 bx bx n1 n0 f0/0 n0 b1 f1/1 bx n1 n2 n3 f2/0R n0 b3 f3/1 bx")}
+if REBOUND then error('the scope is not given back') end`;
       expect(await run("tag", lua)).toBe("");
+    });
+
+    it("Tag: a partner that is not a living duelist is skipped and the scope is given back", async () => {
+      const lua = `${TAG([0, 2, 1], [0, 1, 3])}
+${TAG_EACH}
+${EXPECT_LOG("b0 b1 bx bx n1 n0 f0/0 n0 b1 f1/1 bx n1 n2 n3 n4 n0 bx")}
+if REBOUND then error('the scope is not given back') end`;
+      expect(await run("tag", lua)).toBe("");
+    });
+
+    it("Tag: gives the scope back when fn stops the loop at the partner, and when the partner is the only controller", async () => {
+      const stop = `${TAG([0, 2, 3])}
+aux.MPForEachController(g,function(sg,seat,p) LOG[#LOG+1]='f'..seat..(REBOUND and 'R' or '') return seat==2 end)
+${EXPECT_LOG("b0 b1 bx bx n1 n0 f0 n0 bx n1 n2 n3 f2R n0 bx")}
+if REBOUND then error('the scope is not given back') end`;
+      expect(await run("tag", stop)).toBe("");
+      const only = `${TAG([2])}
+${TAG_EACH}
+${EXPECT_LOG("b0 b1 bx bx n1 n2 n3 f2/0R n0 bx")}
+if REBOUND then error('the scope is not given back') end`;
+      expect(await run("tag", only)).toBe("");
+    });
+
+    it("Tag: the stock way (no rebind, fn runs for the partner) when the core has no Duel.MPNthDuelist or the scope has no first duelist", async () => {
+      const none = `${TAG([0, 1, 2, 3])}
+Duel.MPNthDuelist=nil
+${TAG_EACH}
+${EXPECT_LOG("b0 b1 bx bx f0/0 b1 f1/1 bx f2/0 b3 f3/1 bx")}`;
+      expect(await run("tag", none)).toBe("");
+      const outside = `${TAG([0, 1, 2, 3], [])}
+${TAG_EACH}
+${EXPECT_LOG("b0 b1 bx bx n1 f0/0 n0 b1 f1/1 bx n1 f2/0 n0 b3 f3/1 bx")}`;
+      expect(await run("tag", outside)).toBe("");
+    });
+
+    it("FFA: never rebinds (the only controller of the own side is the duelist that runs the effect)", async () => {
+      const lua = `${TWO_EACH([0, 1, 2])}${FAKE_NTH([0, 1, 2])}
+${EACH}
+${EXPECT_LOG("bx f0/2/0 b1 f1/2/1 b2 f2/2/2 bx")}`;
+      expect(await run("ffa3", lua)).toBe("");
     });
 
     it("two seats (mode 0) and a core with no Duel.MPBindSeat: the same loop, no bind", async () => {
