@@ -84,4 +84,5 @@ HEAD, the Lua pin or the flags change, and makes `cards.tsv` again when `DUEL_DA
 | `opponent-pick` | one opponent bound at activation (F5) |
 | `place-seat-hint` | seat hint of a place prompt (F8 with F5) |
 | `turn-handoff`, `zone-seat-sset` | turn hand-off after an elimination, SSet toward the bound opponent (F9) |
+| `mp-overlay` | Lua overlay of duels with more than two seats: replace, suffix, orphan suffix, flag off at n=2 and with the overlay off (F7 P4) |
 | `domain-multi` | Domain layer (status `domain`, see below) |
