@@ -3035,7 +3035,7 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "5b731e5173025a5bc6f734cdc61382bf3da103ffe62c418010c8326d752b5822",
-      "note": "Numeron Dragon (review A item 2): desop keeps the window index per card and Sets each card in the window of its seat (the owner is folded in FFA). spcon in FFA counts only a direct attack that can only go to you (no other seat without a monster): the core has no read of the attacked duelist."
+      "note": "Numeron Dragon: desop loops over every living duelist with aux.MPForEachDuelist (Tag partners included): each chooses from its own scope (in Tag the Graveyard of the team, the card of the partner is not offered again), then each Sets its card in a second pass. spcon in FFA counts only a direct attack that can only go to you (no other seat without a monster): the core has no read of the attacked duelist."
     },
     {
       "code": 57847269,

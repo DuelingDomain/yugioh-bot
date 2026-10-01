@@ -50,6 +50,45 @@ function everySeat(format: "ffa3" | "ffa4" | "tag", spec: Partial<Record<Seat, D
   return expectBoard(board);
 }
 
+/**
+ * Number 100: Numeron Dragon at 4 seats: every living duelist, the Tag partners included (Q3), Sets 1 Spell/Trap from its OWN Graveyard
+ * after every monster is destroyed. The FFA3 case is the scenario above.
+ */
+function numeronEverySeat(format: "ffa4" | "tag"): Scenario {
+  const label = format === "tag" ? "Tag" : "FFA4";
+  const DARK_HOLE = "Dark Hole";
+  return defineScenario({
+    id: `compare-gaps-${format}-numeron-dragon-every-seat-sets-its-own-card`,
+    title: `${label}: Numeron Dragon of p0 is destroyed by an effect: every monster is destroyed, then p0, p1, p2 and p3 each Set 1 Spell/Trap from their OWN Graveyard${format === "tag" ? " (the partners p2 and p3 too)" : ""}`,
+    source: OPP_PICK,
+    rules: format === "tag" ? ["R-COMMON-OPP-PICK", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "chooser", "trigger", format, "card:57314798"],
+    setup: {
+      format,
+      p0: { hand: [OFFERINGS], monsters: [NUMERON], grave: [POT] },
+      p1: { monsters: [OX], grave: [MIRROR] },
+      p2: { monsters: [GUARDIAN], grave: [HOLE] },
+      p3: { monsters: [AXE], grave: [DARK_HOLE] },
+    },
+    steps: [
+      activate(OFFERINGS, "p0"),
+      select(NUMERON),
+      yes("p0"),
+      select(POT),
+      // Tag: the Graveyard of a scope is the one of the team. p1 chooses between Mirror Force and Dark Hole (its team), and p2 between Trap Hole
+      // and Offerings to the Doomed (the Spell of p0 is in the Graveyard of the team too, as it is for p0): the card that p0 chose is not offered
+      // again. p3 has Dark Hole left. FFA4: p1, p2 and p3 have one candidate each, so their scopes pick without a prompt.
+      ...(format === "tag" ? [select(MIRROR), select(HOLE)] : []),
+      everySeat(format, {
+        p0: { hand: [], monsters: [], spells: [POT], grave: [NUMERON, OFFERINGS] },
+        p1: { monsters: [], spells: [MIRROR], grave: [OX] },
+        p2: { monsters: [], spells: [HOLE], grave: [GUARDIAN] },
+        p3: { monsters: [], spells: [DARK_HOLE], grave: [AXE] },
+      }),
+    ],
+  });
+}
+
 export const COMPARE_GAP_SCENARIOS: Scenario[] = [
   defineScenario({
     id: "compare-gaps-ffa3-kaiser-colosseum-limit-counts-the-summoner-only",
@@ -492,4 +531,6 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
+  numeronEverySeat("ffa4"),
+  numeronEverySeat("tag"),
 ];

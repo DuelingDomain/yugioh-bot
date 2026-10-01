@@ -1,34 +1,29 @@
-if not aux.MPAny then return end
--- Number 100: Numeron Dragon (the destroy trigger): "any player(s) that has a Spell/Trap in their Graveyard Sets 1" is every living duelist (R1).
--- Each opposing duelist chooses in a SEAT window. The window index is kept per card: the Set of a card is done in the window of the seat
--- that chose it (the owner of a card is folded to 1 in FFA, so it cannot tell the seat), after the Necro Valley check.
+if not aux.MPForEachDuelist then return end
+-- Number 100: Numeron Dragon (the destroy trigger): "any player(s) that has a Spell/Trap in their Graveyard Sets 1" is every living duelist (R1,
+-- Q3: in Tag the partners are players too). Each duelist chooses from its OWN Graveyard in its own seat scope (aux.MPForEachDuelist), then, after
+-- the Necro Valley check on every chosen card, each duelist Sets its card in a second pass over the same scopes.
 function s.desop(e,tp,eg,ep,ev,re,r,rp)
 	local g=Duel.GetMatchingGroup(nil,tp,LOCATION_MZONE,LOCATION_MZONE,nil)
 	if Duel.Destroy(g,REASON_EFFECT)==0 then return end
 	Duel.BreakEffect()
 	local sets={}
-	Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_SET)
-	local tc1=Duel.SelectMatchingCard(tp,s.setfilter,tp,LOCATION_GRAVE,0,1,1,nil,tp):GetFirst()
-	if tc1 then table.insert(sets,{false,tc1}) end
-	aux.MPEachOpponent(function(i)
-		Duel.Hint(HINT_SELECTMSG,1-tp,HINTMSG_SET)
-		local tc=Duel.SelectMatchingCard(1-tp,s.setfilter,1-tp,LOCATION_GRAVE,0,1,1,nil,1-tp):GetFirst()
-		if tc then table.insert(sets,{i,tc}) end
-	end)()
-	for _,v in ipairs(sets) do
-		if v[2]:IsHasEffect(EFFECT_NECRO_VALLEY) then return end
-	end
-	for _,v in ipairs(sets) do
-		if not v[1] then
-			Duel.SSet(tp,v[2])
-		elseif v[1]==0 then
-			Duel.SSet(1-tp,v[2])
-		else
-			Duel.MPWindow(v[1])
-			Duel.SSet(1-tp,v[2])
-			Duel.MPWindowEnd()
+	local chosen=Group.CreateGroup()
+	aux.MPForEachDuelist(function(tp_i,seat_i)
+		Duel.Hint(HINT_SELECTMSG,tp_i,HINTMSG_SET)
+		-- In Tag the Graveyard of a scope is the one of the team: the partner must not choose the card that its partner chose (it is still in the GY).
+		local tc=Duel.SelectMatchingCard(tp_i,s.setfilter,tp_i,LOCATION_GRAVE,0,1,1,chosen,tp_i):GetFirst()
+		if tc then
+			sets[seat_i]=tc
+			chosen:AddCard(tc)
 		end
+	end)
+	for _,tc in pairs(sets) do
+		if tc:IsHasEffect(EFFECT_NECRO_VALLEY) then return end
 	end
+	aux.MPForEachDuelist(function(tp_i,seat_i)
+		local tc=sets[seat_i]
+		if tc then Duel.SSet(tp_i,tc) end
+	end)
 end
 -- "Your opponent attacks directly": the attack must be AT YOU. Duel.MPAttackedSeat (core) gives the real seat of the attacked duelist, so in FFA the
 -- condition holds only for the owner of this card (a direct attack at another seat that also has no monster is not at you). Without that function
