@@ -25,7 +25,7 @@ export function OverviewInfo({ tournament }: { tournament: TournamentDetail }) {
       const banlist = DUEL_BANLIST_OPTIONS.find((option) => option.id === rules.banlist)?.label ?? rules.banlist;
       rows.push({ label: "Mode", value: rules.mode === "domain" ? "Domain" : "Normal" });
       rows.push({ label: "Banlist", value: banlist });
-      rows.push({ label: "Turn time", value: rules.turnSeconds === 0 ? "No timer" : `${rules.turnSeconds} s` });
+      rows.push({ label: "Turn time", value: rules.turnSeconds === 0 ? "Unlimited" : `${rules.turnSeconds} s` });
     }
   }
 

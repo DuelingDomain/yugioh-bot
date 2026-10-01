@@ -16,6 +16,7 @@ import {
 } from "@yugidraft/shared/duels";
 import { createDuel, type DuelPlayerOption } from "./api";
 import { OpponentPicker } from "./opponent-picker";
+import { TURN_TIMER_CHOICES } from "./turn-timer";
 import { cx, sheetButtonClass, SheetButton, SheetSegmented, SheetSelect, sheetPage, type Choice } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./creator.module.css";
@@ -40,9 +41,6 @@ const CARD_POOLS: readonly Choice<DuelSettings["cardPool"]>[] = [
   { value: "tcg", label: "TCG only" },
   { value: "ocg", label: "OCG only" },
 ];
-const TIMERS = [0, 60, 120, 180, 240, 300, 600].map((value) => ({
-  value, label: value === 0 ? "No turn timer" : `${value / 60} ${value === 60 ? "minute" : "minutes"} per turn`,
-}));
 const LIFE_POINTS = [1000, 2000, 4000, 8000, 16000, 32000].map((value) => ({ value, label: `${value} Life Points` }));
 const OPENING_HANDS = Array.from({ length: 11 }, (_, value) => ({ value, label: `${value} ${value === 1 ? "card" : "cards"} in Starting Hand` }));
 const DRAWS = Array.from({ length: 6 }, (_, value) => ({ value, label: `${value} ${value === 1 ? "card" : "cards"} per Draw Phase` }));
@@ -116,7 +114,7 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
     }
   }
 
-  const timerShort = settings.turnSeconds === 0 ? "No timer" : `${settings.turnSeconds / 60} min`;
+  const timerShort = settings.turnSeconds === 0 ? "Unlimited" : `${settings.turnSeconds / 60} min`;
   const formatName = mode === "domain" ? (customDomain ? "Custom Domain" : "Domain") : "Standard";
   const banlistLabel = DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist;
   const summaryRows: [string, string][] = [
@@ -125,7 +123,7 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
     ["Visibility", visibility === "private" ? "Invite only" : "Public"],
     ["Banlist", banlistLabel],
     ["Card pool", settings.cardPool === "both" ? "TCG + OCG" : settings.cardPool.toUpperCase()],
-    ["Turn clock", settings.turnSeconds === 0 ? "Off" : settings.timeout === "loss" ? "Lose on timeout" : "Play on at zero"],
+    ["Turn clock", settings.turnSeconds === 0 ? "Unlimited" : settings.timeout === "loss" ? "Lose on timeout" : "Play on at zero"],
     ["Deck check", settings.validateDeck ? "Enforced" : "Off"],
     ["Opening order", settings.shuffleDeck ? "Shuffled" : "Not shuffled"],
   ];
@@ -234,12 +232,14 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
               </div>
               <div className={styles.fields}>
                 <SheetSelect label="Starting Life Points" value={settings.startingLP} choices={LIFE_POINTS} onChange={(value) => update("startingLP", value)} />
-                <SheetSelect label="Turn timer" value={settings.turnSeconds} choices={TIMERS} onChange={(value) => update("turnSeconds", value)} />
+                <SheetSelect label="Turn timer" value={settings.turnSeconds} choices={TURN_TIMER_CHOICES} onChange={(value) => update("turnSeconds", value)} />
                 <div className={styles.wide}>
                   <SheetSegmented label="When the timer runs out" value={settings.timeout} choices={TIMEOUTS} onChange={(value) => update("timeout", value)} disabled={settings.turnSeconds === 0} />
                   {settings.turnSeconds > 0 ? (
                     <p className={cx(ui.hint, styles.below)}>The clock is a time bank that runs while a player must answer, including during disconnects. {duelClockRulesText(settings.turnSeconds)}, up to the full bank.</p>
-                  ) : null}
+                  ) : (
+                    <p className={cx(ui.hint, styles.below)}>No clock runs. Players take as long as they need and nobody loses on time.</p>
+                  )}
                 </div>
               </div>
             </section>
