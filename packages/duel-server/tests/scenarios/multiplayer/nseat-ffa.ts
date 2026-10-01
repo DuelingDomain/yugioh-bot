@@ -466,6 +466,8 @@ export const FFA_SCENARIOS: Scenario[] = [
       select({ card: "Swords of Revealing Light" }),
       expectPrompt({ by: "p2", context: "chain" }),
       surrender("p1"),
+      // The chain is the same one: the surrender did not pass the window of p2 and did not close the chain.
+      expectChain("Pot of Greed", "Dust Tornado"),
       expectPrompt({ by: "p2", context: "chain" }),
       pass("p2"),
       expectEliminated("p1"),
@@ -480,18 +482,24 @@ export const FFA_SCENARIOS: Scenario[] = [
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "chain", "surrender", "prompt", "ffa4", "card:55144522", "card:60082869"],
     // p1 activates Dust Tornado on the Swords of p0 and has a card prompt open (select the target) when it gives up. The engine
-    // answers that prompt for p1. The link must do nothing.
+    // answers that prompt for p1. The link must do nothing. p2 holds a set Dust Tornado, so the chain stays open for a window.
     setup: {
       format: "ffa4",
       p0: { hand: ["Pot of Greed"], spells: [{ card: "Swords of Revealing Light", pos: "up" }, { card: "Swords of Revealing Light", pos: "up" }] },
       p1: { spells: [{ card: "Dust Tornado", pos: "set" }] },
+      p2: { spells: [{ card: "Dust Tornado", pos: "set" }] },
     },
     steps: [
       activate("Pot of Greed", "p0"),
       activate("Dust Tornado", "p1"),
       expectPrompt({ by: "p1", kind: "cards" }),
       surrender("p1"),
+      // The activation was not cancelled: the link of p1 is on the chain, and p2 holds the window after it.
+      expectChain("Pot of Greed", "Dust Tornado"),
+      expectPrompt({ by: "p2", context: "chain" }),
+      pass("p2"),
       expectEliminated("p1"),
+      // The link of p1 resolved with no effect.
       expectBoard({ p0: { hand: { count: 2 }, grave: ["Pot of Greed"], spells: { count: 2 } } }),
     ],
   }),
