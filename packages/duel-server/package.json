@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "start": "node dist/server.js",
     "test": "vitest run tests --testTimeout=15000",
+    "test:unit": "vitest run tests --config vitest.unit.config.ts --testTimeout=15000",
     "test:engine": "DUEL_REQUIRE_CORES=1 NSEAT_LIVE=1 vitest run tests --testTimeout=15000",
     "test:native": "bash scripts/native/checks/run.sh",
     "prepare:data": "tsx scripts/prepare-data.ts",

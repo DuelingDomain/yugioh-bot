@@ -12,6 +12,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:engine": "npm run test:engine --workspace=@yugidraft/duel-server",
+    "test:native": "npm run test:native --workspace=@yugidraft/duel-server",
     "seed": "tsx scripts/seed.ts",
     "reset:test-data": "npm run seed && docker compose restart web bot",
     "snapshot:draft-catalog": "tsx scripts/generate-draft-catalog-snapshot.ts",
