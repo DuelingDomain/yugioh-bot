@@ -1,8 +1,6 @@
 {
   "R-COMMON-SEP-FIELDS": "no DSL outcome scenario yet. Native check zones proves the zone layout at n > 2 (no Extra Monster Zone mirror, per duelist disabled zones). The table counts DSL outcome scenarios only, so a native check does not make it covered.",
-  "R-COMMON-OPP-FIELD": "no DSL outcome scenario yet (2 presets and 50 catalog sketches only). Native checks range-fold, absolute-range-unique and lua-prompts-range prove the core fold. The table counts DSL outcome scenarios only, so a native check does not make it covered.",
   "R-COMMON-ONGOING": "no DSL outcome scenario yet (4 catalog sketches only). Native check range-fold proves the range fold, not a whole ongoing restriction. The table counts DSL outcome scenarios only, so a native check does not make it covered.",
-  "R-COMMON-EACH-PLAYER": "no DSL outcome scenario yet (4 catalog sketches only). No native check names this rule.",
   "R-COMMON-ALL-BOTH": "no DSL outcome scenario yet (1 preset and 5 catalog sketches only). No native check names this rule.",
   "R-COMMON-EMZ": "no DSL outcome scenario yet. Native checks zones and link-column-zones prove the zones at n > 2. The table counts DSL outcome scenarios only, so a native check does not make it covered.",
   "R-COMMON-FL-LIST": "no DSL outcome scenario yet. tests/deck-legality-multiplayer.test.ts proves the forbidden list per table in deck validation; it is a unit test, not a duel scenario.",
