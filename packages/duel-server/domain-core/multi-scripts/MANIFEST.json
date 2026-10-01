@@ -895,6 +895,19 @@
       "note": "Script fix (Q7, Q10): at:IsControler(tp) in the condition. Not part of R1."
     },
     {
+      "code": 44656491,
+      "file": "c44656491.lua",
+      "name": "Messenger of Peace",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+CONTINUOUS",
+      "redefined": [
+        "mtcon"
+      ],
+      "stockSha256": "3c2b5a845d01bfeb195630105ae1092d9b3a3e824aef76c24530a7d871fb5fe8",
+      "note": "Script fix (late-cards, Tag): the 100 LP is asked only in the Standby Phase of the duelist that owns the card, not in the Standby Phase of its partner (Duel.MPTurnOwns). The team LP pays. Not part of R1."
+    },
+    {
       "code": 45148985,
       "file": "c45148985.lua",
       "name": "Metaphys Executor",

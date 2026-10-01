@@ -4,7 +4,7 @@
 // card scripts and the overlay, on the Standard multi core and again on the Domain multi core. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, defineScenario, endTurn, expectBoard, zone,
+  activate, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, no, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -21,6 +21,7 @@ const HOLE = "Dark Hole";
 const RAIGEKI = "Raigeki";
 const NECRO = "Necrovalley";
 const ROYAL = "Royal Tribute";
+const MESSENGER = "Messenger of Peace";
 
 const seatsOf = (format: Format): Seat[] => (format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"]);
 
@@ -61,8 +62,73 @@ function royalTribute(format: Format): Scenario {
   });
 }
 
+// --- Messenger of Peace ------------------------------------------------------------------------------------------------------------
+// The card of p0 is face up on its field. Its ATK limit (1500 or more cannot attack) holds for the monsters of every duelist. The 100 LP
+// are asked only in the Standby Phase of p0 (in Tag: of the duelist that owns the card, not of the partner). In Tag the 100 LP are paid
+// from the one LP total of the team. Attacks are allowed in the 1st round (attackFirstTurn).
+const PEACE = `${SOURCE} [R-COMMON-OPP-FIELD], card decisions 2026-10-01: Messenger of Peace (the ATK limit holds for all opponents, the 100 LP only in the own Standby Phase)`;
+const BIG: Record<Seat, string> = { p0: OX, p1: AXE, p2: OX, p3: AXE };
+
+function messengerSetup(format: Format): Scenario["setup"] {
+  const setup: Scenario["setup"] = { format, attackFirstTurn: true };
+  for (const seat of seatsOf(format)) {
+    (setup as Record<string, unknown>)[seat] = {
+      monsters: [BIG[seat], FANG],
+      ...(seat === "p0" ? { spells: [{ card: MESSENGER, pos: "up" }] } : {}),
+    };
+  }
+  return setup;
+}
+
+/** A battle phase in which the 1700 ATK monster of `seat` has no attack and the 1200 ATK Silver Fang has one. */
+function limitOf(seat: Seat): Step[] {
+  return [
+    changePhase("battle", seat),
+    expectNotOffered("attack", { card: BIG[seat], owner: seat }, seat),
+    expectOffered("attack", { card: FANG, owner: seat }, seat),
+  ];
+}
+
+function messengerOfPeace(format: Format, pay: boolean): Scenario {
+  const seats = seatsOf(format);
+  const label = format === "tag" ? "Tag" : format.toUpperCase();
+  const lp = format === "tag" ? 16000 : 8000;
+  const own = (seat: Seat) => seat === "p0" || (format === "tag" && seat === "p2");
+  // The duel starts in the Standby Phase of p0: the 1st payment is asked at once.
+  const steps: Step[] = [];
+  const spec: Partial<Record<Seat, DuelistExpect>> = {};
+  if (pay) {
+    // One round: every duelist meets the limit in its own battle phase and ends its turn. A payment prompt in the Standby Phase of any
+    // other duelist would stop the next changePhase, so the round also shows that only p0 is asked. The 2nd payment is the 2nd turn of p0.
+    steps.push(yes("p0"));
+    for (const seat of seats) steps.push(...limitOf(seat), endTurn(seat));
+    steps.push(yes("p0"));
+    for (const seat of seats) spec[seat] = { hand: { count: 1 }, monsters: [BIG[seat], FANG], ...(own(seat) ? { lp: lp - 200 } : {}) };
+    spec.p0 = { ...spec.p0, spells: [MESSENGER] };
+  } else {
+    // No payment: the card is destroyed at once and the 1700 ATK monster of p0 may attack again.
+    steps.push(no("p0"), changePhase("battle", "p0"), expectOffered("attack", { card: BIG.p0, owner: "p0" }, "p0"));
+    for (const seat of seats) spec[seat] = { hand: { count: 0 }, monsters: [BIG[seat], FANG] };
+    spec.p0 = { ...spec.p0, grave: [MESSENGER] };
+  }
+  steps.push(everySeat(format, spec, lp));
+  return defineScenario({
+    id: `late-${format}-messenger-of-peace-${pay ? "limit-for-all-and-payment-only-in-own-standby" : "declined-payment-destroys-it"}`,
+    title: `${label}: Messenger of Peace of p0: ${pay ? "no monster with 1500 ATK or more of any duelist attacks; only p0 is asked for the 100 LP, once in each of its own Standby Phases" : "p0 does not pay in its Standby Phase and the card is destroyed"}`,
+    source: PEACE,
+    rules: ["R-COMMON-OPP-FIELD", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    tags: ["multiplayer", "late-cards", "opp-field", "standby-cost", format, "card:44656491", "card:47355498"],
+    setup: messengerSetup(format),
+    steps,
+  });
+}
+
 export const LATE_CARD_SCENARIOS: Scenario[] = [
   royalTribute("ffa3"),
   royalTribute("ffa4"),
   royalTribute("tag"),
+  messengerOfPeace("ffa3", true),
+  messengerOfPeace("ffa4", true),
+  messengerOfPeace("tag", true),
+  messengerOfPeace("ffa3", false),
 ];
