@@ -1,4 +1,1739 @@
 {
   "version": 1,
-  "cards": []
+  "cards": [
+    {
+      "code": 1804528,
+      "file": "c1804528.lua",
+      "name": "Dark Coffin",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_F",
+      "wrap": {
+        "MPOne": [
+          "desop"
+        ],
+        "MPPick": [
+          "descon"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "c36dfa5e6047cc9295ee59bb2854ff51cd867a70c698eeaf1d9e918538a6890c"
+    },
+    {
+      "code": 1826676,
+      "file": "c1826676.lua",
+      "name": "Toy Knight",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "spcon"
+      ],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "1cc687f2f7c14ed0d74fd7f101b84b6e0a6fa7a79674d31eef82ee246748e68e"
+    },
+    {
+      "code": 1896112,
+      "file": "c1896112.lua",
+      "name": "Dimension Explosion",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPOne": [
+          "operation"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "80fc7da42b311e738ba46fac03c62ba816f702bc0afd668463c04626818f9070"
+    },
+    {
+      "code": 2801664,
+      "file": "c2801664.lua",
+      "name": "Ancient Warriors - Valiant Zhang De",
+      "kind": "hand",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "IGNITION+SINGLE",
+      "compareIn": [
+        "atkcon",
+        "val"
+      ],
+      "redefined": [
+        "atkcon",
+        "val"
+      ],
+      "stockSha256": "ffd2a8b2ca79cfe63bc96719f97a5c2eaa2e06a148ef54f5609edf2e2b830382"
+    },
+    {
+      "code": 7373632,
+      "file": "c7373632.lua",
+      "name": "Divine Evolution",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "wrap": {
+        "MPOne": [
+          "tgop"
+        ],
+        "MPTarget": [
+          "tgtg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "3a3551e02b39c54e7a6a90a8f631a51bba0cb01c12ba20298410bbcc68ea2ad0"
+    },
+    {
+      "code": 8643186,
+      "file": "c8643186.lua",
+      "name": "D/D Recruits",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "condition",
+        "target"
+      ],
+      "redefined": [
+        "condition",
+        "target"
+      ],
+      "stockSha256": "cd85ff8cf901ed02e7b7692af01fcfc8f224ed880f3b66ece7bf7e22493806aa"
+    },
+    {
+      "code": 8814959,
+      "file": "c8814959.lua",
+      "name": "Evilswarm Mandragora",
+      "kind": "whole",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "spcon"
+      ],
+      "wrap": {
+        "MPAny": [
+          "spcon"
+        ]
+      },
+      "stockSha256": "25b5d45c0032ce0535d434eecb814336d36f00eb517cfb6ea5574b2b36f8887a"
+    },
+    {
+      "code": 9794980,
+      "file": "c9794980.lua",
+      "name": "Knightmare Incarnation Idlee",
+      "kind": "trig",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SINGLE+TRIGGER_O",
+      "compareIn": [
+        "gycon",
+        "gytg"
+      ],
+      "redefined": [
+        "gycon",
+        "gytg"
+      ],
+      "stockSha256": "8b50857dfc4745fa75e0f02aa8076a1a56bfc88e4af17627ce41c103ee1b1707"
+    },
+    {
+      "code": 12210097,
+      "file": "c12210097.lua",
+      "name": "Mitsurugi Sacred Boundary",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "IGNITION",
+      "wrap": {
+        "MPOne": [
+          "tdop"
+        ],
+        "MPTarget": [
+          "tdtg"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "ddb17978da375eed5170527697deae41da989b920a47eacaf0c621a5f3e4d4e1"
+    },
+    {
+      "code": 12247206,
+      "file": "c12247206.lua",
+      "name": "Inferno Reckless Summon",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPOne": [
+          "activate"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "b1abc6a76df3c89f84734cec0ff539508de53121f07244e14caf797224f4e27f",
+      "note": "Card text says \"your opponent\" (one): CH-OP (decision Q5), not CH-EACH as in the first pass of the design."
+    },
+    {
+      "code": 15693423,
+      "file": "c15693423.lua",
+      "name": "Evenly Matched",
+      "kind": "hand",
+      "classes": [
+        "COMPARE",
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE+SINGLE",
+      "compareIn": [
+        "target",
+        "handcon"
+      ],
+      "wrap": {
+        "MPAny": [
+          "handcon"
+        ],
+        "MPOne": [
+          "activate"
+        ]
+      },
+      "redefined": [
+        "target"
+      ],
+      "chooserClass": "CH-OP",
+      "stockSha256": "f42058c6e08fdd462899f9c93d88e65eee06e2d7482f2f2aaf5458d0803660ba",
+      "note": "Compare card and chooser card (CH-OP). Not in the triage compare group."
+    },
+    {
+      "code": 15758127,
+      "file": "c15758127.lua",
+      "name": "Ursarctic Quint Charge",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "tdop"
+        ],
+        "MPTarget": [
+          "tdtg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "9a7744980d307f9cb9a0a2b81aa35cd1b475fa6396647dd1302bff68eae4ffc9"
+    },
+    {
+      "code": 17086528,
+      "file": "c17086528.lua",
+      "name": "Xiangsheng Magician",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SINGLE",
+      "compareIn": [
+        "slcon"
+      ],
+      "redefined": [
+        "slcon"
+      ],
+      "stockSha256": "69bfdf7b7b47096deb443d2f8b9c488f6367fcc6d2bbbb868aef6c4d7461f10f"
+    },
+    {
+      "code": 17956906,
+      "file": "c17956906.lua",
+      "name": "Final Light",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "wrap": {
+        "MPOne": [
+          "operation"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "3f6996160e4b45310801a7b8089403e812af6d03265a8a2a0daf60fcf8179f79"
+    },
+    {
+      "code": 18517177,
+      "file": "c18517177.lua",
+      "name": "Core Blast",
+      "kind": "trig",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "FIELD+TRIGGER_O",
+      "compareIn": [
+        "descon",
+        "desop",
+        "destg"
+      ],
+      "redefined": [
+        "descon",
+        "desop",
+        "destg"
+      ],
+      "stockSha256": "8d7e139ca1cd36d940672583f87bf07dde8663c4124bf413432d773f3fe4a169"
+    },
+    {
+      "code": 18752707,
+      "file": "c18752707.lua",
+      "name": "Magical Star Illusion",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "condition"
+      ],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "bf837d8caf179cbf056154e9cea3b0aa35d4f028ac8a30234a17192ebb4bba15"
+    },
+    {
+      "code": 18861006,
+      "file": "c18861006.lua",
+      "name": "Crimson Firewing Pegasus",
+      "kind": "whole",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "spcon"
+      ],
+      "wrap": {
+        "MPAny": [
+          "spcon"
+        ]
+      },
+      "stockSha256": "3c658cc062a2fff5f8637632ff15ee024875e9bbecdc1be19fe07bb77722b490"
+    },
+    {
+      "code": 19222426,
+      "file": "c19222426.lua",
+      "name": "Elemental HERO Thunder Giant - Voltic Thunder",
+      "kind": "trig",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SINGLE+TRIGGER_O",
+      "compareIn": [
+        "destg"
+      ],
+      "redefined": [
+        "destg"
+      ],
+      "stockSha256": "1277f3f55550da1011399bd5f6e74b7a615b92be4919637dfd99b2c65fe63e46"
+    },
+    {
+      "code": 19275188,
+      "file": "c19275188.lua",
+      "name": "War Rock Generations",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "condition"
+      ],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "32cfe8d8c4eb5f701024261c78a5b792789d3ba97f77554fbe959ec0927852f8"
+    },
+    {
+      "code": 20644748,
+      "file": "c20644748.lua",
+      "name": "Spatial Collapse",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+CONTINUOUS+ACTIVATE",
+      "redefined": [
+        "adjustop",
+        "condition"
+      ],
+      "chooserClass": "CH-CONT",
+      "stockSha256": "7852b18bcd2cfb1138a4b6682dc9d2a751f06f466867131bb4ac5ead62f912f2"
+    },
+    {
+      "code": 21672573,
+      "file": "c21672573.lua",
+      "name": "Emperor Sem",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+TRIGGER_O",
+      "redefined": [
+        "tdtg"
+      ],
+      "chooserClass": "CH-EACH",
+      "stockSha256": "3db3a1770bef6141a6b537f1941afbff9dc5e1e004b246a9323d04dbbbf52652"
+    },
+    {
+      "code": 21720439,
+      "file": "c21720439.lua",
+      "name": "Artmage Movement -Pedigree-",
+      "kind": "hand",
+      "classes": [
+        "COMPARE"
+      ],
+      "compareIn": [
+        "inline"
+      ],
+      "replace": true,
+      "stockSha256": "eac8f85e4ff240ce74911b852e0c01b4a6c3c7c9eec26f0e164b8441a6e8d1b9"
+    },
+    {
+      "code": 23557835,
+      "file": "c23557835.lua",
+      "name": "Dimension Fusion",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPOne": [
+          "op"
+        ],
+        "MPTarget": [
+          "tg"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "63576d7818ccaa4b0644450e444cd285c298fac3599e79d2885dc8d92cb041b3"
+    },
+    {
+      "code": 23931679,
+      "file": "c23931679.lua",
+      "name": "Ocean Dragon Lord - Kairyu-Shin",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+CONTINUOUS",
+      "redefined": [
+        "adjustop"
+      ],
+      "chooserClass": "CH-CONT",
+      "stockSha256": "a3bbf9d3eef444217d2b7a487c53f924849f2fef961f22a5e8ee41cee424cb61"
+    },
+    {
+      "code": 24514503,
+      "file": "c24514503.lua",
+      "name": "Soulicer Crystal",
+      "kind": "hand",
+      "classes": [
+        "COMPARE"
+      ],
+      "compareIn": [
+        "inline"
+      ],
+      "replace": true,
+      "stockSha256": "9e3c4c3787d7eda606ba1d80444ea47aaa0836b459cf074ae13afc6afa1b08bc"
+    },
+    {
+      "code": 25274141,
+      "file": "c25274141.lua",
+      "name": "Urgent Schedule",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "spcon"
+      ],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "4fbef28b5d6037dd098c575e516605da110b604e8630a81b4e64dff11456c962"
+    },
+    {
+      "code": 27279764,
+      "file": "c27279764.lua",
+      "name": "Apoqliphort Towers",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "IGNITION",
+      "wrap": {
+        "MPOne": [
+          "tgop"
+        ],
+        "MPTarget": [
+          "tgtg"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "e621cf1ba47ce4fd519ffcba2f471f1005c8e32344e19a3fb4b36476fd4c22d0"
+    },
+    {
+      "code": 29904964,
+      "file": "c29904964.lua",
+      "name": "Arisen Gaia the Fierce Knight",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SINGLE",
+      "compareIn": [
+        "ntcon"
+      ],
+      "redefined": [
+        "ntcon"
+      ],
+      "stockSha256": "cd3faa35089e9dcad8bd3d992e4c7b9d43b9766a2170c6e9e1241c7328811dae"
+    },
+    {
+      "code": 31044787,
+      "file": "c31044787.lua",
+      "name": "Ferret Flames",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "condition"
+      ],
+      "wrap": {
+        "MPAny": [
+          "condition"
+        ],
+        "MPOne": [
+          "activate"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "fd679ce599a553c84b73f869f08f13dde16784d5dd4e1aea4a61390336ad9b1e"
+    },
+    {
+      "code": 32762201,
+      "file": "c32762201.lua",
+      "name": "Ancient Gear Statue",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "selfspcon"
+      ],
+      "redefined": [
+        "selfspcon"
+      ],
+      "stockSha256": "0ea2588443e85f1e97ee8771af568a3df306217329e765fbee4694eb7eaa474d"
+    },
+    {
+      "code": 32875265,
+      "file": "c32875265.lua",
+      "name": "Puppet Parade",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "activate",
+        "condition"
+      ],
+      "redefined": [
+        "activate",
+        "condition"
+      ],
+      "stockSha256": "8e26bb6c68fe54e3563199d82a4fd5ad7c2295aee014b18365a1dac03e776993"
+    },
+    {
+      "code": 34047456,
+      "file": "c34047456.lua",
+      "name": "Gigantic Thundercross",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "target"
+      ],
+      "redefined": [
+        "target"
+      ],
+      "stockSha256": "5d376c4c525078587c6cef5e7ce8f2f4ea476477d4a6164ae3d08ffaf0dff14a",
+      "note": "Reads the Graveyard and the banished zone (field class); today it sums all opponents. The triage text that calls it OK-BIND is wrong."
+    },
+    {
+      "code": 35183853,
+      "file": "c35183853.lua",
+      "name": "Bujin Regalia - The Mirror",
+      "kind": "whole",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "condition"
+      ],
+      "wrap": {
+        "MPAny": [
+          "condition"
+        ]
+      },
+      "stockSha256": "e330441b5b04c4b2c200a4ec4bd929885ba9ee5cf3b51b46828252c4cc9505d4"
+    },
+    {
+      "code": 36668118,
+      "file": "c36668118.lua",
+      "name": "Boot Sector Launch",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "IGNITION",
+      "compareIn": [
+        "effop",
+        "efftg"
+      ],
+      "redefined": [
+        "effop",
+        "efftg"
+      ],
+      "stockSha256": "367ca4dbe5b75c4c109052c9d3dd590e3319094e6b1e1c5eba40d0772369a1ca"
+    },
+    {
+      "code": 36898537,
+      "file": "c36898537.lua",
+      "name": "Metaphys Horus",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "ctop"
+        ],
+        "MPTarget": [
+          "cttg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "326b6c2da53db6e5837a0df646f1286d72dd8c394fab613883418a8a7f8486de"
+    },
+    {
+      "code": 38026562,
+      "file": "c38026562.lua",
+      "name": "Vola-Chemicritter Methydraco",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "tgop"
+        ],
+        "MPTarget": [
+          "tgtg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "7167a152987cdf93d23563f722cb54ad4bd2937767ea0e8b36a98bd9f585821c"
+    },
+    {
+      "code": 38817295,
+      "file": "c38817295.lua",
+      "name": "Ultimate Sky",
+      "kind": "hand",
+      "classes": [
+        "COMPARE"
+      ],
+      "compareIn": [
+        "inline"
+      ],
+      "replace": true,
+      "stockSha256": "14ff214c4aff585769d787973f784a5a53210b2983bc22216603a91ddd58d10b"
+    },
+    {
+      "code": 39103226,
+      "file": "c39103226.lua",
+      "name": "Weighbridge",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "tgcon"
+      ],
+      "wrap": {
+        "MPAny": [
+          "tgcon"
+        ],
+        "MPOne": [
+          "tgop"
+        ],
+        "MPTarget": [
+          "tgtg"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "0053371366bdaa1a7e52f23937055a9db2665e79e8092bd7940edd26eecbc901",
+      "note": "Chooser card with a compare in its condition (MPAny); the triage did not list it as a compare card."
+    },
+    {
+      "code": 39618799,
+      "file": "c39618799.lua",
+      "name": "Cyber Angel Dakini",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "tgop"
+        ],
+        "MPTarget": [
+          "tgtg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "28aa31e9fe4dba30a4915dd4d40d75c5e97855c7e1de98f183094163493a349f"
+    },
+    {
+      "code": 39900763,
+      "file": "c39900763.lua",
+      "name": "Different Dimension Encounter",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "redefined": [
+        "operation",
+        "target"
+      ],
+      "chooserClass": "CH-EACH",
+      "stockSha256": "a647c24660bf8aa6baef63356cdde6717ff53135eac3a481b8228dd9326f3b0e"
+    },
+    {
+      "code": 40428851,
+      "file": "c40428851.lua",
+      "name": "Ancient Warriors - Virtuous Liu Xuan",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "IGNITION",
+      "compareIn": [
+        "spcon"
+      ],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "b3655ac17db9e94d390cebd6ff604d9971121f735d9afe566bd255ce1ffd85cb"
+    },
+    {
+      "code": 42091632,
+      "file": "c42091632.lua",
+      "name": "Dominus Spiral",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPOne": [
+          "operation"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "100321adc2379201c936e524bdff4c35dc30b75e99f80f93df2698c00d6fdbb2"
+    },
+    {
+      "code": 43434803,
+      "file": "c43434803.lua",
+      "name": "The Shallow Grave",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "redefined": [
+        "operation",
+        "target"
+      ],
+      "chooserClass": "CH-EACH",
+      "stockSha256": "1ba4dcc6433a7a015e5e879dfc97204469d5cd095c0a6fc165dacc7560cc141c"
+    },
+    {
+      "code": 43452193,
+      "file": "c43452193.lua",
+      "name": "Mirror Gate",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "feab1c999e5f3077b2e6fdf0d68f97138562604c6c4ccd16112ab03a8115b70d",
+      "note": "Script fix (Q7, Q10): at:IsControler(tp) in the condition. Not part of R1."
+    },
+    {
+      "code": 45148985,
+      "file": "c45148985.lua",
+      "name": "Metaphys Executor",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "IGNITION",
+      "compareIn": [
+        "spcon"
+      ],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "6abecfeb2cbc06c941b78d2b13c22b9951482655b7b30fdb9fe1d0be1bf358a8"
+    },
+    {
+      "code": 45894482,
+      "file": "c45894482.lua",
+      "name": "Gilasaurus",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_F",
+      "wrap": {
+        "MPOne": [
+          "operation"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "6379973afe9c35e13999ee3f759c5a4bbca78fee6fc1451d145039917668cbb0"
+    },
+    {
+      "code": 46898368,
+      "file": "c46898368.lua",
+      "name": "Burning Draw",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "condition"
+      ],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "1bf3f96b489d20378f9f070fe7a68d91aea7316a4d3855e1ceda7352649c39da"
+    },
+    {
+      "code": 48216773,
+      "file": "c48216773.lua",
+      "name": "Compulsory Escape Device",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "redefined": [
+        "activate",
+        "target"
+      ],
+      "chooserClass": "CH-EACH",
+      "stockSha256": "0e7a1cc65160b7c77cb625bc9d78c835b7e9b163f483a674960b75c087896cec"
+    },
+    {
+      "code": 49027020,
+      "file": "c49027020.lua",
+      "name": "Traptrix Pudica",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_O",
+      "wrap": {
+        "MPTarget": [
+          "rmtg"
+        ]
+      },
+      "redefined": [
+        "mpspfilter",
+        "rmop",
+        "spcon",
+        "spop"
+      ],
+      "chooserClass": "CH-OP",
+      "stockSha256": "151ce2ea5cb256fc768acb80d2545a0d655ee5fef375a26633d95e924de750d5",
+      "note": "The Standby Phase effect keeps the controller of the banished monster in the effect value."
+    },
+    {
+      "code": 50599453,
+      "file": "c50599453.lua",
+      "name": "Leafplace Plaice",
+      "kind": "trig",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SINGLE+FIELD+TRIGGER_O",
+      "compareIn": [
+        "incval",
+        "spcon",
+        "sptg"
+      ],
+      "redefined": [
+        "incval",
+        "spcon",
+        "sptg"
+      ],
+      "stockSha256": "368822aab7b0be98103cf99610c8520553d1b62b86bff1854e64e3a32c0e289f"
+    },
+    {
+      "code": 53244294,
+      "file": "c53244294.lua",
+      "name": "Number 57: Tri-Head Dust Dragon",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "IGNITION",
+      "compareIn": [
+        "zcon"
+      ],
+      "redefined": [
+        "zcon"
+      ],
+      "stockSha256": "62672b54b42c1ae1d918da63b1179097ad0563e1ad1b2f7f05e1f41a5c43cedb"
+    },
+    {
+      "code": 55787576,
+      "file": "c55787576.lua",
+      "name": "World Legacy - \"World Shield\"",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "spop"
+        ],
+        "MPTarget": [
+          "sptg"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "cd73860122707474e79fd5e30196443420e778d5d40a7eaedfbaac0a653354ba"
+    },
+    {
+      "code": 56830749,
+      "file": "c56830749.lua",
+      "name": "Share the Pain",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPOne": [
+          "activate"
+        ],
+        "MPTarget": [
+          "cost",
+          "target"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "fdbc39fddddfcdccb9d24a0dbf75f5645e994cf35ef1b73cfc224b77e2bef537"
+    },
+    {
+      "code": 56980148,
+      "file": "c56980148.lua",
+      "name": "Dinowrestler Systegosaur",
+      "kind": "trig",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "FIELD+TRIGGER_O",
+      "compareIn": [
+        "spcon",
+        "sptg"
+      ],
+      "redefined": [
+        "spcon",
+        "sptg"
+      ],
+      "stockSha256": "23b6708861991c12d5cb9b780b1b21c290258e313dbf762d0c3945a02333dfea"
+    },
+    {
+      "code": 57314798,
+      "file": "c57314798.lua",
+      "name": "Number 100: Numeron Dragon",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_O",
+      "redefined": [
+        "desop"
+      ],
+      "chooserClass": "CH-EACH",
+      "stockSha256": "5b731e5173025a5bc6f734cdc61382bf3da103ffe62c418010c8326d752b5822"
+    },
+    {
+      "code": 58551308,
+      "file": "c58551308.lua",
+      "name": "Spear Cretin",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_F",
+      "redefined": [
+        "sptg"
+      ],
+      "chooserClass": "CH-EACH",
+      "stockSha256": "56d09211c1bf32d4ca6b981bb31ddabae4858936747f84d261dfe6881ac30137"
+    },
+    {
+      "code": 60375194,
+      "file": "c60375194.lua",
+      "name": "Vendread Daybreak",
+      "kind": "hand",
+      "classes": [
+        "COMPARE"
+      ],
+      "compareIn": [
+        "inline"
+      ],
+      "replace": true,
+      "stockSha256": "7aac19bfb7a3c913f48cbd1857201596c70e6488b19039fe7c6d256f372fca2b"
+    },
+    {
+      "code": 61650133,
+      "file": "c61650133.lua",
+      "name": "Summoning Curse",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+TRIGGER_F",
+      "redefined": [
+        "rmop"
+      ],
+      "chooserClass": "CH-EACH",
+      "stockSha256": "6f2dcac2eb858d2f62110f83a6d40740336871b543a84a499199dceb3de9fc49"
+    },
+    {
+      "code": 62098216,
+      "file": "c62098216.lua",
+      "name": "Evil★Twins Ki-sikil & Lil-la",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "tgop"
+        ],
+        "MPTarget": [
+          "tgtg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "adc9c1eda8631d9395ad431329e51c9c29955815f65a9d28a2b865c6ac88513c"
+    },
+    {
+      "code": 62383431,
+      "file": "c62383431.lua",
+      "name": "Keurse, the Ogdoadic Light",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "IGNITION",
+      "wrap": {
+        "MPOne": [
+          "spop1"
+        ],
+        "MPTarget": [
+          "sptg1"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "6e17185e669e90fc75bf6741cdd609471395d0bf6098d3f6b320c7857b07f43c"
+    },
+    {
+      "code": 66362965,
+      "file": "c66362965.lua",
+      "name": "The Fiend Megacyber",
+      "kind": "whole",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "spcon"
+      ],
+      "wrap": {
+        "MPAny": [
+          "spcon"
+        ]
+      },
+      "stockSha256": "dba91e6dd8fbe138727e2d4e6909fb9e668087799ca082014e945de6b819297c"
+    },
+    {
+      "code": 67443336,
+      "file": "c67443336.lua",
+      "name": "Balance of Judgment",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "activate",
+        "condition",
+        "target"
+      ],
+      "redefined": [
+        "activate",
+        "condition",
+        "target"
+      ],
+      "stockSha256": "061576f8addd5a0bfa9711d72e93269ab65a9542e628a08b545725407ba36f89"
+    },
+    {
+      "code": 68199168,
+      "file": "c68199168.lua",
+      "name": "Harr, Generaider Boss of Storms",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "sop0"
+        ],
+        "MPTarget": [
+          "stg0"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "055f3d9ec000dd4ba2e8861206c7cb680e7274ca4e02e8f683bd1afdbc98c6b8"
+    },
+    {
+      "code": 70914287,
+      "file": "c70914287.lua",
+      "name": "Kuribabylon",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "IGNITION",
+      "compareIn": [
+        "condition"
+      ],
+      "redefined": [
+        "condition"
+      ],
+      "stockSha256": "264e8cab82b266b698bd27f2b30276eccac675524b8e9f94753eef4e97f44ddc",
+      "note": "Reads the Graveyard and the banished zone (field class); today it sums all opponents. The triage text that calls it OK-BIND is wrong."
+    },
+    {
+      "code": 71863024,
+      "file": "c71863024.lua",
+      "name": "Performapal Radish Horse",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "hspcon"
+      ],
+      "redefined": [
+        "hspcon"
+      ],
+      "stockSha256": "5272b6f3bf15e3e1703e4161e35a09e22f572a294b3f20637f76f0fd5914dd14"
+    },
+    {
+      "code": 72402069,
+      "file": "c72402069.lua",
+      "name": "D/D/D Super Doom King Bright Armageddon",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "desop",
+          "disop"
+        ],
+        "MPTarget": [
+          "destg",
+          "distg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "a20d6cc47d85aa59b7de4535227b096010af541c19f13dba00a605754b2957d1"
+    },
+    {
+      "code": 76375976,
+      "file": "c76375976.lua",
+      "name": "Mystic Mine",
+      "kind": "trig",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "FIELD+FIELD+TRIGGER_F",
+      "compareIn": [
+        "conopp",
+        "conself",
+        "descon",
+        "destg"
+      ],
+      "redefined": [
+        "conopp",
+        "conself",
+        "descon",
+        "destg"
+      ],
+      "stockSha256": "108707831a6836dde33a08fc3f8d17e422f9aaf686adc46c39427c054a42860d",
+      "note": "Mystic Mine: the continuous compare is in FIELD effect conditions (conself, conopp)."
+    },
+    {
+      "code": 76416959,
+      "file": "c76416959.lua",
+      "name": "Ancient Warriors - Loyal Guan Yun",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "IGNITION",
+      "compareIn": [
+        "sscon",
+        "descon"
+      ],
+      "wrap": {
+        "MPAny": [
+          "sscon",
+          "descon"
+        ],
+        "MPTarget": [
+          "destg"
+        ]
+      },
+      "stockSha256": "0df1dc036523fd7d87169c0d1c760750d98303125289eac58338cd9c60dd5680"
+    },
+    {
+      "code": 80453041,
+      "file": "c80453041.lua",
+      "name": "Phantom of Yubel",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "QUICK_O",
+      "redefined": [
+        "chngop"
+      ],
+      "chooserClass": "CH-OP",
+      "stockSha256": "03b0272d9cf59a5ab8e8c1d783320a5683f09704191e9142ec9235dff5100898",
+      "note": "Only the replacement operation is fixed (the activator, from rp). The inline condition rp==1-tp is left as it is."
+    },
+    {
+      "code": 82385847,
+      "file": "c82385847.lua",
+      "name": "Dinowrestler Pankratops",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "spcon"
+      ],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "be6fdc99cef9346fe6ffb15b7290c38ac32bd96c3ec5e45aabd7e1066a34854a"
+    },
+    {
+      "code": 83054225,
+      "file": "c83054225.lua",
+      "name": "Scramble!! Scramble!!",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "spcon"
+      ],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "685fcb6d07576ea3c630084134a2356e3bcd488ff1b6af4ff1dcb5318d782df5"
+    },
+    {
+      "code": 83116692,
+      "file": "c83116692.lua",
+      "name": "Doombearer Psychopompos",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_F",
+      "wrap": {
+        "MPOne": [
+          "ssop"
+        ],
+        "MPTarget": [
+          "sstg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "19ee01503d77d2109cfe9599245fed310dbc3c44358b7d33fe81cd92e44b44c2"
+    },
+    {
+      "code": 84136000,
+      "file": "c84136000.lua",
+      "name": "The Grave of Enkindling",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "redefined": [
+        "target"
+      ],
+      "chooserClass": "CH-EACH",
+      "stockSha256": "a529e9038c05c03bdea6e448683c62b41564ff84a6e920492ea1754450542a89"
+    },
+    {
+      "code": 84257883,
+      "file": "c84257883.lua",
+      "name": "B.E.S. Blaster Cannon Core",
+      "kind": "whole",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "spcon"
+      ],
+      "wrap": {
+        "MPAny": [
+          "spcon"
+        ]
+      },
+      "stockSha256": "358ad8ddc2bc362107a5229ee33c46fb9974c445598d83374d3559e7da148405"
+    },
+    {
+      "code": 87588741,
+      "file": "c87588741.lua",
+      "name": "Qliphort Cephalopod",
+      "kind": "trig",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SINGLE+TRIGGER_O",
+      "compareIn": [
+        "damop",
+        "damtg"
+      ],
+      "redefined": [
+        "damop",
+        "damtg"
+      ],
+      "stockSha256": "58a0860eec6b0508500cb52a95b5ffd6bf902abeb100a9ebaf654e307f191e52"
+    },
+    {
+      "code": 88021907,
+      "file": "c88021907.lua",
+      "name": "Primathmech Laplacian",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "effop"
+        ],
+        "MPTarget": [
+          "efftg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "fc17b9b3ca18db87a679f38386e52e7dcbb00cb42e514b2170ba8d079da0b57a"
+    },
+    {
+      "code": 88406570,
+      "file": "c88406570.lua",
+      "name": "Gouki Destroy Ogre",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "IGNITION",
+      "wrap": {
+        "MPOne": [
+          "spop"
+        ],
+        "MPTarget": [
+          "sptg"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "77da3c11238658a958fdc381db58154e19b92a7b127541d0fd3c4cd6ab085d33"
+    },
+    {
+      "code": 88494899,
+      "file": "c88494899.lua",
+      "name": "Medium of the Ice Barrier",
+      "kind": "whole",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "spcon"
+      ],
+      "wrap": {
+        "MPAny": [
+          "spcon"
+        ]
+      },
+      "stockSha256": "ca15b875da720d62234c9d7f274a3a11471a6ee706da2cdd5dc34880f7cfe273"
+    },
+    {
+      "code": 89328238,
+      "file": "c89328238.lua",
+      "name": "Backup Team",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "ACTIVATE+QUICK_O",
+      "compareIn": [
+        "activate",
+        "setcon",
+        "target"
+      ],
+      "redefined": [
+        "activate",
+        "setcon",
+        "target"
+      ],
+      "stockSha256": "b60b87d28d97540dc4477a863a2c3cbf6fe3a2d235dfc965eecf408e50a93577"
+    },
+    {
+      "code": 90173539,
+      "file": "c90173539.lua",
+      "name": "World Dino Wrestling",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "IGNITION",
+      "compareIn": [
+        "spcon"
+      ],
+      "redefined": [
+        "spcon"
+      ],
+      "stockSha256": "ef8d4ea053c455d6542b1901f2a883b8d5daf7a8a631c1211f6c6eb769c720cc"
+    },
+    {
+      "code": 90669991,
+      "file": "c90669991.lua",
+      "name": "Pineapple Blast",
+      "kind": "expr",
+      "classes": [
+        "COMPARE",
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "condition"
+      ],
+      "wrap": {
+        "MPAny": [
+          "condition"
+        ],
+        "MPOne": [
+          "activate"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "84326f5061c1d5173550bb93d4c5e8dfd8508688066366dbb72932fe1406ca8b",
+      "note": "Compare card and chooser card (CH-OP). Not in the triage compare group."
+    },
+    {
+      "code": 91668078,
+      "file": "c91668078.lua",
+      "name": "In Papa's Footsteps",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPOne": [
+          "operation"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "a10f15213c4c7742e8a2461026778e0cec42bf3c551fa0b7c8459ef6c6733025"
+    },
+    {
+      "code": 91668401,
+      "file": "c91668401.lua",
+      "name": "Cyber Angel Izana",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "SINGLE+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "tgop"
+        ],
+        "MPTarget": [
+          "tgtg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "2f0d2680f42f1509f377e7f74b62cfd9c28c8ca10eb6c717a50c0b3afd6e756d"
+    },
+    {
+      "code": 91870448,
+      "file": "c91870448.lua",
+      "name": "Psychic Megacyber",
+      "kind": "whole",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SPSUMMON_PROC",
+      "compareIn": [
+        "spcon"
+      ],
+      "wrap": {
+        "MPAny": [
+          "spcon"
+        ]
+      },
+      "stockSha256": "26a66dc18367bcfa8156b470d21ba9dfa2d0a7d488473254343335b0f0a5a9f5"
+    },
+    {
+      "code": 92394653,
+      "file": "c92394653.lua",
+      "name": "Spirit's Invitation",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+TRIGGER_F",
+      "wrap": {
+        "MPOne": [
+          "operation"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "88e8ba425dd0a0b82a005178a8899cb2f97fd54b4425d3c97fcf4c4ead48bdf1"
+    },
+    {
+      "code": 93507434,
+      "file": "c93507434.lua",
+      "name": "Dinowrestler Capaptera",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "IGNITION",
+      "compareIn": [
+        "tgcon"
+      ],
+      "redefined": [
+        "tgcon"
+      ],
+      "stockSha256": "1566c9d57d13f173e445ea38b818836d2336ac7e2987d05cabddd938ac729c2e"
+    },
+    {
+      "code": 94016752,
+      "file": "c94016752.lua",
+      "name": "Herald of the Abyss",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPOne": [
+          "activate"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "add57826be3ec567caa57a00ab2164c486ad5fa58f3e8a1f25d03e08034b19e1"
+    },
+    {
+      "code": 94641726,
+      "file": "c94641726.lua",
+      "name": "Storm-Bane Dragon Destorbim",
+      "kind": "hand",
+      "classes": [
+        "COMPARE"
+      ],
+      "compareIn": [
+        "inline"
+      ],
+      "replace": true,
+      "stockSha256": "0857b1661f3f66e3d5d6b43ce6ba2f9511e0b1122980d1f9012336d0a11fc16c"
+    },
+    {
+      "code": 95403418,
+      "file": "c95403418.lua",
+      "name": "Starduston",
+      "kind": "expr",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "SINGLE",
+      "compareIn": [
+        "descon"
+      ],
+      "redefined": [
+        "descon"
+      ],
+      "stockSha256": "5bb7ac49251e64a76dc3c9b2fa2e25c52c892731c4ae070ad013741992739036"
+    },
+    {
+      "code": 96162588,
+      "file": "c96162588.lua",
+      "name": "Rikka Flurries",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "FIELD+TRIGGER_O",
+      "wrap": {
+        "MPOne": [
+          "relop"
+        ],
+        "MPTarget": [
+          "reltg"
+        ]
+      },
+      "chooserClass": "CH-TRIG",
+      "stockSha256": "5d32b89e57e2c143e14df36c2fc1904be1f6b456451ffa7cbebbd415989df92d"
+    },
+    {
+      "code": 97345699,
+      "file": "c97345699.lua",
+      "name": "Vesper Girsu",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "ACTIVATE",
+      "compareIn": [
+        "inline"
+      ],
+      "wrap": {
+        "MPOne": [
+          "activate"
+        ],
+        "MPTarget": [
+          "target"
+        ]
+      },
+      "replace": true,
+      "chooserClass": "CH-OP",
+      "stockSha256": "ddf7aa16cbf1aaf9a19ec929488e2a042fadf5524510bb5c7e438149f83b9094",
+      "note": "Chooser card with a compare in an inline condition (MPAny); the file replaces the script. The triage did not list it as a compare card."
+    },
+    {
+      "code": 98787535,
+      "file": "c98787535.lua",
+      "name": "Aleirtt, the Ogdoadic Dark",
+      "kind": "chooser",
+      "classes": [
+        "CHOOSER"
+      ],
+      "effectType": "IGNITION",
+      "wrap": {
+        "MPOne": [
+          "spop"
+        ],
+        "MPTarget": [
+          "sptg"
+        ]
+      },
+      "chooserClass": "CH-OP",
+      "stockSha256": "2a70f6b5c9f9bdc331c35213c3f3b6349a873acb4a0e66cdea620f7920156058"
+    }
+  ]
 }
