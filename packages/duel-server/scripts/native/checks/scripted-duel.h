@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <map>
@@ -26,6 +27,37 @@ inline std::map<uint32_t, uint32_t> types;        // card code -> card type (def
 inline std::function<void(const std::string&)> on_line;  // every Debug.Message line, set by the check
 inline int stray_logs = 0;                         // log lines that are not a Debug.Message of the check (Lua errors)
 inline const char* msg_prefix = "CHK ";            // a Debug.Message line that starts with this is a line of the check
+
+// Lua overlay (n > 2, design F7 section 4). Off unless a check passes overlay=true to create(): then mp-utility.lua is
+// loaded after utility.lua and the setup call, a cNNN.lua of the overlay folder is appended to the original script
+// of that card, and a file that starts with --@replace replaces it. The card list is the cNNN.lua files of the folder.
+inline bool overlay_on = false;
+inline std::string overlay_utility;
+inline std::map<std::string, std::string> overlay_cards;   // "c123.lua" -> file text
+
+inline bool read_whole(const std::string& path, std::string& out) {
+	std::ifstream in(path, std::ios::binary);
+	if(!in) return false;
+	std::stringstream buf;
+	buf << in.rdbuf();
+	out = buf.str();
+	return true;
+}
+
+inline bool load_overlay() {
+	const std::string dir = check_multi_scripts_dir();
+	if(!read_whole(dir + "/mp-utility.lua", overlay_utility)) return false;
+	overlay_cards.clear();
+	std::error_code ec;
+	for(const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+		const std::string file = entry.path().filename().string();
+		if(!entry.is_regular_file() || file.size() < 6 || file[0] != 'c' || file.compare(file.size() - 4, 4, ".lua") != 0) continue;
+		if(file.find_first_not_of("0123456789", 1) != file.size() - 4) continue;
+		read_whole(entry.path().string(), overlay_cards[file]);
+	}
+	overlay_on = true;
+	return true;
+}
 
 inline void read_card(void*, uint32_t code, OCG_CardData* data) {
 	std::memset(data, 0, sizeof(*data));
@@ -60,7 +92,14 @@ inline int read_script(void*, OCG_Duel duel, const char* name) {
 			text = buf.str();
 			break;
 		}
-		if(text.empty()) return 0;
+		if(text.empty() && !(overlay_on && overlay_cards.count(base))) return 0;
+	}
+	if(overlay_on) {
+		const auto card = overlay_cards.find(base);
+		if(card != overlay_cards.end()) {
+			if(card->second.compare(0, 10, "--@replace") == 0) text = card->second;
+			else if(!text.empty()) text += (text.back() == '\n' ? "" : "\n") + card->second;
+		}
 	}
 	return OCG_LoadScript(duel, text.data(), static_cast<uint32_t>(text.size()), name);
 }
@@ -94,7 +133,8 @@ inline void add(OCG_Duel d, uint8_t seat, uint32_t code, uint32_t loc, uint32_t 
 }
 
 // A duel with Debug.SetupDuelists(setup) ("" keeps the stock 2-seat duel). Exits with 2 when the core cannot start.
-inline OCG_Duel create(const std::string& setup, uint32_t seed = 1) {
+// overlay=true loads the Lua overlay of duels with more than two seats (see load_overlay). Default false: stock scripts.
+inline OCG_Duel create(const std::string& setup, uint32_t seed = 1, bool overlay = false) {
 	OCG_DuelOptions options;
 	std::memset(&options, 0, sizeof(options));
 	options.seed[0] = seed; options.seed[1] = 2; options.seed[2] = 3; options.seed[3] = 4;
@@ -115,6 +155,13 @@ inline OCG_Duel create(const std::string& setup, uint32_t seed = 1) {
 			std::exit(2);
 		}
 	if(!setup.empty()) lua(d, setup);
+	if(overlay) {
+		if(!load_overlay()) {
+			std::printf("FAIL: multi-scripts folder %s has no mp-utility.lua\n", check_multi_scripts_dir());
+			std::exit(2);
+		}
+		lua(d, overlay_utility);
+	}
 	return d;
 }
 

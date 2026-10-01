@@ -24,6 +24,12 @@ static int failures = 0;
 	return check_env("CHECK_SCRIPTS", "data/duel-engine-next/card-scripts");
 }
 
+// Lua overlay folder of duels with more than two seats (mp-utility.lua, cNNN.lua suffixes). run.sh sets CHECK_MULTI_SCRIPTS.
+// Only a check that asks for the overlay (sd::create(..., true) in scripted-duel.h) reads it. The fallback is relative to the repo root.
+[[maybe_unused]] static const char* check_multi_scripts_dir() {
+	return check_env("CHECK_MULTI_SCRIPTS", "packages/duel-server/domain-core/multi-scripts");
+}
+
 // Template for mkstemp: the checks catch the core's stderr log in a temp file. run.sh sets TMPDIR to its build folder.
 [[maybe_unused]] static std::string check_tmp_template(const char* stem) {
 	return std::string(check_env("TMPDIR", "/tmp")) + "/" + stem + "-XXXXXX";

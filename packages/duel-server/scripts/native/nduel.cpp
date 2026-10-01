@@ -2,6 +2,7 @@
 //
 //   nduel --n 2|3|4 --mode ffa|tag --seed S [--turns 60] [--lp 8000] [--max-steps 20000]
 //         [--setup-always] [--check-future] [--domain] [--domain-lua FILE] [--trace] [--data DIR] [--scripts DIR] [--stall-steps K]
+//         [--multi-scripts DIR] [--probe-overlay]
 //
 // Plays one whole seeded duel. Every select prompt gets a seeded random VALID answer (if the core answers
 // MSG_RETRY, the next attempt uses a safer strategy). Prints one summary line on success:
@@ -17,6 +18,14 @@
 //
 // Card data and the deck pool come from dump-card-data.mjs (text files). Card scripts are read from the
 // card-scripts folder of the duel engine data directory.
+//
+// Lua overlay (n > 2 only, design F7 section 4): mp-utility.lua is loaded after utility.lua (and domain.lua) and before
+// any card exists. Each cNNN.lua of the overlay folder is appended to the original script of that card; a file that
+// starts with --@replace replaces it. The folder is --multi-scripts DIR, else env DUEL_MULTI_SCRIPTS_DIR, else
+// <scripts>/../multi-scripts (the deployed bundle), else packages/duel-server/domain-core/multi-scripts. At n = 2
+// nothing is read and the script text is the original. --probe-overlay prints `NDUEL PROBE MP_OVERLAY_ACTIVE=<value>`
+// to stderr just before the duel starts. The overlay card list is the cNNN.lua files of the folder
+// (the TS reader checks that they match MANIFEST.json).
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -53,6 +62,8 @@ struct Options {
 	std::string domain_lua = "packages/duel-server/domain-core/lua/domain.lua";
 	std::string data = "packages/duel-server/domain-core/.build/nduel/data";
 	std::string scripts = "data/duel-engine-next/card-scripts";
+	std::string multi_scripts;
+	bool probe_overlay = false;
 } opt;
 
 static uint64_t splitmix(uint64_t& s) {
@@ -208,6 +219,50 @@ static void index_scripts() {
 	}
 }
 
+// Lua overlay for n > 2. Empty (and g_overlay_on false) at n = 2, so on_read_script then returns the original text.
+static bool g_overlay_on = false;
+static std::string g_overlay_utility;
+static std::unordered_map<std::string, std::string> g_overlay_cards; // "c123.lua" -> file text
+
+static bool read_text_file(const fs::path& path, std::string& out) {
+	std::ifstream in(path, std::ios::binary);
+	if(!in) return false;
+	std::stringstream buf;
+	buf << in.rdbuf();
+	out = buf.str();
+	return true;
+}
+
+static bool is_card_script_name(const std::string& file) {
+	if(file.size() < 6 || file[0] != 'c' || file.compare(file.size() - 4, 4, ".lua") != 0) return false;
+	for(size_t i = 1; i + 4 < file.size(); ++i)
+		if(file[i] < '0' || file[i] > '9') return false;
+	return true;
+}
+
+static void load_overlay() {
+	fs::path dir;
+	const char* env = std::getenv("DUEL_MULTI_SCRIPTS_DIR");
+	if(!opt.multi_scripts.empty()) dir = opt.multi_scripts;
+	else if(env && *env) dir = env;
+	else if(fs::is_directory(fs::path(opt.scripts) / ".." / "multi-scripts")) dir = fs::path(opt.scripts) / ".." / "multi-scripts";
+	else dir = "packages/duel-server/domain-core/multi-scripts";
+	if(!fs::is_directory(dir)) {
+		std::fprintf(stderr, "nduel: multi-scripts folder missing: %s (n > 2 needs it; --multi-scripts DIR)\n", dir.string().c_str());
+		std::exit(2);
+	}
+	if(!read_text_file(dir / "mp-utility.lua", g_overlay_utility)) {
+		std::fprintf(stderr, "nduel: mp-utility.lua missing in %s\n", dir.string().c_str());
+		std::exit(2);
+	}
+	for(const auto& e : fs::directory_iterator(dir)) {
+		const std::string file = e.path().filename().string();
+		if(!e.is_regular_file() || !is_card_script_name(file)) continue;
+		read_text_file(e.path(), g_overlay_cards[file]);
+	}
+	g_overlay_on = true;
+}
+
 static bool g_log_trace = false;
 static long g_script_errors = 0;
 static std::string g_last_lp_line;
@@ -220,16 +275,33 @@ static int on_read_script(void*, OCG_Duel duel, const char* name) {
 		auto slash = n.find_last_of('/');
 		if(slash != std::string::npos) it = g_script_index.find(n.substr(slash + 1));
 	}
-	if(it == g_script_index.end())
+	std::string text;
+	bool found = it != g_script_index.end();
+	if(found) {
+		std::ifstream in(it->second, std::ios::binary);
+		std::stringstream buf;
+		buf << in.rdbuf();
+		text = buf.str();
+	}
+	if(g_overlay_on) {
+		const auto slash = n.find_last_of('/');
+		const auto card = g_overlay_cards.find(slash == std::string::npos ? n : n.substr(slash + 1));
+		if(card != g_overlay_cards.end()) {
+			const std::string& suffix = card->second;
+			if(suffix.compare(0, 10, "--@replace") == 0) { text = suffix; found = true; }
+			else if(found) { if(!text.empty() && text.back() != '\n') text += '\n'; text += suffix; }
+		}
+	}
+	if(!found)
 		return 0;
-	std::ifstream in(it->second, std::ios::binary);
-	std::stringstream buf;
-	buf << in.rdbuf();
-	const std::string text = buf.str();
 	return OCG_LoadScript(duel, text.data(), static_cast<uint32_t>(text.size()), name);
 }
 
 static void on_log(void*, const char* text, int type) {
+	if(type == OCG_LOG_TYPE_FROM_SCRIPT && std::strncmp(text, "NDUEL_PROBE ", 12) == 0) {
+		std::fprintf(stderr, "NDUEL PROBE %s\n", text + 12);
+		return;
+	}
 	if(type == OCG_LOG_TYPE_FROM_SCRIPT && std::strncmp(text, "NDUEL_LP ", 9) == 0) {
 		g_last_lp_line = text + 9;
 		return;
@@ -791,6 +863,8 @@ int main(int argc, char** argv) {
 		else if(a == "--domain-lua") opt.domain_lua = need();
 		else if(a == "--data") opt.data = need();
 		else if(a == "--scripts") opt.scripts = need();
+		else if(a == "--multi-scripts") opt.multi_scripts = need();
+		else if(a == "--probe-overlay") opt.probe_overlay = true;
 		else { std::fprintf(stderr, "nduel: unknown option %s\n", a.c_str()); return 2; }
 	}
 	if(opt.n < 2 || opt.n > 4 || (opt.tag && opt.n != 4)) {
@@ -807,6 +881,7 @@ int main(int argc, char** argv) {
 	const std::vector<int> teams = team_of_seats();
 	const int first_attack_turn = n == 2 ? 2 : (opt.tag ? 4 : n + 1);
 	const bool multi = n > 2;
+	if(multi) load_overlay();
 
 	uint64_t s = opt.seed;
 	OCG_DuelOptions options;
@@ -827,6 +902,13 @@ int main(int argc, char** argv) {
 	};
 	load_named("constant.lua");
 	load_named("utility.lua");
+	// After utility.lua (and domain.lua), before any card exists. Never at n = 2.
+	auto load_mp_utility = [&]() {
+		if(!g_overlay_on) return;
+		const long errors_before = g_script_errors;
+		if(!OCG_LoadScript(duel, g_overlay_utility.data(), static_cast<uint32_t>(g_overlay_utility.size()), "mp-utility.lua") || g_script_errors != errors_before)
+			fail("setup", "mp-utility.lua failed to load");
+	};
 	if(multi || opt.setup_always) {
 		std::string lua = "Debug.SetupDuelists(" + std::to_string(n);
 		for(int i = 0; i < n; ++i) lua += "," + std::to_string(teams[i]);
@@ -835,6 +917,7 @@ int main(int argc, char** argv) {
 		if(!OCG_LoadScript(duel, lua.data(), static_cast<uint32_t>(lua.size()), "nduel-setup.lua") || g_script_errors != errors_before)
 			fail("setup", "Debug.SetupDuelists failed: " + lua + " (core without SetupDuelists?)");
 	}
+	if(!opt.domain) load_mp_utility();
 	// Decks come first and in seat order, as before: the RNG use is the same with or without --domain.
 	std::vector<Deck> decks;
 	for(int seat = 0; seat < n; ++seat) decks.push_back(build_deck(rng));
@@ -850,6 +933,7 @@ int main(int argc, char** argv) {
 		const long errors_before = g_script_errors;
 		if(!OCG_LoadScript(duel, dl.data(), static_cast<uint32_t>(dl.size()), "domain.lua") || g_script_errors != errors_before)
 			fail("setup", "domain.lua failed to load");
+		load_mp_utility();
 		for(int seat = 0; seat < n; ++seat) {
 			uint32_t dm = 0;
 			for(uint32_t c : decks[seat].main) {
@@ -893,6 +977,10 @@ int main(int argc, char** argv) {
 		shuffle += "effect:Reset()\nend)\nDuel.RegisterEffect(e,0)\n";
 		if(!OCG_LoadScript(duel, shuffle.data(), static_cast<uint32_t>(shuffle.size()), "nduel-startup.lua"))
 			fail("setup", "startup shuffle script failed");
+	}
+	if(opt.probe_overlay) {
+		const std::string probe = "Debug.Message('NDUEL_PROBE MP_OVERLAY_ACTIVE='..tostring(MP_OVERLAY_ACTIVE))";
+		OCG_LoadScript(duel, probe.data(), static_cast<uint32_t>(probe.size()), "nduel-probe.lua");
 	}
 	OCG_StartDuel(duel);
 

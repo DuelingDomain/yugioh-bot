@@ -22,6 +22,8 @@
 #                     pinned ygopro-core, made by prepare-multi-core-tree.sh into $NATIVE_CHECKS_OUT/multi-core-tree (CI)
 #   NATIVE_CHECKS_OUT build folder (default domain-core/.build/native-checks, gitignored). Safe to delete.
 #   DUEL_DATA_DIR     engine data (cards.cdb, card-scripts). Default <repo>/data/duel-engine-next. Only read.
+#   DUEL_MULTI_SCRIPTS_DIR  Lua overlay folder for n>2 checks that ask for it (sd::create(..., true)). Default: the repo folder
+#                     packages/duel-server/domain-core/multi-scripts. Other checks read the original scripts only.
 #   LUA_SRC           folder with the pinned Lua sources. Default: extracted from the git cache into the build folder.
 #   JOBS              parallel compile jobs (default 3)
 #   CXX               compiler (default g++)
@@ -220,6 +222,7 @@ echo "compiled in $((SECONDS - start))s"
 export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0}:disable_coredump=0"
 export UBSAN_OPTIONS="${UBSAN_OPTIONS:-print_stacktrace=1:halt_on_error=1}"
 export CHECK_SCRIPTS="$DUEL_DATA_DIR/card-scripts" CHECK_DATA="$OUT/data" TMPDIR="$OUT/tmp"
+export CHECK_MULTI_SCRIPTS="${DUEL_MULTI_SCRIPTS_DIR:-$PKG/domain-core/multi-scripts}"
 pass=0; fail=0; skipped=0
 failed_names=()
 echo "== run"
@@ -230,7 +233,7 @@ for i in "${sel[@]}"; do
     printf 'SKIP  %-34s %s: %s\n' "$name" "$status" "${rows_note[$i]}"
     skipped=$((skipped + 1)); continue
   fi
-  args="${rows_args[$i]//@DATA@/$OUT/data}"; args="${args//@SCRIPTS@/$CHECK_SCRIPTS}"
+  args="${rows_args[$i]//@DATA@/$OUT/data}"; args="${args//@SCRIPTS@/$CHECK_SCRIPTS}"; args="${args//@MULTI_SCRIPTS@/$CHECK_MULTI_SCRIPTS}"
   log="$OUT/logs/run-$name-$i.log"
   label="$name"; [[ -n "${rows_args[$i]}" && "${rows_args[$i]}" != *@* ]] && label="$name ${rows_args[$i]}"
   if [[ ! -x "$OUT/bin/$src" ]]; then

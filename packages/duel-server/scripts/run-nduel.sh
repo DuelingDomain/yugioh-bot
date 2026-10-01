@@ -20,6 +20,8 @@
 #                    exists (a local convenience that keeps parallel agents from overloading the machine) and runs the
 #                    commands directly when it does not (CI, a clean checkout).
 #   DUEL_DATA_DIR    engine data with cards.cdb and card-scripts (default $REPO/data/duel-engine-next, as in CI)
+#   DUEL_MULTI_SCRIPTS_DIR  Lua overlay folder for n>2 (mp-utility.lua, card suffixes). Default: the repo folder
+#                    packages/duel-server/domain-core/multi-scripts. n=2 runs ignore it (they read the original scripts only).
 #   NDUEL_STATUS_DIR folder for nduel-summary.json and nduel-check.json (default $REPO/.status). Set it when two runs share one tree.
 #   NDUEL_SEEDS      seeds per case (default 20)    NDUEL_TURNS  turn limit (default 60)
 #   NDUEL_LP         starting LP (default 3000)     NDUEL_JOBS   parallel runs (default 3, max 3)
@@ -66,6 +68,7 @@ PKG="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="$(cd "$PKG/../.." && pwd)"
 P1="$PKG/domain-core/.build/phase1"
 DATA_DIR="${DUEL_DATA_DIR:-$REPO/data/duel-engine-next}"
+MULTI_DIR="${DUEL_MULTI_SCRIPTS_DIR:-$PKG/domain-core/multi-scripts}"
 # Build slots: only where the local lock script exists (it is gitignored, so CI has none).
 LOCKER=()
 if [[ "${NDUEL_NO_LOCK:-0}" != 1 && -f "$P1/run-locked.sh" ]]; then LOCKER=(bash "$P1/run-locked.sh" build 2); fi
@@ -168,7 +171,7 @@ if [[ "$MODE_RUN" == one ]]; then
   esac > "$JOBFILE"
   CASES=""
   read -r c n mode extra seed < "$JOBFILE"
-  args=(--n "$n" --mode "$mode" --seed "$seed" --turns "$TURNS" --lp "$LP" --data "$DIR/data" --scripts "$DATA_DIR/card-scripts")
+  args=(--n "$n" --mode "$mode" --seed "$seed" --turns "$TURNS" --lp "$LP" --data "$DIR/data" --scripts "$DATA_DIR/card-scripts" --multi-scripts "$MULTI_DIR")
   [[ "$extra" != "-" ]] && args+=("$extra")
   [[ "${NDUEL_FUTURE:-0}" == 1 ]] && args+=(--check-future)
   [[ "${NDUEL_TRACE:-1}" != 0 ]] && args+=(--trace)
@@ -202,7 +205,7 @@ done
 run_one() {
   local c=$1 n=$2 mode=$3 extra=$4 seed=$5
   local out="$RUNS/$c-$seed"
-  local args=(--n "$n" --mode "$mode" --seed "$seed" --turns "$TURNS" --lp "$LP" --data "$DIR/data" --scripts "$DATA_DIR/card-scripts")
+  local args=(--n "$n" --mode "$mode" --seed "$seed" --turns "$TURNS" --lp "$LP" --data "$DIR/data" --scripts "$DATA_DIR/card-scripts" --multi-scripts "$MULTI_DIR")
   [[ "$extra" != "-" ]] && args+=("$extra")
   [[ "${NDUEL_FUTURE:-0}" == 1 ]] && args+=(--check-future)
   cd "$REPO"
@@ -211,18 +214,18 @@ run_one() {
   echo $? > "$out.rc"
 }
 export -f run_one
-export RUNS REPO BIN BIN_DOMAIN DIR TURNS LP NDUEL_FUTURE DATA_DIR
+export RUNS REPO BIN BIN_DOMAIN DIR TURNS LP NDUEL_FUTURE DATA_DIR MULTI_DIR
 echo "== run $(wc -l < "$JOBFILE") duels, $JOBS at a time"
 xargs -P "$JOBS" -L 1 bash -c 'run_one "$@"' _ < "$JOBFILE"
 
 if [[ "$MODE_RUN" != matrix ]]; then
-  NDUEL_DATA_DIR="$DATA_DIR" NDUEL_REPO="$REPO" NDUEL_BIN="$BIN" NDUEL_DIRV="$DIR" python3 - "$MODE_RUN" "$RUNS" "$GOLDEN" "$TURNS" "$LP" "$JOBFILE" "$STATUS_DIR/nduel-check.json" <<'PY'
+  NDUEL_MULTI_DIR="$MULTI_DIR" NDUEL_DATA_DIR="$DATA_DIR" NDUEL_REPO="$REPO" NDUEL_BIN="$BIN" NDUEL_DIRV="$DIR" python3 - "$MODE_RUN" "$RUNS" "$GOLDEN" "$TURNS" "$LP" "$JOBFILE" "$STATUS_DIR/nduel-check.json" <<'PY'
 import os, re, sys
 mode, runs, golden, turns, lp, jobfile, checkout = sys.argv[1:8]
 import json, datetime
 def cmd_for(n, m, seed):
     extra = " --check-future" if os.environ.get("NDUEL_FUTURE") == "1" else ""
-    return f"cd {os.environ['NDUEL_REPO']} && {os.environ['NDUEL_BIN']} --n {n} --mode {m} --seed {seed} --turns {turns} --lp {lp} --data {os.environ['NDUEL_DIRV']}/data --scripts {os.environ['NDUEL_DATA_DIR']}/card-scripts{extra} --trace"
+    return f"cd {os.environ['NDUEL_REPO']} && {os.environ['NDUEL_BIN']} --n {n} --mode {m} --seed {seed} --turns {turns} --lp {lp} --data {os.environ['NDUEL_DIRV']}/data --scripts {os.environ['NDUEL_DATA_DIR']}/card-scripts --multi-scripts {os.environ['NDUEL_MULTI_DIR']}{extra} --trace"
 def read(p):
     try: return open(p, errors="replace").read()
     except OSError: return ""
@@ -281,7 +284,7 @@ PY
   exit $?
 fi
 
-NDUEL_DATA_DIR="$DATA_DIR" NDUEL_REPO="$REPO" NDUEL_BIN="$BIN" NDUEL_BIN_DOMAIN="$BIN_DOMAIN" NDUEL_DIRV="$DIR" python3 - "$RUNS" "$STATUS_DIR/nduel-summary.json" "$SEEDS" "$TURNS" "$LP" "$PATCHES" "$LIMIT" "$CASES" "$CENSUS" "$TREE" <<'PY'
+NDUEL_MULTI_DIR="$MULTI_DIR" NDUEL_DATA_DIR="$DATA_DIR" NDUEL_REPO="$REPO" NDUEL_BIN="$BIN" NDUEL_BIN_DOMAIN="$BIN_DOMAIN" NDUEL_DIRV="$DIR" python3 - "$RUNS" "$STATUS_DIR/nduel-summary.json" "$SEEDS" "$TURNS" "$LP" "$PATCHES" "$LIMIT" "$CASES" "$CENSUS" "$TREE" <<'PY'
 import json, os, re, sys, collections, datetime
 runs, outp, seeds, turns, lp, patches, limit, cases, census_mode, tree = sys.argv[1:11]
 census_mode = census_mode == "1"
@@ -301,7 +304,7 @@ CASE_ARGS = {"n2": "--n 2 --mode ffa", "n2b": "--n 2 --mode ffa", "n2s": "--n 2 
 def cmd_for(c, s):
     fut = " --check-future" if os.environ.get("NDUEL_FUTURE") == "1" else ""
     b = os.environ.get("NDUEL_BIN_DOMAIN", BIN_) if c[0] == "d" else BIN_
-    return f"cd {REPO_} && {b} {CASE_ARGS[c]} --seed {s} --turns {turns} --lp {lp} --data {DIR_}/data --scripts {os.environ.get('NDUEL_DATA_DIR', '')}/card-scripts{fut} --trace"
+    return f"cd {REPO_} && {b} {CASE_ARGS[c]} --seed {s} --turns {turns} --lp {lp} --data {DIR_}/data --scripts {os.environ.get('NDUEL_DATA_DIR', '')}/card-scripts --multi-scripts {os.environ.get('NDUEL_MULTI_DIR', '')}{fut} --trace"
 def enclosing_fn(base, line):
     try: lines = open(os.path.join(tree, base), errors="replace").read().split("\n")
     except OSError: return "?"

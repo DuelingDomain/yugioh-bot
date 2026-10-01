@@ -27,6 +27,7 @@ check passes. Logs are in `$NATIVE_CHECKS_OUT/logs`.
 | `MULTI_TREE` | Core source tree with the patch series applied. Default: the repo series on the pinned ygopro-core, made by `prepare-multi-core-tree.sh` into `$NATIVE_CHECKS_OUT/multi-core-tree`. |
 | `NATIVE_CHECKS_OUT` | Build folder. Default `domain-core/.build/native-checks` (gitignored). Safe to delete. |
 | `DUEL_DATA_DIR` | Data folder with `card-scripts`. Default `data/duel-engine-next`. |
+| `DUEL_MULTI_SCRIPTS_DIR` | Lua overlay folder for duels with more than two seats. Default `packages/duel-server/domain-core/multi-scripts`. Only a check that calls `sd::create(setup, seed, true)` reads it. |
 | `CHECK_TIMEOUT` | Seconds for each check. Default 300. |
 | `CHECK_TRAP` | `1` (default) builds with the trap macros, `0` builds without. |
 | `LUA_SRC` | Lua source folder. Default is the pinned Lua of the native build. |
