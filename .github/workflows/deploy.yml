@@ -94,6 +94,16 @@ jobs:
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
             'set -eu
+             # One build at a time on this VM: the staging deploy holds the same lock. Wait for it, then stop
+             # the staging containers (if any) so their memory is free for this build.
+             if command -v flock >/dev/null 2>&1; then
+               exec 9>/var/lock/yugidraft-build.lock
+               flock -w 1500 9 || { echo "Another build (maybe the staging deploy) holds the build lock." >&2; exit 1; }
+             fi
+             staging_ids=$(docker ps -q --filter label=com.docker.compose.project=yugidraft-staging)
+             if [ -n "$staging_ids" ]; then
+               docker stop $staging_ids || true
+             fi
              cd /opt/yugioh-bot
              git fetch --all --prune
              git reset --hard origin/main

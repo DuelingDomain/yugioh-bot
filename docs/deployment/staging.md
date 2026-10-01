@@ -46,7 +46,10 @@ The VM has 4 GB of RAM. Production uses most of it at busy times. The limits of 
 The weak point is the build: `next build` needs about 1 GB or more for a short time. The workflow protects production like this:
 
 1. It stops the old staging containers before it builds.
-2. It stops if another build is running on the VM (for example the production deploy).
+2. It takes the build lock `/var/lock/yugidraft-build.lock` and waits up to 15 minutes for it. The production deploy
+   (`.github/workflows/deploy.yml`) takes the same lock, so two builds never run together. The production deploy also
+   stops the staging containers before it builds, and staging stays off until you run the staging workflow again.
+   It also stops if it sees another build process that does not use the lock.
 3. It stops if the VM has less than 1100 MB of available memory before the build, or less than 6000 MB of free disk.
    It checks the disk again after the build (2500 MB). It also deletes the staging card image cache before each build.
 4. It stops if the VM has less than 1700 MB of available memory before it starts the containers.
@@ -54,7 +57,7 @@ The weak point is the build: `next build` needs about 1 GB or more for a short t
    and Docker refuses an image that a container or the production project still uses.
 
 If a check stops the run, staging stays down and production is not touched. Run the workflow again when the VM is quiet.
-Do not run the staging workflow at the same time as a production deploy.
+A push to `main` while staging runs therefore stops staging. This is on purpose: production comes first.
 
 To look at the memory by hand, on the VM:
 

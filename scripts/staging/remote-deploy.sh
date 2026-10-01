@@ -80,7 +80,21 @@ if [ ! -f .env.staging ]; then
     sh scripts/staging/make-staging-env.sh "$prod_dir/.env" .env.staging
 fi
 
-# 2. Free the memory of the old staging stack, then check that a build is safe.
+# 2. One build at a time on this VM. The production deploy (.github/workflows/deploy.yml) holds the same lock,
+#    and it also stops the staging containers before it builds. The lock is held until this script exits.
+lock=${STAGING_BUILD_LOCK:-/var/lock/yugidraft-build.lock}
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$lock"
+  if ! flock -w "${STAGING_LOCK_WAIT_S:-900}" 9; then
+    echo "remote-deploy: another build holds $lock (maybe the production deploy). Try again later." >&2
+    exit 1
+  fi
+else
+  echo "remote-deploy: flock is not installed, so the build lock is off. Install util-linux." >&2
+  exit 1
+fi
+
+# Free the memory of the old staging stack, then check that a build is safe.
 $compose stop || true
 if pgrep -f 'turbo run build|next build' >/dev/null 2>&1; then
   echo "remote-deploy: another build is running on this VM (maybe the production deploy). Try again later." >&2
