@@ -14,7 +14,7 @@ does not change.
 | Database | `data/bot.sqlite` | a copy: `data-staging/bot.sqlite` |
 | Engine files | `data/duel-engine` | `data-staging/duel-engine` (with the multi core `ocgcore.multi.wasm`) |
 | Docker network | the default network of the project | `yugidraft-staging-net` |
-| Address | port 80 | port 8080 (plain HTTP) or your own domain (HTTPS) |
+| Address | port 80 | port 8080, plain HTTP (never 80 or 443) |
 | Secrets | `.env` | `.env.staging` (new `NEXTAUTH_SECRET` and new internal secrets) |
 
 Files: `docker-compose.staging.yml`, `Caddyfile.staging`, `scripts/staging/`, `.github/workflows/deploy-staging.yml`.
@@ -69,18 +69,18 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
    branch. Make a small pull request that adds only `.github/workflows/deploy-staging.yml`. The workflow uses the input
    `ref` to check out the feature branch, so the scripts and the code come from that branch. Note: a push to `main`
    starts the normal production deploy of `main`. That deploy is the usual one and does not include staging.
-3. **Open the network.** Pick one:
-   - **Plain HTTP (default).** In the Hetzner Cloud Firewall, allow inbound TCP `8080`. If you can, allow only the IP
-     addresses of the testers. Docker publishes ports around `ufw`, so the Hetzner firewall is the real gate.
-     Staging is then at `http://178.105.36.104:8080`.
-   - **HTTPS with a domain.** Add a DNS A record, for example `staging.example.org`, that points to the VM. Allow inbound TCP `443`
-     in the Hetzner firewall. Production publishes only port 80, so port 443 is free. Caddy gets its certificate through the
-     port-443 challenge. Then set the repository variable `STAGING_DOMAIN` (GitHub, Settings, Secrets and variables, Actions,
-     Variables) to the domain name.
+3. **Open the network.** In the Hetzner Cloud Firewall, allow inbound TCP `8080`. If you can, allow only the IP
+   addresses of the testers. Docker publishes ports around `ufw`, so the Hetzner firewall is the real gate.
+   Staging is then at `http://YOUR_VM_IP:8080`. Staging is plain HTTP only. It never uses port 80 or 443: the production
+   Caddy owns them, and a staging container that held one of them could stop production from starting.
+   The scripts refuse a staging port below 1024. Optional: add a second DNS name for the VM, for example
+   `staging.example.org`, and set the repository variable `STAGING_DOMAIN` to it. The address is then
+   `http://staging.example.org:8080`, and the cookies of staging and production no longer clash.
+   HTTPS for staging is a later step: add the staging host name as a second site to the production Caddy.
 4. **Add the Discord redirect address.** In the Discord developer portal (the same application that production uses),
    OAuth2, Redirects, add one of:
-   - `http://178.105.36.104:8080/api/auth/callback/discord`
-   - `https://staging.example.org/api/auth/callback/discord`
+   - `http://YOUR_VM_IP:8080/api/auth/callback/discord`
+   - or, with a staging host name: `http://staging.example.org:8080/api/auth/callback/discord`
 5. **Optional repository variables.** They are read only the first time, when `.env.staging` does not exist yet.
    `STAGING_DOMAIN`, `STAGING_HOST` (default: the secret `VM_HOST`) and `STAGING_HTTP_PORT` (default `8080`).
    The secrets `VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY` and `VM_PORT` are the ones that production already uses.

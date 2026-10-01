@@ -4,8 +4,8 @@
 #   sh scripts/staging/health-check.sh [<seconds>]      (default 120)
 #
 # Checks: the ws, duel and web containers run with no restarts; the web answers through the staging
-# Caddy; Socket.IO answers through the staging Caddy. Reads STAGING_SITE_ADDRESS, STAGING_HTTP_PORT and
-# STAGING_HTTPS_PORT from .env.staging (names and plain values only, nothing is printed).
+# Caddy; Socket.IO answers through the staging Caddy. Reads STAGING_HTTP_PORT from .env.staging
+# (a plain value, nothing secret).
 set -eu
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -16,20 +16,9 @@ limit=${1:-120}
 env_value() {
   grep -E "^$1=" .env.staging | tail -n 1 | cut -d= -f2- || true
 }
-site=$(env_value STAGING_SITE_ADDRESS)
-http_port=$(env_value STAGING_HTTP_PORT)
-https_port=$(env_value STAGING_HTTPS_PORT)
-site=${site:-:80}
+http_port=${STAGING_HTTP_PORT:-$(env_value STAGING_HTTP_PORT)}
 http_port=${http_port:-8080}
-https_port=${https_port:-8443}
-
-if [ "$site" = ":80" ]; then
-  base="http://127.0.0.1:$http_port"
-  curl_extra=""
-else
-  base="https://$site:$https_port"
-  curl_extra="--resolve $site:$https_port:127.0.0.1"
-fi
+base="http://127.0.0.1:$http_port"
 
 compose="sh $script_dir/compose.sh"
 

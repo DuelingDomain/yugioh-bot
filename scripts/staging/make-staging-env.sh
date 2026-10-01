@@ -5,14 +5,15 @@
 #
 # Settings (environment):
 #   STAGING_HOST         public address of the VM. Needed when STAGING_DOMAIN is empty.
-#   STAGING_DOMAIN       a domain name for HTTPS mode. Empty (default) means plain HTTP on STAGING_HTTP_PORT.
-#   STAGING_HTTP_PORT    host port of plain HTTP mode. Default 8080.
-#   STAGING_HTTPS_PORT   host port of HTTPS mode. Default 443 with a domain, 8443 without.
+#   STAGING_DOMAIN       a host name for staging (a second DNS name of the VM). Used instead of STAGING_HOST
+#                        in the address. It gives staging its own cookie scope. Empty (default) means STAGING_HOST.
+#   STAGING_HTTP_PORT    host port of staging. Default 8080. Ports below 1024 are refused: 80 and 443 belong to
+#                        the production Caddy. Staging is plain HTTP only.
 #
 # What the staging file gets:
 #   - copied from production: only the keys the web needs to sign users in and to check the guild
 #     (see COPY_REQUIRED and COPY_OPTIONAL below). Nothing else is copied. NEXTAUTH_SECRET is NOT copied.
-#   - set to the staging address: NEXTAUTH_URL, AUTH_URL, WEB_URL, NEXT_PUBLIC_WS_URL.
+#   - set to the staging address (http://<host>:<port>): NEXTAUTH_URL, AUTH_URL, WEB_URL, NEXT_PUBLIC_WS_URL.
 #   - NEW random secrets: NEXTAUTH_SECRET, WS_INTERNAL_SECRET and DUEL_INTERNAL_SECRET. They differ from
 #     production. A session made in staging is therefore not valid in production, and the other way round.
 #   - empty on purpose: BOT_ANNOUNCE_URL and BOT_ANNOUNCE_SECRET (there is no bot in staging).
@@ -60,11 +61,6 @@ fi
 domain=${STAGING_DOMAIN:-}
 host=${STAGING_HOST:-}
 http_port=${STAGING_HTTP_PORT:-8080}
-if [ -n "$domain" ]; then
-  https_port=${STAGING_HTTPS_PORT:-443}
-else
-  https_port=${STAGING_HTTPS_PORT:-8443}
-fi
 
 valid_name() {
   printf '%s' "$1" | grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$'
@@ -73,17 +69,18 @@ valid_port() {
   printf '%s' "$1" | grep -Eq '^[0-9]{1,5}$' && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
 }
 valid_port "$http_port" || { echo "make-staging-env: STAGING_HTTP_PORT is not a port number" >&2; exit 1; }
-valid_port "$https_port" || { echo "make-staging-env: STAGING_HTTPS_PORT is not a port number" >&2; exit 1; }
+if [ "$http_port" -lt 1024 ]; then
+  echo "make-staging-env: STAGING_HTTP_PORT $http_port is below 1024. Ports 80 and 443 belong to the production Caddy. Use 8080 or similar." >&2
+  exit 1
+fi
 
 if [ -n "$domain" ]; then
   valid_name "$domain" || { echo "make-staging-env: STAGING_DOMAIN is not a valid name" >&2; exit 1; }
-  if [ "$https_port" -eq 443 ]; then url="https://$domain"; else url="https://$domain:$https_port"; fi
-  site_address=$domain
+  url="http://$domain:$http_port"
 else
   [ -n "$host" ] || { echo "make-staging-env: set STAGING_HOST (or STAGING_DOMAIN)" >&2; exit 1; }
   valid_name "$host" || { echo "make-staging-env: STAGING_HOST is not a valid name or address" >&2; exit 1; }
-  if [ "$http_port" -eq 80 ]; then url="http://$host"; else url="http://$host:$http_port"; fi
-  site_address=":80"
+  url="http://$host:$http_port"
 fi
 
 random_secret() {
@@ -102,9 +99,7 @@ trap 'rm -f "$tmp"' EXIT INT TERM HUP
   echo "AUTH_URL=$url"
   echo "WEB_URL=$url"
   echo "NEXT_PUBLIC_WS_URL=$url"
-  echo "STAGING_SITE_ADDRESS=$site_address"
   echo "STAGING_HTTP_PORT=$http_port"
-  echo "STAGING_HTTPS_PORT=$https_port"
   echo "# Internal addresses (compose sets the same values)"
   echo "WS_INTERNAL_URL=http://ws:4002"
   echo "DUEL_INTERNAL_URL=http://duel:4003"
@@ -121,7 +116,7 @@ trap 'rm -f "$tmp"' EXIT INT TERM HUP
 } >> "$tmp"
 
 echo "make-staging-env: set NEXTAUTH_URL AUTH_URL WEB_URL NEXT_PUBLIC_WS_URL to the staging address"
-echo "make-staging-env: set STAGING_SITE_ADDRESS STAGING_HTTP_PORT STAGING_HTTPS_PORT"
+echo "make-staging-env: set STAGING_HTTP_PORT"
 echo "make-staging-env: generated NEXTAUTH_SECRET WS_INTERNAL_SECRET DUEL_INTERNAL_SECRET (new random values)"
 echo "make-staging-env: left BOT_ANNOUNCE_URL and BOT_ANNOUNCE_SECRET empty"
 

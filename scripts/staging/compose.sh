@@ -39,6 +39,24 @@ if [ "$env_file" != ".env.staging" ] && [ ! -f .env.staging ]; then
   exit 1
 fi
 
+# The host port of staging must never be 80 or 443 (the production Caddy owns them), or any other
+# port below 1024. The value is read from the shell first, then from the env file.
+http_port=${STAGING_HTTP_PORT:-}
+if [ -z "$http_port" ]; then
+  http_port=$(grep -E '^STAGING_HTTP_PORT=' "$env_file" | tail -n 1 | cut -d= -f2- | tr -d "\"' " || true)
+fi
+http_port=${http_port:-8080}
+case "$http_port" in
+  ''|*[!0-9]*)
+    echo "compose.sh: STAGING_HTTP_PORT is not a port number" >&2
+    exit 1
+    ;;
+esac
+if [ "$http_port" -lt 1024 ]; then
+  echo "compose.sh: STAGING_HTTP_PORT $http_port is below 1024. Ports 80 and 443 belong to the production Caddy." >&2
+  exit 1
+fi
+
 # Containers write the staging data directory as the current user.
 STAGING_UID=${STAGING_UID:-$(id -u)}
 STAGING_GID=${STAGING_GID:-$(id -g)}

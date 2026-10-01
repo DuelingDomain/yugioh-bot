@@ -8,8 +8,8 @@
 #   STAGING_REF          the git branch to run (required for deploy)
 #   STAGING_REFRESH_DB   "true" copies the production database again (default false)
 #   STAGING_HOST         public address of the VM, used only when .env.staging does not exist yet
-#   STAGING_DOMAIN       domain for HTTPS mode, used only when .env.staging does not exist yet (optional)
-#   STAGING_HTTP_PORT    host port for plain HTTP mode (optional, default 8080)
+#   STAGING_DOMAIN       host name for the staging address, used only when .env.staging does not exist yet (optional)
+#   STAGING_HTTP_PORT    host port of staging (optional, default 8080, never below 1024)
 #   STAGING_BUNDLE       the engine bundle sent by the workflow (default /tmp/yugidraft-staging-bundle.tar.gz)
 #
 # It works in /opt/yugioh-bot-staging. It reads from /opt/yugioh-bot exactly three things: the file .env

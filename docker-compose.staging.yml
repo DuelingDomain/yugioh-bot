@@ -119,15 +119,10 @@ services:
   caddy:
     <<: *staging-service
     image: caddy:2-alpine
-    environment:
-      # ":80" (plain HTTP on STAGING_HTTP_PORT), or the domain name for HTTPS on STAGING_HTTPS_PORT.
-      - STAGING_SITE_ADDRESS=${STAGING_SITE_ADDRESS:-:80}
     ports:
-      # Plain HTTP mode (default): http://<VM address>:8080
+      # Plain HTTP only: http://<VM address>:8080. Never publish host port 80 or 443: the production Caddy
+      # owns them (scripts/staging/compose.sh refuses a port below 1024).
       - "${STAGING_BIND:-0.0.0.0}:${STAGING_HTTP_PORT:-8080}:80"
-      # HTTPS mode needs STAGING_HTTPS_PORT=443 on the host. Production does not publish 443, so it is free.
-      # With the default 8443 nothing listens behind this port in plain HTTP mode.
-      - "${STAGING_BIND:-0.0.0.0}:${STAGING_HTTPS_PORT:-8443}:443"
     volumes:
       - ./Caddyfile.staging:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
