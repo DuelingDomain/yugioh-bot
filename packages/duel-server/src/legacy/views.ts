@@ -95,6 +95,7 @@ const QUERY_FLAGS = (
   OcgQueryFlags.ATTACK |
   OcgQueryFlags.DEFENSE |
   OcgQueryFlags.OVERLAY_CARD |
+  OcgQueryFlags.EQUIP_CARD |
   OcgQueryFlags.COUNTERS |
   OcgQueryFlags.OWNER |
   OcgQueryFlags.IS_PUBLIC |
@@ -178,6 +179,11 @@ function queryToCard(
   if (query.link) {
     card.linkRating = query.link.rating;
     card.linkMarker = query.link.marker as number;
+  }
+  // The core reports, on the equip card, the monster it is attached to (an Equip Spell, a Union
+  // monster, or any card an effect equips). Live state, so it follows the monster across zones.
+  if (query.equipCard) {
+    card.equippedTo = { controller: query.equipCard.controller, location: query.equipCard.location, sequence: query.equipCard.sequence };
   }
   return card;
 }
@@ -271,6 +277,7 @@ export interface StoredDuelEvent {
   from?: DuelZoneRef;
   reason?: DuelMoveReason;
   faceDown?: boolean;
+  addedToHand?: true;
   target?: DuelZoneRef;
   amount?: number;
   cause?: DuelEvent["cause"];
@@ -568,6 +575,7 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.from) projected.from = { ...event.from };
   if (event.reason) projected.reason = event.reason;
   if (event.faceDown != null) projected.faceDown = event.faceDown;
+  if (event.addedToHand) projected.addedToHand = true;
   if (event.amount != null) projected.amount = event.amount;
   if (event.cause) projected.cause = event.cause;
   if (event.sourceCode != null) projected.sourceCode = event.sourceCode;
@@ -721,6 +729,8 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
       if (from.controller === to.controller && from.location === to.location) return [];
       const reason = defaultMoveReason(from.location, to.location);
       const event = trackMove(ctx, firstId, cards, message.card, from, to, reason);
+      // A MOVE to a hand is never a draw (draws arrive as DRAW): a card effect added it.
+      if (to.location === OcgLocation.HAND && from.location !== OcgLocation.HAND) event.addedToHand = true;
       return [event];
     }
     case OcgMessageType.SUMMONING:
@@ -930,6 +940,21 @@ export function observeDuelEvent(
       const text = announcedPhaseTitle(message.phase);
       if (!text) return null;
       return { id, kind: "phase", text, publicText: text, revealCardTo: "all" };
+    }
+    case OcgMessageType.EQUIP: {
+      // The message carries board positions only, which are public. The cards are read from the board
+      // (DuelCard.equippedTo), so the event names none and nothing hidden can leak through it.
+      const text = `Player ${message.card.controller + 1} equips a card`;
+      return {
+        id,
+        kind: "equip",
+        seat: message.card.controller,
+        text,
+        publicText: text,
+        revealCardTo: "all",
+        zone: zoneOf(message.card),
+        target: zoneOf(message.target),
+      };
     }
     default:
       return null;
