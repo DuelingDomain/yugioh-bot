@@ -14,6 +14,7 @@ import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import {
   acceptDuelInvite,
   addPracticeBot,
+  removePracticeBot,
   archiveDuel,
   cancelDuel,
   duelRoomKey,
@@ -568,6 +569,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       <RoomLobby room={data} slug={slug} busy={busy} actionError={actionError}
         onJoin={() => void run(() => joinDuel(slug))}
         onAddBot={() => void run(() => addPracticeBot(slug))}
+        onRemoveBot={() => void run(() => removePracticeBot(slug))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
         onMarkReady={() => void run(() => markDuelReady(slug))}
         onStart={() => {

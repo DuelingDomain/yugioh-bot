@@ -26,7 +26,7 @@ function lobby(options: Parameters<typeof makeSeriesRoom>[0], mySeat: number | n
   room.session.seats[0].ready = ready[0];
   room.session.seats[1].ready = ready[1];
   const handlers = {
-    onJoin: vi.fn(), onAddBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn(),
+    onJoin: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn(),
   };
   render(<RoomLobby room={room} slug="game-1" busy={false} actionError={null} {...handlers} />);
   return handlers;
@@ -95,8 +95,9 @@ describe("RoomLobby practice bot note", () => {
     room.session.ranked = extra.ranked ?? false;
     room.session.seats = room.session.seats.slice(0, extra.seats ?? 1);
     if (extra.bot) room.session.seats.push({ seat: 1, playerId: null, displayName: "Practice Bot", ready: true, isBot: true } as never);
-    const handlers = { onJoin: vi.fn(), onAddBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
+    const handlers = { onJoin: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
     render(<RoomLobby room={room} slug="game-1" busy={false} actionError={null} {...handlers} />);
+    return handlers;
   }
 
   it("shows the note beside Add practice bot on a Best of 3 table", () => {
@@ -125,5 +126,36 @@ describe("RoomLobby practice bot note", () => {
   it("stays quiet on a Best of 3 table with two human players", () => {
     openTable({ bestOf: 3, seats: 2 });
     expect(screen.queryByText(NOTE)).toBeNull();
+  });
+});
+
+describe("RoomLobby remove practice bot", () => {
+  function table(options: { mySeat: number | null; bot?: boolean; status?: "lobby" }) {
+    const room = makeSeriesRoom({ series: null, status: "lobby", mySeat: options.mySeat });
+    room.session.settings = defaultDuelSettings("normal");
+    room.session.seats = room.session.seats.slice(0, 1);
+    if (options.bot !== false) room.session.seats.push({ seat: 1, playerId: null, displayName: "Practice Bot", ready: true, isBot: true } as never);
+    const handlers = { onJoin: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
+    render(<RoomLobby room={room} slug="game-1" busy={false} actionError={null} {...handlers} />);
+    return handlers;
+  }
+
+  it("lets the organizer remove the seated bot from its seat card", () => {
+    const handlers = table({ mySeat: 0 });
+    const button = screen.getByRole("button", { name: "Remove practice bot" });
+    expect(button.getAttribute("title")).toBe("Remove practice bot");
+    fireEvent.click(button);
+    expect(handlers.onRemoveBot).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the control when no bot is seated", () => {
+    table({ mySeat: 0, bot: false });
+    expect(screen.queryByRole("button", { name: "Remove practice bot" })).toBeNull();
+    expect(screen.getByRole("button", { name: /Add practice bot/ })).toBeTruthy();
+  });
+
+  it("hides the control from a viewer who is not the organizer", () => {
+    table({ mySeat: null });
+    expect(screen.queryByRole("button", { name: "Remove practice bot" })).toBeNull();
   });
 });

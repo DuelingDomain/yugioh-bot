@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, type LucideIcon } from "lucide-react";
+import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, X, type LucideIcon } from "lucide-react";
 import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yugidraft/shared/duels";
 import { DeckCardPreview } from "./deck-card-preview";
 import { DeckEditor } from "./deck-editor";
@@ -14,7 +14,15 @@ import ui from "./sheet-ui.module.css";
 import styles from "./room-lobby.module.css";
 import seriesStyles from "./series.module.css";
 
-function SeatCard({ index, taken, mine, waitLabel }: { index: number; taken: DuelSeat | undefined; mine: boolean; waitLabel: string }) {
+function SeatCard({ index, taken, mine, waitLabel, onRemoveBot, removeBusy }: {
+  index: number;
+  taken: DuelSeat | undefined;
+  mine: boolean;
+  waitLabel: string;
+  /** Set only for the organizer of a lobby table: shows the quiet remove control on the bot's seat. */
+  onRemoveBot?: () => void;
+  removeBusy?: boolean;
+}) {
   if (!taken) {
     return (
       <li className={cx(styles.seat, styles.seatOpen)}>
@@ -43,6 +51,12 @@ function SeatCard({ index, taken, mine, waitLabel }: { index: number; taken: Due
         <Icon size={15} strokeWidth={1.7} aria-hidden />
         {taken.ready ? "Ready" : waitLabel}
       </span>
+      {taken.isBot && onRemoveBot ? (
+        <button type="button" className={styles.seatRemove} onClick={onRemoveBot} disabled={removeBusy}
+          aria-label="Remove practice bot" title="Remove practice bot">
+          <X size={15} strokeWidth={1.7} aria-hidden />
+        </button>
+      ) : null}
     </li>
   );
 }
@@ -55,6 +69,7 @@ export function RoomLobby({
   actionError,
   onJoin,
   onAddBot,
+  onRemoveBot,
   onReady,
   onMarkReady,
   onStart,
@@ -67,6 +82,8 @@ export function RoomLobby({
   actionError: string | null;
   onJoin: () => void;
   onAddBot: () => void;
+  /** Organizer only: takes the practice bot out of its seat so a human can join. */
+  onRemoveBot: () => void;
   onReady: (deck: DuelDeck) => void;
   /** Tournament games: ready up with the registered deck. */
   onMarkReady?: () => void;
@@ -132,7 +149,8 @@ export function RoomLobby({
             <section className={styles.panel} aria-label="Seats">
               <ul className={styles.seats}>
                 {[0, 1].map((seat) => (
-                  <SeatCard key={seat} index={seat} taken={session.seats.find((item) => item.seat === seat)} mine={seat === mySeat} waitLabel={tournamentGame ? "Not ready" : "Deck needed"} />
+                  <SeatCard key={seat} index={seat} taken={session.seats.find((item) => item.seat === seat)} mine={seat === mySeat} waitLabel={tournamentGame ? "Not ready" : "Deck needed"}
+                    onRemoveBot={isOrganizer && session.status === "lobby" ? onRemoveBot : undefined} removeBusy={busy} />
                 ))}
               </ul>
               {mySeat != null ? (

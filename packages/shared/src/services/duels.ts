@@ -103,6 +103,8 @@ export interface DuelService {
   join(slug: string, guildId: string, playerId: number): DuelSession;
   leave(slug: string, guildId: string, playerId: number): DuelSession;
   addPracticeBot(slug: string, guildId: string, organizerPlayerId: number, deck: DuelDeck): DuelSession;
+  /** Takes the practice bot out of its seat (organizer only, lobby only) so a human can sit there. */
+  removePracticeBot(slug: string, guildId: string, organizerPlayerId: number): DuelSession;
   setDeck(slug: string, guildId: string, playerId: number, deck: DuelDeck): DuelSession;
   room(slug: string, guildId: string, playerId: number): DuelRoom;
   privateState(slug: string, guildId: string): DuelPrivateState;
@@ -618,6 +620,20 @@ export function createDuelService(db: Database.Database): DuelService {
     return mapSession(row);
   });
 
+  const removePracticeBotTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number) => {
+    const row = loadDuelRow(slug, guildId);
+    assertPlayerGuild(organizerPlayerId, guildId);
+    assertRoomAccess(row, organizerPlayerId);
+    if (row.status !== "lobby") throw new DuelServiceError("A practice bot can only be removed before the duel starts", 409);
+    if (row.organizer_player_id !== organizerPlayerId) {
+      throw new DuelServiceError("Only the organizer can remove a practice bot", 403);
+    }
+    // The bot's seat row holds everything the add created (ready flag and deck), so deleting it clears it all.
+    const removed = db.prepare<[number]>("delete from duel_seats where duel_id = ? and is_bot = 1").run(row.id);
+    if (removed.changes === 0) throw new DuelServiceError("This table has no practice bot", 409);
+    return mapSession(row);
+  });
+
   const setDeckTx = db.transaction((slug: string, guildId: string, playerId: number, deck: DuelDeck) => {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(playerId, guildId);
@@ -894,6 +910,10 @@ export function createDuelService(db: Database.Database): DuelService {
 
     addPracticeBot(slug, guildId, organizerPlayerId, deck) {
       return addPracticeBotTx(slug, guildId, organizerPlayerId, deck);
+    },
+
+    removePracticeBot(slug, guildId, organizerPlayerId) {
+      return removePracticeBotTx(slug, guildId, organizerPlayerId);
     },
 
     setDeck(slug, guildId, playerId, deck) {

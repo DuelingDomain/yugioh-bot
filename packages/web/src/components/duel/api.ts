@@ -129,6 +129,12 @@ export async function addPracticeBot(slug: string): Promise<{ session: DuelSessi
   );
 }
 
+export async function removePracticeBot(slug: string): Promise<{ session: DuelSession }> {
+  return parseBody(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/bot`, { method: "DELETE" }),
+  );
+}
+
 export async function setDuelDeck(
   slug: string,
   deck: DuelDeck,
