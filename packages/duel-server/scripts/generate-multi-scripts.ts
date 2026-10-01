@@ -76,6 +76,16 @@ export const R2_NO_CHANGE: number[] = [
   67100549, 69145169, 71612253, 75906310, 82570174, 84211599, 84544192, 85523502, 86541496, 88513608, 88851326, 89948817,
   91269402, 92536468, 93039339, 93238626, 95134948, 95515789, 99748883,
 ];
+/**
+ * R2_NO_CHANGE cards that keep a known, accepted difference from the 2 player text in FFA (review B, area seats). The card stays in the list
+ * (a fix would need a per-seat key read in a player-target condition, which the script cannot do) and the difference is recorded here.
+ *  - 88851326 Legacy of the Duelist: the Set lock of the opponent side (target range 0,1, setcon2) reads the flag of "1-handler", so in FFA the
+ *    flag of one opponent (it Set one card from the hand this turn) locks the Set of every opponent. The flag resets at the End Phase and a Set
+ *    from the hand happens in the own turn, so the effect is small. Tag is exact (the flag is keyed by team, one opposing team).
+ */
+export const R2_ACCEPTED_DEVIATIONS: Record<number, string> = {
+  88851326: "FFA: the Set flag of one opponent locks the Set from the hand of every opponent (reset at the End Phase)",
+};
 /** True when every one of the 92 R1 cards is an entry or a member of R1_NO_CHANGE (the strict count check). */
 export const R1_COMPLETE = true;
 
