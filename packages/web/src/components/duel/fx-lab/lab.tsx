@@ -11,6 +11,8 @@ import { MoveFx } from "../move-fx";
 import { PositionFx } from "../position-fx";
 import { ChainFx } from "../chain-fx";
 import { MasterReturnFx } from "../master-return-fx";
+import { PromptCenter } from "../prompt-center";
+import { activatePromptFromField, promptSelectedKeys, type PromptDraft } from "../prompts";
 import { DuelResultScreen } from "../duel-result";
 import { FxBoundary } from "../fx-boundary";
 import { duelFontClasses } from "../fonts";
@@ -47,6 +49,13 @@ type Live = {
 
 const noop = () => undefined;
 const NO_KEYS: ReadonlySet<string> = new Set();
+/** The lab never answers: the prompt draft holds nothing and sends nothing. */
+function labDraft(selected: string[]): PromptDraft {
+  return {
+    selected, setSelected: noop, counts: {}, setCounts: noop, value: 0, setValue: noop,
+    cardCode: null, setCardCode: noop, highlight: 0, setHighlight: noop,
+  };
+}
 
 function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)} s`;
@@ -358,6 +367,23 @@ export function FxLab() {
                       <BattleFx events={engine.events} seats={engine.seats} reducedMotion={reduced} active aim={script.aim} />
                       <DestroyFx events={engine.events} reducedMotion={reduced} active mySeat={0} />
                     </FxBoundary>
+                    {script.prompt ? (
+                      <PromptCenter
+                        prompt={script.prompt.prompt}
+                        mySeat={script.mySeat ?? 0}
+                        active
+                        slug="fx-lab"
+                        busy={false}
+                        draft={interactive ? { ...labDraft(pickedIds), setSelected: setPicked } : labDraft(pickedIds)}
+                        onSubmit={noop}
+                        menuOpen={false}
+                        chain={engine.chain}
+                        aimLocked={false}
+                        reducedMotion={reduced}
+                        revision={engine.revision}
+                        battleStep={script.prompt.battleStep ?? null}
+                      />
+                    ) : null}
                   </Fragment>
                 </div>
               </div>

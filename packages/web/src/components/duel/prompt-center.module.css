@@ -9,7 +9,7 @@
 .layer {
   position: absolute;
   inset: 0;
-  z-index: 6;
+  z-index: var(--duel-z-prompt);
   pointer-events: none;
   color: var(--duel-ink, #efe7d5);
   font-family: var(--duel-f-ui, var(--font-body));

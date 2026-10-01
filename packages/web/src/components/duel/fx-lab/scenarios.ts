@@ -1151,6 +1151,33 @@ const STATES: LabScenario[] = [
       ),
   },
   {
+    id: "state-aim-prompt",
+    category: "Board states",
+    name: "Aim arrow under a prompt",
+    description: "The Battle Step response bar while an attack is aimed. The bar draws above the arrow; the arrow still shows over the board.",
+    build: () =>
+      script(
+        board((e) => e.push(edit.monster(ME, 2, C.blueEyes), edit.monster(OPP, 2, C.celtic), edit.monster(OPP, 4, C.harpie)), myHand, oppHand, "battle"),
+        [],
+        2400,
+        {
+          aim: { mode: "locked", from: "0:4:2", to: { zones: ["1:4:4"] } },
+          prompt: {
+            battleStep: "battle",
+            prompt: {
+              id: "lab-prompt",
+              seat: ME,
+              kind: "choice",
+              title: "Activate its effect?",
+              cancelable: true,
+              context: { type: "chain", forced: false },
+              options: [{ id: "card:0", label: "Blue-Eyes Spirit Dragon", card: C.blueSpirit }],
+            },
+          },
+        },
+      ),
+  },
+  {
     id: "state-aim-direct",
     category: "Board states",
     name: "Attack aim arrow: direct",

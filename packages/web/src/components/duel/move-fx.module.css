@@ -4,7 +4,7 @@
 .layer {
   position: absolute;
   inset: 0;
-  z-index: 6;
+  z-index: var(--duel-z-fx);
   overflow: hidden;
   pointer-events: none;
   contain: layout style;

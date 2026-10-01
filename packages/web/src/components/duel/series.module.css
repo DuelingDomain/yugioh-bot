@@ -64,7 +64,7 @@ a.badge:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
 
 /* ---------- side deck sheet ---------- */
 .sideSheet {
-  position: fixed; inset: 0; z-index: 150; overflow-y: auto; overscroll-behavior: contain;
+  position: fixed; inset: 0; z-index: var(--duel-z-modal); overflow-y: auto; overscroll-behavior: contain;
   padding: clamp(16px, 3vw, 32px);
   background: linear-gradient(180deg, #0a1122 0%, #070b15 55%, #05080f 100%);
 }
