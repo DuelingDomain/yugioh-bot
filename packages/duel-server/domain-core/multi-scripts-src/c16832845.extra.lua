@@ -2,7 +2,7 @@
 -- the own side and at least one opponent side had a monster destroyed.
 function s.condition(e,tp,eg,ep,ev,re,r,rp)
 	if not s[0] then return false end
-	local own=aux.MPKey(0)
+	local own=aux.MPKey(tp)
 	for seat=0,3 do
 		if aux.MPKeyOfSeat(seat)~=own and s.mp_slot(s,seat) then return true end
 	end

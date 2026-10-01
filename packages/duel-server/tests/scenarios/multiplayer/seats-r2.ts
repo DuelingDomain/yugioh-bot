@@ -38,6 +38,8 @@ const GRAVEKEEPER = "Gravekeeper's Trap";
 const COUNTER = "Metalfoes Counter";
 const SILVERD = "Metalfoes Silverd";
 const CHAFF = "Confusion Chaff";
+const GEAS = "Final Geas";
+const BEWD = "Blue-Eyes White Dragon";
 const ELF_ATK = 800;
 
 /** The state of EVERY seat: LP, monsters, Spell and Trap zones, Graveyard and banished zone are exact; the hand only when the spec names it. */
@@ -171,6 +173,34 @@ const ownKeyScenarios = (): Scenario[] => [
       expectOffered("activate", COUNTER, "p2"),
       activate(COUNTER, "p2"),
       everySeat("ffa3", { p0: { grave: [HOLE] }, p2: { monsters: [SILVERD], grave: [ELF, COUNTER] } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-final-geas-of-team-1-after-a-level-7-monster-of-each-team-was-destroyed",
+    title: "Tag: Dark Hole of p0 destroys a Blue-Eyes White Dragon of team 0 and one of team 1: Final Geas of p1 (team 1) is offered when Dark Hole is resolved and banishes both Dragons (the own key is read with aux.MPKey(tp))",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "own-key", "tag", "card:16832845"],
+    setup: { format: "tag", p0: { hand: [HOLE], monsters: [BEWD] }, p1: { monsters: [BEWD], spells: [faceDown(GEAS)] } },
+    steps: [
+      activate(HOLE, "p0"),
+      expectOffered("activate", GEAS, "p1"),
+      activate(GEAS, "p1"),
+      everySeat("tag", { p0: { grave: [HOLE], banished: [BEWD] }, p1: { grave: [GEAS], banished: [BEWD] } }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-ffa3-final-geas-of-seat-2-after-a-level-7-monster-of-each-seat-was-destroyed",
+    title: "FFA3: Dark Hole of p0 destroys a Blue-Eyes White Dragon of p0 and one of p2: Final Geas of p2 is offered when Dark Hole is resolved and banishes both Dragons",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-EACH-PLAYER"],
+    tags: ["multiplayer", "r2", "own-key", "ffa3", "card:16832845"],
+    setup: { format: "ffa3", p0: { hand: [HOLE], monsters: [BEWD] }, p2: { monsters: [BEWD], spells: [faceDown(GEAS)] } },
+    steps: [
+      activate(HOLE, "p0"),
+      expectOffered("activate", GEAS, "p2"),
+      activate(GEAS, "p2"),
+      everySeat("ffa3", { p0: { grave: [HOLE], banished: [BEWD] }, p2: { grave: [GEAS], banished: [BEWD] } }),
     ],
   }),
   defineScenario({
