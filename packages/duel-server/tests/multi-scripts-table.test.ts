@@ -116,6 +116,7 @@ const NO_CONDITION_RUN: Record<number, string> = {
   68078978: "Fortune Fairy Chee: triggers on being drawn (EVENT_DRAW from the hand) and on its own Special Summon; the generic game does neither",
   82734805: "Infernoid Tierra: triggers on its own Special Summon by its procedure; the generic game does not Special Summon it",
   96148285: "Triggered Summon: a Trap that waits for a Special Summon; no Special Summon of the generic game reaches its condition",
+  23639291: "Raging Cloudian: a Trap on a custom event that a global watcher raises after a Cloudian monster is destroyed by its own effect; the generic game has no Cloudian (tests/scenarios/multiplayer/r2-checks.ts plays it)",
   35059553: "Kaiser Colosseum: the card has no condition, target or cost function (only SetTargetRange values), so there is nothing for the table to see",
   // R2 cards. Their global effects and flags load and run (no Lua error, no trap U or c); only a condition, target or cost never ran.
   3900605: "Absorbing Jar: the target is a Flip effect and the rest are continuous Summon and Set locks; the generic game does not flip a Set monster",

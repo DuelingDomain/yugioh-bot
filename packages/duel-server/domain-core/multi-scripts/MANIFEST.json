@@ -1237,6 +1237,19 @@
       "stockSha256": "63576d7818ccaa4b0644450e444cd285c298fac3599e79d2885dc8d92cb041b3"
     },
     {
+      "code": 23639291,
+      "file": "c23639291.lua",
+      "name": "Raging Cloudian",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+CONTINUOUS",
+      "redefined": [
+        "regop"
+      ],
+      "stockSha256": "028abe29f70e9be32459c9d902ae1ea0b55576bdea24f69dac7a2d6aefd66ed1",
+      "note": "Script fix (r2-checks, R-COMMON-EACH-PLAYER): the watcher is a global effect (Duel.RegisterEffect(e2,0)) that runs with no scope, so its player values are real seats. The stock regop read tp as the literal seat 0: only a Cloudian of seat 0 was kept and the event was raised for seat 0, so the holder of any other seat never got the Trap. The regop does the stock steps for every seat 0..3 (the card of a seat, the flag of that seat, the event for that seat). Not part of R1 or R2."
+    },
+    {
       "code": 23931679,
       "file": "c23931679.lua",
       "name": "Ocean Dragon Lord - Kairyu-Shin",
