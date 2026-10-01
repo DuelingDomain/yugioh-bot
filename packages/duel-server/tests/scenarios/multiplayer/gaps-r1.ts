@@ -4,7 +4,7 @@
 // the real card scripts plus the overlay, and ends with the state of EVERY seat (LP, field, hand, GY, banished zone).
 
 import {
-  activate, choose, defineScenario, endTurn, expectBoard, expectPickSeats, pickOpponent, select, specialSummon, yes, zone,
+  activate, choose, defineScenario, endTurn, expectBoard, expectPickSeats, no, pickOpponent, select, specialSummon, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -215,7 +215,65 @@ function shamoji(format: "ffa3" | "tag", choice: "draw" | "lp"): Scenario {
   });
 }
 
+// Dark Scheme is a Trap card: it is set on the field of p0 at the start of the scenario.
+// --- Dark Scheme -------------------------------------------------------------------------------------------------------------------------
+// "Each player discards 2 cards and draws 2 cards. Before that, your opponent may discard 1 card to negate this effect." Every duelist
+// takes part in the discard and the draw (Q3). The word "opponent" is singular, so ONE opponent decides (Q5): p0 picks it when it activates the
+// card, and only that duelist is asked; the other opponent and the Tag partner are never asked. The last opponent is picked, never p1.
+const SCHEME = "Dark Scheme";
+const SCHEME_RULE = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q3/Q5: Dark Scheme (ONE picked opponent may discard 1 card to negate; every duelist discards 2 and draws 2)`;
+const SCHEME_HAND: Record<Seat, [string, string]> = { p0: [RAT, OX], p1: [AXE, FANG], p2: [ELF, RAT], p3: [OX, AXE] };
+const SCHEME_DECK: Record<Seat, string> = { p0: FANG, p1: ELF, p2: OX, p3: RAT };
+
+function darkScheme(format: "ffa3" | "tag", negate: boolean): Scenario {
+  const seats = seatsOf(format);
+  const tag = format === "tag";
+  const picks: Seat[] = tag ? ["p1", "p3"] : ["p1", "p2"];
+  const picked = picks[picks.length - 1];
+  const setup: Scenario["setup"] = { format };
+  const spec: Partial<Record<Seat, DuelistExpect>> = {};
+  for (const seat of seats) {
+    (setup as Record<string, unknown>)[seat] = {
+      hand: [...SCHEME_HAND[seat]],
+      deck: [SCHEME_DECK[seat], SCHEME_DECK[seat], SCHEME_DECK[seat]],
+      ...(seat === "p0" ? { spells: [{ card: SCHEME, pos: "set" }] } : {}),
+    };
+    if (negate) {
+      // Only the picked opponent discards 1 card (its first card); the effect is negated: nobody discards 2 and nobody draws.
+      spec[seat] = {
+        hand: seat === picked ? [SCHEME_HAND[seat][1]] : [...SCHEME_HAND[seat]],
+        grave: [...(seat === "p0" ? [SCHEME] : []), ...(seat === picked ? [SCHEME_HAND[seat][0]] : [])],
+      };
+    } else {
+      // Nobody negates: every duelist (the partner too) discards its 2 cards and draws 2 cards.
+      spec[seat] = {
+        hand: [SCHEME_DECK[seat], SCHEME_DECK[seat]],
+        grave: [...(seat === "p0" ? [SCHEME] : []), ...SCHEME_HAND[seat]],
+      };
+    }
+  }
+  const steps: Step[] = [activate(SCHEME, "p0"), expectPickSeats(picks, "p0"), pickOpponent(picked, "p0")];
+  steps.push(negate ? yes(picked) : no(picked));
+  if (negate) steps.push(select({ card: SCHEME_HAND[picked][0], owner: picked }));
+  steps.push(everySeat(format, spec));
+  return defineScenario({
+    id: `gaps-r1-${format}-dark-scheme-${negate ? "the-picked-opponent-discards-1-and-negates" : "the-picked-opponent-declines-everyone-discards-2-and-draws-2"}`,
+    title: negate
+      ? `${labelOf(format)}: p0 activates Dark Scheme and picks ${picked}: only ${picked} is asked, it discards 1 card and the effect is negated; nobody else is asked, discards or draws`
+      : `${labelOf(format)}: p0 activates Dark Scheme and picks ${picked}: only ${picked} is asked and declines, so every duelist (the partner too) discards 2 cards and draws 2 cards`,
+    source: SCHEME_RULE,
+    rules: ["R-COMMON-OPP-PICK", ...(tag ? ["R-TAG-PARTNER"] : [])],
+    tags: ["multiplayer", "gaps-r1", "r1", "opp-pick", "negate", "draw", format, "card:69402394"],
+    setup,
+    steps,
+  });
+}
+
 export const GAPS_R1_SCENARIOS: Scenario[] = [
+  darkScheme("ffa3", false),
+  darkScheme("tag", false),
+  darkScheme("ffa3", true),
+  darkScheme("tag", true),
   shamoji("ffa3", "lp"),
   shamoji("tag", "lp"),
   shamoji("ffa3", "draw"),

@@ -1,6 +1,8 @@
 if not aux.MPForEachDuelist then return end
 -- Every duelist discards 2 cards and draws 2 cards (R1, Q3, Tag partner included). The target and the effect need 2 cards in the hand of
--- every duelist (the handler is not counted). Every opponent in turn order may discard 1 card to negate; the first that accepts ends the asking.
+-- every duelist (the handler is not counted). "Your opponent can discard 1 card to negate" is ONE opponent (Q5, R-COMMON-OPP-PICK): the owner
+-- picks it when the effect is put on the chain (the target step asks for the pick, aux.MPPick), and only that duelist is asked in the operation.
+-- The negate prompt and the discard read 1-tp BEFORE the loops, because inside a loop the scope is the duelist of the loop, not the bound opponent.
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then
 		return aux.MPAllDuelists(function(tp_i)
@@ -12,18 +14,12 @@ function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 end
 function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	if not aux.MPAllDuelists(function(tp_i) return Duel.GetFieldGroupCount(tp_i,LOCATION_HAND,0)>=2 end) then return end
-	local me=aux.MPKey(tp)
-	local accepted=false
-	aux.MPForEachDuelist(function(tp_i,seat_i)
-		if aux.MPKeyOfSeat(seat_i)~=me and Duel.SelectYesNo(tp_i,aux.Stringid(id,0)) then
-			Duel.DiscardHand(tp_i,aux.TRUE,1,1,REASON_EFFECT|REASON_DISCARD,nil)
-			accepted=true
-			return true
+	if Duel.SelectYesNo(1-tp,aux.Stringid(id,0)) then
+		Duel.DiscardHand(1-tp,aux.TRUE,1,1,REASON_EFFECT|REASON_DISCARD,nil)
+		if Duel.IsChainDisablable(0) then
+			Duel.NegateEffect(0)
+			return
 		end
-	end)
-	if accepted and Duel.IsChainDisablable(0) then
-		Duel.NegateEffect(0)
-		return
 	end
 	local g=Group.CreateGroup()
 	aux.MPForEachDuelist(function(tp_i)
@@ -34,3 +30,5 @@ function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	Duel.BreakEffect()
 	aux.MPForEachDuelist(function(tp_i) Duel.Draw(tp_i,2,REASON_EFFECT) end)
 end
+local stock_target=s.target
+s.target=aux.MPPick(stock_target)
