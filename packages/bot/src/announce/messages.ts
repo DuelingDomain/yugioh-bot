@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from "discord.js";
 
 const DEFAULT_WEB_URL = "http://localhost:3000";
 
@@ -79,6 +79,42 @@ export function reportPendingAnnouncement(input: {
           .setCustomId(`dashboard_deny:${input.matchId}:${input.opponentDiscordId}`)
           .setLabel("Deny")
           .setStyle(ButtonStyle.Danger),
+      ),
+    ],
+  };
+}
+
+/** The DM a challenged player (or a tournament opponent) gets, with a Join duel link button. */
+export function duelInviteMessage(input: {
+  challengerName: string;
+  duelName: string;
+  bestOf: 1 | 3;
+  ranked: boolean;
+  tournamentName: string | null;
+  url: string;
+}): { embeds: EmbedBuilder[]; components: ActionRowBuilder<ButtonBuilder>[] } {
+  const embed = new EmbedBuilder()
+    .setTitle(input.tournamentName ? "Your tournament match is ready" : "You were challenged to a duel")
+    .setDescription(
+      input.tournamentName
+        ? `**${input.challengerName}** started your match in **${input.tournamentName}**.`
+        : `**${input.challengerName}** challenged you to a duel.`,
+    )
+    .setColor(0x7c3aed)
+    .addFields(
+      { name: "Duel", value: input.duelName, inline: true },
+      { name: "Match", value: `Best of ${input.bestOf}`, inline: true },
+      {
+        name: input.tournamentName ? "Tournament" : "Type",
+        value: input.tournamentName ?? (input.ranked ? "Ranked" : "Unranked"),
+        inline: true,
+      },
+    );
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setLabel("Join duel").setStyle(ButtonStyle.Link).setURL(input.url),
       ),
     ],
   };
