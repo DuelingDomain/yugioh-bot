@@ -141,6 +141,74 @@ Open the address and sign in with Discord.
   production cookie in that browser, and the production page then asks to sign in again. This is only a nuisance.
   A separate host name for staging (a second DNS name for the VM) stops it.
 
+## Test tools in staging (warning for testers)
+
+Staging runs with `DUEL_SCENARIOS=1` on the duel service and on the web service. This opens tools that production
+does not have:
+
+- **Report button** in the duel room. It writes a report folder on the VM (`data-staging/duel-reports`) with your note,
+  the journal and the debug trace.
+- **Stall reports.** The duel server writes a report by itself when a duel makes no progress for 30 seconds while the
+  core or a bot seat must act.
+- **Scenario presets.** The page `/duels/dev-presets` and the route `/api/duels/preset` make a ready table with bot seats
+  from a preset and start it. Use them only for the checks you are asked to do.
+- **Debug trace.** The route `/api/duels/<room>/debug-trace` shows every seat view of a duel. WARNING: it can show hidden
+  cards (the hands of all players, the Deck order and face-down cards). A player of the duel can open it. Do not open it during a
+  real test, and do not read it to find the cards of an opponent. The Report button puts the same data in the report folder,
+  so the owner can read it. Do not press Report for a reason other than a problem.
+
+Staging is a test place. Do not use these tools in production: the production stack does not set `DUEL_SCENARIOS`.
+
+The multi core in staging is a production-like build: it is built without `LUA_FIXED_SEED` (the test flag that makes the
+Lua random numbers repeatable). `test.yml` keeps the flag, because tests need repeatable results.
+
+## Tester notes
+
+- Use the Standard format at 3 or more players. Domain at 3 or more seats is blocked for now.
+- The special card rules for 3 or more players are not built yet. These cards can act wrong:
+  - Kaiju, Lava Golem, Volcanic Queen, Ra (Sphere Mode).
+  - Cards that summon to the field of an opponent (Ojama Trio, Jormungardr, Grinder Golem and about 100 more).
+  - Cards that count and compare (Evenly Matched, Pineapple Blast).
+  - Cards that say "your opponent chooses".
+  - Dice and coin cards of the duel type.
+  - Messenger of Peace, Snatch Steal, Royal Tribute, Soul Exchange.
+- These rules have no full outcome test yet. Report anything odd:
+  - Effects that say "all" or "each player" (Dark Hole, Raigeki).
+  - Ongoing locks (Jinzo).
+  - Negation (Solemn Judgment, Ash Blossom).
+  - The order of triggers that happen at the same time.
+  - Extra Monster Zones and Link zones.
+- At 3 players, the turn of every other player counts as one opponent turn. This is an owner rule. It is not a bug.
+- A frozen duel cannot be ended from the page. Send the room link to the owner.
+- A staging deploy stops the duels that run at that time. They are marked `interrupted`.
+- When you find a problem, write: the room link, the turn, the card, what you did and what you expected.
+  Then press Report.
+
+## Test script (3 players)
+
+Do the steps in this order. Write down the result of each step. Report every step that does not match.
+
+1. Make a 3-player free-for-all Standard table. First try a deck with Ring of Destruction or Swords of Revealing Light.
+   Expect a refusal. Then use legal decks.
+2. Start the duel. Expect: the seat order is shown, and the first player does not draw on turn 1.
+3. Turns 1 to 3: there is no attack option. Attacks start on turn 4.
+4. The turn passes in the order 0, 1, 2, 0. The "To play" and "Choosing" tags follow the turn.
+5. Attack when one opponent has monsters and one has none. Expect: the targets are right, a direct attack is possible only
+   on the opponent with an empty field, and the right player loses LP.
+6. Use Mind Crush or a burn card. Pick one living opponent. Expect: only that player is hit.
+7. Use Ojama Trio or a card that disables zones. Expect: only the zones of the picked opponent are changed. Write down
+   where the tokens go.
+8. Use Raigeki: it clears every opponent. Use Dark Hole: it clears all fields.
+9. Make a chain with 3 players (A, then B, then C). Use Solemn Judgment against another player.
+10. Reload the page while a prompt is open. Expect the same prompt. Then close the tab for 1 minute and come back.
+11. A player who has no prompt surrenders. Expect: that player is Eliminated, the cards leave the field, the turns of
+    that player are skipped, and the duel goes on.
+12. Make a second duel with a short timer. Let the timer run out (a timeout is a loss). Expect: only that player is eliminated.
+13. Reduce a player to 0 LP by battle in your own turn. Expect: your turn continues, and the next turn goes to the next
+    living player.
+14. Finish the duel. Expect: all players see the right winner and the right reason, and the history shows it.
+15. Play a short 1v1 Standard duel and a short 1v1 Domain duel. Expect: 1v1 is unchanged.
+
 ## Open risks
 
 - **RAM.** See the memory section. A very busy production plus a staging duel can still use all 4 GB. The limits and
