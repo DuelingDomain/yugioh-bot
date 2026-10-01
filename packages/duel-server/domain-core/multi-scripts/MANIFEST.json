@@ -499,6 +499,19 @@
       "stockSha256": "d22769cec678669c6d56d296ac82acb6519c1146b18a46a2940d1bd1a4746749"
     },
     {
+      "code": 27260347,
+      "file": "c27260347.lua",
+      "name": "Snake-Eyes Diabellstar",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+TRIGGER_O",
+      "redefined": [
+        "checkzones"
+      ],
+      "stockSha256": "15892dfdcdcef4c714a6134d230061762cf7d3bf2d5a1966547248fa47d005c8",
+      "note": "Script fix (misc-table, OQ3): a zone count that the core does not give (the bound opponent is eliminated) is 0, so the effect does not apply and the duel does not stop with a Lua error. Not part of R1."
+    },
+    {
       "code": 27279764,
       "file": "c27279764.lua",
       "name": "Apoqliphort Towers",

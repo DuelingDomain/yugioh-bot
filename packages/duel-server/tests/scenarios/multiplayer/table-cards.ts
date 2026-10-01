@@ -391,6 +391,55 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
+  defineScenario({
+    id: "table-ffa3-diabellstar-opponent-eliminated-before-the-trigger-no-effect-no-lua-error",
+    title: "FFA3: p0 attacks the monster of p1 with Snake-Eyes Diabellstar and p1 is eliminated before the trigger is answered: the effect does not apply (OQ3), no script fails, and p0 and p2 keep their monsters",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "trigger", "elimination", "ffa3", "card:27260347"],
+    setup: {
+      format: "ffa3",
+      p0: { monsters: ["Snake-Eyes Diabellstar"] },
+      p1: { monsters: ["Battle Ox"] },
+      p2: { monsters: ["Giant Rat"] },
+    },
+    steps: [
+      ...["p0", "p1", "p2"].map((seat) => endTurn(seat as Seat)),
+      changePhase("battle", "p0"),
+      attack("Snake-Eyes Diabellstar", { card: "Battle Ox", owner: "p1" }, "p0"),
+      // The loss lands at the next Adjust. The bound opponent of the trigger is p1, which is dead when the trigger is checked.
+      // Stock: Duel.GetLocationCount of that seat gives no value and "nothing > 0" is a Lua error that stops the duel.
+      surrender("p1"),
+      yes("p0"),
+      expectEliminated("p1"),
+      expectPrompt({ by: "p0", title: "replay occurred" }),
+      everySeat("ffa3", { p0: { monsters: ["Snake-Eyes Diabellstar"] }, p2: { monsters: ["Giant Rat"] } }),
+    ],
+  }),
+  defineScenario({
+    id: "table-ffa4-diabellstar-opponent-eliminated-before-the-trigger-no-effect-no-lua-error",
+    title: "FFA4: p0 attacks the monster of p1 with Snake-Eyes Diabellstar and p1 is eliminated before the trigger is answered: the effect does not apply (OQ3), no script fails, and p0, p2 and p3 keep their monsters",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "trigger", "elimination", "ffa4", "card:27260347"],
+    setup: {
+      format: "ffa4",
+      p0: { monsters: ["Snake-Eyes Diabellstar"] },
+      p1: { monsters: ["Battle Ox"] },
+      p2: { monsters: ["Giant Rat"] },
+      p3: { monsters: ["Axe Raider"] },
+    },
+    steps: [
+      ...["p0", "p1", "p2", "p3"].map((seat) => endTurn(seat as Seat)),
+      changePhase("battle", "p0"),
+      attack("Snake-Eyes Diabellstar", { card: "Battle Ox", owner: "p1" }, "p0"),
+      surrender("p1"),
+      yes("p0"),
+      expectEliminated("p1"),
+      expectPrompt({ by: "p0", title: "replay occurred" }),
+      everySeat("ffa4", { p0: { monsters: ["Snake-Eyes Diabellstar"] }, p2: { monsters: ["Giant Rat"] }, p3: { monsters: ["Axe Raider"] } }),
+    ],
+  }),
 ];
 
 void [expectLp, expectNotOffered];
