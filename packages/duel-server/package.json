@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "start": "node dist/server.js",
     "test": "vitest run tests --testTimeout=15000",
-    "prepare:data": "tsx scripts/prepare-data.ts"
+    "prepare:data": "tsx scripts/prepare-data.ts",
+    "scan:multiplayer": "tsx scripts/scan-multiplayer-scripts.ts"
   },
   "dependencies": {
     "@yugidraft/shared": "*",

@@ -1,0 +1,819 @@
+// Multiplayer card scenario catalog (Layer 1 sketches). Every entry is pending.
+// The sketches become real Layer 1 scenarios when the multiplayer core supports p2/p3 and teams.
+// Rules: docs/adr/0002-multiplayer-duel-rules.md. Spec: docs/specs/2026-09-30-multiplayer-core-design.md.
+// Doc: docs/specs/2026-09-30-multiplayer-card-scenarios.md (generated tables use this data).
+// Seats: P0 is the activator. In Tag, P0 and P2 are one team, P1 and P3 are the other team.
+
+export type CatalogFormat = "ffa3" | "ffa4" | "tag";
+/** U = unchanged, C = core rule, O = per-card override. */
+export type RuleClass = "U" | "C" | "O";
+/** Where the "one opponent" comes from (spec 4.2). */
+export type Binding = "explicit-pick" | "event-opponent" | "target-controller";
+
+export interface Evidence {
+  /** Path relative to data/duel-engine-next/card-scripts. */
+  file: string;
+  line: number;
+  /** Text that the script line must contain. */
+  token: string;
+}
+
+export interface CatalogScenario {
+  id: string;
+  group: "all" | "one";
+  card: string;
+  code: number;
+  formats: CatalogFormat[];
+  ruleClass: RuleClass;
+  binding?: Binding;
+  /** Behavior in a normal 1v1 duel. */
+  oneVsOne: string;
+  /** Expected result per table. */
+  results: { ffa3: string; ffa4: string; tag: string };
+  evidence: Evidence[];
+  setup: string;
+  action: string;
+  expected: string;
+  /** True when the card is also on the forbidden list. The sketch tests a future override. */
+  forbidden?: boolean;
+  /** ADR-0002 rule ids this scenario tests (see docs/adr/0002-multiplayer-duel-rules.md). */
+  rules: string[];
+  pending: true;
+}
+
+const ALL3: CatalogFormat[] = ["ffa3", "ffa4", "tag"];
+
+const ev = (code: number, line: number, token: string): Evidence => ({ file: `official/c${code}.lua`, line, token });
+
+type Row = Omit<CatalogScenario, "id" | "group" | "pending" | "formats" | "rules"> & { formats?: CatalogFormat[] };
+
+/** Rule ids that a card tests beyond the default of its group (by passcode). */
+const EXTRA_RULES: Record<number, string[]> = {
+  // Effects on both sides of the field.
+  53129443: ["R-COMMON-ALL-BOTH"], // Dark Hole
+  19613556: ["R-COMMON-ALL-BOTH"], // Heavy Storm
+  42703248: ["R-COMMON-ALL-BOTH"], // Giant Trunade
+  53582587: ["R-COMMON-ALL-BOTH"], // Torrential Tribute
+  14532163: ["R-COMMON-ALL-BOTH"], // Lightning Storm
+  // Ongoing effects on "your opponent".
+  85742772: ["R-COMMON-ONGOING"], // Gravity Bind
+  44947065: ["R-COMMON-ONGOING"], // Burden of the Mighty
+  51452091: ["R-COMMON-ONGOING", "R-COMMON-CONT-NEG"], // Royal Decree
+  58921041: ["R-COMMON-ONGOING", "R-COMMON-CONT-NEG"], // Anti-Spell Fragrance
+  77585513: ["R-COMMON-CONT-NEG"], // Jinzo
+  82732705: ["R-COMMON-CONT-NEG"], // Skill Drain
+  // Both players / each player.
+  81674782: ["R-COMMON-EACH-PLAYER"], // Dimensional Fissure
+  30241314: ["R-COMMON-EACH-PLAYER"], // Macro Cosmos
+  72405967: ["R-COMMON-EACH-PLAYER"], // Royal Tribute
+  66788016: ["R-COMMON-EACH-PLAYER"], // Fissure
+  // Partner cards count for "you control".
+  2314238: ["R-TAG-SHARED-CARDS"], // Dark Magic Attack
+  // A card that works only on an opponent (or negates one activation) never hits the partner.
+  97268402: ["R-TAG-PARTNER"], // Effect Veiler
+  10045474: ["R-TAG-PARTNER"], // Infinite Impermanence
+  14558127: ["R-TAG-PARTNER", "R-FFA-NEGATE"], // Ash Blossom & Joyous Spring
+  41420027: ["R-TAG-PARTNER", "R-FFA-NEGATE"], // Solemn Judgment
+  // Attacks.
+  44095762: ["R-FFA-ATTACK"], // Mirror Force
+  56120475: ["R-FFA-ATTACK"], // Sakuretsu Armor
+  70342110: ["R-FFA-ATTACK"], // Dimensional Prison
+};
+
+const rulesOf = (group: "all" | "one", row: Row): string[] => {
+  const base = group === "all" ? ["R-COMMON-OPP-FIELD"] : [row.binding === "explicit-pick" ? "R-COMMON-OPP-PICK" : "R-COMMON-OPP-FIELD"];
+  return [...new Set([...base, ...(EXTRA_RULES[row.code] ?? [])])];
+};
+
+const all = (row: Row): CatalogScenario => ({
+  id: `mp-all-${row.code}`,
+  group: "all",
+  formats: ALL3,
+  ...row,
+  rules: rulesOf("all", row),
+  pending: true,
+});
+const one = (row: Row): CatalogScenario => ({
+  id: `mp-one-${row.code}`,
+  group: "one",
+  formats: ALL3,
+  ...row,
+  rules: rulesOf("one", row),
+  pending: true,
+});
+
+const U = "Same as 1v1.";
+
+/** Group (a): the effect touches ALL opponents. */
+export const GROUP_ALL: CatalogScenario[] = [
+  all({
+    card: "Raigeki", code: 12580477, ruleClass: "U",
+    oneVsOne: "Destroys all monsters of the opponent.",
+    results: { ffa3: "Destroys the monsters of both opponents.", ffa4: "Destroys the monsters of all 3 opponents.", tag: "Destroys the monsters of both opposing team members. The partner keeps its monsters." },
+    evidence: [ev(12580477, 16, "GetMatchingGroup(aux.TRUE,tp,0,LOCATION_MZONE"), ev(12580477, 20, "GetMatchingGroup(aux.TRUE,tp,0,LOCATION_MZONE")],
+    setup: "P0 holds Raigeki. Each other seat controls one monster. In Tag, P2 (partner) controls one monster.",
+    action: "P0 activates Raigeki.",
+    expected: "All opponent monsters go to the GY. The monster of the partner stays on the field.",
+  }),
+  all({
+    card: "Harpie's Feather Duster", code: 18144506, ruleClass: "U",
+    oneVsOne: "Destroys all Spells and Traps of the opponent.",
+    results: { ffa3: "Destroys the Spells and Traps of both opponents.", ffa4: "Destroys the Spells and Traps of all 3 opponents.", tag: "Destroys the Spells and Traps of both opposing team members. The partner is safe." },
+    evidence: [ev(18144506, 19, "0,LOCATION_ONFIELD"), ev(18144506, 24, "0,LOCATION_ONFIELD")],
+    setup: "Each other seat controls one set Spell. The partner (Tag) controls one set Spell.",
+    action: "P0 activates Harpie's Feather Duster.",
+    expected: "All opponent Spells and Traps are destroyed. The partner Spell stays.",
+  }),
+  all({
+    card: "Dark Hole", code: 53129443, ruleClass: "U",
+    oneVsOne: "Destroys all monsters on the field.",
+    results: { ffa3: "Destroys all monsters of all 3 players.", ffa4: "Destroys all monsters of all 4 players.", tag: "Destroys all monsters of all 4 players, the partner and the activator included (ADR-0002, 'all' effects)." },
+    evidence: [ev(53129443, 15, "LOCATION_MZONE,LOCATION_MZONE"), ev(53129443, 20, "LOCATION_MZONE,LOCATION_MZONE")],
+    setup: "Each seat controls one monster.",
+    action: "P0 activates Dark Hole.",
+    expected: "All monsters, including the ones of P0 and the partner, go to the GY.",
+  }),
+  all({
+    card: "Heavy Storm", code: 19613556, ruleClass: "U",
+    oneVsOne: "Destroys all Spells and Traps on the field.",
+    results: { ffa3: "Destroys the Spells and Traps of all 3 players.", ffa4: "Destroys the Spells and Traps of all 4 players.", tag: "Destroys the Spells and Traps of all 4 players, the partner included." },
+    evidence: [ev(19613556, 19, "LOCATION_ONFIELD,LOCATION_ONFIELD"), ev(19613556, 24, "LOCATION_ONFIELD,LOCATION_ONFIELD")],
+    setup: "Each seat controls one Spell or Trap.",
+    action: "P0 activates Heavy Storm.",
+    expected: "Every Spell and Trap other than Heavy Storm is destroyed.",
+  }),
+  all({
+    card: "Giant Trunade", code: 42703248, ruleClass: "U",
+    oneVsOne: "Returns all Spells and Traps on the field to the hand.",
+    results: { ffa3: "Returns the Spells and Traps of all 3 players.", ffa4: "Returns the Spells and Traps of all 4 players.", tag: "Returns the Spells and Traps of all 4 players, the partner included." },
+    evidence: [ev(42703248, 19, "LOCATION_ONFIELD,LOCATION_ONFIELD"), ev(42703248, 24, "LOCATION_ONFIELD,LOCATION_ONFIELD")],
+    setup: "Each seat controls one Spell or Trap.",
+    action: "P0 activates Giant Trunade.",
+    expected: "Each card returns to the hand of its owner.",
+  }),
+  all({
+    card: "Mirror Force", code: 44095762, ruleClass: "C",
+    oneVsOne: "When an opponent monster attacks, destroys all attack position monsters of the opponent.",
+    results: { ffa3: "When any opponent attacks, destroys the attack position monsters of both opponents.", ffa4: "When any opponent attacks, destroys the attack position monsters of all 3 opponents.", tag: "When an opposing monster attacks, destroys the attack position monsters of both opposing members. The partner is safe." },
+    evidence: [ev(44095762, 16, "IsTurnPlayer(1-tp)"), ev(44095762, 27, "GetMatchingGroup(s.filter,tp,0,LOCATION_MZONE")],
+    setup: "P0 has Mirror Force set. P1 and P2 each control one attack position monster. P1 is the turn player.",
+    action: "P1 attacks. P0 activates Mirror Force.",
+    expected: "The attack position monsters of P1 and P2 are destroyed. The trigger test uses the turn player, so it works for P1 and P2 alike (core rule: 'opponent turn' means any opponent).",
+  }),
+  all({
+    card: "Torrential Tribute", code: 53582587, ruleClass: "U",
+    oneVsOne: "When a monster is Summoned, destroys all monsters on the field.",
+    results: { ffa3: "Destroys all monsters of all 3 players.", ffa4: "Destroys all monsters of all 4 players.", tag: "Destroys all monsters of all 4 players, the partner included." },
+    evidence: [ev(53582587, 29, "LOCATION_MZONE,LOCATION_MZONE"), ev(53582587, 34, "LOCATION_MZONE,LOCATION_MZONE")],
+    setup: "P0 has Torrential Tribute set. P1 controls one monster. P2 and P3 (or the partner) control one monster each.",
+    action: "P1 Normal Summons a monster. P0 activates Torrential Tribute.",
+    expected: "All monsters on the field are destroyed.",
+  }),
+  all({
+    card: "Dark Magic Attack", code: 2314238, ruleClass: "U",
+    oneVsOne: "If you control Dark Magician, destroys all Spells and Traps of the opponent.",
+    results: { ffa3: "Destroys the Spells and Traps of both opponents.", ffa4: "Destroys the Spells and Traps of all 3 opponents.", tag: "Destroys the Spells and Traps of both opposing members. The condition counts Dark Magician of the partner (you control includes the partner)." },
+    evidence: [ev(2314238, 17, "CARD_DARK_MAGICIAN"), ev(2314238, 24, "0,LOCATION_ONFIELD"), ev(2314238, 29, "0,LOCATION_ONFIELD")],
+    setup: "Tag: the partner controls face-up Dark Magician and P0 controls none. All opponents control one Spell or Trap.",
+    action: "P0 activates Dark Magic Attack.",
+    expected: "The activation is legal only in Tag through the partner. All opponent Spells and Traps are destroyed.",
+  }),
+  all({
+    card: "Lightning Storm", code: 14532163, ruleClass: "U",
+    oneVsOne: "If you control no face-up cards, choose: destroy all Attack Position monsters or all Spells and Traps of the opponent.",
+    results: { ffa3: "Destroys the chosen card type of both opponents.", ffa4: "Destroys the chosen card type of all 3 opponents.", tag: "Destroys the chosen card type of both opposing members. The condition checks the own field, which includes the partner." },
+    evidence: [ev(14532163, 18, "IsFaceup,tp,LOCATION_ONFIELD,0"), ev(14532163, 21, "IsAttackPos,tp,0,LOCATION_MZONE"), ev(14532163, 39, "IsSpellTrap,tp,0,LOCATION_ONFIELD")],
+    setup: "P0 controls no face-up card. Each opponent controls one attack position monster and one Spell.",
+    action: "P0 activates Lightning Storm and chooses the monster option.",
+    expected: "Attack position monsters of all opponents are destroyed. Spells stay.",
+  }),
+  all({
+    card: "Book of Eclipse", code: 35480699, ruleClass: "O",
+    oneVsOne: "Changes all face-up monsters to face-down. The opponent draws one card for each face-down monster.",
+    results: { ffa3: "Field part uses all opponents. The draw part goes to ONE bound opponent (lazy prompt).", ffa4: "Same as 3-FFA: one bound opponent draws.", tag: "Field part uses both opposing members. The draw goes to one bound opposing member." },
+    evidence: [ev(35480699, 17, "LOCATION_MZONE,LOCATION_MZONE"), ev(35480699, 38, "IsFacedown,tp,0,LOCATION_MZONE"), ev(35480699, 40, "Duel.Draw(1-tp,ct")],
+    setup: "Each seat controls one face-up monster.",
+    action: "P0 activates Book of Eclipse. P0 picks the draw target when asked.",
+    expected: "All face-up monsters become face-down. The picked opponent draws the count of face-down opponent monsters.",
+  }),
+  all({
+    card: "Cyber Dragon", code: 70095154, ruleClass: "U",
+    oneVsOne: "If only the opponent controls a monster, you can Special Summon this card from the hand.",
+    results: { ffa3: "Legal when P0 controls no monster and any opponent controls one.", ffa4: "Legal when P0 controls no monster and any opponent controls one.", tag: "Legal when the team of P0 controls no monster and any opposing member controls one." },
+    evidence: [ev(70095154, 16, "GetFieldGroupCount(c:GetControler(),LOCATION_MZONE,0)==0"), ev(70095154, 17, "GetFieldGroupCount(c:GetControler(),0,LOCATION_MZONE)>0")],
+    setup: "P0 has Cyber Dragon in hand and no monster. Only P2 controls a monster.",
+    action: "P0 tries to Special Summon Cyber Dragon.",
+    expected: "The summon is legal. In Tag, it is illegal if the partner controls a monster.",
+  }),
+  all({
+    card: "Gameciel, the Sea Turtle Kaiju", code: 55063751, ruleClass: "O",
+    oneVsOne: "Tribute 1 monster of the opponent to Special Summon this card to their field.",
+    results: { ffa3: "The Kaiju goes to the field of the player whose monster was Tributed (owner decision 2026-10-01).", ffa4: "Same as 3-FFA.", tag: "Goes to the field of the player whose monster was Tributed (an opposing member)." },
+    evidence: [ev(55063751, 5, "aux.AddKaijuProcedure"), { file: "cards_specific_functions.lua", line: 347, token: "SetTargetRange(position,1)" }, { file: "cards_specific_functions.lua", line: 362, token: "0,LOCATION_MZONE" }],
+    setup: "P1 and P2 control one monster each. P0 has Gameciel in hand.",
+    action: "P0 Tributes the monster of P2 to summon Gameciel.",
+    expected: "Gameciel appears on the field of P2 (target-controller binding). The same rule holds for the other 6 Kaiju and the Lava cards (MULTIPLAYER_CARD_RULES).",
+  }),
+  all({
+    card: "Gravity Bind", code: 85742772, ruleClass: "U",
+    oneVsOne: "Level 4 or higher monsters cannot attack.",
+    results: { ffa3: "No level 4 or higher monster on any of the 3 fields can attack.", ffa4: "No level 4 or higher monster on any of the 4 fields can attack.", tag: "No level 4 or higher monster on any field can attack. The partner is affected too." },
+    evidence: [ev(85742772, 15, "SetTargetRange(LOCATION_MZONE,LOCATION_MZONE)")],
+    setup: "Each seat controls one level 4 monster. P0 controls Gravity Bind.",
+    action: "Each seat tries to declare an attack on its turn.",
+    expected: "No attack is possible for any seat.",
+  }),
+  all({
+    card: "Burden of the Mighty", code: 44947065, ruleClass: "U",
+    oneVsOne: "Opponent monsters lose 100 ATK for each of their Levels.",
+    results: { ffa3: "The monsters of both opponents lose ATK.", ffa4: "The monsters of all 3 opponents lose ATK.", tag: "The monsters of both opposing members lose ATK. The partner monsters do not." },
+    evidence: [ev(44947065, 15, "SetTargetRange(0,LOCATION_MZONE)"), ev(44947065, 20, "GetLevel()*-100")],
+    setup: "Each other seat controls one level 4 monster with 1800 ATK.",
+    action: "P0 activates Burden of the Mighty.",
+    expected: "Each opponent monster has 1400 ATK. The monster of the partner has 1800 ATK.",
+  }),
+  all({
+    card: "Skill Drain", code: 82732705, ruleClass: "U",
+    oneVsOne: "Pay 1000 LP. Face-up monster effects on the field are negated.",
+    results: { ffa3: "Negates the monsters of all 3 players.", ffa4: "Negates the monsters of all 4 players.", tag: "Negates the monsters of all 4 players. The 1000 LP comes from the shared pool." },
+    evidence: [ev(82732705, 9, "Cost.PayLP(1000)"), ev(82732705, 15, "SetTargetRange(LOCATION_MZONE,LOCATION_MZONE)")],
+    setup: "Each seat controls one effect monster. P0 has Skill Drain set.",
+    action: "P0 activates Skill Drain.",
+    expected: "The effect of each face-up monster is negated. LP of P0 drops by 1000 (Tag: team LP drops by 1000).",
+  }),
+  all({
+    card: "Lightning Vortex", code: 69162969, ruleClass: "U",
+    oneVsOne: "Discard 1 card. Destroys all face-up monsters of the opponent.",
+    results: { ffa3: "Destroys all face-up monsters of both opponents.", ffa4: "Destroys all face-up monsters of all 3 opponents.", tag: "Destroys all face-up monsters of both opposing members." },
+    evidence: [ev(69162969, 21, "IsFaceup,tp,0,LOCATION_MZONE"), ev(69162969, 25, "IsFaceup,tp,0,LOCATION_MZONE")],
+    setup: "Each other seat controls one face-up monster.",
+    action: "P0 discards a card and activates Lightning Vortex.",
+    expected: "All opponent face-up monsters are destroyed.",
+  }),
+  all({
+    card: "Fissure", code: 66788016, ruleClass: "U",
+    oneVsOne: "Destroys the face-up monster of the opponent with the lowest ATK.",
+    results: { ffa3: "Destroys the lowest ATK face-up monster among both opponents (ties: P0 picks).", ffa4: "Destroys the lowest ATK face-up monster among all 3 opponents.", tag: "Destroys the lowest ATK face-up monster among the opposing members." },
+    evidence: [ev(66788016, 15, "IsFaceup,tp,0,LOCATION_MZONE"), ev(66788016, 16, "IsFaceup,tp,0,LOCATION_MZONE")],
+    setup: "P1 controls a monster with 1500 ATK. P2 controls a monster with 1000 ATK.",
+    action: "P0 activates Fissure.",
+    expected: "The monster of P2 is destroyed (lowest ATK in the union).",
+  }),
+  all({
+    card: "Judgment Dragon", code: 57774843, ruleClass: "U",
+    oneVsOne: "Pay 1000 LP to destroy all other cards on the field.",
+    results: { ffa3: "Destroys all other cards of all 3 players.", ffa4: "Destroys all other cards of all 4 players.", tag: "Destroys all other cards of all 4 players, the partner included." },
+    evidence: [ev(57774843, 58, "LOCATION_ONFIELD,LOCATION_ONFIELD"), ev(57774843, 62, "LOCATION_ONFIELD,LOCATION_ONFIELD")],
+    setup: "Each seat controls one monster and one Spell.",
+    action: "P0 activates the effect of Judgment Dragon.",
+    expected: "Every other card on the field goes to the GY.",
+  }),
+  all({
+    card: "Hammer Shot", code: 26412047, ruleClass: "U",
+    oneVsOne: "Destroys the Attack Position monster with the highest ATK on the field.",
+    results: { ffa3: "Looks at all 3 fields.", ffa4: "Looks at all 4 fields.", tag: "Looks at all 4 fields. The monster of the partner can be the target." },
+    evidence: [ev(26412047, 18, "LOCATION_MZONE,LOCATION_MZONE"), ev(26412047, 24, "LOCATION_MZONE,LOCATION_MZONE")],
+    setup: "P0 and P1 control monsters with 2000 and 2500 ATK. P3 controls one with 1800 ATK.",
+    action: "P0 activates Hammer Shot.",
+    expected: "The monster with 2500 ATK is destroyed.",
+  }),
+  all({
+    card: "Jinzo", code: 77585513, ruleClass: "U",
+    oneVsOne: "Negates all Trap cards on the field, their effects and their activations.",
+    results: { ffa3: "Negates the Traps of all 3 players.", ffa4: "Negates the Traps of all 4 players.", tag: "Negates the Traps of all 4 players, the partner included." },
+    evidence: [ev(77585513, 11, "SetTargetRange(LOCATION_HAND|LOCATION_SZONE,LOCATION_HAND|LOCATION_SZONE)")],
+    setup: "P1 has a Trap set. P0 controls Jinzo.",
+    action: "P1 tries to activate the Trap.",
+    expected: "P1 cannot activate the Trap. The partner cannot activate a Trap either.",
+  }),
+  all({
+    card: "Vanity's Emptiness", code: 5851097, ruleClass: "U",
+    oneVsOne: "Neither player can Special Summon.",
+    results: { ffa3: "No player can Special Summon.", ffa4: "No player can Special Summon.", tag: "No player can Special Summon, the partner included." },
+    evidence: [ev(5851097, 17, "SetTargetRange(1,1)")],
+    setup: "P0 controls Vanity's Emptiness.",
+    action: "P1, P2 and P3 try to Special Summon.",
+    expected: "All attempts are illegal.",
+  }),
+  all({
+    card: "Dimensional Fissure", code: 81674782, ruleClass: "U",
+    oneVsOne: "Monsters that leave the field are banished instead.",
+    results: { ffa3: "Applies to all 3 players.", ffa4: "Applies to all 4 players.", tag: "Applies to all 4 players." },
+    evidence: [ev(81674782, 17, "SetTargetRange(0xff,0xff)"), ev(81674782, 26, "SetTargetRange(0xff,0xff)")],
+    setup: "P0 controls Dimensional Fissure. P3 controls one monster.",
+    action: "The monster of P3 is destroyed.",
+    expected: "The monster is banished.",
+  }),
+  all({
+    card: "Macro Cosmos", code: 30241314, ruleClass: "U",
+    oneVsOne: "Cards sent to the GY are banished instead.",
+    results: { ffa3: "Applies to all 3 players.", ffa4: "Applies to all 4 players.", tag: "Applies to all 4 players." },
+    evidence: [ev(30241314, 21, "SetTargetRange(0xff,0xff)")],
+    setup: "P0 controls Macro Cosmos. P2 controls one monster.",
+    action: "The monster of P2 is destroyed.",
+    expected: "The monster is banished.",
+  }),
+  all({
+    card: "Imperial Iron Wall", code: 30459350, ruleClass: "U",
+    oneVsOne: "Neither player can banish cards.",
+    results: { ffa3: "No player can banish cards.", ffa4: "No player can banish cards.", tag: "No player can banish cards." },
+    evidence: [ev(30459350, 17, "SetTargetRange(1,1)"), ev(30459350, 25, "SetTargetRange(1,1)")],
+    setup: "P0 controls Imperial Iron Wall.",
+    action: "P2 tries to banish a card.",
+    expected: "The banish is illegal.",
+  }),
+  all({
+    card: "Anti-Spell Fragrance", code: 58921041, ruleClass: "U",
+    oneVsOne: "Spells must be Set first. A Spell cannot be activated the turn it is Set.",
+    results: { ffa3: "Applies to all 3 players.", ffa4: "Applies to all 4 players.", tag: "Applies to all 4 players." },
+    evidence: [ev(58921041, 16, "SetTargetRange(1,1)")],
+    setup: "P0 controls Anti-Spell Fragrance. P1 has a Spell in hand.",
+    action: "P1 tries to activate the Spell from the hand.",
+    expected: "The activation is illegal. The player can Set it and activate it next turn.",
+  }),
+  all({
+    card: "Royal Decree", code: 51452091, ruleClass: "U",
+    oneVsOne: "Negates all other Trap effects.",
+    results: { ffa3: "Negates the Traps of all 3 players.", ffa4: "Negates the Traps of all 4 players.", tag: "Negates the Traps of all 4 players." },
+    evidence: [ev(51452091, 16, "SetTargetRange(LOCATION_SZONE,LOCATION_SZONE)"), ev(51452091, 31, "SetTargetRange(LOCATION_MZONE,LOCATION_MZONE)")],
+    setup: "P0 controls Royal Decree. P1 activates a Trap.",
+    action: "P1 tries to activate a Trap.",
+    expected: "The Trap effect is negated.",
+  }),
+  all({
+    card: "Kycoo the Ghost Destroyer", code: 88240808, ruleClass: "U",
+    oneVsOne: "Banishes up to 2 cards from the monster zone or GY of the opponent.",
+    results: { ffa3: "P0 picks up to 2 targets from the union of both opponent fields and GYs.", ffa4: "P0 picks up to 2 targets from the union of all 3 opponents.", tag: "P0 picks up to 2 targets from both opposing members." },
+    evidence: [ev(88240808, 22, "SetTargetRange(0,1)"), ev(88240808, 37, "IsExistingTarget(s.filter,tp,0,LOCATION_MZONE|LOCATION_GRAVE")],
+    setup: "P1 has a card in the GY. P2 controls one monster.",
+    action: "P0 activates Kycoo and picks the GY card of P1 and the monster of P2.",
+    expected: "Both targets are banished. The partner cards are not valid targets.",
+  }),
+  all({
+    card: "Reinforcement of the Army", code: 32807846, ruleClass: "U",
+    oneVsOne: "Adds a Warrior monster from the Deck to the hand and shows it to the opponent.",
+    results: { ffa3: "Shows the card to both opponents.", ffa4: "Shows the card to all 3 opponents.", tag: "Shows the card to both opposing members. The partner may see it by the team rule; the ADR leaves this to Layer 3." },
+    evidence: [ev(32807846, 26, "Duel.ConfirmCards(1-tp,g)")],
+    setup: "P0 has a Warrior in the Deck.",
+    action: "P0 activates Reinforcement of the Army.",
+    expected: "All opponents see the added card (ConfirmCards(1-tp) reaches all opponents).",
+  }),
+  all({
+    card: "Royal Tribute", code: 72405967, ruleClass: "O",
+    oneVsOne: "If you control Necrovalley, both players discard any monsters in their hands.",
+    results: { ffa3: "Both opponents discard the monsters in their hand. P0 discards theirs too (owner decision 2026-10-01).", ffa4: "All 3 opponents discard the monsters in their hand. P0 discards theirs too.", tag: "Both opposing members discard the monsters in their hand. P0 discards theirs too. The partner discards too: 'both players' means every duelist, the partner included (R-COMMON-EACH-PLAYER, owner decision 2026-10-01)." },
+    evidence: [ev(72405967, 22, "GetMatchingGroup(Card.IsMonster,tp,LOCATION_HAND,LOCATION_HAND")],
+    setup: "P0 controls Necrovalley. Each other seat holds one monster and one Spell.",
+    action: "P0 activates Royal Tribute.",
+    expected: "Every monster in every hand goes to the GY. The Spells stay in the hands. There is no opponent pick.",
+  }),
+];
+
+/** Group (b): the effect touches ONE opponent. `binding` names the source (spec 4.2). */
+export const GROUP_ONE: CatalogScenario[] = [
+  one({
+    card: "Mind Crush", code: 15800838, ruleClass: "U", binding: "explicit-pick",
+    oneVsOne: "Name a card. If the opponent has it in hand, they discard all copies. If not, you discard 1 card at random.",
+    results: { ffa3: "P0 picks one opponent. Only that hand is read.", ffa4: "P0 picks one of 3 opponents.", tag: "P0 picks one opposing member. The partner hand is never read." },
+    evidence: [ev(15800838, 16, "GetFieldGroupCount(tp,0,LOCATION_HAND)"), ev(15800838, 26, "0,LOCATION_HAND"), ev(15800838, 30, "GetFieldGroup(tp,LOCATION_HAND,0)")],
+    setup: "P1 and P2 hold different cards. P0 names a card in the hand of P2.",
+    action: "P0 activates Mind Crush and picks P2.",
+    expected: "P2 discards every copy. P1 is not affected.",
+  }),
+  one({
+    card: "Snatch Steal", code: 45986603, ruleClass: "O", binding: "target-controller",
+    oneVsOne: "Take control of a monster. The opponent recovers 1000 LP each Standby Phase.",
+    results: { ffa3: "The owner of the monster gains the LP, in the own Standby Phase of that owner (owner decision 2026-10-01). No other opponent gains LP.", ffa4: "Same as 3-FFA.", tag: "The owner of the monster (an opposing member) gains the LP, in the Standby Phase of the own duelist turn of that owner. The team LP gains." },
+    evidence: [ev(45986603, 33, "IsTurnPlayer(1-tp)"), ev(45986603, 37, "SetTargetPlayer(1-tp)"), ev(45986603, 39, "CATEGORY_RECOVER")],
+    setup: "P1 controls a monster. P0 equips Snatch Steal and takes control of it.",
+    action: "Advance to the Standby Phase of each opponent.",
+    expected: "P1 owns the monster. P1 gains 1000 LP in the Standby Phase of P1. P2 has a Standby Phase and P1 gains nothing then. Tag: the team of P1 gains 1000 LP.",
+  }),
+  one({
+    card: "Change of Heart", code: 4031928, ruleClass: "C", binding: "target-controller",
+    oneVsOne: "Target 1 monster of the opponent. Take control until the End Phase.",
+    results: { ffa3: "P0 targets a monster of any opponent. Control returns to the original controller.", ffa4: "Same as 3-FFA.", tag: "P0 targets a monster of an opposing member. It moves to the field of P0." },
+    evidence: [ev(4031928, 16, "IsControler(1-tp)"), ev(4031928, 25, "GetControl(tc,tp,PHASE_END,1)")],
+    setup: "P1 and P2 each control one monster.",
+    action: "P0 targets the monster of P2.",
+    expected: "The monster is on the field of P0 until the End Phase, then returns to P2.",
+  }),
+  one({
+    card: "Mind Control", code: 37520316, ruleClass: "C", binding: "target-controller",
+    oneVsOne: "Target 1 monster of the opponent. Take control until the End Phase. It cannot attack.",
+    results: { ffa3: "P0 targets a monster of any opponent.", ffa4: "Same as 3-FFA.", tag: "P0 targets a monster of an opposing member." },
+    evidence: [ev(37520316, 16, "GetControler()~=tp"), ev(37520316, 25, "GetControl(tc,tp,PHASE_END,1)")],
+    setup: "P3 controls one monster.",
+    action: "P0 targets the monster of P3.",
+    expected: "The monster is on the field of P0 until the End Phase and cannot attack.",
+  }),
+  one({
+    card: "Brain Control", code: 87910978, ruleClass: "C", binding: "target-controller",
+    oneVsOne: "Pay 800 LP. Take control of a monster until the End Phase.",
+    results: { ffa3: "P0 targets a monster of any opponent.", ffa4: "Same as 3-FFA.", tag: "P0 targets a monster of an opposing member. The 800 LP comes from the shared pool." },
+    evidence: [ev(87910978, 23, "SelectTarget(tp,s.filter,tp,0,LOCATION_MZONE"), ev(87910978, 29, "GetControl(tc,tp,PHASE_END,1)")],
+    setup: "P2 controls one monster.",
+    action: "P0 targets the monster of P2.",
+    expected: "The monster is on the field of P0 until the End Phase.",
+  }),
+  one({
+    card: "Enemy Controller", code: 98045062, ruleClass: "C", binding: "target-controller",
+    oneVsOne: "Change an opponent monster position, or Tribute 1 monster to take control of one.",
+    results: { ffa3: "P0 targets a monster of any opponent.", ffa4: "Same as 3-FFA.", tag: "P0 targets a monster of an opposing member." },
+    evidence: [ev(98045062, 60, "IsControlerCanBeChanged"), ev(98045062, 73, "GetControl")],
+    setup: "P1 controls one face-up monster. P0 controls one monster.",
+    action: "P0 activates the control option and targets the monster of P1.",
+    expected: "P0 gets control of the monster of P1 until the End Phase.",
+  }),
+  one({
+    card: "Ookazi", code: 19523799, ruleClass: "U", binding: "explicit-pick",
+    oneVsOne: "Inflicts 800 damage to the opponent.",
+    results: { ffa3: "P0 picks one opponent. Only that player takes damage.", ffa4: "P0 picks one of 3 opponents.", tag: "Damage to the shared LP of the opposing team." },
+    evidence: [ev(19523799, 17, "SetTargetPlayer(1-tp)"), ev(19523799, 18, "SetTargetParam(800)")],
+    setup: "All players at full LP.",
+    action: "P0 activates Ookazi and picks P3.",
+    expected: "P3 has 7200 LP. Others are unchanged. Tag: the opposing team has 15200 LP.",
+  }),
+  one({
+    card: "Hinotama", code: 46130346, ruleClass: "U", binding: "explicit-pick",
+    oneVsOne: "Inflicts 500 damage to the opponent.",
+    results: { ffa3: "P0 picks one opponent.", ffa4: "P0 picks one of 3 opponents.", tag: "Damage to the shared LP of the opposing team." },
+    evidence: [ev(46130346, 17, "SetTargetPlayer(1-tp)"), ev(46130346, 18, "SetTargetParam(500)")],
+    setup: "All players at full LP.",
+    action: "P0 activates Hinotama and picks P1.",
+    expected: "P1 has 7500 LP. Others are unchanged.",
+  }),
+  one({
+    card: "Final Flame", code: 73134081, ruleClass: "U", binding: "explicit-pick",
+    oneVsOne: "Inflicts 600 damage to the opponent. Requires a Pyro monster.",
+    results: { ffa3: "P0 picks one opponent.", ffa4: "P0 picks one of 3 opponents.", tag: "Damage to the shared LP of the opposing team." },
+    evidence: [ev(73134081, 17, "SetTargetPlayer(1-tp)"), ev(73134081, 19, "CATEGORY_DAMAGE")],
+    setup: "P0 controls a Fire monster. All players at full LP.",
+    action: "P0 activates Final Flame and picks P2.",
+    expected: "P2 has 7400 LP.",
+  }),
+  one({
+    card: "Thestalos the Firestorm Monarch", code: 26205777, ruleClass: "U", binding: "explicit-pick",
+    oneVsOne: "When Tribute Summoned, the opponent discards 1 random card. Damage equals 100 times its Level.",
+    results: { ffa3: "P0 picks one opponent. Only that hand is used.", ffa4: "P0 picks one of 3 opponents.", tag: "P0 picks one opposing member." },
+    evidence: [ev(26205777, 24, "GetFieldGroup(tp,0,LOCATION_HAND)"), ev(26205777, 30, "Duel.Damage(1-tp")],
+    setup: "P1 and P2 hold 3 cards each.",
+    action: "P0 Tribute Summons Thestalos and picks P1.",
+    expected: "P1 discards 1 random card and takes damage. P2 is unchanged.",
+  }),
+  one({
+    card: "Don Zaloog", code: 76922029, ruleClass: "U", binding: "event-opponent",
+    oneVsOne: "When it damages the opponent by attack, choose: discard 1 random card, or send 2 cards from the Deck to the GY.",
+    results: { ffa3: "The player who took the damage is the target.", ffa4: "Same as 3-FFA.", tag: "The opposing member who took the damage." },
+    evidence: [ev(76922029, 10, "ep==1-tp"), ev(76922029, 34, "GetFieldGroup(tp,0,LOCATION_HAND"), ev(76922029, 40, "DiscardDeck(1-tp,2")],
+    setup: "P0 attacks P2 directly with Don Zaloog.",
+    action: "The battle damage step ends.",
+    expected: "The effect affects P2 only (event opponent). P1 is unchanged.",
+  }),
+  one({
+    card: "Dark Bribe", code: 77538567, ruleClass: "U", binding: "event-opponent",
+    oneVsOne: "Negate an opponent Spell or Trap. That opponent draws 1 card.",
+    results: { ffa3: "The player who activated the negated card draws.", ffa4: "Same as 3-FFA.", tag: "The opposing member who activated the card draws." },
+    evidence: [ev(77538567, 19, "IsPlayerCanDraw(1-tp,1)"), ev(77538567, 27, "NegateActivation(ev)"), ev(77538567, 30, "Duel.Draw(1-tp,1")],
+    setup: "P2 activates a Spell. P0 has Dark Bribe set.",
+    action: "P0 activates Dark Bribe in response.",
+    expected: "The Spell is negated. P2 draws 1 card. P1 draws nothing.",
+  }),
+  one({
+    card: "Soul Taker", code: 81510157, ruleClass: "U", binding: "target-controller",
+    oneVsOne: "Destroy 1 monster of the opponent. The opponent gains 1000 LP.",
+    results: { ffa3: "The controller of the target gains 1000 LP.", ffa4: "Same as 3-FFA.", tag: "The shared LP of the opposing team gains 1000." },
+    evidence: [ev(81510157, 22, "SelectTarget(tp,Card.IsFaceup,tp,0,LOCATION_MZONE"), ev(81510157, 30, "Duel.Recover(1-tp,1000")],
+    setup: "P1 and P2 control one monster each.",
+    action: "P0 targets the monster of P2.",
+    expected: "The monster is destroyed. P2 gains 1000 LP. P1 is unchanged.",
+  }),
+  one({
+    card: "Sakuretsu Armor", code: 56120475, ruleClass: "C", binding: "event-opponent",
+    oneVsOne: "When an opponent monster attacks, destroy the attacking monster.",
+    results: { ffa3: "Works against the attacker of any opponent.", ffa4: "Same as 3-FFA.", tag: "Works against an attacker of an opposing member." },
+    evidence: [ev(56120475, 17, "IsTurnPlayer(1-tp)")],
+    setup: "P0 has Sakuretsu Armor set. P1 attacks with one monster.",
+    action: "P0 activates Sakuretsu Armor.",
+    expected: "The attacker of P1 is destroyed.",
+  }),
+  one({
+    card: "Dimensional Prison", code: 70342110, ruleClass: "C", binding: "event-opponent",
+    oneVsOne: "When an opponent monster attacks, banish the attacker.",
+    results: { ffa3: "Works against the attacker of any opponent.", ffa4: "Same as 3-FFA.", tag: "Works against an attacker of an opposing member." },
+    evidence: [ev(70342110, 17, "IsTurnPlayer(1-tp)")],
+    setup: "P0 has Dimensional Prison set. P3 attacks with one monster.",
+    action: "P0 activates Dimensional Prison.",
+    expected: "The attacker of P3 is banished.",
+  }),
+  one({
+    card: "Infinite Impermanence", code: 10045474, ruleClass: "U", binding: "target-controller",
+    oneVsOne: "Negate the effects of 1 face-up monster of the opponent.",
+    results: { ffa3: "P0 targets a monster of any opponent.", ffa4: "Same as 3-FFA.", tag: "P0 targets a monster of an opposing member." },
+    evidence: [ev(10045474, 24, "IsControler(1-tp)"), ev(10045474, 28, "SelectTarget(tp,Card.IsNegatableMonster")],
+    setup: "P1 and P2 control one effect monster each.",
+    action: "P0 targets the monster of P2.",
+    expected: "The effects of the monster of P2 are negated.",
+  }),
+  one({
+    card: "Dust Tornado", code: 60082869, ruleClass: "U", binding: "target-controller",
+    oneVsOne: "Destroy 1 Spell or Trap of the opponent. You may Set 1 Spell or Trap from your hand.",
+    results: { ffa3: "P0 targets a card of any opponent.", ffa4: "Same as 3-FFA.", tag: "P0 targets a card of an opposing member." },
+    evidence: [ev(60082869, 21, "0,LOCATION_ONFIELD"), ev(60082869, 23, "SelectTarget(tp,s.filter,tp,0,LOCATION_ONFIELD")],
+    setup: "P1 and P3 control one Trap each.",
+    action: "P0 targets the Trap of P3.",
+    expected: "The Trap of P3 is destroyed. P1 is unchanged.",
+  }),
+  one({
+    card: "Stop Defense", code: 63102017, ruleClass: "U", binding: "target-controller",
+    oneVsOne: "Change 1 Defense Position monster of the opponent to Attack Position.",
+    results: { ffa3: "P0 targets a monster of any opponent.", ffa4: "Same as 3-FFA.", tag: "P0 targets a monster of an opposing member." },
+    evidence: [ev(63102017, 16, "IsControler(1-tp)"), ev(63102017, 19, "SelectTarget(tp,Card.IsDefensePos,tp,0,LOCATION_MZONE")],
+    setup: "P2 controls a Defense Position monster.",
+    action: "P0 targets it.",
+    expected: "The monster changes to Attack Position.",
+  }),
+  one({
+    card: "Effect Veiler", code: 97268402, ruleClass: "C", binding: "target-controller",
+    oneVsOne: "During the opponent Main Phase, negate the effects of 1 face-up monster of the opponent.",
+    results: { ffa3: "Works in the Main Phase of any opponent.", ffa4: "Same as 3-FFA.", tag: "Works in the Main Phase of an opposing member." },
+    evidence: [ev(97268402, 22, "IsTurnPlayer(1-tp)"), ev(97268402, 31, "SelectTarget(tp,s.filter,tp,0,LOCATION_MZONE")],
+    setup: "It is the Main Phase of P2. P0 holds Effect Veiler. P2 controls one effect monster.",
+    action: "P0 discards Effect Veiler and targets the monster of P2.",
+    expected: "The effects of that monster are negated. The condition is true for P1, P2 and P3 turns.",
+  }),
+  one({
+    card: "Confiscation", code: 17375316, ruleClass: "U", binding: "explicit-pick",
+    oneVsOne: "Pay 1000 LP. Look at the opponent hand and discard 1 card.",
+    results: { ffa3: "P0 picks one opponent. Only that hand is shown.", ffa4: "P0 picks one of 3 opponents.", tag: "P0 picks one opposing member. The LP cost is paid from the shared pool." },
+    evidence: [ev(17375316, 11, "Cost.PayLP(1000)"), ev(17375316, 17, "GetFieldGroupCount(tp,0,LOCATION_HAND)"), ev(17375316, 23, "GetFieldGroup(p,0,LOCATION_HAND)")],
+    setup: "P1 and P2 hold cards.",
+    action: "P0 activates Confiscation and picks P1.",
+    expected: "P0 sees only the hand of P1 and discards one card from it.",
+  }),
+  one({
+    card: "Delinquent Duo", code: 44763025, ruleClass: "U", binding: "explicit-pick",
+    oneVsOne: "Pay 1000 LP. The opponent discards 1 random card and 1 card of their choice.",
+    results: { ffa3: "P0 picks one opponent. That player chooses the second discard.", ffa4: "P0 picks one of 3 opponents.", tag: "P0 picks one opposing member." },
+    evidence: [ev(44763025, 11, "Cost.PayLP(1000)"), ev(44763025, 25, "g:RandomSelect(p,1)"), ev(44763025, 30, "g:Select(1-p,1,1,nil)")],
+    setup: "P1 holds 3 cards. P2 holds 3 cards.",
+    action: "P0 activates Delinquent Duo and picks P2.",
+    expected: "P2 discards one random card and one chosen card. P1 is unchanged.",
+  }),
+  one({
+    card: "Monster Reborn", code: 83764718, ruleClass: "C", binding: "target-controller",
+    oneVsOne: "Special Summon 1 monster from either GY.",
+    results: { ffa3: "P0 picks from the union of all GYs. No opponent pick. The monster goes to the field of P0.", ffa4: "Same as 3-FFA.", tag: "The union of all GYs. The monster goes to the field of P0 (Tag: P0 or the partner by the summon rules)." },
+    evidence: [ev(83764718, 21, "LOCATION_GRAVE,LOCATION_GRAVE"), ev(83764718, 23, "SelectTarget(tp,s.filter,tp,LOCATION_GRAVE,LOCATION_GRAVE"), ev(83764718, 29, "SpecialSummon(tc,SUMMON_WITH_MONSTER_REBORN,tp,tp")],
+    setup: "P1 and P3 have one monster in the GY each.",
+    action: "P0 activates Monster Reborn and picks the monster of P3.",
+    expected: "The monster of P3 is on the field of P0. The GY is a field-class query, so the card picked is the choice.",
+  }),
+  one({
+    card: "Maxx \"C\"", code: 23434538, ruleClass: "U", binding: "event-opponent",
+    oneVsOne: "When the opponent Special Summons, draw 1 card for each summon.",
+    results: { ffa3: "Triggers on a summon by any opponent. P0 draws for himself.", ffa4: "Same as 3-FFA.", tag: "Triggers on a summon by an opposing member. A summon by the partner does not trigger it." },
+    evidence: [ev(23434538, 48, "eg:IsExists(s.filter,1,nil,1-tp)"), ev(23434538, 52, "Duel.Draw(tp,1"), ev(23434538, 67, "Duel.Draw(tp,n")],
+    setup: "P0 has Maxx \"C\" in hand. P1 Special Summons a monster.",
+    action: "P0 activates Maxx \"C\".",
+    expected: "P0 draws 1 card. The same test with a summon by the partner does not trigger the card.",
+  }),
+  one({
+    card: "Ojama Trio", code: 29843091, ruleClass: "O", binding: "explicit-pick",
+    oneVsOne: "Special Summon 3 Ojama Tokens to the field of the opponent. Damage 300 when each token leaves.",
+    results: { ffa3: "P0 picks one opponent. The tokens go to that field. The damage goes to the previous controller.", ffa4: "P0 picks one of 3 opponents.", tag: "P0 picks one opposing member. The tokens go to that field (3 empty zones)." },
+    evidence: [ev(29843091, 17, "GetLocationCount(1-tp,LOCATION_MZONE,tp)>2"), ev(29843091, 27, "SpecialSummonStep(token,0,tp,1-tp"), ev(29843091, 50, "Duel.Damage(c:GetPreviousControler(),300")],
+    setup: "P1 and P2 have 3 empty monster zones.",
+    action: "P0 activates Ojama Trio and picks P2.",
+    expected: "P2 controls 3 Ojama Tokens. When one is destroyed, P2 takes 300 damage.",
+  }),
+  one({
+    card: "Ash Blossom & Joyous Spring", code: 14558127, ruleClass: "C", binding: "event-opponent",
+    oneVsOne: "Negates a card effect that searches, adds from the Deck or sends from the Deck. It can negate an effect of the owner.",
+    results: {
+      ffa3: "Can negate an effect of any duelist, P0 included. The script has no check for the activating player.",
+      ffa4: "Same as 3-FFA.",
+      tag: "Cannot negate an effect of the partner (core rule, spec 1.3 requirement 3). Can negate an effect of an opposing member or of P0.",
+    },
+    evidence: [ev(14558127, 8, "SetCategory(CATEGORY_DISABLE)"), ev(14558127, 10, "SetCode(EVENT_CHAINING)"), ev(14558127, 32, "function s.discon(e,tp,eg,ep,ev,re,r,rp)")],
+    setup: "P2 activates a card that searches. P0 holds Ash Blossom.",
+    action: "P0 tries to activate Ash Blossom in response.",
+    expected: "FFA: the effect of P2 is negated. Tag: P2 is the partner, so Ash Blossom cannot be activated. A search by P1 can be negated at all tables.",
+  }),
+  one({
+    card: "Solemn Judgment", code: 41420027, ruleClass: "C", binding: "event-opponent",
+    oneVsOne: "Pay half your LP. Negate a summon, or the activation of a Spell or Trap Card, and destroy that card. It can negate a summon or activation of the owner.",
+    results: {
+      ffa3: "Can negate a summon or activation of any duelist, P0 included. The script has no player check.",
+      ffa4: "Same as 3-FFA.",
+      tag: "Cannot negate a summon or activation of the partner (core rule, spec 1.3 requirement 3). Can negate one of an opposing member or of P0. The cost is half of the team LP (spec R7).",
+    },
+    evidence: [
+      ev(41420027, 7, "SetCategory(CATEGORY_DISABLE_SUMMON+CATEGORY_DESTROY)"),
+      ev(41420027, 23, "SetCategory(CATEGORY_NEGATE+CATEGORY_DESTROY)"),
+      ev(41420027, 33, "return Duel.GetCurrentChain(true)==0"),
+      ev(41420027, 37, "Duel.PayLPCost(tp,math.floor(Duel.GetLP(tp)/2))"),
+      ev(41420027, 49, "return re:IsHasType(EFFECT_TYPE_ACTIVATE) and Duel.IsChainNegatable(ev)"),
+    ],
+    setup: "P0 has Solemn Judgment set. P2 Normal Summons a monster. Later P1 Normal Summons a monster.",
+    action: "P0 tries to activate Solemn Judgment on each summon.",
+    expected: "FFA: P0 can negate both summons. Tag: P2 is the partner, so Solemn Judgment cannot be activated on the summon of P2. It negates the summon of P1, and the team LP goes from 16000 to 8000.",
+  }),
+  one({
+    card: "Card of Safe Return", code: 57953380, ruleClass: "U", binding: "explicit-pick",
+    oneVsOne: "If a monster is Special Summoned from your GY, draw 1 card.",
+    results: { ffa3: "Only for summons from the own GY. No opponent is involved.", ffa4: "Same as 3-FFA.", tag: "Only for summons from the own GY. A summon from the partner GY does not count." },
+    evidence: [ev(57953380, 24, "IsPreviousControler(tp)"), ev(57953380, 27, "eg:IsExists(s.gfilter,1,nil,tp)")],
+    setup: "P0 controls Card of Safe Return and has one monster in the GY.",
+    action: "P0 summons the monster from the GY.",
+    expected: "P0 draws 1 card. A summon from the GY of the partner gives no draw.",
+  }),
+  one({
+    card: "Trap Dustshoot", code: 64697231, ruleClass: "U", binding: "explicit-pick",
+    oneVsOne: "If the opponent has 4 or more cards in hand, look at it and send 1 Monster to the Deck.",
+    results: { ffa3: "P0 picks one opponent with 4 or more cards.", ffa4: "P0 picks one of 3 opponents.", tag: "P0 picks one opposing member." },
+    evidence: [ev(64697231, 22, "SetTargetPlayer(tp)"), ev(64697231, 26, "GetFieldGroup(p,0,LOCATION_HAND)")],
+    setup: "P1 holds 5 cards. P2 holds 3 cards.",
+    action: "P0 activates Trap Dustshoot.",
+    expected: "Only P1 is a valid pick.",
+  }),
+  one({
+    card: "Soul Exchange", code: 68005187, ruleClass: "C", binding: "target-controller",
+    oneVsOne: "Target 1 monster the opponent controls. This turn, you may Tribute that monster as if you controlled it. No Battle Phase.",
+    results: { ffa3: "P0 targets a monster of any opponent (owner decision 2026-10-01).", ffa4: "Same as 3-FFA.", tag: "P0 targets a monster of an opposing member. The partner monsters are not valid targets." },
+    evidence: [ev(68005187, 35, "IsControler(1-tp)"), ev(68005187, 45, "EFFECT_EXTRA_RELEASE")],
+    setup: "P1 and P2 control one monster each. P0 holds a monster that needs a Tribute.",
+    action: "P0 activates Soul Exchange on the monster of P2 and Tribute Summons using it.",
+    expected: "The monster of P2 is Tributed. P1 is unchanged.",
+  }),
+  one({
+    card: "Lava Golem", code: 102380, ruleClass: "O", binding: "target-controller",
+    oneVsOne: "Special Summon from the hand to the field of the opponent by Tributing 2 monsters they control.",
+    results: { ffa3: "P0 Tributes 2 monsters of the same opponent. Lava Golem goes to the field of that opponent (owner decision 2026-10-01).", ffa4: "Same as 3-FFA.", tag: "P0 Tributes 2 monsters of the same opposing member. Lava Golem goes to the field of that member." },
+    evidence: [{ file: "official/c102380.lua", line: 7, token: "aux.AddLavaProcedure(c,2" }, { file: "cards_specific_functions.lua", line: 356, token: "Duel.GetMZoneCount(1-tp,sg,tp)>0" }, { file: "cards_specific_functions.lua", line: 362, token: "0,LOCATION_MZONE" }],
+    setup: "P1 controls one monster. P2 controls two monsters. P0 has Lava Golem in hand.",
+    action: "P0 tries to summon Lava Golem by Tributing the monster of P1 and one monster of P2.",
+    expected: "The summon is illegal. P0 Tributes the 2 monsters of P2 instead and Lava Golem appears on the field of P2.",
+  }),
+  one({
+    card: "Ring of Destruction", code: 83555666, ruleClass: "O", binding: "target-controller", forbidden: true,
+    oneVsOne: "Destroy a monster. Both players take damage equal to its ATK.",
+    results: { ffa3: "Forbidden. Test of a future override: damage to P0 and to the controller of the target only.", ffa4: "Forbidden. Same as 3-FFA.", tag: "Not forbidden in Tag." },
+    evidence: [ev(83555666, 19, "IsTurnPlayer(1-tp)"), ev(83555666, 25, "Duel.GetLP(1-tp)"), ev(83555666, 41, "Duel.Damage(1-tp,val")],
+    formats: ["ffa3", "ffa4"],
+    setup: "P1 controls a monster with 1000 ATK.",
+    action: "P0 activates Ring of Destruction on it.",
+    expected: "PENDING: no override exists. The card is on the forbidden list.",
+  }),
+  one({
+    card: "Creature Swap", code: 31036355, ruleClass: "O", binding: "explicit-pick", forbidden: true,
+    oneVsOne: "Each player picks 1 monster. The players swap control of them.",
+    results: { ffa3: "Forbidden. Test of a future override: swap with the one picked opponent.", ffa4: "Forbidden. Same as 3-FFA.", tag: "Not forbidden in Tag." },
+    evidence: [ev(31036355, 28, "SelectMatchingCard(tp,s.filter,tp,LOCATION_MZONE,0,1,1,nil)"), ev(31036355, 31, "SelectMatchingCard(1-tp"), ev(31036355, 35, "SwapControl(c1,c2,0,0)")],
+    formats: ["ffa3", "ffa4"],
+    setup: "P0 and P1 control one monster each.",
+    action: "P0 activates Creature Swap.",
+    expected: "PENDING: no override exists. The card is on the forbidden list.",
+  }),
+  one({
+    card: "Evenly Matched", code: 15693423, ruleClass: "O", binding: "explicit-pick",
+    oneVsOne: "Destroys opponent cards until they control as many as you.",
+    results: {
+      ffa3: "P0 picks one opponent when P0 activates it. The card compares P0 with that opponent only, and only the cards of that opponent are banished. That opponent chooses their own cards (owner decision 2026-10-01). The other opponent is not affected.",
+      ffa4: "Same as 3-FFA. The other 2 opponents are not affected.",
+      tag: "The fields of the two opposing members are joined. The count uses the cards of both opposing members together against the cards of the own team. The opposing team chooses from its joined field.",
+    },
+    evidence: [ev(15693423, 28, "GetFieldGroup(tp,0,LOCATION_ONFIELD)"), ev(15693423, 38, "#g-Duel.GetFieldGroupCount(tp,LOCATION_ONFIELD,0)")],
+    setup: "P0 controls 1 card. P1 controls 3 cards. P2 controls 3 cards.",
+    action: "P0 activates Evenly Matched and picks P1.",
+    expected: "P0 (1 card) is compared with P1 (3 cards) only. P1 chooses 2 of their own cards and they are banished face-down. P2 is not affected. Tag: the 2 opposing members are joined, and the opposing team chooses the cards to banish from its joined field.",
+  }),
+  one({
+    card: "Pineapple Blast", code: 90669991, ruleClass: "O", binding: "explicit-pick",
+    oneVsOne: "If the opponent has more monsters, destroys monsters of the opponent until the counts match.",
+    results: {
+      ffa3: "P0 picks one opponent when P0 activates it. The card compares P0 with that opponent only, and only the monsters of that opponent are destroyed. That opponent chooses their own monsters (owner decision 2026-10-01). The other opponent is not affected.",
+      ffa4: "Same as 3-FFA. The other 2 opponents are not affected.",
+      tag: "The fields of the two opposing members are joined. The count uses the monsters of both opposing members together against the monsters of the own team. The opposing team chooses from its joined field.",
+    },
+    evidence: [ev(90669991, 17, "ep==tp"), ev(90669991, 30, "g:Select(1-tp")],
+    setup: "P0 controls 1 monster. P1 controls 3 monsters. P2 controls 3 monsters.",
+    action: "P0 activates Pineapple Blast after an opponent Special Summon and picks P1.",
+    expected: "P0 (1 monster) is compared with P1 (3 monsters) only. P1 keeps 1 monster of their choice and the other 2 are destroyed. P2 is not affected. Tag: the 2 opposing members are joined, and the opposing team chooses the monsters from its joined field.",
+  }),
+];
+
+/** Script evidence for the forbidden list (group c). The key is the passcode. */
+export const FORBIDDEN_EVIDENCE: Record<number, Evidence[]> = {
+  74519184: [ev(74519184, 16, "GetFieldGroupCount(tp,LOCATION_HAND,0)"), ev(74519184, 28, "Duel.GetTurnPlayer()"), ev(74519184, 39, "Duel.Draw(turnp,2")],
+  72892473: [ev(72892473, 18, "GetFieldGroupCount(tp,0,LOCATION_HAND)"), ev(72892473, 27, "GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)")],
+  33508719: [ev(33508719, 19, "GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"), ev(33508719, 23, "Duel.Draw(1-tp,5")],
+  14057297: [ev(14057297, 21, "GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)"), ev(14057297, 44, "Duel.Draw(tp,5")],
+  17484499: [ev(17484499, 15, "SwapDeckAndGrave(turn_player)"), ev(17484499, 16, "SwapDeckAndGrave(1-turn_player)")],
+  82301904: [ev(82301904, 96, "LOCATION_HAND|LOCATION_ONFIELD,LOCATION_HAND|LOCATION_ONFIELD"), ev(82301904, 105, "LOCATION_HAND|LOCATION_ONFIELD,LOCATION_HAND|LOCATION_ONFIELD")],
+  35059553: [ev(35059553, 16, "SetTargetRange(0,1)"), ev(35059553, 30, "GetFieldGroupCount(e:GetHandlerPlayer(),LOCATION_MZONE,0)")],
+  98139712: [ev(98139712, 19, "c:GetOwner()==1-tp"), ev(98139712, 27, "Duel.Damage(1-tp,d1")],
+  83555666: [ev(83555666, 25, "Duel.GetLP(1-tp)"), ev(83555666, 41, "Duel.Damage(1-tp,val")],
+  72302403: [ev(72302403, 41, "RESET_OPPO_TURN,3"), ev(72302403, 63, "IsTurnPlayer(1-tp)")],
+  22804644: [ev(22804644, 48, "RESET_OPPO_TURN,3"), ev(22804644, 56, "RESET_OPPO_TURN,3")],
+  21208154: [ev(21208154, 62, "RESET_OPPO_TURN,2"), ev(21208154, 71, "RESET_OPPO_TURN,2")],
+  22888900: [ev(22888900, 28, "RESET_OPPO_TURN,2"), ev(22888900, 45, "RESET_OPPO_TURN,2")],
+  23746827: [ev(23746827, 48, "RESET_OPPO_TURN,2")],
+  18326736: [ev(18326736, 73, "EFFECT_SKIP_TURN")],
+  23846921: [ev(23846921, 76, "EFFECT_SKIP_TURN")],
+  37313786: [ev(37313786, 33, "EFFECT_SKIP_TURN")],
+  6357341: [ev(6357341, 28, "EFFECT_SKIP_TURN")],
+  92182447: [ev(92182447, 52, "EFFECT_SKIP_TURN")],
+  33396948: [ev(33396948, 34, "GetFieldGroup(tp,LOCATION_HAND,0)"), ev(33396948, 40, "Duel.Win(tp,WIN_REASON_EXODIA)")],
+  95308449: [ev(95308449, 12, "aux.GlobalCheck"), ev(95308449, 39, "tp==c:GetOwner()")],
+  28566710: [ev(28566710, 64, "Duel.Win(0,WIN_REASON_LAST_TURN)"), ev(28566710, 66, "Duel.Win(1,WIN_REASON_LAST_TURN)")],
+  27204311: [ev(27204311, 34, "RegisterFlagEffect(tc:GetSummonPlayer()"), ev(27204311, 38, "GetFlagEffect(1-tp,id)>=5")],
+  94145021: [ev(94145021, 17, "aux.GlobalCheck"), ev(94145021, 42, "ev==1-tp or ev==PLAYER_ALL")],
+  57728570: [ev(57728570, 43, "GetFieldGroup(tp,0,LOCATION_MZONE|LOCATION_HAND)"), ev(57728570, 52, "SelectYesNo(1-tp")],
+  31036355: [ev(31036355, 31, "SelectMatchingCard(1-tp"), ev(31036355, 35, "SwapControl(c1,c2,0,0)")],
+  15305240: [ev(15305240, 30, "SelectMatchingCard(1-tp"), ev(15305240, 34, "SwapControl(c1,c2,0,0)")],
+  30426226: [ev(30426226, 19, "GetFieldGroup(tp,LOCATION_MZONE,LOCATION_MZONE)"), ev(30426226, 29, "SwapControl(g1,g2)")],
+  13532663: [ev(13532663, 25, "SelectMatchingCard(1-tp"), ev(13532663, 26, "SwapControl(c,g:GetFirst(),0,0)")],
+  17178486: [ev(17178486, 18, "Duel.SetLP(1-tp,3000)")],
+  37984331: [ev(37984331, 23, "Duel.Win(1-c:GetControler()")],
+  42776960: [ev(42776960, 56, "Duel.Win(e:GetLabel()")],
+  13893596: [ev(13893596, 75, "Duel.Win(tp,WIN_REASON_EXODIUS)")],
+  10000040: [ev(10000040, 29, "Duel.Win(e:GetHandler():GetSummonPlayer()")],
+  15862758: [ev(15862758, 71, "Duel.Win(tp,WIN_REASON_NUMBER_iC1000)")],
+  5008836: [ev(5008836, 50, "Duel.Win(tp,WIN_REASON_EXODIA_DEFENDER)")],
+  53334641: [ev(53334641, 47, "Duel.Win(tp,WIN_REASON_GHOSTRICK_MISCHIEF)")],
+  6165656: [ev(6165656, 84, "Duel.Win(tp,WIN_REASON_DISASTER_LEO)")],
+  66765023: [ev(66765023, 50, "Duel.Win(tp,WIN_REASON_FLYING_ELEPHANT)")],
+  69553552: [ev(69553552, 61, "Duel.Win(tp,WIN_REASON_FA_WINNERS)")],
+  77751766: [ev(77751766, 58, "Duel.Win(tp,WIN_REASON_SUMMER_SCHOOLWORK)")],
+  8062132: [ev(8062132, 105, "Duel.Win(tp,WIN_REASON_VENNOMINAGA)")],
+  81171949: [ev(81171949, 52, "Duel.Win(tp,WIN_REASON_JACKPOT7)")],
+  94212438: [ev(94212438, 122, "Duel.Win(tp,WIN_REASON_DESTINY_BOARD)")],
+  96637156: [ev(96637156, 57, "Duel.Win(tp,WIN_REASON_MUSICAL_SUMO)")],
+  97795930: [ev(97795930, 77, "Duel.Win(tp,WIN_REASON_PHANTASM_SPIRAL)")],
+  48995978: [ev(48995978, 58, "Duel.Win(tp,WIN_REASON_PUPPET_LEO)")],
+};
+
+/** Lines of the shared Kaiju and Lava procedure in cards_specific_functions.lua (the card goes to the field of the player whose monster was Tributed). */
+const lavaCore: Evidence[] = [
+  { file: "cards_specific_functions.lua", line: 347, token: "SetTargetRange(position,1)" },
+  { file: "cards_specific_functions.lua", line: 362, token: "0,LOCATION_MZONE" },
+];
+
+/** Script evidence for the per-card rule list (MULTIPLAYER_CARD_RULES). The key is the passcode. */
+/** Script line of the effect that Special Summons to the field of an opponent, by passcode. */
+const OPPONENT_FIELD_LINES: Record<number, number> = {
+  131182: 79, 561300: 64, 1041278: 92, 3376703: 112, 3685372: 86, 6203182: 65,
+  7392745: 25, 7623640: 35, 8837932: 65, 9400127: 62, 10158145: 102, 11654067: 45,
+  11677278: 79, 13204145: 56, 13452889: 53, 13935001: 66, 14283055: 85, 14470845: 41,
+  17000165: 89, 17228908: 77, 22404675: 45, 22411609: 63, 23920796: 62, 25131968: 66,
+  26259179: 44, 26364381: 81, 26913989: 65, 26964762: 55, 28062325: 41, 29843091: 27,
+  30069398: 24, 31313405: 78, 31322640: 96, 33970665: 43, 34968834: 55, 36890111: 80,
+  37129797: 61, 38041940: 44, 38811586: 79, 39829561: 52, 40343749: 57, 41141943: 82,
+  42956963: 32, 43066927: 84, 44265115: 94, 44689688: 32, 46647144: 79, 47126872: 65,
+  48228390: 59, 49966595: 80, 50415441: 83, 52126602: 65, 52782439: 51, 54191698: 48,
+  54658815: 31, 55465441: 38, 56562619: 154, 57357130: 75, 57844634: 43, 59900655: 68,
+  61665245: 44, 62767644: 67, 63013339: 72, 63086455: 61, 65477143: 55, 65676461: 39,
+  66094973: 107, 66661678: 29, 67508932: 89, 68378605: 76, 69811710: 72, 71015787: 43,
+  71645242: 98, 72554664: 52, 73355951: 46, 74440055: 30, 75524092: 41, 76384284: 30,
+  76683171: 29, 78610936: 51, 78783557: 51, 80044027: 58, 80551022: 82, 80978111: 40,
+  81003500: 46, 81522098: 80, 81794107: 75, 82012319: 47, 82773292: 46, 82933935: 86,
+  82994509: 29, 83778600: 29, 85698115: 51, 87170768: 40, 88124568: 52, 90884403: 124,
+  93775296: 39, 93912845: 50, 93983867: 44, 96857854: 68, 99229085: 68, 99330325: 69,
+};
+
+export const CARD_RULE_EVIDENCE: Record<number, Evidence[]> = {
+  // Kaiju and Lava procedure: Tribute a monster of an opponent, summon to that field.
+  55063751: [ev(55063751, 5, "aux.AddKaijuProcedure"), ...lavaCore],
+  28674152: [ev(28674152, 5, "aux.AddKaijuProcedure"), ...lavaCore],
+  29726552: [ev(29726552, 5, "aux.AddKaijuProcedure"), ...lavaCore],
+  36956512: [ev(36956512, 5, "aux.AddKaijuProcedure"), ...lavaCore],
+  48770333: [ev(48770333, 7, "aux.AddKaijuProcedure"), ...lavaCore],
+  63941210: [ev(63941210, 5, "aux.AddKaijuProcedure"), ...lavaCore],
+  93332803: [ev(93332803, 5, "aux.AddKaijuProcedure"), ...lavaCore],
+  102380: [ev(102380, 7, "aux.AddLavaProcedure(c,2"), ...lavaCore, ev(102380, 16, "IsTurnPlayer(tp)")],
+  63014935: [ev(63014935, 7, "aux.AddLavaProcedure(c,1"), ...lavaCore],
+  25920413: [ev(25920413, 6, "aux.AddLavaProcedure(c,1"), ...lavaCore],
+  46565218: [ev(46565218, 6, "aux.AddLavaProcedure(c,1"), ...lavaCore],
+  33331231: [ev(33331231, 19, "aux.AddLavaProcedure(c,0"), ...lavaCore],
+  64203620: [ev(64203620, 13, "SetTargetRange(POS_FACEUP_DEFENSE,1)")],
+  91697229: [ev(91697229, 13, "SetTargetRange(POS_FACEUP_DEFENSE,1)")],
+  75732622: [ev(75732622, 12, "SetTargetRange(POS_FACEUP,1)")],
+  82090807: [ev(82090807, 20, "SetTargetRange(POS_FACEUP,1)")],
+  10000080: [ev(10000080, 12, "SetTargetRange(POS_FACEUP_ATTACK,1)")],
+
+  // Special Summon of a card or tokens to the field of an opponent (`Duel.SpecialSummon(..., tp, 1-tp, ...)`)
+  ...Object.fromEntries(
+    Object.entries(OPPONENT_FIELD_LINES).map(([code, line]) => [code, [ev(Number(code), line, ",tp,1-tp,")]]),
+  ),
+  // Count rules.
+  90669991: [ev(90669991, 17, "ep==tp"), ev(90669991, 30, "g:Select(1-tp")],
+  15693423: [ev(15693423, 28, "GetFieldGroup(tp,0,LOCATION_ONFIELD)"), ev(15693423, 38, "#g-Duel.GetFieldGroupCount(tp,LOCATION_ONFIELD,0)")],
+  // Defaults.
+  44656491: [ev(44656491, 33, "IsTurnPlayer(tp)"), ev(44656491, 37, "Duel.PayLPCost(tp,100)")],
+  72405967: [ev(72405967, 22, "GetMatchingGroup(Card.IsMonster,tp,LOCATION_HAND,LOCATION_HAND")],
+  68005187: [ev(68005187, 35, "IsControler(1-tp)"), ev(68005187, 45, "EFFECT_EXTRA_RELEASE")],
+  45986603: [ev(45986603, 33, "IsTurnPlayer(1-tp)"), ev(45986603, 37, "SetTargetPlayer(1-tp)")],
+};
+
+export const SCENARIOS: CatalogScenario[] = [...GROUP_ALL, ...GROUP_ONE];

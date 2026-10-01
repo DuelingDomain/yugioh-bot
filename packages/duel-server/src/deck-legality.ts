@@ -14,6 +14,14 @@ import type {
   DuelSettings,
 } from "@yugidraft/shared/duels";
 import { banlistLimitsFor, type BanlistLimit } from "./banlists/index.js";
+import { MULTIPLAYER_TABLE_LABEL, multiplayerForbiddenFor, type MultiplayerTable } from "./banlists/multiplayer.js";
+
+export type { MultiplayerTable };
+
+export interface InspectDeckOptions {
+  /** Table the deck is for. Default "1v1" adds no multiplayer rule. */
+  table?: MultiplayerTable;
+}
 
 export class DeckLegalityError extends Error {
   constructor(message: string) {
@@ -689,12 +697,39 @@ function collectCopyLimitIssues(
   }
 }
 
+function collectMultiplayerIssues(
+  cards: LocatedCard[],
+  table: MultiplayerTable,
+  deckMaster: EngineCard | undefined,
+  issues: DuelDeckIssue[],
+): void {
+  if (table === "1v1") return;
+  const label = MULTIPLAYER_TABLE_LABEL[table];
+  const groups = new Map<number, DuelDeckCardRef[]>();
+  const add = (card: EngineCard, ref: DuelDeckCardRef) => {
+    const entry = multiplayerForbiddenFor(table, card.id, card.alias);
+    if (!entry) return;
+    const refs = groups.get(entry.code);
+    if (refs) refs.push(ref);
+    else groups.set(entry.code, [ref]);
+  };
+  for (const item of cards) add(item.card, locatedRef(item));
+  if (deckMaster) add(deckMaster, { section: "deckMaster", index: 0, code: deckMaster.id, name: deckMaster.name });
+  for (const [code, refs] of groups) {
+    const entry = multiplayerForbiddenFor(table, code);
+    if (!entry) continue;
+    issues.push({ message: `${entry.name} is forbidden in ${label}: ${entry.reason}`, cards: refs });
+  }
+}
+
 export function inspectDeck(
   mode: DuelMode,
   deck: DuelDeck,
   dataDirectory: string,
   settings?: DuelSettings,
+  options: InspectDeckOptions = {},
 ): DuelDeckValidation {
+  const table: MultiplayerTable = options.table ?? "1v1";
   if (mode !== "normal" && mode !== "domain") {
     return { issues: [{ message: `Unknown duel mode ${String(mode)}`, cards: [] }] };
   }
@@ -761,6 +796,7 @@ export function inspectDeck(
       issues.push({ message: "Main Deck must have 40-60 cards", cards: [] });
     }
     collectEngineCards();
+    collectMultiplayerIssues([...main, ...extra, ...side], table, undefined, issues);
     if (competitive) collectCopyLimitIssues([...main, ...extra, ...side], identities, 3, catalog, limits, issues);
     return { issues };
   }
@@ -812,6 +848,8 @@ export function inspectDeck(
   }
 
   collectEngineCards();
+  // The engine cannot play these cards at a multiplayer table, so casual tables check them too.
+  collectMultiplayerIssues([...main, ...extra, ...side], table, dmValid ? dm : undefined, issues);
   if (!competitive) return { issues };
 
   const copies = [...main, ...extra];
@@ -847,7 +885,13 @@ export function inspectDeck(
   return { issues };
 }
 
-export function validateDeck(mode: DuelMode, deck: DuelDeck, dataDirectory: string, settings?: DuelSettings): void {
-  const issue = inspectDeck(mode, deck, dataDirectory, settings).issues[0];
+export function validateDeck(
+  mode: DuelMode,
+  deck: DuelDeck,
+  dataDirectory: string,
+  settings?: DuelSettings,
+  options: InspectDeckOptions = {},
+): void {
+  const issue = inspectDeck(mode, deck, dataDirectory, settings, options).issues[0];
   if (issue) fail(issue.message);
 }
