@@ -3,7 +3,8 @@
 // live core (NSEAT_LIVE=1) with the real card scripts and the overlay. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, attack, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, normalSummon, zone,
+  activate, attack, auto, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard, expectLp, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, no,
+  normalSummon, pickOpponent, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -216,4 +217,82 @@ const castle = (format: "ffa3" | "ffa4"): Scenario => {
   });
 };
 
-export const R2_CHECK_SCENARIOS: Scenario[] = [castle("ffa3"), castle("ffa4"), skyler("ffa3"), skyler("tag"), tualatin("ffa3"), tualatin("tag"), tualatinTeam1("p1"), tualatinTeam1("p3"), raging("ffa3", "p0"), raging("ffa3", "p1"), raging("ffa3", "p2"), raging("ffa4", "p3")];
+// "No change" probes (review B, area seats): cards of R2_NO_CHANGE whose stock script keeps a flag or a counter for a player. Each scenario shows
+// that the flag is the flag of the SEAT that the event hit (FFA) or of the team (Tag), not of every seat, and ends with the state of EVERY seat.
+const MAGI = "Magikuriboh";
+const DM = "Dark Magician";
+const UPSTART = "Pot of Greed";
+const SKULL_CRYSTAL = "Crystal Skull";
+const OOKAZI = "Ookazi"; // 800 damage to the opponent
+const THRONE = "Don Thousand's Throne";
+const LAO = "Left Arm Offering";
+const RAIGEKI = "Raigeki";
+const AXE = "Axe Raider";
+const POT = "Pot of Prosperity";
+const GOYO = "Goyo Guardian";
+
+const probe = (format: Format, slug: string, card: number | number[], title: string, setup: Record<string, unknown>, steps: Step[], spec: Partial<Record<Seat, DuelistExpect>>): Scenario =>
+  defineScenario({
+    id: `r2-checks-${format}-${slug}`,
+    title,
+    source: EACH,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "r2-checks", "no-change", format, ...(Array.isArray(card) ? card : [card]).map((c) => `card:${c}`)],
+    setup: { format, ...setup } as unknown as Scenario["setup"],
+    steps: [...steps, everySeat(format, spec)],
+  });
+
+const turns = (upTo: Seat[]): Step[] => upTo.map((seat) => endTurn(seat));
+
+const noChangeProbes = (): Scenario[] => [
+  probe("ffa3", "magikuriboh-offered-only-to-the-seat-that-took-battle-damage", 31699677,
+    "FFA3: p0 hits p2 with a direct attack; at the end of the Battle Phase the chain window goes to p2 (it took the battle damage) and p2 uses its Magikuriboh; the Magikuriboh of p1 (no damage) is not offered",
+    { p0: { monsters: [ELF], deck: [ELF, ELF, ELF] }, p1: { hand: [MAGI], deck: [DM, DM, DM, DM] }, p2: { hand: [MAGI], deck: [DM, DM, DM, DM] } },
+    [...turns(["p0", "p1", "p2"]), changePhase("battle", "p0"), attack(ELF, "direct", "p0"), pickOpponent("p2", "p0"), changePhase("main2", "p0"), activate(MAGI, "p2"), auto("p2")],
+    { p0: { monsters: [ELF] }, p2: { lp: 7200, monsters: [DM], grave: [MAGI] } }),
+  probe("tag", "magikuriboh-flag-of-the-team-serves-the-partner", 31699677,
+    "Tag: p0 hits team 1 (p1 and p3) with a direct attack; the partner p3 uses its Magikuriboh (the flag is keyed by team), the field of the team gets the Dark Magician",
+    { p0: { monsters: [ELF], deck: [ELF, ELF, ELF] }, p3: { hand: [MAGI], deck: [DM, DM, DM, DM] } },
+    [...turns(["p0", "p1", "p2", "p3"]), changePhase("battle", "p0"), attack(ELF, "direct", "p0"), pickOpponent("p1", "p0"), changePhase("main2", "p0"), activate(MAGI, "p3"), auto("p3")],
+    { p0: { monsters: [ELF] }, p1: { lp: 15200 }, p3: { lp: 15200, monsters: [DM], grave: [MAGI] } }),
+  // Crystal Skull: it is blocked only after the holder took effect damage itself
+  probe("ffa3", "crystal-skull-damage-to-another-seat-does-not-block-the-holder", 7903368,
+    "FFA3: p1 burns p2 (not p0) with Ookazi; the Crystal Skull of p0 is still offered at its next turn",
+    { p1: { hand: [OOKAZI], deck: [ELF, ELF] }, p0: { monsters: [SKULL_CRYSTAL], deck: [ELF, SKULL_CRYSTAL] } },
+    [endTurn("p0"), no("p0"), activate(OOKAZI, "p1"), pickOpponent("p2", "p1"), endTurn("p1"), expectPrompt({ by: "p0", title: "Crystal Skull" })],
+    { p0: { monsters: [SKULL_CRYSTAL] }, p2: { lp: 7200 }, p1: { grave: [OOKAZI] } }),
+  probe("ffa3", "crystal-skull-effect-damage-to-the-holder-blocks-it", 7903368,
+    "FFA3: p1 burns p0 with Ookazi; the Crystal Skull of p0 is blocked at its next turn (the turn passes to p2)",
+    { p1: { hand: [OOKAZI], deck: [ELF, ELF] }, p0: { monsters: [SKULL_CRYSTAL], deck: [ELF, SKULL_CRYSTAL] } },
+    [endTurn("p0"), no("p0"), activate(OOKAZI, "p1"), pickOpponent("p0", "p1"), endTurn("p1"), expectTurn("p2")],
+    { p0: { lp: 7200, monsters: [SKULL_CRYSTAL] }, p1: { grave: [OOKAZI] } }),
+  probe("tag", "crystal-skull-effect-damage-to-the-team-blocks-it", 7903368,
+    "Tag: p1 burns team 0 with Ookazi; the Crystal Skull of p0 is blocked at its next turn (the turn passes to p2)",
+    { p1: { hand: [OOKAZI], deck: [ELF, ELF] }, p0: { monsters: [SKULL_CRYSTAL], deck: [ELF, SKULL_CRYSTAL] } },
+    [endTurn("p0"), no("p0"), activate(OOKAZI, "p1"), endTurn("p1"), expectTurn("p2")],
+    { p0: { lp: 15200, monsters: [SKULL_CRYSTAL] }, p2: { lp: 15200 }, p1: { grave: [OOKAZI] } }),
+  // Don Thousand's Throne: it counts only the battle damage that its own holder took
+  probe("ffa3", "don-thousands-throne-counts-only-damage-to-its-holder", 93238626,
+    "FFA3: p1 hits p2 once and p0 once with direct attacks; the Throne of p0 gains 500 LP at the End Phase of p1 (one hit on p0), p2 has no Throne and gains nothing",
+    { p1: { monsters: [ELF, ELF] }, p0: { spells: [THRONE] } },
+    [...turns(["p0", "p1", "p2"]), endTurn("p0"), changePhase("battle", "p1"), attack({ card: ELF, nth: 0 }, "direct", "p1"), pickOpponent("p2", "p1"), attack({ card: ELF, nth: 0 }, "direct", "p1"), pickOpponent("p0", "p1"), endTurn("p1")],
+    { p0: { lp: 7700, spells: [THRONE] }, p1: { monsters: [ELF, ELF] }, p2: { lp: 7200 } }),
+  probe("ffa3", "don-thousands-throne-of-the-third-seat-reads-its-own-count", 93238626,
+    "FFA3: p1 hits p2 twice with direct attacks; the Throne of p2 gains 1000 LP at the End Phase of p1 (two hits on p2), p0 has no Throne",
+    { p1: { monsters: [ELF, ELF] }, p2: { spells: [THRONE] } },
+    [...turns(["p0", "p1", "p2"]), endTurn("p0"), changePhase("battle", "p1"), attack({ card: ELF, nth: 0 }, "direct", "p1"), pickOpponent("p2", "p1"), attack({ card: ELF, nth: 0 }, "direct", "p1"), pickOpponent("p2", "p1"), endTurn("p1")],
+    { p1: { monsters: [ELF, ELF] }, p2: { lp: 7400, spells: [THRONE] } }),
+  // Left Arm Offering and Pot of Prosperity: the flag of an event is the flag of the seat that did it
+  probe("ffa3", "left-arm-offering-locks-only-the-set-of-its-own-seat", 86541496,
+    "FFA3: p0 uses Left Arm Offering (banishes its hand, cannot Set this turn); p0 is not offered a Set, and p2 is offered the Set of its Raigeki on its own turn",
+    { p0: { hand: [LAO, ELF, AXE, "Battle Ox"], deck: [RAIGEKI] }, p2: { hand: [RAIGEKI] } },
+    [activate(LAO, "p0"), auto("p0"), expectNotOffered("set", RAIGEKI, "p0"), endTurn("p0"), endTurn("p1"), expectOffered("set", RAIGEKI, "p2")],
+    { p0: { grave: [LAO], banished: [ELF, AXE, "Battle Ox"] } }),
+  probe("ffa3", "pot-of-prosperity-is-blocked-only-after-its-own-seat-drew-by-effect", 84211599,
+    "FFA3: p0 draws with Pot of Greed; the draw sets the flag of p0 (it cannot use Pot of Prosperity this turn); before the draw Pot of Prosperity was offered",
+    { p0: { hand: [UPSTART, POT], deck: [ELF, ELF, ELF, ELF, ELF, ELF, ELF], extra: [GOYO, GOYO, GOYO] } },
+    [expectOffered("activate", POT, "p0"), activate(UPSTART, "p0"), expectNotOffered("activate", POT, "p0")],
+    { p0: { grave: [UPSTART] } }),
+];
+
+export const R2_CHECK_SCENARIOS: Scenario[] = [castle("ffa3"), castle("ffa4"), skyler("ffa3"), skyler("tag"), tualatin("ffa3"), tualatin("tag"), tualatinTeam1("p1"), tualatinTeam1("p3"), raging("ffa3", "p0"), raging("ffa3", "p1"), raging("ffa3", "p2"), raging("ffa4", "p3"), ...noChangeProbes()];
