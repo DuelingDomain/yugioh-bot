@@ -1,0 +1,76 @@
+# Duel engine switch and the multiplayer flag
+
+The multiplayer merge ships with two limits. Both are set by environment variables on the VM.
+
+1. 1v1 duels must not change. The owner can go back to the old engine at any time.
+2. 3-player, 4-player and Tag tables stay off in production until a separate UI project is done.
+
+## MULTIPLAYER_TABLES (default off)
+
+| Value | Result |
+| --- | --- |
+| not set, or anything else | Only 1v1 tables exist. The creator shows no 3-player, 4-player or Tag option. The web API and the duel host refuse them with the message "Only 1v1 tables are open on this server." |
+| `1`, `true` or `on` | Tag, 3-player and 4-player tables are open. |
+
+- Set it in `docker-compose.yml` for the `duel` and `web` services (`MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-0}`).
+  Both services read it at run time. A restart of both switches it. No build is needed.
+- Staging sets it on in `docker-compose.staging.yml` (`STAGING_MULTIPLAYER_TABLES`, default `1`).
+- The E2E stack sets it on. `E2E_MULTIPLAYER_TABLES=0` turns it off. `packages/e2e/tests/multiplayer-flag-off.spec.ts` checks the off state.
+- Turning the flag off does not end a multi-seat duel that is already active. The host still runs it. The gate runs when a table starts, not when a duel recovers. It only refuses new tables.
+
+## DUEL_1V1_ENGINE (`legacy` or `pinned`, default `legacy`)
+
+| Value | 1v1 Standard and Domain duels run on |
+| --- | --- |
+| `legacy` (default) | main's engine from before the n-seat work: the `ocgcore-wasm` npm package core for Standard, and `ocgcore.domain.legacy.wasm` with `card-scripts/domain.legacy.lua` for Domain. The engine code is `packages/duel-server/src/legacy/`. |
+| `pinned` | the merged engine: `ocgcore.standard.wasm` and `ocgcore.domain.wasm` of the bundle. |
+
+- Any other value, an empty value or a missing value means `legacy`. Only `pinned` (any case, spaces trimmed) selects the merged engine.
+- Tables with 3 or more seats always use the multi core. The switch does not change them.
+- `docker-compose.yml` sets `DUEL_1V1_ENGINE=${DUEL_1V1_ENGINE:-legacy}`. Staging sets `${STAGING_DUEL_1V1_ENGINE:-pinned}` so staging tests the merged engine.
+- The deploy ships both engines. The engine bundle holds the merged and the legacy files.
+- The switch is read when a NEW table starts. Change it, then restart the `duel` service. Duels that are active keep their engine (see below).
+
+### The engine of a duel is recorded
+
+When a duel starts, the host saves `engine` in `setup_json` (`setup.engine`, `legacy` or `pinned`). Recover after a restart
+and replay use the saved engine, not the current switch. So you can change the switch at any time without risk to
+active duels.
+
+- A duel with no record (made by main before this merge) is treated as `legacy`.
+- A scenario or preset duel (with startup scripts) is `pinned`. The legacy engine has no startup scripts.
+- A dev or staging duel made on the merged branch before the record existed is also read as `legacy`. Do not carry such duels over.
+
+### Bundle changes and the switch
+
+- The first deploy of the merge changes the engine bundle (new wrapper patch, new multi cores, the legacy files). The deploy
+  preflight refuses while a duel is active. Follow "Before a deploy that changes the engine bundle" in `vm-runbook.md`.
+- The environment switch alone does not change the bundle version. Changing it needs no preflight, no empty server and no rebuild.
+- Both engines use the same wrapper (`patches/ocgcore-wasm+0.1.2.patch`). The legacy mode (`legacyMessages: true` in `createCore`) keeps main's message layout for the parts that differ.
+
+### Build the legacy Domain core
+
+`npm run duel:prepare` keeps the legacy files in the bundle. To build them:
+
+```bash
+npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
+```
+
+This runs `packages/duel-server/legacy-1v1/scripts/build-domain-core.sh` in `docker.io/emscripten/emsdk:4.0.9`.
+Provenance and shas are in `packages/duel-server/legacy-1v1/README.md`. The deploy and test workflows run this step.
+The server refuses to start with `DUEL_1V1_ENGINE=legacy` when the manifest has no `integrity.domainLegacyWasm` or
+`domainLegacyLua`, or when a legacy file does not match its hash.
+
+## How to roll back
+
+- To use the old 1v1 engine: set `DUEL_1V1_ENGINE=legacy` (or remove it) and restart the `duel` service. New 1v1 tables then start on the old engine.
+- To go back to the merged engine: set `DUEL_1V1_ENGINE=pinned` and restart `duel`.
+- To close the multi-seat tables: remove `MULTIPLAYER_TABLES` from `duel` and `web` and restart both.
+- To remove the whole merge: follow "Rollback" in `vm-runbook.md`.
+
+## What is checked
+
+- Main's own 1v1 engine and host tests (from commit `2a5a959`) pass against `src/legacy/` with the imports pointed there (290 tests).
+- The merged duel-server suites pass in both modes (`DUEL_1V1_ENGINE=legacy` and `pinned`).
+- `tests/legacy-engine-identity.test.ts`: the legacy Standard core is the npm file byte for byte. The legacy Domain wasm has the manifest sha.
+- `tests/host-engine-switch.test.ts`: dispatch, the saved engine, recover and replay across a switch change.

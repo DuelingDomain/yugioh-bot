@@ -60,8 +60,9 @@ The deploy workflow requires these GitHub Actions secrets:
 1. Code is pushed to `main` on GitHub.
 2. GitHub Actions starts the `Deploy` workflow on `ubuntu-latest` (amd64).
 3. The workflow builds or restores the pinned duel-engine resource bundle
-   (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`)
+   (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`, and the legacy 1v1 files `ocgcore.domain.legacy.wasm` and `card-scripts/domain.legacy.lua`)
    using `npm run duel:prepare`, `packages/duel-server/scripts/build-domain-core.ts` (Domain wasm) and `packages/duel-server/scripts/build-domain-core.ts standard` (Standard wasm: stock rules plus the shared fixes in `domain-core/src/apply-core-fixes.mjs`, `build-standard-core.sh`)
+   `... build-domain-core.ts legacy-domain` (the legacy Domain wasm of main, see `packages/duel-server/legacy-1v1/README.md`)
    inside `docker.io/emscripten/emsdk:4.0.9` (digest from `packages/duel-server/domain-core/pins.json`).
    Identical pins hit the Actions cache and skip regenerate.
    The workflow also builds the multi-duelist core `ocgcore.multi.wasm` (Tag and 3 and 4 player tables) with
@@ -124,6 +125,12 @@ The multiplayer merge changes the Standard and Domain cores, so its first deploy
 4. Watch memory for the first days (`docker stats --no-stream`). The duel service has `mem_limit` 1g
    (`DUEL_MEM_LIMIT`). The first game loads the card database and scripts (about 114 MB). Each game adds about 2.4 to
    4 MB.
+
+### Engine switch and multiplayer flag
+
+The merge deploys with `DUEL_1V1_ENGINE=legacy` (1v1 duels run on main's old engine) and `MULTIPLAYER_TABLES` off (no
+Tag, 3-player or 4-player tables). Both are read by a restart of the `duel` service (the flag also by `web`). They need no
+empty server. See `duel-engine-switch.md` for the values, the engine saved for each duel and how to switch back.
 
 ### Rollback
 
