@@ -7,6 +7,10 @@
 //   ffa4e               FFA4 with seat 1 marked eliminated: no prompt may go to seat 1
 //   n2, n2s             n == 2 without and with Debug.SetupDuelists(2,0,1): same message bytes and raw ids
 // The test card is a mandatory trigger on EVENT_PHASE+PHASE_STANDBY (as in the F1 check).
+// F5 binding: the operation reads Duel.GetTurnPlayer() first. On the turn of an opponent that read binds this opponent
+// (silent). On an own turn the first yieldable read of "1" (Card.IsType with the viewer 1-tp) asks the activator which
+// opponent it means (MSG_SELECT_OPTION, every desc 0xFFFE0000|seat, ascending, living opponents only). The driver answers 0:
+// the bound opponent is the lowest living opponent. Group.Select(1-tp) and SetOwnerPlayer(1-tp) then use that seat.
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -219,6 +223,8 @@ struct Outcome {
 	int turns = 0;
 	size_t depth_bad = 0;     // prompts at which the scope depth was not 0
 	size_t prompts = 0;
+	size_t picks = 0;         // F5 pick prompts (every option 0xFFFE0000|seat) that were answered
+	std::vector<std::string> pick_bad;  // a pick prompt that is not the ascending list of the living opponents of the asked seat
 	std::vector<std::string> nfold;
 	bool ended_ok = false;
 	std::string why;
@@ -341,7 +347,27 @@ static Outcome play(const Scenario& sc) {
 		switch(m->id) {
 		case MSG_SELECT_IDLECMD: answer32(7); break;
 		case MSG_SELECT_YESNO: case MSG_SELECT_EFFECTYN: answer32(1); break;
-		case MSG_SELECT_OPTION: answer32(0); break;
+		case MSG_SELECT_OPTION: {
+			// u8 player, u8 count, count x u64 desc: the F5 pick of an opponent is answered with option 0
+			const int who = m->p[0], count = m->p[1];
+			std::vector<int> seats, want;
+			bool pick = count > 0;
+			for(int i = 0; i < count; ++i) {
+				uint64_t desc = 0;
+				std::memcpy(&desc, m->p + 2 + 8 * i, 8);
+				pick = pick && (desc >> 16) == 0xFFFE;
+				seats.push_back(static_cast<int>(desc & 0xff));
+			}
+			if(pick) {
+				++out.picks;
+				for(int q = 0; q < sc.n; ++q)
+					if(who >= 0 && who < sc.n && sc.team[q] != sc.team[who] && q != sc.eliminate) want.push_back(q);
+				if(seats != want || seats.size() < 2)
+					out.pick_bad.push_back("seat " + std::to_string(who) + " got " + std::to_string(seats.size()) + " options");
+			}
+			answer32(0);
+			break;
+		}
 		case MSG_SELECT_CHAIN: {
 			const bool forced = m->size > 2 && m->p[2] != 0;
 			answer32(forced ? 0 : -1);
@@ -418,6 +444,7 @@ struct Model {
 	int n;
 	bool tag;
 	std::vector<int> team;
+	int eliminate = -1;
 	bool fold() const { return n > 2; }
 	int team_of(int s) const { return team[s]; }
 	bool same_team(int a, int b) const { return team[a] == team[b]; }
@@ -427,17 +454,20 @@ struct Model {
 		if(!tag) return d == P ? 0 : 1;
 		return team_of(d);
 	}
-	int next_opponent(int P) const {
-		for(int i = 1; i < n; ++i) {
-			const int q = (P + i) % n;
-			if(!same_team(P, q)) return q;
-		}
-		return -1;
+	// the living opponents of seat P, ascending
+	std::vector<int> opponents(int P) const {
+		std::vector<int> v;
+		for(int q = 0; q < n; ++q)
+			if(!same_team(P, q) && q != eliminate) v.push_back(q);
+		return v;
 	}
-	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T
+	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T: the turn player when it
+	// is an opponent (the GetTurnPlayer read binds it), else the pick (option 0 = the lowest living opponent)
 	int bound(int P, int T) const {
 		if(!fold()) return 1 - P;
-		return same_team(P, T) ? next_opponent(P) : T;
+		if(!same_team(P, T)) return T;
+		const auto v = opponents(P);
+		return v.empty() ? -1 : v[0];
 	}
 };
 
@@ -473,6 +503,7 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	Model M;
 	M.n = sc.n;
 	M.team = sc.team;
+	M.eliminate = sc.eliminate;
 	M.tag = sc.n > 2 && std::set<int>(sc.team.begin(), sc.team.end()).size() < static_cast<size_t>(sc.n);
 	int firings = 0, sel1 = 0, sel2 = 0;
 	std::vector<int> prompts;   // MSG_SELECT_CARD players since the last sel line
@@ -547,15 +578,30 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 		// one kind (d) record per firing: SetOwnerPlayer(7); nothing else of F4 may write kind (d), (b) or (c)
 		if(sc.eliminate < 0)
 			EXPECT(count_kind(nfold, 'd') == firings, "%s: %d kind (d) records, want %d", sc.name, count_kind(nfold, 'd'), firings);
-		EXPECT(count_kind(nfold, 'b') == 0 && count_kind(nfold, 'c') == 0, "%s: unexpected kind (b)/(c) records", sc.name);
+		EXPECT(count_kind(nfold, 'b') == 0, "%s: %d kind (b) records (a binding conflict)", sc.name, count_kind(nfold, 'b'));
+		// F5: no unbound fallback (a). The first read of a single "1" in a yieldable operation is Card.IsType with the viewer
+		// 1-tp: on an own turn of a seat with at least 2 living opponents the core asks for a pick (kind c, fn=IsType, one per
+		// firing); on an opponent's turn the GetTurnPlayer read has bound the turn player; one living opponent binds silently.
+		int want_picks = 0;
+		for(const auto& r : g_recs) {
+			auto m = fields_of(r.text);
+			if(m["kind"] != "who") continue;
+			const int P = as_int(m, "s");
+			if(M.same_team(P, r.turn_player) && M.opponents(P).size() >= 2) ++want_picks;
+		}
+		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
+		EXPECT(count_kind(nfold, 'c') == want_picks && count_kind(nfold, 'c', "IsType") == want_picks, "%s: %d kind (c) records (%d from IsType), want %d", sc.name,
+		       count_kind(nfold, 'c'), count_kind(nfold, 'c', "IsType"), want_picks);
+		EXPECT(out.picks == static_cast<size_t>(want_picks), "%s: %zu pick prompts, want %d", sc.name, out.picks, want_picks);
+		EXPECT(out.pick_bad.empty(), "%s: a pick prompt is wrong: %s", sc.name, out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
 		for(const auto& l : nfold)
 			if(l.size() > 6 && l[6] == 'd' && l.find("fn=SetOwnerPlayer") == std::string::npos)
 				EXPECT(false, "%s: kind (d) record of another function: %s", sc.name, l.c_str());
 	} else {
-		EXPECT(nfold.empty(), "%s: %zu fold records at n == 2", sc.name, nfold.size());
+		EXPECT(nfold.empty() && out.picks == 0, "%s: %zu fold records and %zu pick prompts at n == 2", sc.name, nfold.size(), out.picks);
 	}
-	std::printf("%-6s n=%d firings=%d prompts=%zu depth-bad=%zu errors=%ld nfold(a/b/c/d)=%d/%d/%d/%d\n", sc.name, sc.n, firings,
-	            out.prompts, out.depth_bad, g_errors, count_kind(nfold, 'a'), count_kind(nfold, 'b'), count_kind(nfold, 'c'), count_kind(nfold, 'd'));
+	std::printf("%-6s n=%d firings=%d prompts=%zu picks=%zu depth-bad=%zu errors=%ld nfold(a/b/c/d)=%d/%d/%d/%d\n", sc.name, sc.n, firings,
+	            out.prompts, out.picks, out.depth_bad, g_errors, count_kind(nfold, 'a'), count_kind(nfold, 'b'), count_kind(nfold, 'c'), count_kind(nfold, 'd'));
 	// per function counts (the lead reads these)
 	std::map<std::string, int> per;
 	for(const auto& l : nfold) {

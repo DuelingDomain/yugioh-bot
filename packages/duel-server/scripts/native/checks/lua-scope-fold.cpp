@@ -8,6 +8,13 @@
 // The test card is a mandatory trigger on EVENT_PHASE+PHASE_STANDBY. It fires in the Standby Phase of every duelist,
 // so ep (the event player) is the turn player: the own side on its own turn, an opponent on the others.
 // SetCountLimit(1) is needed: the core offers a phase trigger again after each resolution.
+// F5 (opponent binding, core 29fff80): "1" is one opponent, bound for the whole chain link. The test card reads "1" first
+// in its operation (GetLocationCount), after the turn player is read. On the turn of an opponent that read binds that
+// opponent. On a turn of the own team nothing is bound, so the core asks the activator to pick one (MSG_SELECT_OPTION,
+// every desc 0xFFFE0000|seat, ascending, living opponents only; the pick happens in the operation step, kind (c)
+// record). The harness answers option 0, the lowest living opponent. With one living opponent the bind is silent (no
+// prompt, no record). No guess is ever made: no kind (a) record (unbound fallback), no kind (b) (conflict).
+//   ffa3e               FFA3 with seat 2 eliminated: every seat has one living opponent, so no pick prompt at all
 // Its operation logs through Debug.Message ("F1 ..." lines, tagged with s=<seat of the card>), asks for a Select
 // prompt (SelectYesNo after Duel.Damage, which yields too) and logs again after the resume.
 #include <algorithm>
@@ -195,6 +202,7 @@ struct Scenario {
 	bool test_cards;      // a test card in the monster zone of every seat
 	bool nibiru;          // Nibiru in the hand of seat 2
 	int turns;
+	int eliminate = -1;   // a seat that is marked eliminated after the start of the duel
 };
 
 struct Outcome {
@@ -202,6 +210,8 @@ struct Outcome {
 	int turns = 0;
 	size_t depth_bad = 0;     // prompts at which the scope depth was not 0
 	size_t prompts = 0;
+	size_t picks = 0;                    // F5 pick prompts (every option 0xFFFE0000|seat) that were answered
+	std::vector<std::string> pick_bad;   // a pick prompt that is not the ascending list of the living opponents
 	std::vector<std::string> nfold;
 	bool ended_ok = false;
 	std::string why;
@@ -274,6 +284,8 @@ static Outcome play(const Scenario& sc) {
 	if(sc.nibiru)
 		add_card(d, 2, LOCATION_HAND, kNibiru, POS_FACEDOWN_DEFENSE);
 	OCG_StartDuel(d);
+	if(sc.eliminate >= 0)
+		F(d).player[sc.eliminate].eliminated = true;
 
 	auto* pd = static_cast<duel*>(d);
 	out.hash = 1469598103934665603ull;
@@ -324,7 +336,29 @@ static Outcome play(const Scenario& sc) {
 		switch(m->id) {
 		case MSG_SELECT_IDLECMD: answer32(7); break;
 		case MSG_SELECT_YESNO: case MSG_SELECT_EFFECTYN: answer32(1); break;
-		case MSG_SELECT_OPTION: answer32(0); break;
+		case MSG_SELECT_OPTION: {
+			// u8 player, u8 count, count x u64 desc
+			const int who = m->p[0], count = m->p[1];
+			std::vector<int> seats;
+			bool pick = count > 0;
+			for(int i = 0; i < count; ++i) {
+				uint64_t desc = 0;
+				std::memcpy(&desc, m->p + 2 + 8 * i, 8);
+				pick = pick && (desc >> 16) == 0xFFFE;
+				seats.push_back(static_cast<int>(desc & 0xff));
+			}
+			if(pick) {
+				++out.picks;
+				std::vector<int> want;
+				for(int q = 0; q < sc.n; ++q)
+					if(q != sc.eliminate && sc.team[q] != sc.team[who])
+						want.push_back(q);
+				if(seats != want || seats.size() < 2)
+					out.pick_bad.push_back("seat " + std::to_string(who) + " got " + std::to_string(seats.size()) + " options");
+			}
+			answer32(0);
+			break;
+		}
 		case MSG_SELECT_CHAIN: {
 			const bool forced = m->size > 2 && m->p[2] != 0;
 			answer32(forced ? 0 : -1);
@@ -393,6 +427,7 @@ static std::vector<std::string> run_captured(const Scenario& sc, Outcome& out) {
 struct Model {
 	int n;
 	bool tag;
+	int eliminate = -1;
 	std::vector<int> team;
 	bool fold() const { return n > 2; }
 	int team_of(int s) const { return team[s]; }
@@ -403,17 +438,21 @@ struct Model {
 		if(!tag) return d == P ? 0 : 1;
 		return team_of(d);
 	}
-	int next_opponent(int P) const {
-		for(int i = 1; i < n; ++i) {
-			const int q = (P + i) % n;
-			if(!same_team(P, q)) return q;
-		}
-		return -1;
+	// the living opponents of P, ascending: the options of the F5 pick prompt
+	std::vector<int> opponents(int P) const {
+		std::vector<int> r;
+		for(int q = 0; q < n; ++q)
+			if(q != eliminate && !same_team(P, q)) r.push_back(q);
+		return r;
 	}
-	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T
+	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T (F5): the turn
+	// player when it is an opponent (the read binds it); else the pick, which the harness answers with option 0
+	// (the lowest living opponent), or the only living opponent (silent bind)
 	int bound(int P, int T) const {
 		if(!fold()) return 1 - P;
-		return same_team(P, T) ? next_opponent(P) : T;
+		if(!same_team(P, T)) return T;
+		const auto o = opponents(P);
+		return o.empty() ? -1 : o[0];
 	}
 };
 
@@ -445,6 +484,7 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	Model M;
 	M.n = sc.n;
 	M.team = sc.team;
+	M.eliminate = sc.eliminate;
 	M.tag = sc.n > 2 && std::set<int>(sc.team.begin(), sc.team.end()).size() < static_cast<size_t>(sc.n);
 	int firings = 0, own_firings = 0, cond_seen = 0, cost_seen = 0, tg_seen = 0, op2_seen = 0, slice_seen = 0;
 	std::map<int, Rec> lp0;
@@ -480,21 +520,12 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 			EXPECT(m["n"] == "0", "%s: GetDecktopGroup(7,1) gave %s cards", sc.name, m["n"].c_str());
 		} else if(k == "lp0" || k == "lp1") {
 			const int B = M.bound(P, T);
-			// before the damage the opponent is the bound one (the next one on an own turn); the own value is the own team's LP
+			// the opponent is the bound one on every turn (F5 binds it at the first read, before any LP read); the own
+			// value is the own team's LP
 			int lpv[MAX_DUELISTS];
 			std::memcpy(lpv, r.lp, sizeof(lpv));
 			const int own = lpv[P];
-			int opp;
-			if(M.fold() && M.same_team(P, T) && k == "lp0") {
-				// unbound: the query takes the best case over the living opponents
-				opp = 0;
-				for(int q = 0; q < M.n; ++q) if(!M.same_team(P, q)) opp = std::max(opp, lpv[q]);
-			} else if(M.fold() && M.same_team(P, T)) {
-				opp = 0;
-				for(int q = 0; q < M.n; ++q) if(!M.same_team(P, q)) opp = std::max(opp, lpv[q]);
-			} else {
-				opp = lpv[B];
-			}
+			const int opp = lpv[B];
 			EXPECT(std::atoi(m["own"].c_str()) == own && std::atoi(m["opp"].c_str()) == opp, "%s: %s seat %d turn %d: %s, want own=%d opp=%d", sc.name, k.c_str(), P, T, r.text.c_str(), own, opp);
 			if(k == "lp0") {
 				lp0[P] = r;
@@ -517,15 +548,20 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	EXPECT(out.depth_bad == 0, "%s: scope depth not 0 at %zu of %zu prompts", sc.name, out.depth_bad, out.prompts);
 	EXPECT(g_errors == 0, "%s: %ld Lua errors, first: %s", sc.name, g_errors, g_error_text.empty() ? "" : g_error_text[0].c_str());
 	if(M.fold()) {
-		const int want_a = own_firings * (1 + (M.tag ? 0 : 1));
-		EXPECT(count_kind(nfold, 'a') == want_a, "%s: %d kind (a) records, want %d", sc.name, count_kind(nfold, 'a'), want_a);
+		// F5: never a guess (a) or a conflict (b). A pick prompt in the operation step is the logged kind (c): one per
+		// own-team firing that has two or more living opponents, none when the bind is silent.
+		const int want_c = M.eliminate >= 0 ? 0 : own_firings;
+		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
+		EXPECT(count_kind(nfold, 'b') == 0, "%s: %d kind (b) records (a binding conflict), want 0", sc.name, count_kind(nfold, 'b'));
+		EXPECT(count_kind(nfold, 'c') == want_c, "%s: %d kind (c) records, want %d", sc.name, count_kind(nfold, 'c'), want_c);
+		EXPECT(out.picks == static_cast<size_t>(want_c), "%s: %zu pick prompts, want %d", sc.name, out.picks, want_c);
+		EXPECT(out.pick_bad.empty(), "%s: a pick prompt is wrong: %s", sc.name, out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
 		EXPECT(count_kind(nfold, 'd') == firings, "%s: %d kind (d) records, want %d", sc.name, count_kind(nfold, 'd'), firings);
-		EXPECT(count_kind(nfold, 'b') == 0 && count_kind(nfold, 'c') == 0, "%s: unexpected kind (b)/(c) records", sc.name);
 	} else {
-		EXPECT(nfold.empty(), "%s: %zu fold records at n == 2", sc.name, nfold.size());
+		EXPECT(nfold.empty() && out.picks == 0, "%s: %zu fold records and %zu pick prompts at n == 2", sc.name, nfold.size(), out.picks);
 	}
-	std::printf("%-6s n=%d firings=%d own-turn=%d prompts=%zu depth-bad=%zu errors=%ld nfold(a/b/c/d)=%d/%d/%d/%d\n", sc.name, sc.n, firings, own_firings,
-	            out.prompts, out.depth_bad, g_errors, count_kind(nfold, 'a'), count_kind(nfold, 'b'), count_kind(nfold, 'c'), count_kind(nfold, 'd'));
+	std::printf("%-6s n=%d firings=%d own-turn=%d prompts=%zu depth-bad=%zu errors=%ld picks=%zu nfold(a/b/c/d)=%d/%d/%d/%d\n", sc.name, sc.n, firings, own_firings,
+	            out.prompts, out.depth_bad, g_errors, out.picks, count_kind(nfold, 'a'), count_kind(nfold, 'b'), count_kind(nfold, 'c'), count_kind(nfold, 'd'));
 }
 
 
@@ -716,6 +752,7 @@ int main(int argc, char** argv) {
 		{ "ffa3", 3, { 0, 1, 2 }, true, true, false, 7 },
 		{ "ffa4", 4, { 0, 1, 2, 3 }, true, true, false, 9 },
 		{ "tag", 4, { 0, 1, 0, 1 }, true, true, false, 9 },
+		{ "ffa3e", 3, { 0, 1, 2 }, true, true, false, 7, 2 },
 	};
 	for(const auto& sc : scenarios) {
 		if(!want(sc.name)) continue;

@@ -4,8 +4,12 @@
 // Every seat owns a test card (code 90001 + seat) in its monster zone. The card is a mandatory trigger on the
 // standby phase. Its operation calls each prompt function of item 2 twice (who = tp, then who = 1-tp) and logs a
 // marker before each call. The harness logs the player byte of every prompt, so a call is checked by the seat that got
-// the prompt: tp -> the seat of the card, 1-tp -> the bound opponent. Then it registers field effects with
+// the prompt: tp -> the seat of the card, 1-tp -> the bound opponent (F5, see below). Then it registers field effects with
 // SetAbsoluteRange + Duel.RegisterEffect and reads the ATK of every test card.
+// F5 binding: the operation reads Duel.GetTurnPlayer() first. On the turn of an opponent that read binds this opponent
+// (silent, no prompt). On an own turn the first "1-tp" asks the activator which opponent it means (MSG_SELECT_OPTION, every
+// desc 0xFFFE0000|seat, ascending, living opponents only); the driver answers 0, so the bound opponent is the lowest living
+// opponent. With one living opponent the bind is silent. The pick prompts are counted, not treated as library prompts.
 //   ffa3, ffa4, tag     n > 2
 //   ffa4e               FFA4 with seat 1 marked eliminated: no prompt may go to seat 1
 //   n2, n2s             n == 2 without and with Debug.SetupDuelists(2,0,1): same message bytes
@@ -31,6 +35,7 @@
 #include "common.h"
 
 
+#define HINT_PLACE_SEAT 0xF0  // MSG_HINT type of core patch 0045: the target seat of a place prompt
 static const char* kScripts = check_scripts_dir();
 static const uint32_t kTestBase = 90001;  // test card of seat s = kTestBase + s
 static const uint32_t kDeckBase = 5000;   // deck card of seat s = kDeckBase + s
@@ -227,6 +232,8 @@ struct Outcome {
 	int turns = 0;
 	size_t depth_bad = 0;     // prompts at which the scope depth was not 0
 	size_t prompts = 0;
+	size_t picks = 0;         // F5 pick prompts (every option 0xFFFE0000|seat) that were answered
+	std::vector<std::string> pick_bad;  // a pick prompt that is not the ascending list of the living opponents of the asked seat
 	std::vector<std::string> nfold;
 	bool ended_ok = false;
 	std::string why;
@@ -349,6 +356,27 @@ static Outcome play(const Scenario& sc) {
 		switch(m->id) {
 		case MSG_SELECT_IDLECMD: answer32(7); break;
 		case MSG_SELECT_YESNO: case MSG_SELECT_EFFECTYN: case MSG_SELECT_OPTION: {
+			if(m->id == MSG_SELECT_OPTION && m->size >= 2) {
+				// u8 player, u8 count, count x u64 desc: the F5 pick of an opponent
+				const int who = m->p[0], count = m->p[1];
+				std::vector<int> seats, want;
+				bool pick = count > 0;
+				for(int i = 0; i < count; ++i) {
+					uint64_t desc = 0;
+					std::memcpy(&desc, m->p + 2 + 8 * i, 8);
+					pick = pick && (desc >> 16) == 0xFFFE;
+					seats.push_back(static_cast<int>(desc & 0xff));
+				}
+				if(pick) {
+					++out.picks;
+					for(int q = 0; q < sc.n; ++q)
+						if(who >= 0 && who < sc.n && sc.team[q] != sc.team[who] && q != sc.eliminate) want.push_back(q);
+					if(seats != want || seats.size() < 2)
+						out.pick_bad.push_back("seat " + std::to_string(who) + " got " + std::to_string(seats.size()) + " options");
+					answer32(0);
+					break;
+				}
+			}
 			Rec pr;
 			pr.text = "F3C prompt p=" + std::to_string(m->p[0]) + " id=" + std::to_string(m->id);
 			pr.turn_player = F(d).infos.turn_player;
@@ -395,6 +423,15 @@ static Outcome play(const Scenario& sc) {
 						if(!(flag & (1u << (16 + i)))) seq = i;
 					for(uint8_t q = 0; q < sc.n; ++q)
 						if(q != who && static_cast<int>(q) != sc.eliminate) { seat = q; break; }
+					// F8: at n > 2 the core names the seat in a MSG_HINT 0xF0 right before the prompt and accepts no other seat
+					if(msgs.size() >= 2) {
+						const Msg& h = msgs[msgs.size() - 2];
+						uint64_t hs = 0;
+						if(h.id == MSG_HINT && h.size >= 10 && h.p[0] == HINT_PLACE_SEAT && h.p[1] == who) {
+							std::memcpy(&hs, h.p + 2, 8);
+							if(hs < 255) seat = static_cast<uint8_t>(hs);
+						}
+					}
 				}
 				const uint8_t r[3] = { seat, LOCATION_MZONE, seq == 0xff ? uint8_t(0) : seq };
 				OCG_DuelSetResponse(d, r, sizeof(r));
@@ -472,6 +509,7 @@ struct Model {
 	int n;
 	bool tag;
 	std::vector<int> team;
+	int eliminate = -1;
 	bool fold() const { return n > 2; }
 	int team_of(int s) const { return team[s]; }
 	bool same_team(int a, int b) const { return team[a] == team[b]; }
@@ -481,17 +519,20 @@ struct Model {
 		if(!tag) return d == P ? 0 : 1;
 		return team_of(d);
 	}
-	int next_opponent(int P) const {
-		for(int i = 1; i < n; ++i) {
-			const int q = (P + i) % n;
-			if(!same_team(P, q)) return q;
-		}
-		return -1;
+	// the living opponents of seat P, ascending
+	std::vector<int> opponents(int P) const {
+		std::vector<int> v;
+		for(int q = 0; q < n; ++q)
+			if(!same_team(P, q) && q != eliminate) v.push_back(q);
+		return v;
 	}
-	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T
+	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T: the turn player when it
+	// is an opponent (the GetTurnPlayer read binds it), else the pick (option 0 = the lowest living opponent)
 	int bound(int P, int T) const {
 		if(!fold()) return 1 - P;
-		return same_team(P, T) ? next_opponent(P) : T;
+		if(!same_team(P, T)) return T;
+		const auto v = opponents(P);
+		return v.empty() ? -1 : v[0];
 	}
 };
 
@@ -527,6 +568,7 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	Model M;
 	M.n = sc.n;
 	M.team = sc.team;
+	M.eliminate = sc.eliminate;
 	M.tag = sc.n > 2 && std::set<int>(sc.team.begin(), sc.team.end()).size() < static_cast<size_t>(sc.n);
 	int firings = 0, calls = 0, abs_lines = 0;
 	std::string cur_fn, cur_who;
@@ -616,10 +658,27 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	}
 	EXPECT(out.depth_bad == 0, "%s: scope depth not 0 at %zu of %zu prompts", sc.name, out.depth_bad, out.prompts);
 	EXPECT(g_errors == 0, "%s: %ld Lua errors, first: %s", sc.name, g_errors, g_error_text.empty() ? "" : g_error_text[0].c_str());
-	if(!M.fold())
-		EXPECT(nfold.empty(), "%s: %zu fold records at n == 2", sc.name, nfold.size());
-	std::printf("%-6s n=%d firings=%d calls=%d prompts=%zu depth-bad=%zu errors=%ld nfold(a/b/c/d)=%d/%d/%d/%d\n", sc.name, sc.n, firings, calls,
-	            out.prompts, out.depth_bad, g_errors, count_kind(nfold, 'a'), count_kind(nfold, 'b'), count_kind(nfold, 'c'), count_kind(nfold, 'd'));
+	if(M.fold()) {
+		// F5: no unbound fallback (a), no binding conflict (b), no bad player value (d). The pick prompt is the logged kind
+		// (c): one per firing on an own turn of a seat with at least 2 living opponents, none on an opponent's turn (the
+		// GetTurnPlayer read binds the turn player) and none with one living opponent (silent bind).
+		int want_picks = 0;
+		for(const auto& r : g_recs) {
+			auto m = fields_of(r.text);
+			if(m["kind"] != "who") continue;
+			const int P = as_int(m, "s");
+			if(M.same_team(P, r.turn_player) && M.opponents(P).size() >= 2) ++want_picks;
+		}
+		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
+		EXPECT(count_kind(nfold, 'b') == 0 && count_kind(nfold, 'd') == 0, "%s: kind b/d records: %d/%d", sc.name, count_kind(nfold, 'b'), count_kind(nfold, 'd'));
+		EXPECT(count_kind(nfold, 'c') == want_picks, "%s: %d kind (c) records, want %d", sc.name, count_kind(nfold, 'c'), want_picks);
+		EXPECT(out.picks == static_cast<size_t>(want_picks), "%s: %zu pick prompts, want %d", sc.name, out.picks, want_picks);
+		EXPECT(out.pick_bad.empty(), "%s: a pick prompt is wrong: %s", sc.name, out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
+	} else {
+		EXPECT(nfold.empty() && out.picks == 0, "%s: %zu fold records and %zu pick prompts at n == 2", sc.name, nfold.size(), out.picks);
+	}
+	std::printf("%-6s n=%d firings=%d calls=%d prompts=%zu depth-bad=%zu errors=%ld picks=%zu nfold(a/b/c/d)=%d/%d/%d/%d\n", sc.name, sc.n, firings, calls,
+	            out.prompts, out.depth_bad, g_errors, out.picks, count_kind(nfold, 'a'), count_kind(nfold, 'b'), count_kind(nfold, 'c'), count_kind(nfold, 'd'));
 }
 
 int main(int argc, char** argv) {

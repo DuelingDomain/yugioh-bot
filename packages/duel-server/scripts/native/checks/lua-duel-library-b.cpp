@@ -10,6 +10,10 @@
 //   IsPlayerCanDiscardDeck(1-tp,20) and IsPlayerCanDraw(1-tp,1)   query, unbound: the best case over the opponents
 //   SelectYesNo / SelectOption / AnnounceNumber with 1-tp         the prompt goes to the bound opponent, a living one
 //   SelectDisableField / SelectFieldZone with tp                  the prompt goes to the seat of the card, the answer is accepted
+// F5 binding: at n > 2 the first prompt that reads "1-tp" (SelectYesNo) makes the core ask the activator which opponent
+// it means (MSG_SELECT_OPTION, every desc 0xFFFE0000|seat, ascending, living opponents only). The driver answers 0, so the
+// bound opponent is the lowest living opponent of the card seat, on every turn. The query before it is unbound: the best
+// case over the living opponents. The prompts SelectYesNo/SelectOption/AnnounceNumber go to the bound opponent.
 // The driver notes the seat that got each prompt. No prompt may go to an eliminated seat.
 #include <algorithm>
 #include <cstdint>
@@ -179,6 +183,8 @@ struct Outcome {
 	size_t prompts = 0;
 	size_t retries = 0;           // MSG_RETRY: an answer that the core rejected
 	size_t bad_prompt = 0;        // a select prompt to a seat that is not a living duelist
+	size_t picks = 0;             // F5 pick prompts (every option 0xFFFE0000|seat) that were answered
+	std::vector<std::string> pick_bad;  // a pick prompt that is not the ascending list of the living opponents of the asked seat
 	bool ended_ok = false;
 	std::string why;
 };
@@ -304,7 +310,27 @@ static Outcome play(const Scenario& sc) {
 		switch(m->id) {
 		case MSG_SELECT_IDLECMD: answer32(7); break;
 		case MSG_SELECT_YESNO: case MSG_SELECT_EFFECTYN: answer32(1); break;
-		case MSG_SELECT_OPTION: answer32(0); break;
+		case MSG_SELECT_OPTION: {
+			// u8 player, u8 count, count x u64 desc
+			const int who = m->p[0], count = m->p[1];
+			std::vector<int> seats, want;
+			bool pick = count > 0;
+			for(int i = 0; i < count; ++i) {
+				uint64_t desc = 0;
+				std::memcpy(&desc, m->p + 2 + 8 * i, 8);
+				pick = pick && (desc >> 16) == 0xFFFE;
+				seats.push_back(static_cast<int>(desc & 0xff));
+			}
+			if(pick) {
+				++out.picks;
+				for(int q = 0; q < sc.n; ++q)
+					if(who >= 0 && who < sc.n && sc.team[q] != sc.team[who] && !F(d).player[q].eliminated) want.push_back(q);
+				if(seats != want || seats.size() < 2)
+					out.pick_bad.push_back("seat " + std::to_string(who) + " got " + std::to_string(seats.size()) + " options");
+			}
+			answer32(0);
+			break;
+		}
 		case MSG_ANNOUNCE_NUMBER: answer32(0); break;
 		case MSG_SELECT_DISFIELD: {
 			// payload: player, count, flag (4 bytes). The answer is player, location, sequence: the first free own zone.
@@ -412,16 +438,11 @@ static void check_scenario(const Scenario& sc, const Outcome& out, const std::ve
 			if(!same_team(P, q) && !r.elim[q]) v.push_back(q);
 		return v;
 	};
-	// the opponent that 1-tp means for the card of seat P on the turn of seat T: the turn player on an opponent's turn,
-	// the next living opponent in turn order on an own turn
-	auto bound = [&](const Rec& r, int P, int T) {
+	// the opponent that 1-tp means for the card of seat P: the one the driver picked (option 0 = the lowest living opponent)
+	auto bound = [&](const Rec& r, int P, int /*T*/) {
 		if(!fold) return 1 - P;
-		if(!same_team(P, T)) return T;
-		for(int i = 1; i < sc.n; ++i) {
-			const int q = (P + i) % sc.n;
-			if(!same_team(P, q) && !r.elim[q]) return q;
-		}
-		return -1;
+		const auto v = opponents_alive(r, P);
+		return v.empty() ? -1 : v[0];
 	};
 	std::map<std::string, int> seen;
 	int firings = 0, own_firings = 0;
@@ -437,15 +458,15 @@ static void check_scenario(const Scenario& sc, const Outcome& out, const std::ve
 			++firings;
 			if(same_team(P, T)) ++own_firings;
 			bool disc = false, draw = false;
-			// own turn: nobody is bound, the query is the best case over the living opponents; on an opponent's turn the
-			// scope is bound to the turn player, so "1" is that seat only
-			std::vector<int> opps = (!fold || same_team(P, T)) ? opponents_alive(r, P) : std::vector<int>{ T };
+			// the query comes before the first prompt, so nobody is bound yet: the best case over the living opponents,
+			// on every turn
+			std::vector<int> opps = opponents_alive(r, P);
 			for(int q : opps) {
 				disc = disc || r.deck[q] >= 20;
 				draw = draw || r.deck[q] >= 1;
 			}
 			EXPECT(m["disc"] == (disc ? "true" : "false") && m["draw"] == (draw ? "true" : "false"),
-			       "%s: seat %d turn %d: %s, want disc=%d draw=%d (own turn: best case over the living opponents; otherwise the turn player)", sc.name, P, T, r.text.c_str(), disc, draw);
+			       "%s: seat %d turn %d: %s, want disc=%d draw=%d (unbound: the best case over the living opponents)", sc.name, P, T, r.text.c_str(), disc, draw);
 		} else if(k == "yn" || k == "opt" || k == "num") {
 			const int want_id = k == "yn" ? MSG_SELECT_YESNO : k == "opt" ? MSG_SELECT_OPTION : MSG_ANNOUNCE_NUMBER;
 			const int B = bound(r, P, T);
@@ -479,15 +500,18 @@ static void check_scenario(const Scenario& sc, const Outcome& out, const std::ve
 		d_mine += count_kind(nfold, 'd', fn);
 	if(fold) {
 		EXPECT(d_mine == 0, "%s: %d kind (d) records for the functions of this check", sc.name, d_mine);
-		EXPECT(count_kind(nfold, 'b') == 0 && count_kind(nfold, 'c') == 0 && count_kind(nfold, 'd') == 0, "%s: kind b/c/d records: %d/%d/%d", sc.name,
-		       count_kind(nfold, 'b'), count_kind(nfold, 'c'), count_kind(nfold, 'd'));
-		// own turns: the unbound 1-tp is a fallback; the first use (the query) records one 'a' line per firing at most
-		EXPECT(count_kind(nfold, 'a') <= firings * 4, "%s: %d kind (a) records", sc.name, count_kind(nfold, 'a'));
+		EXPECT(count_kind(nfold, 'b') == 0 && count_kind(nfold, 'd') == 0, "%s: kind b/d records: %d/%d", sc.name, count_kind(nfold, 'b'), count_kind(nfold, 'd'));
+		// F5: no unbound fallback (kind a). The pick prompt is the logged kind (c): exactly one per firing (every living
+		// seat has at least 2 living opponents here), asked of the card seat.
+		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
+		EXPECT(count_kind(nfold, 'c') == firings, "%s: %d kind (c) records, want %d (one pick per firing)", sc.name, count_kind(nfold, 'c'), firings);
+		EXPECT(out.picks == static_cast<size_t>(firings), "%s: %zu pick prompts, want %d", sc.name, out.picks, firings);
+		EXPECT(out.pick_bad.empty(), "%s: a pick prompt is wrong: %s", sc.name, out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
 	} else {
-		EXPECT(nfold.empty(), "%s: %zu fold records at n == 2", sc.name, nfold.size());
+		EXPECT(nfold.empty() && out.picks == 0, "%s: %zu fold records and %zu pick prompts at n == 2", sc.name, nfold.size(), out.picks);
 	}
-	std::printf("%-6s n=%d%s firings=%d own-turn=%d prompts=%zu retries=%zu bad-prompt=%zu errors=%ld nfold(a/b/c/d)=%d/%d/%d/%d\n", sc.name, sc.n, tag ? " tag" : "",
-	            firings, own_firings, out.prompts, out.retries, out.bad_prompt, g_errors, count_kind(nfold, 'a'), count_kind(nfold, 'b'), count_kind(nfold, 'c'), count_kind(nfold, 'd'));
+	std::printf("%-6s n=%d%s firings=%d own-turn=%d prompts=%zu retries=%zu bad-prompt=%zu errors=%ld picks=%zu nfold(a/b/c/d)=%d/%d/%d/%d\n", sc.name, sc.n, tag ? " tag" : "",
+	            firings, own_firings, out.prompts, out.retries, out.bad_prompt, g_errors, out.picks, count_kind(nfold, 'a'), count_kind(nfold, 'b'), count_kind(nfold, 'c'), count_kind(nfold, 'd'));
 }
 
 int main(int argc, char** argv) {

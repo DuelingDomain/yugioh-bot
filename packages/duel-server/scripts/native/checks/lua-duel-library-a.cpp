@@ -6,7 +6,13 @@
 // or all of them in turn), logs "F3 pre" / "F3 mid" / "F3 post" lines with the card seat, and asks SelectYesNo.
 // The logger stores the hand / deck / monster-zone counts of every seat at each line, so the expectations compare
 // the state before and after the call.
-//   draw        Duel.Draw(1-tp,1,REASON_EFFECT): the bound opponent draws (own turn: the next living opponent + one NFOLD a)
+// F5 (opponent binding, core 29fff80): the first read of "1" binds one opponent for the whole chain link. On the turn of an
+// opponent the read of the turn player (the Standby Phase event) is that opponent. On a turn of the own team the core
+// asks the activator to pick one (MSG_SELECT_OPTION, every desc 0xFFFE0000|seat, ascending, living opponents only, in the
+// operation step: one kind (c) record). The harness answers option 0, the lowest living opponent. With one living
+// opponent the bind is silent (ffa3e: seat 2 eliminated, so no pick prompt and no record). There is never a guess:
+// no kind (a) record. Probes that read a single "1" (draw, sendtohand, moveopp) pick once per own-team firing.
+//   draw        Duel.Draw(1-tp,1,REASON_EFFECT): the bound opponent draws (own turn: the picked, lowest living opponent)
 //   confirm     Duel.ConfirmCards(1-tp,g): one MSG_CONFIRM_CARDS for every duelist of the other side
 //   sendtohand  Duel.SendtoHand(g,1-tp) with a card of the opponent, then Duel.SendtoHand(g2,tp)
 //   move        Duel.MoveToField(c,tp,tp,...): the place prompt goes to the card seat, the card lands on its field
@@ -36,6 +42,9 @@
 static const char* kScripts = check_scripts_dir();
 static const uint32_t kTestBase = 90001;
 static const uint32_t kDeckBase = 5000;
+// The pick is always option 0 (the lowest living opponent), so seat 0 is the target of most firings and loses 2 cards
+// per firing: the Decks must outlast the whole duel.
+static const int kDeckSize = 90;
 static std::string g_probe;
 
 static const char* kHead = R"LUA(
@@ -192,6 +201,7 @@ struct Scenario {
 	std::vector<int> team;
 	bool setup_call;
 	int turns;
+	int eliminate = -1;   // a seat that is marked eliminated after the start of the duel
 };
 
 struct Outcome {
@@ -199,6 +209,8 @@ struct Outcome {
 	int turns = 0;
 	size_t depth_bad = 0;
 	size_t prompts = 0;
+	size_t picks = 0;                    // F5 pick prompts (every option 0xFFFE0000|seat) that were answered
+	std::vector<std::string> pick_bad;   // a pick prompt that is not the ascending list of the living opponents
 	bool ended_ok = false;
 	std::string why;
 };
@@ -224,25 +236,29 @@ static uint64_t fnv(uint64_t h, const uint8_t* p, size_t n) {
 struct Model {
 	int n;
 	bool tag;
+	int eliminate = -1;
 	std::vector<int> team;
 	bool same_team(int a, int b) const { return n > 2 ? team[a] == team[b] : a == b; }
-	int next_opponent(int P) const {
-		for(int i = 1; i < n; ++i) {
-			const int q = (P + i) % n;
-			if(!same_team(P, q)) return q;
-		}
-		return -1;
+	// the living opponents of P, ascending: the options of the F5 pick prompt
+	std::vector<int> opponents(int P) const {
+		std::vector<int> r;
+		for(int q = 0; q < n; ++q)
+			if(q != eliminate && !same_team(P, q)) r.push_back(q);
+		return r;
 	}
-	// the opponent that "1" means in the operation of the card of seat P on the turn of seat T
-	int bound(int P, int T) const {
+	// the opponent that "1" means in the operation of the card of seat P (F5). The Standby Phase event names nobody and
+	// the operation does not read the turn player, so on every turn the first read of "1" is the pick, which the harness
+	// answers with option 0 (the lowest living opponent); or the only living opponent (silent bind)
+	int bound(int P, int /*T*/) const {
 		if(n == 2) return 1 - P;
-		return same_team(P, T) ? next_opponent(P) : T;
+		const auto o = opponents(P);
+		return o.empty() ? -1 : o[0];
 	}
 	// every duelist of the other side (FFA: every other seat, Tag: the other team, n == 2: the opponent)
 	std::set<int> others(int P) const {
 		std::set<int> s;
 		for(int q = 0; q < n; ++q)
-			if(n == 2 ? q != P : !same_team(P, q)) s.insert(q);
+			if(q != eliminate && (n == 2 ? q != P : !same_team(P, q))) s.insert(q);
 		return s;
 	}
 };
@@ -296,11 +312,13 @@ static Outcome play(const Scenario& sc) {
 		}
 	}
 	for(int s = 0; s < sc.n; ++s)
-		for(int i = 0; i < 30; ++i)
+		for(int i = 0; i < kDeckSize; ++i)
 			add_card(d, static_cast<uint8_t>(s), LOCATION_DECK, kDeckBase + s, POS_FACEDOWN_DEFENSE);
 	for(int s = 0; s < sc.n; ++s)
 		add_card(d, static_cast<uint8_t>(s), LOCATION_MZONE, kTestBase + s, POS_FACEUP_ATTACK);
 	OCG_StartDuel(d);
+	if(sc.eliminate >= 0)
+		F(d).player[sc.eliminate].eliminated = true;
 
 	auto* pd = static_cast<duel*>(d);
 	out.hash = 1469598103934665603ull;
@@ -349,7 +367,25 @@ static Outcome play(const Scenario& sc) {
 		switch(m->id) {
 		case MSG_SELECT_IDLECMD: answer32(7); break;
 		case MSG_SELECT_YESNO: case MSG_SELECT_EFFECTYN: answer32(1); break;
-		case MSG_SELECT_OPTION: answer32(0); break;
+		case MSG_SELECT_OPTION: {
+			// u8 player, u8 count, count x u64 desc
+			const int who = m->p[0], count = m->p[1];
+			std::vector<int> seats;
+			bool pick = count > 0;
+			for(int i = 0; i < count; ++i) {
+				uint64_t desc = 0;
+				std::memcpy(&desc, m->p + 2 + 8 * i, 8);
+				pick = pick && (desc >> 16) == 0xFFFE;
+				seats.push_back(static_cast<int>(desc & 0xff));
+			}
+			if(pick) {
+				++out.picks;
+				if(seats != g_model.opponents(who) || seats.size() < 2)
+					out.pick_bad.push_back("seat " + std::to_string(who) + " got " + std::to_string(seats.size()) + " options");
+			}
+			answer32(0);
+			break;
+		}
 		case MSG_SELECT_CHAIN: {
 			const bool forced = m->size > 2 && m->p[2] != 0;
 			answer32(forced ? 0 : -1);
@@ -513,9 +549,10 @@ static void check_probe(const Scenario& sc, const Outcome& out, const std::vecto
 				if(did) { d.mz[P] = 1; d.deck[P] = -1; }
 				EXPECT(same_delta(a, r, d, n), "%s move: seat %d turn %d (do=%d): want the card on the own field, got:%s", sc.name, P, T, did, show(a, r, n).c_str());
 			} else if(g_probe == "moveopp") {
-				// GetLocationCount(1-tp) is a query (best case over the living opponents) when nobody is bound, so on an
-				// own turn the guard can pass while the bound opponent (the next one) has no free zone: no move then.
-				if(did && a.mz[B] < 5) { d.mz[B] = 1; d.deck[P] = -1; }
+				// GetLocationCount(1-tp) reads the bound opponent (F5 binds at this first read), so the guard passes
+				// exactly when that opponent has a free zone
+				EXPECT(did == (a.mz[B] < 5), "%s moveopp: seat %d turn %d: do=%d, but seat %d has %d monsters", sc.name, P, T, did, B, a.mz[B]);
+				if(did) { d.mz[B] = 1; d.deck[P] = -1; }
 				EXPECT(same_delta(a, r, d, n), "%s moveopp: seat %d turn %d (do=%d): want the card on the field of seat %d, got:%s", sc.name, P, T, did, B, show(a, r, n).c_str());
 			}
 			if(did) { ++done; done_seats.insert(P); }
@@ -528,25 +565,20 @@ static void check_probe(const Scenario& sc, const Outcome& out, const std::vecto
 	EXPECT(out.ended_ok, "%s %s: the duel did not reach turn %d: %s (turns=%d)", sc.name, g_probe.c_str(), sc.turns, out.why.c_str(), out.turns);
 	EXPECT(out.depth_bad == 0, "%s %s: scope depth not 0 at %zu of %zu prompts", sc.name, g_probe.c_str(), out.depth_bad, out.prompts);
 	EXPECT(g_errors == 0, "%s %s: %ld Lua errors, first: %s", sc.name, g_probe.c_str(), g_errors, g_error_text.empty() ? "" : g_error_text[0].c_str());
-	EXPECT(count_kind(nfold, 'd') == 0 && count_kind(nfold, 'b') == 0 && count_kind(nfold, 'c') == 0, "%s %s: unexpected kind b/c/d records (d=%d b=%d c=%d)", sc.name, g_probe.c_str(),
-	       count_kind(nfold, 'd'), count_kind(nfold, 'b'), count_kind(nfold, 'c'));
-	int expect_a = 0;
+	EXPECT(count_kind(nfold, 'd') == 0 && count_kind(nfold, 'b') == 0, "%s %s: unexpected kind b/d records (d=%d b=%d)", sc.name, g_probe.c_str(),
+	       count_kind(nfold, 'd'), count_kind(nfold, 'b'));
 	if(n > 2) {
-		if(g_probe == "draw") {
-			expect_a = own_firings;
-			EXPECT(count_kind(nfold, 'a', "Draw") == expect_a, "%s draw: %d NFOLD a for Draw, want %d (one per own-turn firing)", sc.name, count_kind(nfold, 'a', "Draw"), expect_a);
-		} else if(g_probe == "sendtohand") {
-			EXPECT(count_kind(nfold, 'a', "SendtoHand") == own_firings, "%s sendtohand: %d NFOLD a for SendtoHand, want %d", sc.name, count_kind(nfold, 'a', "SendtoHand"), own_firings);
-		} else if(g_probe == "moveopp") {
-			int own_done = 0;
-			// own-turn firings that did the move
-			(void)own_done;
-			EXPECT(count_kind(nfold, 'a', "MoveToField") <= own_firings, "%s moveopp: %d NFOLD a for MoveToField, at most %d", sc.name, count_kind(nfold, 'a', "MoveToField"), own_firings);
-		} else if(g_probe == "move" || g_probe == "confirm") {
-			EXPECT(count_kind(nfold, 'a', "MoveToField") == 0 && count_kind(nfold, 'a', "ConfirmCards") == 0, "%s %s: unexpected NFOLD a for the probed function", sc.name, g_probe.c_str());
-		}
+		// F5: no guess at all (no kind a). The pick prompt is the logged kind (c): one per firing of a probe that reads
+		// a single "1" (the event names nobody, on every turn), none when only one opponent lives (silent bind) or
+		// when the probe reads no single "1".
+		EXPECT(count_kind(nfold, 'a') == 0, "%s %s: %d kind (a) records (an unbound fallback), want 0", sc.name, g_probe.c_str(), count_kind(nfold, 'a'));
+		const bool reads_one = g_probe == "draw" || g_probe == "sendtohand" || g_probe == "moveopp";
+		const int want_c = (reads_one && M.eliminate < 0) ? firings : 0;
+		EXPECT(count_kind(nfold, 'c') == want_c, "%s %s: %d kind (c) records, want %d", sc.name, g_probe.c_str(), count_kind(nfold, 'c'), want_c);
+		EXPECT(out.picks == static_cast<size_t>(want_c), "%s %s: %zu pick prompts, want %d", sc.name, g_probe.c_str(), out.picks, want_c);
+		EXPECT(out.pick_bad.empty(), "%s %s: a pick prompt is wrong: %s", sc.name, g_probe.c_str(), out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
 	} else {
-		EXPECT(nfold.empty(), "%s %s: %zu fold records at n == 2", sc.name, g_probe.c_str(), nfold.size());
+		EXPECT(nfold.empty() && out.picks == 0, "%s %s: %zu fold records and %zu pick prompts at n == 2", sc.name, g_probe.c_str(), nfold.size(), out.picks);
 	}
 	if(g_probe == "confirm") {
 		// every firing: one MSG_CONFIRM_CARDS per duelist of the other side, none to the card seat
@@ -576,7 +608,7 @@ static void check_probe(const Scenario& sc, const Outcome& out, const std::vecto
 			if(p.first != p.second) ++wrong;
 		EXPECT(wrong == 0, "%s %s: %d place prompts went to a seat that is not the chooser", sc.name, g_probe.c_str(), wrong);
 		if(n > 2)
-			EXPECT(static_cast<int>(done_seats.size()) == n, "%s %s: only %zu of %d seats did the move", sc.name, g_probe.c_str(), done_seats.size(), n);
+			EXPECT(static_cast<int>(done_seats.size()) == n - (M.eliminate >= 0 ? 1 : 0), "%s %s: only %zu of %d living seats did the move", sc.name, g_probe.c_str(), done_seats.size(), n - (M.eliminate >= 0 ? 1 : 0));
 	}
 	std::printf("%-6s %-10s n=%d firings=%d done=%d own-turn=%d prompts=%zu places=%zu confirms=%zu errors=%ld nfold(a/b/c/d)=%d/%d/%d/%d\n", sc.name, g_probe.c_str(), n, firings, done,
 	            own_firings, out.prompts, g_places.size(), g_confirms.size(), g_errors, count_kind(nfold, 'a'), count_kind(nfold, 'b'), count_kind(nfold, 'c'), count_kind(nfold, 'd'));
@@ -589,12 +621,13 @@ int main(int argc, char** argv) {
 		{ "ffa3", 3, { 0, 1, 2 }, true, 7 },
 		{ "ffa4", 4, { 0, 1, 2, 3 }, true, 9 },
 		{ "tag", 4, { 0, 1, 0, 1 }, true, 9 },
+		{ "ffa3e", 3, { 0, 1, 2 }, true, 7, 2 },
 	};
 	for(const auto& p : probes) {
 		if(!only.empty() && only != p) continue;
 		g_probe = p;
 		for(const auto& sc : scenarios) {
-			g_model.n = sc.n; g_model.team = sc.team; g_model.tag = true;
+			g_model.n = sc.n; g_model.team = sc.team; g_model.tag = true; g_model.eliminate = sc.eliminate;
 			Outcome out;
 			const auto nfold = run_captured(sc, out);
 			check_probe(sc, out, nfold);
@@ -602,7 +635,7 @@ int main(int argc, char** argv) {
 		// n == 2: plain and with SetupDuelists(2,0,1) give the same bytes and the same log
 		Scenario a{ "n2", 2, { 0, 1 }, false, 6 };
 		Scenario b{ "n2s", 2, { 0, 1 }, true, 6 };
-		g_model.n = 2; g_model.team = { 0, 1 }; g_model.tag = false;
+		g_model.n = 2; g_model.team = { 0, 1 }; g_model.tag = false; g_model.eliminate = -1;
 		Outcome oa, ob;
 		const auto na = run_captured(a, oa);
 		check_probe(a, oa, na);
