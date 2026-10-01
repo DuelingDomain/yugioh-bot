@@ -236,11 +236,14 @@ function ante(format: Format, ownerWins: boolean): Scenario {
   });
 }
 
-// --- Hero Counterattack in Tag --------------------------------------------------------------------------------------------------------
+// --- Hero Counterattack and Foolish Revival in Tag, Foolish Revival with a Graveyard that is not the picked one ----------------------
 const HERO_RULE = `${SOURCE} [R-COMMON-OPP-PICK], the other cards use the defaults: Hero Counterattack (the opponent that attacked picks at random from your hand)`;
+const REVIVAL_RULE = `${SOURCE} [R-COMMON-OPP-PICK], [R-COMMON-OPP-FIELD], a summon to the field of an opponent: the summoning player picks one opponent, the target may be in the Graveyard of any opponent`;
 const AVIAN = "Elemental HERO Avian";
 const SPARKMAN = "Elemental HERO Sparkman";
 const HERO_COUNTERATTACK = "Hero Counterattack";
+const FOOLISH_REVIVAL = "Foolish Revival";
+const DARK_MAGICIAN = "Dark Magician";
 
 // Tag: p1 (team 1) attacks the Hero of p0 (team 0) on its second turn (turn 6; no attack in the first turn of each seat). The attacker is the
 // bound opponent: no pick prompt. Sparkman is Special Summoned to p0, p0 destroys a monster of an OPPOSING duelist (p1 or p3, never its partner p2).
@@ -274,6 +277,37 @@ const heroCounterattackTag = defineScenario({
   ],
 });
 
+// A Graveyard of an opponent that is NOT the picked one: the target may be there (R-COMMON-OPP-FIELD) and the card goes to the field of the
+// picked opponent only. The Skull of p1 goes to the field of p2 and p1 keeps nothing, p2 keeps its own Graveyard card.
+function foolishRevivalOtherGrave(format: "ffa3" | "tag"): Scenario {
+  const label = format === "tag" ? "Tag" : "FFA3";
+  const picked: Seat = format === "tag" ? "p3" : "p2";
+  const source: Seat = "p1";
+  const setup: Scenario["setup"] = { format, p0: { spells: [{ card: FOOLISH_REVIVAL, pos: "set" }] }, p1: { grave: [SKULL] } };
+  (setup as Record<string, unknown>)[picked] = { grave: [DARK_MAGICIAN] };
+  const lp = format === "tag" ? 16000 : 8000;
+  const spec: Partial<Record<Seat, DuelistExpect>> = {
+    p0: { grave: [FOOLISH_REVIVAL] },
+    [source]: {},
+    [picked]: { monsters: [SKULL], grave: [DARK_MAGICIAN] },
+  };
+  return defineScenario({
+    id: `late-${format}-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked`,
+    title: `${label}: p0 activates Foolish Revival and picks ${picked}, then targets the Summoned Skull in the Graveyard of ${source}: the Skull goes to the field of ${picked}; ${picked} keeps its own Graveyard card`,
+    source: REVIVAL_RULE,
+    rules: ["R-COMMON-OPP-PICK", "R-COMMON-OPP-FIELD", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    tags: ["multiplayer", "late-cards", "opponent-field-summon", format, "card:83778600"],
+    setup,
+    steps: [
+      activate(FOOLISH_REVIVAL, "p0"),
+      expectPickSeats(format === "tag" ? ["p1", "p3"] : ["p1", "p2"], "p0"),
+      pickOpponent(picked, "p0"),
+      select({ card: SKULL, owner: source }),
+      everySeat(format, spec, lp),
+    ],
+  });
+}
+
 export const LATE_CARD_SCENARIOS: Scenario[] = [
   royalTribute("ffa3"),
   royalTribute("ffa4"),
@@ -296,4 +330,6 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   ante("tag", true),
   ante("tag", false),
   heroCounterattackTag,
+  foolishRevivalOtherGrave("ffa3"),
+  foolishRevivalOtherGrave("tag"),
 ];
