@@ -5,7 +5,7 @@
 // Every scenario ends with the state of every seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md and DECISIONS-2026-10-01 (Q3, Q6, Q9, OQ3).
 
 import {
-  activate, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPrompt, expectTurn, surrender, expectNotOffered, expectPickSeats, pickOpponent, specialSummon, yes, changePosition, select,
+  activate, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPrompt, expectTurn, surrender, expectNotOffered, expectPickSeats, pickOpponent, specialSummon, yes, changePosition, select, changePhase, attack,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -28,6 +28,8 @@ export function everySeat(format: "ffa3" | "ffa4" | "tag", spec: Partial<Record<
 const PUDICA = "Traptrix Pudica";
 const CYBER = "Cyber Dragon";
 const BRAIN_JACKER = "Brain Jacker";
+const GINGERBREAD = "Gingerbread House";
+const KISEITAI = "Kiseitai";
 
 export const TABLE_CARD_SCENARIOS: Scenario[] = [
   defineScenario({
@@ -151,6 +153,41 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     ],
   }),
   defineScenario({
+    id: "table-tag-eye-of-truth-only-an-opposing-duelist-with-a-spell-in-its-hand-gains-the-lp-for-its-team",
+    title: "Tag: The Eye of Truth of p0: in the Standby Phase of p1 (a Spell in its hand) the team of p1 gains 1000 LP with no pick, in the one of p2 (the partner of p0) nothing, in the one of p3 (no Spell in its hand) nothing",
+    source: OPP_FIELD,
+    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER", "R-TAG-ORDER"],
+    tags: ["multiplayer", "lp", "tag", "card:34694160"],
+    setup: {
+      format: "tag",
+      p0: { spells: [{ card: "The Eye of Truth", pos: "set" }] },
+      p1: { hand: ["Dark Hole"] },
+      p2: { hand: ["Raigeki"] },
+      p3: { hand: [ELF] },
+    },
+    steps: [
+      activate("The Eye of Truth", "p0"),
+      endTurn("p0"),
+      expectPrompt({ by: "p1", context: "action" }),
+      expectLp({ team: 0 }, 16000),
+      expectLp({ team: 1 }, 17000),
+      endTurn("p1"),
+      // The Standby Phase of p2, the partner of the controller: nothing.
+      expectPrompt({ by: "p2", context: "action" }),
+      expectLp({ team: 0 }, 16000),
+      expectLp({ team: 1 }, 17000),
+      endTurn("p2"),
+      // The Standby Phase of p3: no Spell in its hand, nothing.
+      expectPrompt({ by: "p3", context: "action" }),
+      everySeat("tag", {
+        p0: { lp: 16000, spells: ["The Eye of Truth"] },
+        p1: { lp: 17000 },
+        p2: { lp: 16000 },
+        p3: { lp: 17000 },
+      }),
+    ],
+  }),
+  defineScenario({
     id: "table-ffa3-brain-jacker-only-the-owner-of-the-stolen-monster-gains-the-lp-in-its-own-standby-phase",
     title: "FFA3: the 500 LP of Brain Jacker go to the owner of the stolen monster (p2) in its own Standby Phase, with no pick, and to nobody else",
     source: OPP_FIELD,
@@ -216,6 +253,81 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
         p2: { lp: 16000, monsters: ["Dark Magician"] },
         p3: { lp: 16500 },
       }),
+    ],
+  }),
+  defineScenario({
+    id: "table-ffa3-gingerbread-house-in-the-standby-phase-of-an-opponent-no-pick-all-opponent-monsters",
+    title: "FFA3: Gingerbread House in the Standby Phase of p1 asks for no opponent pick (only the trigger yes/no for p0): the monsters of both opponents gain 600 ATK, the one of p2 reaches 2500 and is destroyed, p0 gains 500 LP",
+    source: OPP_FIELD,
+    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    tags: ["multiplayer", "lp", "destroy", "ffa3", "card:79922118"],
+    setup: {
+      format: "ffa3",
+      p0: { spells: [{ card: GINGERBREAD, pos: "set" }] },
+      p1: { monsters: ["Battle Ox"] },
+      p2: { monsters: ["Gemini Elf"] },
+    },
+    steps: [
+      activate(GINGERBREAD, "p0"),
+      endTurn("p0"),
+      // The stock effect reads "0, MZONE" as the monsters of all opponents (R-COMMON-OPP-FIELD): no pick, only the yes/no of the optional trigger.
+      yes("p0"),
+      expectPrompt({ by: "p1", context: "action" }),
+      everySeat("ffa3", { p0: { lp: 8500, spells: [GINGERBREAD] }, p1: { monsters: ["Battle Ox"] }, p2: { grave: ["Gemini Elf"] } }),
+    ],
+  }),
+  defineScenario({
+    id: "table-tag-gingerbread-house-in-the-standby-phase-of-an-opposing-duelist-no-pick",
+    title: "Tag: Gingerbread House in the Standby Phase of p1 asks for no pick: the monsters of both opposing duelists gain 600 ATK, the Gemini Elf of p3 is destroyed, the team of p0 gains 500 LP",
+    source: OPP_FIELD,
+    rules: ["R-COMMON-OPP-FIELD", "R-TAG-ORDER"],
+    tags: ["multiplayer", "lp", "destroy", "tag", "card:79922118"],
+    setup: {
+      format: "tag",
+      p0: { spells: [{ card: GINGERBREAD, pos: "set" }] },
+      p1: { monsters: ["Battle Ox"] },
+      p2: { monsters: [ELF] },
+      p3: { monsters: ["Gemini Elf"] },
+    },
+    steps: [
+      activate(GINGERBREAD, "p0"),
+      endTurn("p0"),
+      yes("p0"),
+      expectPrompt({ by: "p1", context: "action" }),
+      everySeat("tag", {
+        p0: { lp: 16500, spells: [GINGERBREAD] },
+        p1: { lp: 16000, monsters: ["Battle Ox"] },
+        p2: { lp: 16500, monsters: [ELF] },
+        p3: { lp: 16000, grave: ["Gemini Elf"] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "table-ffa3-kiseitai-the-controller-gains-the-lp-in-the-standby-phase-of-each-opponent-no-pick",
+    title: "FFA3: Kiseitai equipped to the Summoned Skull of p1 gives p0 half the ATK as LP in the Standby Phase of p2 and again in the one of p1, with no pick",
+    source: OPP_FIELD,
+    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    tags: ["multiplayer", "equip", "lp", "ffa3", "card:4266839"],
+    setup: {
+      format: "ffa3",
+      p0: { monsters: [{ card: KISEITAI, pos: "set" }] },
+      p1: { monsters: ["Summoned Skull"] },
+    },
+    steps: [
+      // No attack is allowed in the first turn of each seat: p1 attacks on its second turn (turn 5).
+      ...["p0", "p1", "p2", "p0"].map((seat) => endTurn(seat as Seat)),
+      changePhase("battle", "p1"),
+      attack("Summoned Skull", KISEITAI, "p1"),
+      expectPrompt({ by: "p1", context: "action" }),
+      endTurn("p1"),
+      // The Standby Phase of p2 (an opponent of p0): p0 gains half the ATK of the Summoned Skull, nobody is asked.
+      expectPrompt({ by: "p2", context: "action" }),
+      expectLp({ seat: "p0" }, 9250),
+      endTurn("p2"),
+      endTurn("p0"),
+      // The Standby Phase of p1: p0 gains it again.
+      expectPrompt({ by: "p1", context: "action" }),
+      everySeat("ffa3", { p0: { lp: 10500, spells: [KISEITAI] }, p1: { monsters: ["Summoned Skull"] } }),
     ],
   }),
 ];
