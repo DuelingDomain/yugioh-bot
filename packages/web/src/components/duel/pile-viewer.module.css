@@ -1,7 +1,7 @@
 /* Pile viewer: a Match Sheet for the Graveyard, Banished and Extra Deck, centred over the board.
    Mounted inside the board box: the scrim dims the board, the panel sits in the middle (on phones too,
    fixed to the viewport). Newest card first, a compact preview of the hovered or focused card pinned
-   above the grid; the left inspector shows the full text. Purple = yours (legal ring and tag); gold hairlines. */
+   above the grid; the left inspector shows the full text. Purple = yours; gold hairlines. Usable cards glow. */
 
 .root {
   --pv-ink: var(--duel-ink, #efe7d5);
@@ -290,7 +290,7 @@
   align-content: start;
   min-height: 0;
   margin: 0;
-  padding: calc(12 * var(--pv-u)) calc(14 * var(--pv-u)) calc(16 * var(--pv-u)) calc(16 * var(--pv-u));
+  padding: calc(18 * var(--pv-u)) calc(18 * var(--pv-u)) calc(18 * var(--pv-u)) calc(18 * var(--pv-u));
   overflow-x: hidden;
   overflow-y: auto;
   list-style: none;
@@ -396,19 +396,21 @@
   color: var(--pv-ink);
 }
 
-/* Legal and selected: the field's outline shape and tag, never colour alone. */
-.ring {
-  position: absolute;
-  inset: -4px;
-  z-index: 2;
-  border: 1px dashed var(--pv-pen);
-  border-radius: 7px;
-  pointer-events: none;
+/* Usable cards: <UsableGlow> (usable-glow.module.css), a pulsing halo and a turning rim in the pile's tone,
+   with a "Use" tag as the cue that is not colour. --ug-r matches the art's corner radius. */
+.art {
+  --ug-r: 4px;
 }
 
-.card[data-selected="true"] .ring {
+/* Selected (a multi-pick prompt): a solid, thicker ring and a check on a filled tag. Not animated, so it
+   never reads as "usable". */
+.ring {
+  position: absolute;
   inset: -5px;
+  z-index: 2;
   border: 2px solid var(--pv-pen);
+  border-radius: 7px;
+  pointer-events: none;
 }
 
 .mark {
@@ -439,7 +441,7 @@
   stroke-linejoin: round;
 }
 
-.card[data-selected="true"] .mark {
+.mark {
   background: var(--pv-pen-fill);
   color: #fff;
 }
@@ -472,7 +474,7 @@
   .grid {
     grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
     gap: 8px 6px;
-    padding: 10px 14px 16px;
+    padding: 16px 16px 16px;
   }
 }
 

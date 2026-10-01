@@ -1,0 +1,134 @@
+/* Glow for a card with a legal move (pile viewer cards; the hand can reuse it).
+   Same tints as the summoning circle: --ug-a is the main light, --ug-b the accent ("r g b" triplets).
+   Three cheap layers, all outside the card box so the card stays readable:
+   - .halo: a static box-shadow on an empty box (rastered once); only its opacity pulses.
+   - .rim: a thin ring (mask), with .light, a conic wedge, turning inside it (transform only).
+   - .tag: a small text label, the cue that is not colour. */
+
+.glow {
+  --ug-a: 155 126 255;
+  --ug-b: 244 214 144;
+  --ug-ring: 3px;
+  position: absolute;
+  inset: -5px;
+  z-index: 1;
+  border-radius: calc(var(--ug-r, 4px) + 5px);
+  pointer-events: none;
+}
+
+.glow[data-tone="gy"] {
+  --ug-a: 96 214 196;
+}
+
+.glow[data-tone="banish"] {
+  --ug-a: 228 182 79;
+  --ug-b: 198 182 255;
+}
+
+/* The box sits on the card edge; its shadow only shows outside it. */
+.halo {
+  position: absolute;
+  inset: 5px;
+  border-radius: var(--ug-r, 4px);
+  box-shadow:
+    0 0 8px 2px rgb(var(--ug-a) / 0.95),
+    0 0 20px 5px rgb(var(--ug-a) / 0.55),
+    0 0 36px 8px rgb(var(--ug-a) / 0.25);
+  animation: ug-breathe 2.8s ease-in-out infinite;
+}
+
+/* A solid ring: always there, so a still glow keeps its outline. */
+.rim {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: var(--ug-ring);
+  overflow: hidden;
+  border-radius: inherit;
+  background: rgb(var(--ug-a) / 0.9);
+  -webkit-mask-image: linear-gradient(#000, #000), linear-gradient(#000, #000);
+  -webkit-mask-clip: content-box, border-box;
+  -webkit-mask-composite: xor;
+  mask-image: linear-gradient(#000, #000), linear-gradient(#000, #000);
+  mask-clip: content-box, border-box;
+  mask-composite: exclude;
+}
+
+/* A square bigger than the card diagonal, so the wedge always covers the whole ring. */
+.light {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 200%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  background: conic-gradient(
+    from 0deg,
+    rgb(var(--ug-b) / 0) 0 58%,
+    rgb(var(--ug-b) / 0.35) 80%,
+    rgb(var(--ug-b) / 1) 97%,
+    rgb(var(--ug-b) / 0) 100%
+  );
+  animation: ug-turn 3.6s linear infinite;
+}
+
+.tag {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  height: 15px;
+  padding: 0 6px;
+  border: 1px solid rgb(var(--ug-a));
+  border-radius: 999px;
+  background: #0c1224;
+  color: #efe7d5;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@keyframes ug-breathe {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes ug-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Reduced motion: a still halo and ring, no wedge. The field sets data-reduced-motion on .felt. */
+.glow[data-still="true"] .halo,
+:global([data-reduced-motion="true"]) .halo {
+  opacity: 1;
+  animation: none;
+}
+
+.glow[data-still="true"] .light,
+:global([data-reduced-motion="true"]) .light {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .halo {
+    opacity: 1;
+    animation: none;
+  }
+
+  .light {
+    display: none;
+  }
+}
