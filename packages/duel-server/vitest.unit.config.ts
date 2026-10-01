@@ -57,6 +57,8 @@ const NEEDS_ENGINE = [
   "tests/scenarios/spells.test.ts",
   "tests/scenarios/summons.test.ts",
   "tests/scenarios/traps.test.ts",
+  // main's engine tests, run against the legacy 1v1 engine (src/legacy): a Standard or Domain core each
+  "tests/legacy-main/**",
 ];
 
 export default defineConfig({
