@@ -692,11 +692,6 @@
     transform 0.18s var(--ease);
 }
 
-/* The usable-card glow follows the card corners. */
-.zone[data-kind="hand"] .frame {
-  --ug-r: var(--r);
-}
-
 .zone[data-kind="emz"] .frame {
   border-color: var(--sheet-hi);
 }

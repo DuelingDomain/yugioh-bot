@@ -1,4 +1,4 @@
-/* Glow for a card with a legal move (pile viewer cards; the hand can reuse it).
+/* Glow for a card with a legal move (GY, Banished and Extra Deck cards in the pile viewer only).
    Same tints as the summoning circle: --ug-a is the main light, --ug-b the accent ("r g b" triplets).
    Three cheap layers, all outside the card box so the card stays readable:
    - .halo: a static box-shadow on an empty box (rastered once); only its opacity pulses.

@@ -9,7 +9,6 @@ import { duelFontClasses } from "./fonts";
 import { LifePoints } from "./life-points";
 import { pileSummonTone } from "./summon-circle-model";
 import { SummonCircle, SummonGlow } from "./summon-circle";
-import { UsableGlow } from "./usable-glow";
 import {
   attributeLabel,
   cardArtUrl,
@@ -255,8 +254,6 @@ function ZoneSlot({
   const stats = cardFieldStats(card, showStats);
   const [atk, def] = stats ? stats.split(" / ") : [null, null];
   const defense = card != null && isDefenseAt(card.location, card.position);
-  // A card in your hand you can use now glows (same glow as usable cards in the pile viewer) instead of the small nib.
-  const usableGlow = kind === "hand" && !flip && card != null && legal && !selected;
 
   return (
     <div
@@ -295,7 +292,7 @@ function ZoneSlot({
               ) : null}
             </span>
           ) : null}
-          {usableGlow ? <UsableGlow tone="extra" label="Use" /> : <ZoneMarks legal={legal} selected={selected} />}
+          <ZoneMarks legal={legal} selected={selected} />
         </div>
         {pileCount != null ? <PileLabel kind={kind} count={pileCount} /> : null}
       </button>
