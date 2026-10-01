@@ -1400,6 +1400,20 @@
       "stockSha256": "a20d6cc47d85aa59b7de4535227b096010af541c19f13dba00a605754b2957d1"
     },
     {
+      "code": 72405967,
+      "file": "c72405967.lua",
+      "name": "Royal Tribute",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "redefined": [
+        "handestg",
+        "handesop"
+      ],
+      "stockSha256": "4560ae6a34229b2fe925f34088a4858c902e5f72901b338dd2bb10ec60d91e18",
+      "note": "Script fix (late-cards, R-COMMON-EACH-PLAYER): every living duelist discards the Monsters of its own hand (the Tag partner too), with no opponent pick. Each duelist is read in its own scope (aux.MPForEachDuelist). Not part of R1."
+    },
+    {
       "code": 76375976,
       "file": "c76375976.lua",
       "name": "Mystic Mine",
