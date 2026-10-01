@@ -1,0 +1,21 @@
+{
+  "R-COMMON-SEP-FIELDS": "waits for F7/live core",
+  "R-COMMON-OPP-FIELD": "waits for F7/live core",
+  "R-COMMON-OPP-PICK": "waits for F7/live core",
+  "R-COMMON-ONGOING": "waits for F7/live core",
+  "R-COMMON-EACH-PLAYER": "waits for F7/live core",
+  "R-COMMON-ALL-BOTH": "waits for F7/live core",
+  "R-COMMON-EMZ": "waits for F7/live core",
+  "R-COMMON-FL-LIST": "waits for F7/live core",
+  "R-TAG-SHARED-CARDS": "waits for F7/live core",
+  "R-TAG-PARTNER-COST": "waits for F7/live core",
+  "R-TAG-PARTNER": "waits for F7/live core",
+  "R-TAG-VISIBILITY": "waits for F7/live core",
+  "R-TAG-RESPONSE": "waits for F7/live core",
+  "R-TAG-LOSS": "waits for F7/live core",
+  "R-TAG-TURN-COUNT": "waits for F7/live core",
+  "R-FFA-CHAIN": "waits for F7/live core",
+  "R-FFA-TRIGGERS": "waits for F7/live core",
+  "R-FFA-NEGATE": "waits for F7/live core",
+  "R-COMMON-CONT-NEG": "waits for F7/live core"
+}

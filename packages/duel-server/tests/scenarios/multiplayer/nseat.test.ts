@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelPrompt, DuelSeatView } from "@yugidraft/shared/duels";
-import { seatCountFor, type DuelFormat } from "@yugidraft/shared/duels";
+import { seatCountFor, teamOfSeat, type DuelFormat } from "@yugidraft/shared/duels";
 import type { EngineGame } from "../../../src/engine.js";
 import {
-  attack, changePhase, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPrompt,
+  defineScenario, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPrompt,
   expectResponseOrder, expectResult, pass, pickOpponent, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { Session, probeSetupDuelists, ScenarioError } from "../../support/session.js";
 import { runScenarios } from "../../support/runner.js";
 import { describeWithCores, needs } from "../../support/cores.js";
+import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
+import { NSEAT_SCENARIOS, SOURCE } from "./nseat-scenarios.js";
 
-// Layer 1 scenarios for N-seat tables (FFA3, FFA4, Tag). The live scenarios need a multi core that has
-// Debug.SetupDuelists: they are skipped until it exists (same probe as tests/engine-nseat.test.ts).
+// Layer 1 scenarios for N-seat tables (FFA3, FFA4, Tag). The scenarios are in nseat-scenarios.ts (plain data, also read by
+// scripts/rule-coverage.ts). The live scenarios need a multi core that has
+// Debug.SetupDuelists (same probe as tests/engine-nseat.test.ts) and NSEAT_LIVE=1 (see below).
+// Skipped when the gate is closed; with DUEL_REQUIRE_CORES=1 they FAIL instead (tests/support/cores.ts).
 // The DSL step logic is unit-tested below against a fake game, so it needs no core.
-
-const ELF = "Mystical Elf"; // 800 ATK vanilla, also the Deck filler
-const ELF_ATK = 800;
-const SOURCE = "docs/adr/0002-multiplayer-duel-rules.md";
 
 // ---- Fake game for step unit tests -----------------------------------------------------------
 
@@ -183,134 +183,55 @@ describe("N-seat DSL steps (no core)", () => {
 // ---- Live scenarios (need the N-seat core) ---------------------------------------------------
 
 // The core runs synchronously: a core bug that loops forever cannot be stopped by a test timeout. So the live
-// scenarios also need NSEAT_LIVE=1 until the multi core passes a full round of turns (the T0 build of 16:56 hangs
-// when seat 1 ends its turn). NSEAT_WASM picks another core build.
-// REMOVE the gate (needs.liveNseat) when the merged core is installed (tests/support/cores.ts).
+// scenarios also need NSEAT_LIVE=1 until the merged multi core is installed and passes a full round of turns (the T0
+// build of 16:56 hung when seat 1 ends its turn). NSEAT_WASM picks another core build; the default is the current
+// multi core (tests/support/cores.ts). REMOVE the gate (needs.liveNseat) when the merged core is installed.
 const liveNseat = needs.liveNseat(process.env.NSEAT_LIVE === "1" && (await probeSetupDuelists()));
 
-const elfAt = (lp?: number) => ({ monsters: [ELF], ...(lp != null ? { lp } : {}) });
-const passTurns = (...seats: Array<"p0" | "p1" | "p2" | "p3">): Step[] => seats.map((seat) => endTurn(seat));
-
-const scenarios: Scenario[] = [
-  defineScenario({
-    id: "nseat-ffa4-turn-order",
-    title: "FFA4: turns go clockwise p0, p1, p2, p3, p0",
-    source: `${SOURCE} [R-FFA-ORDER]`,
-    tags: ["multiplayer", "turn-order", "ffa4"],
-    setup: { format: "ffa4" },
-    steps: [
-      expectPrompt({ by: "p0" }),
-      endTurn("p0"), expectPrompt({ by: "p1" }),
-      endTurn("p1"), expectPrompt({ by: "p2" }),
-      endTurn("p2"), expectPrompt({ by: "p3" }),
-      endTurn("p3"), expectPrompt({ by: "p0" }),
-    ],
-  }),
-  defineScenario({
-    id: "nseat-ffa3-no-first-draw",
-    title: "FFA3: the first duelist does not draw on their first turn, the next ones do",
-    source: `${SOURCE} [R-FFA-ORDER]`,
-    tags: ["multiplayer", "draw", "ffa3"],
-    setup: { format: "ffa3", deckSize: 20 },
-    steps: [
-      expectBoard({ p0: { deckCount: 20, hand: { count: 0 } }, p1: { deckCount: 20 }, p2: { deckCount: 20 } }),
-      endTurn("p0"),
-      expectBoard({ p0: { deckCount: 20 }, p1: { deckCount: 19, hand: { count: 1 } }, p2: { deckCount: 20 } }),
-      endTurn("p1"),
-      expectBoard({ p1: { deckCount: 19 }, p2: { deckCount: 19, hand: { count: 1 } } }),
-    ],
-  }),
-  defineScenario({
-    id: "nseat-ffa3-no-attack-first-round",
-    title: "FFA3: no Battle Phase until every duelist had one turn, then p0 may attack on turn 4",
-    source: `${SOURCE} [R-FFA-NO-ATTACK]`,
-    tags: ["multiplayer", "battle", "ffa3"],
-    setup: { format: "ffa3", p0: elfAt(), p1: elfAt(), p2: elfAt() },
-    steps: [
-      expectPrompt({ by: "p0", notOffers: ["to_bp"] }),
-      endTurn("p0"), expectPrompt({ by: "p1", notOffers: ["to_bp"] }),
-      endTurn("p1"), expectPrompt({ by: "p2", notOffers: ["to_bp"] }),
-      endTurn("p2"), expectPrompt({ by: "p0", offers: ["to_bp"] }),
-    ],
-  }),
-  defineScenario({
-    id: "nseat-tag-first-battle-turn-4",
-    title: "Tag: the first three duelists cannot attack, the first Battle Phase is turn 4 (p3)",
-    source: `${SOURCE} [R-TAG-ORDER]`,
-    tags: ["multiplayer", "battle", "tag"],
-    setup: { format: "tag", p0: elfAt(), p1: elfAt(), p2: elfAt(), p3: elfAt() },
-    steps: [
-      expectPrompt({ by: "p0", notOffers: ["to_bp"] }),
-      endTurn("p0"), expectPrompt({ by: "p1", notOffers: ["to_bp"] }),
-      endTurn("p1"), expectPrompt({ by: "p2", notOffers: ["to_bp"] }),
-      endTurn("p2"), expectPrompt({ by: "p3", offers: ["to_bp"] }),
-    ],
-  }),
-  defineScenario({
-    id: "nseat-tag-team-lp",
-    title: "Tag: a direct attack lowers the LP of the whole team, both partners show it",
-    source: `${SOURCE} [R-TAG-LP]`,
-    tags: ["multiplayer", "lp", "tag"],
-    setup: { format: "tag", p3: elfAt() },
-    steps: [
-      expectLp({ team: 0 }, 16000),
-      expectLp({ team: 1 }, 16000),
-      ...passTurns("p0", "p1", "p2"),
-      changePhase("battle", "p3"),
-      attack(ELF, "direct", "p3"),
-      pickOpponent("p0", "p3"),
-      expectLp({ team: 0 }, 16000 - ELF_ATK),
-      expectLp({ seat: "p2" }, 16000 - ELF_ATK),
-      expectLp({ team: 1 }, 16000),
-    ],
-  }),
-  defineScenario({
-    id: "nseat-ffa3-direct-attack-pick",
-    title: "FFA3: a direct attack with two open opponents asks which one, and only that one loses LP",
-    source: `${SOURCE} [R-FFA-ATTACK]`,
-    tags: ["multiplayer", "battle", "direct-attack", "ffa3"],
-    setup: { format: "ffa3", p0: elfAt() },
-    steps: [
-      ...passTurns("p0", "p1", "p2"),
-      changePhase("battle", "p0"),
-      attack(ELF, "direct", "p0"),
-      pickOpponent("p2", "p0"),
-      expectLp({ seat: "p2" }, 8000 - ELF_ATK),
-      expectLp({ seat: "p1" }, 8000),
-      expectLp({ seat: "p0" }, 8000),
-    ],
-  }),
-  defineScenario({
-    id: "nseat-ffa3-elimination-and-win",
-    title: "FFA3: a duelist at 0 LP is eliminated and the duel goes on, the last one standing wins",
-    source: `${SOURCE} [R-FFA-ELIMINATION]`,
-    tags: ["multiplayer", "elimination", "ffa3"],
-    setup: { format: "ffa3", p0: { monsters: [ELF, ELF] }, p1: { lp: ELF_ATK }, p2: { lp: ELF_ATK } },
-    steps: [
-      ...passTurns("p0", "p1", "p2"),
-      changePhase("battle", "p0"),
-      attack(ELF, "direct", "p0"),
-      pickOpponent("p1", "p0"),
-      expectEliminated("p1"),
-      expectLp({ seat: "p1" }, 0),
-      attack(ELF, "direct", "p0"),
-      pickOpponent("p2", "p0"),
-      expectEliminated("p1", "p2"),
-      expectResult({ seat: "p0" }),
-    ],
-  }),
-];
-
 describeWithCores("live N-seat scenarios", liveNseat, () => {
-  runScenarios("multiplayer/nseat", scenarios);
+  runScenarios("multiplayer/nseat", NSEAT_SCENARIOS);
 });
 
 describe("N-seat scenario list", () => {
   it("has unique ids, sources and only multi-seat formats", () => {
-    expect(new Set(scenarios.map((s) => s.id)).size).toBe(scenarios.length);
-    for (const s of scenarios) {
+    expect(new Set(NSEAT_SCENARIOS.map((s) => s.id)).size).toBe(NSEAT_SCENARIOS.length);
+    for (const s of NSEAT_SCENARIOS) {
       expect(s.source, s.id).toBeTruthy();
       expect(seatCountFor(s.setup.format ?? "1v1"), s.id).toBeGreaterThan(2);
     }
+  });
+
+  it("declares the rules it proves and asserts an outcome after an action (the rule-coverage marker)", () => {
+    for (const s of NSEAT_SCENARIOS) {
+      expect(s.rules?.length, s.id).toBeGreaterThan(0);
+      expect(outcomeAsserts(s.steps), s.id).toBe(true);
+    }
+  });
+
+  it("asks for an opponent pick only while the attacker has two or more opponents alive", () => {
+    // With one opponent left the core offers no pick: a pickOpponent step then waits for a prompt that never comes
+    // and the checks after it never run (the old step 10 of the FFA3 elimination scenario).
+    const seatOf = (id: string) => Number(id.slice(1));
+    for (const s of NSEAT_SCENARIOS) {
+      const format = s.setup.format ?? "1v1";
+      const dead = new Set<number>();
+      for (const step of s.steps) {
+        if (step.op === "expectEliminated") step.seats.forEach((id) => dead.add(seatOf(id)));
+        if (step.op !== "pickOpponent") continue;
+        expect(step.by, `${s.id}: pickOpponent names the attacker`).toBeDefined();
+        const attacker = seatOf(step.by!);
+        const opponents = Array.from({ length: seatCountFor(format) }, (_, seat) => seat).filter(
+          (seat) => teamOfSeat(format, seat) !== teamOfSeat(format, attacker) && !dead.has(seat),
+        );
+        expect(opponents.length, `${s.id}: opponents alive for ${step.by}`).toBeGreaterThanOrEqual(2);
+        expect(opponents, s.id).toContain(seatOf(step.seat));
+      }
+    }
+  });
+
+  it("the FFA3 elimination scenario ends with the checks that used to never run", () => {
+    const steps = NSEAT_SCENARIOS.find((s) => s.id === "nseat-ffa3-elimination-and-win")!.steps;
+    expect(steps.map((step) => step.op).slice(-3)).toEqual(["expectNoPrompt", "expectEliminated", "expectResult"]);
+    expect(steps.filter((step) => step.op === "pickOpponent")).toHaveLength(1);
   });
 });

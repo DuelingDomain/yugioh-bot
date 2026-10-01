@@ -213,6 +213,11 @@ export interface Scenario {
   source: string;
   /** Mechanics and families, for example "chain", "summon", "trap", "domain". Card codes are added on their own. */
   tags: string[];
+  /**
+   * ADR-0002 rule ids this scenario proves. This is the rule-coverage marker: scripts/rule-coverage.ts counts a rule
+   * as covered only by a scenario with `rules` that runs on a real engine and asserts an outcome after an action.
+   */
+  rules?: string[];
   setup: BoardSpec;
   steps: Step[];
   /** Change the duel seed (default ["1","2","3","4"]). Only needed when shuffles matter. */
