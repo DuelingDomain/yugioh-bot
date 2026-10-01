@@ -616,6 +616,19 @@
       "note": "Reads the Graveyard and the banished zone (field class); today it sums all opponents. The triage text that calls it OK-BIND is wrong."
     },
     {
+      "code": 35059553,
+      "file": "c35059553.lua",
+      "name": "Kaiser Colosseum",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD",
+      "redefined": [
+        "sumlimit"
+      ],
+      "stockSha256": "9b1c808afb213cc4ed32a00e82c7df207a5d3b6bc78f4ff39242a1c5d2698dc5",
+      "note": "Script fix (review A item 3): the Tribute Summon limit (EFFECT_UNRELEASABLE_SUM) compares the monster count of the duelist who summons with yours, not the sum of every opponent. FFA only; Tag keeps the joined opposing side. Not part of the COMPARE list (a continuous value, still a false positive of the scan)."
+    },
+    {
       "code": 35183853,
       "file": "c35183853.lua",
       "name": "Bujin Regalia - The Mirror",
