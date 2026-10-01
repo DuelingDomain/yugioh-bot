@@ -121,6 +121,8 @@ export type Step =
   | { op: "expectEliminated"; seats: DuelistId[] }
   | { op: "expectLp"; who: { seat: DuelistId } | { team: number }; value: number }
   | { op: "expectResponseOrder"; seats: DuelistId[] }
+  | { op: "expectTurn"; seat: DuelistId; turn?: number }
+  | { op: "expectPickSeats"; seats: DuelistId[]; by?: DuelistId }
   | { op: "pickOpponent"; seat: DuelistId; by?: DuelistId };
 
 // Actions -------------------------------------------------------------------------------------
@@ -201,6 +203,13 @@ export const expectLp = (who: { seat: DuelistId } | { team: number }, value: num
  * Pass and respond steps answer them. A chain prompt that is open now counts as the last one.
  */
 export const expectResponseOrder = (...seats: Array<DuelistId | DuelistId[]>): Step => ({ op: "expectResponseOrder", seats: seats.flat() });
+/** It is the turn of this seat now. With `turn`, the turn counter must match too (the first turn is 1, every duelist's turn counts). */
+export const expectTurn = (seat: DuelistId, turn?: number): Step => ({ op: "expectTurn", seat, turn });
+/**
+ * The open prompt offers choices on exactly these seats: the seats named by its options (the seats of a pick, or the controllers
+ * of the cards of a target list). Order does not matter. `by` also checks which duelist holds the prompt.
+ */
+export const expectPickSeats = (seats: Array<DuelistId | DuelistId[]>, by?: DuelistId): Step => ({ op: "expectPickSeats", seats: seats.flat(), by });
 /** Answer the "pick one opponent" prompt of a direct attack (N-seat formats): attack this seat. */
 export const pickOpponent = (seat: DuelistId, by?: DuelistId): Step => ({ op: "pickOpponent", seat, by });
 

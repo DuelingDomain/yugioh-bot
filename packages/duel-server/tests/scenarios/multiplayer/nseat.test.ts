@@ -3,8 +3,8 @@ import type { DuelEngineView, DuelPrompt, DuelSeatView } from "@yugidraft/shared
 import { seatCountFor, teamOfSeat, type DuelFormat } from "@yugidraft/shared/duels";
 import type { EngineGame } from "../../../src/engine.js";
 import {
-  defineScenario, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPrompt,
-  expectResponseOrder, expectResult, pass, pickOpponent, type Scenario, type Step,
+  defineScenario, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPickSeats, expectPrompt,
+  expectResponseOrder, expectTurn, expectResult, pass, pickOpponent, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { Session, probeSetupDuelists, ScenarioError } from "../../support/session.js";
 import { runScenarios } from "../../support/runner.js";
@@ -163,6 +163,20 @@ describe("N-seat DSL steps (no core)", () => {
     const s = session("ffa4", fake);
     run(s, expectPrompt({ by: "p0", title: "duelist to attack" }), pickOpponent("p2", "p0"));
     expect(fake.answers).toEqual([{ seat: 0, id: "pick", answer: { choice: "opt:1" } }]);
+  });
+
+  it("expectTurn compares the turn seat and, when given, the turn number", () => {
+    const s = session("ffa4", fakeGame({ format: "ffa4" }));
+    run(s, expectTurn("p0"), expectTurn("p0", 1));
+    expect(() => run(s, expectTurn("p1"))).toThrow(/turn of p0 \(turn 1\), expected p1/);
+    expect(() => run(s, expectTurn("p0", 4))).toThrow(/turn 1 \(p0\), expected turn 4/);
+  });
+
+  it("expectPickSeats compares the set of seats the open prompt offers, in any order", () => {
+    const s = session("ffa4", fakeGame({ format: "ffa4", prompts: [attackPrompt(0, [3, 1, 2])] }));
+    run(s, expectPickSeats(["p1", "p2", "p3"], "p0"), expectPickSeats(["p3", ["p1", "p2"]], "p0"));
+    expect(() => run(s, expectPickSeats(["p1", "p2"], "p0"))).toThrow(/offers seats p1, p2, p3, expected exactly p1, p2/);
+    expect(() => run(s, expectPickSeats(["p1", "p2", "p3"], "p1"))).toThrow(/p1/);
   });
 
   it("pickOpponent fails for a seat that is not offered, or for the wrong answering seat", () => {

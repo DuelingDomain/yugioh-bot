@@ -406,6 +406,22 @@ export class Session {
         return this.expectLp(step, stepNo);
       case "expectResponseOrder":
         return this.expectResponseOrder(step, stepNo);
+      case "expectTurn": {
+        const view = this.game.view(0);
+        const seat = seatOf(step.seat);
+        if (view.turnSeat !== seat) this.fail(stepNo, step, `It is the turn of p${view.turnSeat} (turn ${view.turn}), expected ${step.seat}.`, false);
+        if (step.turn != null && view.turn !== step.turn) this.fail(stepNo, step, `It is turn ${view.turn} (p${view.turnSeat}), expected turn ${step.turn}.`, false);
+        return;
+      }
+      case "expectPickSeats": {
+        const open = this.need(stepNo, step, step.by);
+        const got = [...new Set(open.prompt.options.map((o) => o.controller).filter((c): c is number => c != null))].sort((a, b) => a - b);
+        const want = [...new Set(step.seats.map(seatOf))].sort((a, b) => a - b);
+        if (JSON.stringify(got) !== JSON.stringify(want)) {
+          this.fail(stepNo, step, `The prompt offers seats ${got.map((s) => `p${s}`).join(", ") || "(none)"}, expected exactly ${want.map((s) => `p${s}`).join(", ")}.`);
+        }
+        return;
+      }
       case "pickOpponent": {
         const open = this.need(stepNo, step, step.by);
         const want = seatOf(step.seat);
