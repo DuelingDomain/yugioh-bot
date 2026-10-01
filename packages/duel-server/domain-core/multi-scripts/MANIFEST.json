@@ -69,6 +69,27 @@
       "stockSha256": "80fc7da42b311e738ba46fac03c62ba816f702bc0afd668463c04626818f9070"
     },
     {
+      "code": 2139640,
+      "file": "c2139640.lua",
+      "name": "Amabie",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "9024f2f871b35a816e54a7be2f077f8cd821a1030fa9392b13c4dc8257182580",
+      "replace": true
+    },
+    {
+      "code": 2665273,
+      "file": "c2665273.lua",
+      "name": "Jormungandr, Generaider Boss of Eternity",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "dbc38fd45ffca6653cb23d422d7e5c3b69211dc7d19c003d742fa5fb20831b15"
+    },
+    {
       "code": 2801664,
       "file": "c2801664.lua",
       "name": "Ancient Warriors - Valiant Zhang De",
@@ -88,6 +109,16 @@
       "stockSha256": "ffd2a8b2ca79cfe63bc96719f97a5c2eaa2e06a148ef54f5609edf2e2b830382"
     },
     {
+      "code": 3064425,
+      "file": "c3064425.lua",
+      "name": "Superheavy Samurai Soulbang Cannon",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "ca330c7cab054fea4b34fc114e047aadf4fc0fe34f1d9bbf425d55010fa57c79"
+    },
+    {
       "code": 3549275,
       "file": "c3549275.lua",
       "name": "Dice Jar",
@@ -100,6 +131,36 @@
       ],
       "stockSha256": "b4a75c8c4cb74b109635d5cbb8fc97fd7ffd30feb8fa6f8389d2afad4bba0a45",
       "note": "Script fix (late-cards, Q4 duel-style card): the activator picks the opponent at activation (aux.MPTarget) and the owner and that opponent each roll their own die, so the roller is the duelist that takes the damage. Tag: the die and the team LP of the picked side. Not part of R1."
+    },
+    {
+      "code": 4807253,
+      "file": "c4807253.lua",
+      "name": "Performage Flame Eater",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "5a3ddd2c47a81b56bd7f72dac0e8bed15cc9c0012a98afe868583eaf645a3985"
+    },
+    {
+      "code": 5611760,
+      "file": "c5611760.lua",
+      "name": "Rainbow Bridge of Salvation",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "95b0299aa519f171a580e1b23962a188704f5a200949933cfb4d8cc55489125c"
+    },
+    {
+      "code": 6783559,
+      "file": "c6783559.lua",
+      "name": "Self-Destruct Ant",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "a25ba29959507b346ad823f6bf8a9fc0552bf5d30f79b3f70b31cc5ee1b512f9"
     },
     {
       "code": 7373632,
@@ -119,6 +180,16 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "3a3551e02b39c54e7a6a90a8f631a51bba0cb01c12ba20298410bbcc68ea2ad0"
+    },
+    {
+      "code": 7852509,
+      "file": "c7852509.lua",
+      "name": "Loop of Destruction",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "844043a1ba764217cdeb200419a34540e5e047f342c8ec0b26b5becd50d1ea35"
     },
     {
       "code": 8643186,
@@ -167,6 +238,16 @@
         "R1"
       ],
       "stockSha256": "5b24aed7ea7f09158cbfe040853d6d0114e363916c9f89187d480d8d9c61de7c"
+    },
+    {
+      "code": 9418365,
+      "file": "c9418365.lua",
+      "name": "Bujin Hirume",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "9d1268d1110e00c1c0f0b57314582da8296021db0c9a190246df58807e079c83"
     },
     {
       "code": 9794980,
@@ -227,6 +308,26 @@
       "chooserClass": "CH-OP",
       "stockSha256": "b1abc6a76df3c89f84734cec0ff539508de53121f07244e14caf797224f4e27f",
       "note": "Card text says \"your opponent\" (one): CH-OP (decision Q5), not CH-EACH as in the first pass of the design."
+    },
+    {
+      "code": 12694768,
+      "file": "c12694768.lua",
+      "name": "Abaki",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "3a9138ec6be49bc281ec96035aa957c2fcc5fcaf5e59cb33ec23516d8faa7b6c"
+    },
+    {
+      "code": 13995824,
+      "file": "c13995824.lua",
+      "name": "Voltic Bicorn",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "904caca4dc9e8e7704b02452553bb3fbdc9ab3680c511b0815f8504d513dfe38"
     },
     {
       "code": 14989021,
@@ -332,6 +433,16 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "3f6996160e4b45310801a7b8089403e812af6d03265a8a2a0daf60fcf8179f79"
+    },
+    {
+      "code": 18271561,
+      "file": "c18271561.lua",
+      "name": "Chthonian Blast",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "6e20aaf7974d192bd80b7bbc450b7cbb54295dfcfad8ab880a222e74cc47885f"
     },
     {
       "code": 18517177,
@@ -441,6 +552,36 @@
       "stockSha256": "7852b18bcd2cfb1138a4b6682dc9d2a751f06f466867131bb4ac5ead62f912f2"
     },
     {
+      "code": 20686759,
+      "file": "c20686759.lua",
+      "name": "Morphtronic Rusty Engine",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "d1f43147ab9399a82ec525a40188c6d6b06f0689e92f6c0fac53bedb33eb407c"
+    },
+    {
+      "code": 20985997,
+      "file": "c20985997.lua",
+      "name": "Detonator Circle \"A\"",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "703cb7e4a6daaa1050dbce4b1b220808c693290e90b8510766630b524d2603ba"
+    },
+    {
+      "code": 21219755,
+      "file": "c21219755.lua",
+      "name": "Destruction Ring",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "61751664e0675a6e8f1ad4a55739dd2b829088a93af33541906d091959909d4f"
+    },
+    {
       "code": 21496848,
       "file": "c21496848.lua",
       "name": "Evigishki Tetrogre",
@@ -449,6 +590,16 @@
         "R1"
       ],
       "stockSha256": "a5dbfc641aa05f38fae6d0c7452a58ac58901de925b2d9ef5a13f3ca8ee14a83"
+    },
+    {
+      "code": 21623008,
+      "file": "c21623008.lua",
+      "name": "Sky Striker Maneuver - Vector Blast",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "4dd87d52ce8c79ebbe5e324f3633daad25c4759e972e84fb698be7997d6c9558"
     },
     {
       "code": 21672573,
@@ -563,6 +714,16 @@
       "stockSha256": "d22769cec678669c6d56d296ac82acb6519c1146b18a46a2940d1bd1a4746749"
     },
     {
+      "code": 25926710,
+      "file": "c25926710.lua",
+      "name": "Kelbek the Ancient Vanguard",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "7bf55c3d6d037af36db5c32628b5cde0febf4b60340f189d56f1cd3fe1a8dfd0"
+    },
+    {
       "code": 27260347,
       "file": "c27260347.lua",
       "name": "Snake-Eyes Diabellstar",
@@ -596,6 +757,26 @@
       "stockSha256": "e621cf1ba47ce4fd519ffcba2f471f1005c8e32344e19a3fb4b36476fd4c22d0"
     },
     {
+      "code": 29599813,
+      "file": "c29599813.lua",
+      "name": "Purrely Pretty Memory",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "7a2fa8aee9ccb3161b512777535ee3e0b54c380a1d1034326cef13ca64221208"
+    },
+    {
+      "code": 29716911,
+      "file": "c29716911.lua",
+      "name": "Capacitor Stalker",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "0eb239cd64b36cec25522de113c80eebe75d6432c1b00b390b44825dadd7248e"
+    },
+    {
       "code": 29904964,
       "file": "c29904964.lua",
       "name": "Arisen Gaia the Fierce Knight",
@@ -611,6 +792,26 @@
         "ntcon"
       ],
       "stockSha256": "cd3faa35089e9dcad8bd3d992e4c7b9d43b9766a2170c6e9e1241c7328811dae"
+    },
+    {
+      "code": 30109445,
+      "file": "c30109445.lua",
+      "name": "Clown Crew Dristy",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "ef2452f5192cd1d2804d7c132c1c631b3301a6e5e5d6a9e529e010ece0323d68"
+    },
+    {
+      "code": 30270176,
+      "file": "c30270176.lua",
+      "name": "Crimson Nova the Dark Cubic Lord",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "4ec451fb4c2f5dd925619fa76d572ca586908d5fa80df67e0140da94024c08d3"
     },
     {
       "code": 30394645,
@@ -649,6 +850,16 @@
       "stockSha256": "fd679ce599a553c84b73f869f08f13dde16784d5dd4e1aea4a61390336ad9b1e"
     },
     {
+      "code": 31353051,
+      "file": "c31353051.lua",
+      "name": "Exploderokket Dragon",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "965c00d7c4526958781fc63e71636d325133cb81f6d45cd3a6b1dfe7e2beecb1"
+    },
+    {
       "code": 32762201,
       "file": "c32762201.lua",
       "name": "Ancient Gear Statue",
@@ -683,6 +894,16 @@
         "condition"
       ],
       "stockSha256": "8e26bb6c68fe54e3563199d82a4fd5ad7c2295aee014b18365a1dac03e776993"
+    },
+    {
+      "code": 33782437,
+      "file": "c33782437.lua",
+      "name": "One Day of Peace",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "4be782dd7f9beb1a4dea5875f3adfff3a9b2928ef57eed22c9bc710d8b4abc9f"
     },
     {
       "code": 34047456,
