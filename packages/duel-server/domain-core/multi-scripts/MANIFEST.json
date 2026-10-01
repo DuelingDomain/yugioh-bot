@@ -1043,7 +1043,8 @@
       "redefined": [
         "condition"
       ],
-      "stockSha256": "a01a0298f45fee1ab7ff4512125b7a7f4662846707467379210d5cd387b1311d"
+      "stockSha256": "a01a0298f45fee1ab7ff4512125b7a7f4662846707467379210d5cd387b1311d",
+      "note": "Three in One (review A item 3): in FFA only the opponent whose turn it is can pass (the turn player test is inside the window of the opponent, Duel.MPTurnOwns), because IsTurnPlayer(1-tp) folds every opponent to true."
     },
     {
       "code": 53244294,
