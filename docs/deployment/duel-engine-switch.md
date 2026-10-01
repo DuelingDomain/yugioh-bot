@@ -61,6 +61,26 @@ Provenance and shas are in `packages/duel-server/legacy-1v1/README.md`. The depl
 The server refuses to start with `DUEL_1V1_ENGINE=legacy` when the manifest has no `integrity.domainLegacyWasm` or
 `domainLegacyLua`, or when a legacy file does not match its hash.
 
+### Pin of the legacy files
+
+`packages/duel-server/legacy-1v1/expected-sha256.txt` holds the sha256 of the legacy Domain wasm and of `domain.legacy.lua`
+(the sha of main's own build). `packages/duel-server/scripts/check-legacy-pin.sh <data dir>` compares them with the files in a
+data dir. The build script runs it. The test, deploy and staging workflows run it on the bundle. A rebuild that gives another
+wasm (for example a new emsdk image) fails there, so the legacy engine cannot drift from main without a visible change.
+The pin is rebuilt from main's scripts and checked again by the proof in the merge PR.
+
+### Known differences from main in legacy mode
+
+- The pendulum summon log line is "Special Summon" in legacy mode and "Pendulum Summon" in the merged engine. The legacy engine is main's, so it prints main's text. The e2e spec `card-pendulum-summon.spec.ts` accepts this in legacy mode (`E2E_1V1_ENGINE=legacy`).
+- Counters: the legacy engine reads a counter from the core as main does (count first). `tests/ocgcore-wrapper-abi.test.ts` checks both layouts for `duelQuery` and `duelQueryLocation`.
+- The host answers a blocked `view` or `report` with a stale view only when `DUEL_SCENARIOS=1` (the scenario runner). In production, the host waits for the real answer as main does.
+- The multi cores (3, 4 players, Tag) are built from a newer patch series than main's Domain core (the 0053 core-seats patch series). They are used by multi-seat tables only, and those are off by default.
+
+### E2E
+
+The e2e stack picks the 1v1 engine with `E2E_1V1_ENGINE` (`legacy` or `pinned`). The default of the stack is `pinned`.
+Run the 1v1 specs with `E2E_1V1_ENGINE=legacy` to check the production default.
+
 ## How to roll back
 
 - To use the old 1v1 engine: set `DUEL_1V1_ENGINE=legacy` (or remove it) and restart the `duel` service. New 1v1 tables then start on the old engine.
@@ -70,7 +90,7 @@ The server refuses to start with `DUEL_1V1_ENGINE=legacy` when the manifest has 
 
 ## What is checked
 
-- Main's own 1v1 engine and host tests (from commit `2a5a959`) pass against `src/legacy/` with the imports pointed there (290 tests).
-- The merged duel-server suites pass in both modes (`DUEL_1V1_ENGINE=legacy` and `pinned`).
+- Main's own 1v1 engine tests (from main `78b8caa`, 11 files, 131 tests) run against `src/legacy/` in `packages/duel-server/tests/legacy-main/`. Only the import paths changed (and the temporary data dirs also link the legacy wasm).
+- The merged duel-server suites pass in both modes (`DUEL_1V1_ENGINE=legacy` and `pinned`). CI runs both: the `engine` and the `engine-legacy` job.
 - `tests/legacy-engine-identity.test.ts`: the legacy Standard core is the npm file byte for byte. The legacy Domain wasm has the manifest sha.
 - `tests/host-engine-switch.test.ts`: dispatch, the saved engine, recover and replay across a switch change.
