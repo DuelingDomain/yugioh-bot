@@ -1,4 +1,4 @@
-import { isDuelFormat } from "@yugidraft/shared/duels";
+import { isDuelFormat, multiDomainBlockReason } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
 import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -45,6 +45,10 @@ export async function POST(request: NextRequest) {
   const format = body.format ?? "1v1";
   if (!isDuelFormat(format)) {
     return NextResponse.json({ error: "Duel format must be 1v1, tag, ffa3, or ffa4" }, { status: 400 });
+  }
+  const blocked = multiDomainBlockReason(mode, format);
+  if (blocked) {
+    return NextResponse.json({ error: blocked }, { status: 400 });
   }
 
   try {

@@ -38,6 +38,7 @@ import {
 import { chooseScripted, ScriptedBotError, type Rule, type RuleTraceEntry } from "./scripted-bot.js";
 import { compileBoard } from "./presets/board.js";
 import { setCatalogDirectory } from "./presets/catalog.js";
+import { multiDomainStartProblem } from "./multi-domain-guard.js";
 import { getPreset, multiCoreAvailable, multiCoreInfo, PRESETS, SCRIPTED_POLICY, summarizePreset, type PresetIssue } from "./presets/index.js";
 
 const BOT_ADVANCE_LIMIT = 128;
@@ -1605,6 +1606,8 @@ export function createDuelHost(options: {
       if (actor !== room.session.organizerPlayerId) throw new RequestError("Only the organizer can start", 403);
       if (room.session.status !== "lobby") throw new RequestError("Duel already started", 409);
       const seatCount = seatCountFor(room.session.format);
+      const domainProblem = multiDomainStartProblem(room.session.mode, room.session.format, options.dataDirectory);
+      if (domainProblem) throw new RequestError(domainProblem, 409);
       if (room.session.seats.length !== seatCount || room.session.seats.some((entry) => !entry.ready)) {
         throw new RequestError(
           seatCount === 2

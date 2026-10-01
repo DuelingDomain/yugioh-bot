@@ -39,6 +39,7 @@ export {
   NO_BANLIST_ID,
   PINNED_TCG_BANLIST_ID,
 } from "./settings.js";
+export { MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "./multi-domain.js";
 export type { DuelBanlistOption } from "./banlist-options.js";
 export { DUEL_BANLIST_OPTIONS } from "./banlist-options.js";
 

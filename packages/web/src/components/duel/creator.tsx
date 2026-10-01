@@ -10,6 +10,7 @@ import {
   duelClockRulesText,
   isCustomDomain,
   DUEL_FORMATS,
+  multiDomainBlockReason,
   type DuelFormat,
   type DuelMasterRule,
   type DuelMode,
@@ -67,6 +68,9 @@ export function DuelCreator() {
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const customDomain = mode === "domain" && isCustomDomain(masterRule, settings);
+  // Domain is offered only where its core exists (see multiDomainBlockReason).
+  const domainBlocked = multiDomainBlockReason("domain", format);
+  const duelTypes = domainBlocked ? FORMATS.filter((choice) => choice.value !== "domain") : FORMATS;
 
   function update<K extends keyof DuelSettings>(key: K, value: DuelSettings[K]) {
     setSettings((current) => ({ ...current, [key]: value }));
@@ -136,12 +140,17 @@ export function DuelCreator() {
             <section className={styles.section} aria-labelledby="creator-format">
               <div className={styles.side}>
                 <h2 id="creator-format" className={ui.sectionTitle}>Format</h2>
-                <p className={ui.hint}>Table size and rules. Standard and Domain allow every table type.</p>
+                <p className={ui.hint}>Table size and rules. Standard allows every table type. Domain is for 1v1 tables for now.</p>
               </div>
               <div className={styles.fields}>
                 <div className={styles.wide}>
                   <SheetSelect label="Table type" value={format} choices={TABLE_FORMATS} onChange={(value) => {
                     setFormat(value);
+                    // Domain has no core for 3 or more seats yet: go back to Standard and its preset.
+                    if (mode === "domain" && multiDomainBlockReason("domain", value)) {
+                      setMode("normal");
+                      setSettings((current) => ({ ...defaultDuelSettings("normal"), visibility: current.visibility }));
+                    }
                     // Tag and free-for-all tables run on Master Rule 5 only.
                     if (value !== "1v1") setMasterRule(5);
                   }} />
@@ -150,12 +159,15 @@ export function DuelCreator() {
                   </p>
                 </div>
                 <div className={styles.wide}>
-                  <SheetSegmented label="Duel type" value={mode} choices={FORMATS} onChange={(value) => {
+                  <SheetSegmented label="Duel type" value={mode} choices={duelTypes} onChange={(value) => {
                     setMode(value);
                     setMasterRule(5);
                     // Visibility is the organizer's choice, not part of a format preset.
                     setSettings((current) => ({ ...defaultDuelSettings(value), visibility: current.visibility }));
                   }} />
+                  {domainBlocked ? (
+                    <p className={cx(ui.hint, styles.below)} data-testid="domain-blocked">{domainBlocked}</p>
+                  ) : null}
                 </div>
                 <SheetSelect label="Master Rules" value={masterRule} choices={MASTER_RULES} onChange={setMasterRule} disabled={format !== "1v1"} />
                 <SheetSelect label="Game engine" value="automatic" choices={[{ value: "automatic", label: "Automatic" }]} disabled />
