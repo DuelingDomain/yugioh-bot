@@ -17,7 +17,7 @@ export const MP_UTILITY_FILE = "mp-utility.lua";
 export const MULTI_MANIFEST_FILE = "MANIFEST.json";
 export const REPLACE_MARKER = "--@replace";
 
-const MANIFEST_KINDS = new Set(["whole", "expr", "trig", "hand", "chooser", "fix"]);
+const MANIFEST_KINDS = new Set(["whole", "expr", "trig", "hand", "chooser", "fix", "seat"]);
 const CARD_FILE = /^c(\d+)\.lua$/;
 
 export interface MultiScriptsCard {
