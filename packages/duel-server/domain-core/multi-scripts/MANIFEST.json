@@ -973,7 +973,7 @@
       ],
       "chooserClass": "CH-OP",
       "stockSha256": "151ce2ea5cb256fc768acb80d2545a0d655ee5fef375a26633d95e924de750d5",
-      "note": "The Standby Phase effect keeps the controller of the banished monster in the effect value."
+      "note": "The Standby Phase effect keeps the REAL seat of the controller of the banished monster in the effect value (Duel.MPSeatOf) and binds it again with Duel.MPBindSeat when it runs; a dead seat gives no offer."
     },
     {
       "code": 50599453,

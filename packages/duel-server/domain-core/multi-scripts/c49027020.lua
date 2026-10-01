@@ -1,13 +1,15 @@
 if not aux.MPAny then return end
--- Traptrix Pudica (the banish effect): the target asks the activator for the opponent. The Standby Phase effect belongs to the controller of the banished monster,
--- who is saved in the effect value (op) when the monster is banished. The stock script reads "1-tp", which is not that duelist at 3 or 4 seats.
+-- Traptrix Pudica (the banish effect): the target asks the activator for the opponent. The Standby Phase effect belongs to the controller of the banished monster.
+-- Its REAL seat (Duel.MPSeatOf: in Tag the duelist, not the team) is saved in the effect value when the monster is banished. The stock script reads "1-tp",
+-- and a folded value saved in the effect would mean another duelist in the Standby Phase. In the Standby Phase Duel.MPBindSeat makes "1" that seat again:
+-- a seat that is dead by then, or not an opponent, gives an empty other side (no offer, no Lua error).
 s.rmtg=aux.MPTarget(s.rmtg)
 function s.mpspfilter(c,e,p)
 	return c:IsCanBeSpecialSummoned(e,0,p,false,false)
 end
 function s.rmop(e,tp,eg,ep,ev,re,r,rp)
 	local tc=Duel.GetFirstTarget()
-	local op=tc:GetControler()
+	local op=Duel.MPSeatOf(tc)
 	if tc:IsRelateToEffect(e) then
 		Duel.Remove(tc,POS_FACEUP,REASON_EFFECT)
 	end
@@ -33,16 +35,16 @@ function s.rmop(e,tp,eg,ep,ev,re,r,rp)
 end
 function s.spcon(e,tp,eg,ep,ev,re,r,rp)
 	local label=e:GetLabel()
-	local op=e:GetValue()
-	return Duel.IsExistingMatchingCard(s.mpspfilter,op,LOCATION_REMOVED,0,1,nil,e,op) and (label==0 or label~=Duel.GetTurnCount())
+	Duel.MPBindSeat(e:GetValue())
+	return Duel.IsExistingMatchingCard(s.mpspfilter,1,LOCATION_REMOVED,0,1,nil,e,1) and (label==0 or label~=Duel.GetTurnCount())
 end
 function s.spop(e,tp,eg,ep,ev,re,r,rp)
-	local op=e:GetValue()
-	local g=Duel.GetMatchingGroup(s.mpspfilter,op,LOCATION_REMOVED,0,nil,e,op)
-	if #g==0 or not Duel.SelectYesNo(op,aux.Stringid(id,3)) then return end
-	Duel.Hint(HINT_SELECTMSG,op,HINTMSG_SPSUMMON)
-	local sg=g:Select(op,1,1,nil)
+	Duel.MPBindSeat(e:GetValue())
+	local g=Duel.GetMatchingGroup(s.mpspfilter,1,LOCATION_REMOVED,0,nil,e,1)
+	if #g==0 or not Duel.SelectYesNo(1,aux.Stringid(id,3)) then return end
+	Duel.Hint(HINT_SELECTMSG,1,HINTMSG_SPSUMMON)
+	local sg=g:Select(1,1,1,nil)
 	if #sg>0 then
-		Duel.SpecialSummon(sg,0,op,op,false,false,POS_FACEUP)
+		Duel.SpecialSummon(sg,0,1,1,false,false,POS_FACEUP)
 	end
 end
