@@ -13,6 +13,7 @@ COPY packages/ws/package*.json packages/ws/
 COPY packages/web/package*.json packages/web/
 COPY packages/shared/package*.json packages/shared/
 COPY packages/duel-server/package*.json packages/duel-server/
+COPY packages/e2e/package*.json packages/e2e/
 COPY patches/ patches/
 RUN npm ci
 
@@ -107,6 +108,7 @@ COPY packages/ws/package*.json packages/ws/
 COPY packages/web/package*.json packages/web/
 COPY packages/shared/package*.json packages/shared/
 COPY packages/duel-server/package*.json packages/duel-server/
+COPY packages/e2e/package*.json packages/e2e/
 # Copy full source — bind mounts in docker-compose.override.yml overlay these at runtime
 COPY . .
 # Next dev regenerates next-env.d.ts and writes .next/.turbo at runtime, but
