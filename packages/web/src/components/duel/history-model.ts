@@ -15,6 +15,12 @@
 //   heal     the engine sends no LP gain event, so a rise in LP that damage events do not explain becomes a tile.
 //   damage / destroy that belong to no open attack or chain become their own tile.
 //   phase    a thin separator (not a tile). "Main Phase 1" also marks the turn start.
+//
+// Why a card left: destroy events carry the engine's reason flags (battle / effect / cost / rule) and the
+// card that caused it (`sourceCode`). The source name is only ever taken from a card the log already shows,
+// never from the passcode alone. The engine reports no reason for other moves, so those are read from
+// context: a move while a chain link resolves is that link's effect, and moves right before a Tribute,
+// Fusion, Synchro, Link or Ritual Summon are its Tributes or materials.
 import type { DuelCard, DuelCardInfo, DuelEvent, DuelMoveReason, DuelSummonKind, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   LOCATION_DECK,
@@ -37,6 +43,20 @@ export interface HistoryHit {
   seat: number;
   amount: number;
   cause: DamageCause;
+  /** LP of `seat` just before and after this hit. Absent when the batch gave no way to know. */
+  before?: number;
+  after?: number;
+}
+
+/** Why a card left the field or moved. */
+export type LeaveCause = "battle" | "effect" | "cost" | "rule" | "other";
+
+/** The card behind a destruction or move. `name` is null when the log never showed that card. */
+export interface HistorySource {
+  code: number;
+  name: string | null;
+  seat: number | null;
+  kind?: "monster" | "spell" | "trap";
 }
 
 export type MoveDest = "hand" | "deck" | "extra" | "grave" | "banished" | "field";
@@ -45,12 +65,18 @@ export type MoveDest = "hand" | "deck" | "extra" | "grave" | "banished" | "field
 export interface HistoryGain {
   seat: number;
   amount: number;
+  /** LP of `seat` just before and after the rise. */
+  before?: number;
+  after?: number;
 }
 
 export interface HistoryLoss {
   seat: number | null;
   card: HistoryCard | null;
   role: "attacker" | "target" | "card";
+  /** The engine's reason. Absent on events recorded before the field existed. */
+  cause?: LeaveCause;
+  source?: HistorySource;
 }
 
 export interface HistoryTile {
@@ -76,7 +102,15 @@ export interface HistoryTile {
   attackerZone?: string;
   targetZone?: string;
   /** move only. `count` is above 1 when back-to-back draws were folded in. */
-  move?: { dest: MoveDest; reason: DuelMoveReason; count: number; faceDown: boolean };
+  move?: {
+    dest: MoveDest;
+    reason: DuelMoveReason;
+    count: number;
+    faceDown: boolean;
+    /** "effect" (a chain link was resolving), "tribute" or "material" (sent for a summon). Absent when unknown. */
+    cause?: "effect" | "tribute" | "material";
+    source?: HistorySource;
+  };
   /** position only: POS_* bitmasks before and after. */
   position?: { from?: number; to?: number; flip: boolean };
   /** heal only */
@@ -177,6 +211,10 @@ export function shouldResetHistory(state: HistoryState, events: readonly DuelEve
 
 const MOVE_SHOWN: ReadonlySet<DuelMoveReason> = new Set(["draw", "discard", "banish", "send", "return"]);
 
+/** Summons whose cost or materials are sent away just before the monster arrives. */
+const MATERIAL_SUMMONS: ReadonlySet<SummonKind> = new Set(["tribute", "fusion", "synchro", "link", "ritual"]);
+const MATERIAL_MOVES: ReadonlySet<DuelMoveReason> = new Set(["send", "discard", "banish"]);
+
 function moveDest(location: number | undefined): MoveDest {
   switch (location) {
     case LOCATION_HAND:
@@ -206,7 +244,7 @@ export function detectGains(
     const prev = before[seat];
     if (prev == null) return;
     const rise = lp - (prev - (damage.get(seat) ?? 0));
-    if (rise > 0) gains.push({ seat, amount: rise });
+    if (rise > 0) gains.push({ seat, amount: rise, before: lp - rise, after: lp });
   });
   return gains;
 }
@@ -266,6 +304,28 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
   }
   const seatCount = Math.max(2, ctx.seatCount);
 
+  // LP before and after each hit, worked back from the LP now. Skipped for a seat that also gained LP in
+  // this batch, because then the sums cannot be trusted.
+  const damage = new Map<number, number>();
+  for (const event of batch) {
+    if (event.kind === "damage" && event.seat != null && event.amount && event.amount > 0) {
+      damage.set(event.seat, (damage.get(event.seat) ?? 0) + event.amount);
+    }
+  }
+  const lpTrail = new Map<number, { before: number; after: number }>();
+  if (ctx.lp) {
+    const gainSeats = new Set((isFirst ? [] : detectGains(state.lp, ctx.lp, damage)).map((gain) => gain.seat));
+    const running = new Map<number, number>();
+    for (let i = batch.length - 1; i >= 0; i -= 1) {
+      const event = batch[i];
+      if (event.kind !== "damage" || event.seat == null || !event.amount || event.amount <= 0 || gainSeats.has(event.seat)) continue;
+      const after = running.get(event.seat) ?? ctx.lp[event.seat];
+      if (after == null) continue;
+      lpTrail.set(event.id, { before: after + event.amount, after });
+      running.set(event.seat, after + event.amount);
+    }
+  }
+
   let phase = state.phase;
   if (phase == null) {
     const hasPhaseEvent = batch.some((event) => event.kind === "phase");
@@ -278,6 +338,53 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
     return memory[key] ?? snapshotMemory(ctx.cards)[key] ?? null;
   };
   const otherSeat = (seat: number | null | undefined) => (seat == null ? null : (seat + 1) % seatCount);
+
+  /** A card's name, but only from a card the log or the board already shows. */
+  const nameOfCode = (code: number): string | null => {
+    const named = (card: HistoryCard | null | undefined) => (card && card.code === code && card.name ? card.name : null);
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const item = items[i];
+      if (item.type !== "tile") continue;
+      const found = named(item.card) ?? named(item.target?.card);
+      if (found) return found;
+    }
+    for (const card of Object.values(memory)) {
+      const found = named(card);
+      if (found) return found;
+    }
+    for (const card of ctx.cards) {
+      const found = named(card);
+      if (found) return found;
+    }
+    return null;
+  };
+  const sourceOf = (event: DuelEvent): HistorySource | undefined => {
+    if (!event.sourceCode) return undefined;
+    const source: HistorySource = { code: event.sourceCode, name: nameOfCode(event.sourceCode), seat: event.sourceSeat ?? null };
+    if (event.sourceKind) source.kind = event.sourceKind;
+    return source;
+  };
+  /** The chain link that is resolving right now, as a source. */
+  const resolvingSource = (): HistorySource | undefined => {
+    const tile = chain?.current != null ? tileAt(chain.keys[chain.current]) : null;
+    if (!tile || isHiddenHistoryCard(tile.card)) return undefined;
+    return { code: tile.card!.code as number, name: tile.card!.name ?? null, seat: tile.seat };
+  };
+  /** Cards sent just before a Tribute or material Summon were its Tributes or materials. */
+  const tagMaterials = (summon: HistoryTile) => {
+    const cause = summon.summonKind === "tribute" ? "tribute" : "material";
+    // The summoned monster's own move sits between them and the summon event, so the first gap may be 2.
+    let previous = summon.key;
+    let allowed = 2;
+    for (let i = items.length - 2; i >= 0; i -= 1) {
+      const item = items[i];
+      if (item.type !== "tile" || item.kind !== "move" || !item.move || !MATERIAL_MOVES.has(item.move.reason)) break;
+      if (item.seat !== summon.seat || previous - item.key > allowed) break;
+      items[i] = { ...item, move: { ...item.move, cause, source: undefined } };
+      previous = item.key;
+      allowed = 1;
+    }
+  };
 
   const make = (event: DuelEvent, index: number, kind: HistoryTile["kind"], card: HistoryCard | null): HistoryTile => ({
     type: "tile",
@@ -306,6 +413,7 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
         const tile = make(event, index, event.kind, card);
         if (event.kind === "summon") tile.summonKind = summonKindFor(event);
         items.push(tile);
+        if (tile.summonKind && MATERIAL_SUMMONS.has(tile.summonKind)) tagMaterials(tile);
         break;
       }
       case "attack": {
@@ -381,7 +489,7 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
       case "damage": {
         if (!event.amount || event.amount <= 0 || event.seat == null) break;
         const cause: DamageCause = (event.cause === "rule" || event.cause === "other" ? "effect" : event.cause) ?? (chain?.current != null ? "effect" : battleKey != null ? "battle" : "effect");
-        const hit: HistoryHit = { seat: event.seat, amount: event.amount, cause };
+        const hit: HistoryHit = { seat: event.seat, amount: event.amount, cause, ...lpTrail.get(event.id) };
         const battle = tileAt(battleKey);
         if (cause === "battle" && battle) {
           addHit(battle.key, hit, event.id);
@@ -410,15 +518,23 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
           else if (key != null && key === battle.targetZone) role = "target";
           else if (card?.code != null && card.code === battle.card?.code) role = "attacker";
           else if (card?.code != null && card.code === battle.target?.card?.code) role = "target";
-          const loss: HistoryLoss = { seat: event.zone?.controller ?? event.seat ?? null, card, role };
+          const loss: HistoryLoss = { seat: event.zone?.controller ?? event.seat ?? null, card, role, cause: event.cause ?? "battle" };
+          const source = sourceOf(event);
+          if (source) loss.source = source;
           patch(battle.key, (tile) => ({ ...tile, lastEventId: event.id, destroyed: [...tile.destroyed, loss] }));
         } else if (chainOpen && chain?.current != null && event.cause !== "battle") {
-          const loss: HistoryLoss = { seat: event.zone?.controller ?? event.seat ?? null, card, role: "card" };
+          const loss: HistoryLoss = { seat: event.zone?.controller ?? event.seat ?? null, card, role: "card", cause: event.cause ?? "effect" };
+          const source = sourceOf(event) ?? resolvingSource();
+          if (source) loss.source = source;
           patch(chain.keys[chain.current], (tile) => ({ ...tile, lastEventId: event.id, destroyed: [...tile.destroyed, loss] }));
         } else {
           const tile = make(event, index, "destroy", card);
           tile.seat = event.zone?.controller ?? event.seat ?? null;
-          tile.destroyed = [{ seat: tile.seat, card, role: "card" }];
+          const loss: HistoryLoss = { seat: tile.seat, card, role: "card" };
+          if (event.cause) loss.cause = event.cause;
+          const source = sourceOf(event);
+          if (source) loss.source = source;
+          tile.destroyed = [loss];
           items.push(tile);
         }
         break;
@@ -440,6 +556,13 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
         const tile = make(event, index, "move", event.card ?? null);
         tile.seat = seat;
         tile.move = { dest, reason: event.reason, count: 1, faceDown: event.faceDown === true };
+        if (event.reason !== "draw") {
+          const source = resolvingSource();
+          if (source) {
+            tile.move.cause = "effect";
+            tile.move.source = source;
+          }
+        }
         items.push(tile);
         break;
       }
@@ -455,12 +578,6 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
   });
 
   const lastId = batch[batch.length - 1].id;
-  const damage = new Map<number, number>();
-  for (const event of batch) {
-    if (event.kind === "damage" && event.seat != null && event.amount && event.amount > 0) {
-      damage.set(event.seat, (damage.get(event.seat) ?? 0) + event.amount);
-    }
-  }
   let healCount = state.healCount;
   for (const gain of detectGains(state.lp, ctx.lp, damage)) {
     items.push(healTile(lastId + 1 - 1 / (healCount + 2), gain, ctx, phase ?? ""));

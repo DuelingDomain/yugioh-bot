@@ -4,6 +4,10 @@
 // list draws: grouped by turn (newest first), each entry with an icon kind, thumbnails, signed LP numbers,
 // the acting side and a full sentence for screen readers.
 //
+// Wording: Yu-Gi-Oh! terms, no abbreviations. "LP" always comes with its number and the player's name,
+// and a player is "You", their display name, or "Opponent" (never "Opp"). Action labels are short and
+// complete ("Attack", "Direct attack", "Normal Summon"); long text lives in the sentence and the title.
+//
 // Privacy: the server only sends card identity the viewer may see. On top of that, an opponent's Set card,
 // face-down position change and drawn card never get a face here, and a spectator never sees a Set card.
 import { formatLp } from "./constants";
@@ -11,7 +15,10 @@ import {
   isHiddenHistoryCard,
   type HistoryCard,
   type HistoryItem,
+  type HistoryLoss,
+  type HistorySource,
   type HistoryTile,
+  type LeaveCause,
   type MoveDest,
 } from "./history-model";
 
@@ -32,6 +39,8 @@ export interface HistoryThumb {
   name: string | null;
   struck: boolean;
   side: HistorySide;
+  /** Portrait only: the player the plate stands for ("You", a name or "Opponent"). */
+  label?: string;
 }
 
 export interface HistoryLpChange {
@@ -40,13 +49,22 @@ export interface HistoryLpChange {
   /** Negative for LP lost or paid, positive for LP gained. */
   delta: number;
   cause: "battle" | "effect" | "cost" | "heal";
-  /** "-3,000" or "+1,000" */
+  /** "−3,000" or "+1,000" */
   text: string;
+  unit: "LP";
+  /** "−3,000 LP" */
+  label: string;
+  /** Whose LP it is: "You", a display name or "Opponent". */
+  who: string;
+  /** "8,000 → 5,000". Null when the LP before and after are not known. */
+  total: string | null;
 }
 
 export interface HistoryTag {
   label: string;
   tone: "chain" | "loss" | "quiet";
+  /** Sentence case instead of the small-caps pill look. For reasons that name a card. */
+  plain?: true;
 }
 
 export interface HistoryEntry {
@@ -102,6 +120,26 @@ export interface HistoryViewOptions {
   seatCount?: number;
 }
 
+const PLACEHOLDER_NAME = /^Player \d+$/;
+
+/**
+ * How a player is named in the history: "You" for the viewer, their display name, or "Opponent" when a
+ * two-player seat still has the placeholder name. With three or more seats the placeholder stays, because
+ * "Opponent" would not say which one.
+ */
+export function historyWho(
+  seat: number | null,
+  mySeat: number | null,
+  playerName: (seat: number) => string,
+  seatCount: number,
+): string {
+  if (seat == null) return "Unknown";
+  if (mySeat != null && seat === mySeat) return "You";
+  const name = playerName(seat);
+  if (mySeat != null && seatCount <= 2 && PLACEHOLDER_NAME.test(name)) return "Opponent";
+  return name;
+}
+
 export function sideOf(seat: number | null, mySeat: number | null): HistorySide {
   if (seat == null) return "opp";
   if (mySeat == null) return seat === 0 ? "you" : "opp";
@@ -146,10 +184,10 @@ function isFaceDownPosition(position: number | undefined): boolean {
 
 function positionName(position: number | undefined): string {
   if (position == null) return "another position";
-  if (position & POS_FACEDOWN_DEFENSE) return "face-down Defense";
-  if (position & POS_FACEUP_DEFENSE) return "Defense";
-  if (position & POS_FACEDOWN_ATTACK) return "face-down Attack";
-  return "Attack";
+  if (position & POS_FACEDOWN_DEFENSE) return "face-down Defense Position";
+  if (position & POS_FACEUP_DEFENSE) return "Defense Position";
+  if (position & POS_FACEDOWN_ATTACK) return "face-down Attack Position";
+  return "Attack Position";
 }
 
 function nameOf(card: HistoryCard | null | undefined): string | null {
@@ -186,22 +224,44 @@ function thumbFor(tile: HistoryTile, card: HistoryCard | null | undefined, role:
   };
 }
 
-function destVerb(dest: MoveDest, reason: string, count: number): string {
-  if (reason === "draw") return count > 1 ? `Draws ${count}` : "Draws";
+function destVerb(dest: MoveDest, reason: string, count: number, cause: string | undefined): string {
+  if (reason === "draw") return count > 1 ? `Draw ${count}` : "Draw";
+  if (cause === "tribute") return "Tributed";
+  if (cause === "material") return "Used as material";
   switch (dest) {
     case "grave":
-      return reason === "discard" ? "Discards" : "To Graveyard";
+      return reason === "discard" ? "Discard" : "Sent to Graveyard";
     case "banished":
-      return "Banishes";
+      return "Banished";
     case "hand":
-      return "To hand";
+      return "Returned to hand";
     case "deck":
-      return "To Deck";
+      return "Returned to Deck";
     case "extra":
-      return "To Extra Deck";
+      return "Returned to Extra Deck";
     default:
-      return "Moves";
+      return "Moved";
   }
+}
+
+/** "by battle", "by Raigeki's effect", "by card effect", "as a cost", "by game rule", or null when unknown. */
+function reasonPhrase(cause: LeaveCause | undefined, source: HistorySource | undefined): string | null {
+  switch (cause) {
+    case "battle":
+      return "by battle";
+    case "effect":
+      return source?.name ? `by ${source.name}'s effect` : "by card effect";
+    case "cost":
+      return "as a cost";
+    case "rule":
+      return "by game rule";
+    default:
+      return null;
+  }
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 export function iconFor(tile: HistoryTile): HistoryIconKind {
@@ -246,19 +306,19 @@ function verbFor(tile: HistoryTile): string {
     case "set":
       return "Set";
     case "activate":
-      return "Activates";
+      return "Activate";
     case "attack":
-      return tile.target?.direct ? "Direct attack" : "Attacks";
+      return tile.target?.direct ? "Direct attack" : "Attack";
     case "damage":
-      return tile.hits[0]?.cause === "cost" ? "Pays LP" : "Takes damage";
+      return { battle: "Battle damage", effect: "Effect damage", cost: "LP paid" }[tile.hits[0]?.cause ?? "effect"];
     case "destroy":
       return "Destroyed";
     case "move":
-      return destVerb(tile.move?.dest ?? "field", tile.move?.reason ?? "other", tile.move?.count ?? 1);
+      return destVerb(tile.move?.dest ?? "field", tile.move?.reason ?? "other", tile.move?.count ?? 1, tile.move?.cause);
     case "position":
       return tile.position?.flip ? "Flips face-up" : `To ${positionName(tile.position?.to)}`;
     case "heal":
-      return "Recovers LP";
+      return "LP gained";
   }
 }
 
@@ -275,15 +335,19 @@ function titleFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: num
     case "summon":
       return name ?? "Face-down monster";
     case "damage":
-      return tile.hits[0] ? who(tile.hits[0].seat) : "Life Points";
     case "heal":
-      return tile.gain ? who(tile.gain.seat) : "Life Points";
+      return "Life Points";
     case "move":
       if (tile.move?.reason === "draw") return name ?? (tile.move.count > 1 ? `${tile.move.count} cards` : "1 card");
       return name ?? "Card";
     default:
       return name ?? "Card";
   }
+}
+
+function destroyedSentence(name: string | null, loss: HistoryLoss | undefined): string {
+  const phrase = reasonPhrase(loss?.cause, loss?.source);
+  return `${name ?? "A card"} was destroyed${phrase ? ` ${phrase}` : ""}.`;
 }
 
 function sentenceFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: number | null): string {
@@ -311,16 +375,21 @@ function sentenceFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: 
       break;
     }
     case "destroy":
-      parts.push(`${name ?? "A card"} was destroyed.`);
+      parts.push(destroyedSentence(name, tile.destroyed[0]));
       break;
     case "move": {
       const move = tile.move;
+      const what = name ?? "a card";
       if (move?.reason === "draw") {
         parts.push(move.count > 1 ? `${actor} drew ${move.count} cards.` : name ? `${actor} drew ${name}.` : `${actor} drew a card.`);
+      } else if (move?.cause === "tribute") {
+        parts.push(`${actor} Tributed ${what}.`);
+      } else if (move?.cause === "material") {
+        parts.push(`${actor} used ${what} as material.`);
       } else {
-        const what = name ?? "a card";
         const where = { grave: " to the Graveyard", hand: " to the hand", deck: " to the Deck", extra: " to the Extra Deck", banished: "", field: "" }[move?.dest ?? "field"];
-        parts.push(move?.dest === "banished" ? `${actor} banished ${what}.` : `${actor} sent ${what}${where}.`);
+        const by = move?.cause === "effect" ? ` ${reasonPhrase("effect", move.source)}` : "";
+        parts.push(move?.dest === "banished" ? `${actor} banished ${what}${by}.` : `${actor} sent ${what}${where}${by}.`);
       }
       break;
     }
@@ -336,26 +405,42 @@ function sentenceFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: 
   for (const hit of tile.hits) parts.push(`${who(hit.seat)} took ${formatLp(hit.amount)} ${CAUSE_LABEL[hit.cause]}.`);
   if (tile.gain) parts.push(`${who(tile.gain.seat)} gained ${formatLp(tile.gain.amount)} LP.`);
   if (tile.kind !== "destroy") {
-    for (const loss of tile.destroyed) parts.push(`${nameOf(loss.card) ?? "A card"} was destroyed.`);
+    for (const loss of tile.destroyed) parts.push(destroyedSentence(nameOf(loss.card), loss));
   }
   return parts.join(" ");
 }
 
-function lpFor(tile: HistoryTile, mySeat: number | null): HistoryLpChange[] {
-  const out: HistoryLpChange[] = tile.hits.map((hit) => ({
-    side: sideOf(hit.seat, mySeat),
-    seat: hit.seat,
-    delta: -hit.amount,
-    cause: hit.cause,
-    text: `−${formatLp(hit.amount)}`,
-  }));
+function lpTotal(before: number | undefined, after: number | undefined): string | null {
+  return before != null && after != null ? `${formatLp(before)} → ${formatLp(after)}` : null;
+}
+
+function lpFor(tile: HistoryTile, mySeat: number | null, who: HistoryViewOptions["who"]): HistoryLpChange[] {
+  const out: HistoryLpChange[] = tile.hits.map((hit) => {
+    const text = `−${formatLp(hit.amount)}`;
+    return {
+      side: sideOf(hit.seat, mySeat),
+      seat: hit.seat,
+      delta: -hit.amount,
+      cause: hit.cause,
+      text,
+      unit: "LP",
+      label: `${text} LP`,
+      who: who(hit.seat),
+      total: lpTotal(hit.before, hit.after),
+    };
+  });
   if (tile.gain) {
+    const text = `+${formatLp(tile.gain.amount)}`;
     out.push({
       side: sideOf(tile.gain.seat, mySeat),
       seat: tile.gain.seat,
       delta: tile.gain.amount,
       cause: "heal",
-      text: `+${formatLp(tile.gain.amount)}`,
+      text,
+      unit: "LP",
+      label: `${text} LP`,
+      who: who(tile.gain.seat),
+      total: lpTotal(tile.gain.before, tile.gain.after),
     });
   }
   return out;
@@ -368,13 +453,33 @@ function tagsFor(tile: HistoryTile): HistoryTag[] {
     const label = { resolving: "Resolving", resolved: "Resolved", negated: "Negated" }[tile.chain.status];
     tags.push({ label, tone: tile.chain.status === "negated" ? "loss" : "quiet" });
   }
-  const destroyed = tile.kind === "destroy" ? 0 : tile.destroyed.length;
-  if (destroyed > 0) tags.push({ label: destroyed > 1 ? `${destroyed} destroyed` : "Destroyed", tone: "loss" });
+  if (tile.kind === "destroy") {
+    // The row is the destroyed card, so its verb already says "Destroyed": the tag only gives the reason.
+    const loss = tile.destroyed[0];
+    const phrase = reasonPhrase(loss?.cause, loss?.source);
+    if (phrase) tags.push({ label: capitalize(phrase), tone: "loss", plain: true });
+  } else {
+    // One tag per reason, with a count when several cards went the same way.
+    const groups = new Map<string, number>();
+    for (const loss of tile.destroyed) {
+      const phrase = reasonPhrase(loss.cause, loss.source) ?? "";
+      groups.set(phrase, (groups.get(phrase) ?? 0) + 1);
+    }
+    for (const [phrase, count] of groups) {
+      const label = count > 1 ? `${count} destroyed` : "Destroyed";
+      tags.push({ label: phrase ? `${label} ${phrase}` : label, tone: "loss" });
+    }
+  }
+  if (tile.move?.cause === "effect") tags.push({ label: capitalize(reasonPhrase("effect", tile.move.source) ?? ""), tone: "quiet", plain: true });
   if (tile.move && tile.move.count > 1) tags.push({ label: `×${tile.move.count}`, tone: "quiet" });
   return tags;
 }
 
-function thumbsFor(tile: HistoryTile, side: HistorySide, mySeat: number | null): HistoryThumb[] {
+function plate(side: HistorySide, label: string): HistoryThumb {
+  return { role: "portrait", card: null, code: null, name: null, struck: false, side, label };
+}
+
+function thumbsFor(tile: HistoryTile, side: HistorySide, mySeat: number | null, who: HistoryViewOptions["who"]): HistoryThumb[] {
   switch (tile.kind) {
     case "attack": {
       const target = tile.target;
@@ -385,15 +490,15 @@ function thumbsFor(tile: HistoryTile, side: HistorySide, mySeat: number | null):
         thumbFor(tile, tile.card, "attacker", side, mySeat, attackerStruck),
         target?.direct || !target?.card
           ? target?.direct
-            ? { role: "portrait", card: null, code: null, name: null, struck: false, side: targetSide }
+            ? plate(targetSide, who(target?.seat ?? null))
             : thumbFor(tile, null, "target", targetSide, mySeat, targetStruck)
           : thumbFor(tile, target.card, "target", targetSide, mySeat, targetStruck),
       ];
     }
     case "damage":
-      return [{ role: "portrait", card: null, code: null, name: null, struck: false, side: sideOf(tile.hits[0]?.seat ?? tile.seat, mySeat) }];
+      return [plate(sideOf(tile.hits[0]?.seat ?? tile.seat, mySeat), who(tile.hits[0]?.seat ?? tile.seat))];
     case "heal":
-      return [{ role: "portrait", card: null, code: null, name: null, struck: false, side: sideOf(tile.gain?.seat ?? tile.seat, mySeat) }];
+      return [plate(sideOf(tile.gain?.seat ?? tile.seat, mySeat), who(tile.gain?.seat ?? tile.seat))];
     case "destroy":
       return [thumbFor(tile, tile.card, "main", side, mySeat, true)];
     default:
@@ -415,8 +520,8 @@ export function entryFor(tile: HistoryTile, options: HistoryViewOptions): Histor
     verb: verbFor(tile),
     title: titleFor(tile, who, mySeat),
     sentence: sentenceFor(tile, who, mySeat),
-    thumbs: thumbsFor(tile, side, mySeat),
-    lp: lpFor(tile, mySeat),
+    thumbs: thumbsFor(tile, side, mySeat, who),
+    lp: lpFor(tile, mySeat, who),
     tags: tagsFor(tile),
     negated: tile.chain?.status === "negated",
     turn: tile.turn,

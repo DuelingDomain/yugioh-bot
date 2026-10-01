@@ -4,6 +4,7 @@ import { emptyHistory, ingestHistory, type HistoryContext } from "../../src/comp
 import {
   buildHistoryView,
   entryFor,
+  historyWho,
   sideOf,
   type HistoryEntry,
   type HistoryViewOptions,
@@ -60,9 +61,11 @@ describe("history entries: icon kinds and cards", () => {
     expect(entry.thumbs.map((thumb) => thumb.role)).toEqual(["attacker", "target"]);
     expect(entry.thumbs[0]).toMatchObject({ code: 1, struck: false, side: "you" });
     expect(entry.thumbs[1]).toMatchObject({ code: 2, struck: true, side: "opp" });
-    expect(entry.lp).toEqual([{ side: "opp", seat: 1, delta: -800, cause: "battle", text: "−800" }]);
+    expect(entry.lp).toEqual([
+      { side: "opp", seat: 1, delta: -800, cause: "battle", text: "−800", unit: "LP", label: "−800 LP", who: "Rival", total: null },
+    ]);
     expect(entry.title).toBe("Attacker → Defender");
-    expect(entry.tags).toEqual([{ label: "Destroyed", tone: "loss" }]);
+    expect(entry.tags).toEqual([{ label: "Destroyed by battle", tone: "loss" }]);
   });
 
   it("shows a direct attack as attacker plus a player portrait", () => {
@@ -102,7 +105,7 @@ describe("history entries: icon kinds and cards", () => {
     ]);
     expect(list.map((entry) => entry.icon).reverse()).toEqual(["activate", "destroy", "lp-loss"]);
     const cost = list[0];
-    expect(cost.verb).toBe("Pays LP");
+    expect(cost.verb).toBe("LP paid");
     expect(cost.lp[0].cause).toBe("cost");
     expect(list[1].thumbs[0]).toMatchObject({ code: 8, struck: true });
   });
@@ -120,7 +123,7 @@ describe("history entries: icon kinds and cards", () => {
     expect(byIcon.draw.sentence).toBe("You drew Mine.");
     expect(byIcon.banish.sentence).toBe("Rival banished Gone.");
     expect(byIcon.grave.sentence).toBe("Rival sent Sent to the Graveyard.");
-    expect(byIcon.position.verb).toBe("To Defense");
+    expect(byIcon.position.verb).toBe("To Defense Position");
     expect(byIcon["flip-up"].verb).toBe("Flips face-up");
   });
 
@@ -140,7 +143,7 @@ describe("history entries: icon kinds and cards", () => {
       { id: 3, kind: "move", seat: 1, reason: "draw", zone: zone(1, HAND), text: "" },
     ]);
     expect(list).toHaveLength(1);
-    expect(list[0].verb).toBe("Draws 3");
+    expect(list[0].verb).toBe("Draw 3");
     expect(list[0].title).toBe("3 cards");
     expect(list[0].tags).toEqual([{ label: "×3", tone: "quiet" }]);
   });
@@ -157,7 +160,9 @@ describe("history entries: LP gain", () => {
     const view = buildHistoryView(next.items, opts);
     const gain = view.groups[0].rows[0] as HistoryEntry;
     expect(gain.icon).toBe("lp-gain");
-    expect(gain.lp).toEqual([{ side: "you", seat: 0, delta: 1000, cause: "heal", text: "+1,000" }]);
+    expect(gain.lp).toEqual([
+      { side: "you", seat: 0, delta: 1000, cause: "heal", text: "+1,000", unit: "LP", label: "+1,000 LP", who: "You", total: "8,000 → 9,000" },
+    ]);
     expect(gain.sentence).toBe("You gained 1,000 LP.");
     expect(view.latestKey).toBe(gain.key);
   });
@@ -177,7 +182,7 @@ describe("history entries: LP gain", () => {
     );
     const heals = mixed.items.filter((item) => item.type === "tile" && item.kind === "heal");
     expect(heals).toHaveLength(1);
-    expect(heals[0].type === "tile" && heals[0].gain).toEqual({ seat: 0, amount: 1000 });
+    expect(heals[0].type === "tile" && heals[0].gain).toEqual({ seat: 0, amount: 1000, before: 7000, after: 8000 });
   });
 
   it("gives each recovery its own key, even with no new event", () => {
@@ -240,7 +245,7 @@ describe("history entries: privacy", () => {
       { id: 1, kind: "position", seat: 1, card: info(11, "Hidden"), zone: zone(1, MZONE), fromPosition: 1, toPosition: 8, text: "" },
     ]);
     expect(entry.thumbs[0].code).toBeNull();
-    expect(entry.sentence).toBe("Rival changed a monster to face-down Defense.");
+    expect(entry.sentence).toBe("Rival changed a monster to face-down Defense Position.");
   });
 });
 
@@ -293,5 +298,280 @@ describe("history entries: actor side", () => {
     const tile = state.items[0];
     if (tile.type !== "tile") throw new Error("expected tile");
     expect(entryFor(tile, opts)).toMatchObject({ side: "opp", actor: "Rival", turn: 3 });
+  });
+});
+
+/** Every string a row draws or reads out. Used to prove no cryptic abbreviation survives. */
+function visibleText(entry: HistoryEntry): string {
+  return [
+    entry.actor,
+    entry.verb,
+    entry.title,
+    entry.sentence,
+    ...entry.tags.map((tag) => tag.label),
+    ...entry.lp.flatMap((change) => [change.text, change.unit, change.label, change.who, change.total ?? ""]),
+    ...entry.thumbs.map((thumb) => thumb.label ?? ""),
+  ].join(" | ");
+}
+
+describe("history entries: plain Yu-Gi-Oh! wording", () => {
+  const battle: DuelEvent[] = [
+    { id: 1, kind: "attack", seat: 0, card: info(1, "Blue-Eyes Chaos MAX Dragon"), text: "", zone: zone(0, MZONE, 0), target: zone(1, MZONE, 0) },
+    { id: 2, kind: "damage", seat: 1, amount: 2400, cause: "battle", text: "" },
+    { id: 3, kind: "destroy", seat: 1, zone: zone(1, MZONE, 0), card: info(2, "Defender"), cause: "battle", sourceCode: 1, text: "" },
+  ];
+  const battleCtx = ctx({
+    lp: [8000, 5600],
+    cards: [{ controller: 1, location: MZONE, sequence: 0, position: 1, code: 2, name: "Defender" }],
+  });
+
+  it("shows LP lost with a unit, whose LP it is and the total before and after", () => {
+    const [entry] = entries(battle, battleCtx);
+    expect(entry.lp).toEqual([
+      {
+        side: "opp",
+        seat: 1,
+        delta: -2400,
+        cause: "battle",
+        text: "−2,400",
+        unit: "LP",
+        label: "−2,400 LP",
+        who: "Rival",
+        total: "8,000 → 5,600",
+      },
+    ]);
+  });
+
+  it("leaves the total out when the LP before and after are not known", () => {
+    const [entry] = entries(battle, ctx({ cards: battleCtx.cards }));
+    expect(entry.lp[0]).toMatchObject({ label: "−2,400 LP", who: "Rival", total: null });
+  });
+
+  it("works several hits in one batch back from the current LP", () => {
+    const list = entries(
+      [
+        { id: 1, kind: "damage", seat: 0, amount: 1000, cause: "effect", text: "" },
+        { id: 2, kind: "damage", seat: 0, amount: 500, cause: "effect", text: "" },
+      ],
+      ctx({ lp: [6500, 8000] }),
+    );
+    // Newest first.
+    expect(list.map((row) => row.lp[0].total)).toEqual(["7,000 → 6,500", "8,000 → 7,000"]);
+  });
+
+  it("names LP paid and LP gained with the same unit", () => {
+    const first = ingestHistory(emptyHistory(), [{ id: 1, kind: "phase", text: "Main Phase 1" }], ctx({ lp: [8000, 8000] }));
+    const next = ingestHistory(first, [{ id: 2, kind: "damage", seat: 0, amount: 1000, cause: "cost", text: "" }], ctx({ revision: 2, lp: [7000, 8000] }));
+    const healed = ingestHistory(next, [], ctx({ revision: 3, lp: [7000, 9000] }));
+    const rows = buildHistoryView(healed.items, opts).groups.flatMap((group) => group.rows).filter((row): row is HistoryEntry => row.type === "entry");
+    const gain = rows[0];
+    const paid = rows[1];
+    expect(gain.verb).toBe("LP gained");
+    expect(gain.lp[0]).toMatchObject({ text: "+1,000", label: "+1,000 LP", who: "Rival", total: "8,000 → 9,000" });
+    expect(paid.verb).toBe("LP paid");
+    expect(paid.lp[0]).toMatchObject({ label: "−1,000 LP", who: "You", total: "8,000 → 7,000" });
+  });
+
+  it("uses short complete action labels", () => {
+    const list = entries([
+      { id: 1, kind: "summon", seat: 0, card: info(1, "A"), summonKind: "normal", text: "" },
+      { id: 2, kind: "activate", seat: 0, card: info(2, "B"), chainIndex: 1, text: "" },
+      { id: 3, kind: "chain-end", text: "" },
+      { id: 4, kind: "attack", seat: 0, card: info(1, "A"), text: "", zone: zone(0, MZONE, 0), target: zone(1, MZONE, 0) },
+      { id: 5, kind: "phase", text: "End Phase" },
+      { id: 6, kind: "attack", seat: 0, card: info(1, "A"), text: "Player 1 attacks directly", zone: zone(0, MZONE, 0) },
+    ]).reverse();
+    expect(list.map((entry) => entry.verb)).toEqual(["Normal Summon", "Activate", "Attack", "Direct attack"]);
+  });
+
+  it("shows a direct attack target as a named player plate, not an abbreviation", () => {
+    const [entry] = entries([
+      { id: 1, kind: "attack", seat: 0, card: info(7, "Raider"), text: "Player 1 attacks directly", zone: zone(0, MZONE, 2) },
+      { id: 2, kind: "damage", seat: 1, amount: 2500, cause: "battle", text: "" },
+    ]);
+    expect(entry.verb).toBe("Direct attack");
+    expect(entry.thumbs[1]).toMatchObject({ role: "portrait", label: "Rival", side: "opp" });
+    expect(entry.sentence).toContain("directly");
+  });
+
+  it("keeps the player plate on LP-only rows", () => {
+    const [entry] = entries([{ id: 1, kind: "damage", seat: 1, amount: 700, cause: "effect", text: "" }]);
+    expect(entry.verb).toBe("Effect damage");
+    expect(entry.thumbs[0]).toMatchObject({ role: "portrait", label: "Rival" });
+  });
+
+  it("never draws OPP or Opp anywhere in a row", () => {
+    const rows = [
+      ...entries(battle, battleCtx),
+      ...entries([{ id: 1, kind: "attack", seat: 0, card: info(7, "Raider"), text: "attacks directly", zone: zone(0, MZONE, 2) }]),
+      ...entries([{ id: 1, kind: "damage", seat: 1, amount: 700, cause: "effect", text: "" }]),
+    ];
+    for (const row of rows) expect(visibleText(row)).not.toMatch(/\bopp\b/i);
+  });
+
+  it("writes the opponent's name or Opponent in the turn header, never Opp", () => {
+    const named: HistoryViewOptions = { mySeat: 0, who: (seat) => (seat === 0 ? "You" : "Opponent") };
+    const view = buildHistoryView(
+      ingestHistory(emptyHistory(), [{ id: 1, kind: "phase", text: "Main Phase 1" }, { id: 2, kind: "summon", seat: 1, card: info(1, "A"), text: "" }], ctx({ turn: 4, turnSeat: 1 })).items,
+      named,
+    );
+    expect(view.groups[0].label).toBe("Turn 4 · Opponent");
+  });
+});
+
+describe("history entries: historyWho", () => {
+  const names = (seat: number) => ["Sulman", "Player 2", "Kaiba"][seat] ?? `Player ${seat + 1}`;
+
+  it("says You for the viewer and the name for a named player", () => {
+    expect(historyWho(0, 0, names, 2)).toBe("You");
+    expect(historyWho(2, 0, names, 3)).toBe("Kaiba");
+  });
+
+  it("says Opponent when a two-player seat only has the placeholder name", () => {
+    expect(historyWho(1, 0, names, 2)).toBe("Opponent");
+  });
+
+  it("keeps the placeholder with three or more seats, where Opponent would be unclear", () => {
+    expect(historyWho(1, 0, names, 3)).toBe("Player 2");
+  });
+
+  it("handles a spectator and an unknown seat", () => {
+    expect(historyWho(null, 0, names, 2)).toBe("Unknown");
+    expect(historyWho(0, null, names, 2)).toBe("Sulman");
+  });
+});
+
+describe("history entries: why a card was destroyed", () => {
+  it("says destroyed by battle on the attack row", () => {
+    const [entry] = entries([
+      { id: 1, kind: "attack", seat: 0, card: info(1, "Attacker"), text: "", zone: zone(0, MZONE, 0), target: zone(1, MZONE, 0) },
+      { id: 2, kind: "destroy", seat: 1, zone: zone(1, MZONE, 0), card: info(2, "Defender"), cause: "battle", sourceCode: 1, text: "" },
+    ]);
+    expect(entry.tags).toEqual([{ label: "Destroyed by battle", tone: "loss" }]);
+    expect(entry.sentence).toContain("Defender was destroyed by battle.");
+  });
+
+  it("names the effect's card on a chain link", () => {
+    const [entry] = entries([
+      { id: 1, kind: "activate", seat: 0, card: info(77, "Raigeki"), chainIndex: 1, text: "" },
+      { id: 2, kind: "chain-resolving", seat: 0, chainIndex: 1, text: "" },
+      { id: 3, kind: "destroy", seat: 1, zone: zone(1, MZONE, 0), card: info(2, "Defender"), cause: "effect", sourceCode: 77, sourceKind: "spell", sourceSeat: 0, text: "" },
+    ]);
+    expect(entry.tags.map((tag) => tag.label)).toContain("Destroyed by Raigeki's effect");
+    expect(entry.sentence).toContain("Defender was destroyed by Raigeki's effect.");
+  });
+
+  it("counts several cards destroyed by one effect", () => {
+    const [entry] = entries([
+      { id: 1, kind: "activate", seat: 0, card: info(77, "Raigeki"), chainIndex: 1, text: "" },
+      { id: 2, kind: "chain-resolving", seat: 0, chainIndex: 1, text: "" },
+      { id: 3, kind: "destroy", seat: 1, zone: zone(1, MZONE, 0), card: info(2, "A"), cause: "effect", sourceCode: 77, text: "" },
+      { id: 4, kind: "destroy", seat: 1, zone: zone(1, MZONE, 1), card: info(3, "B"), cause: "effect", sourceCode: 77, text: "" },
+    ]);
+    expect(entry.tags.map((tag) => tag.label)).toContain("2 destroyed by Raigeki's effect");
+  });
+
+  it("falls back to card effect when the source card is not known", () => {
+    const [entry] = entries([
+      { id: 1, kind: "destroy", seat: 1, zone: zone(1, MZONE, 1), card: info(8, "Victim"), cause: "effect", sourceCode: 4242, text: "" },
+    ]);
+    expect(entry.verb).toBe("Destroyed");
+    expect(entry.tags).toEqual([{ label: "By card effect", tone: "loss", plain: true }]);
+    expect(entry.sentence).toBe("Victim was destroyed by card effect.");
+  });
+
+  it("finds a source card the log already showed, for a lone destroy", () => {
+    const list = entries([
+      { id: 1, kind: "activate", seat: 0, card: info(77, "Raigeki"), chainIndex: 1, text: "" },
+      { id: 2, kind: "chain-end", text: "" },
+      { id: 3, kind: "destroy", seat: 1, zone: zone(1, MZONE, 1), card: info(8, "Victim"), cause: "effect", sourceCode: 77, text: "" },
+    ]);
+    expect(list[0].tags).toEqual([{ label: "By Raigeki's effect", tone: "loss", plain: true }]);
+  });
+
+  it("words the other reasons and stays plain when there is none", () => {
+    const list = entries([
+      { id: 1, kind: "destroy", seat: 1, zone: zone(1, MZONE, 0), card: info(1, "A"), cause: "cost", text: "" },
+      { id: 2, kind: "destroy", seat: 1, zone: zone(1, MZONE, 1), card: info(2, "B"), cause: "rule", text: "" },
+      { id: 3, kind: "destroy", seat: 1, zone: zone(1, MZONE, 2), card: info(3, "C"), cause: "other", text: "" },
+    ]).reverse();
+    expect(list.map((entry) => entry.tags.map((tag) => tag.label))).toEqual([["As a cost"], ["By game rule"], []]);
+  });
+});
+
+describe("history entries: where a card went and why", () => {
+  it("words each destination in Yu-Gi-Oh! terms", () => {
+    const list = entries([
+      { id: 1, kind: "move", seat: 0, reason: "draw", card: info(1, "Mine"), zone: zone(0, HAND), text: "" },
+      { id: 2, kind: "move", seat: 1, reason: "banish", card: info(2, "Gone"), zone: zone(1, REMOVED), text: "" },
+      { id: 3, kind: "move", seat: 1, reason: "send", card: info(3, "Sent"), zone: zone(1, GRAVE), text: "" },
+      { id: 4, kind: "move", seat: 1, reason: "discard", card: info(4, "Tossed"), zone: zone(1, GRAVE), text: "" },
+      { id: 5, kind: "move", seat: 0, reason: "return", card: info(5, "Back"), zone: zone(0, HAND), text: "" },
+    ]).reverse();
+    expect(list.map((entry) => entry.verb)).toEqual(["Draw", "Banished", "Sent to Graveyard", "Discard", "Returned to hand"]);
+  });
+
+  it("names the card whose effect sent a card while a chain link resolves", () => {
+    const list = entries([
+      { id: 1, kind: "activate", seat: 0, card: info(50, "Foolish Burial"), chainIndex: 1, text: "" },
+      { id: 2, kind: "chain-resolving", seat: 0, chainIndex: 1, text: "" },
+      { id: 3, kind: "move", seat: 0, reason: "send", card: info(3, "Sent"), zone: zone(0, GRAVE), text: "" },
+      { id: 4, kind: "move", seat: 0, reason: "banish", card: info(4, "Away"), zone: zone(0, REMOVED), text: "" },
+    ]);
+    const [banished, sent] = list;
+    expect(sent.verb).toBe("Sent to Graveyard");
+    expect(sent.tags).toEqual([{ label: "By Foolish Burial's effect", tone: "quiet", plain: true }]);
+    expect(banished.tags).toEqual([{ label: "By Foolish Burial's effect", tone: "quiet", plain: true }]);
+    expect(sent.sentence).toBe("You sent Sent to the Graveyard by Foolish Burial's effect.");
+  });
+
+  it("does not claim a cause for a move outside a resolving chain link", () => {
+    const [entry] = entries([{ id: 1, kind: "move", seat: 1, reason: "send", card: info(3, "Sent"), zone: zone(1, GRAVE), text: "" }]);
+    expect(entry.tags).toEqual([]);
+  });
+
+  it("calls the monsters sent for a Tribute Summon Tributed", () => {
+    const list = entries([
+      { id: 1, kind: "move", seat: 0, reason: "send", card: info(9, "Fodder"), zone: zone(0, GRAVE), from: zone(0, MZONE, 0), text: "" },
+      { id: 2, kind: "move", seat: 0, reason: "summon", card: info(10, "Big"), zone: zone(0, MZONE, 1), text: "" },
+      { id: 3, kind: "summon", seat: 0, card: info(10, "Big"), summonKind: "tribute", text: "" },
+    ]);
+    const [summon, tributed] = list;
+    expect(summon.verb).toBe("Tribute Summon");
+    expect(tributed.verb).toBe("Tributed");
+    expect(tributed.sentence).toBe("You Tributed Fodder.");
+  });
+
+  it("calls cards sent for a Synchro or Fusion Summon Used as material", () => {
+    const list = entries([
+      { id: 1, kind: "move", seat: 0, reason: "send", card: info(21, "Tuner"), zone: zone(0, GRAVE), text: "" },
+      { id: 2, kind: "move", seat: 0, reason: "send", card: info(22, "Non-tuner"), zone: zone(0, GRAVE), text: "" },
+      { id: 3, kind: "move", seat: 0, reason: "summon", card: info(23, "Boss"), zone: zone(0, MZONE, 0), text: "" },
+      { id: 4, kind: "summon", seat: 0, card: info(23, "Boss"), summonKind: "synchro", text: "" },
+    ]);
+    expect(list.map((entry) => entry.verb)).toEqual(["Synchro Summon", "Used as material", "Used as material"]);
+    expect(list[1].sentence).toBe("You used Non-tuner as material.");
+  });
+
+  it("leaves an earlier send alone when other events sit between it and the summon", () => {
+    const list = entries([
+      { id: 1, kind: "move", seat: 0, reason: "send", card: info(9, "Early"), zone: zone(0, GRAVE), text: "" },
+      { id: 2, kind: "chain-end", text: "" },
+      { id: 3, kind: "chain-end", text: "" },
+      { id: 4, kind: "move", seat: 0, reason: "summon", card: info(10, "Big"), zone: zone(0, MZONE, 1), text: "" },
+      { id: 5, kind: "summon", seat: 0, card: info(10, "Big"), summonKind: "tribute", text: "" },
+    ]);
+    expect(list.map((entry) => entry.verb)).toEqual(["Tribute Summon", "Sent to Graveyard"]);
+  });
+});
+
+describe("history entries: positions in Yu-Gi-Oh! words", () => {
+  it("says Attack Position and Defense Position", () => {
+    const list = entries([
+      { id: 1, kind: "position", seat: 0, card: info(4, "Wall"), zone: zone(0, MZONE), fromPosition: 1, toPosition: 4, text: "" },
+      { id: 2, kind: "position", seat: 0, card: info(4, "Wall"), zone: zone(0, MZONE), fromPosition: 4, toPosition: 1, text: "" },
+    ]).reverse();
+    expect(list.map((entry) => entry.verb)).toEqual(["To Defense Position", "To Attack Position"]);
+    expect(list[0].sentence).toBe("You changed Wall to Defense Position.");
   });
 });

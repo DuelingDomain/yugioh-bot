@@ -39,6 +39,7 @@ import {
   Square,
   Swords,
   Undo2,
+  UserRound,
   ArrowDownToLine,
   ChevronUp,
   Zap,
@@ -54,6 +55,7 @@ import {
   type HistoryIconKind,
   type HistoryPhaseRow,
   type HistoryThumb,
+  historyWho,
 } from "./history-entries";
 import {
   emptyHistory,
@@ -133,9 +135,9 @@ type ThumbHandlers = {
 function Thumb({ thumb, handlers, iconBadge }: { thumb: HistoryThumb; handlers: ThumbHandlers; iconBadge?: ReactNode }) {
   if (thumb.role === "portrait") {
     return (
-      <span className={styles.portrait} data-side={thumb.side} aria-hidden="true">
-        <b>{thumb.side === "you" ? "You" : "Opp"}</b>
-        <i>LP</i>
+      <span className={styles.portrait} data-side={thumb.side} title={thumb.label} aria-hidden="true">
+        <UserRound size={16} strokeWidth={1.75} aria-hidden />
+        <b>{thumb.label}</b>
         {iconBadge}
       </span>
     );
@@ -231,16 +233,16 @@ const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers }: Ro
           <Thumb thumb={first} handlers={handlers} iconBadge={<IconBadge kind={entry.icon} corner />} />
         )}
       </span>
-      <span className={styles.text} aria-hidden="true">
+      <span className={styles.text} aria-hidden="true" title={entry.sentence}>
         <span className={styles.head}>
-          <span className={styles.who} data-side={entry.side}>{entry.actor}</span>
+          <span className={styles.who} data-side={entry.side} title={entry.actor}>{entry.actor}</span>
           <span className={styles.verb}>{entry.verb}</span>
         </span>
         <span className={styles.title} data-negated={entry.negated || undefined}>{entry.title}</span>
         {entry.tags.length > 0 ? (
           <span className={styles.tags}>
             {entry.tags.map((tag) => (
-              <span key={tag.label} className={styles.tag} data-tone={tag.tone}>{tag.label}</span>
+              <span key={tag.label} className={styles.tag} data-tone={tag.tone} data-plain={tag.plain || undefined}>{tag.label}</span>
             ))}
           </span>
         ) : null}
@@ -249,9 +251,13 @@ const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers }: Ro
         <span className={styles.lp} aria-hidden="true">
           {entry.lp.map((change, index) => (
             <span key={index} className={styles.lpNum} data-cause={change.cause} data-gain={change.delta > 0 || undefined}
-              data-side={change.side}>
-              <b>{change.text}</b>
-              <i>{change.side === "you" ? "You" : "Opp"}</i>
+              data-side={change.side} title={`${change.who}: ${change.label}${change.total ? ` (${change.total})` : ""}`}>
+              <span className={styles.lpMain}>
+                <b>{change.text}</b>
+                <small>{change.unit}</small>
+              </span>
+              {change.total ? <span className={styles.lpTotal}>{change.total}</span> : null}
+              <i className={styles.lpWho}>{change.who}</i>
             </span>
           ))}
         </span>
@@ -263,6 +269,7 @@ const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers }: Ro
   a.entry.key === b.entry.key &&
   a.entry.lastEventId === b.entry.lastEventId &&
   a.entry.actor === b.entry.actor &&
+  a.entry.sentence === b.entry.sentence &&
   a.entry.side === b.entry.side &&
   a.latest === b.latest &&
   a.animate === b.animate &&
@@ -313,12 +320,8 @@ export function DuelHistoryRail({ events, engine, mySeat, playerName, onInspectC
   const history = ingestHistory(base, events, contextFor(engine));
   if (history !== stored) setStored(history);
 
-  const who = (seat: number | null) => {
-    if (seat == null) return "Unknown";
-    if (mySeat != null && seat === mySeat) return "You";
-    return playerName(seat);
-  };
   const seatCount = engine.seats.length;
+  const who = (seat: number | null) => historyWho(seat, mySeat, playerName, seatCount);
   // Rows only change when an event arrives or a player name does, so key the view on those, not on `who`.
   const names = Array.from({ length: seatCount }, (_, seat) => who(seat)).join("\u0000");
   const view = useMemo(
