@@ -56,3 +56,23 @@ describe("unlimited turn time", () => {
     expect(duelClockRulesText(0)).toBe("");
   });
 });
+
+describe("stopAtEveryWindow", () => {
+  it("is quiet for new duels and keeps asking for saved ones", () => {
+    expect(defaultDuelSettings("normal").stopAtEveryWindow).toBe(false);
+    expect(normalizeDuelSettings("domain", undefined).stopAtEveryWindow).toBe(false);
+    // Rows saved before the setting existed replay with the old stop-everywhere engine behaviour.
+    expect(parseStoredDuelSettings(JSON.stringify({ turnSeconds: 0 })).stopAtEveryWindow).toBe(true);
+    expect(parseStoredDuelSettings(null).stopAtEveryWindow).toBe(true);
+  });
+
+  it("accepts a boolean and rejects anything else", () => {
+    expect(normalizeDuelSettings("normal", { stopAtEveryWindow: true }).stopAtEveryWindow).toBe(true);
+    expect(parseStoredDuelSettings(JSON.stringify({ stopAtEveryWindow: false })).stopAtEveryWindow).toBe(false);
+    expect(() => normalizeDuelSettings("normal", { stopAtEveryWindow: "yes" })).toThrow(/stopAtEveryWindow/);
+  });
+
+  it("does not make a domain duel custom", () => {
+    expect(isCustomDomain(5, { ...defaultDuelSettings("domain"), stopAtEveryWindow: true })).toBe(false);
+  });
+});
