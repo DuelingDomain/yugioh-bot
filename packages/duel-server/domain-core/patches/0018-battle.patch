@@ -1,0 +1,752 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Tue, 18 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: battle for more than two duelists
+
+Attack targets, the direct attack and battle damage now work with 3 and 4 duelists.
+With 2 duelists every line keeps the stock text or gives the same value.
+
+get_attack_target: the target list is the union of the zones of every living
+opponent (turn order from the attacker). mcount_by counts the targets per duelist.
+The direct attack mask (new card::direct_attack_mask) holds every living opponent
+with no monster, or all of them with EFFECT_DIRECT_ATTACK or attack_player.
+BattleCommand: battle_defender is set at target choice (the target's controller).
+A direct attack with several open opponents asks the turn player with
+MSG_SELECT_OPTION (0xFFFF0000 | duelist). MSG_ATTACK_DUELIST (201) follows the
+MSG_ATTACK of a direct attack. The event player of EVENT_BE_BATTLE_TARGET is the
+defender. opp_mzone (BattleCommand case 8, Adjust step 14, ChangeAttackTarget)
+is the union over the living opponents. battle_defender is reset at 4 sites.
+Forced attacks set the defender with no prompt. Patrician of Darkness: the
+chooser is the owner of the effect. PRE_BATTLE_DAMAGE loops from the turn player.
+calculate_battle_damage: a lambda other(x) replaces 1 - x (the stock form at n == 2).
+Damage goes to the controller of the target or to battle_defender.
+libduel: ChangeAttackTarget updates the defender and sends 201. GetBattleMonster
+gives (nil, nil) to a duelist that is not in the battle.
+common.h: the 200, 201, 202 message ids.
+
+Not done here: the "defender eliminated" rollback (T5B), Duel.CalculateDamage
+(DamageStep) for n > 2, damage reflect on opponent_of in operations.cpp.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ card.h           |   2 +
+ common.h         |   4 +
+ field.cpp        |  44 +++++++--
+ libduel.cpp      |  56 ++++++++++-
+ processor.cpp    | 253 +++++++++++++++++++++++++++++++----------------
+ processor_unit.h |   4 +-
+ 6 files changed, 267 insertions(+), 96 deletions(-)
+
+diff --git a/card.h b/card.h
+index bf87a11..9e41ada 100644
+--- a/card.h
++++ b/card.h
+@@ -136,6 +136,8 @@ public:
+ 	uint32_t to_field_param{};
+ 	uint8_t attack_announce_count{};
+ 	uint8_t direct_attackable{};
++	// Bit d is set when the direct attack can go to duelist d (only set when n_duelists > 2).
++	uint8_t direct_attack_mask{};
+ 	uint8_t announce_count{};
+ 	uint8_t attacked_count{};
+ 	uint8_t attack_all_target{};
+diff --git a/common.h b/common.h
+index abf5df5..89372a4 100644
+--- a/common.h
++++ b/common.h
+@@ -42,6 +42,10 @@ static_assert(MAX_DUELISTS >= 2, "a duel needs two duelists");
+ constexpr uint8_t DUELIST_NONE = 0xFF;
+ constexpr uint8_t DUELIST_ALL = 0xFE;
+ static_assert(MAX_DUELISTS < DUELIST_ALL, "the special ids must not be duelist indexes");
++// Messages sent only when n_duelists > 2 (phase 2). The wrapper drops them; the TS side reads the raw buffer.
++constexpr uint8_t MSG_DUELIST_ELIMINATED = 200; // u8 duelist, u8 reason
++constexpr uint8_t MSG_ATTACK_DUELIST = 201; // u8 attacked duelist, right after MSG_ATTACK of a direct attack
++constexpr uint8_t MSG_FIELD_DISABLED_N = 202; // u8 count, then count x (u8 duelist, u32 own disabled zones)
+ 
+ #define TRUE 1
+ #define FALSE 0
+diff --git a/field.cpp b/field.cpp
+index 2ce7de0..4bcaaec 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -2550,9 +2550,24 @@ int32_t field::effect_replace_check(uint32_t code, const tevent& e) {
+ }
+ int32_t field::get_attack_target(card* pcard, card_vector* v, bool chain_attack, bool select_target, std::multimap<effect*, card*>* must_attack_map) {
+ 	pcard->direct_attackable = 0;
++	pcard->direct_attack_mask = 0;
+ 	uint8_t p = pcard->current.controler;
++	// The duelists whose monster zones hold the attack targets: the one opponent with 2 duelists,
++	// else every living opponent in turn order from p.
++	uint8_t opps[MAX_DUELISTS];
++	uint8_t opp_count = 0;
++	if(n_duelists == 2) {
++		opps[opp_count++] = opponent_of(p);
++	} else {
++		for(uint8_t i = 1; i < n_duelists; ++i) {
++			const auto q = static_cast<uint8_t>((p + i) % n_duelists);
++			if(is_alive(q) && !same_team(p, q))
++				opps[opp_count++] = q;
++		}
++	}
+ 	card_vector auto_attack, only_attack, must_attack, attack_tg;
+-	for(auto& atarget : player[opponent_of(p)].list_mzone) {
++	for(uint8_t oi = 0; oi < opp_count; ++oi)
++	for(auto& atarget : player[opps[oi]].list_mzone) {
+ 		if(atarget) {
+ 			if(atarget->is_affected_by_effect(EFFECT_ONLY_BE_ATTACKED))
+ 				auto_attack.push_back(atarget);
+@@ -2584,9 +2599,10 @@ int32_t field::get_attack_target(card* pcard, card_vector* v, bool chain_attack,
+ 		pv = &must_attack;
+ 	} else {
+ 		atype = 4;
+-		for(auto& atarget : player[opponent_of(p)].list_mzone)
+-			if(atarget != core.attacker)
+-				attack_tg.push_back(atarget);
++		for(uint8_t oi = 0; oi < opp_count; ++oi)
++			for(auto& atarget : player[opps[oi]].list_mzone)
++				if(atarget != core.attacker)
++					attack_tg.push_back(atarget);
+ 		if(is_player_affected_by_effect(p, EFFECT_SELF_ATTACK) && (!pcard->is_affected_by_effect(EFFECT_ATTACK_ALL) || !attack_tg.size())) {
+ 			for(auto& atarget : player[p].list_mzone)
+ 				if (atarget != core.attacker)
+@@ -2637,13 +2653,16 @@ int32_t field::get_attack_target(card* pcard, card_vector* v, bool chain_attack,
+ 	}
+ 	//chain attack or announce count check passed
+ 	uint32_t mcount = 0;
++	uint32_t mcount_by[MAX_DUELISTS] = {};
+ 	for(auto& atarget : *pv) {
+ 		if(!atarget)
+ 			continue;
+ 		if(atype >= 2 && atarget->is_affected_by_effect(EFFECT_IGNORE_BATTLE_TARGET, pcard))
+ 			continue;
+-		if(atarget->current.controler != p)
++		if(atarget->current.controler != p) {
+ 			++mcount;
++			++mcount_by[atarget->current.controler];
++		}
+ 		if(chain_attack && core.chain_attack_target && atarget != core.chain_attack_target)
+ 			continue;
+ 		if(select_target && (atype == 2 || atype == 4)) {
+@@ -2656,11 +2675,22 @@ int32_t field::get_attack_target(card* pcard, card_vector* v, bool chain_attack,
+ 	}
+ 	if(atype <= 3)
+ 		return atype;
+-	if((mcount == 0 || pcard->is_affected_by_effect(EFFECT_DIRECT_ATTACK) || core.attack_player)
++	// With more than 2 duelists the direct attack can go to every living opponent that has no monster
++	// (to all of them with EFFECT_DIRECT_ATTACK or core.attack_player). The mask has one bit per duelist.
++	uint32_t dmask = 0;
++	if(n_duelists > 2) {
++		const bool any_side = pcard->is_affected_by_effect(EFFECT_DIRECT_ATTACK) || core.attack_player;
++		for(uint8_t oi = 0; oi < opp_count; ++oi)
++			if(any_side || mcount_by[opps[oi]] == 0)
++				dmask |= 1u << opps[oi];
++	}
++	if((n_duelists == 2 ? (mcount == 0 || pcard->is_affected_by_effect(EFFECT_DIRECT_ATTACK) || core.attack_player) : dmask != 0)
+ 			&& !pcard->is_affected_by_effect(EFFECT_CANNOT_DIRECT_ATTACK)
+ 			&& !(!chain_attack && extra_count_m && pcard->announce_count > extra_count)
+-			&& !(chain_attack && core.chain_attack_target))
++			&& !(chain_attack && core.chain_attack_target)) {
+ 		pcard->direct_attackable = 1;
++		pcard->direct_attack_mask = static_cast<uint8_t>(dmask);
++	}
+ 	return atype;
+ }
+ bool field::confirm_attack_target() {
+diff --git a/libduel.cpp b/libduel.cpp
+index 746f1cf..f1f6a48 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -1484,9 +1484,33 @@ LUA_STATIC_FUNCTION(ChangeAttackTarget) {
+ 		pduel->game_field->core.attack_rollback = false;
+ 		pduel->game_field->core.opp_mzone.clear();
+ 		uint8_t turnp = pduel->game_field->infos.turn_player;
+-		for(auto& pcard : pduel->game_field->player[pduel->game_field->opponent_of(turnp)].list_mzone) {
+-			if(pcard)
+-				pduel->game_field->core.opp_mzone.insert(pcard->fieldid_r);
++		auto& gf = *pduel->game_field;
++		if(gf.n_duelists == 2) {
++			for(auto& pcard : pduel->game_field->player[pduel->game_field->opponent_of(turnp)].list_mzone) {
++				if(pcard)
++					pduel->game_field->core.opp_mzone.insert(pcard->fieldid_r);
++			}
++		} else {
++			for(uint8_t q = 0; q < gf.n_duelists; ++q) {
++				if(!gf.is_alive(q) || gf.same_team(turnp, q))
++					continue;
++				for(auto& pcard : gf.player[q].list_mzone) {
++					if(pcard)
++						gf.core.opp_mzone.insert(pcard->fieldid_r);
++				}
++			}
++			// The attack now goes to the controller of the new target. With no target (a direct
++			// attack) the defender stays if it is still a living opponent, else the first living opponent.
++			if(target) {
++				gf.core.battle_defender = target->current.controler;
++			} else if(!(gf.is_alive(gf.core.battle_defender) && !gf.same_team(turnp, gf.core.battle_defender))) {
++				gf.core.battle_defender = DUELIST_NONE;
++				for(uint8_t i = 1; i < gf.n_duelists && gf.core.battle_defender == DUELIST_NONE; ++i) {
++					const auto q = static_cast<uint8_t>((turnp + i) % gf.n_duelists);
++					if(gf.is_alive(q) && !gf.same_team(turnp, q))
++						gf.core.battle_defender = q;
++				}
++			}
+ 		}
+ 		auto message = pduel->new_message(MSG_ATTACK);
+ 		message->write(attacker->get_info_location());
+@@ -1495,8 +1519,9 @@ LUA_STATIC_FUNCTION(ChangeAttackTarget) {
+ 				pduel->game_field->raise_single_event(target, nullptr, EVENT_BE_BATTLE_TARGET, nullptr, REASON_REPLACE, 0, turnp, 0);
+ 				pduel->game_field->raise_event(target, EVENT_BE_BATTLE_TARGET, nullptr, REASON_REPLACE, 0, turnp, 0);
+ 			}else{
+-				pduel->game_field->raise_single_event(target, nullptr, EVENT_BE_BATTLE_TARGET, nullptr, REASON_REPLACE, 0, pduel->game_field->opponent_of(turnp), 0);
+-				pduel->game_field->raise_event(target, EVENT_BE_BATTLE_TARGET, nullptr, REASON_REPLACE, 0, pduel->game_field->opponent_of(turnp), 0);
++				const uint8_t target_player = gf.n_duelists == 2 ? gf.opponent_of(turnp) : gf.core.battle_defender;
++				pduel->game_field->raise_single_event(target, nullptr, EVENT_BE_BATTLE_TARGET, nullptr, REASON_REPLACE, 0, target_player, 0);
++				pduel->game_field->raise_event(target, EVENT_BE_BATTLE_TARGET, nullptr, REASON_REPLACE, 0, target_player, 0);
+ 			}
+ 			pduel->game_field->process_single_event();
+ 			pduel->game_field->process_instant_event();
+@@ -1504,6 +1529,10 @@ LUA_STATIC_FUNCTION(ChangeAttackTarget) {
+ 		} else {
+ 			pduel->game_field->core.attack_player = TRUE;
+ 			message->write(loc_info{});
++			if(gf.n_duelists > 2) {
++				auto dmessage = pduel->new_message(MSG_ATTACK_DUELIST);
++				dmessage->write<uint8_t>(gf.core.battle_defender);
++			}
+ 		}
+ 		lua_pushboolean(L, 1);
+ 	} else
+@@ -2137,6 +2166,23 @@ LUA_STATIC_FUNCTION(GetBattleMonster) {
+ 	auto playerid = lua_get<uint8_t>(L, 1);
+ 	card* attacker = pduel->game_field->core.attacker;
+ 	card* defender = pduel->game_field->core.attack_target;
++	if(pduel->game_field->n_duelists > 2) {
++		// (the card of playerid, the card of the other participant), or (nil, nil) for a duelist
++		// that is not in this battle. The defender side of a direct attack is core.battle_defender.
++		const auto& core = pduel->game_field->core;
++		card* own = nullptr;
++		card* other = nullptr;
++		if(attacker && attacker->current.controler == playerid) {
++			own = attacker;
++			other = defender;
++		} else if(attacker && ((defender && defender->current.controler == playerid) || (!defender && core.battle_defender == playerid))) {
++			own = defender;
++			other = attacker;
++		}
++		interpreter::pushobject(L, own);
++		interpreter::pushobject(L, other);
++		return 2;
++	}
+ 	for(int32_t i = 0; i < 2; ++i) {
+ 		if(attacker && attacker->current.controler == playerid)
+ 			interpreter::pushobject(L, attacker);
+diff --git a/processor.cpp b/processor.cpp
+index 66d1ff4..25c44d5 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -1932,6 +1932,14 @@ bool field::process(Processors::IdleCommand& arg) {
+ 	}*/
+ 	return TRUE;
+ }
++// Who picks the attack target under EFFECT_PATRICIAN_OF_DARKNESS: the opponent with 2 duelists,
++// else the duelist who owns the effect.
++static uint8_t battle_patrician_chooser(field* pf) {
++	if(pf->n_duelists == 2)
++		return pf->opponent_of(pf->infos.turn_player);
++	auto peffect = pf->is_player_affected_by_effect(pf->infos.turn_player, EFFECT_PATRICIAN_OF_DARKNESS);
++	return peffect ? peffect->get_handler_player() : pf->infos.turn_player;
++}
+ bool field::process(Processors::BattleCommand& arg) {
+ 	switch(arg.step) {
+ 	case 0: {
+@@ -1944,6 +1952,7 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		core.attack_player = FALSE;
+ 		core.attacker = nullptr;
+ 		core.attack_target = nullptr;
++		core.battle_defender = DUELIST_NONE;
+ 		if(auto peffect = is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_BP); peffect != nullptr || core.force_turn_end) {
+ 			arg.step = 41;
+ 			arg.phase_to_change_to = 2;
+@@ -2159,6 +2168,7 @@ bool field::process(Processors::BattleCommand& arg) {
+ 	case 4: {
+ 		// select attack target(replay start point)
+ 		core.attack_player = FALSE;
++		core.battle_defender = DUELIST_NONE;
+ 		core.select_cards.clear();
+ 		return_cards.clear();
+ 		arg.must_attack_map.clear();
+@@ -2171,7 +2181,7 @@ bool field::process(Processors::BattleCommand& arg) {
+ 				return FALSE;
+ 			}
+ 			if(is_player_affected_by_effect(infos.turn_player, EFFECT_PATRICIAN_OF_DARKNESS))
+-				emplace_process<Processors::SelectEffectYesNo>(opponent_of(infos.turn_player), 31, core.attacker);
++				emplace_process<Processors::SelectEffectYesNo>(battle_patrician_chooser(this), 31, core.attacker);
+ 			else
+ 				emplace_process<Processors::SelectYesNo>(infos.turn_player, 31);
+ 			return FALSE;
+@@ -2200,9 +2210,9 @@ bool field::process(Processors::BattleCommand& arg) {
+ 				message->write(core.attacker->get_info_location());
+ 				message = pduel->new_message(MSG_HINT);
+ 				message->write<uint8_t>(HINT_SELECTMSG);
+-				message->write<uint8_t>(opponent_of(infos.turn_player));
++				message->write<uint8_t>(battle_patrician_chooser(this));
+ 				message->write<uint64_t>(549);
+-				emplace_process<Processors::SelectCard>(opponent_of(infos.turn_player), false, 1, 1);
++				emplace_process<Processors::SelectCard>(battle_patrician_chooser(this), false, 1, 1);
+ 				if(!patrician && atype == 3 && arg.must_attack_map.size() != differentMustAttackMonsterEffects) {
+ 					arg.step = 15;
+ 					return FALSE;
+@@ -2225,11 +2235,11 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		} else {
+ 			if(core.select_cards.size()) {
+ 				auto opposel = !!is_player_affected_by_effect(infos.turn_player, EFFECT_PATRICIAN_OF_DARKNESS);
+-				const auto sel_player = opposel ? opponent_of(infos.turn_player) : infos.turn_player;
++				const auto sel_player = opposel ? battle_patrician_chooser(this) : infos.turn_player;
+ 				const auto cancelable = (core.attack_cancelable && !opposel);
+ 				auto message = pduel->new_message(MSG_HINT);
+ 				message->write<uint8_t>(HINT_SELECTMSG);
+-				message->write<uint8_t>(opposel ? opponent_of(infos.turn_player) : infos.turn_player);
++				message->write<uint8_t>(opposel ? battle_patrician_chooser(this) : infos.turn_player);
+ 				message->write<uint64_t>(549);
+ 				emplace_process<Processors::SelectCard>(sel_player, cancelable, 1, 1);
+ 			} else {
+@@ -2260,9 +2270,36 @@ bool field::process(Processors::BattleCommand& arg) {
+ 			core.pre_field[1] = core.attack_target->fieldid_r;
+ 		else
+ 			core.pre_field[1] = 0;
++		arg.direct_pick = false;
++		if(n_duelists > 2) {
++			if(core.attack_target) {
++				core.battle_defender = core.attack_target->current.controler;
++			} else {
++				// A direct attack goes to an opponent with no monster (any living opponent with
++				// EFFECT_DIRECT_ATTACK). With more than one choice the turn player picks one.
++				core.select_options.clear();
++				for(uint8_t i = 1; i < n_duelists; ++i) {
++					const auto q = static_cast<uint8_t>((infos.turn_player + i) % n_duelists);
++					if(core.attacker->direct_attack_mask & (1u << q))
++						core.select_options.push_back(0xFFFF0000u | q);
++				}
++				if(core.select_options.size() == 1) {
++					core.battle_defender = static_cast<uint8_t>(core.select_options.front() & 0xFF);
++				} else if(core.select_options.size() > 1) {
++					arg.direct_pick = true;
++					emplace_process<Processors::SelectOption>(infos.turn_player);
++				}
++			}
++		}
+ 		return FALSE;
+ 	}
+ 	case 7: {
++		if(arg.direct_pick) {
++			arg.direct_pick = false;
++			const auto pick = returns.at<int32_t>(0);
++			const size_t idx = (pick >= 0 && static_cast<size_t>(pick) < core.select_options.size()) ? static_cast<size_t>(pick) : 0;
++			core.battle_defender = static_cast<uint8_t>(core.select_options[idx] & 0xFF);
++		}
+ 		if(!arg.is_replaying_attack) {
+ 			core.phase_action = true;
+ 			++core.attack_state_count[infos.turn_player];
+@@ -2285,17 +2322,33 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		auto message = pduel->new_message(MSG_ATTACK);
+ 		message->write(core.attacker->get_info_location());
+ 		if(core.attack_target) {
+-			raise_single_event(core.attack_target, nullptr, EVENT_BE_BATTLE_TARGET, nullptr, 0, 0, opponent_of(infos.turn_player), 0);
+-			raise_event(core.attack_target, EVENT_BE_BATTLE_TARGET, nullptr, 0, 0, opponent_of(infos.turn_player), 0);
++			const uint8_t target_player = n_duelists == 2 ? opponent_of(infos.turn_player) : core.battle_defender;
++			raise_single_event(core.attack_target, nullptr, EVENT_BE_BATTLE_TARGET, nullptr, 0, 0, target_player, 0);
++			raise_event(core.attack_target, EVENT_BE_BATTLE_TARGET, nullptr, 0, 0, target_player, 0);
+ 			message->write(core.attack_target->get_info_location());
+ 		} else {
+ 			message->write(loc_info{});
+ 		}
++		if(n_duelists > 2 && !core.attack_target) {
++			auto dmessage = pduel->new_message(MSG_ATTACK_DUELIST);
++			dmessage->write<uint8_t>(core.battle_defender);
++		}
+ 		core.attack_rollback = false;
+ 		core.opp_mzone.clear();
+-		for(auto& pcard : player[opponent_of(infos.turn_player)].list_mzone) {
+-			if(pcard)
+-				core.opp_mzone.insert(pcard->fieldid_r);
++		if(n_duelists == 2) {
++			for(auto& pcard : player[opponent_of(infos.turn_player)].list_mzone) {
++				if(pcard)
++					core.opp_mzone.insert(pcard->fieldid_r);
++			}
++		} else {
++			for(uint8_t q = 0; q < n_duelists; ++q) {
++				if(!is_alive(q) || same_team(infos.turn_player, q))
++					continue;
++				for(auto& pcard : player[q].list_mzone) {
++					if(pcard)
++						core.opp_mzone.insert(pcard->fieldid_r);
++				}
++			}
+ 		}
+ 		if(!arg.is_replaying_attack) {
+ 			raise_single_event(core.attacker, nullptr, EVENT_ATTACK_ANNOUNCE, nullptr, 0, 0, infos.turn_player, 0);
+@@ -2573,6 +2626,8 @@ bool field::process(Processors::BattleCommand& arg) {
+ 				core.attacker->set_status(STATUS_OPPO_BATTLE, TRUE);
+ 				core.attack_target->set_status(STATUS_OPPO_BATTLE, TRUE);
+ 			}
++		} else if(n_duelists > 2) {
++			pd = core.battle_defender;
+ 		}
+ 		effect* damchange = nullptr;
+ 		card* reason_card = nullptr;
+@@ -2621,17 +2676,15 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		if(reason_card)
+ 			arg.reason_player = reason_card->current.controler;
+ 		if(!damchange) {
+-			if(core.battle_damage[infos.turn_player]) {
+-				raise_single_event(core.attacker, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, infos.turn_player, core.battle_damage[infos.turn_player]);
+-				if(core.attack_target)
+-					raise_single_event(core.attack_target, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, infos.turn_player, core.battle_damage[infos.turn_player]);
+-				raise_event(reason_card, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, infos.turn_player, core.battle_damage[infos.turn_player]);
+-			}
+-			if(core.battle_damage[opponent_of(infos.turn_player)]) {
+-				raise_single_event(core.attacker, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, opponent_of(infos.turn_player), core.battle_damage[opponent_of(infos.turn_player)]);
+-				if(core.attack_target)
+-					raise_single_event(core.attack_target, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, opponent_of(infos.turn_player), core.battle_damage[opponent_of(infos.turn_player)]);
+-				raise_event(reason_card, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, opponent_of(infos.turn_player), core.battle_damage[opponent_of(infos.turn_player)]);
++			// The turn player first, then the other duelists in turn order (with 2 duelists: the same two events as before).
++			for(uint8_t i = 0; i < n_duelists; ++i) {
++				const auto dp = static_cast<uint8_t>((infos.turn_player + i) % n_duelists);
++				if(core.battle_damage[dp]) {
++					raise_single_event(core.attacker, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, dp, core.battle_damage[dp]);
++					if(core.attack_target)
++						raise_single_event(core.attack_target, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, dp, core.battle_damage[dp]);
++					raise_event(reason_card, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, dp, core.battle_damage[dp]);
++				}
+ 			}
+ 		}
+ 		process_single_event();
+@@ -2911,6 +2964,7 @@ bool field::process(Processors::BattleCommand& arg) {
+ 	case 42: {
+ 		core.attacker = nullptr;
+ 		core.attack_target = nullptr;
++		core.battle_defender = DUELIST_NONE;
+ 		if(arg.repeat_battle_phase && arg.second_battle_phase_is_optional) {
+ 			emplace_process<Processors::SelectYesNo>(infos.turn_player, 32);
+ 			return FALSE;
+@@ -2956,6 +3010,20 @@ bool field::process(Processors::ForcedBattle& arg) {
+ 			return TRUE;
+ 		core.attacker = tmp_attacker;
+ 		core.attack_target = tmp_attack_target;
++		if(n_duelists > 2) {
++			// A forced attack has no prompt: the target's controller, or the first living opponent
++			// (turn order) that a direct attack can reach.
++			core.battle_defender = DUELIST_NONE;
++			if(tmp_attack_target) {
++				core.battle_defender = tmp_attack_target->current.controler;
++			} else {
++				for(uint8_t i = 1; i < n_duelists && core.battle_defender == DUELIST_NONE; ++i) {
++					const auto q = static_cast<uint8_t>((infos.turn_player + i) % n_duelists);
++					if(tmp_attacker->direct_attack_mask & (1u << q))
++						core.battle_defender = q;
++				}
++			}
++		}
+ 		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : player[p].list_mzone) {
+ 				if(!pcard)
+@@ -3006,6 +3074,7 @@ bool field::process(Processors::ForcedBattle& arg) {
+ 		}
+ 		core.attacker = nullptr;
+ 		core.attack_target = nullptr;
++		core.battle_defender = DUELIST_NONE;
+ 		auto message = pduel->new_message(MSG_NEW_PHASE);
+ 		message->write<uint16_t>(infos.phase);
+ 		return TRUE;
+@@ -3084,8 +3153,15 @@ bool field::process(Processors::DamageStep& arg) {
+ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, std::array<bool, 2>* battle_destroyed) {
+ 	uint32_t aa = core.attacker->get_attack(), ad = core.attacker->get_defense();
+ 	uint32_t da = 0, dd = 0, a = aa, d;
+-	uint8_t pa = core.attacker->current.controler, pd;
++	uint8_t pa = core.attacker->current.controler, pd = pa;
+ 	uint8_t damp = 0;
++	// The other participant of the battle. With 2 duelists this is the stock "1 - x" (so a self
++	// attack still gives the other duelist). With more duelists it is pd for pa and pa for any other.
++	auto other = [this, &pa, &pd](uint8_t x) -> uint8_t {
++		return n_duelists == 2 ? opponent_of(x) : (x == pa ? pd : pa);
++	};
++	if(n_duelists > 2)
++		pd = core.attack_target ? core.attack_target->current.controler : (is_duelist(core.battle_defender) ? core.battle_defender : pa);
+ 	effect* damchange = nullptr;
+ 	card* reason_card = nullptr;
+ 	std::array<bool, 2> bd{};
+@@ -3135,7 +3211,7 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 					pierce = true;
+ 					uint8_t dp[MAX_DUELISTS] = {};
+ 					for(const auto& peff : eset)
+-						dp[opponent_of(peff->get_handler_player())] = 1;
++						dp[other(peff->get_handler_player())] = 1;
+ 					for(uint8_t p = 0; p < n_duelists; ++p) {
+ 						if(dp[p])
+ 							core.battle_damage[p] = a - d;
+@@ -3164,20 +3240,20 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 					//	if(dp[1])
+ 					//		core.battle_damage[1] /= 2;
+ 					//}
+-					bool both = dp[0] && dp[1];
++					bool both = n_duelists == 2 ? (dp[0] && dp[1]) : (dp[pa] && dp[pd]);
+ 					if(!both) {
+-						damp = dp[0] ? 0 : 1;
++						damp = n_duelists == 2 ? (dp[0] ? 0 : 1) : (dp[pd] ? pd : pa);
+ 						if(core.attacker->is_affected_by_effect(EFFECT_BOTH_BATTLE_DAMAGE)
+ 							|| core.attack_target->is_affected_by_effect(EFFECT_BOTH_BATTLE_DAMAGE)) {
+-							core.battle_damage[opponent_of(damp)] = core.battle_damage[damp];
++							core.battle_damage[other(damp)] = core.battle_damage[damp];
+ 							both = true;
+ 						}
+ 					}
+ 					effect* reflect[MAX_DUELISTS] = {};
+ 					if((reflect[pd] = core.attack_target->is_affected_by_effect(EFFECT_REFLECT_BATTLE_DAMAGE, core.attacker)) == nullptr)
+ 						reflect[pd] = is_player_affected_by_effect(pd, EFFECT_REFLECT_BATTLE_DAMAGE);
+-					if((reflect[opponent_of(pd)] = core.attacker->is_affected_by_effect(EFFECT_REFLECT_BATTLE_DAMAGE, core.attack_target)) == nullptr)
+-						reflect[opponent_of(pd)] = is_player_affected_by_effect(opponent_of(pd), EFFECT_REFLECT_BATTLE_DAMAGE);
++					if((reflect[other(pd)] = core.attacker->is_affected_by_effect(EFFECT_REFLECT_BATTLE_DAMAGE, core.attack_target)) == nullptr)
++						reflect[other(pd)] = is_player_affected_by_effect(other(pd), EFFECT_REFLECT_BATTLE_DAMAGE);
+ 					bool also[MAX_DUELISTS] = {};
+ 					if(!both
+ 						&& (core.attack_target->is_affected_by_effect(EFFECT_ALSO_BATTLE_DAMAGE)
+@@ -3185,39 +3261,39 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 						also[pd] = true;
+ 					if(!both
+ 						&& (core.attacker->is_affected_by_effect(EFFECT_ALSO_BATTLE_DAMAGE)
+-							|| is_player_affected_by_effect(opponent_of(pd), EFFECT_ALSO_BATTLE_DAMAGE)))
+-						also[opponent_of(pd)] = true;
++							|| is_player_affected_by_effect(other(pd), EFFECT_ALSO_BATTLE_DAMAGE)))
++						also[other(pd)] = true;
+ 					if(both) {
+ 						//turn player's effect applies first
+ 						if(reflect[pa] && reflect[pa]->get_handler_player() == pa) {
+-							core.battle_damage[opponent_of(pa)] += core.battle_damage[pa];
++							core.battle_damage[other(pa)] += core.battle_damage[pa];
+ 							core.battle_damage[pa] = 0;
+-						} else if(reflect[opponent_of(pa)] && reflect[opponent_of(pa)]->get_handler_player() == pa) {
+-							core.battle_damage[pa] += core.battle_damage[opponent_of(pa)];
+-							core.battle_damage[opponent_of(pa)] = 0;
+-						} else if(reflect[pa] && reflect[pa]->get_handler_player() == opponent_of(pa)) {
+-							core.battle_damage[opponent_of(pa)] += core.battle_damage[pa];
++						} else if(reflect[other(pa)] && reflect[other(pa)]->get_handler_player() == pa) {
++							core.battle_damage[pa] += core.battle_damage[other(pa)];
++							core.battle_damage[other(pa)] = 0;
++						} else if(reflect[pa] && reflect[pa]->get_handler_player() == other(pa)) {
++							core.battle_damage[other(pa)] += core.battle_damage[pa];
+ 							core.battle_damage[pa] = 0;
+-						} else if(reflect[opponent_of(pa)] && reflect[opponent_of(pa)]->get_handler_player() == opponent_of(pa)) {
+-							core.battle_damage[pa] += core.battle_damage[opponent_of(pa)];
+-							core.battle_damage[opponent_of(pa)] = 0;
++						} else if(reflect[other(pa)] && reflect[other(pa)]->get_handler_player() == other(pa)) {
++							core.battle_damage[pa] += core.battle_damage[other(pa)];
++							core.battle_damage[other(pa)] = 0;
+ 						}
+ 					} else {
+ 						if(reflect[damp]) {
+-							if(!also[opponent_of(damp)]) {
+-								core.battle_damage[opponent_of(damp)] += core.battle_damage[damp];
++							if(!also[other(damp)]) {
++								core.battle_damage[other(damp)] += core.battle_damage[damp];
+ 								core.battle_damage[damp] = 0;
+ 							} else {
+-								core.battle_damage[opponent_of(damp)] += core.battle_damage[damp];
+-								core.battle_damage[damp] = core.battle_damage[opponent_of(damp)];
++								core.battle_damage[other(damp)] += core.battle_damage[damp];
++								core.battle_damage[damp] = core.battle_damage[other(damp)];
+ 							}
+ 						} else if(also[damp]) {
+-							if(!reflect[opponent_of(damp)]) {
+-								core.battle_damage[opponent_of(damp)] += core.battle_damage[damp];
++							if(!reflect[other(damp)]) {
++								core.battle_damage[other(damp)] += core.battle_damage[damp];
+ 							} else {
+-								core.battle_damage[opponent_of(damp)] += core.battle_damage[damp];
+-								core.battle_damage[damp] += core.battle_damage[opponent_of(damp)];
+-								core.battle_damage[opponent_of(damp)] = 0;
++								core.battle_damage[other(damp)] += core.battle_damage[damp];
++								core.battle_damage[damp] += core.battle_damage[other(damp)];
++								core.battle_damage[other(damp)] = 0;
+ 							}
+ 						}
+ 					}
+@@ -3225,7 +3301,7 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 					core.attacker->filter_effect(EFFECT_CHANGE_BATTLE_DAMAGE, &eset, FALSE);
+ 					core.attack_target->filter_effect(EFFECT_CHANGE_BATTLE_DAMAGE, &eset, FALSE);
+ 					filter_player_effect(pa, EFFECT_CHANGE_BATTLE_DAMAGE, &eset, false);
+-					filter_player_effect(opponent_of(pa), EFFECT_CHANGE_BATTLE_DAMAGE, &eset, false);
++					filter_player_effect(other(pa), EFFECT_CHANGE_BATTLE_DAMAGE, &eset, false);
+ 					std::sort(eset.begin(), eset.end(), effect_sort_id);
+ 					for(uint8_t p = 0; p < n_duelists; ++p) {
+ 						bool double_dam = false;
+@@ -3269,8 +3345,8 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 						core.battle_damage[pd] = 0;
+ 					if(core.attack_target->is_affected_by_effect(EFFECT_NO_BATTLE_DAMAGE)
+ 						|| core.attacker->is_affected_by_effect(EFFECT_AVOID_BATTLE_DAMAGE, core.attack_target)
+-						|| is_player_affected_by_effect(opponent_of(pd), EFFECT_AVOID_BATTLE_DAMAGE))
+-						core.battle_damage[opponent_of(pd)] = 0;
++						|| is_player_affected_by_effect(other(pd), EFFECT_AVOID_BATTLE_DAMAGE))
++						core.battle_damage[other(pd)] = 0;
+ 					reason_card = core.attacker;
+ 				}
+ 				bd[1] = true;
+@@ -3281,8 +3357,8 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 			}
+ 		}
+ 	} else {
+-		if(a != 0) {
+-			damp = opponent_of(pa);
++		if(a != 0 && (n_duelists == 2 || pd != pa)) {
++			damp = other(pa);
+ 			core.battle_damage[damp] = a;
+ 			reason_card = core.attacker;
+ 		}
+@@ -3293,14 +3369,14 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 		bool both = false;
+ 		if(reason_card->is_affected_by_effect(EFFECT_BOTH_BATTLE_DAMAGE)
+ 			|| (dam_card && dam_card->is_affected_by_effect(EFFECT_BOTH_BATTLE_DAMAGE))) {
+-			core.battle_damage[opponent_of(damp)] = core.battle_damage[damp];
++			core.battle_damage[other(damp)] = core.battle_damage[damp];
+ 			both = true;
+ 		}
+ 		effect* reflect[MAX_DUELISTS] = {};
+ 		if(!dam_card || (reflect[damp] = dam_card->is_affected_by_effect(EFFECT_REFLECT_BATTLE_DAMAGE, reason_card)) == nullptr)
+ 			reflect[damp] = is_player_affected_by_effect(damp, EFFECT_REFLECT_BATTLE_DAMAGE);
+-		if((reflect[opponent_of(damp)] = reason_card->is_affected_by_effect(EFFECT_REFLECT_BATTLE_DAMAGE, dam_card)) == nullptr)
+-			reflect[opponent_of(damp)] = is_player_affected_by_effect(opponent_of(damp), EFFECT_REFLECT_BATTLE_DAMAGE);
++		if((reflect[other(damp)] = reason_card->is_affected_by_effect(EFFECT_REFLECT_BATTLE_DAMAGE, dam_card)) == nullptr)
++			reflect[other(damp)] = is_player_affected_by_effect(other(damp), EFFECT_REFLECT_BATTLE_DAMAGE);
+ 		bool also[MAX_DUELISTS] = {};
+ 		if(!both
+ 			&& ((dam_card && dam_card->is_affected_by_effect(EFFECT_ALSO_BATTLE_DAMAGE))
+@@ -3308,39 +3384,39 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 			also[damp] = true;
+ 		if(!both
+ 			&& (reason_card->is_affected_by_effect(EFFECT_ALSO_BATTLE_DAMAGE)
+-				|| is_player_affected_by_effect(opponent_of(damp), EFFECT_ALSO_BATTLE_DAMAGE)))
+-			also[opponent_of(damp)] = true;
++				|| is_player_affected_by_effect(other(damp), EFFECT_ALSO_BATTLE_DAMAGE)))
++			also[other(damp)] = true;
+ 		if(both) {
+ 			//turn player's effect applies first
+ 			if(reflect[pa] && reflect[pa]->get_handler_player() == pa) {
+-				core.battle_damage[opponent_of(pa)] += core.battle_damage[pa];
++				core.battle_damage[other(pa)] += core.battle_damage[pa];
+ 				core.battle_damage[pa] = 0;
+-			} else if(reflect[opponent_of(pa)] && reflect[opponent_of(pa)]->get_handler_player() == pa) {
+-				core.battle_damage[pa] += core.battle_damage[opponent_of(pa)];
+-				core.battle_damage[opponent_of(pa)] = 0;
+-			} else if(reflect[pa] && reflect[pa]->get_handler_player() == opponent_of(pa)) {
+-				core.battle_damage[opponent_of(pa)] += core.battle_damage[pa];
++			} else if(reflect[other(pa)] && reflect[other(pa)]->get_handler_player() == pa) {
++				core.battle_damage[pa] += core.battle_damage[other(pa)];
++				core.battle_damage[other(pa)] = 0;
++			} else if(reflect[pa] && reflect[pa]->get_handler_player() == other(pa)) {
++				core.battle_damage[other(pa)] += core.battle_damage[pa];
+ 				core.battle_damage[pa] = 0;
+-			} else if(reflect[opponent_of(pa)] && reflect[opponent_of(pa)]->get_handler_player() == opponent_of(pa)) {
+-				core.battle_damage[pa] += core.battle_damage[opponent_of(pa)];
+-				core.battle_damage[opponent_of(pa)] = 0;
++			} else if(reflect[other(pa)] && reflect[other(pa)]->get_handler_player() == other(pa)) {
++				core.battle_damage[pa] += core.battle_damage[other(pa)];
++				core.battle_damage[other(pa)] = 0;
+ 			}
+ 		} else {
+ 			if(reflect[damp]) {
+-				if(!also[opponent_of(damp)]) {
+-					core.battle_damage[opponent_of(damp)] += core.battle_damage[damp];
++				if(!also[other(damp)]) {
++					core.battle_damage[other(damp)] += core.battle_damage[damp];
+ 					core.battle_damage[damp] = 0;
+ 				} else {
+-					core.battle_damage[opponent_of(damp)] += core.battle_damage[damp];
+-					core.battle_damage[damp] = core.battle_damage[opponent_of(damp)];
++					core.battle_damage[other(damp)] += core.battle_damage[damp];
++					core.battle_damage[damp] = core.battle_damage[other(damp)];
+ 				}
+ 			} else if(also[damp]) {
+-				if(!reflect[opponent_of(damp)]) {
+-					core.battle_damage[opponent_of(damp)] += core.battle_damage[damp];
++				if(!reflect[other(damp)]) {
++					core.battle_damage[other(damp)] += core.battle_damage[damp];
+ 				} else {
+-					core.battle_damage[opponent_of(damp)] += core.battle_damage[damp];
+-					core.battle_damage[damp] += core.battle_damage[opponent_of(damp)];
+-					core.battle_damage[opponent_of(damp)] = 0;
++					core.battle_damage[other(damp)] += core.battle_damage[damp];
++					core.battle_damage[damp] += core.battle_damage[other(damp)];
++					core.battle_damage[other(damp)] = 0;
+ 				}
+ 			}
+ 		}
+@@ -3349,7 +3425,7 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 		if(dam_card)
+ 			dam_card->filter_effect(EFFECT_CHANGE_BATTLE_DAMAGE, &eset, FALSE);
+ 		filter_player_effect(damp, EFFECT_CHANGE_BATTLE_DAMAGE, &eset, false);
+-		filter_player_effect(opponent_of(damp), EFFECT_CHANGE_BATTLE_DAMAGE, &eset, false);
++		filter_player_effect(other(damp), EFFECT_CHANGE_BATTLE_DAMAGE, &eset, false);
+ 		std::sort(eset.begin(), eset.end(), effect_sort_id);
+ 		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			bool double_dam = false;
+@@ -3393,10 +3469,10 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 			core.battle_damage[damp] = 0;
+ 		if((dam_card && dam_card->is_affected_by_effect(EFFECT_NO_BATTLE_DAMAGE))
+ 			|| reason_card->is_affected_by_effect(EFFECT_AVOID_BATTLE_DAMAGE, dam_card)
+-			|| is_player_affected_by_effect(opponent_of(damp), EFFECT_AVOID_BATTLE_DAMAGE))
+-			core.battle_damage[opponent_of(damp)] = 0;
++			|| is_player_affected_by_effect(other(damp), EFFECT_AVOID_BATTLE_DAMAGE))
++			core.battle_damage[other(damp)] = 0;
+ 	}
+-	if(!core.battle_damage[damp] && !core.battle_damage[opponent_of(damp)])
++	if(n_duelists == 2 ? (!core.battle_damage[damp] && !core.battle_damage[opponent_of(damp)]) : (!core.battle_damage[pa] && !core.battle_damage[pd]))
+ 		reason_card = nullptr;
+ 	if(pdamchange)
+ 		*pdamchange = damchange;
+@@ -5130,9 +5206,20 @@ bool field::process(Processors::Adjust& arg) {
+ 			if(core.attack_rollback)
+ 				return FALSE;
+ 			std::set<uint32_t> fidset;
+-			for(auto& pcard : player[opponent_of(infos.turn_player)].list_mzone) {
+-				if(pcard)
+-					fidset.insert(pcard->fieldid_r);
++			if(n_duelists == 2) {
++				for(auto& pcard : player[opponent_of(infos.turn_player)].list_mzone) {
++					if(pcard)
++						fidset.insert(pcard->fieldid_r);
++				}
++			} else {
++				for(uint8_t q = 0; q < n_duelists; ++q) {
++					if(!is_alive(q) || same_team(infos.turn_player, q))
++						continue;
++					for(auto& pcard : player[q].list_mzone) {
++						if(pcard)
++							fidset.insert(pcard->fieldid_r);
++					}
++				}
+ 			}
+ 			if(fidset != core.opp_mzone || !confirm_attack_target())
+ 				core.attack_rollback = true;
+diff --git a/processor_unit.h b/processor_unit.h
+index 067e323..999b716 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -241,6 +241,8 @@ struct BattleCommand : public Process<false> {
+ 	bool repeat_battle_phase;
+ 	bool second_battle_phase_is_optional;
+ 	bool previous_point_event_had_any_trigger_to_resolve;
++	// True while a MSG_SELECT_OPTION asks who a direct attack goes to (more than 2 duelists).
++	bool direct_pick;
+ 	uint8_t reason_player;
+ 	effect* damage_change_effect;
+ 	owned_lua<group> cards_destroyed_by_battle;
+@@ -249,7 +251,7 @@ struct BattleCommand : public Process<false> {
+ 	BattleCommand(uint16_t step_, owned_lua<group> cards_destroyed_by_battle_ = nullptr, bool forced_attack_ = false) :
+ 		Process(step_), phase_to_change_to(0), forced_attack(forced_attack_), forced_attack_done(false), is_replaying_attack(false), attack_announce_failed(false),
+ 		repeat_battle_phase(false), second_battle_phase_is_optional(false),
+-		previous_point_event_had_any_trigger_to_resolve(false), reason_player(PLAYER_NONE), damage_change_effect(nullptr),
++		previous_point_event_had_any_trigger_to_resolve(false), direct_pick(false), reason_player(PLAYER_NONE), damage_change_effect(nullptr),
+ 		cards_destroyed_by_battle(cards_destroyed_by_battle_), reason_card(nullptr) {}
+ };
+ struct DamageStep : public Process<false> {

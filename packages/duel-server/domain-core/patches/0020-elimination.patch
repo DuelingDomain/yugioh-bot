@@ -1,0 +1,399 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Thu, 20 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: add the elimination body and visit each living duelist
+ once
+
+Phase 2, task T5B. Nobody calls field::eliminate for n > 2 until the loss checks (T5A) land.
+
+New code (1 function and 1 helper, field.cpp): eliminate(p, reason). It returns at once (no flag, no message) when
+n_duelists == 2 or p is already out. For n > 2 it sets the flag and sends MSG_DUELIST_ELIMINATED (200), sets force_turn_end when p
+is the turn player, drops p's entries from the pending chain lists (new_fchain, new_ochain and their _s, _b, _h
+forms, new_chains, quick_f_chain) and drops delayed quick effects of p's cards, rolls back or cancels attacks
+that involve p, and removes the cards. Cards p owns leave the game with MSG_REMOVE_CARDS (at most 255 per message,
+Xyz materials first). A card p controls and does not own goes to its owner's Graveyard with send_to (REASON_RULE).
+Materials of other duelists under a removed Xyz monster go to their owner's Graveyard. The none id for reason
+players is DUELIST_NONE, and send_to gets the owner as the target duelist (PLAYER_NONE is duelist 2 when n > 2). Equip links are cut and
+equip cards of others that lose their target are destroyed. Effects of p's cards that reset at a phase end are
+removed. The declaration in field.h takes the new reason argument. The message ids 200 to 202 are added to common.h.
+
+Sites in stock code (5 kinds, 11 places):
+- SolveChain case 2: the link of an eliminated duelist gets MSG_CHAIN_DISABLED and no operation (n > 2 only).
+- Adjust step 14: no attack target and the defender is gone gives attack_rollback (n > 2 only).
+- Loops that stepped next_in_turn_order n_duelists times and visited a living duelist twice after an
+  elimination: adjust_self_destroy_set (field.cpp), TrapMonsterAdjust case 4 (operations.cpp), SelectCounter
+  (playerop.cpp), Adjust steps 2, 10, 11 and 12 (processor.cpp). With n > 2 each starts at the first living
+  duelist from the turn player and stops when it is back there.
+
+With 2 duelists: every changed statement is behind n_duelists > 2 or n_duelists == 2, so the stock text runs
+unchanged. eliminate does nothing. No new message, random call or Lua call for n == 2.
+
+Left for other tasks: the calls of eliminate and the loss checks (T5A), Debug.EliminateDuelist (T5A), the
+battle_defender value and the attack target union (T4), the response order (T3), the disabled zones (T6).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ field.cpp      | 173 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ field.h        |   4 +-
+ operations.cpp |   5 ++
+ playerop.cpp   |   2 +
+ processor.cpp  |  33 ++++++++++
+ 5 files changed, 213 insertions(+), 4 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index 7140cb1..a1c88d5 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -117,11 +117,175 @@ field::field(duel* _pduel, const OCG_DuelOptions& options) :pduel(_pduel), playe
+ 	nil_event.reason_effect = nullptr;
+ 	nil_event.reason_player = PLAYER_NONE;
+ }
++// Sends MSG_REMOVE_CARDS for the given locations, at most 255 cards per message (like Duel.RemoveCards).
++static void send_remove_cards(duel* pduel, const std::vector<loc_info>& locs) {
++	size_t done = 0;
++	while(done < locs.size()) {
++		const size_t cur = std::min<size_t>(locs.size() - done, 255);
++		auto message = pduel->new_message(MSG_REMOVE_CARDS);
++		message->write<uint32_t>(static_cast<uint32_t>(cur));
++		for(size_t i = 0; i < cur; ++i)
++			message->write(locs[done + i]);
++		done += cur;
++	}
++}
+ void field::eliminate(uint8_t p, uint8_t reason) {
+-	(void)reason;
+-	if(!is_duelist(p))
++	// With 2 duelists a loss ends the duel, so there is nothing to eliminate: do nothing.
++	if(n_duelists == 2 || !is_alive(p))
+ 		return;
+ 	player[p].eliminated = true;
++	// 1. The message.
++	{
++		auto message = pduel->new_message(MSG_DUELIST_ELIMINATED);
++		message->write<uint8_t>(p);
++		message->write<uint8_t>(reason);
++	}
++	// 2. p's turn runs out without prompts (Turn then skips p).
++	if(infos.turn_player == p)
++		core.force_turn_end = true;
++	// 3. Chain entries that p would add. Chain links already on the chain are negated in SolveChain.
++	for(auto* lst : { &core.new_fchain, &core.new_fchain_s, &core.new_ochain, &core.new_ochain_s, &core.new_fchain_b,
++			&core.new_ochain_b, &core.new_ochain_h, &core.new_chains }) {
++		lst->remove_if([p](const chain& ch) { return ch.triggering_player == p; });
++	}
++	for(auto it = core.quick_f_chain.begin(); it != core.quick_f_chain.end();) {
++		if(it->second.triggering_player == p)
++			it = core.quick_f_chain.erase(it);
++		else
++			++it;
++	}
++	for(auto* delayed : { &core.delayed_quick, &core.delayed_quick_tmp }) {
++		for(auto it = delayed->begin(); it != delayed->end();) {
++			if(it->first->handler && it->first->handler->owner == p)
++				it = delayed->erase(it);
++			else
++				++it;
++		}
++	}
++	// 4. Attacks that involve p. An attack by p ends. An attack on p is rolled back before the damage step and
++	// ends in the damage step.
++	if(card* attacker = core.attacker) {
++		if(attacker->owner == p || attacker->current.controler == p) {
++			attacker->set_status(STATUS_ATTACK_CANCELED, TRUE);
++		} else if(core.battle_defender == p || (core.attack_target && (core.attack_target->owner == p || core.attack_target->current.controler == p))) {
++			if(infos.phase == PHASE_DAMAGE || infos.phase == PHASE_DAMAGE_CAL)
++				attacker->set_status(STATUS_ATTACK_CANCELED, TRUE);
++			else
++				core.attack_rollback = true;
++		}
++	}
++	// 5. Cards. A card p owns leaves the game. A card p controls and does not own goes to its owner's Graveyard.
++	auto gone = [p](card* pcard) { return pcard->owner == p || pcard->current.controler == p; };
++	std::vector<card*> removed;            // cards that leave the game, in the fixed order (not Xyz materials)
++	std::vector<card*> removed_mats;       // Xyz materials that p owns, each before its Xyz monster in the message
++	std::vector<std::pair<card*, card*>> foreign_mats; // (material, Xyz monster) for materials of others under p's Xyz
++	std::vector<card*> order;              // what goes into MSG_REMOVE_CARDS: materials first, then the card
++	card_set to_grave, equipings;
++	auto take = [&](card* pcard) {
++		if(pcard->owner == p)
++			removed.push_back(pcard);
++		else if(pcard->current.controler == p && is_alive(pcard->owner))
++			to_grave.insert(pcard);
++	};
++	for(uint8_t q = 0; q < n_duelists; ++q) {
++		for(auto* zone : { &player[q].list_mzone, &player[q].list_szone }) {
++			for(auto& pcard : *zone) {
++				if(!pcard)
++					continue;
++				const bool xyz_gone = pcard->owner == p;
++				for(auto& mat : pcard->xyz_materials) {
++					if(mat->owner == p)
++						removed_mats.push_back(mat);
++					else if(xyz_gone)
++						foreign_mats.emplace_back(mat, pcard);
++				}
++				take(pcard);
++			}
++		}
++		for(auto* lst : { &player[q].list_main, &player[q].list_hand, &player[q].list_grave, &player[q].list_remove, &player[q].list_extra }) {
++			for(auto& pcard : *lst)
++				take(pcard);
++		}
++	}
++	// Cards p owns that are removed: what they hold and what holds them.
++	for(auto& pcard : removed) {
++		if(pcard->equiping_target)
++			pcard->unequip();
++		const std::vector<card*> equips(pcard->equiping_cards.begin(), pcard->equiping_cards.end());
++		for(auto& equipc : equips) {
++			equipc->unequip();
++			if(equipc->current.location == LOCATION_SZONE && !gone(equipc))
++				equipings.insert(equipc);
++		}
++		pcard->clear_card_target();
++	}
++	// Materials of other duelists under a removed Xyz monster go to their owner's Graveyard (no event).
++	for(auto& [mat, xyz] : foreign_mats) {
++		const uint8_t control_player = xyz->current.controler;
++		auto message = pduel->new_message(MSG_MOVE);
++		message->write<uint32_t>(mat->data.code);
++		message->write(mat->get_info_location());
++		xyz->xyz_remove(mat);
++		mat->current.reason = REASON_RULE + REASON_LOST_TARGET;
++		mat->current.reason_effect = nullptr;
++		mat->current.reason_player = DUELIST_NONE; // n > 2 here: PLAYER_NONE (2) is a duelist
++		move_card(mat->owner, mat, LOCATION_GRAVE, 0);
++		mat->current.position = POS_FACEUP;
++		message->write(mat->get_info_location());
++		message->write<uint32_t>(mat->current.reason);
++		mat->previous.controler = control_player;
++		mat->reset(RESET_TOGRAVE, RESET_EVENT);
++	}
++	// The removal message: locations are read before any card moves.
++	std::vector<loc_info> locs;
++	for(auto& mat : removed_mats) {
++		order.push_back(mat);
++		locs.push_back(mat->get_info_location());
++	}
++	for(auto& pcard : removed) {
++		order.push_back(pcard);
++		locs.push_back(pcard->get_info_location());
++	}
++	send_remove_cards(pduel, locs);
++	for(auto& pcard : order) {
++		if(pcard->overlay_target)
++			pcard->overlay_target->xyz_remove(pcard);
++		else {
++			pcard->enable_field_effect(false);
++			pcard->cancel_field_effect();
++		}
++	}
++	for(auto& pcard : removed)
++		remove_card(pcard);
++	for(auto& pcard : order)
++		pcard->reset(RESET_LEAVE | RESET_REMOVE | RESET_OVERLAY, RESET_EVENT);
++	core.shuffle_deck_check[p] = false;
++	core.shuffle_hand_check[p] = false;
++	// Lingering effects of p's cards that end at a phase (the list is copied, removal changes it).
++	{
++		const std::vector<effect*> lingering(effects.pheff.begin(), effects.pheff.end());
++		for(auto* peffect : lingering) {
++			if(peffect->owner->owner != p || !(peffect->reset_flag & RESET_PHASE))
++				continue;
++			if(peffect->is_flag(EFFECT_FLAG_FIELD_ONLY))
++				remove_effect(peffect);
++			else
++				peffect->handler->remove_effect(peffect);
++		}
++	}
++	// Equip cards of others that lost their target, and cards p controls but does not own.
++	if(equipings.size())
++		destroy(std::move(equipings), nullptr, REASON_RULE + REASON_LOST_TARGET, DUELIST_NONE);
++	// One send_to per owner: the destination duelist is given, so no "none" player id is needed.
++	for(uint8_t q = 0; q < n_duelists; ++q) {
++		card_set group;
++		for(auto& pcard : to_grave)
++			if(pcard->owner == q)
++				group.insert(pcard);
++		if(group.size())
++			send_to(std::move(group), nullptr, REASON_RULE, DUELIST_NONE, q, LOCATION_GRAVE, 0, POS_FACEUP);
++	}
++	core.re_adjust = true;
+ }
+ uint8_t field::response_order(uint8_t anchor, uint8_t* out) const {
+ 	uint8_t count = 0;
+@@ -2233,6 +2397,9 @@ void field::adjust_self_destroy_set() {
+ 	if(core.selfdes_disabled || !core.unique_destroy_set.empty() || !core.self_destroy_set.empty() || !core.self_tograve_set.empty())
+ 		return;
+ 	int32_t p = infos.turn_player;
++	if(n_duelists > 2 && !is_alive(p))
++		p = next_in_turn_order(static_cast<uint8_t>(p));
++	const int32_t p_first = p;
+ 	for(int32_t p1 = 0; p1 < n_duelists; ++p1) {
+ 		std::vector<card*> uniq_set;
+ 		for(auto& ucard : core.unique_cards[p]) {
+@@ -2255,6 +2422,8 @@ void field::adjust_self_destroy_set() {
+ 			core.unique_destroy_set.insert(pcard);
+ 		}
+ 		p = next_in_turn_order(p);
++		if(n_duelists > 2 && p == p_first)
++			break;
+ 	}
+ 	card_set cset;
+ 	for(p = 0; p < n_duelists; ++p) {
+diff --git a/field.h b/field.h
+index bad211e..48b6c98 100644
+--- a/field.h
++++ b/field.h
+@@ -514,8 +514,8 @@ public:
+ 		}
+ 		return infos.turn_id_by_player[infos.turn_player] <= 1;
+ 	}
+-	// Marks p as out of the duel (n > 2). reason = the MSG_WIN reason code that applies.
+-	// The body of the elimination patch adds the rest (message 200, cards, chain, turn).
++	// Takes p out of the duel (n > 2): message 200, p's cards, chain links and turn. reason = the MSG_WIN reason code
++	// that applies. Does nothing with 2 duelists or when p is already out.
+ 	void eliminate(uint8_t p, uint8_t reason);
+ 	// Applies the losses of a duel with more than 2 duelists (Adjust step 1). Sends MSG_WIN at the end.
+ 	void check_losses_n();
+diff --git a/operations.cpp b/operations.cpp
+index 860ba1b..545816d 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -1654,6 +1654,9 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 	}
+ 	case 4: {
+ 		uint8_t tp = infos.turn_player;
++		if(n_duelists > 2 && !is_alive(tp))
++			tp = next_in_turn_order(tp);
++		const uint8_t tp_first = tp;
+ 		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : core.trap_monster_adjust_set[tp]) {
+ 				pcard->reset(RESET_TURN_SET, RESET_EVENT);
+@@ -1662,6 +1665,8 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 				move_to_field(pcard, tp, tp, LOCATION_SZONE, pcard->current.position, FALSE, 2);
+ 			}
+ 			tp = next_in_turn_order(tp);
++			if(n_duelists > 2 && tp == tp_first)
++				break;
+ 		}
+ 		if(to_grave_set.size())
+ 			send_to(std::move(to_grave_set), nullptr, REASON_RULE, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+diff --git a/playerop.cpp b/playerop.cpp
+index c125334..88d1183 100644
+--- a/playerop.cpp
++++ b/playerop.cpp
+@@ -736,6 +736,8 @@ bool field::process(Processors::SelectCounter& arg) {
+ 			}
+ 			fp = next_in_turn_order(fp);
+ 			avail = oppo;
++			if(n_duelists > 2 && fp == playerid)
++				break;
+ 		}
+ 		if(count > total)
+ 			count = total;
+diff --git a/processor.cpp b/processor.cpp
+index c8d2de0..d996c93 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -4400,6 +4400,15 @@ bool field::process(Processors::SolveChain& arg) {
+ 	case 2: {
+ 		for(uint8_t p = 0; p < n_duelists; ++p)
+ 			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
++		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED).
++		if(n_duelists > 2 && is_duelist(cait->triggering_player) && player[cait->triggering_player].eliminated) {
++			if(!(cait->flag & CHAIN_DISABLE_EFFECT)) {
++				auto message = pduel->new_message(MSG_CHAIN_DISABLED);
++				message->write<uint8_t>(cait->chain_count);
++			}
++			arg.step = 3;
++			return FALSE;
++		}
+ 		effect* peffect = cait->triggering_effect;
+ 		card* pcard = peffect->get_handler();
+ 		if((cait->flag & CHAIN_CONTINUOUS_CARD) && !pcard->is_has_relation(*cait)) {
+@@ -5098,6 +5107,9 @@ bool field::process(Processors::Adjust& arg) {
+ 	case 2: {
+ 		//disable check
+ 		uint8_t tp = infos.turn_player;
++		if(n_duelists > 2 && !is_alive(tp))
++			tp = next_in_turn_order(tp);
++		const uint8_t tp_first = tp;
+ 		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : player[tp].list_mzone) {
+ 				if(pcard)
+@@ -5108,6 +5120,8 @@ bool field::process(Processors::Adjust& arg) {
+ 					add_to_disable_check_list(pcard);
+ 			}
+ 			tp = next_in_turn_order(tp);
++			if(n_duelists > 2 && tp == tp_first)
++				break;
+ 		}
+ 		adjust_disable_check_list();
+ 		emplace_process<Processors::RefreshLoc>();
+@@ -5212,6 +5226,9 @@ bool field::process(Processors::Adjust& arg) {
+ 	case 10: {
+ 		//equip check
+ 		uint8_t tp = infos.turn_player;
++		if(n_duelists > 2 && !is_alive(tp))
++			tp = next_in_turn_order(tp);
++		const uint8_t tp_first = tp;
+ 		card_set destroy_set;
+ 		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(uint8_t i = 0; i < 5; ++i) {
+@@ -5220,6 +5237,8 @@ bool field::process(Processors::Adjust& arg) {
+ 					destroy_set.insert(pcard);
+ 			}
+ 			tp = next_in_turn_order(tp);
++			if(n_duelists > 2 && tp == tp_first)
++				break;
+ 		}
+ 		if(destroy_set.size()) {
+ 			core.re_adjust = true;
+@@ -5230,6 +5249,9 @@ bool field::process(Processors::Adjust& arg) {
+ 	case 11: {
+ 		//position
+ 		uint32_t tp = infos.turn_player, pos;
++		if(n_duelists > 2 && !is_alive(tp))
++			tp = next_in_turn_order(static_cast<uint8_t>(tp));
++		const uint32_t tp_first = tp;
+ 		card_set pos_adjust;
+ 		effect_set eset;
+ 		for(uint8_t p = 0; p < n_duelists; ++p) {
+@@ -5253,6 +5275,8 @@ bool field::process(Processors::Adjust& arg) {
+ 				}
+ 			}
+ 			tp = next_in_turn_order(tp);
++			if(n_duelists > 2 && tp == tp_first)
++				break;
+ 		}
+ 		if(pos_adjust.size()) {
+ 			core.re_adjust = true;
+@@ -5274,10 +5298,15 @@ bool field::process(Processors::Adjust& arg) {
+ 			}
+ 		}
+ 		uint8_t stp = infos.turn_player;
++		if(n_duelists > 2 && !is_alive(stp))
++			stp = next_in_turn_order(stp);
++		const uint8_t stp_first = stp;
+ 		for(uint8_t i = 0; i < n_duelists; ++i) {
+ 			if(core.shuffle_hand_check[stp])
+ 				shuffle(stp, LOCATION_HAND);
+ 			stp = next_in_turn_order(stp);
++			if(n_duelists > 2 && stp == stp_first)
++				break;
+ 		}
+ 		return FALSE;
+ 	}
+@@ -5325,6 +5354,10 @@ bool field::process(Processors::Adjust& arg) {
+ 			}
+ 			if(core.attack_rollback)
+ 				return FALSE;
++			if(n_duelists > 2 && !core.attack_target && core.battle_defender != DUELIST_NONE && !is_alive(core.battle_defender)) {
++				core.attack_rollback = true;
++				return FALSE;
++			}
+ 			std::set<uint32_t> fidset;
+ 			if(n_duelists == 2) {
+ 				for(auto& pcard : player[opponent_of(infos.turn_player)].list_mzone) {
