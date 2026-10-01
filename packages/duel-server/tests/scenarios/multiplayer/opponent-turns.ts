@@ -120,11 +120,9 @@ export const OPPONENT_TURN_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "r3-ffa4-steelcage-turn-player-eliminated-in-own-turn",
-    title: "FFA4: p1 took the 1st opponent turn, p2 gives up during its own turn; the card must be gone at the end of the turn of p3 at the latest",
-    source: `${SOURCE} [R-FFA-ELIMINATION] Q1 R3: a seat that lost takes no turn; the card ends after the 2nd counted opponent turn`,
-    // No `rules`: a known-bug scenario never counts as coverage (scripts/rule-coverage.ts).
-    knownBug:
-      "A turn cut short by the loss of its turn player skips the End Phase event but still counts for RESET_OPPO_TURN, so the Steelcage's own counter stays at 1 and it is never destroyed. Finding s3-turns-1.",
+    title: "FFA4: p1 took the 1st opponent turn, p2 gives up during its own turn; that turn cut short is the 2nd counted turn and the card ends with it",
+    source: `${SOURCE} [R-FFA-ELIMINATION] Q1 R3: a seat that lost takes no turn; a turn cut short by an elimination counts as an ended turn for every turn count`,
+    rules: ["R-FFA-ELIMINATION", "R-FFA-ORDER"],
     tags: ["multiplayer", "turn-count", "r3", "elimination", "ffa4", `card:${STEELCAGE_CODE}`],
     setup: { format: "ffa4", p0: holder },
     steps: [
@@ -132,7 +130,9 @@ export const OPPONENT_TURN_SCENARIOS: Scenario[] = [
       endTurn("p0"), expectTurn("p1", 2),
       endTurn("p1"), expectTurn("p2", 3),
       surrender("p2"), expectEliminated("p2"),
+      // The turn of p2 ended with the loss: it is the 2nd opponent turn of p0, so the card is gone when p3 starts its turn.
       expectTurn("p3", 4),
+      cage(false, ["p0", "p1", "p3"], { p0: 0, p1: 1, p3: 1 }),
       endTurn("p3"), expectTurn("p0", 5),
       cage(false, ["p0", "p1", "p3"], { p0: 1, p1: 1, p3: 1 }),
     ],
