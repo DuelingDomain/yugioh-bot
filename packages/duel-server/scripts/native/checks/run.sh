@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build and run the native rule checks against a multi-duelist core source tree.
 #
-#   MULTI_TREE=/path/to/core-tree bash packages/duel-server/scripts/native/checks/run.sh            # every ready check
+#   bash packages/duel-server/scripts/native/checks/run.sh                                           # every ready check, core = repo series
+#   MULTI_TREE=/path/to/core-tree bash packages/duel-server/scripts/native/checks/run.sh            # the same on another core tree
 #   MULTI_TREE=... bash .../run.sh elimination zones                                                 # only these checks
 #   MULTI_TREE=... bash .../run.sh --pending                                                         # also run pending checks
 #   bash .../run.sh --list                                                                           # print the manifest
@@ -10,10 +11,11 @@
 # What it does: (1) compiles the core in MULTI_TREE and the pinned Lua into one library with AddressSanitizer + UBSan
 # (the same flags as scripts/build-native-core.sh, plus -DYGO_N_TRAP -D_GLIBCXX_ASSERTIONS), (2) compiles every check
 # listed in checks.tsv against it, (3) runs each check from the repo root and prints PASS or FAIL per check.
-# Exit code 0 only when every selected ready check passes. MULTI_TREE is only read, never written.
+# Exit code 0 only when every selected ready check passes. A MULTI_TREE that you give is only read, never written.
 #
 # Environment:
-#   MULTI_TREE        (required) core source tree with the patch series applied (field.h, fold.h, ...)
+#   MULTI_TREE        core source tree with the patch series applied (field.h, fold.h, ...). Default: the repo series on the
+#                     pinned ygopro-core, made by prepare-multi-core-tree.sh into $NATIVE_CHECKS_OUT/multi-core-tree (CI)
 #   NATIVE_CHECKS_OUT build folder (default domain-core/.build/native-checks, gitignored). Safe to delete.
 #   DUEL_DATA_DIR     engine data (cards.cdb, card-scripts). Default <repo>/data/duel-engine-next. Only read.
 #   LUA_SRC           folder with the pinned Lua sources. Default: extracted from the git cache into the build folder.
@@ -46,7 +48,7 @@ for arg in "$@"; do
     --pending) with_pending=1 ;;
     --list) list_only=1 ;;
     --clean) rm -rf "${OUT:?}"; echo "deleted $OUT"; exit 0 ;;
-    -h | --help) sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "unknown option: $arg" >&2; exit 2 ;;
     *) names+=("$arg") ;;
   esac
@@ -80,7 +82,16 @@ for n in ${names[@]+"${names[@]}"}; do
   ((found)) || { echo "no check named $n (see --list)" >&2; exit 2; }
 done
 
-: "${MULTI_TREE:?set MULTI_TREE to the core source tree (the folder with field.h)}"
+# No MULTI_TREE: build the repo series (domain-core/patches) on the pinned ygopro-core into $OUT/multi-core-tree. This is
+# what CI does (npm run test:native). prepare-multi-core-tree.sh keeps a current tree and needs the network only for the
+# first clone of the pinned ygopro-core and Lua.
+if [[ -z "${MULTI_TREE:-}" ]]; then
+  MULTI_TREE="$OUT/multi-core-tree"
+  echo "== core tree: the repo patch series (prepare-multi-core-tree.sh)"
+  mkdir -p "$OUT/logs"
+  MULTI_TREE="$MULTI_TREE" bash "$PKG/scripts/prepare-multi-core-tree.sh" > "$OUT/logs/prepare-tree.log" 2>&1 \
+    || { tail -n 20 "$OUT/logs/prepare-tree.log"; echo "core tree prepare failed (see $OUT/logs/prepare-tree.log)" >&2; exit 2; }
+fi
 MULTI_TREE="$(cd "$MULTI_TREE" && pwd)"
 [[ -f "$MULTI_TREE/field.h" && -f "$MULTI_TREE/ocgapi.h" ]] || { echo "MULTI_TREE has no field.h / ocgapi.h: $MULTI_TREE" >&2; exit 2; }
 [[ -f "$DUEL_DATA_DIR/cards.cdb" && -d "$DUEL_DATA_DIR/card-scripts" ]] || { echo "DUEL_DATA_DIR has no cards.cdb / card-scripts: $DUEL_DATA_DIR" >&2; exit 2; }

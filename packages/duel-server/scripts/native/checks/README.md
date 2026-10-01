@@ -8,7 +8,9 @@ and `scripts/build-native-core.sh`.
 ## Run
 
 ```bash
-# from the repo root; MULTI_TREE is the core source tree (the folder with field.h). It is only read.
+# from the repo root. Without MULTI_TREE the run builds the repo patch series on the pinned ygopro-core (what CI does).
+npm run test:native
+# MULTI_TREE is another core source tree (the folder with field.h). It is only read.
 MULTI_TREE=/path/to/core-tree npm run test:native --workspace=packages/duel-server
 MULTI_TREE=... bash packages/duel-server/scripts/native/checks/run.sh elimination zones   # only these checks
 MULTI_TREE=... bash packages/duel-server/scripts/native/checks/run.sh --pending           # also pending, stale, domain
@@ -21,7 +23,7 @@ check passes. Logs are in `$NATIVE_CHECKS_OUT/logs`.
 
 | Variable | Meaning |
 | --- | --- |
-| `MULTI_TREE` | Required. Core source tree with the patch series applied. |
+| `MULTI_TREE` | Core source tree with the patch series applied. Default: the repo series on the pinned ygopro-core, made by `prepare-multi-core-tree.sh` into `$NATIVE_CHECKS_OUT/multi-core-tree`. |
 | `NATIVE_CHECKS_OUT` | Build folder. Default `domain-core/.build/native-checks` (gitignored). Safe to delete. |
 | `DUEL_DATA_DIR` | Data folder with `card-scripts`. Default `data/duel-engine-next`. |
 | `CHECK_TIMEOUT` | Seconds for each check. Default 300. |
