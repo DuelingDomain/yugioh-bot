@@ -5,6 +5,8 @@ name: Test
 #   cores        build or restore the engine bundle (standard, domain and multi cores). Shared by the next jobs.
 #   unit         typecheck and the tests that need no core (shared, bot, web, duel-server unit, e2e unit).
 #   engine       real-engine tests with DUEL_REQUIRE_CORES=1: a missing core is a failure, never a silent skip.
+#   engine-legacy  the same suite with DUEL_1V1_ENGINE=legacy (the production default for 1v1), plus main's own engine tests
+#                run against the legacy engine (tests/legacy-main). The engine job runs the merged engine ("pinned").
 #   native       ASan/UBSan build of the multi core and the committed native checks (npm run test:native).
 #   rule-coverage  every rule of ADR-0002 has a covering test (--strict).
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
@@ -146,6 +148,8 @@ jobs:
             test -s "packages/duel-server/domain-core/dist/$f" || { echo "differential core missing or empty: $f" >&2; exit 1; }
           done
           DUEL_DATA_DIR="$PWD/$BUNDLE_DIR" sh packages/duel-server/scripts/install-engine-bundle.sh
+          # The legacy 1v1 files must be main's files (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
+          sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/$BUNDLE_DIR"
 
   unit:
     name: Unit tests (no core)
@@ -227,6 +231,50 @@ jobs:
         run: npm run build --workspace=@yugidraft/shared
 
       - name: Engine tests
+        run: npm run test:engine
+
+  engine-legacy:
+    name: Engine tests, legacy 1v1 engine (cores required)
+    if: github.event_name != 'schedule'
+    needs: cores
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DUEL_REQUIRE_CORES: "1"
+      DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+      MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+      DOMAIN_MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
+      NSEAT_LIVE: "1"
+      # Production starts 1v1 duels on the legacy engine. This job runs the whole suite that way. The setup file
+      # (tests/support/setup.ts) keeps a value that is already set. tests/legacy-main is main's engine tests, unchanged
+      # except for the import paths, and they always use the legacy engine.
+      DUEL_1V1_ENGINE: legacy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore engine bundle
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/duel-engine-next
+            packages/duel-server/domain-core/dist
+          key: ${{ needs.cores.outputs.key }}
+          fail-on-cache-miss: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build shared
+        run: npm run build --workspace=@yugidraft/shared
+
+      - name: Engine tests, legacy 1v1 engine
         run: npm run test:engine
 
   native:

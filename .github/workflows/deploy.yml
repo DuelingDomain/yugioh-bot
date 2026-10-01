@@ -68,10 +68,14 @@ jobs:
           path: data/duel-engine
           key: ${{ env.BUNDLE_CACHE_KEY }}
 
-      # The multi-duelist core (Tag and 3 and 4 player tables). It is NOT part of the pinned bundle above: data/duel-engine,
-      # its cache key and its manifest stay exactly as they were, so the standard and domain cores of 1v1 duels are the
-      # same files as before. The core travels next to the bundle in the deploy tarball and is installed by
-      # packages/duel-server/scripts/install-engine-bundle.sh. The server loads it only for tables with more than 2 seats.
+      # The pinned bundle above (data/duel-engine) now holds the merged cores (ocgcore.standard.wasm, ocgcore.domain.wasm) AND the
+      # legacy 1v1 files (ocgcore.domain.legacy.wasm, card-scripts/domain.legacy.lua). Its cache key hashes legacy-1v1/** and
+      # build-standard-core.sh too, so the first deploy of the merge builds the bundle again and the bundle changes: the deploy
+      # preflight then needs an empty server (no active duel), see docs/deployment/vm-runbook.md. 1v1 duels run on the legacy files
+      # unless DUEL_1V1_ENGINE=pinned (docs/deployment/duel-engine-switch.md).
+      # The multi-duelist core (Tag and 3 and 4 player tables) is NOT part of the pinned bundle: it travels next to the bundle in the
+      # deploy tarball and is installed by packages/duel-server/scripts/install-engine-bundle.sh. The server loads it only for tables
+      # with more than 2 seats, and MULTIPLAYER_TABLES (default off) keeps those tables closed.
       # Same inputs as the staging workflow, with the production prefix: the series of patches and the multi build scripts.
       # The v1 is a literal: raise it when the build step below changes (the hash cannot see it).
       - name: Compute multi core cache key
@@ -115,7 +119,10 @@ jobs:
 
       - name: Verify duel-engine bundle
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
-        run: DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
+        run: |
+          DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
+          # The legacy 1v1 files must be main's files (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
+          sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/data/duel-engine"
 
       # The deploy tarball is made here, not from data/duel-engine: that folder stays the pinned bundle.
       # The check at the end runs the install script on this exact content, in a scratch folder of the runner.

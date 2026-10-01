@@ -167,7 +167,9 @@ jobs:
 
       - name: Verify duel-engine bundle
         if: ${{ inputs.action == 'deploy' }}
-        run: DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
+        run: |
+          DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
+          sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/data/duel-engine"
 
       - name: Add the multi core to the bundle
         if: ${{ inputs.action == 'deploy' }}

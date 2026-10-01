@@ -227,4 +227,7 @@ cat > "$DIST/build-info.json" <<EOF
 }
 EOF
 
+# LEGACY-1V1: the build must make main's files. A different sha256 (another toolchain, another input) fails here.
+sh "$PKG/scripts/check-legacy-pin.sh" "$DATA_DIR" "$LEGACY/expected-sha256.txt"
+
 echo "wrote $DIST/ocgcore.domain.sync.wasm and $DATA_DIR/ocgcore.domain.legacy.wasm"

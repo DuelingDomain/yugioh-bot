@@ -22,7 +22,9 @@ See `docs/deployment/duel-engine-switch.md` for the switch and for how to roll b
 | `ocgcore.domain.legacy.wasm` | `1ca9f3187fb534579e843264ba6c06a0b281c81f17fb064c6d4cc66f32c84c3d` |
 | `domain.legacy.lua` (equal to main's `domain.lua`) | `405c8a09716128cb0f63b34f25d9dbed2e9fcf6748d57d45329fb61d2166ae99` |
 
-The wasm has the same sha256 as the wasm that main's own script builds from a clean clone of `2a5a959`.
+The wasm has the same sha256 as the wasm that main's own script builds from a clean clone of main (`78b8caa`).
+The shas are pinned in `expected-sha256.txt`. `scripts/check-legacy-pin.sh <data dir>` checks a data dir against them.
+`build-domain-core.sh`, the deploy, staging and test workflows run it.
 Both builds ran in `docker.io/emscripten/emsdk:4.0.9` with `--user "$(id -u):$(id -g)"`.
 
 ## Build
