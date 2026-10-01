@@ -8,6 +8,10 @@
 //   disfield  Duel.SelectDisableField(tp, 1, 0, MZONE, 0), the flag goes into EFFECT_DISABLE_FIELD: the hint seat
 //             (the next seat in turn order, as the disable code binds it) must be the only seat that gets the zone
 //   fieldzone Duel.SelectFieldZone(tp, 1, 0, MZONE, 0)
+// Which opponent "1" means (F5, core 29fff80): on the turn of an opponent the read of the turn player binds that opponent.
+// On a turn of the own team nothing is bound, so the core asks the activator to pick one opponent (MSG_SELECT_OPTION,
+// every desc 0xFFFE0000|seat, ascending, living opponents only). The harness answers that pick with option 0, the
+// lowest seat, and the hint must name that seat.
 // The harness reads the hint, answers first with a living seat that is NOT the hint seat (must give MSG_RETRY), then
 // with the hint seat (must be accepted). For the three calls that move a card it then looks at which field got it.
 //   ffa3, ffa4, tag     n > 2
@@ -178,15 +182,20 @@ struct Model {
 	int eliminate = -1;
 	std::vector<int> team;
 	bool same_team(int a, int b) const { return team[a] == team[b]; }
-	int next_opponent(int P) const {
-		for(int i = 1; i < n; ++i) {
-			const int q = (P + i) % n;
-			if(q != eliminate && !same_team(P, q)) return q;
-		}
-		return -1;
+	// the living opponents of P in ascending order: the options of the F5 pick prompt
+	std::vector<int> opponents(int P) const {
+		std::vector<int> r;
+		for(int q = 0; q < n; ++q)
+			if(q != eliminate && !same_team(P, q)) r.push_back(q);
+		return r;
 	}
-	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T
-	int bound(int P, int T) const { return same_team(P, T) ? next_opponent(P) : T; }
+	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T: the turn player
+	// when it is an opponent (the read binds it), else the pick, which the harness answers with option 0 (lowest seat)
+	int bound(int P, int T) const {
+		if(!same_team(P, T)) return T;
+		const auto o = opponents(P);
+		return o.empty() ? -1 : o[0];
+	}
 };
 
 struct Cur {
@@ -203,6 +212,7 @@ static std::vector<std::string> g_error_text;
 static std::map<std::string, int> g_counts;  // per fn: hint prompts, retries, accepted, landed
 static int g_firings = 0;
 static int g_hint_msgs = 0;  // every MSG_HINT 0xF0 in the whole duel
+static int g_pick_prompts = 0;  // the 0xFFFE opponent pick prompts that were answered
 static uint32_t g_dis_expect[4];  // per seat: the zones that the disable effects of this turn must have disabled
 
 static field& F(OCG_Duel d) { return *static_cast<duel*>(d)->game_field; }
@@ -326,6 +336,7 @@ static Outcome play(const Scenario& sc) {
 	g_counts.clear();
 	g_firings = 0;
 	g_hint_msgs = 0;
+	g_pick_prompts = 0;
 	std::memset(g_dis_expect, 0, sizeof(g_dis_expect));
 	g_cur = Cur();
 	g_model = Model();
@@ -469,7 +480,25 @@ static Outcome play(const Scenario& sc) {
 			}
 			answer32(7);
 			break;
-		case MSG_SELECT_YESNO: case MSG_SELECT_EFFECTYN: case MSG_SELECT_OPTION: answer32(m->id == MSG_SELECT_OPTION ? 0 : 1); break;
+		case MSG_SELECT_OPTION: {
+			// the F5 pick of one opponent: the options are exactly the living opponents of the prompted seat, ascending
+			const int who = m->p[0], count = m->p[1];
+			std::vector<int> seats;
+			bool pick = count > 0;
+			for(int i = 0; i < count; ++i) {
+				uint64_t desc = 0;
+				std::memcpy(&desc, m->p + 2 + 8 * i, 8);
+				pick = pick && (desc >> 16) == 0xFFFE;
+				seats.push_back(static_cast<int>(desc & 0xff));
+			}
+			if(pick && sc.n > 2) {
+				++g_pick_prompts;
+				EXPECT(seats == g_model.opponents(who), "%s: the pick prompt of seat %d does not list its living opponents", sc.name, who);
+			}
+			answer32(0);
+			break;
+		}
+		case MSG_SELECT_YESNO: case MSG_SELECT_EFFECTYN: answer32(1); break;
 		case MSG_SELECT_CHAIN: {
 			const bool forced = m->size > 2 && m->p[2] != 0;
 			answer32(forced ? 0 : -1);
@@ -558,6 +587,7 @@ static void report(const Scenario& sc, const Outcome& out) {
 			EXPECT(g_counts[k + ".retry"] == g_counts[k + ".hint"], "%s: %s: %d wrong answers rejected of %d hint prompts", sc.name, fn, g_counts[k + ".retry"], g_counts[k + ".hint"]);
 			EXPECT(g_counts[k + ".accepted"] == g_counts[k + ".hint"], "%s: %s: %d right answers accepted of %d hint prompts", sc.name, fn, g_counts[k + ".accepted"], g_counts[k + ".hint"]);
 		}
+		EXPECT(g_pick_prompts > 0, "%s: no opponent pick prompt (the own-turn cases must ask the activator)", sc.name);
 		EXPECT(g_counts["disfield.applied"] >= 2, "%s: disfield: the disable effect ran only %d times", sc.name, g_counts["disfield.applied"]);
 		EXPECT(g_counts["disfield.applied_not_turn"] > 0, "%s: no disfield call where the disabled seat is not the turn player", sc.name);
 		for(const char* fn : { "spsum", "movef", "sset" })
