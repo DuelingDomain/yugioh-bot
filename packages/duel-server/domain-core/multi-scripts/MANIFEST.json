@@ -2,6 +2,16 @@
   "version": 1,
   "cards": [
     {
+      "code": 50755,
+      "file": "c50755.lua",
+      "name": "Magician's Circle",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "24af78f302fb21b11791837992c5bc005212d7f9eb03fffab0df3eac22a55fff"
+    },
+    {
       "code": 1804528,
       "file": "c1804528.lua",
       "name": "Dark Coffin",
@@ -149,6 +159,16 @@
       "stockSha256": "25b5d45c0032ce0535d434eecb814336d36f00eb517cfb6ea5574b2b36f8887a"
     },
     {
+      "code": 9074847,
+      "file": "c9074847.lua",
+      "name": "Major Riot",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "5b24aed7ea7f09158cbfe040853d6d0114e363916c9f89187d480d8d9c61de7c"
+    },
+    {
       "code": 9794980,
       "file": "c9794980.lua",
       "name": "Knightmare Incarnation Idlee",
@@ -207,6 +227,26 @@
       "chooserClass": "CH-OP",
       "stockSha256": "b1abc6a76df3c89f84734cec0ff539508de53121f07244e14caf797224f4e27f",
       "note": "Card text says \"your opponent\" (one): CH-OP (decision Q5), not CH-EACH as in the first pass of the design."
+    },
+    {
+      "code": 14989021,
+      "file": "c14989021.lua",
+      "name": "Simorgh, Bird of Divinity",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "eef7c058ca4515d4763d5021b9808f2f0b527e6eb13bfc80daa266c720d3ba94"
+    },
+    {
+      "code": 15462014,
+      "file": "c15462014.lua",
+      "name": "Hollow Giants",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "762762f8f86363ca1987c761335bb0a1831aba71e3dbc84df762fdd9be48b6cb"
     },
     {
       "code": 15693423,
@@ -401,6 +441,16 @@
       "stockSha256": "7852b18bcd2cfb1138a4b6682dc9d2a751f06f466867131bb4ac5ead62f912f2"
     },
     {
+      "code": 21496848,
+      "file": "c21496848.lua",
+      "name": "Evigishki Tetrogre",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "a5dbfc641aa05f38fae6d0c7452a58ac58901de925b2d9ef5a13f3ca8ee14a83"
+    },
+    {
       "code": 21672573,
       "file": "c21672573.lua",
       "name": "Emperor Sem",
@@ -563,6 +613,16 @@
       "stockSha256": "cd3faa35089e9dcad8bd3d992e4c7b9d43b9766a2170c6e9e1241c7328811dae"
     },
     {
+      "code": 30394645,
+      "file": "c30394645.lua",
+      "name": "Dogmatika Lawbringer",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "5dd2460270bb911df0e8becec1dee0b0f9dd9e04535139ab769aaf8f04cd61ce"
+    },
+    {
       "code": 31044787,
       "file": "c31044787.lua",
       "name": "Ferret Flames",
@@ -711,6 +771,16 @@
       "stockSha256": "367ca4dbe5b75c4c109052c9d3dd590e3319094e6b1e1c5eba40d0772369a1ca"
     },
     {
+      "code": 36809777,
+      "file": "c36809777.lua",
+      "name": "Brutal Beast Battle",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "8794d96c3cc6690f1dbd0d7e0b6acac400b3f977bd3d8e6d5b6b879865d24c7d"
+    },
+    {
       "code": 36898537,
       "file": "c36898537.lua",
       "name": "Metaphys Horus",
@@ -790,6 +860,16 @@
       "chooserClass": "CH-OP",
       "stockSha256": "0053371366bdaa1a7e52f23937055a9db2665e79e8092bd7940edd26eecbc901",
       "note": "Chooser card with a compare in its condition (MPAny); the triage did not list it as a compare card."
+    },
+    {
+      "code": 39180960,
+      "file": "c39180960.lua",
+      "name": "Rigorous Reaver",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "4fd45c718cd3997813bf4402614e42b3023dab2f261190cbf4cdedd7fce3b1cc"
     },
     {
       "code": 39618799,
@@ -920,6 +1000,16 @@
       ],
       "stockSha256": "3c2b5a845d01bfeb195630105ae1092d9b3a3e824aef76c24530a7d871fb5fe8",
       "note": "Script fix (late-cards, Tag): the 100 LP is asked only in the Standby Phase of the duelist that owns the card, not in the Standby Phase of its partner (Duel.MPTurnOwns). The team LP pays. Not part of R1."
+    },
+    {
+      "code": 44968459,
+      "file": "c44968459.lua",
+      "name": "Silent Burning",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "9ca56d4fca7239fd8881054a4a240a992d6e3014026cb58525da1e48fc593103"
     },
     {
       "code": 45148985,
@@ -1087,6 +1177,16 @@
       "note": "Three in One (review A item 3): in FFA only the opponent whose turn it is can pass (the turn player test is inside the window of the opponent, Duel.MPTurnOwns), because IsTurnPlayer(1-tp) folds every opponent to true."
     },
     {
+      "code": 51011872,
+      "file": "c51011872.lua",
+      "name": "Trickstar Crimson Heart",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "ac36ccebd90d1564a77f38918805e1090362cadf415e05194d1d7f7fdd679375"
+    },
+    {
       "code": 53244294,
       "file": "c53244294.lua",
       "name": "Number 57: Tri-Head Dust Dragon",
@@ -1237,6 +1337,16 @@
       "stockSha256": "7aac19bfb7a3c913f48cbd1857201596c70e6488b19039fe7c6d256f372fca2b"
     },
     {
+      "code": 61622107,
+      "file": "c61622107.lua",
+      "name": "Bubble Crash",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "339eddbf0ebf624668fbb8d547a2127e9e1ffc09cadef16c71687544374dcc8d"
+    },
+    {
       "code": 61650133,
       "file": "c61650133.lua",
       "name": "Summoning Curse",
@@ -1310,6 +1420,16 @@
       "stockSha256": "6e17185e669e90fc75bf6741cdd609471395d0bf6098d3f6b320c7857b07f43c"
     },
     {
+      "code": 65589010,
+      "file": "c65589010.lua",
+      "name": "Dogmatika Nation",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "1aa606fc269b4f15957a5aafc01b806a22ee8c77c35e6b3747b0ed48f8081dbd"
+    },
+    {
       "code": 66362965,
       "file": "c66362965.lua",
       "name": "The Fiend Megacyber",
@@ -1368,6 +1488,16 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "055f3d9ec000dd4ba2e8861206c7cb680e7274ca4e02e8f683bd1afdbc98c6b8"
+    },
+    {
+      "code": 69042950,
+      "file": "c69042950.lua",
+      "name": "Crashbug Road",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "3693e2446758134c6e861dff80d9490027144da1606540e815640ae227af499d"
     },
     {
       "code": 70914287,
@@ -1441,6 +1571,26 @@
       "note": "Script fix (late-cards, R-COMMON-EACH-PLAYER): every living duelist discards the Monsters of its own hand (the Tag partner too), with no opponent pick. Each duelist is read in its own scope (aux.MPForEachDuelist). Not part of R1."
     },
     {
+      "code": 75043725,
+      "file": "c75043725.lua",
+      "name": "Emissary of the Afterlife",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "9c30e6b42f2fdf5fec407b6a83e6db8cd6402a0bb3cc98c95895127d061f676a"
+    },
+    {
+      "code": 75797046,
+      "file": "c75797046.lua",
+      "name": "Photon Alexandra Queen",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "720a56596b8015cdb5b0fba6bae7f46f2434e58991569b4a056e774047239085"
+    },
+    {
       "code": 76375976,
       "file": "c76375976.lua",
       "name": "Mystic Mine",
@@ -1484,6 +1634,16 @@
       "stockSha256": "0df1dc036523fd7d87169c0d1c760750d98303125289eac58338cd9c60dd5680"
     },
     {
+      "code": 77066768,
+      "file": "c77066768.lua",
+      "name": "Card Scanner",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "93ce31f12267332f0f57805851131f4dd4c1e3173b6dc94b26ff43afbb913ec6"
+    },
+    {
       "code": 78098950,
       "file": "c78098950.lua",
       "name": "Tsumuha-Kutsunagi the Lord of Swords",
@@ -1492,6 +1652,16 @@
         "R1"
       ],
       "stockSha256": "dea8a60a706e831ccaffe30792747c56d2127867cbec3ccae2eeb23131ea8b12"
+    },
+    {
+      "code": 78679226,
+      "file": "c78679226.lua",
+      "name": "Future Silence",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "5b85c1dd408241a719667c65f5c97548e73ca6b6b326bb16654515319b5adacb"
     },
     {
       "code": 80453041,
@@ -1648,6 +1818,16 @@
       "stockSha256": "58a0860eec6b0508500cb52a95b5ffd6bf902abeb100a9ebaf654e307f191e52"
     },
     {
+      "code": 87602890,
+      "file": "c87602890.lua",
+      "name": "Zaborg the Mega Monarch",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "800acb5de8c60709f1c46410eee53e2dfb97fd50176802f9537bad0a8adbeaa4"
+    },
+    {
       "code": 88021907,
       "file": "c88021907.lua",
       "name": "Primathmech Laplacian",
@@ -1730,6 +1910,16 @@
         "target"
       ],
       "stockSha256": "b60b87d28d97540dc4477a863a2c3cbf6fe3a2d235dfc965eecf408e50a93577"
+    },
+    {
+      "code": 89731911,
+      "file": "c89731911.lua",
+      "name": "Familiar Knight",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "e3ecbd82350ce4d91687610f428f50c978d1fcd06a03e8f3e64f1160a2c948b8"
     },
     {
       "code": 89883517,
@@ -1883,6 +2073,16 @@
       "stockSha256": "88e8ba425dd0a0b82a005178a8899cb2f97fd54b4425d3c97fcf4c4ead48bdf1"
     },
     {
+      "code": 92933195,
+      "file": "c92933195.lua",
+      "name": "Mist Valley Windmaster",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "dc0cfca2f59c7bd6b6adca735f4e58e7a8b7e6f1367569c1bde4ce0eb415c563"
+    },
+    {
       "code": 93507434,
       "file": "c93507434.lua",
       "name": "Dinowrestler Capaptera",
@@ -1949,6 +2149,16 @@
         "descon"
       ],
       "stockSha256": "5bb7ac49251e64a76dc3c9b2fa2e25c52c892731c4ae070ad013741992739036"
+    },
+    {
+      "code": 96148285,
+      "file": "c96148285.lua",
+      "name": "Triggered Summon",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "e97e7babb3649b54c3f13b01b68e3d5af72fcd5358bba5a9f3106294b63390dc"
     },
     {
       "code": 96162588,
