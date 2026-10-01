@@ -1160,10 +1160,12 @@
       ],
       "effectType": "SINGLE+TRIGGER_O",
       "redefined": [
-        "desop"
+        "desop",
+        "spcon"
       ],
       "chooserClass": "CH-EACH",
-      "stockSha256": "5b731e5173025a5bc6f734cdc61382bf3da103ffe62c418010c8326d752b5822"
+      "stockSha256": "5b731e5173025a5bc6f734cdc61382bf3da103ffe62c418010c8326d752b5822",
+      "note": "Numeron Dragon (review A item 2): desop keeps the window index per card and Sets each card in the window of its seat (the owner is folded in FFA). spcon in FFA counts only a direct attack that can only go to you (no other seat without a monster): the core has no read of the attacked duelist."
     },
     {
       "code": 58551308,
