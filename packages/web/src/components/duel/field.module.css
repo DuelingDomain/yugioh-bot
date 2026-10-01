@@ -1085,6 +1085,82 @@
   inset: calc((var(--z) - var(--cw)) / 2 - 5px) calc((var(--z) - var(--cw)) / -2 - 5px);
 }
 
+/* A card you can use or pick: a glow around it, no outline line. The box sits on the card edge and only its
+   shadow shows (an outer shadow is never drawn under the box), so the art stays clear on light or dark cards.
+   The felt and the zones do not clip (overflow: visible), so the halo is not cut. --gl scales the halo where
+   room is tight (Deck Master dock, hand).
+   - usable: a soft purple halo whose opacity breathes (the shadow itself is static, so it is cheap).
+   - picked: steady and stronger, with a warm gold edge, and the tag shows a check. */
+.glow {
+  --gl: 1;
+  position: absolute;
+  inset: -1px;
+  z-index: 4;
+  border-radius: var(--r, 4px);
+  box-shadow:
+    0 0 calc(8px * var(--gl)) calc(2px * var(--gl)) rgb(155 126 255 / 0.9),
+    0 0 calc(20px * var(--gl)) calc(5px * var(--gl)) rgb(155 126 255 / 0.5),
+    0 0 calc(34px * var(--gl)) calc(8px * var(--gl)) rgb(155 126 255 / 0.22);
+  animation: glow-breathe 2.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.glow[data-state="picked"] {
+  box-shadow:
+    0 0 calc(4px * var(--gl)) calc(2px * var(--gl)) rgb(244 214 144 / 0.95),
+    0 0 calc(14px * var(--gl)) calc(5px * var(--gl)) rgb(155 126 255 / 1),
+    0 0 calc(30px * var(--gl)) calc(10px * var(--gl)) rgb(155 126 255 / 0.6);
+  opacity: 1;
+  animation: none;
+}
+
+/* Hover or focus: brighter, and still. */
+.zoneHit:hover .glow,
+.zoneHit:focus-visible .glow,
+.masterHit:hover .glow,
+.masterHit:focus-visible .glow {
+  opacity: 1;
+  filter: brightness(1.35) saturate(1.1);
+  animation: none;
+}
+
+/* Rotated (defense) cards: glow the landscape shape, not the portrait guide. */
+.zone[data-defense="true"] .glow {
+  inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
+}
+
+.masterArt .glow {
+  --gl: 0.5;
+}
+
+.handCard .glow {
+  --gl: 0.6;
+}
+
+@keyframes glow-breathe {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Reduced motion: the same glow, steady. The field sets data-reduced-motion on .felt. */
+:global([data-reduced-motion="true"]) .glow {
+  opacity: 1;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow {
+    opacity: 1;
+    animation: none;
+  }
+}
+
 .mark {
   position: absolute;
   top: calc(var(--z) * -0.085);
@@ -1255,11 +1331,6 @@
   border: 1px dashed var(--sheet-hi);
   border-radius: calc(5 * var(--k));
   pointer-events: none;
-}
-
-.masterDock[data-selected="true"] .ring {
-  inset: -5px;
-  border: 2px solid var(--pen);
 }
 
 .masterDock[data-selected="true"] .mark {
