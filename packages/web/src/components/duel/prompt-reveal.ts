@@ -113,6 +113,11 @@ export function clearPromptRevealHold(): void {
   boardHoldUntil = 0;
 }
 
+/** Time left on the FX hold (see holdPromptReveal); 0 when no FX layer holds the board. */
+export function promptRevealHoldMs(): number {
+  return Math.max(0, boardHoldUntil - Date.now());
+}
+
 /**
  * Resolves when the prompt panel may appear: true when the wait ran its course, false when it was
  * aborted (the prompt changed or the room unmounted).

@@ -68,6 +68,7 @@ import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
 import { usePickContinuation } from "./pick-continuation";
 import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
+import { useResultGate } from "./result-reveal";
 import { PileViewer } from "./pile-viewer";
 import { shouldClosePileForPrompt } from "./pile-focus";
 
@@ -308,12 +309,22 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
   const [pile, setPile] = useState<PileView | null>(null);
   const preferences = useDuelPreferences();
-  const prompt = data?.engine?.prompt ?? null;
+  // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
+  const prompt = data?.engine?.result ? null : (data?.engine?.prompt ?? null);
   const draft = usePromptDraft(prompt);
   const legalKeys = useMemo(() => promptLegalKeys(prompt), [prompt]);
   const selectedKeys = useMemo(() => promptSelectedKeys(prompt, draft.selected), [draft.selected, prompt]);
   const closeMenu = useCallback(() => setMenu(null), []);
   const boardRef = useRef<HTMLDivElement>(null);
+  // The result screen waits for the last attack, LP roll and card flights to finish, then a short human pause.
+  const resultReady = useResultGate({
+    slug,
+    status: data?.session.status,
+    hasResult: data?.engine?.result != null,
+    reason: data?.engine?.result?.reason ?? data?.session.resultReason,
+    reducedMotion: preferences.reducedMotion,
+    board: boardRef,
+  });
   const promptMine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat && data.session.status === "active";
   // Every prompt except your own action menu is answered in the middle of the board (PromptCenter):
   // a floating panel for responses, an instruction bar for picks on the field. The left dock keeps
@@ -638,7 +649,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const series = data.series ?? null;
   const myIndex = series ? seriesPlayerIndex(data, series) : null;
   const sidePanelOpen = sideOpen && series != null && myIndex != null && data.mySide != null && isBetweenGames(data, slug);
-  const showResult = !hideResult && !sidePanelOpen && (engine?.result != null || terminal);
+  const showResult = !hideResult && !sidePanelOpen && resultReady && (engine?.result != null || terminal);
   const hasResult = engine?.result != null || terminal;
   const exitDuel = () => {
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
@@ -870,7 +881,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
               <span>Show result</span>
             </button>
           ) : null}
-          {hasResult ? (
+          {hasResult && resultReady ? (
             <button type="button" className={styles.tool} onClick={exitDuel}>
               <span>Exit duel</span>
             </button>
@@ -1001,7 +1012,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Options"}>
         {sideContent}
       </Sheet>
-      <Modal open={confirmSurrender} onClose={() => setConfirmSurrender(false)} title="Surrender">
+      <Modal open={confirmSurrender && !hasResult} onClose={() => setConfirmSurrender(false)} title="Surrender">
         <p className="text-sm text-text-secondary">This ends the duel. Confirm surrender?</p>
         <div className="mt-4 flex gap-2">
           <Button type="button" variant="danger" loading={busy} onClick={() => {
