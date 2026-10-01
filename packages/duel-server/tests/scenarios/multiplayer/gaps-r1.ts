@@ -4,7 +4,7 @@
 // the real card scripts plus the overlay, and ends with the state of EVERY seat (LP, field, hand, GY, banished zone).
 
 import {
-  activate, defineScenario, endTurn, expectBoard, expectPickSeats, pickOpponent, select, specialSummon, yes, zone,
+  activate, choose, defineScenario, endTurn, expectBoard, expectPickSeats, pickOpponent, select, specialSummon, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -161,7 +161,65 @@ function gagigobyte(format: "ffa3" | "tag", seedWord: string): Scenario {
   });
 }
 
+// --- Number 63: Shamoji Soldier -----------------------------------------------------------------------------------------------------------
+// Detach 1 material, then choose: (option 1) in the Standby Phase of the next turn of an opponent both players draw 1 card, or (option 2) both
+// players gain 1000 LP. "Both players" is every duelist (R-COMMON-EACH-PLAYER, the Tag partner too). The delayed draw waits for the first turn
+// of any opponent (Q1, rule R3): the effect fires once in the Standby Phase of p1 (the first opponent clockwise; in Tag the partner p2 is not an
+// opponent) and every duelist draws once. It is gone after that turn: the Standby Phase of the next duelist draws nothing extra.
+const SHAMOJI = "Number 63: Shamoji Soldier";
+const SHAMOJI_RULE = `${SOURCE} [R-COMMON-EACH-PLAYER], card decisions 2026-10-01 Q1/Q3: Number 63: Shamoji Soldier (the delayed draw of every duelist in the Standby Phase of the first opponent turn)`;
+const SHAMOJI_HAND: Record<Seat, string> = { p0: RAT, p1: OX, p2: AXE, p3: FANG };
+const SHAMOJI_DECK: Record<Seat, string> = { p0: ELF, p1: RAT, p2: OX, p3: AXE };
+
+function shamoji(format: "ffa3" | "tag", choice: "draw" | "lp"): Scenario {
+  const seats = seatsOf(format);
+  const tag = format === "tag";
+  const setup: Scenario["setup"] = { format };
+  for (const seat of seats) {
+    (setup as Record<string, unknown>)[seat] = {
+      hand: [SHAMOJI_HAND[seat]],
+      deck: [SHAMOJI_DECK[seat], SHAMOJI_DECK[seat], SHAMOJI_DECK[seat]],
+      ...(seat === "p0" ? { monsters: [{ card: SHAMOJI, materials: [AXE] }] } : {}),
+    };
+  }
+  const base = (seat: Seat): DuelistExpect => ({ ...(seat === "p0" ? { monsters: [SHAMOJI], grave: [AXE] } : {}), hand: [SHAMOJI_HAND[seat]] });
+  const steps: Step[] = [activate(SHAMOJI, "p0"), choose(choice === "draw" ? "opt:0" : "opt:1", "p0")];
+  if (choice === "lp") {
+    const spec: Partial<Record<Seat, DuelistExpect>> = {};
+    for (const seat of seats) spec[seat] = { ...base(seat), lp: (tag ? 16000 : 8000) + (tag ? 2000 : 1000) };
+    steps.push(everySeat(format, spec, tag ? 18000 : 9000));
+  } else {
+    // Nothing is drawn yet in the turn of p0. Then p0 ends the turn: in the Standby Phase of p1 every duelist draws 1, once.
+    const now: Partial<Record<Seat, DuelistExpect>> = {};
+    for (const seat of seats) now[seat] = base(seat);
+    steps.push(everySeat(format, now), endTurn("p0"));
+    const after: Partial<Record<Seat, DuelistExpect>> = {};
+    for (const seat of seats) after[seat] = { ...base(seat), hand: [SHAMOJI_HAND[seat], SHAMOJI_DECK[seat], ...(seat === "p1" ? [SHAMOJI_DECK[seat]] : [])] };
+    steps.push(everySeat(format, after), endTurn("p1"));
+    // The effect is gone after the turn of p1: the next duelist (p2, in Tag the partner of p0) makes its normal draw only, so p2 holds the effect
+    // draw and the normal draw, and nobody else draws again.
+    const next: Partial<Record<Seat, DuelistExpect>> = {};
+    for (const seat of seats) next[seat] = { ...after[seat], hand: [...(after[seat]?.hand as string[]), ...(seat === "p2" ? [SHAMOJI_DECK[seat]] : [])] };
+    steps.push(everySeat(format, next));
+  }
+  return defineScenario({
+    id: `gaps-r1-${format}-shamoji-soldier-${choice === "draw" ? "delayed-draw-of-every-duelist-in-the-first-opponent-standby-phase" : "every-duelist-gains-1000-lp"}`,
+    title: choice === "draw"
+      ? `${labelOf(format)}: p0 detaches 1 material of Shamoji Soldier and chooses the delayed draw: nothing is drawn in the turn of p0, then in the Standby Phase of p1 every duelist draws 1 card once (p1 also made its normal draw)`
+      : `${labelOf(format)}: p0 detaches 1 material of Shamoji Soldier and chooses the LP gain: every duelist gains 1000 LP${tag ? " (each team gains 2000, the partner included)" : ""}`,
+    source: SHAMOJI_RULE,
+    rules: ["R-COMMON-EACH-PLAYER", ...(tag ? ["R-TAG-PARTNER"] : [])],
+    tags: ["multiplayer", "gaps-r1", "r1", "each-player", "delayed", format, "card:89642993"],
+    setup,
+    steps,
+  });
+}
+
 export const GAPS_R1_SCENARIOS: Scenario[] = [
+  shamoji("ffa3", "lp"),
+  shamoji("tag", "lp"),
+  shamoji("ffa3", "draw"),
+  shamoji("tag", "draw"),
   gagigobyte("ffa3", "1"),
   gagigobyte("tag", "1"),
   grapha("ffa3"),
