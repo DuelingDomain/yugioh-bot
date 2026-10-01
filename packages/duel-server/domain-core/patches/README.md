@@ -61,6 +61,7 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 | `0048-reset-self-turn-rule.patch` | New `field::reset_counts_turn(pid, tp, flag)`. At `n > 2`: both flags count every turn, `RESET_SELF_TURN` alone counts the turns of the duelist only (not of the Tag partner), `RESET_OPPO_TURN` alone counts the turns of the other team. `effect::reset` and the control-return check in `processor.cpp` use it. This fixes `Duel.SkipPhase` in Tag. | None with 2 duelists. `n == 2` keeps the stock test. |
 | `0049-register-effect-zone-opponent.patch` | `Card.RegisterEffect` and `Duel.RegisterEffect` record the opponent of the last zone prompt (`fold::record_disfield_opp`, slot `chain::zone_opp` per chain link). A recorded or bound opponent that is eliminated gives an empty high half: the zones do not go to another seat. `Duel.SSet` toward a dead bound opponent returns 0 and sets no card. | None with 2 duelists. Every change is in an `n > 2` branch. |
 | `0050-one-opponent-window.patch` | The one-opponent window. A scope can open a window so that the reads of the other side (field class, overlays, counters, hand and Deck, the place prompt, the release and material lists) see one duelist. Kind ONE is the bound opponent of the scope or chain link (free-for-all only; Tag keeps the joined opposing field). Kind SEAT is an explicit seat (free-for-all and Tag). An open window with no living seat gives an empty other side, never every opponent. Lua: `Duel.MPMode`, `MPBound`, `MPOppCount`, `MPNeedPick`, `MPBindOpponent`, `MPWindow`, `MPWindowEnd`, `MPAssertBound`. The window is part of `lua_scope` and `scope_guard` restores it on every path. | None with 2 duelists. No scope is pushed and every new branch is `n_duelists > 2`. |
+| `0051-lp-cost-team-lp.patch` | `field::check_lp_cost` and `PayLPCost` step 1 read and write `lp_ref(playerid)` instead of `player[playerid].lp`. In Tag the LP cost check and payment use the team LP. A build step puts the stock text back before the Domain patch runs (`apply-domain-multi.mjs pre`, see D1a). | None with 2 duelists. `lp_ref(p)` is `player[p].lp`. |
 
 ## Commands
 
@@ -146,7 +147,7 @@ The same fix is useful for the production standard core. It is not applied there
 ## Status of the series
 
 - Patches 2, 3 and 4 pass the differential gate. The reference is patches 1 and 2. The multi core is patches 1 to 4.
-- The results in this section are for patches 1 to 4. They were not repeated for patches 5 to 50 when these files were added.
+- The results in this section are for patches 1 to 4. They were not repeated for patches 5 to 51 when these files were added.
 - Before the freed-effect fix: 200 seeds (base seed 20260930) and 1,000 seeds gave zero stock differences and zero multi differences.
 - With the freed-effect fix and the raw byte check: 200 seeds with patches 1 to 3 give zero differences and zero parse
   warnings. Patch 4 passes the 6 seeds that failed before (1577499120, 1916473771, 1025441889, 1578551883, 1116767578,
