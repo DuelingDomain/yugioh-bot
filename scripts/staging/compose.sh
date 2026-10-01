@@ -1,0 +1,47 @@
+#!/bin/sh
+# The only way to run docker compose for the staging stack. It always names the staging project,
+# the staging compose file and the staging env file, so a typo cannot reach the production stack.
+#
+#   sh scripts/staging/compose.sh <docker compose arguments>
+#   sh scripts/staging/compose.sh up -d
+#   sh scripts/staging/compose.sh ps
+#
+# Settings (environment): STAGING_ENV_FILE (default .env.staging), STAGING_PROJECT (default
+# yugidraft-staging). The script refuses to run in the production directory.
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root=$(CDPATH= cd -- "$script_dir/../.." && pwd -P)
+cd "$root"
+
+if [ "$root" = "/opt/yugioh-bot" ]; then
+  echo "compose.sh: this is the production directory. Run staging from /opt/yugioh-bot-staging." >&2
+  exit 1
+fi
+
+project=${STAGING_PROJECT:-yugidraft-staging}
+case "$project" in
+  yugidraft-staging*) ;;
+  *)
+    echo "compose.sh: the project name must start with yugidraft-staging" >&2
+    exit 1
+    ;;
+esac
+
+env_file=${STAGING_ENV_FILE:-.env.staging}
+if [ ! -f "$env_file" ]; then
+  echo "compose.sh: $env_file not found. Run scripts/staging/make-staging-env.sh first." >&2
+  exit 1
+fi
+# The web service reads this exact file name (env_file in docker-compose.staging.yml).
+if [ "$env_file" != ".env.staging" ] && [ ! -f .env.staging ]; then
+  echo "compose.sh: docker-compose.staging.yml needs the file .env.staging" >&2
+  exit 1
+fi
+
+# Containers write the staging data directory as the current user.
+STAGING_UID=${STAGING_UID:-$(id -u)}
+STAGING_GID=${STAGING_GID:-$(id -g)}
+export STAGING_UID STAGING_GID
+
+exec docker compose --env-file "$env_file" -p "$project" -f docker-compose.staging.yml "$@"

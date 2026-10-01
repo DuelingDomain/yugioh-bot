@@ -25,3 +25,5 @@ packages/duel-server/tests/fuzz/failures/
 packages/duel-server/tests/fuzz-n/failures/
 
 .status/
+.env.staging
+data-staging/

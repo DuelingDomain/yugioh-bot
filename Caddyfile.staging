@@ -1,0 +1,20 @@
+# Caddy for the staging stack (docker-compose.staging.yml). Runbook: docs/deployment/staging.md
+#
+# STAGING_SITE_ADDRESS comes from the compose file:
+#   ":80"            plain HTTP. The host port is STAGING_HTTP_PORT (default 8080).
+#   "staging.example.org"  HTTPS with an automatic certificate. The host port 443 must be published
+#                    (STAGING_HTTPS_PORT=443). The certificate comes through the TLS-ALPN challenge on
+#                    port 443, so the production Caddy that holds port 80 does not get in the way.
+{
+	# No admin API, and no redirect listener that nobody can reach.
+	admin off
+	auto_https disable_redirects
+}
+
+{$STAGING_SITE_ADDRESS::80} {
+	# Socket.IO goes to the staging ws. Everything else goes to the staging web.
+	handle /socket.io/* {
+		reverse_proxy ws:3001
+	}
+	reverse_proxy web:3000
+}
