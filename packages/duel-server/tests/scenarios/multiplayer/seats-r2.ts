@@ -5,7 +5,7 @@
 
 import {
   activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, pass, pickOpponent,
-  select, setCard, zone, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+  normalSummon, select, setCard, zone, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
@@ -32,6 +32,8 @@ const RAT = "Giant Rat";
 const SANGAN = "Sangan";
 const LAM = "Life Absorbing Machine";
 const PREMATURE = "Premature Burial";
+const GARDEN = "Black Garden";
+const ROSE = "Rose Token";
 const ELF_ATK = 800;
 
 /** The state of EVERY seat: LP, monsters, Spell and Trap zones, Graveyard and banished zone are exact; the hand only when the spec names it. */
@@ -217,6 +219,70 @@ export const SEATS_R2_SCENARIOS: Scenario[] = [
         p1: { lp: 15600, monsters: [FANG], spells: [PREMATURE] },
         p2: { lp: 15200, spells: [LAM] },
         p3: { lp: 15600, spells: [LAM] },
+      }),
+    ],
+  }),
+
+  // --- Black Garden: the token of the own side goes to ONE opponent the controller picks, the token of an opponent goes to the controller -----
+  defineScenario({
+    id: "seats-r2-ffa3-black-garden-token-goes-to-one-picked-opponent-or-to-the-controller",
+    title: "FFA3: p1 controls Black Garden. p0 summons Battle Ox: the ATK halves and p1 gets the Rose Token. p1 summons Axe Raider: the ATK halves and p1 picks p2 for the token (not p0). p2 summons Silver Fang: the ATK halves and p1 gets the token. In its next turn p0 attacks Silver Fang with Battle Ox (850 against 600): p2 loses 250 LP",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "r2", "seat-table", "ffa3", "card:71645242"],
+    // The stock trap c was the unbound GetLocationCount(1-tp) in the operation step. The target step binds ONE opponent (the pick of the controller).
+    setup: {
+      format: "ffa3",
+      p0: { hand: [OX] },
+      p1: { hand: [AXE], field: GARDEN },
+      p2: { hand: [FANG] },
+    },
+    steps: [
+      normalSummon(OX, "p0"),
+      endTurn("p0"),
+      normalSummon(AXE, "p1"),
+      pickOpponent("p2", "p1"),
+      endTurn("p1"),
+      normalSummon(FANG, "p2"),
+      endTurn("p2"),
+      changePhase("battle", "p0"),
+      attack(OX, FANG, "p0"),
+      everySeat("ffa3", {
+        p0: { monsters: [OX] },
+        p1: { monsters: [AXE, ROSE, ROSE], spells: [GARDEN] },
+        p2: { lp: 8000 - 250, monsters: [ROSE], grave: [FANG] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "seats-r2-tag-black-garden-token-goes-to-one-picked-opponent-or-to-the-controller",
+    title: "Tag: p1 controls Black Garden. p0 summons Battle Ox: its ATK halves and p1 gets the Rose Token. p1 summons Axe Raider: its ATK halves and p1 picks p2 for the token (not p0). p2 summons Silver Fang: p1 gets the token. p3 summons Mystical Elf: the ATK halves and p1 (the controller of the card, not p3) picks p0 for the token",
+    source: STATE,
+    rules: ["R-COMMON-SEAT-STATE", "R-COMMON-OPP-PICK", "R-TAG-PARTNER"],
+    tags: ["multiplayer", "r2", "seat-table", "tag", "card:71645242"],
+    setup: {
+      format: "tag",
+      p0: { hand: [OX] },
+      p1: { hand: [AXE], field: GARDEN },
+      p2: { hand: [FANG] },
+      p3: { hand: [ELF] },
+    },
+    steps: [
+      normalSummon(OX, "p0"),
+      endTurn("p0"),
+      normalSummon(AXE, "p1"),
+      pickOpponent("p2", "p1"),
+      endTurn("p1"),
+      normalSummon(FANG, "p2"),
+      endTurn("p2"),
+      normalSummon(ELF, "p3"),
+      pickOpponent("p0", "p1"),
+      endTurn("p3"),
+      everySeat("tag", {
+        p0: { monsters: [OX, ROSE] },
+        p1: { monsters: [AXE, ROSE, ROSE], spells: [GARDEN] },
+        p2: { monsters: [FANG, ROSE] },
+        p3: { monsters: [ELF] },
       }),
     ],
   }),
