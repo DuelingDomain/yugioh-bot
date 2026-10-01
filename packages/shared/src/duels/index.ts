@@ -1,4 +1,4 @@
-import type { DuelClock, DuelSettings } from "./settings.js";
+import type { DuelClock, DuelFormat, DuelSettings } from "./settings.js";
 
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
@@ -9,11 +9,23 @@ export type {
   DuelCardPool,
   DuelClock,
   DuelClockState,
+  DuelFormat,
   DuelSettings,
   DuelTimeout,
   DuelVisibility,
 } from "./settings.js";
 export {
+  DEFAULT_DUEL_FORMAT,
+  DUEL_FORMATS,
+  MAX_DUEL_SEATS,
+  isDuelFormat,
+  opponentSeatsOf,
+  partnerSeatOf,
+  seatCountFor,
+  seatsOfTeam,
+  startingLpFor,
+  teamCountFor,
+  teamOfSeat,
   DUEL_CLOCK_INCREMENT_MS,
   DUEL_CLOCK_REGAIN_FRACTION,
   DUEL_CLOCK_REGAIN_MIN_MS,
@@ -134,6 +146,8 @@ export type DuelPromptContext =
   | { type: "action"; phase: "main" | "battle" }
   | { type: "chain"; forced: boolean }
   | { type: "position" }
+  /** The activating duelist picks the one opponent that a hand, Deck, draw or LP effect binds. Options carry `controller: seat`. */
+  | { type: "opponent" }
   | { type: "deck-master-recall"; card: DuelCardInfo; returns: number; nextCost: number };
 
 export interface DuelPrompt {
@@ -180,6 +194,21 @@ export interface DuelSeatView {
   graveyard: DuelCard[];
   banished: DuelCard[];
   deckMaster?: { card: DuelCardInfo; inZone: boolean; returns: number; nextCost: number };
+  /** Team of this seat (`teamOfSeat(format, seat)`). Absent in 1v1 views made before multi-player formats. */
+  team?: number;
+  /** True after this seat (FFA) or its team (Tag) lost while the duel goes on. Its fields are empty. */
+  eliminated?: boolean;
+  /**
+   * True while this seat (FFA) or its team (Tag) is leaving: the elimination is requested, but the core applies
+   * the loss only after the open prompt is answered. Absent otherwise.
+   */
+  pendingElimination?: boolean;
+  /**
+   * Zones of this seat that an effect disabled (for example Field Disable effects), as a bit mask in the
+   * layout of the low half of MSG_FIELD_DISABLED (Monster Zones from bit 0, Spell and Trap Zones from bit 8).
+   * Absent when no zone is disabled.
+   */
+  disabledZones?: number;
 }
 
 /** A board position, in the same terms as DuelCard (controller, location bitmask, sequence). */
@@ -278,6 +307,8 @@ export interface DuelChainLink {
 
 export interface DuelEngineView {
   revision: number;
+  /** Seat and team layout. Absent means `1v1`. In Tag both partners' `lp` is the shared team LP. */
+  format?: DuelFormat;
   turn: number;
   turnSeat: number;
   phase: string;
@@ -288,7 +319,11 @@ export interface DuelEngineView {
   chain: DuelChainLink[];
   events: DuelEvent[];
   log: Array<{ id: number; text: string }>;
-  result: { winnerSeat: number | null; reason: string } | null;
+  /**
+   * `winnerSeat` is the winning seat in 1v1 and FFA. In Tag it is the lowest seat of the winning team, and
+   * `winnerTeam` names the team. Null means a draw.
+   */
+  result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string } | null;
 }
 
 export interface DuelSeat {
@@ -307,6 +342,8 @@ export interface DuelSession {
   guildId: string;
   organizerPlayerId: number;
   mode: DuelMode;
+  /** Seat and team layout. `1v1` for every duel made before multi-player formats. */
+  format: DuelFormat;
   masterRule: DuelMasterRule;
   status: DuelStatus;
   settings: DuelSettings;

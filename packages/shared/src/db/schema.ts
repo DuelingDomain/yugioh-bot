@@ -504,6 +504,9 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "settings_json", "text");
   addColumnIfMissing(db, "duels", "clock_json", "text");
   addColumnIfMissing(db, "duels", "invite_code", "text");
+  addColumnIfMissing(db, "duels", "format", "text not null default '1v1'");
+  addColumnIfMissing(db, "duels", "snapshot_seats_json", "text");
+  addColumnIfMissing(db, "duels", "setup_json", "text");
 
   db.transaction(() => {
     const seatInfo = db.prepare<[], { name: string; notnull: number }>("pragma table_info(duel_seats)").all();

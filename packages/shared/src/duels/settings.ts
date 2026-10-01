@@ -8,6 +8,64 @@ export type DuelSettingsMasterRule = 1 | 2 | 3 | 4 | 5;
 
 export { NO_BANLIST_ID, PINNED_TCG_BANLIST_ID };
 
+/** Table formats. Seats are in turn order; Tag turn order is 1A, 2A, 1B, 2B, so the team of a seat is seat % 2. */
+export type DuelFormat = "1v1" | "tag" | "ffa3" | "ffa4";
+
+export const DUEL_FORMATS: readonly DuelFormat[] = ["1v1", "tag", "ffa3", "ffa4"];
+export const DEFAULT_DUEL_FORMAT: DuelFormat = "1v1";
+/** The most seats any format uses. */
+export const MAX_DUEL_SEATS = 4;
+
+const FORMAT_SEAT_COUNT: Record<DuelFormat, number> = { "1v1": 2, tag: 4, ffa3: 3, ffa4: 4 };
+
+export function isDuelFormat(value: unknown): value is DuelFormat {
+  return typeof value === "string" && (DUEL_FORMATS as readonly string[]).includes(value);
+}
+
+export function seatCountFor(format: DuelFormat): number {
+  return FORMAT_SEAT_COUNT[format];
+}
+
+/** 1v1 and FFA: every seat is its own team. Tag: seats 0 and 2 are team 0, seats 1 and 3 are team 1. */
+export function teamOfSeat(format: DuelFormat, seat: number): number {
+  return format === "tag" ? seat % 2 : seat;
+}
+
+export function teamCountFor(format: DuelFormat): number {
+  return format === "tag" ? 2 : seatCountFor(format);
+}
+
+export function seatsOfTeam(format: DuelFormat, team: number): number[] {
+  const seats: number[] = [];
+  for (let seat = 0; seat < seatCountFor(format); seat += 1) {
+    if (teamOfSeat(format, seat) === team) seats.push(seat);
+  }
+  return seats;
+}
+
+export function opponentSeatsOf(format: DuelFormat, seat: number): number[] {
+  const team = teamOfSeat(format, seat);
+  const seats: number[] = [];
+  for (let other = 0; other < seatCountFor(format); other += 1) {
+    if (teamOfSeat(format, other) !== team) seats.push(other);
+  }
+  return seats;
+}
+
+/** The Tag partner of a seat; null in every other format. */
+export function partnerSeatOf(format: DuelFormat, seat: number): number | null {
+  if (format !== "tag") return null;
+  return (seat + 2) % 4;
+}
+
+/**
+ * Starting LP of one side. Tag: one shared total per team, the sum of its members' starting LP.
+ * 1v1 and FFA: per duelist.
+ */
+export function startingLpFor(format: DuelFormat, settings: Pick<DuelSettings, "startingLP">): number {
+  return format === "tag" ? settings.startingLP * 2 : settings.startingLP;
+}
+
 const SETTINGS_KEYS = [
   "visibility",
   "banlist",
@@ -75,8 +133,9 @@ export interface DuelSettings {
 
 export interface DuelClockState {
   turn: number;
-  remainingMs: [number, number];
-  activeSeat: 0 | 1 | null;
+  /** One entry per seat (2 to 4). */
+  remainingMs: number[];
+  activeSeat: number | null;
   startedAt: number | null;
 }
 
@@ -239,20 +298,23 @@ export function parseStoredDuelSettings(raw: string | null): DuelSettings {
   }
 }
 
-function asSeat(value: unknown): 0 | 1 | null {
-  if (value === null) return null;
-  if (value !== 0 && value !== 1) fail("activeSeat must be 0, 1, or null");
-  return value;
+function asRemainingMs(value: unknown): number[] {
+  const message = `remainingMs must be a list of 2 to ${MAX_DUEL_SEATS} non-negative integers`;
+  if (!Array.isArray(value) || value.length < 2 || value.length > MAX_DUEL_SEATS) fail(message);
+  const parsed: number[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "number" || !Number.isInteger(entry) || entry < 0) fail(message);
+    parsed.push(entry);
+  }
+  return parsed;
 }
 
-function asRemainingMs(value: unknown): [number, number] {
-  if (!Array.isArray(value) || value.length !== 2) fail("remainingMs must be a pair of non-negative integers");
-  const left = value[0];
-  const right = value[1];
-  if (typeof left !== "number" || !Number.isInteger(left) || left < 0 || typeof right !== "number" || !Number.isInteger(right) || right < 0) {
-    fail("remainingMs must be a pair of non-negative integers");
+function asSeat(value: unknown, seatCount: number): number | null {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value >= seatCount) {
+    fail(`activeSeat must be a seat from 0 to ${seatCount - 1}, or null`);
   }
-  return [left, right];
+  return value;
 }
 
 function asStartedAt(value: unknown): number | null {
@@ -271,10 +333,11 @@ function parseClockObject(input: Record<string, unknown>, rejectUnknown: boolean
   if (!("turn" in input) || !("remainingMs" in input) || !("activeSeat" in input) || !("startedAt" in input)) {
     fail("clock is missing required fields");
   }
+  const remainingMs = asRemainingMs(input.remainingMs);
   return {
     turn: asInteger(input.turn, "turn", 0, 1_000_000),
-    remainingMs: asRemainingMs(input.remainingMs),
-    activeSeat: asSeat(input.activeSeat),
+    remainingMs,
+    activeSeat: asSeat(input.activeSeat, remainingMs.length),
     startedAt: asStartedAt(input.startedAt),
   };
 }
