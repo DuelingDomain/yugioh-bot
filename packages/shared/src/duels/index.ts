@@ -39,6 +39,14 @@ export {
   NO_BANLIST_ID,
   PINNED_TCG_BANLIST_ID,
 } from "./settings.js";
+export {
+  MULTIPLAYER_TABLES_ENV,
+  MULTIPLAYER_TABLES_OFF_MESSAGE,
+  enabledDuelFormats,
+  multiplayerSeatsBlockReason,
+  multiplayerTablesBlockReason,
+  multiplayerTablesEnabled,
+} from "./multiplayer-tables.js";
 export { MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "./multi-domain.js";
 export type { DuelBanlistOption } from "./banlist-options.js";
 export type { DeckPoolIssue } from "./pool.js";

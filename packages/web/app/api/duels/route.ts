@@ -1,4 +1,4 @@
-import { isDuelFormat, multiDomainBlockReason } from "@yugidraft/shared/duels";
+import { isDuelFormat, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
 import { sendDuelInvite } from "@/lib/announce-bot";
@@ -59,6 +59,11 @@ export async function POST(request: NextRequest) {
   const format = body.format ?? "1v1";
   if (!isDuelFormat(format)) {
     return NextResponse.json({ error: "Duel format must be 1v1, tag, ffa3, or ffa4" }, { status: 400 });
+  }
+  // Read on every request: a restart with another MULTIPLAYER_TABLES value switches it, no build.
+  const tablesBlocked = multiplayerTablesBlockReason(format, multiplayerTablesEnabled());
+  if (tablesBlocked) {
+    return NextResponse.json({ error: tablesBlocked }, { status: 403 });
   }
   const blocked = multiDomainBlockReason(mode, format);
   if (blocked) {

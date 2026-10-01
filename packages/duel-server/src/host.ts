@@ -18,7 +18,7 @@ import type {
   DuelSession,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { CardQueryError, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
+import { CardQueryError, multiplayerSeatsBlockReason, multiplayerTablesEnabled, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf } from "./engine.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { DeckLegalityError, inspectDeck, validateDeck } from "./deck-legality.js";
@@ -1164,6 +1164,8 @@ export function createDuelHost(options: {
   async function startPreset(body: Record<string, unknown>, guildId: string, actor: number): Promise<unknown> {
     const preset = typeof body.presetId === "string" ? getPreset(body.presetId) : undefined;
     if (!preset) throw new RequestError("Unknown preset", 404);
+    const presetBlock = multiplayerSeatsBlockReason(seatCountFor(preset.format), multiplayerTablesEnabled());
+    if (presetBlock) throw new RequestError(presetBlock, 409);
     if (preset.needs === "multi-core" && !multiCoreAvailable(options.dataDirectory)) {
       throw new RequestError("This scenario needs the multi-duelist engine core, which is not installed on this server yet.", 409);
     }
@@ -1602,6 +1604,9 @@ export function createDuelHost(options: {
     const session = service.get(slug, guildId);
     if (session.status !== "lobby") throw new RequestError("Duel already started", 409);
     const seatCount = seatCountFor(session.format);
+    // The flag is read here, on every start, so a restart with another value switches it.
+    const tablesBlock = multiplayerSeatsBlockReason(seatCount, multiplayerTablesEnabled());
+    if (tablesBlock) throw new RequestError(tablesBlock, 409);
     const coreProblem = multiStartProblem(session.mode, session.format, options.dataDirectory);
     if (coreProblem) throw new RequestError(coreProblem, 409);
     if (!allSeatsReady(session)) {

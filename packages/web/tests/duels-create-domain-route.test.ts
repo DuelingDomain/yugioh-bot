@@ -16,6 +16,8 @@ function request(body: unknown): NextRequest {
 }
 
 beforeEach(() => {
+  // These tests are about Domain at multi-seat tables, so the tables flag is on.
+  vi.stubEnv("MULTIPLAYER_TABLES", "1");
   create.mockReset();
   create.mockReturnValue({ slug: "abc" });
 });

@@ -123,6 +123,8 @@ run("duel", process.execPath, ["packages/duel-server/dist/server.js"], {
     DUEL_SCENARIOS: "1",
     // The duel host report op writes here, not into the repo .status/manual. Keeps the real manual reports apart.
     DUEL_REPORT_DIR: resolve(stackDir, "reports"),
+    // Tag, 3-player and 4-player tables. On for the E2E stack so the multi-seat specs run; E2E_MULTIPLAYER_TABLES=0 turns it off.
+    MULTIPLAYER_TABLES: process.env.E2E_MULTIPLAYER_TABLES ?? "1",
     // Fast practice bot. The default pause is 900 ms per step.
     DUEL_BOT_STEP_MS: process.env.E2E_BOT_STEP_MS ?? "120",
     // The host defaults. A live .env value must not change them.
@@ -159,6 +161,8 @@ run("web", process.execPath, ["server.js"], {
     DUEL_INTERNAL_SECRET: secrets.duel,
     // The preset and report routes answer 404 without this. E2E stack only.
     DUEL_SCENARIOS: "1",
+    // Same flag as on the duel host. The web reads it at run time.
+    MULTIPLAYER_TABLES: process.env.E2E_MULTIPLAYER_TABLES ?? "1",
     CARD_IMAGE_CACHE_DIR: cardImageDir,
     // No BOT_ANNOUNCE_URL: the web skips Discord announcements when it is empty.
   },

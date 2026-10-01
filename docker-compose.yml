@@ -44,6 +44,8 @@ services:
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
       - DUEL_ARCHIVE_AFTER_MS=${DUEL_ARCHIVE_AFTER_MS:-600000}
       - DUEL_IDLE_WORKER_MS=${DUEL_IDLE_WORKER_MS:-300000}
+      # Tag, 3-player and 4-player tables. Off by default: only 1v1 tables start. The web service needs the same value.
+      - MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-0}
     # The VM has 4 GB. The first game loads the card database and scripts (about 114 MB), each game adds a few MB.
     mem_limit: ${DUEL_MEM_LIMIT:-1g}
     volumes:
@@ -63,6 +65,8 @@ services:
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
       - DUEL_INTERNAL_URL=http://duel:4003
       - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET}
+      # Same flag as on the duel service. The web reads it on the server at run time, so a restart switches it.
+      - MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-0}
     volumes:
       - ./data:/app/data
     depends_on:

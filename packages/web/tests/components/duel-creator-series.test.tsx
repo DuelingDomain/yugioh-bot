@@ -34,7 +34,7 @@ const create = () => fireEvent.click(screen.getByRole("button", { name: /Create 
 
 describe("DuelCreator match options", () => {
   it("defaults to an open Best of 1 unranked table, sent as today", async () => {
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     expect((screen.getByRole("radio", { name: "Best of 1" }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("checkbox", { name: /Ranked/ }) as HTMLInputElement).checked).toBe(false);
     create();
@@ -43,7 +43,7 @@ describe("DuelCreator match options", () => {
   });
 
   it("sends Best of 3 and Ranked for an open table", async () => {
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     fireEvent.click(screen.getByRole("radio", { name: "Best of 3" }));
     fireEvent.click(screen.getByRole("checkbox", { name: /Ranked/ }));
     create();
@@ -52,7 +52,7 @@ describe("DuelCreator match options", () => {
   });
 
   it("waits for a pause in typing, then searches once", async () => {
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     const input = screen.getByRole("searchbox");
     fireEvent.change(input, { target: { value: "i" } });
     fireEvent.change(input, { target: { value: "im" } });
@@ -64,7 +64,7 @@ describe("DuelCreator match options", () => {
 
   it("says when no player matches", async () => {
     api.searchPlayers.mockResolvedValue({ players: [] });
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zzz" } });
     expect(await screen.findByText("No players found.")).toBeTruthy();
   });
@@ -72,7 +72,7 @@ describe("DuelCreator match options", () => {
   it("challenges the picked player, shows the DM note and a copy link, and waits for the click into the room", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "imr" } });
     fireEvent.click(await screen.findByRole("button", { name: "Imran" }));
     expect(screen.getByTestId("opponent-chip").textContent).toBe("Imran");
@@ -85,7 +85,7 @@ describe("DuelCreator match options", () => {
   });
 
   it("shows a challenge as private and cannot be made public", async () => {
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     expect((screen.getByRole("radio", { name: "Public" }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole("radio", { name: "Public" }));
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "imr" } });
@@ -100,7 +100,7 @@ describe("DuelCreator match options", () => {
   });
 
   it("restores the chosen visibility after the opponent is cleared", async () => {
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     fireEvent.click(screen.getByRole("radio", { name: "Public" }));
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "imr" } });
     fireEvent.click(await screen.findByRole("button", { name: "Imran" }));
@@ -111,7 +111,7 @@ describe("DuelCreator match options", () => {
 
   it("tells the challenger to share the link when the bot could not send the DM", async () => {
     api.createDuel.mockResolvedValue({ session: { slug: "table-1" }, notified: false });
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "imr" } });
     fireEvent.click(await screen.findByRole("button", { name: "Imran" }));
     create();
@@ -123,7 +123,7 @@ describe("DuelCreator match options", () => {
 
   it("says the DM was sent only when the server reports it", async () => {
     api.createDuel.mockResolvedValue({ session: { slug: "table-1" }, notified: true });
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "imr" } });
     fireEvent.click(await screen.findByRole("button", { name: "Imran" }));
     create();
@@ -131,7 +131,7 @@ describe("DuelCreator match options", () => {
   });
 
   it("warns on an open table that Best of 3 and Ranked do not count against the practice bot", () => {
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     expect(screen.queryByTestId("practice-note")).toBeNull();
     fireEvent.click(screen.getByRole("radio", { name: "Best of 3" }));
     expect(screen.getByTestId("practice-note").textContent).toMatch(/practice bot never counts/);
@@ -142,7 +142,7 @@ describe("DuelCreator match options", () => {
   });
 
   it("clears the picked opponent", async () => {
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "imr" } });
     fireEvent.click(await screen.findByRole("button", { name: "Imran" }));
     fireEvent.click(screen.getByRole("button", { name: /Clear opponent/ }));

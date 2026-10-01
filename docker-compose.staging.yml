@@ -83,6 +83,8 @@ services:
       # volume, because the container user cannot write in /app.
       - DUEL_SCENARIOS=1
       - DUEL_REPORT_DIR=/app/data/duel-reports
+      # Tag, 3-player and 4-player tables are on in staging. Production has them off. The web needs the same value.
+      - MULTIPLAYER_TABLES=${STAGING_MULTIPLAYER_TABLES:-1}
     volumes:
       - ${STAGING_DATA_DIR:-./data-staging}:/app/data
     mem_limit: ${STAGING_MEM_DUEL:-768m}
@@ -114,6 +116,7 @@ services:
       - DUEL_INTERNAL_URL=http://duel:4003
       # Shows the Report button and opens the scenario routes. Same flag as on the duel service.
       - DUEL_SCENARIOS=1
+      - MULTIPLAYER_TABLES=${STAGING_MULTIPLAYER_TABLES:-1}
       - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET:?DUEL_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
       # There is no bot here. An empty URL turns every announcement into a no-op.
       - BOT_ANNOUNCE_URL=

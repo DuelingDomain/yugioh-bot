@@ -21,13 +21,13 @@ afterEach(() => {
 
 describe("DuelCreator Domain rule", () => {
   it("offers Standard and Domain at a 1v1 table", () => {
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     expect(screen.getByLabelText("Domain")).toBeTruthy();
     expect(screen.queryByTestId("domain-blocked")).toBeNull();
   });
 
   it.each(["tag", "ffa3", "ffa4"])("hides Domain and says why at a %s table", (format) => {
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: format } });
     expect(screen.queryByLabelText("Domain")).toBeNull();
     expect(screen.getByLabelText("Standard duel")).toBeTruthy();
@@ -37,7 +37,7 @@ describe("DuelCreator Domain rule", () => {
   it("goes back to Standard when the table type changes while Domain is chosen", async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ session: { slug: "abc" } }, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     fireEvent.click(screen.getByLabelText("Domain"));
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "ffa3" } });
     fireEvent.click(screen.getByRole("button", { name: /Create game/ }));
@@ -48,7 +48,7 @@ describe("DuelCreator Domain rule", () => {
   });
 
   it("brings Domain back when the table type is 1v1 again", () => {
-    render(<DuelCreator />);
+    render(<DuelCreator multiplayerTables />);
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "tag" } });
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "1v1" } });
     expect(screen.getByLabelText("Domain")).toBeTruthy();

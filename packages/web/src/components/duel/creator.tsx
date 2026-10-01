@@ -61,8 +61,11 @@ const SERIES_LENGTHS: readonly Choice<DuelBestOf>[] = [
 ];
 const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label: `Banlist: ${label}` }));
 
-/** `focusOpponent` opens the page with the opponent search focused (the "Challenge a player" entry). */
-export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean } = {}) {
+/**
+ * `focusOpponent` opens the page with the opponent search focused (the "Challenge a player" entry).
+ * `multiplayerTables` is the MULTIPLAYER_TABLES flag, read on the server and passed down. Off (the default): the form offers 1v1 only.
+ */
+export function DuelCreator({ focusOpponent = false, multiplayerTables = false }: { focusOpponent?: boolean; multiplayerTables?: boolean } = {}) {
   const router = useRouter();
   const [name, setName] = useState("Table");
   const [mode, setMode] = useState<DuelMode>("normal");
@@ -212,9 +215,12 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
             <section className={styles.section} aria-labelledby="creator-format">
               <div className={styles.side}>
                 <h2 id="creator-format" className={ui.sectionTitle}>Format</h2>
-                <p className={ui.hint}>Table size and rules. Standard allows every table type. Domain is for 1v1 tables for now.</p>
+                <p className={ui.hint}>
+                  {multiplayerTables ? "Table size and rules. Standard allows every table type. Domain is for 1v1 tables for now." : "Standard or Domain, one against one."}
+                </p>
               </div>
               <div className={styles.fields}>
+                {multiplayerTables ? (
                 <div className={styles.wide}>
                   <SheetSelect label="Table type" value={format} choices={TABLE_FORMATS} onChange={(value) => {
                     setFormat(value);
@@ -236,6 +242,7 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
                     {formatSeatCount(format)} seats · {formatStartingLp(format, settings).toLocaleString("en-US")} LP{format === "tag" ? " per team" : " each"}. {FORMAT_RULES[format]}
                   </p>
                 </div>
+                ) : null}
                 <div className={styles.wide}>
                   <SheetSegmented label="Duel type" value={mode} choices={duelTypes} onChange={(value) => {
                     setMode(value);
@@ -271,7 +278,7 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
             <section className={styles.section} aria-labelledby="creator-clock">
               <div className={styles.side}>
                 <h2 id="creator-clock" className={ui.sectionTitle}>Clock &amp; life points</h2>
-                <p className={ui.hint}>Pace of the duel and where duelists start. In Tag this is per duelist; a team shares double.</p>
+                <p className={ui.hint}>Pace of the duel and where duelists start.{multiplayerTables ? " In Tag this is per duelist; a team shares double." : ""}</p>
               </div>
               <div className={styles.fields}>
                 <SheetSelect label="Starting Life Points" value={settings.startingLP} choices={LIFE_POINTS} onChange={(value) => update("startingLP", value)} />
