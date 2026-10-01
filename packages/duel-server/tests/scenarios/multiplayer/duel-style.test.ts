@@ -21,6 +21,7 @@ const Q7 = `${SOURCE} [R-COMMON-OPP-FIELD], answers to the ten triage questions,
 const Q8 = `${SOURCE} [R-COMMON-OPP-FIELD], answers to the ten triage questions, 8 (Tribute of an opponent monster)`;
 const SUMMON = `${SOURCE} [R-COMMON-OPP-PICK], a summon to the field of an opponent: the summoning player picks one opponent`;
 const NO_WRAPPER = `${SOURCE} [R-COMMON-OPP-PICK], the other cards use the defaults`;
+const OWNER_LP = `${SOURCE} [R-COMMON-OPP-FIELD], finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
 
 type Seat = "p0" | "p1" | "p2" | "p3";
 
@@ -419,10 +420,80 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
+  // --- s2-duelstyle-swap-1: the 1000 LP of Snatch Steal go to the OWNER of the stolen monster, in its own Standby Phase, with no pick
+  defineScenario({
+    id: "owner-lp-snatch-steal-ffa3-only-the-owner-gains-the-lp-in-its-own-standby-phase",
+    title: "FFA3: the 1000 LP of Snatch Steal go to the owner of the stolen monster (p2) in its own Standby Phase, with no pick, and to nobody else",
+    source: OWNER_LP,
+    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    tags: ["multiplayer", "equip", "steal", "lp", "ffa3", "card:45986603"],
+    setup: {
+      format: "ffa3",
+      p0: { hand: ["Snatch Steal"] },
+      p1: { monsters: [ELF] },
+      p2: { monsters: ["Summoned Skull"] },
+    },
+    steps: [
+      activate("Snatch Steal", "p0"),
+      select({ card: "Summoned Skull", owner: "p2" }),
+      endTurn("p0"),
+      // The Standby Phase of p1 (not the owner): nobody is asked and nobody gains LP.
+      expectLp({ seat: "p0" }, 8000),
+      expectLp({ seat: "p1" }, 8000),
+      expectLp({ seat: "p2" }, 8000),
+      endTurn("p1"),
+      // The Standby Phase of p2 (the owner): p2 gains 1000 LP, nobody is asked.
+      expectLp({ seat: "p0" }, 8000),
+      expectLp({ seat: "p1" }, 8000),
+      expectLp({ seat: "p2" }, 9000),
+      endTurn("p2"),
+      endTurn("p0"),
+      endTurn("p1"),
+      // The next Standby Phase of p2: the effect gives the LP again, once more to p2 only.
+      expectLp({ seat: "p0" }, 8000),
+      expectLp({ seat: "p1" }, 8000),
+      expectLp({ seat: "p2" }, 10000),
+      expectBoard({
+        p0: { monsters: ["Summoned Skull"], spells: ["Snatch Steal"] },
+        p2: { monsters: { count: 0 } },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "owner-lp-snatch-steal-tag-only-the-team-of-the-owner-gains-the-lp-in-the-turn-of-the-owner",
+    title: "Tag: the 1000 LP of Snatch Steal go to the team of the owner (p3) in the turn of p3 only, not in the turn of its partner p1",
+    source: OWNER_LP,
+    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER", "R-TAG-ORDER"],
+    tags: ["multiplayer", "equip", "steal", "lp", "tag", "card:45986603"],
+    setup: {
+      format: "tag",
+      p0: { hand: ["Snatch Steal"] },
+      p1: { monsters: [ELF] },
+      p2: { monsters: ["Dark Magician"] },
+      p3: { monsters: ["Summoned Skull"] },
+    },
+    steps: [
+      activate("Snatch Steal", "p0"),
+      select({ card: "Summoned Skull", owner: "p3" }),
+      endTurn("p0"),
+      // The Standby Phase of p1, the partner of the owner: no LP for the team of the owner.
+      expectLp({ team: 0 }, 16000),
+      expectLp({ team: 1 }, 16000),
+      endTurn("p1"),
+      // The Standby Phase of p2, the partner of the controller: nothing.
+      expectLp({ team: 0 }, 16000),
+      expectLp({ team: 1 }, 16000),
+      endTurn("p2"),
+      // The Standby Phase of p3, the owner: the team of p3 gains 1000 LP.
+      expectLp({ team: 0 }, 16000),
+      expectLp({ team: 1 }, 17000),
+      expectBoard({
+        p0: { monsters: ["Summoned Skull"], spells: ["Snatch Steal"] },
+        p3: { monsters: { count: 0 } },
+      }),
+    ],
+  }),
 ];
-
-// Real engine gaps found by this file. They are not scenarios: the finding files hold the exact repro.
-it.todo("s2-duelstyle-swap-1: Snatch Steal in FFA3 asks its controller for a pick in every opponent Standby Phase and the picked seat gains the 1000 LP, not only the owner in its own Standby Phase");
 
 describeWithCores("live N-seat scenarios: duel-style, swap of control, Tribute, no wrapper, opponent-field summon", liveNseat, () => {
   runScenarios("multiplayer/duel-style", DUEL_STYLE_SCENARIOS);
