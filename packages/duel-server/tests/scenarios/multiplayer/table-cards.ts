@@ -366,7 +366,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-tag-summoning-curse-two-opposing-duelists-summon-at-once-both-banish",
     title: "Tag: Summoning Curse of p0, then The Grave of Enkindling Special Summons a monster for p0, p1 and p3 at once: p0, p1 and p3 each banish 1 card from their own hand (p2 summoned nothing)",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-TAG-TEAMS"],
+    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER"],
     tags: ["multiplayer", "trigger", "banish", "tag", "card:61650133"],
     setup: {
       format: "tag",
