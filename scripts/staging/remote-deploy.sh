@@ -73,6 +73,9 @@ fi
 [ "$action" = "deploy" ] || { echo "remote-deploy: unknown action $action" >&2; exit 1; }
 [ -f "$bundle" ] || { echo "remote-deploy: engine bundle $bundle not found" >&2; exit 1; }
 
+# The bundle in /tmp is not needed after this run, whatever the result.
+trap 'rm -f "$bundle"' EXIT
+
 # 1. The env file, only when it is missing. Secrets stay on the VM.
 if [ ! -f .env.staging ]; then
   [ -f "$prod_dir/.env" ] || { echo "remote-deploy: $prod_dir/.env not found" >&2; exit 1; }
@@ -134,7 +137,9 @@ $compose ps
 if ! sh scripts/staging/health-check.sh 180; then
   $compose logs --tail=60 || true
   free -m || true
-  echo "remote-deploy: staging did not become healthy." >&2
+  # Do not leave an unhealthy stack running: it keeps using memory that production may need.
+  $compose stop || true
+  echo "remote-deploy: staging did not become healthy. It is stopped now." >&2
   exit 1
 fi
 $compose logs --tail=20
@@ -142,7 +147,6 @@ ids=$($compose ps -q)
 # shellcheck disable=SC2086
 docker stats --no-stream $ids || true
 free -m || true
-rm -f "$bundle"
 
 # 8. Remove the old staging images. Only the ids from before the build, and only when nothing uses them.
 new_images=$($compose images -q 2>/dev/null | sort -u | tr '\n' ' ' || true)

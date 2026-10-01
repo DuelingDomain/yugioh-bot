@@ -58,6 +58,9 @@ The weak point is the build: `next build` needs about 1 GB or more for a short t
 5. After a healthy start it removes the old staging images from the earlier deploy. It removes only those image ids,
    and Docker refuses an image that a container or the production project still uses.
 
+If the health check fails at the end, the workflow stops the staging containers again, so an unhealthy stack does not keep
+using memory. The engine bundle in `/tmp` on the VM is removed after every run.
+
 If a check stops the run, staging stays down and production is not touched. Run the workflow again when the VM is quiet.
 A push to `main` while staging runs therefore stops staging. This is on purpose: production comes first.
 
