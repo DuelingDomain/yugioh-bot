@@ -258,8 +258,9 @@ jobs:
       - name: Install
         run: npm ci
 
-      # Script owned by the native-checks work: builds the core with ASan and UBSan, runs the committed
-      # checks and the short nduel matrix with golden.tsv --check (a missing golden row is a failure).
+      # scripts/native/checks/run.sh: builds the core from the repo patch series with ASan and UBSan and runs the
+      # committed checks that are marked ready in checks.tsv. The nduel matrix and golden.tsv --check run in the
+      # nduel-nightly job, not here.
       - name: Native tests
         run: npm run test:native
 
