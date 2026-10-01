@@ -14,6 +14,7 @@ const HAND_DESTRUCTION = 74519184;
 const CREATURE_SWAP = 31036355;
 const RAIGEKI = 12580477;
 const DARK_MAGICIAN = 46986414;
+const RING_OF_DESTRUCTION = 83555666;
 
 const TYPE_SPELL = 0x2;
 const TYPE_MONSTER = 0x1;
@@ -75,6 +76,18 @@ describe("multiplayer forbidden list in deck validation", () => {
       expect(issues[0]!.cards).toEqual([{ section: "main", index: 0, code: HAND_DESTRUCTION }].map((ref) => expect.objectContaining(ref)));
     }
     expect(inspectDeck("normal", deck, DATA, settings, { table: "tag" }).issues).toEqual([]);
+  });
+
+  it("refuses Ring of Destruction at 3-FFA and 4-FFA, and allows it in Tag and 1v1", () => {
+    const deck = deckWith(RING_OF_DESTRUCTION);
+    for (const table of FFA_TABLES) {
+      const issues = inspectDeck("normal", deck, DATA, settings, { table }).issues;
+      expect(issues.length, table).toBe(1);
+      expect(issues[0]!.message, table).toMatch(/^Ring of Destruction is forbidden in /);
+      expect(() => validateDeck("normal", deck, DATA, settings, { table }), table).toThrow(/Ring of Destruction is forbidden/);
+    }
+    expect(inspectDeck("normal", deck, DATA, settings, { table: "tag" }).issues).toEqual([]);
+    expect(inspectDeck("normal", deck, DATA, settings).issues).toEqual([]);
   });
 
   it("flags an all-format card in Tag too", () => {
