@@ -28,8 +28,8 @@
 //             run per opponent decides who is legal (silent bind, a pick, or not offered)
 //   nested    review fix 2, flow: a filter with an effect argument inside a ONE window reads the bound opponent (no new
 //             scope there; the scope copy itself is in part B: a condition of the same effect gets window and opponent)
-//   emptywin  review fix 3: GetLP, Draw and a hand count with 1-tp inside a window with no seat give nothing: no
-//             widening, no pick prompt, no card drawn
+//   emptywin  review fix 3: GetLP, Draw and a hand count with 1-tp inside a window with no seat give the empty value (GetLP 0, since core patch 0059,
+//             owner rule OQ3; before it nothing): no widening, no pick prompt, no card drawn
 //   lazybind  review fix 3: MPBindOpponent inside a SEAT window (nothing bound) still asks the pick and binds
 #include "scripted-duel.h"
 #include <unistd.h>
@@ -687,14 +687,14 @@ static void flow_emptywin() {
 		pl.mon[1] = 1; pl.mon[2] = 3; if(pl.n == 4) pl.mon[3] = 2;
 		const Result r = play(pl, "emptywin");
 		const auto l = find_line(r, "emptywin");
-		EXPECT(r.done && l.size() == 3 && l[1] == "nil" && l[2] == "0", "emptywin %s: reads '%s', want 'emptywin nil 0'", label(pl).c_str(), join(l).c_str());
+		EXPECT(r.done && l.size() == 3 && l[1] == "0" && l[2] == "0", "emptywin %s: reads '%s', want 'emptywin 0 0'", label(pl).c_str(), join(l).c_str());
 		EXPECT(r.opt_prompts == 0, "emptywin %s: %d pick prompt(s), want none (an empty window never asks)", label(pl).c_str(), r.opt_prompts);
 		for(int q = 1; q < pl.n; ++q)
 			EXPECT(r.hand[q] == pl.hand[q] + kStartHand, "emptywin %s: hand of seat %d = %d, want %d (nobody draws)", label(pl).c_str(), q, r.hand[q], pl.hand[q] + kStartHand);
 		EXPECT(kind_count(r.nfold, 'W') >= 1, "emptywin %s: no trap W record", label(pl).c_str());
 		EXPECT(kind_count(r.nfold, 'c') == 0 && kind_count(r.nfold, 'a') == 0, "emptywin %s: NFOLD %s", label(pl).c_str(), join(r.nfold).c_str());
 		EXPECT(r.stray == 0 && r.map_empty && r.scopes_empty, "emptywin %s: stray %d map %d scopes %d", label(pl).c_str(), r.stray, r.map_empty, r.scopes_empty);
-		std::printf("ok   emptywin %s: GetLP nil, no draw, no prompt inside a window with no seat\n", label(pl).c_str());
+		std::printf("ok   emptywin %s: GetLP 0, no draw, no prompt inside a window with no seat\n", label(pl).c_str());
 	}
 }
 
