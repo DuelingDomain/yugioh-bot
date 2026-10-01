@@ -11,6 +11,9 @@ import { MoveFx } from "../move-fx";
 import { PositionFx } from "../position-fx";
 import { ChainFx } from "../chain-fx";
 import { MasterReturnFx } from "../master-return-fx";
+import { PromptCenter } from "../prompt-center";
+import { activatePromptFromField, promptSelectedKeys, type PromptDraft } from "../prompts";
+import { PickRefusalHint, shakeRefusedCard } from "../card-interactions";
 import { DuelResultScreen } from "../duel-result";
 import { FxBoundary } from "../fx-boundary";
 import { duelFontClasses } from "../fonts";
@@ -21,6 +24,7 @@ import fx from "./fx-lab.module.css";
 import { applyEdits, numberSteps, scriptDurationMs, type LabBoard, type LabScenario, type LabScript } from "./board";
 import { LAB_CATEGORIES, LAB_SCENARIOS, findScenario, scenariosIn } from "./scenarios";
 import { installTimeShim, type TimeShim } from "./time-shim";
+import { labSeriesRoom, SeriesLabHeader, SeriesLabScreen } from "./series-view";
 
 /**
  * The FX lab: the real duel board and effect layers, fed by a scripted engine instead of a server.
@@ -47,6 +51,13 @@ type Live = {
 
 const noop = () => undefined;
 const NO_KEYS: ReadonlySet<string> = new Set();
+/** The lab never answers: the prompt draft holds nothing and sends nothing. */
+function labDraft(selected: string[]): PromptDraft {
+  return {
+    selected, setSelected: noop, counts: {}, setCounts: noop, value: 0, setValue: noop,
+    cardCode: null, setCardCode: noop, highlight: 0, setHighlight: noop,
+  };
+}
 
 function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)} s`;
@@ -140,6 +151,28 @@ export function FxLab() {
   const script = useMemo<LabScript>(() => scenario.build(), [scenario]);
   const expectedMs = useMemo(() => scriptDurationMs(script), [script]);
   const legalKeys = useMemo(() => new Set(script.legalKeys ?? []), [script]);
+  // An interactive pick scenario: clicks toggle the pick here, with the same rules and feedback as a duel.
+  const interactive = script.prompt?.interactive === true;
+  const [picked, setPicked] = useState<string[]>([]);
+  const [pickHint, setPickHint] = useState<{ anchor: HTMLElement; text: string } | null>(null);
+  const clearPickHint = useCallback(() => setPickHint(null), []);
+  useEffect(() => {
+    setPicked(script.prompt?.selected ?? []);
+    setPickHint(null);
+  }, [script, live.runKey]);
+  const pickedIds = interactive ? picked : (script.prompt?.selected ?? []);
+  const pickedKeys = useMemo(
+    () => (interactive && script.prompt ? promptSelectedKeys(script.prompt.prompt, picked) : NO_KEYS),
+    [interactive, script, picked],
+  );
+  const onActivate = (keys: string[], card: DuelCard | null, anchor: HTMLElement) => {
+    if (!interactive || !script.prompt) return;
+    const draft: PromptDraft = { ...labDraft(picked), setSelected: setPicked };
+    activatePromptFromField(script.prompt.prompt, true, keys, card, draft, undefined, (refusal) => {
+      shakeRefusedCard(anchor, reduced);
+      setPickHint({ anchor, text: refusal.text });
+    });
+  };
 
   useEffect(() => {
     shimRef.current = installTimeShim();
@@ -268,6 +301,8 @@ export function FxLab() {
   const stageHeight = "clamp(560px, calc(100dvh - 250px), 900px)";
   const battle = isBattlePhase(live.board.phase);
   const canvasReady = Boolean(getSharedFx3d());
+  // A Best of 3 scenario: the header label always shows; the between-games or match screen opens once it plays.
+  const seriesRoom = useMemo(() => (script.series ? labSeriesRoom(script.initial, script.series) : null), [script, live.runKey]);
 
   return (
     <div className={fx.page}>
@@ -332,6 +367,7 @@ export function FxLab() {
             data-turn={live.board.turnSeat === 0 ? "you" : "opp"}
             data-reduced={reduced ? "true" : "false"}
           >
+            {seriesRoom ? <SeriesLabHeader room={seriesRoom} /> : null}
             <div className={fx.row}>
               <div className={fx.boardWrap}>
                 <div className={styles.board}>
@@ -342,8 +378,8 @@ export function FxLab() {
                       masterRule={5}
                       reducedMotion={reduced}
                       legalKeys={legalKeys as Set<string>}
-                      selectedKeys={NO_KEYS as Set<string>}
-                      onActivate={noop}
+                      selectedKeys={pickedKeys as Set<string>}
+                      onActivate={onActivate}
                       onInspect={noop}
                       bottomName="You"
                       topName="Practice Bot"
@@ -358,6 +394,23 @@ export function FxLab() {
                       <BattleFx events={engine.events} seats={engine.seats} reducedMotion={reduced} active aim={script.aim} />
                       <DestroyFx events={engine.events} reducedMotion={reduced} active mySeat={0} />
                     </FxBoundary>
+                    {script.prompt ? (
+                      <PromptCenter
+                        prompt={script.prompt.prompt}
+                        mySeat={script.mySeat ?? 0}
+                        active
+                        slug="fx-lab"
+                        busy={false}
+                        draft={interactive ? { ...labDraft(pickedIds), setSelected: setPicked } : labDraft(pickedIds)}
+                        onSubmit={noop}
+                        menuOpen={false}
+                        chain={engine.chain}
+                        aimLocked={false}
+                        reducedMotion={reduced}
+                        revision={engine.revision}
+                        battleStep={script.prompt.battleStep ?? null}
+                      />
+                    ) : null}
                   </Fragment>
                 </div>
               </div>
@@ -381,6 +434,12 @@ export function FxLab() {
           </div>
         </main>
       </div>
+      {pickHint && pickHint.anchor.isConnected ? (
+        <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} />
+      ) : null}
+      {seriesRoom && script.series && status !== "idle" ? (
+        <SeriesLabScreen key={`${scenario.id}-${live.runKey}`} room={seriesRoom} spec={script.series} reduced={reduced} sound={sound} />
+      ) : null}
       {result ? (
         <DuelResultScreen
           room={resultRoom(live.board, result)}

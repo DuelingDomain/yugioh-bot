@@ -239,8 +239,17 @@ export function phaseName(phase: OcgPhase): string {
   return ocgPhaseString.get(phase) ?? String(phase);
 }
 
+/**
+ * The phases the table announces as an event. The Draw and Standby Phase are announced too: the core
+ * moves through them whether or not anyone draws or responds, and the client shows each one in turn
+ * (a turn start is Draw, Standby, then Main Phase 1). The Battle Phase sub-steps are not announced.
+ */
 function announcedPhaseTitle(phase: OcgPhase): string | null {
   switch (phase) {
+    case OcgPhase.DRAW:
+      return "Draw Phase";
+    case OcgPhase.STANDBY:
+      return "Standby Phase";
     case OcgPhase.MAIN1:
       return "Main Phase 1";
     case OcgPhase.BATTLE_START:

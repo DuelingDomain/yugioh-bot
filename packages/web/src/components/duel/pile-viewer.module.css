@@ -27,7 +27,7 @@
   --pv-pad: 12px;
   position: absolute;
   inset: 0;
-  z-index: 30;
+  z-index: var(--duel-z-prompt-front);
   display: grid;
   place-items: center;
   box-sizing: border-box;
@@ -451,7 +451,7 @@
 @media (max-width: 900px) {
   .root {
     position: fixed;
-    z-index: 40;
+    z-index: var(--duel-z-prompt-front);
     padding: 12px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }

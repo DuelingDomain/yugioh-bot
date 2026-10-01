@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import type { DuelRoom } from "@yugidraft/shared/duels";
+import type { DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { cancelSeries, readySeries } from "./api";
 import { SheetButton } from "./sheet-ui";
 import resultStyles from "./duel-result.module.css";
 import styles from "./series.module.css";
-import { canCancelInterrupted, formatCountdown, seriesPlayerIndex, secondsUntil } from "./series-model";
+import { canCancelInterrupted, formatCountdown, opponentSideStatus, seriesPlayerIndex, secondsUntil } from "./series-model";
 
 /** Whole seconds left until `iso`, ticking twice a second; null when there is no deadline. */
 export function useSecondsUntil(iso: string | null): number | null {
@@ -18,6 +18,17 @@ export function useSecondsUntil(iso: string | null): number | null {
     return () => window.clearInterval(timer);
   }, [iso]);
   return secondsUntil(iso, now);
+}
+
+/** "Opponent is siding…" or "Opponent ready": the other player's state between games. Null for a spectator. */
+export function OpponentSideChip({ series, index }: { series: DuelSeriesSummary; index: 0 | 1 | null }) {
+  const status = opponentSideStatus(series, index);
+  if (!status) return null;
+  return (
+    <p className={styles.opp} data-ready={status.ready ? "true" : "false"} role="status" data-testid="opponent-side-status">
+      <i aria-hidden />{status.text}
+    </p>
+  );
 }
 
 type ButtonKind = "primary" | "secondary" | "quiet";
@@ -69,7 +80,6 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   const index = seriesPlayerIndex(room, series);
   const imReady = index != null && series.sideReady[index];
   const theirReady = index != null && series.sideReady[index === 0 ? 1 : 0];
-  const theirName = index != null ? series.displayNames[index === 0 ? 1 : 0] : null;
   const canSide = index != null && series.hasSide[index] && onOpenSide != null;
   const interrupted = series.nextGameAt == null;
 
@@ -100,7 +110,7 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   });
 
   const status = index == null ? "Waiting for the players."
-    : imReady ? (theirReady ? "Both players are ready." : `Waiting for ${theirName}.`)
+    : imReady ? (theirReady ? "Both players are ready." : "You are ready.")
       : interrupted ? "The last game did not finish. Both players must click Ready to play on."
         : canSide ? "Swap cards from your Side Deck, then click Ready." : "Click Ready to start sooner.";
 
@@ -110,6 +120,7 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
         {seconds != null ? <>Game {series.gameNumber + 1} in <b>{formatCountdown(seconds)}</b></> : "Waiting for both players"}
       </p>
       <p className={styles.status} role="status">{status}</p>
+      <OpponentSideChip series={series} index={index} />
       {index != null ? (
         <div className={styles.actions}>
           <Action tone={tone} kind="primary" loading={busy && !confirmCancel} disabled={imReady || busy} onClick={() => void ready()}>

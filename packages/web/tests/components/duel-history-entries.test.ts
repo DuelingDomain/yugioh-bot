@@ -575,3 +575,18 @@ describe("history entries: positions in Yu-Gi-Oh! words", () => {
     expect(list[0].sentence).toBe("You changed Wall to Defense Position.");
   });
 });
+
+describe("history: turn-start phases", () => {
+  it("keeps one header per turn: Draw and Standby Phase make no separator", () => {
+    const events: DuelEvent[] = [
+      { id: 1, kind: "phase", text: "Draw Phase" },
+      { id: 2, kind: "phase", text: "Standby Phase" },
+      { id: 3, kind: "phase", text: "Main Phase 1" },
+      { id: 4, kind: "summon", seat: 0, card: info(1, "A"), text: "" },
+    ];
+    const state = ingestHistory(emptyHistory(), events, ctx({ turn: 1 }));
+    const view = buildHistoryView(state.items, opts);
+    expect(view.groups).toHaveLength(1);
+    expect(view.groups[0].rows.map((row) => row.type)).toEqual(["entry"]);
+  });
+});

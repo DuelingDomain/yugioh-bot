@@ -3,28 +3,45 @@
    The layer never blocks the field: only the panel, the bar and the pill take pointer events.
 
    One family: the select bar, the yes/no bar (prompt-precheck.module.css) and the card-grid panel share the
-   --pc-* tokens below: a dark blurred surface, a hairline border, a soft shadow, a semibold title over a muted
-   second line, and 8px buttons. Accent colour marks only the primary action. */
+   --pc-* tokens below: a lifted navy surface, a gold edge with a gold top bar, a strong shadow with a soft dim
+   around it so the panel separates from the board, a bright title over a high-contrast ask line, and 8px
+   buttons. Gold marks the panel and its primary action. A slow gold glow shows while the player must act. */
 
 .layer {
   position: absolute;
   inset: 0;
-  z-index: 6;
+  z-index: var(--duel-z-prompt);
   pointer-events: none;
   color: var(--duel-ink, #efe7d5);
   font-family: var(--duel-f-ui, var(--font-body));
   font-size: var(--duel-t-body, 13px);
   line-height: 1.35;
 
-  --pc-surface: rgb(11 17 32 / 0.95);
-  --pc-border: 1px solid rgb(239 231 213 / 0.14);
-  --pc-border-chain: 1px solid rgb(228 182 79 / 0.42);
-  --pc-shadow: 0 10px 28px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(239 231 213 / 0.06);
+  --pc-accent: var(--duel-chain, #e4b64f);
+  --pc-accent-ink: var(--duel-chain-ink, #f4d690);
+  --pc-surface: rgb(27 38 66 / 0.98);
+  --pc-border: 1px solid rgb(228 182 79 / 0.6);
+  --pc-border-chain: 1px solid rgb(228 182 79 / 0.6);
+  --pc-shadow:
+    inset 0 3px 0 var(--pc-accent),
+    inset 0 4px 0 rgb(255 255 255 / 0.12),
+    0 0 0 1px rgb(0 0 0 / 0.55),
+    0 0 16px rgb(228 182 79 / 0.2),
+    0 16px 36px rgb(0 0 0 / 0.65),
+    0 0 44px 8px rgb(3 6 14 / 0.6);
+  /* The same shadow with the gold glow at its peak: the "must act" breathing of the select bar. */
+  --pc-shadow-glow:
+    inset 0 3px 0 var(--pc-accent),
+    inset 0 4px 0 rgb(255 255 255 / 0.12),
+    0 0 0 1px rgb(0 0 0 / 0.55),
+    0 0 30px 3px rgb(228 182 79 / 0.5),
+    0 16px 36px rgb(0 0 0 / 0.65),
+    0 0 44px 8px rgb(3 6 14 / 0.6);
   --pc-radius: 14px;
   --pc-pad-y: 12px;
   --pc-pad-x: 14px;
-  --pc-title: clamp(15px, calc(15 * var(--duel-unit, 1px)), 17px);
-  --pc-sub: clamp(12px, calc(12.5 * var(--duel-unit, 1px)), 14px);
+  --pc-title: clamp(17px, calc(17 * var(--duel-unit, 1px)), 20px);
+  --pc-sub: clamp(13px, calc(13.5 * var(--duel-unit, 1px)), 15px);
   --pc-btn-h: 32px;
   --pc-btn-radius: 8px;
 }
@@ -58,10 +75,7 @@
   border-radius: var(--pc-radius);
   background: var(--pc-surface);
   backdrop-filter: blur(10px) saturate(1.1);
-  box-shadow:
-    inset 0 1px 0 rgb(239 231 213 / 0.06),
-    0 0 0 1px rgb(0 0 0 / 0.5),
-    0 18px 48px rgb(0 0 0 / 0.55);
+  box-shadow: var(--pc-shadow);
   outline: none;
   animation: rise 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
@@ -106,8 +120,9 @@
 .titles h2 {
   margin: 0;
   font-size: clamp(16px, calc(16 * var(--duel-unit, 1px)), 19px);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.25;
+  color: #fff8e6;
   overflow-wrap: break-word;
   text-wrap: balance;
 }
@@ -115,7 +130,7 @@
 
 .titles p {
   margin: calc(3 * var(--duel-unit, 1px)) 0 0;
-  color: var(--duel-ink-2, #c3bba8);
+  color: #ebe3d0;
   font-size: var(--pc-sub);
   line-height: 1.4;
 }
@@ -508,11 +523,13 @@
 .btn:disabled { border-style: dashed; cursor: not-allowed; opacity: 0.5; }
 .btn[data-active="true"]:not(:disabled) { box-shadow: inset 0 0 0 1px var(--duel-pen, #9b7eff); }
 .btn[data-kind="primary"] {
-  border-color: var(--duel-pen, #9b7eff);
-  background: var(--duel-pen-fill, #5733d1);
-  color: #fff;
+  border-color: var(--pc-accent, var(--duel-chain, #e4b64f));
+  background: var(--pc-accent, var(--duel-chain, #e4b64f));
+  color: #1a1204;
+  font-weight: 600;
 }
-.btn[data-kind="primary"]:hover:not(:disabled) { background: #6440e0; }
+.btn[data-kind="primary"]:hover:not(:disabled) { background: #f0c463; }
+.bar .btn[data-kind="primary"]:not(:disabled) { box-shadow: 0 0 14px rgb(228 182 79 / 0.4); }
 .btn[data-kind="quiet"] { border-color: var(--duel-rule, rgb(181 153 99 / 0.34)); color: var(--duel-ink-2, #c3bba8); }
 
 .panel[data-tone="chain"] .btn[data-kind="primary"] {
@@ -687,11 +704,18 @@
   backdrop-filter: blur(10px) saturate(1.1);
   box-shadow: var(--pc-shadow);
   pointer-events: none;
-  animation: settle 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: settle 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both, beckon 2.4s ease-in-out 0.5s infinite;
 }
+.bar[data-ready="true"] { animation-name: settle; }
 .bar[data-place="top"] { translate: -50% 0; }
 @media (prefers-reduced-motion: no-preference) {
-  .bar[data-place="top"][data-reduced="false"] { animation-name: fall; }
+  .bar[data-place="top"][data-reduced="false"] { animation-name: fall, beckon; }
+  .bar[data-place="top"][data-reduced="false"][data-ready="true"] { animation-name: fall; }
+}
+/* The gold glow breathes while the player still has to pick; it stops once the pick can be confirmed. */
+@keyframes beckon {
+  0%, 100% { box-shadow: var(--pc-shadow); }
+  50% { box-shadow: var(--pc-shadow-glow); }
 }
 @keyframes settle {
   from { opacity: 0; transform: scale(0.96); }
@@ -701,7 +725,7 @@
 
 .barMain {
   display: flex;
-  flex: 1 1 calc(150 * var(--duel-unit, 1px));
+  flex: 1 1 calc(100 * var(--duel-unit, 1px));
   align-items: center;
   gap: 12px;
   min-width: 0;
@@ -719,28 +743,45 @@
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.65), 0 3px 8px rgb(0 0 0 / 0.45);
 }
 
-/* Title: whole, wraps at spaces, never cut. Second line: card or purpose and progress, muted. */
-.barText { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* Title: whole, wraps at spaces, never cut, bright and bold. Second line: the card or purpose, the ask ("Pick 2")
+   in near-white, and the count as a chip that fills gold once the pick can be confirmed. */
+.barText { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .barText b {
+  color: #fff8e6;
   font-size: var(--pc-title);
-  font-weight: 600;
-  line-height: 1.25;
+  font-weight: 700;
+  line-height: 1.2;
   overflow-wrap: break-word;
   text-wrap: balance;
 }
-.barText span {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  color: var(--duel-ink-2, #c3bba8);
+.barSub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: #ebe3d0;
   font-size: var(--pc-sub);
-  font-variant-numeric: tabular-nums;
   line-height: 1.35;
   overflow-wrap: break-word;
 }
-/* Purple only when the pick can be confirmed. */
-.bar[data-ready="true"] .barText span { color: var(--duel-pen-ink, #c6b6ff); }
+.barDetail::after { content: " ·"; }
+.barAsk { font-weight: 500; }
+.barCount {
+  padding: 1px 9px;
+  border: 1px solid rgb(239 231 213 / 0.4);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.07);
+  color: #fff8e6;
+  font-size: var(--pc-sub);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.barCount[data-done="true"] { border-color: var(--pc-accent); background: var(--pc-accent); color: #1a1204; }
+/* An empty ring turns into a check, so the chip keeps its width and the bar does not reflow on each pick. */
+.barCount::before { content: "\25CB\00a0"; }
+.barCount[data-done="true"]::before { content: "\2713\00a0"; }
 
 .barBtns { display: flex; flex: none; justify-content: flex-end; gap: 8px; margin-left: auto; pointer-events: auto; }
 .bar .btn {
@@ -750,7 +791,15 @@
   font-size: var(--pc-sub);
   white-space: nowrap;
 }
-.bar .btn:disabled { border-style: solid; border-color: var(--duel-rule, rgb(181 153 99 / 0.34)); background: transparent; color: var(--duel-ink-2, #c3bba8); opacity: 0.45; }
+/* Off, but still plainly a button: solid outline and readable text. The primary is the solid gold button when ready. */
+.bar .btn:disabled {
+  border-style: solid;
+  border-color: rgb(239 231 213 / 0.45);
+  background: rgb(255 255 255 / 0.05);
+  color: rgb(239 231 213 / 0.75);
+  opacity: 1;
+}
+.bar .btn[data-kind="quiet"]:not(:disabled) { border-color: rgb(239 231 213 / 0.5); color: var(--duel-ink, #efe7d5); }
 
 /* Narrow bar: the text takes the first row, the buttons share the second row evenly. */
 .bar[data-stack="true"] .barMain { flex: 1 1 100%; }

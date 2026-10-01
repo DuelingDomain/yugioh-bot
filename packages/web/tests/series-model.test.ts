@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  betweenGamesInfo,
   canCancelInterrupted,
   formatCountdown,
   isBetweenGames,
   nextGameTarget,
+  opponentSideStatus,
   secondsUntil,
+  seriesCompactScore,
+  seriesGameLabel,
   seriesKindLabel,
   seriesOutcome,
   seriesPlayerIndex,
@@ -110,5 +114,110 @@ describe("following the series", () => {
     expect(canCancelInterrupted(makeSeries({ status: "between_games", nextGameAt: null }))).toBe(true);
     expect(canCancelInterrupted(makeSeries({ status: "between_games", nextGameAt: "2026-01-01T00:00:00Z" }))).toBe(false);
     expect(canCancelInterrupted(makeSeries({ status: "between_games", tournamentId: 1 }))).toBe(false);
+  });
+});
+
+describe("seriesGameLabel", () => {
+  it("names the game and the score of a Best of 3, the viewer's wins first", () => {
+    const room = makeSeriesRoom({ series: makeSeries({ wins: [1, 0], gameNumber: 2 }), status: "active" });
+    room.session.gameNumber = 2;
+    expect(seriesGameLabel(room)).toEqual({ game: "Game 2 of 3", score: "1–0", title: "You 1 – 0 Imran" });
+    const other = makeSeriesRoom({ series: makeSeries({ wins: [1, 0], gameNumber: 2 }), mySeat: 1, status: "active" });
+    other.session.gameNumber = 2;
+    expect(seriesGameLabel(other)).toEqual({ game: "Game 2 of 3", score: "0–1", title: "You 0 – 1 Sulman" });
+  });
+
+  it("uses the game of the duel on screen, not the latest game of the series", () => {
+    const room = makeSeriesRoom({ series: makeSeries({ status: "completed", wins: [2, 1], gameNumber: 3 }) });
+    room.session.gameNumber = 1;
+    expect(seriesGameLabel(room)?.game).toBe("Game 1 of 3");
+  });
+
+  it("shows a spectator the names in player order", () => {
+    const room = makeSeriesRoom({ series: makeSeries({ wins: [1, 0] }), mySeat: null, status: "active" });
+    expect(seriesGameLabel(room)?.title).toBe("Sulman 1 – 0 Imran");
+    expect(seriesGameLabel(room)?.score).toBe("1–0");
+  });
+
+  it("is null for a single game, a Best of 1 and a cancelled series", () => {
+    expect(seriesGameLabel(makeSeriesRoom({ series: null }))).toBeNull();
+    expect(seriesGameLabel(makeSeriesRoom({ series: makeSeries({ bestOf: 1 }) }))).toBeNull();
+    expect(seriesGameLabel(makeSeriesRoom({ series: makeSeries({ status: "cancelled" }) }))).toBeNull();
+  });
+
+  it("writes the compact score", () => {
+    expect(seriesCompactScore({ wins: [2, 1] }, 0)).toBe("2–1");
+    expect(seriesCompactScore({ wins: [2, 1] }, 1)).toBe("1–2");
+    expect(seriesCompactScore({ wins: [2, 1] }, null)).toBe("2–1");
+  });
+});
+
+describe("betweenGamesInfo", () => {
+  const between = (overrides: Parameters<typeof makeSeries>[0] = {}) =>
+    makeSeries({ status: "between_games", wins: [1, 0], ...overrides });
+
+  it("says who won, the score, the next game and that the loser goes first", () => {
+    const room = makeSeriesRoom({ series: between() });
+    room.session.winnerSeat = 0;
+    expect(betweenGamesInfo(room, "game-1")).toEqual({
+      result: "Game 1 won by you · 1–0",
+      next: "Game 2 of 3",
+      first: "Imran goes first (the loser of game 1 goes first)",
+    });
+  });
+
+  it("tells the loser that they go first", () => {
+    const room = makeSeriesRoom({ series: between({ wins: [0, 1] }) });
+    room.session.winnerSeat = 1;
+    expect(betweenGamesInfo(room, "game-1")).toEqual({
+      result: "Game 1 won by Imran · 0–1",
+      next: "Game 2 of 3",
+      first: "You go first (the loser of game 1 goes first)",
+    });
+  });
+
+  it("uses the winner's player id when the session has one", () => {
+    const room = makeSeriesRoom({ series: between({ wins: [0, 1] }) });
+    room.session.winnerPlayerId = 2;
+    room.session.winnerSeat = null;
+    expect(betweenGamesInfo(room, "game-1")?.result).toBe("Game 1 won by Imran · 0–1");
+  });
+
+  it("swaps the seats after a draw or an interrupted game", () => {
+    const draw = makeSeriesRoom({ series: between({ wins: [0, 0] }) });
+    draw.session.winnerSeat = null;
+    expect(betweenGamesInfo(draw, "game-1")).toMatchObject({ result: "Game 1 was a draw · 0–0", first: "Imran goes first (the seats swap)" });
+    const cut = makeSeriesRoom({ series: between({ wins: [0, 0], nextGameAt: null }), status: "interrupted" });
+    cut.session.winnerSeat = null;
+    expect(betweenGamesInfo(cut, "game-1")).toMatchObject({ result: "Game 1 did not finish · 0–0" });
+  });
+
+  it("counts the game number from the duel on screen", () => {
+    const room = makeSeriesRoom({ series: between({ wins: [1, 1], gameNumber: 2 }) });
+    room.session.gameNumber = 2;
+    room.session.winnerSeat = 1;
+    expect(betweenGamesInfo(room, "game-1")).toMatchObject({ result: "Game 2 won by Imran · 1–1", next: "Game 3 of 3" });
+  });
+
+  it("is null unless the series waits between games on this duel", () => {
+    expect(betweenGamesInfo(makeSeriesRoom({ series: makeSeries({ status: "active" }) }), "game-1")).toBeNull();
+    expect(betweenGamesInfo(makeSeriesRoom({ series: makeSeries({ status: "completed" }) }), "game-1")).toBeNull();
+    expect(betweenGamesInfo(makeSeriesRoom({ series: between() }), "another-game")).toBeNull();
+    expect(betweenGamesInfo(makeSeriesRoom({ series: null }), "game-1")).toBeNull();
+  });
+});
+
+describe("opponentSideStatus", () => {
+  it("says the opponent is siding until they click Ready", () => {
+    const series = makeSeries({ status: "between_games", nextGameAt: "2026-10-01T10:00:00.000Z", sideReady: [false, false] });
+    expect(opponentSideStatus(series, 0)).toEqual({ text: "Opponent is siding…", ready: false });
+    expect(opponentSideStatus({ ...series, sideReady: [false, true] }, 0)).toEqual({ text: "Opponent ready", ready: true });
+    expect(opponentSideStatus({ ...series, sideReady: [true, false] }, 1)).toEqual({ text: "Opponent ready", ready: true });
+  });
+
+  it("does not say siding when no deadline runs, and is null for a spectator", () => {
+    const series = makeSeries({ status: "between_games", nextGameAt: null });
+    expect(opponentSideStatus(series, 0)).toEqual({ text: "Opponent is not ready", ready: false });
+    expect(opponentSideStatus(series, null)).toBeNull();
   });
 });

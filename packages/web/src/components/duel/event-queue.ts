@@ -1,7 +1,7 @@
 import type { SceneCueName } from "./fx3d/scene-plan";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import type { BattleSoundPlan } from "./attack-audio";
-import { BANNER_TIMING } from "./duel-timing";
+import { BANNER_TIMING, PHASE_TIMING } from "./duel-timing";
 import {
   isDefenseAt,
   isFacedown,
@@ -280,8 +280,10 @@ export function hasCentreBanner(kind: DuelEventKind): boolean {
   return kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end" && kind !== "equip";
 }
 
-/** How long a banner or toast stays: at least about 1.3 s for anything with words to read. */
+/** How long a banner or toast stays: at least about 1.3 s for anything with words to read (a phase ribbon is shorter). */
 export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number {
+  // A phase ribbon is one short beat: the phases of a turn start (Draw, Standby, Main 1) follow each other.
+  if (kind === "phase") return reducedMotion ? PHASE_TIMING.reducedBeatMs : PHASE_TIMING.beatMs;
   if (reducedMotion) {
     return kind === "activate" ? BANNER_TIMING.reducedActivateMs : BANNER_TIMING.reducedDefaultMs;
   }
@@ -292,7 +294,6 @@ export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number
     case "set":
     case "attack":
     case "destroy":
-    case "phase":
       return BANNER_TIMING.eventMs;
     default:
       return BANNER_TIMING.defaultMs;

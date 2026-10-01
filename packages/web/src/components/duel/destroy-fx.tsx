@@ -248,6 +248,14 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
 }
 
 /**
+ * Where the fixed ghosts and flashes go: the board box (the field's parent), so they stack with the other
+ * board FX, under the prompts. Appended to the page root they would sit above a prompt panel.
+ */
+function fxHost(): HTMLElement {
+  return document.querySelector<HTMLElement>("[data-duel-field]")?.parentElement ?? document.body;
+}
+
+/**
  * Wipes: the page card of each victim is gone from the board when the snapshot renders, so a plain ghost
  * of it stays where it stood, whole, until the canvas takes over at `takeMs` (the canvas draws the same
  * card in the same place). The ghost is hidden then, with no fade. Returns the undo.
@@ -262,7 +270,7 @@ function wipeGhosts(planned: Planned): () => void {
     el.setAttribute("aria-hidden", "true");
     Object.assign(el.style, {
       position: "fixed", left: `${ghost.box.left}px`, top: `${ghost.box.top}px`, width: `${ghost.box.width}px`, height: `${ghost.box.height}px`,
-      pointerEvents: "none", zIndex: "40", overflow: "hidden",
+      pointerEvents: "none", zIndex: "var(--duel-z-fx-front)", overflow: "hidden",
     });
     const img = document.createElement("img");
     img.src = ghost.src;
@@ -277,7 +285,7 @@ function wipeGhosts(planned: Planned): () => void {
       Object.assign(img.style, { width: "100%", height: "100%", objectFit: "cover", display: "block" });
     }
     el.appendChild(img);
-    document.body.appendChild(el);
+    fxHost().appendChild(el);
     nodes.push(el);
     timers.push(window.setTimeout(() => el.remove(), wait));
   }
@@ -297,9 +305,9 @@ function domFlash(planned: Planned): () => void {
     el.setAttribute("aria-hidden", "true");
     Object.assign(el.style, {
       position: "fixed", left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px`,
-      pointerEvents: "none", zIndex: "60", borderRadius: "6px", background: `rgba(${tint},0.55)`, opacity: "0",
+      pointerEvents: "none", zIndex: "calc(var(--duel-z-fx-front) + 1)", borderRadius: "6px", background: `rgba(${tint},0.55)`, opacity: "0",
     });
-    document.body.appendChild(el);
+    fxHost().appendChild(el);
     nodes.push(el);
     {
       const flash = safeAnimate(el, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 450, easing: "ease-out", fill: "forwards" });

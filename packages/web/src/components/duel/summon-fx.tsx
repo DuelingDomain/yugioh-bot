@@ -659,6 +659,33 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
   );
 }
 
+/**
+ * When a destroy that a fight holds shows its break: `breakMs` is the crack lead (at most HELD_CRACK_MS, less when
+ * the break is nearer), `delayMs` the wait before the cracks start. The whole card is gone at exactly `heldAt`
+ * (the moment the shards start), whatever the flight to the Graveyard is queued behind.
+ */
+export function heldDestroyTiming(heldAt: number, now: number): { breakMs: number; delayMs: number } {
+  const until = Math.max(0, heldAt - now);
+  const breakMs = Math.max(1, Math.min(HELD_CRACK_MS, until));
+  return { breakMs, delayMs: Math.max(0, until - breakMs) };
+}
+
+/**
+ * The stand-in of a destroyed card: whole and cracking until `breakAt`, then gone in one step. A fade here would
+ * show the whole card and the shards together, so the last whole frame and the first empty one share an offset.
+ */
+export function destroyWholeFrames(breakAt: number, total: number): Keyframe[] {
+  const at = Math.min(0.999, breakAt / total);
+  return [
+    { opacity: 1, filter: "brightness(1)", transform: "translate(0, 0)" },
+    { opacity: 1, filter: "brightness(1)", offset: Math.min(at, Math.max(0, breakAt - 200) / total) },
+    { opacity: 1, filter: "brightness(1.7) saturate(1.2)", transform: "translate(-1.5px, 0)", offset: Math.min(at, Math.max(0, breakAt - 110) / total) },
+    { opacity: 1, filter: "brightness(1.2)", transform: "translate(1.5px, 0)", offset: at },
+    { opacity: 0, offset: at },
+    { opacity: 0 },
+  ];
+}
+
 /** Destroy: hairline cracks flash red across the card, it bursts into shards that drift to the Graveyard. */
 function DestroyFx({ item, overlay, done }: EffectProps) {
   const anchor = useAnchor();
@@ -692,14 +719,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
     // The card stands as it was until the break, with a red rim and the fissures appearing.
     track.play(
       whole.current,
-      [
-        { opacity: 1, filter: "brightness(1)", transform: "translate(0, 0)" },
-        { opacity: 1, filter: "brightness(1)", offset: Math.max(0, breakAt - 200) / total },
-        { opacity: 1, filter: "brightness(1.7) saturate(1.2)", transform: "translate(-1.5px, 0)", offset: Math.max(0, breakAt - 110) / total },
-        { opacity: 1, filter: "brightness(1.2)", transform: "translate(1.5px, 0)", offset: Math.max(0, breakAt - 30) / total },
-        { opacity: 0, offset: Math.min(0.999, breakAt / total) },
-        { opacity: 0 },
-      ],
+      destroyWholeFrames(breakAt, total),
       { duration: total, delay: d, easing: "linear" },
     );
     track.play(
@@ -2086,8 +2106,10 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         claim3d = battleBreakIs3d(event.zone, now);
         const heldAt = battleDestroyAt(event.zone, now);
         if (heldAt > 0) {
-          breakMs = HELD_CRACK_MS;
-          delayMs = Math.max(delayMs, heldAt - now - breakMs);
+          // The fight owns this moment: not the flight plan, not a queue (a tie breaks both cards at once).
+          const timing = heldDestroyTiming(heldAt, now);
+          breakMs = timing.breakMs;
+          delayMs = timing.delayMs;
         }
       }
       step += 1;

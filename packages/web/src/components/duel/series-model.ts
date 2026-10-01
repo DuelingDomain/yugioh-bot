@@ -100,3 +100,90 @@ export function isBetweenGames(room: Pick<DuelRoom, "series">, slug: string): bo
 export function canCancelInterrupted(series: DuelSeriesSummary): boolean {
   return series.status === "between_games" && series.nextGameAt == null && series.tournamentId == null;
 }
+
+/** "1–0" for the header: no spaces, the viewer's wins first (a spectator sees `playerIds` order). */
+export function seriesCompactScore(series: Pick<DuelSeriesSummary, "wins">, index: 0 | 1 | null): string {
+  return index === 1 ? `${series.wins[1]}–${series.wins[0]}` : `${series.wins[0]}–${series.wins[1]}`;
+}
+
+export interface SeriesGameLabel {
+  /** "Game 2 of 3" */
+  game: string;
+  /** "1–0", the viewer's wins first */
+  score: string;
+  /** Tooltip with the names: "You 1 – 0 Imran". */
+  title: string;
+}
+
+/**
+ * The top-right label of the duel room for a game of a Best of 3. Null for a single game, a Best of 1
+ * series and a cancelled series, so those rooms show nothing extra.
+ */
+export function seriesGameLabel(room: Pick<DuelRoom, "session" | "mySeat" | "series">): SeriesGameLabel | null {
+  const series = room.series;
+  if (!series || series.bestOf !== 3 || series.status === "cancelled") return null;
+  const index = seriesPlayerIndex(room, series);
+  const game = room.session.gameNumber ?? series.gameNumber;
+  const score = seriesCompactScore(series, index);
+  const title = index == null
+    ? `${series.displayNames[0]} ${series.wins[0]} – ${series.wins[1]} ${series.displayNames[1]}`
+    : `You ${series.wins[index]} – ${series.wins[index === 0 ? 1 : 0]} ${series.displayNames[index === 0 ? 1 : 0]}`;
+  return { game: `Game ${game} of ${series.bestOf}`, score, title };
+}
+
+export interface BetweenGamesInfo {
+  /** "Game 1 won by Sulman · 1–0" */
+  result: string;
+  /** "Game 2 of 3" */
+  next: string;
+  /** Who goes first in the next game, and why. */
+  first: string;
+}
+
+/**
+ * What the between-games screen says: how the last game ended, which game is next and who goes
+ * first in it. The loser of the last game goes first; after a draw or an interrupted game the seats
+ * swap (the same rule as `createNextGame` in the shared series service). Null unless the series
+ * waits between games on this duel.
+ */
+export function betweenGamesInfo(room: Pick<DuelRoom, "session" | "mySeat" | "series">, slug: string): BetweenGamesInfo | null {
+  const series = room.series;
+  if (!series || !isBetweenGames({ series }, slug)) return null;
+  const index = seriesPlayerIndex(room, series);
+  const played = room.session.gameNumber ?? series.gameNumber;
+  const score = seriesCompactScore(series, index);
+  const { session } = room;
+  const winnerId = session.winnerPlayerId
+    ?? (session.winnerSeat == null ? null : session.seats.find((seat) => seat.seat === session.winnerSeat)?.playerId ?? null);
+  const winnerIndex = winnerId == null ? -1 : series.playerIds.indexOf(winnerId);
+
+  let result: string;
+  let firstIndex: number;
+  let why: string;
+  if (session.status === "completed" && winnerIndex >= 0) {
+    const won = index == null ? series.displayNames[winnerIndex] : winnerIndex === index ? "you" : series.displayNames[winnerIndex];
+    result = `Game ${played} won by ${won} · ${score}`;
+    firstIndex = winnerIndex === 0 ? 1 : 0;
+    why = `the loser of game ${played} goes first`;
+  } else {
+    result = session.status === "completed" ? `Game ${played} was a draw · ${score}` : `Game ${played} did not finish · ${score}`;
+    const second = session.seats.find((seat) => seat.seat === 1)?.playerId;
+    firstIndex = second == null ? 0 : Math.max(0, series.playerIds.indexOf(second));
+    why = "the seats swap";
+  }
+  const who = index != null && firstIndex === index ? "You go" : `${series.displayNames[firstIndex]} goes`;
+  return { result, next: `Game ${played + 1} of ${series.bestOf}`, first: `${who} first (${why})` };
+}
+
+export interface OpponentSideStatus {
+  text: string;
+  ready: boolean;
+}
+
+/** The other player's state between games; null for a spectator. */
+export function opponentSideStatus(series: DuelSeriesSummary, index: 0 | 1 | null): OpponentSideStatus | null {
+  if (index == null) return null;
+  if (series.sideReady[index === 0 ? 1 : 0]) return { text: "Opponent ready", ready: true };
+  // No deadline: an interrupted game. Nobody is siding, the opponent has not clicked Ready.
+  return { text: series.nextGameAt == null ? "Opponent is not ready" : "Opponent is siding…", ready: false };
+}

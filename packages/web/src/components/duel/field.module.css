@@ -408,7 +408,7 @@
 }
 
 .handCard:hover,
-.handCard:focus-within {
+.handCard:has(:focus-visible) {
   z-index: 6;
 }
 
@@ -474,17 +474,17 @@
   }
 
   .hand:not(.handLocal) .handCard .zone:hover .frame,
-  .hand:not(.handLocal) .handCard .zone:focus-within .frame {
+  .hand:not(.handLocal) .handCard .zone:has(:focus-visible) .frame {
     transform: translateY(calc(var(--oh) * var(--top-hide))) scale(1.6);
   }
 
   .hand:not(.handLocal) .handCard .zone[data-legal="true"]:hover .frame,
-  .hand:not(.handLocal) .handCard .zone[data-legal="true"]:focus-within .frame {
+  .hand:not(.handLocal) .handCard .zone[data-legal="true"]:has(:focus-visible) .frame {
     transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.05))) scale(1.6);
   }
 
   .hand:not(.handLocal) .handCard .zone[data-selected="true"]:hover .frame,
-  .hand:not(.handLocal) .handCard .zone[data-selected="true"]:focus-within .frame {
+  .hand:not(.handLocal) .handCard .zone[data-selected="true"]:has(:focus-visible) .frame {
     transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.12))) scale(1.6);
   }
 
@@ -495,17 +495,17 @@
   }
 
   .handLocal .handCard .zone:hover .frame,
-  .handLocal .handCard .zone:focus-within .frame {
+  .handLocal .handCard .zone:has(:focus-visible) .frame {
     transform: translateY(calc(var(--lh) * -0.08)) scale(2);
   }
 
   .handLocal .handCard .zone[data-legal="true"]:hover .frame,
-  .handLocal .handCard .zone[data-legal="true"]:focus-within .frame {
+  .handLocal .handCard .zone[data-legal="true"]:has(:focus-visible) .frame {
     transform: translateY(calc(var(--lh) * -0.1)) scale(2);
   }
 
   .handLocal .handCard .zone[data-selected="true"]:hover .frame,
-  .handLocal .handCard .zone[data-selected="true"]:focus-within .frame {
+  .handLocal .handCard .zone[data-selected="true"]:has(:focus-visible) .frame {
     transform: translateY(calc(var(--lh) * -0.14)) scale(2);
   }
 }
@@ -621,7 +621,7 @@
 }
 
 .zone:hover,
-.zone:focus-within {
+.zone:has(:focus-visible) {
   z-index: 6;
 }
 
@@ -997,17 +997,17 @@
 }
 
 .felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="0"],
-.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="0"] {
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:has(:focus-visible) .fanCard[data-fi="0"] {
   transform: translate(calc(var(--dir, 1) * 7%), -4%) rotate(calc(var(--dir, 1) * 8deg));
 }
 
 .felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="1"],
-.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="1"] {
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:has(:focus-visible) .fanCard[data-fi="1"] {
   transform: translate(calc(var(--dir, 1) * -9%), -1%) rotate(calc(var(--dir, 1) * -6deg));
 }
 
 .felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="2"],
-.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="2"] {
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:has(:focus-visible) .fanCard[data-fi="2"] {
   transform: translate(calc(var(--dir, 1) * -19%), 0) rotate(calc(var(--dir, 1) * -16deg));
 }
 
@@ -1043,7 +1043,7 @@
 }
 
 .zone:hover .openChip,
-.zone:focus-within .openChip {
+.zone:has(:focus-visible) .openChip {
   opacity: 1;
   pointer-events: auto;
   transform: translate(-50%, 0);
@@ -1149,12 +1149,12 @@
 
 @media (hover: hover) {
   .handLocal .handCard .zone:hover .glow,
-  .handLocal .handCard .zone:focus-within .glow {
+  .handLocal .handCard .zone:has(:focus-visible) .glow {
     --gl: 0.5;
   }
 
   .hand:not(.handLocal) .handCard .zone:hover .glow,
-  .hand:not(.handLocal) .handCard .zone:focus-within .glow {
+  .hand:not(.handLocal) .handCard .zone:has(:focus-visible) .glow {
     --gl: 0.65;
   }
 }

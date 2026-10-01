@@ -1439,7 +1439,11 @@ export function PromptCenter(props: PromptCenterProps) {
           ) : null}
           <div className={styles.barText}>
             <b>{copy.title}</b>
-            <span>{copy.sub}</span>
+            <span className={styles.barSub}>
+              {copy.detail ? <span className={styles.barDetail}>{copy.detail}</span> : null}
+              {copy.instruction ? <span className={styles.barAsk}>{copy.instruction}</span> : null}
+              {copy.counter ? <span className={styles.barCount} data-done={ok ? "true" : "false"}>{copy.counter}</span> : null}
+            </span>
           </div>
         </div>
         <div className={styles.barBtns}>
@@ -1449,6 +1453,7 @@ export function PromptCenter(props: PromptCenterProps) {
               className={styles.btn}
               data-kind="primary"
               disabled={!ok || busy}
+              title={!ok && copy.remaining ? `Select ${copy.remaining} more` : undefined}
               onClick={() => onSubmit(toAnswer(prompt, draft))}
             >
               Confirm
