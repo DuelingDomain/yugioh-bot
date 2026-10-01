@@ -75,6 +75,10 @@ export type DuelHistoryRailProps = {
   /** Show a card in the inspector. */
   onInspectCard: (card: DuelCard | DuelCardInfo) => void;
   reducedMotion: boolean;
+  /** False while the Log tab is not in view; rows that arrive then are counted as unread. Default true. */
+  active?: boolean;
+  /** Told how many rows arrived while `active` was false. Back to 0 once the list is in view again. */
+  onUnread?: (count: number) => void;
 };
 
 function contextFor(engine: DuelEngineView): HistoryContext {
@@ -308,7 +312,7 @@ const Group = memo(function Group({ group, latestKey, animateAfter, handlers }: 
 
 const TOP_SLACK = 12;
 
-export function DuelHistoryRail({ events, engine, mySeat, playerName, onInspectCard, reducedMotion }: DuelHistoryRailProps) {
+export function DuelHistoryRail({ events, engine, mySeat, playerName, onInspectCard, reducedMotion, active = true, onUnread }: DuelHistoryRailProps) {
   const [stored, setStored] = useState<HistoryState>(() => ingestHistory(emptyHistory(), events, contextFor(engine)));
   const [hover, setHover] = useState<Hover | null>(null);
   const [atTop, setAtTop] = useState(true);
@@ -349,6 +353,23 @@ export function DuelHistoryRail({ events, engine, mySeat, playerName, onInspectC
     for (const group of view.groups) for (const row of group.rows) if (row.type === "entry" && row.key > seen) count += 1;
     return count;
   }, [atTop, seen, view.groups]);
+
+  // The newest row seen while in view. Rows above it arrived while the list was out of view. The first value
+  // is whatever is there at mount, so a reload mid-duel does not start with a badge.
+  const [readKey, setReadKey] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (active || readKey === undefined) setReadKey(latestKey);
+  }, [active, latestKey, readKey]);
+  const unread = useMemo(() => {
+    if (active || readKey === undefined) return 0;
+    const floor = readKey ?? Number.NEGATIVE_INFINITY;
+    let count = 0;
+    for (const group of view.groups) for (const row of group.rows) if (row.type === "entry" && row.key > floor) count += 1;
+    return count;
+  }, [active, readKey, view.groups]);
+  useEffect(() => {
+    onUnread?.(unread);
+  }, [onUnread, unread]);
 
   if (view.entryCount === 0) return null;
 

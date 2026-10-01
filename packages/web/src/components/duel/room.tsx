@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Circle, Diamond, ExternalLink, Eye, Radio, Settings, Volume2, VolumeX, X } from "lucide-react";
+import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -73,6 +73,9 @@ import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
 import { useResultGate } from "./result-reveal";
 import { PileViewer } from "./pile-viewer";
 import { shouldClosePileForPrompt } from "./pile-focus";
+import {
+  CardTabEmpty, DEFAULT_SIDE_PANE, DESKTOP_PANES, desktopPane, mobilePanes, SidePanel, SideTabs, useIsNarrow, type SidePane,
+} from "./side-panel";
 
 
 type CardMenuState = {
@@ -83,8 +86,6 @@ type CardMenuState = {
   revision: number;
   tone: "action" | "chain";
 };
-
-type Pane = "card" | "log" | "options" | "masters";
 
 /** A pile (Graveyard, Banished, Extra Deck…) opened in the centred viewer. `cards` is the snapshot at open time. */
 type PileView = { title: string; owner: "you" | "opp"; cards: DuelCard[]; open: boolean };
@@ -261,7 +262,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const pileAnswered = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
-  const [pane, setPane] = useState<Pane>("log");
+  const [pane, setPane] = useState<SidePane>(DEFAULT_SIDE_PANE);
+  // Log rows that arrived while the Log tab was out of view (the badge on the tab).
+  const [logUnread, setLogUnread] = useState(0);
+  const narrow = useIsNarrow();
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [hideResult, setHideResult] = useState(false);
@@ -405,6 +409,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     setHideResult(false);
     setSideOpen(false);
     setMobileInspect(false);
+    setLogUnread(0);
     setActionError(null);
     setStarting(false);
   }, [slug]);
@@ -476,7 +481,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     if (pane === "card") setInspect({ type: "info", card });
   }
 
-  function showInspector(target: InspectTarget, mobile = false) {
+  function showInspector(target: InspectTarget, mobile = false, reveal = false) {
     if (target.type === "pile") {
       // Piles open in the centred viewer over the board, never in the inspector (whose state it does not share).
       const seat = data?.mySeat ?? 0;
@@ -489,9 +494,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       return;
     }
     setInspect(target);
-    // On desktop the Log tab keeps the whole column and shows the card in its pinned dock; elsewhere go to the Card tab.
-    const narrow = window.matchMedia("(max-width: 900px)").matches;
-    if (pane !== "log" || narrow) setPane("card");
+    // A board click on the Log tab keeps the log (the hover card already shows it). A click on a log row (reveal),
+    // or any click from Settings or the narrow layout, goes to the Card tab. The log keeps its place.
+    if (reveal || pane !== "log" || narrow) setPane("card");
     if (mobile && narrow) setMobileInspect(true);
   }
 
@@ -741,29 +746,25 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       onActivate={onFieldActivate}
       onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
   ) : null;
-  const sideContent = pane === "card" ? inspector : pane === "log" ? (
+  // The Log list stays mounted behind the other tabs (SidePanel keepMounted), so it keeps the rows it has built.
+  // Only the instance in the column counts unread rows; the narrow sheet gets its own, uncounted copy.
+  const logVisible = pane === "log" && (!narrow || mobileInspect);
+  const logPanel = (counted: boolean) => (
     <div className={styles.logPane}>
-      {engine ? <DuelHistoryRail events={engine.events} engine={engine} mySeat={data.mySeat} playerName={playerName}
-        onInspectCard={(card) => showInspector("location" in card ? { type: "card", card } : { type: "info", card })}
-        reducedMotion={preferences.reducedMotion} /> : null}
-      {inspect ? (
-        <section className={styles.cardDock} aria-label="Pinned card">
-          <div className={styles.cardDockHead}>
-            <span>Card</span>
-            <button type="button" aria-label="Close pinned card" onClick={() => setInspect(null)}><X size={14} aria-hidden="true" /></button>
-          </div>
-          <div className={styles.cardDockBody}>{inspector}</div>
-        </section>
-      ) : null}
+      {engine ? <DuelHistoryRail key={slug} events={engine.events} engine={engine} mySeat={data.mySeat} playerName={playerName}
+        onInspectCard={(card) => showInspector("location" in card ? { type: "card", card } : { type: "info", card }, false, true)}
+        reducedMotion={preferences.reducedMotion}
+        active={counted ? logVisible : true} onUnread={counted ? setLogUnread : undefined} /> : null}
       <details className={styles.textLog}>
         <summary>Text log</summary>
         <MatchSheetLog entries={engine?.log ?? []} playerName={playerName}
           players={data.session.seats.map((seat) => seat.displayName).join(" v ")} />
       </details>
     </div>
-  ) : pane === "masters" ? (
-    <div className={styles.mastersSheet}>{masterRail}</div>
-  ) : (
+  );
+  const cardPanel = inspect ? inspector : <CardTabEmpty />;
+  const mastersPanel = <div className={styles.mastersSheet}>{masterRail}</div>;
+  const settingsPanel = (
     <div className={styles.options}>
       <DuelSettingsSummary session={data.session} />
       <RoomInvite room={data} slug={slug} />
@@ -823,33 +824,19 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       <Link href="/duels">Back to tables</Link>
     </div>
   );
-  const tabs = (mobile = false) => {
-    const panes: readonly Pane[] = mobile
-      ? (domain ? ["log", "card", "options", "masters"] : ["log", "card", "options"])
-      : ["log", "card"];
-    return (
-      <div className={styles.tabs} role={mobile ? undefined : "tablist"} aria-label={mobile ? "Mobile duel panels" : "Duel panels"}
-        onKeyDown={(event) => {
-          if (mobile || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault();
-          const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-          const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-          const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
-            : (current + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
-          buttons[next]?.focus();
-          buttons[next]?.click();
-        }}>
-        {panes.map((tab) => (
-          <button key={tab} type="button" role={mobile ? undefined : "tab"}
-            aria-selected={mobile ? undefined : pane === tab} aria-haspopup={mobile ? "dialog" : undefined}
-            tabIndex={mobile || pane === tab || (!mobile && pane === "options" && tab === "log") ? 0 : -1}
-            onClick={() => { setPane(tab); if (mobile) setMobileInspect(true); }}>
-            {tab[0].toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
-      </div>
-    );
-  };
+  const sidePanes = (inAside: boolean) => (
+    <>
+      <SidePanel pane="card" selected={inAside ? desktopPane(pane) : pane} semantic={inAside}>{cardPanel}</SidePanel>
+      <SidePanel pane="log" selected={inAside ? desktopPane(pane) : pane} semantic={inAside} keepMounted>{logPanel(inAside)}</SidePanel>
+      <SidePanel pane="settings" selected={inAside ? desktopPane(pane) : pane} semantic={inAside}>{settingsPanel}</SidePanel>
+      {inAside ? null : <SidePanel pane="masters" selected={pane} semantic={false}>{mastersPanel}</SidePanel>}
+    </>
+  );
+  const tabs = (mobile = false) => (
+    <SideTabs panes={mobile ? mobilePanes(domain) : DESKTOP_PANES} selected={mobile ? pane : desktopPane(pane)}
+      unread={logUnread} mobile={mobile}
+      onSelect={(tab) => { setPane(tab); if (mobile) setMobileInspect(true); }} />
+  );
 
   return (
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
@@ -896,18 +883,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
             {preferences.soundEnabled ? <Volume2 size={16} strokeWidth={1.75} aria-hidden /> : <VolumeX size={16} strokeWidth={1.75} aria-hidden />}
             <span>Sound <b>{soundLabel}</b></span>
           </button>
-          <button
-            type="button"
-            className={styles.gear}
-            aria-label="Options"
-            aria-pressed={pane === "options"}
-            onClick={() => {
-              setPane("options");
-              if (window.matchMedia("(max-width: 900px)").matches) setMobileInspect(true);
-            }}
-          >
-            <Settings size={20} strokeWidth={1.75} aria-hidden />
-          </button>
         </div>
       </header>
       {series && !showResult ? (
@@ -921,7 +896,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       <div className={styles.layout}>
         <aside className={styles.inspector}>
           {tabs()}
-          <div className={styles.sideContent} role="tabpanel" aria-label={pane}>{sideContent}</div>
+          <div className={styles.sideContent}>{sidePanes(true)}</div>
         </aside>
         <div
           className={styles.promptDock}
@@ -1014,8 +989,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       ) : null}
       {hover && !activeMenu && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
-        title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Options"}>
-        {sideContent}
+        title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Settings"}>
+        {sidePanes(false)}
       </Sheet>
       <Modal open={confirmSurrender && !hasResult} onClose={() => setConfirmSurrender(false)} title="Surrender">
         <p className="text-sm text-text-secondary">This ends the duel. Confirm surrender?</p>

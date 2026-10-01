@@ -86,8 +86,8 @@
   --duel-frame-a: 0.46;
 }
 
-.tool, .gear, .tabs button, .phases button, .cardMenu button, .error button { cursor: pointer; }
-.tool:disabled, .gear:disabled, .tabs button:disabled, .phases button:disabled, .cardMenu button:disabled { cursor: default; }
+.tool, .tabs button, .phases button, .cardMenu button, .error button { cursor: pointer; }
+.tool:disabled, .tabs button:disabled, .phases button:disabled, .cardMenu button:disabled { cursor: default; }
 .shell * { scrollbar-width: thin; scrollbar-color: rgb(var(--duel-rule-rgb) / 0.45) transparent; }
 
 /* ---------- header ---------- */
@@ -114,7 +114,7 @@
   line-height: 1;
   color: var(--duel-ink);
 }
-.identity a:focus-visible, .gear:focus-visible, .tool:focus-visible, .error button:focus-visible {
+.identity a:focus-visible, .tool:focus-visible, .error button:focus-visible {
   outline: 2px solid var(--duel-ink);
   outline-offset: 2px;
   border-radius: 4px;
@@ -199,20 +199,6 @@
 }
 .tool:hover { border-color: var(--duel-rule); color: var(--duel-ink); }
 .tool b { font-weight: 500; color: var(--duel-ink); }
-.gear {
-  display: grid;
-  place-items: center;
-  width: calc(30 * var(--duel-unit));
-  height: calc(30 * var(--duel-unit));
-  min-width: 30px;
-  min-height: 30px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--duel-ink-2);
-  transition: border-color 0.15s, color 0.15s;
-}
-.gear:hover { border-color: var(--duel-rule); color: var(--duel-ink); }
-.gear[aria-pressed="true"] { color: var(--duel-ink); border-color: var(--duel-rule-hi); background: var(--duel-lamp); }
 
 /* ---------- three-column layout ---------- */
 .layout {
@@ -660,48 +646,12 @@
   .log li { font-size: 13px; }
 }
 
-/* Log tab: the history list takes the whole column; the pinned card dock and the text log sit under it. */
+/* Log tab: the history list takes the whole column; the text log folds into a drawer under it. */
 .logPane { display: flex; flex-direction: column; gap: 8px; min-height: 0; height: 100%; padding: 6px 8px 8px; overflow: hidden; }
 .logPane > :first-child { flex: 1 1 0; min-height: 0; }
-.logPane > .cardDock { flex: 0 1 auto; }
 /* The sheet fills the rest of the pane and scrolls its own list, so the history rail stays in view. */
 .logPane > .sheet { flex: 1; min-height: 0; }
 .logPane > .sheet .log { min-height: 0; overflow-y: auto; justify-content: flex-start; }
-
-/* A card pinned by clicking it on the board or in the history. It never takes more than half the column. */
-.cardDock {
-  display: flex;
-  flex-direction: column;
-  max-height: 50%;
-  min-height: 0;
-  border: 1px solid var(--duel-rule-hi);
-  border-radius: 4px;
-  background: var(--duel-panel-2);
-}
-.cardDockHead {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: calc(3 * var(--duel-unit)) calc(6 * var(--duel-unit)) calc(3 * var(--duel-unit)) calc(12 * var(--duel-unit));
-  border-bottom: 1px solid var(--duel-rule);
-  color: var(--duel-ink-3);
-  font-size: var(--duel-t-xs);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-.cardDockHead button {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  color: var(--duel-ink-2);
-  cursor: pointer;
-}
-.cardDockHead button:hover { color: var(--duel-ink); background: var(--duel-lamp); }
-.cardDockHead button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -2px; }
-.cardDockBody { min-height: 0; overflow-y: auto; }
 
 /* The Hearthstone-style history owns the pane; the plain text log folds into a drawer under it. */
 .textLog { flex: none; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--duel-rule); }
@@ -729,6 +679,4 @@
 /* In the mobile sheet the pane has no fixed parent height, so give the history a definite one. */
 @media (max-width: 900px) {
   .logPane { height: min(72dvh, 600px); }
-  /* The sheet already switches to the Card tab for a pinned card. */
-  .cardDock { display: none; }
 }
