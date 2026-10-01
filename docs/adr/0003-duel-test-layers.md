@@ -37,3 +37,22 @@ All core checks in the duel-server tests go through one helper: `packages/duel-s
 - Default multi cores: `MULTI_WASM` / `DOMAIN_MULTI_WASM`, else a local tagged build (`ocgcore.multi-<tag>.sync.wasm`, tags in `cores.ts`) if the file exists, else the canonical `ocgcore.multi.sync.wasm` / `ocgcore.multi-domain.sync.wasm` that CI builds. A clean checkout needs only the canonical build.
 - A gitignored local file that is not a core (a fuzz failure record, a census file) uses `needs.localFile`. It stays a skip in require mode.
 - The status board (`npm run status`) shows SKIPPED, not PASS, when a run has 0 passed tests and some skipped tests. Differential, fuzz and fuzz-n rows follow the same rule (no multi core: SKIPPED; 0 duels or seeds: MISSING).
+
+## CI
+
+`.github/workflows/test.yml` runs the layers on every pull request and every push to main. It has these jobs:
+
+| Job | What it runs |
+|---|---|
+| `cores` | Builds the standard, domain and multi cores, or restores them from the Actions cache. The key hashes the pins, the core patches, the build scripts and `package-lock.json`. The other core jobs use this bundle (`data/duel-engine-next`). |
+| `unit` | `npm ci`, build shared, `npm run typecheck`, then the tests that need no core: shared, bot, web, duel-server `test:unit`, e2e `test:unit`. |
+| `engine` | `DUEL_REQUIRE_CORES=1 npm run test:engine`. A missing core fails the job. It never skips. |
+| `native` | `npm run test:native` (ASan/UBSan build and the committed native checks). |
+| `rule-coverage` | `rule-coverage.ts --check --strict`: every rule of ADR-0002 needs a covering test. |
+| `nduel-nightly` | Scheduled at 03:17 UTC (and by hand). Runs the nduel fuzz for n2, n3, n4 and tag with `--check-future`, and the golden hash check (`--check`). |
+
+All multi cores are built with `LUA_FIXED_SEED=1`, so one binary serves the engine tests and the differential tests. Open item: `deploy.yml` builds no multi core yet. When the install step adds one, it must use the same flags, so that the tested binary is the deployed binary (ADVISOR-4 section 3.5).
+
+The cache key starts with `duel-engine-ci-v1`. Raise the number when the build steps or flags in `test.yml` change: the file hash does not see them. The emsdk image comes from `pins.json`.
+
+A failing nightly seed goes into `tests/fuzz/regressions.test.ts` after the fix (see Decisions).
