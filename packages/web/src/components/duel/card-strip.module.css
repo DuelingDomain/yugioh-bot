@@ -3,7 +3,7 @@
 
 .wrap {
   --cs-u: var(--duel-unit, 1px);
-  --cs-w: calc(124 * var(--cs-u));
+  --cs-w: calc(84 * var(--cs-u));
   display: flex;
   flex-direction: column;
   gap: calc(2 * var(--cs-u));
@@ -25,10 +25,10 @@
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: calc(12 * var(--cs-u));
+  gap: calc(10 * var(--cs-u));
   margin: 0;
   /* Room for the lift on hover and the order mark that hangs off a card's corner. */
-  padding: calc(12 * var(--cs-u)) calc(10 * var(--cs-u)) calc(8 * var(--cs-u));
+  padding: calc(10 * var(--cs-u)) calc(8 * var(--cs-u)) calc(6 * var(--cs-u));
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -170,7 +170,7 @@
 
 /* Phones: smaller cards, and the inspector is a sheet rather than the pane on the left. */
 @media (max-width: 900px) {
-  .wrap { --cs-w: calc(92 * var(--cs-u)); }
+  .wrap { --cs-w: calc(72 * var(--cs-u)); }
   .hint { display: none; }
 }
 @media (pointer: coarse) {

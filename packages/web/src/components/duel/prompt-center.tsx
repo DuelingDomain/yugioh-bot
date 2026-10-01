@@ -312,15 +312,32 @@ export function precheckCopy(prompt: DuelPrompt, chain: readonly DuelChainLink[]
 
 const OFF_BOARD_LOCATIONS = LOCATION_DECK | LOCATION_GRAVE | LOCATION_REMOVED | LOCATION_EXTRA | LOCATION_OVERLAY;
 
-/** True when every option can be clicked where it sits on the board (both hands and all zones count). */
-function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
+/**
+ * True when every option can be clicked where it sits on the board (both hands and all zones count).
+ * `hasZone` says whether the board draws a zone for a key. Pure so the routing can be tested.
+ */
+export function optionsOnBoard(prompt: DuelPrompt, hasZone: (key: string) => boolean): boolean {
   if (prompt.options.length === 0) return true;
   return prompt.options.every((option) => {
     if (option.location != null && (option.location & OFF_BOARD_LOCATIONS) !== 0) return false;
     const keys = optionZoneKeys(option);
-    if (keys.length === 0) return false;
-    return scope.querySelector(`[data-zones~="${keys[0]}"]`) != null;
+    return keys.length > 0 && hasZone(keys[0]);
   });
+}
+
+function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
+  return optionsOnBoard(prompt, (key) => scope.querySelector(`[data-zones~="${key}"]`) != null);
+}
+
+/**
+ * A pick made one card at a time (the engine's select / unselect step: Synchro, Xyz, Link and Fusion
+ * materials, discards) is a "toggle" prompt. It is answered on the board like a card pick, with the bar,
+ * when every card is on the board; a card in the Deck, GY, Extra Deck or banished keeps the card strip.
+ */
+export function isBoardTogglePrompt(prompt: DuelPrompt | null): boolean {
+  if (!prompt || prompt.kind !== "toggle" || prompt.options.length === 0) return false;
+  const context = prompt.context?.type;
+  return context !== "chain" && context !== "position" && context !== "deck-master-recall" && context !== "action";
 }
 
 /** Name + effect line for a chain option, from the resolved texts when the server sends them, else the label. */
@@ -368,10 +385,11 @@ function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: s
   );
 }
 
-function selectionStatus(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean): string {
+export function selectionStatus(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean): string {
   if (aiming) return "Point at a target, then confirm";
   const { min, max } = selectionBounds(prompt);
-  const count = draft.selected.length;
+  // A one-at-a-time pick keeps its chosen cards on the options, not in the draft.
+  const count = prompt.kind === "toggle" ? prompt.options.filter((option) => option.selected).length : draft.selected.length;
   if (prompt.kind === "sum") {
     const values = draft.selected
       .map((id) => prompt.options.find((option) => option.id === id)?.values?.join("/"))
@@ -1120,12 +1138,15 @@ export function PromptCenter(props: PromptCenterProps) {
   const { prompt, mySeat, active, draft, busy, onSubmit, chain, aim, reducedMotion, revision, slug, battleStep, onInspectCard } = props;
   const revealed = props.revealed ?? true;
   const answering = prompt != null && mySeat != null && prompt.seat === mySeat && active;
-  const kind = answering ? centerKind(prompt) : null;
+  const baseKind = answering ? centerKind(prompt) : null;
+  // A one-card-at-a-time pick may be answered on the board with the bar; onBoard (measured below) decides.
+  const boardToggle = baseKind === "response" && isBoardTogglePrompt(prompt);
 
   const layerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [onBoard, setOnBoard] = useState<boolean | null>(null);
+  const kind: CenterKind | null = boardToggle && onBoard === true ? "select" : baseKind;
   // Prompt id whose full effect list is open. A prompt with a pre-check starts on the compact bar.
   const [listFor, setListFor] = useState<string | null>(null);
   const [barPlace, setBarPlace] = useState<BarPlace>({ mode: "mid", top: null, left: null, fit: null, stack: false });
@@ -1181,13 +1202,13 @@ export function PromptCenter(props: PromptCenterProps) {
   // Which way to answer a card pick: on the board, or in a centred grid.
   useLayoutEffect(() => {
     const scope = layerRef.current?.parentElement;
-    if (kind !== "select" || !prompt || !scope) {
+    if ((baseKind !== "select" && !boardToggle) || !prompt || !scope) {
       setOnBoard(null);
       return;
     }
     setOnBoard(allOptionsOnBoard(prompt, scope));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, promptId, revision]);
+  }, [baseKind, boardToggle, promptId, revision]);
 
   // The instruction bar sits in the middle band of the board, between the Extra Monster Zones, so it is
   // easy to see and hits no hand card or field row you can pick (see select-bar-place.ts).
@@ -1314,7 +1335,10 @@ export function PromptCenter(props: PromptCenterProps) {
     };
   }, [kind, promptId]);
 
-  if (!prompt || !kind || !revealed) return <div ref={layerRef} className={styles.layer} aria-hidden hidden />;
+  // A one-card-at-a-time pick shows nothing until it is known whether the cards are on the board.
+  if (!prompt || !kind || !revealed || (boardToggle && onBoard === null)) {
+    return <div ref={layerRef} className={styles.layer} aria-hidden hidden />;
+  }
 
   const optional = declineAnswer(prompt) != null;
   const chainKind = prompt.context?.type === "chain";
@@ -1334,7 +1358,9 @@ export function PromptCenter(props: PromptCenterProps) {
     if (onBoard === null) return <div ref={layerRef} className={styles.layer} aria-hidden hidden />;
     const aiming = Boolean(aim);
     const explicit = needsExplicitConfirm(prompt);
-    const ok = canConfirm(prompt, draft);
+    const toggling = prompt.kind === "toggle";
+    // A one-at-a-time pick is done when Finish is offered; every other pick when its count rules hold.
+    const ok = toggling ? Boolean(prompt.finishable) : canConfirm(prompt, draft);
     const source = promptSource(prompt);
     const barTitle = fillPlaceholders(prompt.title, source?.name);
     const barStyle = {
@@ -1348,6 +1374,7 @@ export function PromptCenter(props: PromptCenterProps) {
         data-reduced={dataReduced}
         data-place={barPlace.mode}
         data-stack={barPlace.stack ? "true" : "false"}
+        data-ready={ok ? "true" : "false"}
         style={barStyle}
         role="group"
         aria-label={barTitle}
@@ -1369,7 +1396,13 @@ export function PromptCenter(props: PromptCenterProps) {
             </button>
           ) : null}
           {prompt.finishable ? (
-            <button type="button" className={styles.btn} disabled={busy} onClick={() => onSubmit({ finish: true })}>
+            <button
+              type="button"
+              className={styles.btn}
+              data-kind={toggling ? "primary" : undefined}
+              disabled={busy}
+              onClick={() => onSubmit({ finish: true })}
+            >
               Finish
             </button>
           ) : null}

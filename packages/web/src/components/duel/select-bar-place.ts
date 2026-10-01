@@ -41,7 +41,7 @@ export interface BarPlace {
 }
 
 /** Free width needed for the one-line bar (title, status and buttons side by side). */
-export const BAR_ROW_FIT = 560;
+export const BAR_ROW_FIT = 420;
 /** Narrowest stacked bar that still reads. */
 export const BAR_STACK_MIN = 150;
 /** Air kept between the bar and a zone beside it. */

@@ -1064,12 +1064,14 @@
 
 /* ---------- legal and selected: an outline shape and a tag, never colour alone ---------- */
 
+/* A card you can pick: a 2px dashed outline with a dark underlay so it reads on any card art. */
 .ring {
   position: absolute;
-  inset: -4px;
+  inset: -5px;
   z-index: 4;
-  border: 1px dashed var(--pen);
+  border: 2px dashed var(--pen);
   border-radius: calc(var(--r) + 3px);
+  box-shadow: 0 0 0 1px rgb(7 11 21 / 0.75);
   pointer-events: none;
 }
 
@@ -1080,10 +1082,6 @@
 
 /* Rotated (defense) cards: outline the landscape shape, not the portrait guide. */
 .zone[data-defense="true"] .ring {
-  inset: calc((var(--z) - var(--cw)) / 2 - 4px) calc((var(--z) - var(--cw)) / -2 - 4px);
-}
-
-.zone[data-defense="true"][data-selected="true"] .ring {
   inset: calc((var(--z) - var(--cw)) / 2 - 5px) calc((var(--z) - var(--cw)) / -2 - 5px);
 }
 

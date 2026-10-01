@@ -47,7 +47,7 @@ export function CardStrip({
   busy,
   multi,
   label,
-  hint = "Hover a card to read it on the left",
+  hint = "Hover to read a card",
   tone,
   onPick,
   onDouble,

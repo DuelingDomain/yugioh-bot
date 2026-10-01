@@ -28,8 +28,8 @@ export interface PrecheckBarProps {
 }
 
 /**
- * The compact "you can activate an effect, use it?" bar. It sits low on the board so the field stays
- * readable. Only the bar takes pointer events. Enter / Y answer Yes and Esc / N answer No through the
+ * The compact "you can activate an effect, use it?" bar. It sits in the middle of the board, like the
+ * select bar, so it is easy to see; it is small so the field stays readable. Only the bar takes pointer events. Enter / Y answer Yes and Esc / N answer No through the
  * key handler in PromptCenter, which owns every shortcut of the response prompts.
  */
 export function PrecheckBar({ name, ask, context, cards, tone, busy, reducedMotion, onYes, onNo, onInspectCard }: PrecheckBarProps) {
