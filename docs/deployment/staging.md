@@ -47,8 +47,11 @@ The weak point is the build: `next build` needs about 1 GB or more for a short t
 
 1. It stops the old staging containers before it builds.
 2. It stops if another build is running on the VM (for example the production deploy).
-3. It stops if the VM has less than 1100 MB of available memory before the build, or less than 3000 MB of free disk.
+3. It stops if the VM has less than 1100 MB of available memory before the build, or less than 6000 MB of free disk.
+   It checks the disk again after the build (2500 MB). It also deletes the staging card image cache before each build.
 4. It stops if the VM has less than 1700 MB of available memory before it starts the containers.
+5. After a healthy start it removes the old staging images from the earlier deploy. It removes only those image ids,
+   and Docker refuses an image that a container or the production project still uses.
 
 If a check stops the run, staging stays down and production is not touched. Run the workflow again when the VM is quiet.
 Do not run the staging workflow at the same time as a production deploy.
@@ -99,14 +102,14 @@ Open the address and sign in with Discord.
   else that was only in staging are lost. Active duels in the copy are set to `interrupted`.
   The old staging database stays as `data-staging/bot.sqlite.before-copy` (one older copy).
 - **Stop staging.** Run the workflow with `action` = `stop`. This removes the staging containers and the staging network.
-  The data folder and the images stay. It does not touch production.
+  The data folder stays. The three images that staging built are removed. It does not touch production.
 - **Start it again.** Run `deploy` again.
 - **Look at the logs.** On the VM: `cd /opt/yugioh-bot-staging && sh scripts/staging/compose.sh logs -f --tail=100 duel`
   (or `web`, `ws`, `caddy`).
 - **Change the address or the ports.** On the VM, delete `/opt/yugioh-bot-staging/.env.staging`, change the repository
   variables, and run `deploy`. A new file gets new internal secrets.
 - **Remove staging completely.** Stop it. Then on the VM:
-  `rm -rf /opt/yugioh-bot-staging; docker image rm yugidraft-staging-ws yugidraft-staging-duel yugidraft-staging-web`.
+  `rm -rf /opt/yugioh-bot-staging`. The stop already removed the staging images.
   Take the port out of the Hetzner firewall and the redirect out of Discord.
 
 ## Limits for testers
@@ -133,8 +136,10 @@ Open the address and sign in with Discord.
 
 - **RAM.** See the memory section. A very busy production plus a staging duel can still use all 4 GB. The limits and
   `oom_score_adj` make the kernel stop staging first, but nothing can promise it.
-- **Disk.** Three new images and their build cache use several GB. The workflow stops below 3000 MB free. It does not run
-  `docker system prune` because that would also remove production leftovers.
+- **Disk.** Three staging images and the Docker build cache use several GB. The build cache is shared with production, so
+  the workflow does not prune it (`docker builder prune` or `docker system prune` would also hit production). The workflow
+  stops below 6000 MB free before the build and below 2500 MB after it, removes the old staging images after each healthy
+  start, and deletes the staging card image cache. The disk also holds the production SQLite file: a full disk breaks production.
 - **Database copy on a read-only mount.** If the VM has no `python3`, the copy runs `node` inside the staging duel image with
   the production data folder mounted read-only. This path is not tested with a live WAL database.
 - **First-run clone.** It uses the git remote address of `/opt/yugioh-bot`. If that address needs a key that only works from there, the clone fails and you

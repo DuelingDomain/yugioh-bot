@@ -60,8 +60,9 @@ compose="sh scripts/staging/compose.sh"
 
 if [ "$action" = "stop" ]; then
   if [ -f .env.staging ]; then
-    $compose down --remove-orphans
-    echo "remote-deploy: staging is stopped. Its data stays in $staging_dir/data-staging."
+    # --rmi local removes the three images that staging built (not the public caddy image).
+    $compose down --rmi local --remove-orphans
+    echo "remote-deploy: staging is stopped and its built images are removed. Its data stays in $staging_dir/data-staging."
   else
     echo "remote-deploy: no .env.staging, nothing to stop."
   fi
@@ -85,10 +86,16 @@ if pgrep -f 'turbo run build|next build' >/dev/null 2>&1; then
   echo "remote-deploy: another build is running on this VM (maybe the production deploy). Try again later." >&2
   exit 1
 fi
-sh scripts/staging/check-resources.sh "before build" "${STAGING_MIN_BUILD_MB:-1100}" 3000 /opt
+# The disk is shared with the production database. Each staging image holds a full node_modules.
+sh scripts/staging/check-resources.sh "before build" "${STAGING_MIN_BUILD_MB:-1100}" "${STAGING_MIN_DISK_MB:-6000}" /opt
 
-# 3. Build the three images.
+# The card image cache of staging has no size limit (only the bot evicts images). It is a cache: drop it.
+rm -rf data-staging/card-images
+
+# 3. Build the three images. Remember the ids of the old ones, to remove them after a healthy start.
+old_images=$($compose images -q 2>/dev/null | sort -u | tr '\n' ' ' || true)
 $compose build
+sh scripts/staging/check-resources.sh "after build" 0 "${STAGING_MIN_DISK_AFTER_BUILD_MB:-2500}" /opt
 
 # 4. The database: first run, or when asked.
 mkdir -p data-staging
@@ -120,4 +127,9 @@ ids=$($compose ps -q)
 docker stats --no-stream $ids || true
 free -m || true
 rm -f "$bundle"
+
+# 8. Remove the old staging images. Only the ids from before the build, and only when nothing uses them.
+new_images=$($compose images -q 2>/dev/null | sort -u | tr '\n' ' ' || true)
+sh scripts/staging/remove-old-images.sh "$old_images" "$new_images"
+df -Pm /opt | awk 'NR == 2 { print "remote-deploy: disk free " $4 " MB" }'
 echo "remote-deploy: staging is running."
