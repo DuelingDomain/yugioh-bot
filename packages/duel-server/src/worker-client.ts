@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
-import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 
 export interface GameOptions {
   mode: DuelMode;
@@ -13,6 +13,8 @@ export interface GameOptions {
   format?: DuelFormat;
   /** Lua chunks that run before the duel starts (hand scenarios). */
   startupScripts?: EngineStartupScript[];
+  /** Engine of a 1v1 table (see `DuelWorkerCreateOptions.engine`). Absent: the merged engine. */
+  engine?: DuelEngineChoice;
 }
 
 /** What the host knows about a worker without asking it (the worker may be stuck inside the core). */

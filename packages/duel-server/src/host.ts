@@ -7,6 +7,7 @@ import type {
   DuelAnswer,
   DuelCommand,
   DuelDeck,
+  DuelEngineChoice,
   DuelEngineView,
   DuelFormat,
   DuelMode,
@@ -18,7 +19,7 @@ import type {
   DuelSession,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { CardQueryError, multiplayerSeatsBlockReason, multiplayerTablesEnabled, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
+import { CardQueryError, duel1v1Engine, multiplayerSeatsBlockReason, multiplayerTablesEnabled, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf } from "./engine.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { DeckLegalityError, inspectDeck, validateDeck } from "./deck-legality.js";
@@ -268,6 +269,7 @@ export function createDuelHost(options: {
     settings: DuelSettings,
     format: DuelFormat = "1v1",
     startupScripts?: string[],
+    engine?: DuelEngineChoice,
   ): GameOptions {
     const created: GameOptions = {
       mode,
@@ -283,7 +285,24 @@ export function createDuelHost(options: {
     if (startupScripts?.length) {
       created.startupScripts = startupScripts.map((content, index) => ({ name: `startup-${index}.lua`, content }));
     }
+    // Only a 1v1 table has a choice of engine. Without a name the worker uses the merged engine.
+    if (format === "1v1" && engine) created.engine = engine;
     return created;
+  }
+
+  /** The engine a new 1v1 table starts on: `DUEL_1V1_ENGINE`, read now. Scenario tables need the merged engine. Other formats have none. */
+  function engineForNewTable(format: DuelFormat, hasStartupScripts = false): DuelEngineChoice | undefined {
+    if (format !== "1v1") return undefined;
+    return hasStartupScripts ? "pinned" : duel1v1Engine();
+  }
+
+  /**
+   * The engine a saved 1v1 table runs on again (recover, replay): the one it started on, whatever `DUEL_1V1_ENGINE` says now.
+   * A table with no record started before this field existed: it ran on the legacy engine. Other formats have none.
+   */
+  function engineOfSavedTable(format: DuelFormat, setup: { engine?: DuelEngineChoice; startupScripts?: string[] } | undefined): DuelEngineChoice | undefined {
+    if (format !== "1v1") return undefined;
+    return setup?.engine ?? (setup?.startupScripts?.length ? "pinned" : "legacy");
   }
 
   /** Seats the host answers for: practice bots, plus seats that surrendered (they only pass). */
@@ -860,6 +879,7 @@ export function createDuelHost(options: {
         state.session.settings,
         state.session.format,
         state.setup?.startupScripts,
+        engineOfSavedTable(state.session.format, state.setup),
       ));
     } catch (error) {
       await safeClose(game);
@@ -1076,7 +1096,7 @@ export function createDuelHost(options: {
     let lastView: DuelEngineView;
     try {
       try {
-        await game.create(workerCreateOptions(session.mode, state.decks, state.seed, session.masterRule, session.settings, session.format, state.setup?.startupScripts));
+        await game.create(workerCreateOptions(session.mode, state.decks, state.seed, session.masterRule, session.settings, session.format, state.setup?.startupScripts, engineOfSavedTable(session.format, state.setup)));
       } catch (error) {
         throw transport(error);
       }
@@ -1207,7 +1227,7 @@ export function createDuelHost(options: {
       for (let seat = 1; seat < seatCount; seat += 1) botPolicies[String(seat)] = SCRIPTED_POLICY;
       game = spawn();
       try {
-        await game.create(workerCreateOptions(state.session.mode, state.decks, seed, state.session.masterRule, settings, preset.format, scripts));
+        await game.create(workerCreateOptions(state.session.mode, state.decks, seed, state.session.masterRule, settings, preset.format, scripts, engineForNewTable(preset.format, true)));
       } catch (error) {
         throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
       }
@@ -1217,6 +1237,7 @@ export function createDuelHost(options: {
         presetId: preset.id,
         startupScripts: scripts,
         botPolicies,
+        ...(preset.format === "1v1" ? { engine: "pinned" as const } : {}),
       });
       games.set(slug, {
         game,
@@ -1622,6 +1643,7 @@ export function createDuelHost(options: {
     for (const deck of state.decks) validateSessionDeck(state.session.mode, deck, settings, state.session.format);
     const bytes = randomBytes(32);
     const seed = [0, 8, 16, 24].map((offset) => bytes.readBigUInt64LE(offset).toString());
+    const engine = engineForNewTable(state.session.format);
     const game = spawn();
     try {
       await game.create(workerCreateOptions(
@@ -1631,9 +1653,12 @@ export function createDuelHost(options: {
         state.session.masterRule,
         settings,
         state.session.format,
+        undefined,
+        engine,
       ));
       const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
-      service.activate(slug, guildId, organizer, seed, manifest.bundleVersion, clock);
+      // The engine is saved with the duel, so a recover and a replay use it even after DUEL_1V1_ENGINE changes.
+      service.activate(slug, guildId, organizer, seed, manifest.bundleVersion, clock, engine ? { engine } : undefined);
       games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, game);

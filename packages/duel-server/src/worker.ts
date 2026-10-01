@@ -1,5 +1,6 @@
 import { parentPort } from "node:worker_threads";
 import { createEngineGame, type EngineGame } from "./engine.js";
+import { createLegacyEngineGame } from "./legacy/index.js";
 import type { DuelWorkerRequest, DuelWorkerResponse } from "./worker-protocol.js";
 
 let game: EngineGame | null = null;
@@ -23,7 +24,9 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
     switch (request.op) {
       case "create": {
         if (game) return { id: request.id, ok: false, error: "A game is already running in this worker" };
-        game = await createEngineGame(request.options);
+        // The legacy engine plays two-seat tables only; every other table uses the merged engine and its multi core.
+        const legacy = request.options.engine === "legacy" && (request.options.format ?? "1v1") === "1v1";
+        game = await (legacy ? createLegacyEngineGame : createEngineGame)(request.options);
         return { id: request.id, ok: true };
       }
       case "view": {
