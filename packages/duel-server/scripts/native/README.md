@@ -26,8 +26,16 @@ nduel --n 2|3|4 --mode ffa|tag --seed S [--turns 60] [--lp 8000] [--max-steps 20
 - Success prints one line: `NDUEL ok n=3 mode=ffa seed=S turns=T steps=K winner=W hash=<FNV-1a of all message bytes> ...`.
   `winner=-1` means the turn limit stopped the duel. `lp=` shows the LP at the turn limit.
 - A failed check prints `NDUEL FAIL <check> seed=S step=K detail` and exits 1. Checks: `stall`, `stuck-prompt`,
-  `turn-order`, `first-turn-draw`, `first-attack`, `one-win`, `bad-player`, `lp-query`, `msg-parse`, `setup`.
+  `turn-order`, `first-turn-draw`, `first-attack`, `one-win`, `bad-player`, `lp-query`, `msg-parse`, `setup`,
+  `place-retry`.
 - A sanitizer report or a `YGO_N_TRAP opponent_of file:line p=N` abort kills the process. Read stderr.
+
+### Place prompts and the seat hint
+
+At n > 2 the core writes `MSG_HINT` type `0xF0` (`HINT_PLACE_SEAT`: u8 type, u8 player, u64 data = target seat)
+right before a `MSG_SELECT_PLACE` or `MSG_SELECT_DISFIELD` that offers a zone of another field. nduel reads the hint
+and answers a zone of the named seat. Without a hint (n == 2, or an own-field prompt) it keeps the old choice. A
+`MSG_RETRY` after a place prompt fails the run at once (`place-retry`): the answer of nduel must always be legal.
 
 ### Future checks
 
@@ -39,13 +47,14 @@ The core must send `MSG_DUELIST_ELIMINATED` (200) for the elimination checks.
 
 ## run-nduel.sh
 
-`bash packages/duel-server/scripts/run-nduel.sh` builds the core with `-DYGO_N_TRAP -D_GLIBCXX_ASSERTIONS` (through
-`phase1/run-locked.sh build 2`), compiles nduel, runs the matrix (n=2 plain, repeat and `--setup-always`, n=3 FFA, n=4
+`bash packages/duel-server/scripts/run-nduel.sh` builds the core with `-DYGO_N_TRAP -D_GLIBCXX_ASSERTIONS` from the repo
+patch series (`domain-core/patches`, through `prepare-multi-core-tree.sh`), compiles nduel, runs the matrix (n=2 plain, repeat and `--setup-always`, n=3 FFA, n=4
 FFA, n=4 Tag; 20 seeds each; at most 3 processes) and writes `.status/nduel-summary.json (repo root)`.
 The summary has counts per case, the first failure per check, hash comparisons (`hashChecks`), and
 `traps: [{file, line, count, case, seed}]`. Env variables: see the header of the script
-(`NDUEL_TREE`, `NDUEL_PATCHES`, `NDUEL_PATCH_LIMIT`, `NDUEL_SEEDS`, `NDUEL_TURNS`, `NDUEL_LP`, `NDUEL_CASES`,
-`NDUEL_SKIP_BUILD`, `NDUEL_FUTURE`).
+(`NDUEL_TREE`, `NDUEL_PATCHES` (extra patches after the repo series), `NDUEL_PATCH_LIMIT` (0 = all repo patches, N = the first N), `NDUEL_SEEDS`, `NDUEL_TURNS`, `NDUEL_LP`, `NDUEL_CASES`,
+`NDUEL_SKIP_BUILD`, `NDUEL_FUTURE`, `NDUEL_NO_LOCK`, `NDUEL_BUILD_JOBS`, `DUEL_DATA_DIR`). The script uses the local
+build lock `phase1/run-locked.sh` only when that file exists (it is not in the repo) and `NDUEL_NO_LOCK` is not 1.
 
 ## dump-card-data.mjs
 
@@ -54,7 +63,7 @@ Reads `cards.cdb` with `better-sqlite3` (the machine has no sqlite headers) and 
 
 ## Census mode
 
-`NDUEL_CENSUS=1 NDUEL_PATCHES=<mbox> bash packages/duel-server/scripts/run-nduel.sh` lists every missed two-player
+`NDUEL_CENSUS=1 bash packages/duel-server/scripts/run-nduel.sh` lists every missed two-player
 `opponent_of` site, not only the first one per run. It applies `scripts/native/census.patch` (not part of the core
 series) to a private census tree (default `domain-core/.build/nduel/census`) and builds with `-DYGO_N_TRAP_LOG`
 instead of `-DYGO_N_TRAP`. For n > 2 `opponent_of` then prints `YGO_N_TRAP opponent_of file:line p=N` once per site and
@@ -76,6 +85,10 @@ Without the flag they print one `NDUEL NOTE` line per check and run.
 - `direct-pick`: a `MSG_SELECT_OPTION` whose options all are `0xFFFF0000|d` lists only living opponents of the
   prompted duelist. The next `MSG_ATTACK_DUELIST` (201) must name the picked duelist (the answer sent by nduel) and
   a living opponent of the turn player.
+- `opponent-pick`: a `MSG_SELECT_OPTION` whose options all are `0xFFFE0000|d` (the pick of one opponent when an
+  effect is activated) lists only living opponents of the prompted duelist. No option is the duelist or a Tag
+  partner, no option is listed twice, and there are at least 2 options (with one legal opponent the core binds
+  silently and sends no prompt).
 - `eliminated-cards`: after `MSG_DUELIST_ELIMINATED` (200) for p, no `MSG_MOVE`, `MSG_SET`, `MSG_SUMMONING` or
   `MSG_SPSUMMONING` puts a card with controller p on the field.
 - `segoc-order`: consecutive forced trigger links (no prompt between, or only forced `SELECT_CHAIN` prompts) follow

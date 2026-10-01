@@ -9,7 +9,7 @@
 // and, on a failed check, `NDUEL FAIL <check> seed=S step=K detail` with exit code 1. A sanitizer report or a
 // YGO_N_TRAP abort kills the process (run-nduel.sh reads stderr for them).
 //
-// Order checks (all "future", off by default): response-order, direct-pick, eliminated-cards, segoc-order,
+// Order checks (all "future", off by default): response-order, direct-pick, opponent-pick, eliminated-cards, segoc-order,
 // field-disabled-n, msg-format. See README.md.
 // Checks that need later core work (T3 response order, T4 battle, T5 elimination/team LP, turn order for n > 2)
 // only run with --check-future. Without it they print `NDUEL NOTE <check> ...` (once per check) to stderr and
@@ -326,7 +326,12 @@ struct Prompt {
 	int id = 0;
 	std::vector<uint8_t> payload;
 	int player = -1;
+	int place_seat = -1;  // seat named by the MSG_HINT 0xF0 right before a place prompt (n > 2), else -1
 };
+
+#ifndef HINT_PLACE_SEAT
+#define HINT_PLACE_SEAT 0xF0  // same value as the constant of core patch 0045 (older trees do not have it)
+#endif
 
 static bool is_prompt(int id) {
 	switch(id) {
@@ -664,7 +669,9 @@ static Bytes answer_prompt(const Prompt& pr, int attempt) {
 		std::vector<int> opponents;
 		for(int p = 0; p < opt.n; ++p) if(p != player) opponents.push_back(p);
 		if(opponents.empty()) opponents.push_back(player ^ 1);
-		const int opp = opponents[static_cast<size_t>(attempt) % opponents.size()];
+		// A place prompt that came with a seat hint (MSG_HINT 0xF0) is answered on that seat. The core accepts no other seat.
+		const bool hinted = pr.place_seat >= 0 && pr.place_seat < opt.n && pr.place_seat != player;
+		const int opp = hinted ? pr.place_seat : opponents[static_cast<size_t>(attempt) % opponents.size()];
 		for(int i = 0; i < count; ++i) {
 			std::vector<uint32_t> free_bits;
 			for(uint32_t bit = 0; bit < 32; ++bit) {
@@ -674,7 +681,7 @@ static Bytes answer_prompt(const Prompt& pr, int attempt) {
 				if(!(flag & (1u << bit))) free_bits.push_back(bit);
 			}
 			if(free_bits.empty()) { b.pad(static_cast<size_t>(count) * 3); return b; }
-			uint32_t bit = static_cast<size_t>(attempt) >= opponents.size() ? free_bits[attempt % free_bits.size()] : rng.pick(free_bits);
+			uint32_t bit = (!hinted && static_cast<size_t>(attempt) >= opponents.size()) ? free_bits[attempt % free_bits.size()] : rng.pick(free_bits);
 			const bool own = bit < 16;
 			const uint32_t half = bit & 15;
 			b.put<uint8_t>(3 * i, static_cast<uint8_t>(own ? player : opp));
@@ -895,6 +902,7 @@ int main(int argc, char** argv) {
 	int chain_L = -1;               // duelist that added the newest chain link, -1 when no chain is open
 	std::vector<int> chain_seen;    // SELECT_CHAIN recipients since that link
 	bool seg_open = false;          // consecutive forced trigger links in progress
+	bool last_opt_chain = false;    // the newest prompt was an optional SELECT_CHAIN: the link that follows is a chosen response, not a forced trigger
 	int seg_prev_pos = -1;
 	int pick_expect = -1;           // duelist picked in a direct-attack SELECT_OPTION
 	auto trigger_pos = [&](int tpl, int p) {
@@ -1012,12 +1020,17 @@ int main(int argc, char** argv) {
 				const int L = mr.get<uint8_t>();
 				flush_response();
 				if(multi && L < n) {
-					const int pos = trigger_pos(turn_player, L);
-					if(seg_open && pos < seg_prev_pos)
-						future_check("segoc-order", "forced trigger link by " + std::to_string(L) + " after a later duelist, turn player " + std::to_string(turn_player));
-					seg_prev_pos = pos;
-					seg_open = true;
+					if(last_opt_chain) {
+						seg_open = false;
+					} else {
+						const int pos = trigger_pos(turn_player, L);
+						if(seg_open && pos < seg_prev_pos)
+							future_check("segoc-order", "forced trigger link by " + std::to_string(L) + " after a later duelist, turn player " + std::to_string(turn_player));
+						seg_prev_pos = pos;
+						seg_open = true;
+					}
 				}
+				last_opt_chain = false;
 				chain_L = L;
 				break;
 			}
@@ -1081,6 +1094,7 @@ int main(int argc, char** argv) {
 				break;
 			}
 			if(is_prompt(m.id)) {
+				last_opt_chain = (m.id == MSG_SELECT_CHAIN && m.len >= 3 && !m.p[2]);
 				if(m.id == MSG_SELECT_CHAIN && m.len >= 3) {
 					// spe_count 0x7f is the trigger window for the duelist's own new link, not a response prompt.
 					if(chain_L >= 0 && m.p[1] != 0x7f) chain_seen.push_back(m.p[0]);
@@ -1103,6 +1117,28 @@ int main(int argc, char** argv) {
 					for(int d : ds)
 						if(d >= n || eliminated[d] || teams[d] == teams[m.p[0] < n ? m.p[0] : 0])
 							future_check("direct-pick", "option lists duelist " + std::to_string(d) + " which is not a living opponent");
+				// F5: the pick of one opponent at activation (desc 0xFFFE0000|seat): every option is a living opponent of the asker
+				bool all_opp = cnt > 0 && m.len == static_cast<size_t>(2 + 8 * cnt);
+				std::vector<int> os;
+				for(int i = 0; all_opp && i < cnt; ++i) {
+					uint64_t o;
+					std::memcpy(&o, m.p + 2 + 8 * i, 8);
+					if((o >> 16) != 0xFFFE) all_opp = false;
+					else os.push_back(static_cast<int>(o & 0xFFFF));
+				}
+				if(all_opp) {
+					const int asker = m.p[0] < n ? m.p[0] : 0;
+					std::set<int> seen;
+					for(int d : os) {
+						if(d >= n || eliminated[d] || teams[d] == teams[asker])
+							future_check("opponent-pick", "option lists duelist " + std::to_string(d) + " which is not a living opponent (a Tag partner and the asker count as not opponents)");
+						else if(!seen.insert(d).second)
+							future_check("opponent-pick", "option lists duelist " + std::to_string(d) + " twice");
+					}
+					// With one legal opponent the core binds it without a prompt, so a prompt needs a real choice.
+					if(os.size() < 2)
+						future_check("opponent-pick", "prompt for duelist " + std::to_string(asker) + " lists " + std::to_string(os.size()) + " option, the bind is silent with one opponent");
+				}
 			}
 			if(is_prompt(m.id) && m.len >= 1) {
 				const int p = m.p[0];
@@ -1122,6 +1158,10 @@ int main(int argc, char** argv) {
 		if(msgs.empty()) fail("no-prompt", "core awaits a response but sent no message");
 		const M& last = msgs.back();
 		if(last.id == MSG_RETRY) {
+			// A place prompt must be answered right the first time: with a seat hint the answer names the hinted seat.
+			if(last_prompt.id == MSG_SELECT_PLACE || last_prompt.id == MSG_SELECT_DISFIELD)
+				fail("place-retry", "message " + std::to_string(last_prompt.id) + " for duelist " + std::to_string(last_prompt.player) +
+				     " rejected the answer (seat hint " + std::to_string(last_prompt.place_seat) + ")");
 			++attempt;
 			++retries;
 			if(attempt > 60) fail("stuck-prompt", "message " + std::to_string(last_prompt.id) + " rejected " + std::to_string(attempt) + " answers");
@@ -1129,6 +1169,16 @@ int main(int argc, char** argv) {
 			last_prompt.id = last.id;
 			last_prompt.payload.assign(last.p, last.p + last.len);
 			last_prompt.player = last.len ? last.p[0] : -1;
+			last_prompt.place_seat = -1;
+			if((last.id == MSG_SELECT_PLACE || last.id == MSG_SELECT_DISFIELD) && msgs.size() >= 2) {
+				// MSG_HINT: u8 type, u8 player, u64 data. The hint comes right before the prompt, for the same duelist.
+				const M& h = msgs[msgs.size() - 2];
+				if(h.id == MSG_HINT && h.len == 10 && h.p[0] == HINT_PLACE_SEAT && h.p[1] == last_prompt.player) {
+					uint64_t seat;
+					std::memcpy(&seat, h.p + 2, 8);
+					last_prompt.place_seat = seat < 255 ? static_cast<int>(seat) : -1;
+				}
+			}
 			attempt = 0;
 			if(last.id == MSG_SELECT_IDLECMD || last.id == MSG_SELECT_BATTLECMD) {
 				++g_as.turn_actions;
