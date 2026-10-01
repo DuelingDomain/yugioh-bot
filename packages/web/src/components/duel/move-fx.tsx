@@ -6,7 +6,8 @@
  * A ghost of the card leaves where it was (a hand slot, a zone, the deck) and travels to where it
  * landed, at the pace of a person playing it: a small lift, an arc with ease-in-out, a soft settle
  * with a shadow bounce. Cards sent to the Graveyard, banished or returned to a deck are tossed: a
- * quicker arc with a little spin that fades into the pile. Draws slide from the deck into the hand.
+ * quicker arc with a little spin that fades into the pile. Draws slide from the deck into the hand. A card
+ * that an effect adds to a hand is shown first (add-fx.tsx).
  *
  * While the ghost is on its way the real card at the destination stays invisible (visibility) and
  * appears when the ghost lands, so the card is never seen twice. The timing of every flight comes
@@ -36,6 +37,7 @@ import styles from "./move-fx.module.css";
 import { beginDestroyHide, beginPileHold, startDestroyHideGuard } from "./destroy-hide";
 import { SHARDS, Track } from "./summon-fx";
 import { CARD_FX } from "./duel-timing";
+import { ShowcaseGhost } from "./add-fx";
 
 export type MoveFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -88,25 +90,14 @@ export type Flight = {
   flip: [number, number];
 };
 
-const easeSearch = (t: number) => {
-  // Lifts out of the pile, holds face-up for a beat, then glides to the hand.
-  if (t < 0.3) return 0.22 * easeOutCubic(t / 0.3);
-  if (t < 0.5) return 0.22 + 0.03 * ((t - 0.3) / 0.2);
-  return 0.25 + 0.75 * easeInOutCubic((t - 0.5) / 0.5);
-};
-
 type Tuning = { lift: number; settle: number; arc: number; ease: (t: number) => number; liftPx: number; peak: number; landScale: number };
 
 function tuningFor(style: MoveStyle, cardH: number, dist: number): Tuning {
   switch (style) {
     case "toss":
       return { lift: 0.1, settle: 0, arc: clamp(dist * 0.22, 16, 96), ease: easeInOutSine, liftPx: cardH * 0.04, peak: 1.05, landScale: 1 };
-    case "search":
-      return { lift: 0.1, settle: 0.14, arc: clamp(dist * 0.06, 4, 22), ease: easeSearch, liftPx: cardH * 0.1, peak: 1.14, landScale: 1 };
     case "draw":
       return { lift: 0.06, settle: 0.16, arc: clamp(dist * 0.08, 6, 30), ease: easeOutCubic, liftPx: cardH * 0.03, peak: 1.05, landScale: 1 };
-    case "return":
-      return { lift: 0.12, settle: 0.16, arc: clamp(dist * 0.1, 8, 34), ease: easeInOutCubic, liftPx: cardH * 0.05, peak: 1.06, landScale: 1 };
     default:
       return { lift: 0.16, settle: 0.16, arc: clamp(dist * 0.1, 8, 36), ease: easeInOutCubic, liftPx: cardH * 0.07, peak: 1.08, landScale: 1 };
   }
@@ -176,7 +167,7 @@ export function buildFlight(params: FlightParams): Flight {
   last.opacity = 1;
   shade[shade.length - 1].opacity = 0;
   const flip: [number, number] =
-    style === "search" ? [0.06, 0.34] : toss ? [0.08, 0.6] : style === "draw" ? [0.12, 0.7] : [liftEnd, Math.max(liftEnd + 0.1, settleStart - 0.12)];
+    toss ? [0.08, 0.6] : style === "draw" ? [0.12, 0.7] : [liftEnd, Math.max(liftEnd + 0.1, settleStart - 0.12)];
   return { card, shade, flip };
 }
 
@@ -200,6 +191,8 @@ function hideElement(el: HTMLElement): () => void {
 /** The part of the destination that shows the arriving card: the whole card frame, or a pile's top card. */
 function hideTargetOf(dest: HTMLElement, plan: MovePlan): HTMLElement | null {
   const location = plan.event.zone?.location ?? 0;
+  // A card added to a hand shows only when its showcase lands: the whole hand slot waits (a sleeve too).
+  if (plan.style === "add" && location === LOCATION_HAND) return dest;
   if (location === LOCATION_GRAVE || location === LOCATION_REMOVED) {
     return dest.querySelector<HTMLElement>('[data-fi="0"]');
   }
@@ -746,7 +739,11 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
     <div ref={overlayRef} className={styles.layer} aria-hidden="true">
       {overlay
         ? items.map((plan) => (
-            <Ghost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
+            plan.style === "add" ? (
+              <ShowcaseGhost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
+            ) : (
+              <Ghost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
+            )
           ))
         : null}
     </div>

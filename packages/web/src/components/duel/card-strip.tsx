@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "./constants";
+import { closePickRects, rememberPickRects, type PickEntry } from "./pick-rects";
 import styles from "./card-strip.module.css";
 
 /**
@@ -24,6 +25,8 @@ export interface StripCard {
   detail?: string;
   /** Full text of that line, shown as a tooltip. */
   detailTitle?: string;
+  /** Where the card is now (a LOCATION_ value): a card picked here that goes to a hand flies out of its place in the strip. */
+  location?: number;
 }
 
 /**
@@ -124,6 +127,32 @@ export function CardStrip({
     return () => observer.disconnect();
   }, [measure, items.length]);
 
+  // Where the cards are on screen, so a card that is picked and added to a hand starts its flight there.
+  const record = useCallback(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const view = list.getBoundingClientRect();
+    const entries: PickEntry[] = [];
+    list.querySelectorAll<HTMLElement>("[data-strip-code]").forEach((art) => {
+      const r = art.getBoundingClientRect();
+      if (r.right < view.left || r.left > view.right) return;
+      entries.push({
+        code: Number(art.dataset.stripCode) || 0,
+        location: Number(art.dataset.stripLoc) || 0,
+        rect: { left: r.left, top: r.top, width: r.width, height: r.height },
+      });
+    });
+    rememberPickRects(entries, performance.now());
+  }, []);
+
+  // After every draw: the strip may have moved, resized or changed its cards.
+  useEffect(() => {
+    record();
+  });
+
+  // When the strip goes away its rects stay for a few seconds (the picked card flies from there).
+  useEffect(() => () => closePickRects(performance.now()), []);
+
   // The arrow keys move the highlight: keep that card in view, clear of the edge fade.
   useEffect(() => {
     const list = listRef.current;
@@ -172,7 +201,10 @@ export function CardStrip({
             <ChevronRight size={20} strokeWidth={2.25} aria-hidden />
           </button>
         ) : null}
-        <ul ref={listRef} className={styles.strip} aria-label={label} onScroll={measure}>
+        <ul ref={listRef} className={styles.strip} aria-label={label} onScroll={() => {
+          measure();
+          record();
+        }}>
           {items.map((item, index) => (
             <li key={item.id} className={styles.cell}>
               <button
@@ -185,7 +217,10 @@ export function CardStrip({
                 aria-pressed={multi ? item.selected : undefined}
                 aria-label={`${index + 1}. ${item.label}${item.detail ? ` · ${item.detailTitle ?? item.detail}` : ""}${!multi && item.selected ? " (selected)" : ""}`}
                 disabled={busy}
-                onClick={() => onPick(index)}
+                onClick={() => {
+                  record();
+                  onPick(index);
+                }}
                 onDoubleClick={onDouble ? () => onDouble(index) : undefined}
                 onMouseEnter={() => {
                   onEnter?.(index);
@@ -194,7 +229,7 @@ export function CardStrip({
                 onMouseLeave={onLeave}
                 onFocus={() => onInspect?.(item.card)}
               >
-                <span className={styles.art} style={{ backgroundImage: `url(${cardArtUrl(item.card.code, "small")})` }}>
+                <span className={styles.art} data-strip-code={item.card.code} data-strip-loc={item.location} style={{ backgroundImage: `url(${cardArtUrl(item.card.code, "small")})` }}>
                   <img
                     src={cardArtUrl(item.card.code, "full")}
                     alt=""

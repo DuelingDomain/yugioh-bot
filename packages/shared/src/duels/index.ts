@@ -295,6 +295,12 @@ export interface DuelEvent {
   reason?: DuelMoveReason;
   /** move: the card arrived face-down (Set, or banished/returned face-down). */
   faceDown?: boolean;
+  /**
+   * move: a card effect added the card to a hand (a search from the Deck, a salvage, a bounce); it was not
+   * drawn. Set on moves to a hand that did not come from a draw. Absent on older events (a search from the
+   * Deck then reads like a draw).
+   */
+  addedToHand?: true;
   /** attack: the attacked monster's zone; absent for a direct attack. equip: the monster it was equipped to. */
   target?: DuelZoneRef;
   /** damage: LP lost by `seat` (positive number). */

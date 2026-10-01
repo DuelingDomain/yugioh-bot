@@ -74,8 +74,6 @@ export const MOVE_PACE = {
   tossMinMs: 680,
   tossMaxMs: 840,
   drawMs: 740,
-  returnMs: 700,
-  searchMs: 920,
   reducedMs: 150,
   /** The next flight in a group starts when this share of the one before has played. */
   overlap: 0.7,
@@ -92,6 +90,40 @@ export const MOVE_PACE = {
   breakSettleMs: 520,
   /** A fight that holds a card cracks it this long after the hold starts. */
   heldCrackMs: 140,
+} as const;
+
+/**
+ * A card that an effect adds to a hand (a search, Painful Choice, a salvage, a bounce; not a draw) is
+ * shown: it rises to a showcase spot near the middle of the board at a large size with a gold glow and
+ * an "Added to hand" label, stays there long enough to read, then flies into the hand and settles.
+ * The cards of the same effect that go to the Graveyard start when the showcase card sets off for the
+ * hand. A backlog squeezes the rise and the flight, never the hold below `holdMinMs`.
+ */
+export const ADD_TO_HAND = {
+  /** Source (the card strip, a pile, the field) to the showcase spot. */
+  riseMs: 460,
+  /** The card stays at the showcase spot, label shown. */
+  holdMs: 800,
+  /** The shortest hold when a backlog is squeezed. */
+  holdMinMs: 600,
+  /** Showcase spot to the hand slot, the last share of it is the small settle. */
+  flyMs: 560,
+  /** The gold glow ring on the card in the hand after it landed. */
+  glowMs: 520,
+  /** The label fades in this long after the card started to rise, and out this long before it flies. */
+  labelInMs: 240,
+  labelOutMs: 140,
+  /** The showcase card is this share of the board height tall (and never above maxHeightPx). */
+  heightShare: 0.44,
+  maxHeightPx: 340,
+  /** Reduced motion: a fade in at the showcase spot, a hold, a fade out as the card shows in the hand. */
+  reducedInMs: 160,
+  reducedHoldMs: 800,
+  reducedOutMs: 200,
+  /** The strip card a pick came from is remembered this long after the strip closed. */
+  pickRectTtlMs: 6000,
+  /** A card that left a pile within this long after a strip was seen came from a pick: it starts at the middle. */
+  pickWindowMs: 45000,
 } as const;
 
 /* ---------- flips, positions, hand, summon ---------- */
@@ -182,8 +214,9 @@ export const VISIBLE_EFFECT_MS: Readonly<Record<string, number>> = {
   "place flight": MOVE_PACE.placeMinMs,
   "toss flight": MOVE_PACE.tossMinMs,
   "draw flight": MOVE_PACE.drawMs,
-  "return flight": MOVE_PACE.returnMs,
-  "search flight": MOVE_PACE.searchMs,
+  "add to hand rise": ADD_TO_HAND.riseMs,
+  "add to hand hold": ADD_TO_HAND.holdMs,
+  "add to hand flight": ADD_TO_HAND.flyMs,
   "effect destroy crack": MOVE_PACE.destroyBreakMs,
   "slice settle": MOVE_PACE.breakSettleMs,
   "position turn": CARD_FX.turnMs,

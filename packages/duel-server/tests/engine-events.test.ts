@@ -671,6 +671,21 @@ describe("event observer messages", () => {
       expect(reasonOf(OcgLocation.EXTRA, OcgLocation.MZONE)).toBe("other");
     });
 
+    it("marks a move into a hand as added by an effect, and a draw as not", () => {
+      const ctx = createEventContext();
+      for (const from of [OcgLocation.DECK, OcgLocation.GRAVE, OcgLocation.REMOVED, OcgLocation.MZONE]) {
+        const [added] = run(move(4, at(0, from, 0), at(0, OcgLocation.HAND, 0, OcgPosition.FACEDOWN)), ctx);
+        expect(added!.addedToHand).toBe(true);
+        expect(projectStoredEvent(added!, 0).addedToHand).toBe(true);
+        expect(projectStoredEvent(added!, 1).addedToHand).toBe(true);
+      }
+      const [drawn] = run({ type: OcgMessageType.DRAW, player: 0, drawn: [{ code: 5, position: OcgPosition.FACEDOWN }] }, ctx, 20);
+      expect(drawn!.addedToHand).toBeUndefined();
+      expect(projectStoredEvent(drawn!, 0).addedToHand).toBeUndefined();
+      const [discard] = run(move(4, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.GRAVE, 0)), ctx);
+      expect(discard!.addedToHand).toBeUndefined();
+    });
+
     it("upgrades the reason from the message that follows the move", () => {
       const ctx = createEventContext();
       const [toField] = run(move(4, at(0, OcgLocation.EXTRA, 0), at(0, OcgLocation.MZONE, 2, OcgPosition.FACEUP_ATTACK)), ctx);

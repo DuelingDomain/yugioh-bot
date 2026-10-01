@@ -8,6 +8,7 @@ vi.mock("next/font/google", () => {
 
 import { battleTiming, MAX_BATTLE_MS, STYLE_IDS, STYLE_TIMING } from "../../src/components/duel/attack-styles";
 import {
+  ADD_TO_HAND,
   ATTACK_PACE,
   ATTACK_TIMING,
   BANNER_TIMING,
@@ -20,6 +21,7 @@ import {
 } from "../../src/components/duel/duel-timing";
 import { rollDurationMs } from "../../src/components/duel/life-points";
 import { MOVE_TIMING } from "../../src/components/duel/move-plan";
+import { showcasePhases } from "../../src/components/duel/add-to-hand";
 import { RESULT_TIMING } from "../../src/components/duel/result-reveal";
 import { REVEAL_TIMING } from "../../src/components/duel/prompt-reveal";
 
@@ -76,7 +78,15 @@ describe("duel pace minimums", () => {
   });
 
   it("keeps every card flight at least 400 ms, even when a long queue is squeezed", () => {
-    const shortest = Math.min(MOVE_PACE.placeMinMs, MOVE_PACE.tossMinMs, MOVE_PACE.drawMs, MOVE_PACE.returnMs, MOVE_PACE.searchMs);
+    const shortest = Math.min(MOVE_PACE.placeMinMs, MOVE_PACE.tossMinMs, MOVE_PACE.drawMs);
+    // A squeezed showcase keeps every leg: travel at least 400 ms, the hold at least 600 ms.
+    const squeezed = showcasePhases(MOVE_TIMING.minSpeed, false);
+    expect(squeezed.riseMs).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
+    expect(squeezed.flyMs).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
+    expect(squeezed.holdMs).toBeGreaterThanOrEqual(ADD_TO_HAND.holdMinMs);
+    expect(ADD_TO_HAND.holdMinMs).toBeGreaterThanOrEqual(600);
+    expect(ADD_TO_HAND.holdMs).toBeGreaterThanOrEqual(700);
+    expect(ADD_TO_HAND.holdMs).toBeLessThanOrEqual(900);
     expect(shortest * MOVE_TIMING.minSpeed).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
     expect(MOVE_TIMING.minGapMs).toBeGreaterThanOrEqual(250);
   });

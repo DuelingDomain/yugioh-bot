@@ -941,6 +941,7 @@ export function choiceStripItems(prompt: DuelPrompt): StripCard[] {
     order: null,
     detail: notes[index]?.detail,
     detailTitle: notes[index]?.title,
+    location: option.location,
   }));
 }
 
@@ -1035,6 +1036,7 @@ function GridPicker({
         selected: aim ? aim.lockedId === option.id : draft.selected.includes(option.id),
         order: prompt.kind === "order" ? draft.selected.indexOf(option.id) + 1 || null : null,
         note: valueDetail && option.values?.length ? option.values.join(" / ") : undefined,
+        location: option.location,
       }))
     : [];
 

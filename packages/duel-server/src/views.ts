@@ -277,6 +277,7 @@ export interface StoredDuelEvent {
   from?: DuelZoneRef;
   reason?: DuelMoveReason;
   faceDown?: boolean;
+  addedToHand?: true;
   target?: DuelZoneRef;
   amount?: number;
   cause?: DuelEvent["cause"];
@@ -574,6 +575,7 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.from) projected.from = { ...event.from };
   if (event.reason) projected.reason = event.reason;
   if (event.faceDown != null) projected.faceDown = event.faceDown;
+  if (event.addedToHand) projected.addedToHand = true;
   if (event.amount != null) projected.amount = event.amount;
   if (event.cause) projected.cause = event.cause;
   if (event.sourceCode != null) projected.sourceCode = event.sourceCode;
@@ -727,6 +729,8 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
       if (from.controller === to.controller && from.location === to.location) return [];
       const reason = defaultMoveReason(from.location, to.location);
       const event = trackMove(ctx, firstId, cards, message.card, from, to, reason);
+      // A MOVE to a hand is never a draw (draws arrive as DRAW): a card effect added it.
+      if (to.location === OcgLocation.HAND && from.location !== OcgLocation.HAND) event.addedToHand = true;
       return [event];
     }
     case OcgMessageType.SUMMONING:
