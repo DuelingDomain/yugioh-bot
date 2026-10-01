@@ -110,6 +110,8 @@ export function DeckEditor({
   const [addSection, setAddSection] = useState<"main" | "extra" | "side">("main");
   const [parseError, setParseError] = useState<string | null>(null);
   const [edited, setEdited] = useState(false);
+  // The deck as it came from the room or a saved deck. Replacing it asks for no confirmation.
+  const [pristineDeck, setPristineDeck] = useState<DuelDeck>(deck);
   const [retry, setRetry] = useState(0);
   const [fileName, setFileName] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -263,12 +265,15 @@ export function DeckEditor({
 
       <SavedDeckPicker mode={mode} disabled={busy} onLoad={(saved) => {
         const hasCards = main.length > 0 || extra.length > 0 || side.length > 0 || masterCode !== undefined;
-        if (hasCards && !window.confirm("Replace the deck currently loaded at this table? Your saved deck is unchanged.")) return;
+        if (hasCards && deck !== pristineDeck
+          && !window.confirm("Replace the deck you changed at this table? Your saved deck is unchanged.")) return false;
         const localDeck = mode === "normal"
           ? { main: saved.main, extra: saved.extra, side: saved.side }
           : saved;
         commitSelection({ deck: localDeck, masterOrigin: null });
+        setPristineDeck(localDeck);
         setFileName(null);
+        return true;
       }} />
 
       {showValidation ? (
