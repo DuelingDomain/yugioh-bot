@@ -1,0 +1,291 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Fri, 4 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: Lua library seat checks, disable-field mask, counter
+ side and Field Zone lookup at n > 2
+
+The stock code in libduel.cpp and playerop.cpp has sites that only work with
+two duelists. With more than 2 duelists they call opponent_of, index an array
+with a player value that is not a seat, or ignore seats 2 and 3. Every change is
+in an n_duelists > 2 branch (or a test that gives the stock result at n == 2).
+The n == 2 behaviour is unchanged.
+
+Duel.SelectDisableField: the opponent half of the zone mask is the next living
+duelist in turn order (the duelist that the field-disabled code binds). It is
+skipped when no other duelist lives. This was the only opponent_of trap left in
+these files.
+Duel.GetEnvironment: looks at the Field Zone of every living duelist, not only
+seats 0 and 1.
+Duel.IncreaseSummonedCount, Duel.CheckSummonedCount: a reason player that is not
+a seat does nothing (Increase) or gives false (Check). No read or write of
+summon_count out of range.
+Duel.GetCustomActivityCount: a player that is not a seat gives 0.
+Duel.GetDecktopGroup, GetDeckbottomGroup, GetExtraTopGroup: a player that is not
+a seat gives an empty group. Before, a Lua value like 1-tp read out of range.
+Duel.CheckReleaseGroup, SelectReleaseGroup (and the Ex forms): the player test
+accepts every seat, not only 0 and 1.
+Duel.DiscardDeck, Duel.CheckTribute (toplayer), Card.CheckUniqueOnField: a player
+that is not a seat gives the empty result (0, false, true = no conflict).
+Effect.SetAbsoluteRange: with more than 2 duelists the ranges stay relative to the
+owner (s = own side, o = the other side). The swap for a player other than 0 is
+only the two-player way to name seat 1. effect::is_target_player reads them so.
+playerop SelectCounter: a Tag partner counts as the own side, not the other
+side. A player that is not a living seat gets no prompt and no cards.
+playerop SelectPlace: the answer must name a living duelist.
+
+Left alone: the other sites in these files were already fixed or are reached
+only at n == 2. libgroup.cpp and libeffect.cpp have no opponent_of. The Lua
+values 2 and 3 (PLAYER_NONE, PLAYER_ALL) are not changed here.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ libcard.cpp   |  5 ++++
+ libduel.cpp   | 65 ++++++++++++++++++++++++++++++++++++++++-----------
+ libeffect.cpp |  4 +++-
+ playerop.cpp  |  8 +++++--
+ 4 files changed, 65 insertions(+), 17 deletions(-)
+
+diff --git a/libcard.cpp b/libcard.cpp
+index 58c00a6..440ce98 100644
+--- a/libcard.cpp
++++ b/libcard.cpp
+@@ -2113,6 +2113,11 @@ LUA_FUNCTION(CheckUniqueOnField) {
+ 	auto check_player = lua_get<uint8_t>(L, 2);
+ 	auto check_location = lua_get<uint8_t, LOCATION_ONFIELD>(L, 3) & LOCATION_ONFIELD;
+ 	auto icard = lua_get<card*>(L, 4);
++	if(pduel->game_field->n_duelists > 2 && !pduel->game_field->is_duelist(check_player)) {
++		// not a seat: no card of that field can conflict
++		lua_pushboolean(L, 1);
++		return 1;
++	}
+ 	lua_pushboolean(L, pduel->game_field->check_unique_onfield(self, check_player, check_location, icard) ? 0 : 1);
+ 	return 1;
+ }
+diff --git a/libduel.cpp b/libduel.cpp
+index b8685fc..2ab7b1b 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -1064,7 +1064,15 @@ LUA_STATIC_FUNCTION(GetEnvironment) {
+ 		}
+ 		return false;
+ 	};
+-	if(!IsEnabled(pduel->game_field->player[0].list_szone[5]) && !IsEnabled(pduel->game_field->player[1].list_szone[5])) {
++	bool field_spell = false;
++	if(pduel->game_field->n_duelists == 2) {
++		field_spell = IsEnabled(pduel->game_field->player[0].list_szone[5]) || IsEnabled(pduel->game_field->player[1].list_szone[5]);
++	} else {
++		// every living duelist's Field Zone, in seat order
++		for(uint8_t q = 0; q < pduel->game_field->n_duelists && !field_spell; ++q)
++			field_spell = pduel->game_field->is_alive(q) && IsEnabled(pduel->game_field->player[q].list_szone[5]);
++	}
++	if(!field_spell) {
+ 		effect_set eset;
+ 		pduel->game_field->filter_field_effect(EFFECT_CHANGE_ENVIRONMENT, &eset);
+ 		if(eset.size()) {
+@@ -1362,6 +1370,11 @@ LUA_STATIC_FUNCTION(DiscardDeck) {
+ 	auto playerid = lua_get<uint8_t>(L, 1);
+ 	auto count = lua_get<uint16_t>(L, 2);
+ 	auto reason = lua_get<uint32_t>(L, 3);
++	if(pduel->game_field->n_duelists > 2 && !pduel->game_field->is_duelist(playerid)) {
++		// not a seat (for example 1-tp in a script that thinks of two duelists): nothing is discarded
++		lua_pushinteger(L, 0);
++		return 1;
++	}
+ 	pduel->game_field->emplace_process<Processors::DiscardDeck>(playerid, count, reason);
+ 	return yieldk({
+ 		lua_pushinteger(L, pduel->game_field->returns.at<int32_t>(0));
+@@ -1797,7 +1810,7 @@ LUA_STATIC_FUNCTION(IncreaseSummonedCount) {
+ 	uint8_t playerid = pduel->game_field->core.reason_player;
+ 	if(pcard && (pextra = pcard->is_affected_by_effect(EFFECT_EXTRA_SUMMON_COUNT)) != nullptr)
+ 		pextra->get_value(pcard);
+-	else
++	else if(pduel->game_field->n_duelists == 2 || pduel->game_field->is_duelist(playerid))
+ 		++pduel->game_field->core.summon_count[playerid];
+ 	return 0;
+ }
+@@ -1806,6 +1819,11 @@ LUA_STATIC_FUNCTION(CheckSummonedCount) {
+ 	if(lua_gettop(L) > 0)
+ 		pcard = lua_get<card*, true>(L, 1);
+ 	uint8_t playerid = pduel->game_field->core.reason_player;
++	if(pduel->game_field->n_duelists > 2 && !pduel->game_field->is_duelist(playerid)) {
++		// the reason player is not a seat: nobody can summon
++		lua_pushboolean(L, 0);
++		return 1;
++	}
+ 	if((pcard && pcard->is_affected_by_effect(EFFECT_EXTRA_SUMMON_COUNT))
+ 	        || pduel->game_field->core.summon_count[playerid] < pduel->game_field->get_summon_count_limit(playerid))
+ 		lua_pushboolean(L, 1);
+@@ -2369,6 +2387,10 @@ LUA_STATIC_FUNCTION(GetFieldGroupCount) {
+ LUA_STATIC_FUNCTION(GetDecktopGroup) {
+ 	check_param_count(L, 2);
+ 	auto playerid = lua_get<uint8_t>(L, 1);
++	if(pduel->game_field->n_duelists > 2 && !pduel->game_field->is_duelist(playerid)) {
++		interpreter::pushobject(L, pduel->new_group());
++		return 1;
++	}
+ 	auto& main = pduel->game_field->player[playerid].list_main;
+ 	const auto count = std::min<size_t>(lua_get<uint32_t>(L, 2), main.size());
+ 	const auto offset = main.size() - count;
+@@ -2379,6 +2401,10 @@ LUA_STATIC_FUNCTION(GetDecktopGroup) {
+ LUA_STATIC_FUNCTION(GetDeckbottomGroup) {
+ 	check_param_count(L, 2);
+ 	auto playerid = lua_get<uint8_t>(L, 1);
++	if(pduel->game_field->n_duelists > 2 && !pduel->game_field->is_duelist(playerid)) {
++		interpreter::pushobject(L, pduel->new_group());
++		return 1;
++	}
+ 	auto& main = pduel->game_field->player[playerid].list_main;
+ 	const auto count = std::min<size_t>(lua_get<uint32_t>(L, 2), main.size());
+ 	auto pgroup = pduel->new_group(main.begin(), main.begin() + count);
+@@ -2393,6 +2419,10 @@ LUA_STATIC_FUNCTION(GetDeckbottomGroup) {
+ LUA_STATIC_FUNCTION(GetExtraTopGroup) {
+ 	check_param_count(L, 2);
+ 	auto playerid = lua_get<uint8_t>(L, 1);
++	if(pduel->game_field->n_duelists > 2 && !pduel->game_field->is_duelist(playerid)) {
++		interpreter::pushobject(L, pduel->new_group());
++		return 1;
++	}
+ 	const auto& player = pduel->game_field->player[playerid];
+ 	auto& extra = player.list_extra;
+ 	const auto count = std::min<size_t>(lua_get<uint32_t>(L, 2), extra.size() - player.extra_p_count);
+@@ -2598,7 +2628,7 @@ LUA_STATIC_FUNCTION(GetReleaseGroupCount) {
+ static int32_t check_release_group(lua_State* L, uint8_t use_hand) {
+ 	check_param_count(L, 4);
+ 	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(playerid != 0 && playerid != 1)
++	if(lua_get<duel*>(L)->game_field->n_duelists == 2 ? (playerid != 0 && playerid != 1) : !lua_get<duel*>(L)->game_field->is_duelist(playerid))
+ 		return 0;
+ 	const auto findex = lua_get<function>(L, 2);
+ 	card* pexception = nullptr;
+@@ -2647,7 +2677,7 @@ static int32_t select_release_group(lua_State* L, uint8_t use_hand) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 5);
+ 	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(playerid != 0 && playerid != 1)
++	if(lua_get<duel*>(L)->game_field->n_duelists == 2 ? (playerid != 0 && playerid != 1) : !lua_get<duel*>(L)->game_field->is_duelist(playerid))
+ 		return 0;
+ 	const auto findex = lua_get<function>(L, 2);
+ 	card* pexception = nullptr;
+@@ -2732,6 +2762,10 @@ LUA_STATIC_FUNCTION(CheckTribute) {
+ 		mg = lua_get<group*, true>(L, 4);
+ 	auto toplayer = lua_get<uint8_t>(L, 5, target->current.controler);
+ 	auto zone = lua_get<uint32_t, 0x1f>(L, 6);
++	if(pduel->game_field->n_duelists > 2 && !pduel->game_field->is_duelist(toplayer)) {
++		lua_pushboolean(L, 0);
++		return 1;
++	}
+ 	lua_pushboolean(L, pduel->game_field->check_tribute(target, min, max, mg, toplayer, zone));
+ 	return 1;
+ }
+@@ -3323,6 +3357,9 @@ LUA_STATIC_FUNCTION(SelectDisableField) {
+ 	}
+ 	filter |= lua_get<uint32_t>(L, 5, filter);
+ 	uint32_t ct1 = 0, ct2 = 0, ct3 = 0, ct4 = 0, plist = 0, flag = 0xffffffff;
++	// The high half of the mask is the zones of one opponent. With more than two duelists it is the next living
++	// duelist in turn order (the one the field-disabled code binds), and it is skipped when nobody else lives.
++	const uint8_t oppid = pduel->game_field->n_duelists == 2 ? pduel->game_field->opponent_of(playerid) : pduel->game_field->next_in_turn_order(playerid);
+ 	if(location1 & LOCATION_MZONE) {
+ 		ct1 = pduel->game_field->get_useable_count(nullptr, playerid, LOCATION_MZONE, pduel->game_field->none_id(), LOCATION_REASON::NONE, 0xff, &plist);
+ 		if (all_field) {
+@@ -3357,34 +3394,34 @@ LUA_STATIC_FUNCTION(SelectDisableField) {
+ 		}
+ 		flag = (flag & 0xffff00ff) | (plist << 8);
+ 	}
+-	if(location2 & LOCATION_MZONE) {
+-		ct3 = pduel->game_field->get_useable_count(nullptr, pduel->game_field->opponent_of(playerid), LOCATION_MZONE, pduel->game_field->none_id(), LOCATION_REASON::NONE, 0xff, &plist);
++	if((location2 & LOCATION_MZONE) && oppid != playerid) {
++		ct3 = pduel->game_field->get_useable_count(nullptr, oppid, LOCATION_MZONE, pduel->game_field->none_id(), LOCATION_REASON::NONE, 0xff, &plist);
+ 		if (all_field) {
+ 			plist &= ~0x60;
+-			if (!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(playerid), LOCATION_MZONE, 5))
++			if (!pduel->game_field->is_location_useable(oppid, LOCATION_MZONE, 5))
+ 				plist |= 0x20;
+ 			else
+ 				++ct3;
+-			if (!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(playerid), LOCATION_MZONE, 6))
++			if (!pduel->game_field->is_location_useable(oppid, LOCATION_MZONE, 6))
+ 				plist |= 0x40;
+ 			else
+ 				++ct3;
+ 		}
+ 		flag = (flag & 0xff00ffff) | (plist << 16);
+ 	}
+-	if(location2 & LOCATION_SZONE) {
+-		ct4 = pduel->game_field->get_useable_count(nullptr, pduel->game_field->opponent_of(playerid), LOCATION_SZONE, pduel->game_field->none_id(), LOCATION_REASON::NONE, 0xff, &plist);
++	if((location2 & LOCATION_SZONE) && oppid != playerid) {
++		ct4 = pduel->game_field->get_useable_count(nullptr, oppid, LOCATION_SZONE, pduel->game_field->none_id(), LOCATION_REASON::NONE, 0xff, &plist);
+ 		if (all_field) {
+ 			plist &= ~0xe0;
+-			if (!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(playerid), LOCATION_SZONE, 5))
++			if (!pduel->game_field->is_location_useable(oppid, LOCATION_SZONE, 5))
+ 				plist |= 0x20;
+ 			else
+ 				++ct4;
+-			if (!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(playerid), LOCATION_SZONE, 6))
++			if (!pduel->game_field->is_location_useable(oppid, LOCATION_SZONE, 6))
+ 				plist |= 0x40;
+ 			else
+ 				++ct4;
+-			if (!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(playerid), LOCATION_SZONE, 7))
++			if (!pduel->game_field->is_location_useable(oppid, LOCATION_SZONE, 7))
+ 				plist |= 0x80;
+ 			else
+ 				++ct4;
+@@ -4171,7 +4208,7 @@ LUA_STATIC_FUNCTION(GetCustomActivityCount) {
+ 	auto& counter_map = pduel->game_field->core.get_counter_map(activity_type);
+ 	int32_t val = 0;
+ 	auto it = counter_map.find(counter_id);
+-	if(it != counter_map.end())
++	if(it != counter_map.end() && (pduel->game_field->n_duelists == 2 || pduel->game_field->is_duelist(playerid)))
+ 		val = it->second.player_amount[playerid];
+ 	lua_pushinteger(L, val);
+ 	return 1;
+diff --git a/libeffect.cpp b/libeffect.cpp
+index 36df70a..763bf64 100644
+--- a/libeffect.cpp
++++ b/libeffect.cpp
+@@ -90,7 +90,9 @@ LUA_FUNCTION(SetAbsoluteRange) {
+ 	auto playerid = lua_get<uint8_t>(L, 2);
+ 	auto s = lua_get<uint16_t>(L, 3);
+ 	auto o = lua_get<uint16_t>(L, 4);
+-	if(playerid == 0) {
++	// With more than 2 duelists the ranges stay relative to the owner (s = own side, o = the other side): the
++	// swap for a player other than 0 is only the two-player way to name seat 1.
++	if(playerid == 0 || pduel->game_field->n_duelists > 2) {
+ 		self->s_range = s;
+ 		self->o_range = o;
+ 	} else {
+diff --git a/playerop.cpp b/playerop.cpp
+index 88d1183..1cfddf0 100644
+--- a/playerop.cpp
++++ b/playerop.cpp
+@@ -578,7 +578,7 @@ bool field::process(Processors::SelectPlace& arg) {
+ 		uint8_t pt = 0;
+ 		for(int8_t i = 0; i < count; ++i) {
+ 			uint8_t select_player = returns.at<uint8_t>(pt);
+-			if(!is_duelist(select_player))
++			if(n_duelists > 2 ? !is_alive(select_player) : !is_duelist(select_player))
+ 				return retry();
+ 			const bool isplayerid = (select_player == playerid);
+ 			uint8_t location = returns.at<uint8_t>(pt + 1);
+@@ -719,6 +719,9 @@ bool field::process(Processors::SelectCounter& arg) {
+ 		uint8_t fp = playerid;
+ 		uint32_t total = 0;
+ 		core.select_cards.clear();
++		// not a living seat: no cards to choose from, and no prompt
++		if(n_duelists > 2 && !is_alive(playerid))
++			return TRUE;
+ 		for(int p = 0; p < n_duelists; ++p) {
+ 			if(avail) {
+ 				for(auto& pcard : player[fp].list_mzone) {
+@@ -735,7 +738,8 @@ bool field::process(Processors::SelectCounter& arg) {
+ 				}
+ 			}
+ 			fp = next_in_turn_order(fp);
+-			avail = oppo;
++			// with more than two duelists the partner of a Tag team counts as own side
++			avail = (n_duelists > 2 && same_team(playerid, fp)) ? self : oppo;
+ 			if(n_duelists > 2 && fp == playerid)
+ 				break;
+ 		}

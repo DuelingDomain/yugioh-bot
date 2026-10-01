@@ -1,0 +1,126 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sat, 5 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: close the last out-of-range player reads in field.cpp
+ for more than two duelists
+
+This is the opponent_of sweep of field.cpp, card.cpp, effect.cpp and ocgapi.cpp.
+I listed every opponent_of call in these files (26 calls: 15 in field.cpp, 11 in
+card.cpp, none in effect.cpp or ocgapi.cpp). All of them already run only when
+n_duelists is 2, or sit in a branch that FX1 to FX6 added for n > 2. The nduel
+trap list at 028194d has no entry in these files.
+
+Six places could still read or write out of range, or give a wrong answer at n > 2.
+I fixed them:
+- field::get_field_card (1 site): an index of MAX_DUELISTS or more returns no card.
+  OCG_DuelQuery passes the host value info.con to it unchecked.
+- field::check_tribute (1 site): "summon to the field of an opponent" was
+  toplayer == 1 - sumplayer. At seat 2 or 3 this was never true. At n > 2 it is now
+  true for every duelist that is not on the team of the summoner (ADR-0002).
+- field::add_effect and field::remove_effect (2 sites): target_player[] was written
+  with the effect owner without a bound. The owner must now be a duelist.
+- field::is_player_can_discard_deck and is_player_can_discard_deck_as_cost (2 sites):
+  a Lua value such as 1 - tp at seat 2 is 255 and indexed player[]. It now returns FALSE.
+- field::check_unique_onfield (1 site): the controler (from Card.CheckUniqueOnField)
+  indexed core.unique_cards[] without a bound. A value that is no duelist gives no effect.
+
+With 2 duelists the values 0 and 1 give the same results as before. The sites above
+are only different for a value that was out of range before (255, or 2 and 3).
+No new message, no new random call, no change in the order of Lua calls.
+
+The tag seed 10 wasm crash (memory access out of bounds) is not in these files.
+Delg the Dark Monarch calls Duel.DiscardDeck(1 - tp) at seat 2. That is 255 in
+libduel.cpp Duel.DiscardDeck, and operations.cpp process(DiscardDeck) indexes
+player[255]. A replay with (1 - tp) % 2 in that one script does not crash.
+
+Left for other owners (not in these files): the two DiscardDeck sites above. libduel.cpp Duel.CheckTribute
+passes an unvalidated toplayer. card.cpp get_unique_target (controler ^ p) and the
+summon procedures with SPSUM_PARAM belong to FX7.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ field.cpp | 22 +++++++++++++++++-----
+ 1 file changed, 17 insertions(+), 5 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index bfc4cfc..c689ea8 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -810,6 +810,9 @@ void field::set_control(card* pcard, uint8_t playerid, uint16_t reset_phase, uin
+ }
+ 
+ card* field::get_field_card(uint32_t playerid, uint32_t location, uint32_t sequence) {
++	// player[] has MAX_DUELISTS entries. A larger index (a Lua value or a query request) has no cards.
++	if(playerid >= MAX_DUELISTS)
++		return nullptr;
+ 	switch(location) {
+ 	case LOCATION_MZONE: {
+ 		if(sequence < player[playerid].list_mzone.size())
+@@ -1633,12 +1636,12 @@ void field::add_effect(effect* peffect, uint8_t owner_player) {
+ 			effects.rechargeable.insert(peffect);
+ 		if(peffect->is_flag(EFFECT_FLAG_PLAYER_TARGET) && peffect->is_flag(EFFECT_FLAG_CLIENT_HINT)) {
+ 			bool target_player[MAX_DUELISTS] = {};
+-			if(peffect->s_range)
++			if(peffect->s_range && owner_player < MAX_DUELISTS)
+ 				target_player[owner_player] = true;
+ 			if(peffect->o_range) {
+ 				if(n_duelists == 2)
+ 					target_player[opponent_of(owner_player)] = true;
+-				else
++				else if(is_duelist(owner_player))
+ 					for(uint8_t q = 0; q < n_duelists; ++q)
+ 						if(!same_team(owner_player, q))
+ 							target_player[q] = true;
+@@ -1696,12 +1699,12 @@ void field::remove_effect(effect* peffect) {
+ 		core.reseted_effects.insert(peffect);
+ 		if(peffect->is_flag(EFFECT_FLAG_PLAYER_TARGET) && peffect->is_flag(EFFECT_FLAG_CLIENT_HINT)) {
+ 			bool target_player[MAX_DUELISTS] = {};
+-			if(peffect->s_range)
++			if(peffect->s_range && peffect->effect_owner < MAX_DUELISTS)
+ 				target_player[peffect->effect_owner] = true;
+ 			if(peffect->o_range) {
+ 				if(n_duelists == 2)
+ 					target_player[opponent_of(peffect->effect_owner)] = true;
+-				else
++				else if(is_duelist(peffect->effect_owner))
+ 					for(uint8_t q = 0; q < n_duelists; ++q)
+ 						if(!same_team(peffect->effect_owner, q))
+ 							target_player[q] = true;
+@@ -2647,6 +2650,9 @@ void field::remove_unique_card(card* pcard) {
+ }
+ // return: pcard->unique_effect or 0
+ effect* field::check_unique_onfield(card* pcard, uint8_t controler, uint8_t location, card* icard) {
++	// Card.CheckUniqueOnField passes a Lua value; a value that is no duelist has no unique cards.
++	if(!is_duelist(controler))
++		return nullptr;
+ 	for(auto& ucard : core.unique_cards[controler]) {
+ 		if((ucard != pcard) && (ucard != icard) && ucard->is_position(POS_FACEUP) && ucard->get_status(STATUS_EFFECT_ENABLED)
+ 			&& !ucard->get_status(STATUS_DISABLED | STATUS_FORBIDDEN)
+@@ -3019,7 +3025,8 @@ void field::attack_all_target_check() {
+ int32_t field::check_tribute(card* pcard, int32_t min, int32_t max, group* mg, uint8_t toplayer, uint32_t zone, uint32_t releasable, uint32_t pos) {
+ 	int32_t ex = FALSE;
+ 	uint32_t sumplayer = pcard->current.controler;
+-	if(toplayer == 1 - sumplayer)
++	if(n_duelists == 2 ? toplayer == 1 - sumplayer
++	                   : (is_duelist(toplayer) && is_duelist(sumplayer) && !same_team(static_cast<uint8_t>(sumplayer), toplayer)))
+ 		ex = TRUE;
+ 	card_set release_list, ex_list;
+ 	int32_t m = get_summon_release_list(pcard, &release_list, &ex_list, nullptr, mg, ex, releasable, pos);
+@@ -3124,11 +3131,16 @@ int32_t field::is_player_can_draw(uint8_t playerid) {
+ 	return !is_player_affected_by_effect(playerid, EFFECT_CANNOT_DRAW);
+ }
+ int32_t field::is_player_can_discard_deck(uint8_t playerid, uint32_t count) {
++	// A Lua value like 1 - tp at seat 2 reaches here as 255: it is no duelist and has no Deck.
++	if(!is_duelist(playerid))
++		return FALSE;
+ 	if(player[playerid].list_main.size() < count)
+ 		return FALSE;
+ 	return !is_player_affected_by_effect(playerid, EFFECT_CANNOT_DISCARD_DECK);
+ }
+ int32_t field::is_player_can_discard_deck_as_cost(uint8_t playerid, uint32_t count) {
++	if(!is_duelist(playerid))
++		return FALSE;
+ 	if(player[playerid].list_main.size() < count)
+ 		return FALSE;
+ 	if(is_player_affected_by_effect(playerid, EFFECT_CANNOT_DISCARD_DECK))

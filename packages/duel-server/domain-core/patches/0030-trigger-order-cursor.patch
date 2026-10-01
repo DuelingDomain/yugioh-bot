@@ -1,0 +1,139 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 30 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: keep the trigger-order cursor and the Phase window pass
+ record right when a duelist is eliminated
+
+Two follow-up sites to the previous commit. Both are new code for n_duelists > 2 only.
+
+next_trigger_player (field.h) and trigger_order (field.cpp): a cursor that was eliminated while its trigger
+window was open was not in the trigger order, so the search found nothing and the other duelists never got
+their trigger prompt. trigger_order() has a living_only flag (default true, the callers that need only the living
+keep it). next_trigger_player now finds the cursor in the full seat order and then takes the next living duelist
+with an entry, the same rule as next_responder. This covers every caller: the SEGOC windows, the continuous
+effect cursor and the forced quick effect cursor.
+
+PhaseEvent pass record (processor_unit.h, processor.cpp step 2): a count of passes in a row was compared with the
+number of living duelists, so a duelist who passed and was eliminated later was counted and the window closed one
+duelist early. The count is now a mask (pass_mask, one bit per duelist who passed since the last activation) and
+the window closes when every living duelist has its bit set. The pass of an eliminated cursor sets no bit. With no
+elimination the window closes after the same number of passes as before.
+
+Not changed: the pass_count of the other processors in operations.cpp (1696 and 5347) counts passes in a row in the
+same way and has the same late-elimination case.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ field.cpp        |  4 ++--
+ field.h          | 12 ++++++++----
+ processor.cpp    | 16 +++++++++-------
+ processor_unit.h |  2 +-
+ 4 files changed, 20 insertions(+), 14 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index 5819771..35b2abe 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -346,12 +346,12 @@ uint8_t field::restart_responders(uint8_t anchor, uint8_t passed) {
+ 		infos.priorities[passed] = 1;
+ 	return first_responder();
+ }
+-uint8_t field::trigger_order(uint8_t* out) const {
++uint8_t field::trigger_order(uint8_t* out, bool living_only) const {
+ 	uint8_t count = 0;
+ 	const uint8_t tp = infos.turn_player;
+ 	auto add = [&](uint8_t q) {
+ 		q = static_cast<uint8_t>(q % n_duelists);
+-		if(is_alive(q))
++		if(!living_only || is_alive(q))
+ 			out[count++] = q;
+ 	};
+ 	if(n_teams == n_duelists) {
+diff --git a/field.h b/field.h
+index dbf1fc4..015e0a5 100644
+--- a/field.h
++++ b/field.h
+@@ -559,17 +559,21 @@ public:
+ 	// counts as passed) and returns the first responder.
+ 	uint8_t restart_responders(uint8_t anchor, uint8_t passed = DUELIST_NONE);
+ 	// The order of simultaneous triggers: free for all tp, tp+1, ...; Tag tp, tp+2, tp+1, tp+3.
+-	uint8_t trigger_order(uint8_t* out) const;
+-	// The next duelist after cur in trigger order for whom has_entry(q) is true. DUELIST_NONE if none.
++	// With living_only == false the eliminated duelists keep their place (a cursor eliminated while its
++	// trigger window was open can still be found in the order).
++	uint8_t trigger_order(uint8_t* out, bool living_only = true) const;
++	// The next living duelist after cur in trigger order for whom has_entry(q) is true. DUELIST_NONE if none.
+ 	template<typename F>
+ 	uint8_t next_trigger_player(uint8_t cur, F&& has_entry) const {
+ 		uint8_t order[MAX_DUELISTS];
+-		const uint8_t count = trigger_order(order);
++		// Look for cur in the order with the eliminated duelists in it, like next_responder: a cursor that was
++		// eliminated in the middle of the window still has its place, and the living duelists after it follow.
++		const uint8_t count = trigger_order(order, false);
+ 		uint8_t i = 0;
+ 		while(i < count && order[i] != cur)
+ 			++i;
+ 		for(++i; i < count; ++i)
+-			if(has_entry(order[i]))
++			if(is_alive(order[i]) && has_entry(order[i]))
+ 				return order[i];
+ 		return DUELIST_NONE;
+ 	}
+diff --git a/processor.cpp b/processor.cpp
+index 173357a..2e016b4 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -484,14 +484,16 @@ bool field::process(Processors::PhaseEvent& arg) {
+ 	case 2: {
+ 		if(returns.at<int32_t>(0) == -1) {
+ 			if(n_duelists > 2) {
+-				uint8_t living = 0;
++				// A mask, not a count: a duelist who passed and was eliminated later has a bit that no living duelist
++				// needs, and the pass of one who was eliminated in this window sets no bit. The window closes when
++				// every living duelist has passed.
++				uint8_t living_mask = 0;
+ 				for(uint8_t q = 0; q < n_duelists; ++q)
+ 					if(is_alive(q))
+-						++living;
+-				// the pass of a duelist who was eliminated in this window does not count
++						living_mask |= static_cast<uint8_t>(1u << q);
+ 				if(is_alive(arg.check_cursor))
+-					++arg.pass_count;
+-				if(arg.pass_count >= living)
++					arg.pass_mask |= static_cast<uint8_t>(1u << arg.check_cursor);
++				if((arg.pass_mask & living_mask) == living_mask)
+ 					arg.step = 19;
+ 				else {
+ 					arg.check_cursor = next_in_turn_order(arg.check_cursor);
+@@ -509,7 +511,7 @@ bool field::process(Processors::PhaseEvent& arg) {
+ 			return FALSE;
+ 		}
+ 		arg.priority_passed = false;
+-		arg.pass_count = 0;
++		arg.pass_mask = 0;
+ 		auto selected_chain = std::next(core.select_chains.begin(), returns.at<int32_t>(0));
+ 		effect* peffect = selected_chain->triggering_effect;
+ 		card* phandler = peffect->get_handler();
+@@ -606,7 +608,7 @@ bool field::process(Processors::PhaseEvent& arg) {
+ 		arg.is_opponent = false;
+ 		arg.priority_passed = false;
+ 		arg.check_cursor = DUELIST_NONE;
+-		arg.pass_count = 0;
++		arg.pass_mask = 0;
+ 		return FALSE;
+ 	}
+ 	case 25: {
+diff --git a/processor_unit.h b/processor_unit.h
+index 750ba83..f32495d 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -230,7 +230,7 @@ struct PhaseEvent : public Process<false> {
+ 	bool is_opponent;
+ 	bool priority_passed;
+ 	uint8_t check_cursor{ DUELIST_NONE }; // n_duelists > 2: the duelist asked now
+-	uint8_t pass_count{ 0 }; // n_duelists > 2: duelists who passed in a row
++	uint8_t pass_mask{ 0 }; // n_duelists > 2: bit q is set when duelist q passed since the last activation
+ 	PhaseEvent(uint16_t step_, uint16_t phase_) :
+ 		Process(step_), phase(phase_), is_opponent(false), priority_passed(false) {}
+ };

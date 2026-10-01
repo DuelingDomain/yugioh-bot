@@ -1,0 +1,542 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 6 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: fix the n > 2 summon-to-opponent, old-rule summon oath
+ and pass loop sites in operations and processor
+
+All changes are new code for n_duelists > 2. With 2 duelists every line is the stock code.
+
+Pass loops (TrapMonsterAdjust, ChangePos): the loop counted the passes done and compared them with the number of
+living duelists. A duelist who was done and was eliminated later was counted, so the loop ended one duelist early. The
+count is now a mask (pass_mask), the same method as the PhaseEvent pass record. The loop ends when every living duelist
+has its bit. The ChangePos start code ran again at every pass and reset the pass player to the reason player, so every
+pass was for the same duelist. The start code now runs once (pass_player starts as DUELIST_NONE).
+
+Summon to the opponent's field (EFFECT_FLAG_SPSUM_PARAM with o_range): Summon, MSet and SpSummonRule used "1 - player".
+At seat 2 or 3 that is not a seat. Now the monster goes to the first living opponent in turn order for whom the summon
+works, the same rule as card::check_summon_procedure. If none works, the first living opponent.
+
+EFFECT_OPPO_CHOOSES_SPSUMMON_ZONE: the chooser is the first living opponent of the chooser so far.
+
+Old-rule summon oaths (DUEL_CANNOT_SUMMON_OATH_OLD, DUEL_SPSUMMON_ONCE_OLD_NEGATE) in AddChain and Chain step 5: the
+"other" summon player of a CATEGORY_SPECIAL_SUMMON with PLAYER_ALL is the first living opponent of the summon player.
+op_param that is not a duelist is the triggering player. The group is read only as far as it goes.
+SpSummon step 2 no longer indexes the once set with a summon player that is not a duelist.
+
+DUEL_1_FACEUP_FIELD (the two sites in the Chain process): the Field Spell of every other living duelist is disabled or destroyed.
+
+Player values from a script that are not a duelist seat (all_id, a seat above the table, 1 - tp at seat 2 or 3):
+process(Draw), Damage, Recover, DiscardDeck, TossCoin, TossDice and DiscardHand now do nothing (result 0).
+DiscardDeck had no guard and read player[255]. send_to and destroy send a card to its owner when the player
+is not a duelist.
+
+Sites that stay as they are: every other opponent_of in operations.cpp, processor.cpp and processor_unit.h is
+inside an n_duelists == 2 branch or behind an earlier n > 2 branch.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ operations.cpp   | 128 +++++++++++++++++++++++++++++++++++++++++------
+ processor.cpp    | 113 ++++++++++++++++++++++++++++++++---------
+ processor_unit.h |  12 ++---
+ 3 files changed, 208 insertions(+), 45 deletions(-)
+
+diff --git a/operations.cpp b/operations.cpp
+index c68be24..1d576d1 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -17,6 +17,33 @@
+ #include "group.h"
+ #include "interpreter.h"
+ 
++// More than 2 duelists only (ADR-0002). The first living duelist clockwise from p who is not on p's team, or p
++// when there is none or when p is not a duelist in play. The "other side" of a rule that the stock core writes
++// as "the opponent" and that takes exactly one duelist.
++static uint8_t first_living_opponent(const field& f, uint8_t p) {
++	if(!f.is_alive(p))
++		return p;
++	for(uint8_t q = f.next_in_turn_order(p); q != p; q = f.next_in_turn_order(q)) {
++		if(!f.same_team(p, q))
++			return q;
++	}
++	return p;
++}
++// More than 2 duelists only. A summon procedure with EFFECT_FLAG_SPSUM_PARAM and o_range puts the monster on "the
++// opponent's field". With several opponents it goes to the first living opponent in turn order for whom works(q)
++// is true (the same order as card::check_summon_procedure). If none works, the first living opponent.
++template<typename F>
++static uint8_t first_summon_opponent(const field& f, uint8_t p, F&& works) {
++	const uint8_t first = first_living_opponent(f, p);
++	if(first == p)
++		return p;
++	for(uint8_t q = first; q != p; q = f.next_in_turn_order(q)) {
++		if(!f.same_team(p, q) && works(q))
++			return q;
++	}
++	return first;
++}
++
+ int32_t field::negate_chain(uint8_t chaincount) {
+ 	if(core.current_chain.size() == 0)
+ 		return FALSE;
+@@ -273,6 +300,8 @@ void field::destroy(card_set targets, effect* reason_effect, uint32_t reason, ui
+ 			destination = LOCATION_GRAVE;
+ 		if(destination && p == none_id())
+ 			p = pcard->owner;
++		if(n_duelists > 2 && !is_duelist(p))
++			p = pcard->owner;
+ 		if(destination & (LOCATION_GRAVE | LOCATION_REMOVED))
+ 			p = pcard->owner;
+ 		pcard->set_status(STATUS_DESTROY_CONFIRMED, TRUE);
+@@ -321,6 +350,8 @@ void field::send_to(card_set targets, effect* reason_effect, uint32_t reason, ui
+ 			p = reason_player;
+ 		if(p == none_id())
+ 			p = pcard->owner;
++		if(n_duelists > 2 && !is_duelist(p))
++			p = pcard->owner;
+ 		if(destination == LOCATION_GRAVE && pcard->current.location == LOCATION_REMOVED)
+ 			pcard->current.reason |= REASON_RETURN;
+ 		auto pos = position;
+@@ -417,6 +448,10 @@ bool field::process(Processors::Draw& arg) {
+ 	auto count = arg.count;
+ 	switch(arg.step) {
+ 	case 0: {
++		if(n_duelists > 2 && !is_duelist(playerid)) {
++			returns.set<int32_t>(0, 0);
++			return TRUE;
++		}
+ 		card_vector cv;
+ 		uint32_t drawn = 0;
+ 		uint32_t public_count = 0;
+@@ -556,6 +591,10 @@ bool field::process(Processors::Damage& arg) {
+ 		returns.set<uint32_t>(0, amount);
+ 		if(amount == 0)
+ 			return TRUE;
++		if(n_duelists > 2 && !is_duelist(playerid)) {
++			returns.set<uint32_t>(0, 0);
++			return TRUE;
++		}
+ 		if(!(reason & REASON_RDAMAGE)) {
+ 			filter_player_effect(playerid, EFFECT_REVERSE_DAMAGE, &eset);
+ 			for(const auto& peff : eset) {
+@@ -670,6 +709,10 @@ bool field::process(Processors::Recover& arg) {
+ 		returns.set<uint32_t>(0, amount);
+ 		if(amount == 0)
+ 			return TRUE;
++		if(n_duelists > 2 && !is_duelist(playerid)) {
++			returns.set<uint32_t>(0, 0);
++			return TRUE;
++		}
+ 		if(!(reason & REASON_RRECOVER)) {
+ 			filter_player_effect(playerid, EFFECT_REVERSE_RECOVER, &eset);
+ 			for(const auto& peff : eset) {
+@@ -1676,7 +1719,7 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 	auto& oppo_selection = arg.oppo_selection;
+ 	switch(arg.step) {
+ 	case 0: {
+-		if(n_duelists > 2 && arg.pass_count == 0) {
++		if(n_duelists > 2 && arg.pass_player == DUELIST_NONE) {
+ 			// one pass per living duelist, in turn order from the turn player
+ 			arg.pass_player = is_alive(infos.turn_player) ? infos.turn_player : next_in_turn_order(infos.turn_player);
+ 		}
+@@ -1738,10 +1781,16 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 				arg.step = 0;
+ 			}
+ 		} else {
+-			uint8_t living = 0;
++			// A mask, not a count: a duelist who was done and was eliminated later has a bit that no living duelist
++			// needs, and the pass of one who is eliminated in this pass sets no bit. The loop ends when every
++			// living duelist is done.
++			uint8_t living_mask = 0;
+ 			for(uint8_t p = 0; p < n_duelists; ++p)
+-				living += is_alive(p) ? 1 : 0;
+-			if(++arg.pass_count < living) {
++				if(is_alive(p))
++					living_mask |= static_cast<uint8_t>(1u << p);
++			if(is_alive(arg.pass_player))
++				arg.pass_mask |= static_cast<uint8_t>(1u << arg.pass_player);
++			if((arg.pass_mask & living_mask) != living_mask) {
+ 				arg.pass_player = next_in_turn_order(arg.pass_player);
+ 				arg.step = 0;
+ 			}
+@@ -2267,8 +2316,16 @@ bool field::process(Processors::SummonRule& arg) {
+ 		}
+ 		if(summon_procedure_effect && summon_procedure_effect->is_flag(EFFECT_FLAG_SPSUM_PARAM)) {
+ 			positions = (uint8_t)summon_procedure_effect->s_range & POS_FACEUP;
+-			if(summon_procedure_effect->o_range)
+-				targetplayer = 1 - sumplayer;
++			if(summon_procedure_effect->o_range) {
++				if(n_duelists == 2)
++					targetplayer = 1 - sumplayer;
++				else {
++					const uint32_t sumtype = summon_procedure_effect->get_value(target);
++					targetplayer = first_summon_opponent(*this, sumplayer, [&](uint8_t q) {
++						return is_player_can_summon(sumtype, sumplayer, target, q) && !check_unique_onfield(target, q, LOCATION_MZONE);
++					});
++				}
++			}
+ 		}
+ 		effect_set eset;
+ 		filter_player_effect(sumplayer, EFFECT_FORCE_NORMAL_SUMMON_POSITION, &eset);
+@@ -2827,8 +2884,16 @@ bool field::process(Processors::MonsterSet& arg) {
+ 		uint8_t positions = POS_FACEDOWN_DEFENSE;
+ 		if(summon_procedure_effect && summon_procedure_effect->is_flag(EFFECT_FLAG_SPSUM_PARAM)) {
+ 			positions = (uint8_t)summon_procedure_effect->s_range & POS_FACEDOWN;
+-			if(summon_procedure_effect->o_range)
+-				targetplayer = 1 - setplayer;
++			if(summon_procedure_effect->o_range) {
++				if(n_duelists == 2)
++					targetplayer = 1 - setplayer;
++				else {
++					const uint32_t sumtype = summon_procedure_effect->get_value(target);
++					targetplayer = first_summon_opponent(*this, setplayer, [&](uint8_t q) {
++						return is_player_can_mset(sumtype, setplayer, target, q);
++					});
++				}
++			}
+ 		}
+ 		target->enable_field_effect(false);
+ 		move_to_field(target, setplayer, targetplayer, LOCATION_MZONE, positions, FALSE, 0, zone, FALSE, LOCATION_REASON::SET);
+@@ -3185,8 +3250,9 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 			positions = (uint8_t)proc->s_range;
+ 			if(proc->o_range == 0)
+ 				targetplayer = sumplayer;
+-			else
++			else if(n_duelists == 2)
+ 				targetplayer = 1 - sumplayer;
++			// n_duelists > 2: the opponent is picked below, when the values of the procedure are known
+ 		}
+ 		if(positions == 0)
+ 			positions = POS_FACEUP_ATTACK;
+@@ -3194,6 +3260,19 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 		proc->get_value(target, 0, retval);
+ 		const auto sumtype = (retval.size() > 0 ? (static_cast<uint32_t>(retval[0]) & 0xf00ffff) : 0) | SUMMON_TYPE_SPECIAL;
+ 		uint32_t zone = retval.size() > 1 ? static_cast<uint32_t>(retval[1]) : 0xff;
++		if(n_duelists > 2 && proc->is_flag(EFFECT_FLAG_SPSUM_PARAM) && proc->o_range) {
++			// the first living opponent in turn order for whom the summon works, as card::filter_spsummon_procedure
++			const bool ignore_zone_check = retval.size() > 2 ? static_cast<bool>(retval[2]) : false;
++			const uint8_t topos = static_cast<uint8_t>(proc->s_range);
++			effect* sumeffect = core.reason_effect ? core.reason_effect : proc;
++			targetplayer = first_summon_opponent(*this, sumplayer, [&](uint8_t q) {
++				if(!(topos & POS_FACEDOWN) && check_unique_onfield(target, q, LOCATION_MZONE))
++					return false;
++				if(zone != 0xff && !ignore_zone_check && get_useable_count(target, q, LOCATION_MZONE, sumplayer, LOCATION_REASON::TOFIELD, zone, nullptr) <= 0)
++					return false;
++				return is_player_can_spsummon(sumeffect, sumtype, topos, sumplayer, q, target, proc) != 0;
++			});
++		}
+ 		target->summon.type = sumtype;
+ 		target->summon.location = target->current.location;
+ 		target->summon.sequence = target->current.sequence;
+@@ -3823,7 +3902,7 @@ bool field::process(Processors::SpSummon& arg) {
+ 				ntp = true;
+ 			if(is_duelist(pcard->summon.player))
+ 				summoned[pcard->summon.player] = true;
+-			if(pcard->spsummon_code)
++			if(pcard->spsummon_code && (n_duelists == 2 || is_duelist(pcard->summon.player)))
+ 				spsummon_once_set[pcard->summon.player].insert(pcard->spsummon_code);
+ 		}
+ 		if(n_duelists > 2) {
+@@ -4886,7 +4965,7 @@ bool field::process(Processors::DiscardDeck& arg) {
+ 	auto reason = arg.reason;
+ 	switch(arg.step) {
+ 	case 0: {
+-		if(is_player_affected_by_effect(playerid, EFFECT_CANNOT_DISCARD_DECK)) {
++		if((n_duelists > 2 && !is_duelist(playerid)) || is_player_affected_by_effect(playerid, EFFECT_CANNOT_DISCARD_DECK)) {
+ 			core.operated_set.clear();
+ 			returns.set<int32_t>(0, 0);
+ 			return TRUE;
+@@ -5123,7 +5202,10 @@ bool field::process(Processors::MoveToField& arg) {
+ 							continue;
+ 					}
+ 					peff->dec_count();
+-					move_player = opponent_of(move_player);
++					if(n_duelists == 2)
++						move_player = opponent_of(move_player);
++					else
++						move_player = first_living_opponent(*this, move_player);
+ 				}
+ 			}
+ 
+@@ -5334,7 +5416,7 @@ bool field::process(Processors::ChangePos& arg) {
+ 	auto enable = arg.enable;
+ 	switch(arg.step) {
+ 	case 0: {
+-		if(n_duelists > 2) {
++		if(n_duelists > 2 && arg.pass_player == DUELIST_NONE) {
+ 			// one pass per living duelist, in turn order from the reason player (the turn player for a rule)
+ 			uint8_t start = is_alive(reason_player) ? reason_player : infos.turn_player;
+ 			arg.pass_player = is_alive(start) ? start : next_in_turn_order(start);
+@@ -5429,10 +5511,16 @@ bool field::process(Processors::ChangePos& arg) {
+ 				arg.step = 0;
+ 			}
+ 		} else {
+-			uint8_t living = 0;
++			// A mask, not a count: a duelist who was done and was eliminated later has a bit that no living duelist
++			// needs, and the pass of one who is eliminated in this pass sets no bit. The loop ends when every
++			// living duelist is done.
++			uint8_t living_mask = 0;
+ 			for(uint8_t p = 0; p < n_duelists; ++p)
+-				living += is_alive(p) ? 1 : 0;
+-			if(++arg.pass_count < living) {
++				if(is_alive(p))
++					living_mask |= static_cast<uint8_t>(1u << p);
++			if(is_alive(arg.pass_player))
++				arg.pass_mask |= static_cast<uint8_t>(1u << arg.pass_player);
++			if((arg.pass_mask & living_mask) != living_mask) {
+ 				arg.pass_player = next_in_turn_order(arg.pass_player);
+ 				arg.step = 0;
+ 			}
+@@ -6188,6 +6276,10 @@ bool field::process(Processors::TossCoin& arg) {
+ 	auto count = arg.count;
+ 	switch(arg.step) {
+ 	case 0: {
++		if(n_duelists > 2 && !is_duelist(playerid)) {
++			core.coin_results.clear();
++			return TRUE;
++		}
+ 		tevent e;
+ 		e.event_cards = nullptr;
+ 		e.event_player = playerid;
+@@ -6278,6 +6370,10 @@ bool field::process(Processors::TossDice& arg) {
+ 	auto count2 = arg.count2;
+ 	switch(arg.step) {
+ 	case 0: {
++		if(n_duelists > 2 && !is_duelist(playerid)) {
++			core.dice_results.clear();
++			return TRUE;
++		}
+ 		tevent e;
+ 		e.event_cards = nullptr;
+ 		e.event_player = playerid;
+diff --git a/processor.cpp b/processor.cpp
+index 5c40e8d..3872770 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -26,6 +26,18 @@ static uint8_t conti_non_turn_player(const field& f) {
+ 	return f.n_duelists == 2 ? f.opponent_of(f.infos.turn_player) : CONTI_NON_TURN;
+ }
+ 
++// More than 2 duelists only (ADR-0002). The "other" duelist of an old-rule summon count or oath: the first living
++// duelist clockwise from p who is not on p's team, or p when there is none or when p is not a duelist in play.
++static uint8_t first_living_opponent(const field& f, uint8_t p) {
++	if(!f.is_alive(p))
++		return p;
++	for(uint8_t q = f.next_in_turn_order(p); q != p; q = f.next_in_turn_order(q)) {
++		if(!f.same_team(p, q))
++			return q;
++	}
++	return p;
++}
++
+ bool field::process(Processors::ExecuteCost& arg) {
+ 	auto step = arg.step;
+ 	auto triggering_effect = arg.triggering_effect;
+@@ -4124,22 +4136,32 @@ bool field::process(Processors::AddChain& arg) {
+ 				core.spsummon_rst = true;
+ 				set_spsummon_counter(clit.triggering_player, true, true);
+ 				if(clit.opinfos[0x200].op_player == all_id())
+-					set_spsummon_counter(opponent_of(clit.triggering_player), true, true);
++					set_spsummon_counter(n_duelists == 2 ? opponent_of(clit.triggering_player) : first_living_opponent(*this, clit.triggering_player), true, true);
+ 			}
+ 			if(is_flag(DUEL_SPSUMMON_ONCE_OLD_NEGATE) && (core.global_flag & GLOBALFLAG_SPSUMMON_ONCE)) {
+ 				auto& optarget = clit.opinfos[0x200];
+ 				if(optarget.op_cards) {
+ 					if(optarget.op_player == all_id()) {
+ 						auto opit = optarget.op_cards->container.begin();
++						const auto opend = optarget.op_cards->container.end();
+ 						uint32_t sumplayer = optarget.op_param;
+-						if((*opit)->spsummon_code) {
++						uint32_t othplayer = 1 - sumplayer;
++						if(n_duelists > 2) {
++							// op_param is a Lua value: a summon player that is no duelist is the triggering player. The
++							// second card goes to the first living opponent of the summon player.
++							if(!is_duelist(sumplayer))
++								sumplayer = clit.triggering_player;
++							othplayer = first_living_opponent(*this, static_cast<uint8_t>(sumplayer));
++						}
++						if((n_duelists == 2 || opit != opend) && (*opit)->spsummon_code) {
+ 							++core.spsummon_once_map[sumplayer][(*opit)->spsummon_code];
+ 							++core.spsummon_once_map_rst[sumplayer][(*opit)->spsummon_code];
+ 						}
+-						++opit;
+-						if((*opit)->spsummon_code) {
+-							++core.spsummon_once_map[1 - sumplayer][(*opit)->spsummon_code];
+-							++core.spsummon_once_map_rst[1 - sumplayer][(*opit)->spsummon_code];
++						if(n_duelists == 2 || opit != opend)
++							++opit;
++						if((n_duelists == 2 || opit != opend) && (*opit)->spsummon_code) {
++							++core.spsummon_once_map[othplayer][(*opit)->spsummon_code];
++							++core.spsummon_once_map_rst[othplayer][(*opit)->spsummon_code];
+ 						}
+ 					} else {
+ 						uint32_t sumplayer = clit.triggering_player;
+@@ -4147,7 +4169,7 @@ bool field::process(Processors::AddChain& arg) {
+ 						// in the case of CATEGORY_SPECIAL_SUMMON(with EFFECT_FLAG_CARD_TARGET), op_player=0x10
+ 						// indecates that it is the opponent that special summons the target monsters
+ 						if(peffect->is_flag(EFFECT_FLAG_CARD_TARGET) && optarget.op_player == 0x10)
+-							sumplayer = 1 - sumplayer;
++							sumplayer = n_duelists == 2 ? 1 - sumplayer : first_living_opponent(*this, static_cast<uint8_t>(sumplayer));
+ 						for(auto& pcard : optarget.op_cards->container) {
+ 							if(pcard->spsummon_code) {
+ 								++core.spsummon_once_map[sumplayer][pcard->spsummon_code];
+@@ -4438,9 +4460,20 @@ bool field::process(Processors::SolveChain& arg) {
+ 			pcard->enable_field_effect(true);
+ 			if(is_flag(DUEL_1_FACEUP_FIELD)) {
+ 				if(pcard->data.type & TYPE_FIELD) {
+-					card* fscard = player[opponent_of(pcard->current.controler)].list_szone[5];
+-					if(fscard && fscard->is_position(POS_FACEUP))
+-						fscard->enable_field_effect(false);
++					if(n_duelists == 2) {
++						card* fscard = player[opponent_of(pcard->current.controler)].list_szone[5];
++						if(fscard && fscard->is_position(POS_FACEUP))
++							fscard->enable_field_effect(false);
++					} else {
++						// one face-up Field Spell on the whole field: the Field Spell of every other living duelist
++						for(uint8_t q = 0; q < n_duelists; ++q) {
++							if(q == pcard->current.controler || !is_alive(q))
++								continue;
++							card* fscard = player[q].list_szone[5];
++							if(fscard && fscard->is_position(POS_FACEUP))
++								fscard->enable_field_effect(false);
++						}
++					}
+ 				}
+ 			}
+ 			adjust_instant();
+@@ -4495,8 +4528,14 @@ bool field::process(Processors::SolveChain& arg) {
+ 				if(is_flag(DUEL_CANNOT_SUMMON_OATH_OLD)) {
+ 					if(core.spsummon_state_count_tmp[cait->triggering_player] == core.spsummon_state_count[cait->triggering_player])
+ 						set_spsummon_counter(cait->triggering_player);
+-					if(cait->opinfos[0x200].op_player == all_id() && core.spsummon_state_count_tmp[opponent_of(cait->triggering_player)] == core.spsummon_state_count[opponent_of(cait->triggering_player)])
+-						set_spsummon_counter(opponent_of(cait->triggering_player));
++					if(n_duelists == 2) {
++						if(cait->opinfos[0x200].op_player == all_id() && core.spsummon_state_count_tmp[opponent_of(cait->triggering_player)] == core.spsummon_state_count[opponent_of(cait->triggering_player)])
++							set_spsummon_counter(opponent_of(cait->triggering_player));
++					} else if(cait->opinfos[0x200].op_player == all_id()) {
++						const uint8_t other = first_living_opponent(*this, cait->triggering_player);
++						if(core.spsummon_state_count_tmp[other] == core.spsummon_state_count[other])
++							set_spsummon_counter(other);
++					}
+ 				}
+ 				if(is_flag(DUEL_CANNOT_SUMMON_OATH_OLD)) {
+ 					//sometimes it may add twice, only works for once per turn
+@@ -4504,25 +4543,38 @@ bool field::process(Processors::SolveChain& arg) {
+ 					if(optarget.op_cards) {
+ 						if(optarget.op_player == all_id()) {
+ 							uint32_t sumplayer = optarget.op_param;
++							uint32_t othplayer = 1 - sumplayer;
++							const auto opend = optarget.op_cards->container.end();
++							if(n_duelists > 2) {
++								// as in AddChain: a summon player that is no duelist is the triggering player; the second
++								// card goes to the first living opponent of the summon player
++								if(!is_duelist(sumplayer))
++									sumplayer = cait->triggering_player;
++								othplayer = first_living_opponent(*this, static_cast<uint8_t>(sumplayer));
++							}
+ 							if(is_flag(DUEL_SPSUMMON_ONCE_OLD_NEGATE) && (core.global_flag & GLOBALFLAG_SPSUMMON_ONCE)) {
+ 								auto opit = optarget.op_cards->container.begin();
+-								if((*opit)->spsummon_code)
++								if((n_duelists == 2 || opit != opend) && (*opit)->spsummon_code)
+ 									++core.spsummon_once_map[sumplayer][(*opit)->spsummon_code];
+-								++opit;
+-								if((*opit)->spsummon_code)
+-									++core.spsummon_once_map[1 - sumplayer][(*opit)->spsummon_code];
++								if(n_duelists == 2 || opit != opend)
++									++opit;
++								if((n_duelists == 2 || opit != opend) && (*opit)->spsummon_code)
++									++core.spsummon_once_map[othplayer][(*opit)->spsummon_code];
+ 							}
+ 							auto opit = optarget.op_cards->container.begin();
+-							check_card_counter(*opit, ACTIVITY_SPSUMMON, sumplayer);
+-							++opit;
+-							check_card_counter(*opit, ACTIVITY_SPSUMMON, 1 - sumplayer);
++							if(n_duelists == 2 || opit != opend)
++								check_card_counter(*opit, ACTIVITY_SPSUMMON, sumplayer);
++							if(n_duelists == 2 || opit != opend)
++								++opit;
++							if(n_duelists == 2 || opit != opend)
++								check_card_counter(*opit, ACTIVITY_SPSUMMON, othplayer);
+ 						} else {
+ 							uint32_t sumplayer = cait->triggering_player;
+ 							// genarally setting op_player is unnecessary when the effect targets cards
+ 							// in the case of CATEGORY_SPECIAL_SUMMON(with EFFECT_FLAG_CARD_TARGET), op_player=0x10
+ 							// indecates that it is the opponent that special summons the target monsters
+ 							if(cait->triggering_effect->is_flag(EFFECT_FLAG_CARD_TARGET) && optarget.op_player == 0x10)
+-								sumplayer = 1 - sumplayer;
++								sumplayer = n_duelists == 2 ? 1 - sumplayer : first_living_opponent(*this, static_cast<uint8_t>(sumplayer));
+ 							for(auto& ptarget : optarget.op_cards->container) {
+ 								if(is_flag(DUEL_SPSUMMON_ONCE_OLD_NEGATE) && (core.global_flag & GLOBALFLAG_SPSUMMON_ONCE) && ptarget->spsummon_code)
+ 									++core.spsummon_once_map[sumplayer][ptarget->spsummon_code];
+@@ -4571,9 +4623,20 @@ bool field::process(Processors::SolveChain& arg) {
+ 		if(is_flag(DUEL_1_FACEUP_FIELD)) {
+ 			if((pcard->data.type & TYPE_FIELD) && (peffect->type & EFFECT_TYPE_ACTIVATE)
+ 					&& !pcard->is_status(STATUS_LEAVE_CONFIRMED) && pcard->is_has_relation(*cait)) {
+-				card* fscard = player[opponent_of(pcard->current.controler)].list_szone[5];
+-				if(fscard && fscard->is_position(POS_FACEUP))
+-					destroy(fscard, nullptr, REASON_RULE, opponent_of(pcard->current.controler));
++				if(n_duelists == 2) {
++					card* fscard = player[opponent_of(pcard->current.controler)].list_szone[5];
++					if(fscard && fscard->is_position(POS_FACEUP))
++						destroy(fscard, nullptr, REASON_RULE, opponent_of(pcard->current.controler));
++				} else {
++					// the Field Spell of every other living duelist (a dead duelist has no cards)
++					for(uint8_t q = 0; q < n_duelists; ++q) {
++						if(q == pcard->current.controler || !is_alive(q))
++							continue;
++						card* fscard = player[q].list_szone[5];
++						if(fscard && fscard->is_position(POS_FACEUP))
++							destroy(fscard, nullptr, REASON_RULE, q);
++					}
++				}
+ 			}
+ 		}
+ 		peffect->active_type = 0;
+@@ -5654,6 +5717,10 @@ bool field::process(Processors::DiscardHand& arg) {
+ 	auto reason = arg.reason;
+ 	switch(arg.step) {
+ 	case 0: {
++		if(n_duelists > 2 && !is_duelist(playerid)) {
++			returns.set<int32_t>(0, 0);
++			return TRUE;
++		}
+ 		auto message = pduel->new_message(MSG_HINT);
+ 		message->write<uint8_t>(HINT_SELECTMSG);
+ 		message->write<uint8_t>(playerid);
+diff --git a/processor_unit.h b/processor_unit.h
+index a90002b..bd17396 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -391,14 +391,14 @@ struct ChangePos : public Process<false> {
+ 	uint8_t reason_player;
+ 	bool enable;
+ 	bool oppo_selection;
+-	uint8_t pass_count; // n_duelists > 2: passes done, one per living duelist from the reason player
+-	uint8_t pass_player; // n_duelists > 2: the duelist of the current pass
++	uint8_t pass_mask; // n_duelists > 2: bit q is set when the pass of duelist q is done (one pass per living duelist)
++	uint8_t pass_player; // n_duelists > 2: the duelist of the current pass, DUELIST_NONE before the first pass
+ 	effect* reason_effect;
+ 	owned_lua<group> targets;
+ 	card_set to_grave_set;
+ 	ChangePos(uint16_t step_, owned_lua<group> targets_, effect* reason_effect_,
+ 					   uint8_t reason_player_, bool enable_) :
+-		Process(step_), reason_player(reason_player_), enable(enable_), oppo_selection(false), pass_count(0), pass_player(0),
++		Process(step_), reason_player(reason_player_), enable(enable_), oppo_selection(false), pass_mask(0), pass_player(DUELIST_NONE),
+ 		reason_effect(reason_effect_), targets(targets_) {}
+ };
+ struct OperationReplace : public Process<false> {
+@@ -615,11 +615,11 @@ struct SelfToGrave : public Process<false> {
+ };
+ struct TrapMonsterAdjust : public Process<false> {
+ 	bool oppo_selection;
+-	uint8_t pass_count; // n_duelists > 2: passes done, one per living duelist from the turn player
+-	uint8_t pass_player; // n_duelists > 2: the duelist of the current pass
++	uint8_t pass_mask; // n_duelists > 2: bit q is set when the pass of duelist q is done (one pass per living duelist)
++	uint8_t pass_player; // n_duelists > 2: the duelist of the current pass, DUELIST_NONE before the first pass
+ 	card_set to_grave_set;
+ 	TrapMonsterAdjust(uint16_t step_) :
+-		Process(step_), oppo_selection(false), pass_count(0), pass_player(0) {}
++		Process(step_), oppo_selection(false), pass_mask(0), pass_player(DUELIST_NONE) {}
+ };
+ struct PayLPCost : public Process<false> {
+ 	uint8_t playerid;
