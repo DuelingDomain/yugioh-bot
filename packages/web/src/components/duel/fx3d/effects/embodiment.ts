@@ -42,7 +42,8 @@ export function embodiment(rig: Rig, tl: Summon3dTimeline): FxPart {
   glow.material.uniforms.uPow.value = 1.7;
   front.material.uniforms.uCrop.value.set(u0, v0, u1, v1);
   back.material.uniforms.uHasTex.value = 0;
-  let textured = false;
+  // The portrait starts with whatever art has arrived (even none) and takes the sharper image when it lands.
+  let bound: THREE.Texture | null = null;
 
   const rand = mulberry32((rig.request.seed ?? 1) * 104729);
   const orbit = particles(rig, 34, { shape: "star", swirl: [1.5, 0, 0, 0.6], shrink: 0, alpha: () => 1 }, (add, n) => {
@@ -70,13 +71,11 @@ export function embodiment(rig: Rig, tl: Summon3dTimeline): FxPart {
       glow.visible = on;
       motes.visible = on;
       if (!on) return;
-      if (!textured) {
-        const texture = code > 0 ? rig.env.art.peek(code) : null;
-        if (texture) {
-          front.material.uniforms.uTex.value = texture;
-          front.material.uniforms.uHasTex.value = 1;
-          textured = true;
-        }
+      const texture = code > 0 ? rig.env.art.peek(code) : null;
+      if (texture && texture !== bound) {
+        front.material.uniforms.uTex.value = texture;
+        front.material.uniforms.uHasTex.value = 1;
+        bound = texture;
       }
       // From the card's art window to the open portrait; a sideways card turns upright on the way up.
       const turn = cw * (1 - grow);

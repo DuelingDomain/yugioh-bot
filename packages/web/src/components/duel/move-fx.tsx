@@ -608,7 +608,8 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
     const started: MovePlan[] = [];
     for (const event of fresh) {
       const plan = event.kind === "move" ? getMovePlan(event.id) : null;
-      if (!plan) continue;
+      // A big summon draws its own arrival (SummonFx): no ghost, and it hides the real card itself.
+      if (!plan || plan.silent) continue;
       // The real card waits invisible at its destination until the ghost lands on it.
       const dest = findZoneElement(plan.event.zone);
       const target = dest ? hideTargetOf(dest, plan) : null;

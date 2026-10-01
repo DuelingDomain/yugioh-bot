@@ -49,6 +49,7 @@ import {
   type SummonStyle,
 } from "./event-queue";
 import { battleBreakIs3d, battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
+import { hiddenHoldMs } from "./big-summon";
 import { getSharedFx3d, setSharedFx3d } from "./fx3d/shared";
 import { parseRgbTriplet } from "./fx3d/coords";
 import { pickSummonRoute, summon3dKeyOf, summonEffectId } from "./fx3d/routing";
@@ -154,7 +155,8 @@ const MAX_STAGGER_STEPS = 5;
 /** A second slam waits this long after the first starts; the first one's aftermath overlaps it a little. */
 const HEAVY_LOCK_MS = 1150;
 const MAX_ITEMS = 10;
-const HIDE_FAILSAFE_MS = 4000;
+/** The WebGL summon holds the real card this much past its hand-over, in case the timer is late. */
+const HAND_OVER_MARGIN_MS = 400;
 const GY_LOCATION = LOCATION_GRAVE;
 
 type FxKind = "heavy" | "typed" | "light" | "set" | "activate" | "destroy" | "impact";
@@ -365,10 +367,14 @@ export class Track {
   }
 }
 
-/** Keeps the real card invisible for `ms` (fill both), then lets it back on its own. */
+/**
+ * Keeps the real card (art and stat plate) invisible from now for `ms`, then lets it back on its own.
+ * That end is also the safety net: the hold is capped (see hiddenHoldMs), and cancelling the returned
+ * animation, or disposing the track, shows the card at once.
+ */
 function holdHidden(track: Track, zone: HTMLElement, ms: number): Animation | null {
   const body = cardBodyOf(zone);
-  return track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: Math.min(ms, HIDE_FAILSAFE_MS), fill: "backwards" });
+  return track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: hiddenHoldMs(ms, 0), fill: "backwards" });
 }
 
 function shakeFrames(amp: number, seed: number): Keyframe[] {
@@ -1903,7 +1909,8 @@ function Summon3dFx({ item, overlay, done }: EffectProps) {
     const d = item.delayMs;
     const tl = SUMMON3D_TIMELINE[three.key];
     const weight = heavyWeight(item.card, item.event.summonKind === "tribute");
-    const hidden = holdHidden(track, zone, d + tl.handOver);
+    // The hold outlasts the hand-over by a margin; the real card is shown exactly at the slam below.
+    const hidden = holdHidden(track, zone, d + tl.handOver + HAND_OVER_MARGIN_MS);
     // Keeps the item alive until the last light has faded.
     track.play(anchor.current, [{ opacity: 1 }, { opacity: 1 }], { duration: tl.total, delay: d });
     holdPromptReveal(d + tl.total);
@@ -1931,7 +1938,10 @@ function Summon3dFx({ item, overlay, done }: EffectProps) {
         hidden?.cancel();
         return;
       }
-      void three.api.play(summonEffectId(three.key), request, abort.signal);
+      // The portrait starts now: the real card shows when it lands, measured from this moment.
+      track.after(tl.handOver, () => hidden?.cancel());
+      // An effect that ends early (it failed to start, the canvas was lost) never leaves the zone empty.
+      void three.api.play(summonEffectId(three.key), request, abort.signal).then(() => hidden?.cancel());
     });
   });
   return <div ref={anchor} className={styles.anchor} data-fx="summon3d" />;
