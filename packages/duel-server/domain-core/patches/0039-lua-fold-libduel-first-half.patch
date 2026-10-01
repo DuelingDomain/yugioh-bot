@@ -1,0 +1,1211 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Tue, 8 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: fold the players of the first half of libduel for n > 2
+
+Every Lua function of libduel.cpp from the top to GetChainEvent that takes
+or returns a player now uses the fold API of fold.h. Only libduel.cpp
+changes.
+
+Individual actions (the player acts or is acted on) go through
+unfold_action: SetLP, Recover, PayLPCost, Win, Draw, Equip, GetControl,
+ChangeBattleDamage, ChangeTargetPlayer, DiscardDeck, DiscardHand, the three
+Shuffle functions, the sort and confirm-top functions, Summon, MSet, SSet,
+CreateToken, SpecialSummon (both players), the summon-rule functions,
+RegisterEffect, the flag effect setters, RemoveCounter, MoveToField (both
+players, so the place prompt goes to the chooser), and the reason and target
+players of Destroy, Remove, Sendto*, Release.
+
+Individual queries use query_list and give the best case over the living
+opponents: GetTurnCount, GetDrawCount, GetFlagEffect, GetFlagEffectLabel,
+IsCanAddCounter, GetChainMaterial, CheckLPCost, GetBattleDamage, the zone
+count functions, the linked group, count and zone functions, GetFieldCard,
+CheckLocation. Field functions use field_side or field_list:
+IsCanRemoveCounter, GetCounter (the counter flags swap) and ConfirmCards
+(one message for every duelist of the other side). IsEnvironment compares
+the folded side. The player results of CheckEvent, GetEnvironment,
+GetChainInfo and GetChainEvent use push_player. RaiseEvent and
+RaiseSingleEvent unfold their event players.
+
+Five static helpers at the top of the file, all named f3a_: optional player
+arguments keep their core default when the script gives none, an invalid
+value never reaches a prompt or an index, and the player slot is pinned
+before a yield that reads it again.
+
+With 2 duelists nothing changes. No scope folds and every helper is the
+identity. The n=2 message bytes stay the same.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ libduel.cpp | 527 +++++++++++++++++++++++++++++++++++-----------------
+ 1 file changed, 357 insertions(+), 170 deletions(-)
+
+diff --git a/libduel.cpp b/libduel.cpp
+index 65ce893..e5bbd0f 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -24,6 +24,51 @@ namespace LUA_NAMESPACE {
+ 
+ using namespace scriptlib;
+ 
++// F3a helpers (for the perspective fold at n > 2; the lead may move them into fold.h).
++
++// An optional player argument at idx that names WHO acts (reason player, chooser, summoner). A missing or
++// nil argument gives def untouched: def is a core id and may be none_id(), which unfold_action would
++// trap as kind (d). A given value goes through unfold_action (the identity at n == 2). INVALID gives def
++// too, so that no prompt and no index ever sees it.
++static uint8_t f3a_opt_player(lua_State* L, duel* pduel, int idx, uint8_t def, const char* fn, bool team_level = false) {
++	if(lua_isnoneornil(L, idx))
++		return def;
++	const auto d = fold::unfold_action(pduel, lua_get<uint8_t>(L, idx, def), fn, team_level);
++	return (d == fold::INVALID && fold::active(pduel)) ? def : d;
++}
++
++// An optional player argument at idx that names a TARGET (the player that gets the card). A missing or nil
++// argument gives def. A given value goes through unfold_action and may stay INVALID: the caller keeps its
++// own is_duelist guard, which then gives the stock invalid-player result.
++static uint8_t f3a_opt_target(lua_State* L, duel* pduel, int idx, uint8_t def, const char* fn) {
++	if(lua_isnoneornil(L, idx))
++		return def;
++	return fold::unfold_action(pduel, lua_get<uint8_t>(L, idx, def), fn);
++}
++
++// True when the fold is active and d is not a duelist (INVALID, none_id() or all_id()): for the functions
++// that had no is_duelist guard before and must not hand such a seat to the core. False at n == 2.
++static bool f3a_not_duelist(duel* pduel, uint8_t d) {
++	return fold::active(pduel) && !pduel->game_field->is_duelist(d);
++}
++
++// A required player argument at idx that names who acts or who an event is for. Same as unfold_action,
++// but INVALID gives def, so that no prompt, index or event ever sees it. (A required argument keeps the
++// stock lua_get read, so n == 2 is unchanged.)
++static uint8_t f3a_req_player(lua_State* L, duel* pduel, int idx, uint8_t def, const char* fn) {
++	const auto d = fold::unfold_action(pduel, lua_get<uint8_t>(L, idx), fn);
++	return (d == fold::INVALID && fold::active(pduel)) ? def : d;
++}
++
++// A yieldk continuation re-reads the player from Lua stack slot idx. With the fold active the slot holds
++// the Lua value, so the slot is replaced by the core seat before the yield. (No-op at n == 2.)
++static void f3a_pin_player(lua_State* L, duel* pduel, int idx, uint8_t seat) {
++	if(!fold::active(pduel))
++		return;
++	lua_pushinteger(L, seat);
++	lua_replace(L, idx);
++}
++
+ LUA_STATIC_FUNCTION(EnableGlobalFlag) {
+ 	check_param_count(L, 1);
+ 	// noop
+@@ -46,12 +91,13 @@ LUA_STATIC_FUNCTION(GetLP) {
+ }
+ LUA_STATIC_FUNCTION(SetLP) {
+ 	check_param_count(L, 2);
+-	auto p = lua_get<int8_t>(L, 1);
++	// individual action; in Tag only the team LP changes, so any seat of the other team is right
++	const auto p = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SetLP", true);
+ 	auto lp = lua_get<int32_t>(L, 2);
+ 	if(lp < 0) lp = 0;
+ 	if(!pduel->game_field->is_duelist(p))
+ 		return 0;
+-	pduel->game_field->lp_ref(static_cast<uint8_t>(p)) = lp;
++	pduel->game_field->lp_ref(p) = lp;
+ 	auto message = pduel->new_message(MSG_LPUPDATE);
+ 	message->write<uint8_t>(p);
+ 	message->write<uint32_t>(lp);
+@@ -69,26 +115,35 @@ LUA_STATIC_FUNCTION(IsTurnPlayer) {
+ }
+ LUA_STATIC_FUNCTION(GetTurnCount) {
+ 	if(lua_gettop(L) > 0) {
+-		auto playerid = lua_get<uint8_t>(L, 1);
+-		if(!pduel->game_field->is_duelist(playerid))
++		// individual query: best case (the largest turn count) over the duelists the value names
++		uint8_t who[MAX_DUELISTS];
++		const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetTurnCount");
++		if(count == 0)
+ 			return 0;
+-		lua_pushinteger(L, pduel->game_field->infos.turn_id_by_player[playerid]);
++		auto turns = pduel->game_field->infos.turn_id_by_player[who[0]];
++		for(uint8_t i = 1; i < count; ++i)
++			turns = std::max(turns, pduel->game_field->infos.turn_id_by_player[who[i]]);
++		lua_pushinteger(L, turns);
+ 	} else
+ 		lua_pushinteger(L, pduel->game_field->infos.turn_id);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetDrawCount) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetDrawCount");
++	if(count == 0)
+ 		return 0;
+-	lua_pushinteger(L, pduel->game_field->get_draw_count(playerid));
++	auto draws = pduel->game_field->get_draw_count(who[0]);
++	for(uint8_t i = 1; i < count; ++i)
++		draws = std::max(draws, pduel->game_field->get_draw_count(who[i]));
++	lua_pushinteger(L, draws);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(RegisterEffect) {
+ 	check_param_count(L, 2);
+ 	auto peffect = lua_get<effect*, true>(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 2);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "RegisterEffect");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	pduel->game_field->add_effect(peffect, playerid);
+@@ -96,7 +151,7 @@ LUA_STATIC_FUNCTION(RegisterEffect) {
+ }
+ LUA_STATIC_FUNCTION(RegisterFlagEffect) {
+ 	check_param_count(L, 5);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "RegisterFlagEffect");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto code = (lua_get<uint32_t>(L, 2) & 0xfffffff) | 0x10000000;
+@@ -126,18 +181,24 @@ LUA_STATIC_FUNCTION(RegisterFlagEffect) {
+ }
+ LUA_STATIC_FUNCTION(GetFlagEffect) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query: best case (the most flag effects) over the duelists the value names
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetFlagEffect");
++	if(count == 0)
+ 		return 0;
+ 	auto code = (lua_get<uint32_t>(L, 2) & 0xfffffff) | 0x10000000;
+-	effect_set eset;
+-	pduel->game_field->filter_player_effect(playerid, code, &eset);
+-	lua_pushinteger(L, eset.size());
++	size_t flags = 0;
++	for(uint8_t i = 0; i < count; ++i) {
++		effect_set eset;
++		pduel->game_field->filter_player_effect(who[i], code, &eset);
++		flags = std::max(flags, eset.size());
++	}
++	lua_pushinteger(L, flags);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(ResetFlagEffect) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "ResetFlagEffect");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto code = (lua_get<uint32_t>(L, 2) & 0xfffffff) | 0x10000000;
+@@ -152,7 +213,7 @@ LUA_STATIC_FUNCTION(ResetFlagEffect) {
+ }
+ LUA_STATIC_FUNCTION(SetFlagEffectLabel) {
+ 	check_param_count(L, 3);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SetFlagEffectLabel");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto code = (lua_get<uint32_t>(L, 2) & 0xfffffff) | 0x10000000;
+@@ -170,12 +231,15 @@ LUA_STATIC_FUNCTION(SetFlagEffectLabel) {
+ }
+ LUA_STATIC_FUNCTION(GetFlagEffectLabel) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query: the labels of the first named duelist that has the flag effect (best case)
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetFlagEffectLabel");
++	if(count == 0)
+ 		return 0;
+ 	auto code = (lua_get<uint32_t>(L, 2) & 0xfffffff) | 0x10000000;
+ 	effect_set eset;
+-	pduel->game_field->filter_player_effect(playerid, code, &eset);
++	for(uint8_t i = 0; i < count && eset.empty(); ++i)
++		pduel->game_field->filter_player_effect(who[i], code, &eset);
+ 	if(eset.empty()) {
+ 		lua_pushnil(L);
+ 		return 1;
+@@ -190,7 +254,7 @@ LUA_STATIC_FUNCTION(Destroy) {
+ 	check_param_count(L, 2);
+ 	auto reason = lua_get<uint32_t>(L, 2);
+ 	auto dest = lua_get<uint16_t, LOCATION_GRAVE>(L, 3);
+-	const auto reasonplayer = lua_get<uint8_t>(L, 4, pduel->game_field->core.reason_player);
++	const auto reasonplayer = f3a_opt_player(L, pduel, 4, pduel->game_field->core.reason_player, "Destroy");
+ 	if(auto [pcard, pgroup] = lua_get_card_or_group(L, 1); pcard)
+ 		pduel->game_field->destroy(pcard, pduel->game_field->core.reason_effect, reason, reasonplayer, pduel->game_field->none_id(), dest, 0);
+ 	else
+@@ -205,8 +269,8 @@ LUA_STATIC_FUNCTION(Remove) {
+ 	check_param_count(L, 3);
+ 	auto pos = lua_get<uint8_t, 0>(L, 2);
+ 	auto reason = lua_get<uint32_t>(L, 3);
+-	auto playerid = lua_get<uint8_t>(L, 4, pduel->game_field->none_id());
+-	const auto reasonplayer = lua_get<uint8_t>(L, 5, pduel->game_field->core.reason_player);
++	auto playerid = f3a_opt_player(L, pduel, 4, pduel->game_field->none_id(), "Remove");
++	const auto reasonplayer = f3a_opt_player(L, pduel, 5, pduel->game_field->core.reason_player, "Remove");
+ 	if (auto [pcard, pgroup] = lua_get_card_or_group(L, 1); pcard)
+ 		pduel->game_field->send_to(pcard, pduel->game_field->core.reason_effect, reason, reasonplayer, playerid, LOCATION_REMOVED, 0, pos);
+ 	else
+@@ -220,8 +284,8 @@ LUA_STATIC_FUNCTION(SendtoGrave) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 2);
+ 	auto reason = lua_get<uint32_t>(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 3, pduel->game_field->none_id());
+-	const auto reasonplayer = lua_get<uint8_t>(L, 4, pduel->game_field->core.reason_player);
++	auto playerid = f3a_opt_player(L, pduel, 3, pduel->game_field->none_id(), "SendtoGrave");
++	const auto reasonplayer = f3a_opt_player(L, pduel, 4, pduel->game_field->core.reason_player, "SendtoGrave");
+ 	if (auto [pcard, pgroup] = lua_get_card_or_group(L, 1); pcard)
+ 		pduel->game_field->send_to(pcard, pduel->game_field->core.reason_effect, reason, reasonplayer, playerid, LOCATION_GRAVE, 0, POS_FACEUP);
+ 	else
+@@ -236,7 +300,7 @@ LUA_STATIC_FUNCTION(Summon) {
+ 	check_param_count(L, 4);
+ 	if(pduel->game_field->core.effect_damage_step)
+ 		return 0;
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "Summon");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto pcard = lua_get<card*, true>(L, 2);
+@@ -258,7 +322,7 @@ LUA_STATIC_FUNCTION(SpecialSummonRule) {
+ 	check_param_count(L, 2);
+ 	if(pduel->game_field->core.effect_damage_step)
+ 		return 0;
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SpecialSummonRule");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto pcard = lua_get<card*, true>(L, 2);
+@@ -278,7 +342,7 @@ inline int32_t spsummon_rule(lua_State* L, uint32_t summon_type, uint32_t offset
+ 	const auto pduel = lua_get<duel*>(L);
+ 	if(pduel->game_field->core.effect_damage_step)
+ 		return 0;
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SpSummonRule");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto pcard = lua_get<card*, true>(L, 2);
+@@ -330,7 +394,9 @@ LUA_STATIC_FUNCTION(ProcedureSummon) {
+ inline int32_t spsummon_rule_group(lua_State* L, uint32_t summon_type, [[maybe_unused]] uint32_t offset) {
+ 	check_param_count(L, 1);
+ 	const auto pduel = lua_get<duel*>(L);
+-	const auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SpSummonRuleGroup");
++	if(f3a_not_duelist(pduel, playerid))
++		return 0;
+ 	pduel->game_field->core.summon_cancelable = FALSE;
+ 	pduel->game_field->special_summon_rule_group(playerid, summon_type);
+ 	if(pduel->game_field->core.current_chain.size()) {
+@@ -353,7 +419,7 @@ LUA_STATIC_FUNCTION(MSet) {
+ 	check_param_count(L, 4);
+ 	if(pduel->game_field->core.effect_damage_step)
+ 		return 0;
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "MSet");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto pcard = lua_get<card*, true>(L, 2);
+@@ -373,10 +439,10 @@ LUA_STATIC_FUNCTION(MSet) {
+ LUA_STATIC_FUNCTION(SSet) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SSet");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+-	auto toplayer = lua_get<uint8_t>(L, 3, playerid);
++	auto toplayer = f3a_opt_player(L, pduel, 3, playerid, "SSet");
+ 	if(!pduel->game_field->is_duelist(toplayer))
+ 		toplayer = playerid;
+ 	bool confirm = lua_get<bool, true>(L, 4);
+@@ -396,7 +462,7 @@ LUA_STATIC_FUNCTION(SSet) {
+ LUA_STATIC_FUNCTION(CreateToken) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "CreateToken");
+ 	if(!pduel->game_field->is_duelist(playerid)) {
+ 		lua_pushboolean(L, 0);
+ 		return 1;
+@@ -413,10 +479,12 @@ LUA_STATIC_FUNCTION(SpecialSummon) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 7);
+ 	auto sumtype = lua_get<uint32_t>(L, 2);
+-	auto sumplayer = lua_get<uint8_t>(L, 3);
++	const auto sumplayer = fold::unfold_action(pduel, lua_get<uint8_t>(L, 3), "SpecialSummon");
+ 	if(!pduel->game_field->is_duelist(sumplayer))
+ 		return 0;
+-	auto playerid = lua_get<uint8_t>(L, 4);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 4), "SpecialSummon");
++	if(f3a_not_duelist(pduel, playerid))
++		return 0;
+ 	auto nocheck = lua_get<bool>(L, 5);
+ 	auto nolimit = lua_get<bool>(L, 6);
+ 	auto positions = lua_get<uint8_t>(L, 7);
+@@ -435,10 +503,12 @@ LUA_STATIC_FUNCTION(SpecialSummonStep) {
+ 	check_param_count(L, 7);
+ 	auto pcard = lua_get<card*, true>(L, 1);
+ 	auto sumtype = lua_get<uint32_t>(L, 2);
+-	auto sumplayer = lua_get<uint8_t>(L, 3);
++	const auto sumplayer = fold::unfold_action(pduel, lua_get<uint8_t>(L, 3), "SpecialSummon");
+ 	if(!pduel->game_field->is_duelist(sumplayer))
+ 		return 0;
+-	auto playerid = lua_get<uint8_t>(L, 4);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 4), "SpecialSummon");
++	if(f3a_not_duelist(pduel, playerid))
++		return 0;
+ 	auto nocheck = lua_get<bool>(L, 5);
+ 	auto nolimit = lua_get<bool>(L, 6);
+ 	auto positions = lua_get<uint8_t>(L, 7);
+@@ -466,11 +536,11 @@ LUA_STATIC_FUNCTION(SpecialSummonComplete) {
+ LUA_STATIC_FUNCTION(SendtoHand) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 3);
+-	auto playerid = lua_get<uint8_t>(L, 2, pduel->game_field->none_id());
++	const auto playerid = f3a_opt_target(L, pduel, 2, pduel->game_field->none_id(), "SendtoHand");
+ 	if(!pduel->game_field->is_duelist(playerid) && playerid != pduel->game_field->none_id())
+ 		return 0;
+ 	auto reason = lua_get<uint32_t>(L, 3);
+-	const auto reasonplayer = lua_get<uint8_t>(L, 4, pduel->game_field->core.reason_player);
++	const auto reasonplayer = f3a_opt_player(L, pduel, 4, pduel->game_field->core.reason_player, "SendtoHand");
+ 	if(auto [pcard, pgroup] = lua_get_card_or_group(L, 1); pcard)
+ 		pduel->game_field->send_to(pcard, pduel->game_field->core.reason_effect, reason, reasonplayer, playerid, LOCATION_HAND, 0, POS_FACEUP);
+ 	else
+@@ -483,12 +553,12 @@ LUA_STATIC_FUNCTION(SendtoHand) {
+ LUA_STATIC_FUNCTION(SendtoDeck) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 4);
+-	auto playerid = lua_get<uint8_t>(L, 2, pduel->game_field->none_id());
++	const auto playerid = f3a_opt_target(L, pduel, 2, pduel->game_field->none_id(), "SendtoDeck");
+ 	if(!pduel->game_field->is_duelist(playerid) && playerid != pduel->game_field->none_id())
+ 		return 0;
+ 	auto sequence = lua_get<int32_t>(L, 3);
+ 	auto reason = lua_get<uint32_t>(L, 4);
+-	const auto reasonplayer = lua_get<uint8_t>(L, 5, pduel->game_field->core.reason_player);
++	const auto reasonplayer = f3a_opt_player(L, pduel, 5, pduel->game_field->core.reason_player, "SendtoDeck");
+ 	uint16_t location = (sequence == -2) ? 0 : LOCATION_DECK;
+ 	if(auto [pcard, pgroup] = lua_get_card_or_group(L, 1); pcard)
+ 		pduel->game_field->send_to(pcard, pduel->game_field->core.reason_effect, reason, reasonplayer, playerid, location, sequence, POS_FACEUP);
+@@ -502,11 +572,11 @@ LUA_STATIC_FUNCTION(SendtoDeck) {
+ LUA_STATIC_FUNCTION(SendtoExtraP) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 3);
+-	auto playerid = lua_get<uint8_t>(L, 2, pduel->game_field->none_id());
++	const auto playerid = f3a_opt_target(L, pduel, 2, pduel->game_field->none_id(), "SendtoExtraP");
+ 	if(!pduel->game_field->is_duelist(playerid) && playerid != pduel->game_field->none_id())
+ 		return 0;
+ 	auto reason = lua_get<uint32_t>(L, 3);
+-	const auto reasonplayer = lua_get<uint8_t>(L, 4, pduel->game_field->core.reason_player);
++	const auto reasonplayer = f3a_opt_player(L, pduel, 4, pduel->game_field->core.reason_player, "SendtoExtraP");
+ 	if(auto [pcard, pgroup] = lua_get_card_or_group(L, 1); pcard)
+ 		pduel->game_field->send_to(pcard, pduel->game_field->core.reason_effect, reason, reasonplayer, playerid, LOCATION_EXTRA, 0, POS_FACEUP);
+ 	else
+@@ -522,11 +592,11 @@ LUA_STATIC_FUNCTION(Sendto) {
+ 	auto location = lua_get<uint16_t>(L, 2);
+ 	auto reason = lua_get<uint32_t>(L, 3);
+ 	auto pos = lua_get<uint8_t, POS_FACEUP>(L, 4);
+-	auto playerid = lua_get<uint8_t>(L, 5, pduel->game_field->none_id());
++	const auto playerid = f3a_opt_target(L, pduel, 5, pduel->game_field->none_id(), "Sendto");
+ 	if(!pduel->game_field->is_duelist(playerid) && playerid != pduel->game_field->none_id())
+ 		return 0;
+ 	auto sequence = lua_get<uint32_t, 0>(L, 6);
+-	const auto reasonplayer = lua_get<uint8_t>(L, 7, pduel->game_field->core.reason_player);
++	const auto reasonplayer = f3a_opt_player(L, pduel, 7, pduel->game_field->core.reason_player, "Sendto");
+ 	if(auto [pcard, pgroup] = lua_get_card_or_group(L, 1); pcard)
+ 		pduel->game_field->send_to(pcard, pduel->game_field->core.reason_effect, reason, reasonplayer, playerid, location, sequence, pos, TRUE);
+ 	else
+@@ -575,26 +645,34 @@ LUA_STATIC_FUNCTION(GetOperatedGroup) {
+ }
+ LUA_STATIC_FUNCTION(IsCanAddCounter) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid)) {
++	// individual query: best case (true if any named duelist can) over the living opponents
++	uint8_t who[MAX_DUELISTS];
++	const auto n = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "IsCanAddCounter");
++	if(n == 0) {
+ 		lua_pushboolean(L, 0);
+ 		return 1;
+ 	}
+-	if(lua_gettop(L) == 1)
+-		lua_pushboolean(L, pduel->game_field->is_player_can_action(playerid, EFFECT_CANNOT_PLACE_COUNTER));
+-	else {
++	bool result = false;
++	if(lua_gettop(L) == 1) {
++		for(uint8_t i = 0; i < n && !result; ++i)
++			result = pduel->game_field->is_player_can_action(who[i], EFFECT_CANNOT_PLACE_COUNTER);
++	} else {
+ 		check_param_count(L, 4);
+ 		auto countertype = lua_get<uint16_t>(L, 2);
+ 		auto count = lua_get<uint32_t>(L, 3);
+ 		auto pcard = lua_get<card*, true>(L, 4);
+-		lua_pushboolean(L, pduel->game_field->is_player_can_place_counter(playerid, pcard, countertype, count));
++		for(uint8_t i = 0; i < n && !result; ++i)
++			result = pduel->game_field->is_player_can_place_counter(who[i], pcard, countertype, count);
+ 	}
++	lua_pushboolean(L, result);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(RemoveCounter) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 6);
+-	auto rplayer = lua_get<uint8_t>(L, 1);
++	// the acting player: get_field_counter reads self / oppo relative to this core seat, so the side
++	// flags need no swap (the opponent that acts reads its own side as "self")
++	const auto rplayer = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "RemoveCounter");
+ 	if(!pduel->game_field->is_duelist(rplayer))
+ 		return 0;
+ 	auto self = lua_get<uint8_t>(L, 2);
+@@ -610,11 +688,15 @@ LUA_STATIC_FUNCTION(RemoveCounter) {
+ }
+ LUA_STATIC_FUNCTION(IsCanRemoveCounter) {
+ 	check_param_count(L, 6);
+-	auto rplayer = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(rplayer))
++	// field class: the seat is P, and for the Lua value 1 the self / oppo flags swap
++	const auto view = fold::field_side(pduel, lua_get<uint8_t>(L, 1), "IsCanRemoveCounter");
++	if(!view.ok)
+ 		return 0;
++	const auto rplayer = view.self;
+ 	auto self = lua_get<uint8_t>(L, 2);
+ 	auto oppo = lua_get<uint8_t>(L, 3);
++	if(view.swap)
++		std::swap(self, oppo);
+ 	auto countertype = lua_get<uint16_t>(L, 4);
+ 	auto count = lua_get<uint32_t>(L, 5);
+ 	auto reason = lua_get<uint32_t>(L, 6);
+@@ -623,13 +705,16 @@ LUA_STATIC_FUNCTION(IsCanRemoveCounter) {
+ }
+ LUA_STATIC_FUNCTION(GetCounter) {
+ 	check_param_count(L, 4);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// field class (the table says QRY, but the function reads the zones with self / oppo flags)
++	const auto view = fold::field_side(pduel, lua_get<uint8_t>(L, 1), "GetCounter");
++	if(!view.ok)
+ 		return 0;
+ 	auto self = lua_get<uint8_t>(L, 2);
+ 	auto oppo = lua_get<uint8_t>(L, 3);
++	if(view.swap)
++		std::swap(self, oppo);
+ 	auto countertype = lua_get<uint16_t>(L, 4);
+-	lua_pushinteger(L, pduel->game_field->get_field_counter(playerid, self, oppo, countertype));
++	lua_pushinteger(L, pduel->game_field->get_field_counter(view.self, self, oppo, countertype));
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(ChangePosition) {
+@@ -654,7 +739,7 @@ LUA_STATIC_FUNCTION(Release) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 2);
+ 	auto reason = lua_get<uint32_t>(L, 2);
+-	const auto reasonplayer = lua_get<uint8_t>(L, 3, pduel->game_field->core.reason_player);
++	const auto reasonplayer = f3a_opt_player(L, pduel, 3, pduel->game_field->core.reason_player, "Release");
+ 	if(auto [pcard, pgroup] = lua_get_card_or_group(L, 1); pcard)
+ 		pduel->game_field->release(pcard, pduel->game_field->core.reason_effect, reason, reasonplayer);
+ 	else
+@@ -668,9 +753,10 @@ LUA_STATIC_FUNCTION(MoveToField) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 6);
+ 	auto pcard = lua_get<card*, true>(L, 1);
+-	auto move_player = lua_get<uint8_t>(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 3);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// both players are individual actions: move_player gets the place prompt, playerid owns the zone
++	const auto move_player = fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "MoveToField");
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 3), "MoveToField");
++	if(!pduel->game_field->is_duelist(playerid) || f3a_not_duelist(pduel, move_player))
+ 		return 0;
+ 	auto destination = lua_get<uint16_t>(L, 4);
+ 	auto positions = lua_get<uint8_t>(L, 5);
+@@ -806,11 +892,14 @@ LUA_STATIC_FUNCTION(SetChainLimitTillChainEnd) {
+ }
+ LUA_STATIC_FUNCTION(GetChainMaterial) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query: the first named duelist that has a chain material effect (best case)
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetChainMaterial");
++	if(count == 0)
+ 		return 0;
+ 	effect_set eset;
+-	pduel->game_field->filter_player_effect(playerid, EFFECT_CHAIN_MATERIAL, &eset);
++	for(uint8_t i = 0; i < count && eset.empty(); ++i)
++		pduel->game_field->filter_player_effect(who[i], EFFECT_CHAIN_MATERIAL, &eset);
+ 	if(!eset.size())
+ 		return 0;
+ 	interpreter::pushobject(L, eset[0]);
+@@ -818,9 +907,10 @@ LUA_STATIC_FUNCTION(GetChainMaterial) {
+ }
+ LUA_STATIC_FUNCTION(ConfirmDecktop) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "ConfirmDecktop");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
++	f3a_pin_player(L, pduel, 1, playerid);
+ 	auto count = lua_get<uint32_t>(L, 2);
+ 	const auto& player = pduel->game_field->player[playerid];
+ 	const auto& list_main = player.list_main;
+@@ -858,9 +948,10 @@ LUA_STATIC_FUNCTION(ConfirmDecktop) {
+ }
+ LUA_STATIC_FUNCTION(ConfirmExtratop) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "ConfirmExtratop");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
++	f3a_pin_player(L, pduel, 1, playerid);
+ 	auto count = lua_get<uint32_t>(L, 2);
+ 	const auto& player = pduel->game_field->player[playerid];
+ 	const auto& list_extra = player.list_extra;
+@@ -889,14 +980,16 @@ LUA_STATIC_FUNCTION(ConfirmExtratop) {
+ }
+ LUA_STATIC_FUNCTION(ConfirmCards) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// broadcast: the cards go to every duelist the Lua value names (0 = the own side, 1 = every living
++	// opponent). With 2 duelists that is the one duelist of the stock call: one message, same bytes.
++	uint8_t viewers[MAX_DUELISTS];
++	const auto viewer_count = fold::field_list(pduel, lua_get<uint8_t>(L, 1), viewers, "ConfirmCards");
++	if(viewer_count == 0)
+ 		return 0;
++	const uint8_t playerid = viewers[0];
+ 	auto [pcard, pgroup] = lua_get_card_or_group(L, 2);
+ 	if(pgroup && pgroup->container.empty())
+ 		return 0;
+-	auto message = pduel->new_message(MSG_CONFIRM_CARDS);
+-	message->write<uint8_t>(playerid);
+ 
+ 	//To raise the proper events:
+ 	// EVENT_CONFIRM event when a card is revealed (used by "Vanquish Soul Jiaolong")
+@@ -940,22 +1033,31 @@ LUA_STATIC_FUNCTION(ConfirmCards) {
+ 	};
+ 
+ 	if(pcard) {
+-		message->write<uint32_t>(1);
+-		message->write<uint32_t>(pcard->data.code);
+-		message->write<uint8_t>(pcard->current.controler);
+-		message->write<uint8_t>(pcard->current.location);
+-		message->write<uint32_t>(pcard->current.sequence);
++		for(uint8_t i = 0; i < viewer_count; ++i) {
++			auto message = pduel->new_message(MSG_CONFIRM_CARDS);
++			message->write<uint8_t>(viewers[i]);
++			message->write<uint32_t>(1);
++			message->write<uint32_t>(pcard->data.code);
++			message->write<uint8_t>(pcard->current.controler);
++			message->write<uint8_t>(pcard->current.location);
++			message->write<uint32_t>(pcard->current.sequence);
++		}
+ 		raise_confirm_event(pcard);
+ 		field.raise_event(pcard, EVENT_CONFIRM, trigeff, reason, field.core.reason_player, revealing_player_of(pcard), 0);
+ 	} else {
+-		message->write<uint32_t>(pgroup->container.size());
+-		for(auto& _pcard : pgroup->container) {
+-			message->write<uint32_t>(_pcard->data.code);
+-			message->write<uint8_t>(_pcard->current.controler);
+-			message->write<uint8_t>(_pcard->current.location);
+-			message->write<uint32_t>(_pcard->current.sequence);
+-			raise_confirm_event(_pcard);
++		for(uint8_t i = 0; i < viewer_count; ++i) {
++			auto message = pduel->new_message(MSG_CONFIRM_CARDS);
++			message->write<uint8_t>(viewers[i]);
++			message->write<uint32_t>(pgroup->container.size());
++			for(auto& _pcard : pgroup->container) {
++				message->write<uint32_t>(_pcard->data.code);
++				message->write<uint8_t>(_pcard->current.controler);
++				message->write<uint8_t>(_pcard->current.location);
++				message->write<uint32_t>(_pcard->current.sequence);
++			}
+ 		}
++		for(auto& _pcard : pgroup->container)
++			raise_confirm_event(_pcard);
+ 		raise_group_events(pgroup->container, EVENT_CONFIRM);
+ 	}
+ 	if(handgroup.size())
+@@ -967,8 +1069,9 @@ LUA_STATIC_FUNCTION(ConfirmCards) {
+ LUA_STATIC_FUNCTION(SortDecktop) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 3);
+-	auto sort_player = lua_get<uint8_t>(L, 1);
+-	auto target_player = lua_get<uint8_t>(L, 2);
++	// both players are individual actions: sort_player gets the prompt, target_player owns the Deck
++	const auto sort_player = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SortDeck");
++	const auto target_player = fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "SortDeck");
+ 	auto count = lua_get<uint16_t>(L, 3);
+ 	if(!pduel->game_field->is_duelist(sort_player))
+ 		return 0;
+@@ -982,8 +1085,9 @@ LUA_STATIC_FUNCTION(SortDecktop) {
+ LUA_STATIC_FUNCTION(SortDeckbottom) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 3);
+-	auto sort_player = lua_get<uint8_t>(L, 1);
+-	auto target_player = lua_get<uint8_t>(L, 2);
++	// both players are individual actions: sort_player gets the prompt, target_player owns the Deck
++	const auto sort_player = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SortDeck");
++	const auto target_player = fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "SortDeck");
+ 	auto count = lua_get<uint16_t>(L, 3);
+ 	if(!pduel->game_field->is_duelist(sort_player))
+ 		return 0;
+@@ -1005,11 +1109,11 @@ LUA_STATIC_FUNCTION(CheckEvent) {
+ 		if(pduel->game_field->check_event(ev, &pe)) {
+ 			lua_pushboolean(L, 1);
+ 			interpreter::pushobject(L, pe.event_cards);
+-			lua_pushinteger(L, pe.event_player);
++			fold::push_player(L, pduel, pe.event_player);
+ 			lua_pushinteger(L, pe.event_value);
+ 			interpreter::pushobject(L, pe.reason_effect);
+ 			lua_pushinteger(L, pe.reason);
+-			lua_pushinteger(L, pe.reason_player);
++			fold::push_player(L, pduel, pe.reason_player);
+ 			return 7;
+ 		} else {
+ 			lua_pushboolean(L, 0);
+@@ -1025,8 +1129,9 @@ LUA_STATIC_FUNCTION(RaiseEvent) {
+ 	if(!lua_isnoneornil(L, 3))
+ 		peffect = lua_get<effect*, true>(L, 3);
+ 	auto r = lua_get<uint32_t>(L, 4);
+-	auto rp = lua_get<uint8_t>(L, 5);
+-	auto ep = lua_get<uint8_t>(L, 6);
++	// the event players are core seats inside the core: unfold what the script passes
++	const auto rp = f3a_req_player(L, pduel, 5, pduel->game_field->core.reason_player, "RaiseEvent");
++	const auto ep = f3a_req_player(L, pduel, 6, pduel->game_field->core.reason_player, "RaiseEvent");
+ 	auto ev = lua_get<uint32_t>(L, 7);
+ 	if(auto [pcard, pgroup] = lua_get_card_or_group(L, 1); pcard)
+ 		pduel->game_field->raise_event(pcard, code, peffect, r, rp, ep, ev);
+@@ -1042,8 +1147,9 @@ LUA_STATIC_FUNCTION(RaiseSingleEvent) {
+ 	auto code = lua_get<uint32_t>(L, 2);
+ 	auto peffect = lua_get<effect*>(L, 3);
+ 	auto r = lua_get<uint32_t>(L, 4);
+-	auto rp = lua_get<uint8_t>(L, 5);
+-	auto ep = lua_get<uint8_t>(L, 6);
++	// the event players are core seats inside the core: unfold what the script passes
++	const auto rp = f3a_req_player(L, pduel, 5, pduel->game_field->core.reason_player, "RaiseEvent");
++	const auto ep = f3a_req_player(L, pduel, 6, pduel->game_field->core.reason_player, "RaiseEvent");
+ 	auto ev = lua_get<uint32_t>(L, 7);
+ 	pduel->game_field->raise_single_event(pcard, nullptr, code, peffect, r, rp, ep, ev);
+ 	pduel->game_field->process_single_event();
+@@ -1062,7 +1168,7 @@ LUA_STATIC_FUNCTION(CheckTiming) {
+ }
+ LUA_STATIC_FUNCTION(GetEnvironment) {
+ 	uint32_t code = 0;
+-	uint8_t p = 2;
++	uint8_t p = pduel->game_field->none_id();
+ 	auto IsEnabled = [&](card* pcard) {
+ 		if(pcard && pcard->is_position(POS_FACEUP) && pcard->get_status(STATUS_EFFECT_ENABLED)) {
+ 			code = pcard->get_code();
+@@ -1089,16 +1195,23 @@ LUA_STATIC_FUNCTION(GetEnvironment) {
+ 		}
+ 	}
+ 	lua_pushinteger(L, code);
+-	lua_pushinteger(L, p);
++	fold::push_player(L, pduel, p);
+ 	return 2;
+ }
+ LUA_STATIC_FUNCTION(IsEnvironment) {
+ 	check_param_count(L, 1);
+ 	auto code = lua_get<uint32_t>(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 2, pduel->game_field->all_id());
++	// predicate: the Lua value is a side (0 / 1 in a scope) or PLAYER_ALL (3 in a scope, all_id() outside)
++	const bool folding = fold::active(pduel) != nullptr;
++	const uint8_t all_value = folding ? static_cast<uint8_t>(PLAYER_ALL) : pduel->game_field->all_id();
++	auto playerid = lua_get<uint8_t>(L, 2, all_value);
+ 	auto loc = lua_get<uint16_t, LOCATION_FZONE + LOCATION_ONFIELD>(L, 3);
+-	if(!pduel->game_field->is_duelist(playerid) && playerid != pduel->game_field->all_id())
++	const bool all_players = playerid == all_value;
++	if(!all_players && !(folding ? playerid <= 1 : pduel->game_field->is_duelist(playerid))) {
++		if(folding)
++			pduel->lua->fold_trap('d', "IsEnvironment");
+ 		return 0;
++	}
+ 	auto RetTrue = [L] {
+ 		lua_pushboolean(L, TRUE);
+ 		return 1;
+@@ -1113,7 +1226,7 @@ LUA_STATIC_FUNCTION(IsEnvironment) {
+ 		return false;
+ 	};
+ 	auto CheckFzone = [&](uint8_t player) {
+-		if(playerid == player || playerid == pduel->game_field->all_id()) {
++		if(all_players || fold::matches(pduel, playerid, player)) {
+ 			const auto& pcard = pduel->game_field->player[player].list_szone[5];
+ 			if(IsEnabled(pcard) && code == pcard->get_code())
+ 				return true;
+@@ -1121,7 +1234,7 @@ LUA_STATIC_FUNCTION(IsEnvironment) {
+ 		return false;
+ 	};
+ 	auto CheckSzone = [&](uint8_t player) {
+-		if(playerid == player || playerid == pduel->game_field->all_id()) {
++		if(all_players || fold::matches(pduel, playerid, player)) {
+ 			for(auto& pcard : pduel->game_field->player[player].list_szone) {
+ 				if(IsEnabled(pcard) && code == pcard->get_code())
+ 					return true;
+@@ -1130,7 +1243,7 @@ LUA_STATIC_FUNCTION(IsEnvironment) {
+ 		return false;
+ 	};
+ 	auto CheckMzone = [&](uint8_t player) {
+-		if(playerid == player || playerid == pduel->game_field->all_id()) {
++		if(all_players || fold::matches(pduel, playerid, player)) {
+ 			for(auto& pcard : pduel->game_field->player[player].list_mzone) {
+ 				if(IsEnabled(pcard) && code == pcard->get_code())
+ 					return true;
+@@ -1158,7 +1271,7 @@ LUA_STATIC_FUNCTION(IsEnvironment) {
+ 		pduel->game_field->filter_field_effect(EFFECT_CHANGE_ENVIRONMENT, &eset);
+ 		if(eset.size()) {
+ 			const auto& peffect = eset.back();
+-			if((playerid == pduel->game_field->all_id() || playerid == peffect->get_handler_player()) && code == (uint32_t)peffect->get_value())
++			if((all_players || fold::matches(pduel, playerid, peffect->get_handler_player())) && code == (uint32_t)peffect->get_value())
+ 				return RetTrue();
+ 		}
+ 	}
+@@ -1167,10 +1280,11 @@ LUA_STATIC_FUNCTION(IsEnvironment) {
+ }
+ LUA_STATIC_FUNCTION(Win) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	// individual action; in Tag the winner is a team, so any seat of the other team is right
++	auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "Win", true);
+ 	auto reason = lua_get<uint32_t>(L, 2);
+ 	if (pduel->game_field->n_duelists > 2) {
+-		// The argument is a seat here (the Lua fold maps PLAYER_NONE to a draw before the core).
++		// The argument is a seat here (unfolded above; PLAYER_NONE and PLAYER_ALL are not seats: no winner).
+ 		// The first call in an Adjust window wins. The loss is applied in field::check_losses_n.
+ 		auto& f = *pduel->game_field;
+ 		if (!f.is_alive(playerid))
+@@ -1218,7 +1332,7 @@ LUA_STATIC_FUNCTION(Win) {
+ LUA_STATIC_FUNCTION(Draw) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 3);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "Draw");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto count = lua_get<uint32_t>(L, 2);
+@@ -1256,7 +1370,8 @@ LUA_STATIC_FUNCTION(Damage) {
+ LUA_STATIC_FUNCTION(Recover) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 3);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	// individual action; in Tag only the team LP changes, so no opponent has to be picked
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "Recover", true);
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto amount = lua_get<int64_t>(L, 2);
+@@ -1265,7 +1380,7 @@ LUA_STATIC_FUNCTION(Recover) {
+ 		actual_amount = static_cast<uint32_t>(amount);
+ 	auto reason = lua_get<uint32_t>(L, 3);
+ 	bool is_step = lua_get<bool, false>(L, 4);
+-	auto reason_player = lua_get<uint8_t>(L, 5, pduel->game_field->core.reason_player);
++	auto reason_player = f3a_opt_player(L, pduel, 5, pduel->game_field->core.reason_player, "Recover", true);
+ 	if (!pduel->game_field->is_duelist(reason_player) && reason_player != pduel->game_field->none_id())
+ 		reason_player = pduel->game_field->core.reason_player;
+ 	pduel->game_field->recover(pduel->game_field->core.reason_effect, reason, reason_player, playerid, actual_amount, is_step);
+@@ -1283,7 +1398,7 @@ LUA_STATIC_FUNCTION(Equip) {
+ 	check_param_count(L, 3);
+ 	auto equip_card = lua_get<card*, true>(L, 2);
+ 	auto target = lua_get<card*, true>(L, 3);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "Equip");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	bool up = lua_get<bool, true>(L, 4);
+@@ -1321,13 +1436,14 @@ LUA_STATIC_FUNCTION(EquipComplete) {
+ LUA_STATIC_FUNCTION(GetControl) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 2);
++	// the new controller and the player that chooses the zone are both individual actions
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "GetControl");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	uint16_t reset_phase = lua_get<uint16_t, 0>(L, 3) & 0x3ff;
+ 	auto reset_count = lua_get<uint8_t, 0>(L, 4);
+ 	auto zone = lua_get<uint32_t, 0xff>(L, 5);
+-	auto chose_player = lua_get<uint8_t>(L, 6, pduel->game_field->core.reason_player);
++	auto chose_player = f3a_opt_player(L, pduel, 6, pduel->game_field->core.reason_player, "GetControl");
+ 	if(auto [pcard, pgroup] = lua_get_card_or_group(L, 1); pcard)
+ 		pduel->game_field->get_control(pcard, pduel->game_field->core.reason_effect, chose_player, playerid, reset_phase, reset_count, zone);
+ 	else
+@@ -1357,17 +1473,23 @@ LUA_STATIC_FUNCTION(SwapControl) {
+ }
+ LUA_STATIC_FUNCTION(CheckLPCost) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query: best case (true if any named duelist can pay) over the living opponents
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "CheckLPCost");
++	if(count == 0)
+ 		return 0;
+ 	auto cost = lua_get<uint32_t>(L, 2);
+-	lua_pushboolean(L, pduel->game_field->check_lp_cost(playerid, cost));
++	bool can_pay = false;
++	for(uint8_t i = 0; i < count && !can_pay; ++i)
++		can_pay = pduel->game_field->check_lp_cost(who[i], cost);
++	lua_pushboolean(L, can_pay);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(PayLPCost) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	// individual action; in Tag only the team LP changes, so no opponent has to be picked
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "PayLPCost", true);
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto cost = lua_get<uint32_t>(L, 2);
+@@ -1377,7 +1499,7 @@ LUA_STATIC_FUNCTION(PayLPCost) {
+ LUA_STATIC_FUNCTION(DiscardDeck) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 3);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "DiscardDeck");
+ 	auto count = lua_get<uint16_t>(L, 2);
+ 	auto reason = lua_get<uint32_t>(L, 3);
+ 	if(pduel->game_field->n_duelists > 2 && !pduel->game_field->is_duelist(playerid)) {
+@@ -1403,7 +1525,7 @@ LUA_STATIC_FUNCTION(DiscardHand) {
+ 			pexgroup = lua_get<group*>(L, 6);
+ 		extraargs = lua_gettop(L) - 6;
+ 	}
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "DiscardHand");
+ 	auto min = lua_get<uint16_t>(L, 3);
+ 	auto max = lua_get<uint16_t>(L, 4);
+ 	auto reason = lua_get<uint32_t>(L, 5);
+@@ -1432,7 +1554,7 @@ LUA_STATIC_FUNCTION(DisableSelfDestroyCheck) {
+ }
+ LUA_STATIC_FUNCTION(ShuffleDeck) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "ShuffleDeck");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	pduel->game_field->shuffle(playerid, LOCATION_DECK);
+@@ -1440,7 +1562,7 @@ LUA_STATIC_FUNCTION(ShuffleDeck) {
+ }
+ LUA_STATIC_FUNCTION(ShuffleExtra) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "ShuffleExtra");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	pduel->game_field->shuffle(playerid, LOCATION_EXTRA);
+@@ -1448,7 +1570,7 @@ LUA_STATIC_FUNCTION(ShuffleExtra) {
+ }
+ LUA_STATIC_FUNCTION(ShuffleHand) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "ShuffleHand");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	pduel->game_field->shuffle(playerid, LOCATION_HAND);
+@@ -1646,15 +1768,20 @@ LUA_STATIC_FUNCTION(CalculateDamage) {
+ }
+ LUA_STATIC_FUNCTION(GetBattleDamage) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query: best case (the largest battle damage) over the duelists the value names
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetBattleDamage");
++	if(count == 0)
+ 		return 0;
+-	lua_pushinteger(L, pduel->game_field->core.battle_damage[playerid]);
++	auto damage = pduel->game_field->core.battle_damage[who[0]];
++	for(uint8_t i = 1; i < count; ++i)
++		damage = std::max(damage, pduel->game_field->core.battle_damage[who[i]]);
++	lua_pushinteger(L, damage);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(ChangeBattleDamage) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "ChangeBattleDamage");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto dam = lua_get<uint32_t>(L, 2);
+@@ -1673,7 +1800,7 @@ LUA_STATIC_FUNCTION(ChangeTargetCard) {
+ }
+ LUA_STATIC_FUNCTION(ChangeTargetPlayer) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 2);
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "ChangeTargetPlayer");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto count = lua_get<uint8_t>(L, 1);
+@@ -1874,8 +2001,10 @@ LUA_STATIC_FUNCTION(GetLocationCount) {
+ }
+ LUA_STATIC_FUNCTION(GetMZoneCount) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query (zone count): best case (largest count) over the duelists the value names
++	uint8_t who[MAX_DUELISTS];
++	const auto who_count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetMZoneCount");
++	if(who_count == 0)
+ 		return 0;
+ 	bool swapped = false;
+ 	const uint32_t default_loc = 0x1111 * pduel->game_field->is_flag(DUEL_3_COLUMNS_FIELD);
+@@ -1898,12 +2027,21 @@ LUA_STATIC_FUNCTION(GetMZoneCount) {
+ 		}
+ 		swapped = true;
+ 	}
+-	auto uplayer = lua_get<uint8_t>(L, 3, pduel->game_field->core.reason_player);
++	const auto uplayer = f3a_opt_player(L, pduel, 3, pduel->game_field->core.reason_player, "GetMZoneCount");
+ 	auto reason = lua_get<uint32_t, static_cast<uint32_t>(LOCATION_REASON::TOFIELD)>(L, 4);
+ 	auto zone = lua_get<uint32_t, 0xff>(L, 5);
+-	uint32_t list = 0;
+-	lua_pushinteger(L, pduel->game_field->get_useable_count(nullptr, playerid, LOCATION_MZONE, uplayer, static_cast<LOCATION_REASON>(reason), zone, &list));
+-	lua_pushinteger(L, list);
++	int32_t best = 0;
++	uint32_t best_list = 0;
++	for(uint8_t i = 0; i < who_count; ++i) {
++		uint32_t list = 0;
++		const int32_t count = pduel->game_field->get_useable_count(nullptr, who[i], LOCATION_MZONE, uplayer, static_cast<LOCATION_REASON>(reason), zone, &list);
++		if(i == 0 || count > best) {
++			best = count;
++			best_list = list;
++		}
++	}
++	lua_pushinteger(L, best);
++	lua_pushinteger(L, best_list);
+ 	if(swapped) {
+ 		for(size_t p = 0; p < pduel->game_field->n_duelists; ++p) {
+ 			pduel->game_field->player[p].used_location = used_location[p];
+@@ -1914,10 +2052,12 @@ LUA_STATIC_FUNCTION(GetMZoneCount) {
+ }
+ LUA_STATIC_FUNCTION(GetLocationCountFromEx) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query (zone count): best case (largest count) over the duelists the value names
++	uint8_t who[MAX_DUELISTS];
++	const auto who_count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetLocationCountFromEx");
++	if(who_count == 0)
+ 		return 0;
+-	auto uplayer = lua_get<uint8_t>(L, 2, pduel->game_field->core.reason_player);
++	const auto uplayer = f3a_opt_player(L, pduel, 2, pduel->game_field->core.reason_player, "GetLocationCountFromEx");
+ 	bool swapped = false;
+ 	const uint32_t default_loc = 0x1111 * pduel->game_field->is_flag(DUEL_3_COLUMNS_FIELD);
+ 	uint32_t used_location[MAX_DUELISTS] = { default_loc, default_loc, default_loc, default_loc };
+@@ -1955,9 +2095,18 @@ LUA_STATIC_FUNCTION(GetLocationCountFromEx) {
+ 		}
+ 	}
+ 	auto zone = lua_get<uint32_t, 0xff>(L, 5);
+-	uint32_t list = 0;
+-	lua_pushinteger(L, pduel->game_field->get_useable_count_fromex(scard, playerid, uplayer, zone, &list));
+-	lua_pushinteger(L, list);
++	int32_t best = 0;
++	uint32_t best_list = 0;
++	for(uint8_t i = 0; i < who_count; ++i) {
++		uint32_t list = 0;
++		const int32_t count = pduel->game_field->get_useable_count_fromex(scard, who[i], uplayer, zone, &list);
++		if(i == 0 || count > best) {
++			best = count;
++			best_list = list;
++		}
++	}
++	lua_pushinteger(L, best);
++	lua_pushinteger(L, best_list);
+ 	if(swapped) {
+ 		for(size_t p = 0; p < pduel->game_field->n_duelists; ++p) {
+ 			pduel->game_field->player[p].used_location = used_location[p];
+@@ -1973,26 +2122,36 @@ LUA_STATIC_FUNCTION(GetLocationCountFromEx) {
+ }
+ LUA_STATIC_FUNCTION(GetUsableMZoneCount) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query (zone count): best case (largest count) over the duelists the value names
++	uint8_t who[MAX_DUELISTS];
++	const auto who_count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetUsableMZoneCount");
++	if(who_count == 0)
+ 		return 0;
+-	auto uplayer = lua_get<uint8_t>(L, 2, pduel->game_field->core.reason_player);
+-	uint32_t zone = 0xff;
+-	uint32_t flag1, flag2;
+-	int32_t ct1 = pduel->game_field->get_tofield_count(nullptr, playerid, LOCATION_MZONE, uplayer, LOCATION_REASON::TOFIELD, zone, &flag1);
+-	int32_t ct2 = pduel->game_field->get_spsummonable_count_fromex(nullptr, playerid, uplayer, zone, &flag2);
+-	int32_t ct3 = field::field_used_count[~(flag1 | flag2) & 0x1f];
+-	int32_t count = ct1 + ct2 - ct3;
+-	int32_t limit = pduel->game_field->get_mzone_limit(playerid, uplayer, LOCATION_REASON::TOFIELD);
+-	if(count > limit)
+-		count = limit;
+-	lua_pushinteger(L, count);
++	const auto uplayer = f3a_opt_player(L, pduel, 2, pduel->game_field->core.reason_player, "GetUsableMZoneCount");
++	int32_t best = 0;
++	for(uint8_t i = 0; i < who_count; ++i) {
++		const uint8_t playerid = who[i];
++		uint32_t zone = 0xff;
++		uint32_t flag1, flag2;
++		int32_t ct1 = pduel->game_field->get_tofield_count(nullptr, playerid, LOCATION_MZONE, uplayer, LOCATION_REASON::TOFIELD, zone, &flag1);
++		int32_t ct2 = pduel->game_field->get_spsummonable_count_fromex(nullptr, playerid, uplayer, zone, &flag2);
++		int32_t ct3 = field::field_used_count[~(flag1 | flag2) & 0x1f];
++		int32_t count = ct1 + ct2 - ct3;
++		int32_t limit = pduel->game_field->get_mzone_limit(playerid, uplayer, LOCATION_REASON::TOFIELD);
++		if(count > limit)
++			count = limit;
++		if(i == 0 || count > best)
++			best = count;
++	}
++	lua_pushinteger(L, best);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetLinkedGroup) {
+ 	check_param_count(L, 3);
+-	auto rplayer = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(rplayer))
++	// individual query: the linked cards of every duelist the value names (best case: the union)
++	uint8_t who[MAX_DUELISTS];
++	const auto who_count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetLinkedGroup");
++	if(who_count == 0)
+ 		return 0;
+ 	auto location1 = lua_get<uint16_t>(L, 2);
+ 	if(location1 == 1)
+@@ -2001,15 +2160,18 @@ LUA_STATIC_FUNCTION(GetLinkedGroup) {
+ 	if(location2 == 1)
+ 		location2 = LOCATION_MZONE;
+ 	card_set cset;
+-	pduel->game_field->get_linked_cards(rplayer, location1, location2, &cset);
++	for(uint8_t i = 0; i < who_count; ++i)
++		pduel->game_field->get_linked_cards(who[i], location1, location2, &cset);
+ 	auto pgroup = pduel->new_group(std::move(cset));
+ 	interpreter::pushobject(L, pgroup);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetLinkedGroupCount) {
+ 	check_param_count(L, 3);
+-	auto rplayer = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(rplayer))
++	// individual query: the linked cards of every duelist the value names (best case: the union)
++	uint8_t who[MAX_DUELISTS];
++	const auto who_count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetLinkedGroupCount");
++	if(who_count == 0)
+ 		return 0;
+ 	auto location1 = lua_get<uint16_t>(L, 2);
+ 	if(location1 == 1)
+@@ -2018,24 +2180,35 @@ LUA_STATIC_FUNCTION(GetLinkedGroupCount) {
+ 	if(location2 == 1)
+ 		location2 = LOCATION_MZONE;
+ 	card_set cset;
+-	pduel->game_field->get_linked_cards(rplayer, location1, location2, &cset);
++	for(uint8_t i = 0; i < who_count; ++i)
++		pduel->game_field->get_linked_cards(who[i], location1, location2, &cset);
+ 	lua_pushinteger(L, cset.size());
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetLinkedZone) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query: best case (the union of the zone masks) over the duelists the value names
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetLinkedZone");
++	if(count == 0)
+ 		return 0;
+-	lua_pushinteger(L, pduel->game_field->get_linked_zone(playerid));
++	uint32_t zones = 0;
++	for(uint8_t i = 0; i < count; ++i)
++		zones |= pduel->game_field->get_linked_zone(who[i]);
++	lua_pushinteger(L, zones);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetFreeLinkedZone) {
+ 	check_param_count(L, 1);
+-	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query: best case (the union of the zone masks) over the duelists the value names
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "GetFreeLinkedZone");
++	if(count == 0)
+ 		return 0;
+-	lua_pushinteger(L, pduel->game_field->get_linked_zone(playerid, true));
++	uint32_t zones = 0;
++	for(uint8_t i = 0; i < count; ++i)
++		zones |= pduel->game_field->get_linked_zone(who[i], true);
++	lua_pushinteger(L, zones);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetFieldCard) {
+@@ -2043,10 +2216,18 @@ LUA_STATIC_FUNCTION(GetFieldCard) {
+ 	auto playerid = lua_get<uint8_t>(L, 1);
+ 	auto location = lua_get<uint16_t>(L, 2);
+ 	auto sequence = lua_get<uint32_t>(L, 3);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query: best case (the first named duelist that has a card there)
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, playerid, who, "GetFieldCard");
++	if(count == 0)
+ 		return 0;
+-	card* pcard = pduel->game_field->get_field_card(playerid, location, sequence);
+-	if(!pcard || pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
++	card* pcard = nullptr;
++	for(uint8_t i = 0; i < count && !pcard; ++i) {
++		card* candidate = pduel->game_field->get_field_card(who[i], location, sequence);
++		if(candidate && !candidate->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
++			pcard = candidate;
++	}
++	if(!pcard)
+ 		return 0;
+ 	interpreter::pushobject(L, pcard);
+ 	return 1;
+@@ -2056,9 +2237,15 @@ LUA_STATIC_FUNCTION(CheckLocation) {
+ 	auto playerid = lua_get<uint8_t>(L, 1);
+ 	auto location = lua_get<uint16_t>(L, 2);
+ 	auto sequence = lua_get<uint32_t>(L, 3);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query: best case (true if any named duelist has the place free)
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, playerid, who, "CheckLocation");
++	if(count == 0)
+ 		return 0;
+-	lua_pushboolean(L, pduel->game_field->is_location_useable(playerid, location, sequence));
++	bool useable = false;
++	for(uint8_t i = 0; i < count && !useable; ++i)
++		useable = pduel->game_field->is_location_useable(who[i], location, sequence);
++	lua_pushboolean(L, useable);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetCurrentChain) {
+@@ -2082,10 +2269,10 @@ LUA_STATIC_FUNCTION(GetChainInfo) {
+ 			interpreter::pushobject(L, ch->triggering_effect);
+ 			break;
+ 		case CHAININFO::TRIGGERING_PLAYER:
+-			lua_pushinteger(L, ch->triggering_player);
++			fold::push_player(L, pduel, ch->triggering_player);
+ 			break;
+ 		case CHAININFO::TRIGGERING_CONTROLER:
+-			lua_pushinteger(L, ch->triggering_controler);
++			fold::push_player(L, pduel, ch->triggering_controler);
+ 			break;
+ 		case CHAININFO::TRIGGERING_LOCATION:
+ 			lua_pushinteger(L, ch->triggering_location & ~(LOCATION_STZONE | LOCATION_MMZONE | LOCATION_EMZONE));
+@@ -2154,7 +2341,7 @@ LUA_STATIC_FUNCTION(GetChainInfo) {
+ 			interpreter::pushobject(L, ch->target_cards);
+ 			break;
+ 		case CHAININFO::TARGET_PLAYER:
+-			lua_pushinteger(L, ch->target_player);
++			fold::push_player(L, pduel, ch->target_player);
+ 			break;
+ 		case CHAININFO::TARGET_PARAM:
+ 			lua_pushinteger(L, ch->target_param);
+@@ -2163,7 +2350,7 @@ LUA_STATIC_FUNCTION(GetChainInfo) {
+ 			interpreter::pushobject(L, ch->disable_reason);
+ 			break;
+ 		case CHAININFO::DISABLE_PLAYER:
+-			lua_pushinteger(L, ch->disable_player);
++			fold::push_player(L, pduel, ch->disable_player);
+ 			break;
+ 		case CHAININFO::CHAIN_ID:
+ 			lua_pushinteger(L, ch->chain_id);
+@@ -2213,11 +2400,11 @@ LUA_STATIC_FUNCTION(GetChainEvent) {
+ 	if(!ch)
+ 		return 0;
+ 	interpreter::pushobject(L, ch->evt.event_cards);
+-	lua_pushinteger(L, ch->evt.event_player);
++	fold::push_player(L, pduel, ch->evt.event_player);
+ 	lua_pushinteger(L, ch->evt.event_value);
+ 	interpreter::pushobject(L, ch->evt.reason_effect);
+ 	lua_pushinteger(L, ch->evt.reason);
+-	lua_pushinteger(L, ch->evt.reason_player);
++	fold::push_player(L, pduel, ch->evt.reason_player);
+ 	return 6;
+ }
+ LUA_STATIC_FUNCTION(GetFirstTarget) {
