@@ -9,7 +9,7 @@ export type { GuildSettingsService, GuildSettings } from "./guild-settings.js";
 export { createPlayerService } from "./players.js";
 export type { PlayerService, Player } from "./players.js";
 export { createMatchService } from "./matches.js";
-export type { MatchService, Match, MatchStats, LeaderboardRow, MatchSource, MatchStatus } from "./matches.js";
+export type { MatchService, Match, MatchStats, LeaderboardRow, MatchSource, MatchStatus, ConfirmedResultInput } from "./matches.js";
 export { createTournamentService } from "./tournaments.js";
 export type { TournamentService, TournamentFormat, TournamentStatus } from "./tournaments.js";
 export { createDraftTournamentService } from "./draft-tournament.js";
@@ -25,3 +25,7 @@ export { createDuelService, DuelServiceError, DUEL_LIVE_IDLE_AFTER_MS } from "./
 export type { DuelService, DuelPrivateState, DuelFinalSnapshots } from "./duels.js";
 export { createSavedDeckService, SavedDeckServiceError } from "./saved-decks.js";
 export type { SavedDeckService, SavedDeckWrite } from "./saved-decks.js";
+export { createDuelSeriesService, SERIES_SIDE_WINDOW_MS } from "./duel-series.js";
+export type { DuelSeriesService, CreateChallengeInput, SeriesGameStart } from "./duel-series.js";
+export { createTournamentDuelService, TournamentDuelError } from "./tournament-duels.js";
+export type { TournamentDuelService, TournamentDuelRules, TournamentDeckRegistration } from "./tournament-duels.js";

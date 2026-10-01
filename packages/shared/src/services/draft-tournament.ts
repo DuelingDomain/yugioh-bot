@@ -1,11 +1,15 @@
 import type Database from "better-sqlite3";
 import type { TournamentFormat } from "./tournaments.js";
 import { generateWebSlug } from "../util/web-slug.js";
+import { createSavedDeckService } from "./saved-decks.js";
+import { createTournamentDuelService, TournamentDuelError } from "./tournament-duels.js";
 
 export type CreateTournamentFromDraftInput = {
   draftId: number;
   format: TournamentFormat;
   createdByUserId: string;
+  /** Games per pairing; default 3. */
+  bestOf?: 1 | 3;
 };
 
 export type CreateTournamentFromDraftResult = {
@@ -26,6 +30,8 @@ export function createDraftTournamentService(db: Database.Database) {
       input: CreateTournamentFromDraftInput,
     ): CreateTournamentFromDraftResult {
       assertFormat(input.format);
+      const bestOf = input.bestOf ?? 3;
+      if (bestOf !== 1 && bestOf !== 3) throw new TournamentDuelError("Best of must be 1 or 3", 400);
 
       const draft = db
         .prepare(
@@ -68,10 +74,10 @@ export function createDraftTournamentService(db: Database.Database) {
       const result = db.transaction(() => {
         const insertResult = db
           .prepare(
-            `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug)
-             values (?, ?, ?, 'pending', ?, ?)`,
+            `insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, best_of)
+             values (?, ?, ?, 'pending', ?, ?, ?)`,
           )
-          .run(draft.guild_id, draft.name, input.format, input.createdByUserId, generateWebSlug());
+          .run(draft.guild_id, draft.name, input.format, input.createdByUserId, generateWebSlug(), bestOf);
 
         const tournamentId = Number(insertResult.lastInsertRowid);
 
@@ -89,6 +95,23 @@ export function createDraftTournamentService(db: Database.Database) {
         }
 
         db.prepare("update drafts set tournament_id = ? where id = ?").run(tournamentId, draft.id);
+
+        // Register each player's existing draft deck (players without one register later).
+        const savedDecks = createSavedDeckService(db);
+        const tournamentDuels = createTournamentDuelService(db);
+        const discordUser = db.prepare("select discord_user_id from players where id = ?");
+        for (const { player_id } of players) {
+          const owner = discordUser.get(player_id) as { discord_user_id: string } | undefined;
+          if (!owner) continue;
+          const deck = savedDecks.findByDraft(draft.guild_id, owner.discord_user_id, draft.id);
+          if (!deck) continue;
+          tournamentDuels.registerDeck({
+            tournamentId,
+            playerId: player_id,
+            savedDeckId: deck.id,
+            deck: deck.deck,
+          });
+        }
 
         const tournament = db
           .prepare("select id, name, web_slug from tournaments where id = ?")

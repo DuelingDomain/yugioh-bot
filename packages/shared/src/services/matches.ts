@@ -29,6 +29,24 @@ export type LeaderboardRow = MatchStats & {
   displayName: string;
 };
 
+/**
+ * A result that needs no approval (the duel engine or the organizer decided
+ * it). CONTRACT: writes one `approved` matches row, links and completes the
+ * tournament slot when `tournamentMatchId` is set (advancing the bracket like
+ * `approve`), and records scoring once. Safe inside an outer transaction.
+ */
+export type ConfirmedResultInput = {
+  guildId: string;
+  playerOneId: number;
+  playerTwoId: number;
+  winnerId: number;
+  source: MatchSource;
+  /** tournament_matches.id; the slot must be open (not completed). */
+  tournamentMatchId?: number | null;
+  /** Player who caused the record (organizer); null for an engine result. */
+  recordedById?: number | null;
+};
+
 type ReportMatchInput = {
   guildId: string;
   reporterId: number;
@@ -307,6 +325,69 @@ export function createMatchService(db: Database.Database) {
       return findById(matchId);
     },
 
+    recordConfirmedResult(input: ConfirmedResultInput): Match {
+      if (input.playerOneId === input.playerTwoId) {
+        throw new Error("Players cannot play matches against themselves");
+      }
+      if (input.winnerId !== input.playerOneId && input.winnerId !== input.playerTwoId) {
+        throw new Error("Winner must be one of the match players");
+      }
+
+      const insertAndAdvance = db.transaction((): number => {
+        let slot: any = null;
+        if (input.tournamentMatchId != null) {
+          slot = db.prepare("select * from tournament_matches where id = ?").get(input.tournamentMatchId);
+          if (!slot) throw new Error("Tournament match not found");
+          if (slot.status === "completed") throw new Error("Tournament match is already completed");
+          if (slot.match_id !== null) throw new Error("Tournament match has a pending result");
+          const samePlayers =
+            (slot.player_one_id === input.playerOneId && slot.player_two_id === input.playerTwoId) ||
+            (slot.player_one_id === input.playerTwoId && slot.player_two_id === input.playerOneId);
+          if (!samePlayers) throw new Error("Players do not match the tournament match");
+        }
+
+        const result = db
+          .prepare(
+            `
+            insert into matches (
+              guild_id,
+              player_one_id,
+              player_two_id,
+              winner_id,
+              reporter_id,
+              approver_id,
+              status,
+              source,
+              tournament_id,
+              resolved_at
+            )
+            values (?, ?, ?, ?, ?, ?, 'approved', ?, ?, current_timestamp)
+          `,
+          )
+          .run(
+            input.guildId,
+            input.playerOneId,
+            input.playerTwoId,
+            input.winnerId,
+            input.recordedById ?? input.winnerId,
+            input.recordedById ?? null,
+            input.source,
+            slot ? slot.tournament_id : null,
+          );
+        const matchId = Number(result.lastInsertRowid);
+
+        if (slot) {
+          db.prepare("update tournament_matches set match_id = ? where id = ?").run(matchId, slot.id);
+          completeTournamentMatch(findById(matchId));
+        }
+        return matchId;
+      });
+
+      const matchId = insertAndAdvance();
+      safe(() => scoring.recordMatchResult(matchId));
+      return findById(matchId);
+    },
+
     autoApprove(matchId: number): Match {
       const match = findById(matchId);
       if (match.status !== "pending") {
@@ -323,6 +404,7 @@ export function createMatchService(db: Database.Database) {
 
       const approvedMatch = findById(matchId);
       completeTournamentMatch(approvedMatch);
+      safe(() => scoring.recordMatchResult(matchId));
 
       return findById(matchId);
     },

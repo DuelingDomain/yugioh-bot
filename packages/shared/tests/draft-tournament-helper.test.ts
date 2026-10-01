@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { migrate } from "../src/db/index.js";
 import { createDraftService } from "../src/services/drafts.js";
 import { createDraftTournamentService } from "../src/services/draft-tournament.js";
+import { createSavedDeckService } from "../src/services/saved-decks.js";
+import { createTournamentDuelService } from "../src/services/tournament-duels.js";
 
 function seedDb(db: Database.Database) {
   db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'Alice')").run();
@@ -99,5 +101,57 @@ describe("createTournamentFromDraft", () => {
 
     const row = db.prepare("select tournament_id from drafts where id = ?").get(draft.id) as { tournament_id: number };
     expect(row.tournament_id).toBe(result.tournamentId);
+  });
+
+  it("defaults to best of 3 and accepts best of 1; draft rules stay null", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    const { draft } = completeDraft(db);
+    const service = createDraftTournamentService(db);
+
+    const result = service.createTournamentFromDraft({
+      draftId: draft.id, format: "round_robin", createdByUserId: "u1", bestOf: 1,
+    });
+    const row = db
+      .prepare("select best_of, duel_rules_json from tournaments where id = ?")
+      .get(result.tournamentId) as { best_of: number; duel_rules_json: string | null };
+    expect(row).toEqual({ best_of: 1, duel_rules_json: null });
+
+    const db2 = new Database(":memory:");
+    migrate(db2);
+    const second = completeDraft(db2);
+    const r2 = createDraftTournamentService(db2).createTournamentFromDraft({
+      draftId: second.draft.id, format: "round_robin", createdByUserId: "u1",
+    });
+    expect((db2.prepare("select best_of from tournaments where id = ?").get(r2.tournamentId) as { best_of: number }).best_of).toBe(3);
+
+    expect(() =>
+      createDraftTournamentService(db2).createTournamentFromDraft({
+        draftId: second.draft.id, format: "round_robin", createdByUserId: "u1", bestOf: 2 as never,
+      }),
+    ).toThrow(/Best of/);
+  });
+
+  it("registers each player's existing draft deck and skips players without one", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    const { draft, aliceId, bobId } = completeDraft(db);
+    const savedDecks = createSavedDeckService(db);
+    const deck = { main: [1, 2, 3], extra: [], side: [] };
+    const aliceDeck = savedDecks.create("g1", "u1", { name: "Alice draft", mode: "normal", deck, draftId: draft.id });
+    // A deck without a draft id never counts.
+    savedDecks.create("g1", "u2", { name: "Bob plain", mode: "normal", deck });
+
+    const result = createDraftTournamentService(db).createTournamentFromDraft({
+      draftId: draft.id, format: "round_robin", createdByUserId: "u1",
+    });
+
+    const duels = createTournamentDuelService(db);
+    const alice = duels.registration(result.tournamentId, aliceId);
+    expect(alice?.savedDeckId).toBe(aliceDeck.id);
+    expect(alice?.deck).toEqual(deck);
+    expect(alice?.lockedAt).toBeNull();
+    expect(duels.registration(result.tournamentId, bobId)).toBeNull();
+    expect(duels.registrations(result.tournamentId).map((row) => row.registered)).toEqual([true, false]);
   });
 });
