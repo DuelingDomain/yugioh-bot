@@ -285,7 +285,9 @@ export class NChecker {
         for (const entry of diagnostics) {
           if (entry.kind !== "response" || entry.seat === null) continue;
           const size = /chain (\d+)/.exec(entry.detail)?.[1];
-          if (/forced/.test(entry.detail) || (size !== undefined && Number(size) !== window.length)) continue;
+          // A trigger prompt (the core marks the optional trigger choice of one seat with 0x7f) is no response window: a seat that has
+          // more triggers is asked again with the link on the chain, and the response windows of the other seats come after it.
+          if (/forced|trigger/.test(entry.detail) || (size !== undefined && Number(size) !== window.length)) continue;
           slots.push(entry.seat);
         }
       } else {

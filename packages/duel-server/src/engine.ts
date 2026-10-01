@@ -777,7 +777,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       const waiting = [...messages].reverse().find(isWaitingMessage);
       if (!waiting) throw new Error("Engine is waiting without a prompt");
       if (waiting.type === OcgMessageType.SELECT_CHAIN) {
-        diagnose("response", waiting.player, `${waiting.selects.length} choice(s)${waiting.forced ? ", forced" : ""}, chain ${liveChainSize}`);
+        diagnose("response", waiting.player, `${waiting.selects.length} choice(s)${waiting.forced ? ", forced" : ""}${waiting.spe_count === 0x7f ? ", trigger" : ""}, chain ${liveChainSize}`);
       }
       const domainState = readDomainState();
       const recallState =
