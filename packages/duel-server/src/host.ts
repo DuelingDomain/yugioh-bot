@@ -206,7 +206,7 @@ export function createDuelHost(options: {
   botStepDelayMs?: number | ((prompt: DuelPrompt) => number);
   /**
    * Stall watchdog: when the revision of an active duel stays the same for this many ms while a bot seat or the
-   * core must act, the host writes one `auto-stall` report folder. Default: env `DUEL_STALL_MS`, else 30000. 0 turns it off.
+   * core must act, the host writes one `auto-stall` report folder. Default: env `DUEL_STALL_MS`, else 30000 when `DUEL_SCENARIOS=1`, else 0. 0 turns it off.
    */
   stallMs?: number;
   /** How long a debug read (views, diagnostics) waits for a stuck worker. Default 2000. Tests make it shorter. */
@@ -239,7 +239,10 @@ export function createDuelHost(options: {
   const startBackoff = new Map<string, { failures: number; retryAt: number }>();
   const pacedBot = typeof options.botStepDelayMs === "function" || (options.botStepDelayMs ?? 0) > 0;
   const envStall = Number(process.env.DUEL_STALL_MS);
-  const stallMs = options.stallMs ?? (process.env.DUEL_STALL_MS !== undefined && Number.isFinite(envStall) && envStall >= 0 ? envStall : DEFAULT_STALL_MS);
+  // The watchdog is a test tool (it reads every seat's view and writes report folders): on only where DUEL_SCENARIOS=1,
+  // or where DUEL_STALL_MS says so.
+  const defaultStallMs = process.env.DUEL_SCENARIOS === "1" ? DEFAULT_STALL_MS : 0;
+  const stallMs = options.stallMs ?? (process.env.DUEL_STALL_MS !== undefined && Number.isFinite(envStall) && envStall >= 0 ? envStall : defaultStallMs);
   const debugReadTimeoutMs = options.debugReadTimeoutMs ?? DEFAULT_DEBUG_READ_TIMEOUT_MS;
   const queueBlockedMs = options.queueBlockedMs ?? DEFAULT_QUEUE_BLOCKED_MS;
   /** The last view built for each seat of each duel (key -1: the spectator). Only views that were built for that seat are kept. */
