@@ -1,0 +1,711 @@
+import type { DuelAnswer, DuelCard, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import { createEngineGame, type EngineGame } from "../../src/engine.js";
+import { seatCountFor, teamOfSeat, type DuelFormat } from "@yugidraft/shared/duels";
+import { candidates as matchCandidates, matchesSel as matchSel, pickOne as matchPick, type PromptSel } from "../../src/prompt-match.js";
+import { compileBoard, seatOf, type DuelistId, DUELIST_IDS } from "./board.js";
+import { cardLabel, resolveCard, type CardRef } from "./card-catalog.js";
+import type {
+  ActionKind, BoardExpect, CardSel, DuelistExpect, EventMatch, ListExpect, PromptExpect, Scenario, Step, Zone, ZoneExpect,
+} from "./dsl.js";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import createCore, { type OcgCardData } from "ocgcore-wasm";
+import { engineDataDirectory } from "../engine-data-dir.js";
+
+
+/** Failure of a scenario step, with the state of the duel at that moment. */
+export class ScenarioError extends Error {
+  constructor(scenario: string, stepNo: number, step: string, message: string) {
+    super(`[${scenario}] step ${stepNo} ${step}\n${message}`);
+    this.name = "ScenarioError";
+  }
+}
+
+const ACTION_PREFIX: Record<ActionKind, string[]> = {
+  activate: ["activate:", "card:"],
+  normalSummon: ["summon:"],
+  tributeSummon: ["summon:"],
+  set: ["mset:", "sset:"],
+  specialSummon: ["spsummon:"],
+  changePosition: ["pos:"],
+  attack: ["attack:"],
+};
+
+const ZONES: Record<Zone, { location: number; sequence: number }> = {
+  m0: { location: 4, sequence: 0 }, m1: { location: 4, sequence: 1 }, m2: { location: 4, sequence: 2 },
+  m3: { location: 4, sequence: 3 }, m4: { location: 4, sequence: 4 }, emz0: { location: 4, sequence: 5 },
+  emz1: { location: 4, sequence: 6 },
+  s0: { location: 8, sequence: 0 }, s1: { location: 8, sequence: 1 }, s2: { location: 8, sequence: 2 },
+  s3: { location: 8, sequence: 3 }, s4: { location: 8, sequence: 4 }, f: { location: 8, sequence: 5 },
+  // Master Rule 5: the Pendulum Zones are the outer Spell/Trap Zones (sequence 0 and 4).
+  pz0: { location: 8, sequence: 0 }, pz1: { location: 8, sequence: 4 },
+};
+
+function stepName(step: Step): string {
+  const { op, ...rest } = step as Step & Record<string, unknown>;
+  const args = Object.entries(rest)
+    .filter(([key, value]) => value !== undefined && key !== "by")
+    .map(([, value]) => (typeof value === "string" || typeof value === "number" ? JSON.stringify(value) : JSON.stringify(value)));
+  return `${op}(${args.join(", ")})`;
+}
+
+function codeOf(ref: CardRef): number {
+  return resolveCard(ref);
+}
+
+function selCard(sel: CardSel): CardRef {
+  return typeof sel === "object" ? sel.card : sel;
+}
+
+function describeSel(sel: CardSel): string {
+  return typeof sel === "object" ? JSON.stringify(sel) : JSON.stringify(sel);
+}
+
+export function describePrompt(view: DuelEngineView, prompt: DuelPrompt): string {
+  const lines = [
+    `Open prompt for p${prompt.seat} [${prompt.kind}${prompt.context ? `/${prompt.context.type}` : ""}] "${prompt.title}"` +
+      ` (turn ${view.turn}, p${view.turnSeat}, ${view.phase}${view.battleStep ? `/${view.battleStep}` : ""})`,
+  ];
+  if (prompt.min != null || prompt.max != null) lines.push(`  pick ${prompt.min ?? 1}..${prompt.max ?? prompt.min ?? 1}`);
+  lines.push("Legal options:");
+  for (const option of prompt.options) lines.push(`  ${option.id.padEnd(12)} ${option.label}${option.selected ? " (selected)" : ""}`);
+  if (prompt.cancelable) lines.push("  (cancel allowed)");
+  if (prompt.finishable) lines.push("  (finish allowed)");
+  return lines.join("\n");
+}
+
+/** Multi-duelist core for N-seat scenarios. NSEAT_WASM overrides; else the T0 build; else the stock multi build. */
+export function nseatWasmPath(): string {
+  const env = process.env.NSEAT_WASM;
+  if (env) return env;
+  const t0 = fileURLToPath(new URL("../../domain-core/dist/ocgcore.multi-T0.sync.wasm", import.meta.url));
+  if (existsSync(t0)) return t0;
+  return fileURLToPath(new URL("../../domain-core/dist/ocgcore.multi.sync.wasm", import.meta.url));
+}
+
+export function nseatWasmBinary(): ArrayBuffer | undefined {
+  try {
+    const bytes = readFileSync(nseatWasmPath());
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when the N-seat core has Debug.SetupDuelists. Live N-seat tests use this for skipIf. */
+export async function probeSetupDuelists(): Promise<boolean> {
+  try {
+    const wasmBinary = nseatWasmBinary();
+    if (!wasmBinary) return false;
+    const lib = await createCore({ sync: true, wasmBinary });
+    const team = { startingLP: 8000, startingDrawCount: 5, drawCountPerTurn: 1 };
+    const handle = lib.createDuel({
+      flags: 0n,
+      seed: [1n, 2n, 3n, 4n],
+      team1: team,
+      team2: team,
+      cardReader: () => null as OcgCardData | null,
+      scriptReader: () => null,
+      errorHandler: () => undefined,
+    });
+    if (!handle) return false;
+    const ok = lib.loadScript(handle, "probe.lua", "Debug.SetupDuelists(3,0,1,2)");
+    lib.destroyDuel(handle);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+export interface ScenarioRun {
+  game: EngineGame;
+  close(): void;
+}
+
+/** Runs one scenario. Throws ScenarioError on the first step that fails. */
+export async function runScenario(scenario: Scenario): Promise<void> {
+  const compiled = compileBoard(scenario.setup);
+  const game = await createEngineGame({
+    ...compiled.options,
+    seed: scenario.seed ?? ["1", "2", "3", "4"],
+    dataDirectory: engineDataDirectory,
+    ...((scenario.setup.format ?? "1v1") !== "1v1" ? { multiWasmBinary: nseatWasmBinary() } : {}),
+  });
+  try {
+    const session = new Session(scenario, game);
+    session.reachMainPhase();
+    session.startRecording();
+    scenario.steps.forEach((step, index) => session.run(step, index + 1));
+  } finally {
+    game.close();
+  }
+}
+
+export class Session {
+  private readonly format: DuelFormat;
+  private readonly seatCount: number;
+  private readonly seats: number[];
+  /** Seats that answered a chain-response prompt, in order (see expectResponseOrder). */
+  private readonly responses: number[] = [];
+  private responseCursor = 0;
+  private recording = false;
+
+  constructor(private readonly scenario: Scenario, private readonly game: EngineGame) {
+    this.format = scenario.setup.format ?? "1v1";
+    this.seatCount = seatCountFor(this.format);
+    this.seats = Array.from({ length: this.seatCount }, (_, seat) => seat);
+  }
+
+  /** Start to record chain-response prompts (after the routine Draw Phase windows are declined). */
+  startRecording(): void {
+    this.recording = true;
+  }
+
+  private toSel(sel: CardSel): PromptSel {
+    if (typeof sel !== "object") return { code: codeOf(sel) };
+    return { code: codeOf(sel.card), owner: sel.owner ? seatOf(sel.owner) : undefined, from: sel.from as PromptSel["from"], seq: sel.seq, nth: sel.nth, effect: sel.effect };
+  }
+
+  /**
+   * The core opens an optional chain window in the Draw Phase when a player holds a card that could
+   * be activated (a Quick-Play Spell in hand, for example). Scenarios start in Main Phase 1, so
+   * those windows are declined here.
+   */
+  reachMainPhase(): void {
+    for (let guard = 0; guard < 12; guard++) {
+      const open = this.openPrompt();
+      if (!open || open.view.phase === "main1") return;
+      const { prompt } = open;
+      if (prompt.context?.type !== "chain" || prompt.context.forced || !prompt.cancelable) return;
+      this.game.answer(open.seat, prompt.id, { cancel: true });
+    }
+  }
+
+  private fail(stepNo: number, step: Step, message: string, withPrompt = true): never {
+    let text = message;
+    if (withPrompt) {
+      const open = this.openPrompt();
+      text += `\n${open ? describePrompt(open.view, open.prompt) : "No prompt is open. " + this.summary()}`;
+    }
+    throw new ScenarioError(this.scenario.id, stepNo, stepName(step), text);
+  }
+
+  private summary(): string {
+    const view = this.game.view(0);
+    const result = view.result ? ` Duel over: winner ${view.result.winnerSeat == null ? "none" : `p${view.result.winnerSeat}`} (${view.result.reason}).` : "";
+    return `Turn ${view.turn}, p${view.turnSeat}, ${view.phase}.${result}`;
+  }
+
+  private openPrompt(): { seat: number; view: DuelEngineView; prompt: DuelPrompt } | null {
+    for (const seat of this.seats) {
+      const view = this.game.view(seat);
+      if (view.prompt) return { seat, view, prompt: view.prompt };
+    }
+    return null;
+  }
+
+  private seatState(id: DuelistId): DuelSeatView {
+    const seat = seatOf(id);
+    return this.game.view(seat).seats[seat];
+  }
+
+  /** The open prompt, checked against the optional expected duelist. */
+  private need(stepNo: number, step: Step, by: DuelistId | undefined): { seat: number; view: DuelEngineView; prompt: DuelPrompt } {
+    const open = this.openPrompt();
+    if (!open) this.fail(stepNo, step, `Expected an open prompt, but the duel waits for nothing. ${this.summary()}`, false);
+    if (by && open.seat !== seatOf(by)) {
+      this.fail(stepNo, step, `Expected the prompt to be for ${by}, but it is for p${open.seat}.`);
+    }
+    return open;
+  }
+
+  private matchesSel(option: DuelPromptOption, sel: CardSel): boolean {
+    return matchSel(option, this.toSel(sel));
+  }
+
+  /** Options of the open prompt that match a selector and one of the id prefixes. */
+  private candidates(prompt: DuelPrompt, prefixes: string[], sel: CardSel, extra?: (option: DuelPromptOption) => boolean) {
+    return matchCandidates(prompt, prefixes, this.toSel(sel), extra);
+  }
+
+  private pickOne(stepNo: number, step: Step, options: DuelPromptOption[], sel: CardSel, what: string): DuelPromptOption {
+    const result = matchPick(options, this.toSel(sel), what, describeSel(sel));
+    if ("error" in result) this.fail(stepNo, step, result.error);
+    return result.option;
+  }
+
+  private send(stepNo: number, step: Step, open: { seat: number; prompt: DuelPrompt }, answer: DuelAnswer): void {
+    try {
+      this.game.answer(open.seat, open.prompt.id, answer);
+      if (this.recording && open.prompt.context?.type === "chain") this.responses.push(open.seat);
+    } catch (error) {
+      this.fail(stepNo, step, `The engine rejected the answer ${JSON.stringify(answer)}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Some prompts are routine: the zone for a Spell/Trap or a summoned monster, and the Position of
+   * a summoned monster. Unless the next step answers or inspects them, the first legal option is
+   * taken (first zone, face-up Attack Position), so scenarios stay short. A scenario that tests
+   * the choice itself uses zone(), position() or expectPrompt().
+   */
+  private settle(next: Step, stepNo: number): void {
+    if (["zone", "position", "raw", "auto", "choose"].includes(next.op)) return;
+    if (next.op === "expectPrompt") {
+      const want = next.prompt;
+      // Inspecting the routine prompt itself keeps it open; any other inspection settles it first.
+      if (want.kind === "places" || want.context === "position" || /zone|position/i.test(want.title ?? "")) return;
+    }
+    for (let guard = 0; guard < 8; guard++) {
+      const open = this.openPrompt();
+      if (!open) return;
+      const { prompt } = open;
+      if (prompt.kind === "places" && /^Select a zone for /.test(prompt.title)) {
+        this.send(stepNo - 1, next, open, { selected: [prompt.options[0].id] });
+      } else if (prompt.kind === "choice" && prompt.context?.type === "position" && /^Select a position for /.test(prompt.title)) {
+        this.send(stepNo - 1, next, open, { choice: prompt.options[0].id });
+      } else {
+        return;
+      }
+    }
+  }
+
+  run(step: Step, stepNo: number): void {
+    this.settle(step, stepNo);
+    switch (step.op) {
+      case "activate":
+      case "normalSummon":
+      case "specialSummon":
+      case "changePosition":
+        return this.action(step, stepNo, step.op, step.sel, step.by);
+      case "set":
+        return this.action(step, stepNo, "set", step.sel, step.by);
+      case "attack":
+        return this.attack(step, stepNo);
+      case "phase":
+        return this.phase(step, stepNo);
+      case "pass": {
+        const open = this.need(stepNo, step, step.by);
+        if (open.prompt.context?.type !== "chain") this.fail(stepNo, step, "pass() needs a chain prompt.");
+        if (open.prompt.context.forced) this.fail(stepNo, step, "This chain prompt is forced. A player cannot pass.");
+        return this.send(stepNo, step, open, { cancel: true });
+      }
+      case "choose": {
+        const open = this.need(stepNo, step, step.by);
+        const needle = step.match.toLowerCase();
+        const hits = open.prompt.options.filter((o) => o.id === step.match || o.label.toLowerCase().includes(needle));
+        const exact = hits.filter((o) => o.id === step.match);
+        const pick = exact[0] ?? (hits.length === 1 ? hits[0] : undefined);
+        if (!pick) this.fail(stepNo, step, hits.length === 0 ? `No option matches "${step.match}".` : `"${step.match}" matches ${hits.length} options.`);
+        return this.send(stepNo, step, open, { choice: pick.id });
+      }
+      case "select": {
+        const open = this.need(stepNo, step, step.by);
+        if (open.prompt.kind === "places") this.fail(stepNo, step, "This prompt selects zones. Use zone().");
+        if (open.prompt.kind === "toggle") return this.selectToggle(step, stepNo, step.sels, open);
+        const used = new Set<string>();
+        const picks: string[] = [];
+        for (const sel of step.sels) {
+          const hit = open.prompt.options.filter((o) => !used.has(o.id) && this.matchesSel(o, sel));
+          const pick = this.pickOne(stepNo, step, hit, sel, "selection");
+          used.add(pick.id);
+          picks.push(pick.id);
+        }
+        return this.send(stepNo, step, open, { selected: picks });
+      }
+      case "auto": {
+        const open = this.need(stepNo, step, step.by);
+        const count = Math.max(open.prompt.min ?? 1, 1);
+        return this.send(stepNo, step, open, { selected: open.prompt.options.slice(0, count).map((o) => o.id) });
+      }
+      case "zone": {
+        const open = this.need(stepNo, step, step.by);
+        const want = ZONES[step.zone];
+        const pick = open.prompt.options.find(
+          (o) => o.controller === seatOf(step.owner) && o.location === want.location && o.sequence === want.sequence,
+        );
+        if (!pick) this.fail(stepNo, step, `Zone ${step.owner}.${step.zone} is not a legal choice.`);
+        return this.send(stepNo, step, open, { selected: [pick.id] });
+      }
+      case "position": {
+        const open = this.need(stepNo, step, step.by);
+        const words = { atk: ["attack"], def: ["defense", "defence"], set: ["set", "down"] }[step.pos];
+        const hits = open.prompt.options.filter((o) => words.some((w) => `${o.id} ${o.label}`.toLowerCase().includes(w)));
+        const pick = hits.length === 1 ? hits[0] : undefined;
+        if (!pick) this.fail(stepNo, step, `Position "${step.pos}" matched ${hits.length} options.`);
+        return this.send(stepNo, step, open, open.prompt.kind === "choice" ? { choice: pick.id } : { selected: [pick.id] });
+      }
+      case "yes":
+      case "no": {
+        const open = this.need(stepNo, step, step.by);
+        if (!open.prompt.options.some((o) => o.id === step.op)) this.fail(stepNo, step, `This prompt has no "${step.op}" option.`);
+        return this.send(stepNo, step, open, { choice: step.op });
+      }
+      case "finish": {
+        const open = this.need(stepNo, step, step.by);
+        return this.send(stepNo, step, open, { finish: true });
+      }
+      case "number": {
+        const open = this.need(stepNo, step, step.by);
+        return this.send(stepNo, step, open, { value: step.value });
+      }
+      case "announce": {
+        const open = this.need(stepNo, step, step.by);
+        return this.send(stepNo, step, open, { cardCode: codeOf(step.card) });
+      }
+      case "raw": {
+        const open = this.need(stepNo, step, step.by);
+        return this.send(stepNo, step, open, step.answer);
+      }
+      case "expectBoard":
+        return this.expectBoard(step, stepNo);
+      case "expectEvents":
+        return this.expectEvents(step, stepNo);
+      case "expectNoEvent": {
+        const hit = this.events().find((event) => this.eventMatches(event, step.event));
+        if (hit) this.fail(stepNo, step, `Unexpected event: #${hit.id} ${hit.kind} "${hit.text}".`, false);
+        return;
+      }
+      case "expectResolved": {
+        const got = this.events().filter((e) => e.kind === "chain-resolving").map((e) => e.card?.code);
+        const want = step.order.map(codeOf);
+        if (JSON.stringify(got) !== JSON.stringify(want)) {
+          this.fail(stepNo, step, `Chain resolved in a different order.\n  expected: ${want.map((c) => cardLabel(c)).join(" -> ")}\n  actual:   ${got.map((c) => cardLabel(c)).join(" -> ") || "(nothing resolved)"}`, false);
+        }
+        return;
+      }
+      case "expectChain": {
+        const view = this.game.view(0);
+        const got = view.chain.map((link) => link.code);
+        const want = step.links.map(codeOf);
+        if (JSON.stringify(got) !== JSON.stringify(want)) {
+          this.fail(stepNo, step, `Chain stack differs.\n  expected: ${want.map((c) => cardLabel(c)).join(" / ") || "(empty)"}\n  actual:   ${got.map((c) => cardLabel(c)).join(" / ") || "(empty)"}`);
+        }
+        return;
+      }
+      case "expectPrompt":
+        return this.expectPrompt(step, stepNo, step.prompt);
+      case "expectNoPrompt": {
+        const open = this.openPrompt();
+        if (open) this.fail(stepNo, step, "Expected no open prompt.");
+        return;
+      }
+      case "expectOffered":
+      case "expectNotOffered": {
+        const open = this.need(stepNo, step, step.by);
+        const hits = this.candidates(open.prompt, ACTION_PREFIX[step.action as ActionKind] ?? [""], step.sel);
+        if (step.op === "expectOffered" && hits.length === 0) {
+          this.fail(stepNo, step, `Expected ${step.action} ${describeSel(step.sel)} to be offered, but it is not.`);
+        }
+        if (step.op === "expectNotOffered" && hits.length > 0) {
+          this.fail(stepNo, step, `Expected ${step.action} ${describeSel(step.sel)} NOT to be offered, but it is: ${hits.map((o) => `${o.id} "${o.label}"`).join("; ")}.`);
+        }
+        return;
+      }
+      case "expectResult":
+        return this.expectResult(step, stepNo);
+      case "expectEliminated":
+        return this.expectEliminated(step, stepNo);
+      case "expectLp":
+        return this.expectLp(step, stepNo);
+      case "expectResponseOrder":
+        return this.expectResponseOrder(step, stepNo);
+      case "pickOpponent": {
+        const open = this.need(stepNo, step, step.by);
+        const want = seatOf(step.seat);
+        const picks = open.prompt.options.filter((o) => o.controller === want && (open.prompt.context?.type === "opponent" || /directly/i.test(o.label)));
+        if (picks.length !== 1) {
+          this.fail(stepNo, step, picks.length === 0 ? `This prompt does not offer to attack ${step.seat}.` : `${picks.length} options attack ${step.seat}.`);
+        }
+        return this.send(stepNo, step, open, { choice: picks[0].id });
+      }
+    }
+  }
+
+  private expectResult(step: Extract<Step, { op: "expectResult" }>, stepNo: number): void {
+    const view = this.game.view(0);
+    const result = view.result;
+    if (!result) this.fail(stepNo, step, "The duel is not over.", false);
+    const teamOf = (seat: number) => teamOfSeat(this.format, seat);
+    const winnerTeam = result.winnerTeam !== undefined ? result.winnerTeam : result.winnerSeat == null ? null : teamOf(result.winnerSeat);
+    if (step.winner !== undefined) {
+      const winner = result.winnerSeat == null ? null : (`p${result.winnerSeat}` as DuelistId);
+      // In Tag the view names the lowest seat of the winning team. Any seat of that team matches.
+      const sameTeam = step.winner != null && winnerTeam != null && this.format === "tag" && teamOf(seatOf(step.winner)) === winnerTeam;
+      if (winner !== step.winner && !sameTeam) this.fail(stepNo, step, `Winner is ${winner}, expected ${step.winner}.`, false);
+    }
+    if (step.team !== undefined && winnerTeam !== step.team) {
+      this.fail(stepNo, step, `Winning team is ${winnerTeam}, expected ${step.team}.`, false);
+    }
+    if (step.reason && !result.reason.toLowerCase().includes(step.reason.toLowerCase())) {
+      this.fail(stepNo, step, `Result reason is "${result.reason}", expected it to contain "${step.reason}".`, false);
+    }
+  }
+
+  /** The listed seats are eliminated and every other seat is still in the duel. */
+  private expectEliminated(step: Extract<Step, { op: "expectEliminated" }>, stepNo: number): void {
+    const want = new Set(step.seats.map(seatOf));
+    const view = this.game.view(0);
+    const problems: string[] = [];
+    for (const seat of this.seats) {
+      const gone = view.seats[seat]?.eliminated === true;
+      if (want.has(seat) && !gone) problems.push(`p${seat} is not eliminated`);
+      if (!want.has(seat) && gone) problems.push(`p${seat} is eliminated`);
+    }
+    for (const seat of want) if (seat >= this.seatCount) problems.push(`p${seat} is not a seat of format "${this.format}"`);
+    if (problems.length > 0) this.fail(stepNo, step, `Elimination differs: ${problems.join("; ")}.`, false);
+  }
+
+  private expectLp(step: Extract<Step, { op: "expectLp" }>, stepNo: number): void {
+    const view = this.game.view(0);
+    if ("seat" in step.who) {
+      const seat = seatOf(step.who.seat);
+      const lp = view.seats[seat]?.lp;
+      if (lp !== step.value) this.fail(stepNo, step, `${step.who.seat}.lp: expected ${step.value}, got ${lp}.`, false);
+      return;
+    }
+    const team = step.who.team;
+    const members = this.seats.filter((seat) => teamOfSeat(this.format, seat) === team);
+    if (members.length === 0) this.fail(stepNo, step, `Format "${this.format}" has no team ${team}.`, false);
+    const wrong = members.filter((seat) => view.seats[seat]?.lp !== step.value);
+    if (wrong.length > 0) {
+      this.fail(stepNo, step, `Team ${team} LP: expected ${step.value}, got ${members.map((seat) => `p${seat}=${view.seats[seat]?.lp}`).join(", ")}.`, false);
+    }
+  }
+
+  /**
+   * The seats that got a chain-response prompt since the last expectResponseOrder (or the start), in order.
+   * A chain prompt that is open now counts as the last one.
+   */
+  private expectResponseOrder(step: Extract<Step, { op: "expectResponseOrder" }>, stepNo: number): void {
+    const got = this.responses.slice(this.responseCursor);
+    const open = this.openPrompt();
+    if (open?.prompt.context?.type === "chain") got.push(open.seat);
+    this.responseCursor = this.responses.length;
+    const want = step.seats.map(seatOf);
+    if (JSON.stringify(got) !== JSON.stringify(want)) {
+      this.fail(stepNo, step, `Chain-response order differs.\n  expected: ${want.map((s) => `p${s}`).join(" -> ") || "(none)"}\n  actual:   ${got.map((s) => `p${s}`).join(" -> ") || "(none)"}`, false);
+    }
+  }
+
+  /** Materials are picked one at a time (select/unselect prompts). Finish when the prompt still waits. */
+  private selectToggle(step: Step, stepNo: number, sels: CardSel[], first: { seat: number; prompt: DuelPrompt }): void {
+    let open: { seat: number; prompt: DuelPrompt } | null = first;
+    const used = new Set<string>();
+    for (const sel of sels) {
+      if (!open || open.prompt.kind !== "toggle") {
+        this.fail(stepNo, step, `The prompt closed before ${describeSel(sel)} could be selected.`, true);
+      }
+      const hits = open.prompt.options.filter((o) => o.id.startsWith("select:") && !used.has(`${o.card?.code}:${o.controller}:${o.location}:${o.sequence}`) && this.matchesSel(o, sel));
+      const pick = this.pickOne(stepNo, step, hits, sel, "selection");
+      used.add(`${pick.card?.code}:${pick.controller}:${pick.location}:${pick.sequence}`);
+      this.send(stepNo, step, open, { choice: pick.id });
+      open = this.openPrompt();
+    }
+    if (open && open.prompt.kind === "toggle" && open.prompt.finishable) this.send(stepNo, step, open, { finish: true });
+  }
+
+  private action(step: Step, stepNo: number, kind: ActionKind | "set", sel: CardSel, by: DuelistId | undefined): void {
+    const open = this.need(stepNo, step, by);
+    const prefixes = kind === "set" ? ["mset:", "sset:"] : ACTION_PREFIX[kind];
+    const hits = this.candidates(open.prompt, prefixes, sel);
+    const pick = this.pickOne(stepNo, step, hits, sel, kind);
+    this.send(stepNo, step, open, { choice: pick.id });
+  }
+
+  private phase(step: Extract<Step, { op: "phase" }>, stepNo: number): void {
+    const open = this.need(stepNo, step, step.by);
+    const ids = open.prompt.options.map((o) => o.id);
+    const want =
+      step.to === "battle" ? "to_bp" : step.to === "main2" ? "to_m2" : "to_ep";
+    if (!ids.includes(want)) this.fail(stepNo, step, `Phase change "${step.to}" (${want}) is not offered.`);
+    this.send(stepNo, step, open, { choice: want });
+  }
+
+  private attack(step: Extract<Step, { op: "attack" }>, stepNo: number): void {
+    let open = this.need(stepNo, step, step.by);
+    if (open.prompt.options.some((o) => o.id === "to_bp") && !open.prompt.options.some((o) => o.id.startsWith("attack:"))) {
+      this.send(stepNo, step, open, { choice: "to_bp" });
+      open = this.need(stepNo, step, step.by);
+    }
+    const hits = this.candidates(open.prompt, ["attack:"], step.attacker);
+    const pick = this.pickOne(stepNo, step, hits, step.attacker, "attack with");
+    const direct = /directly/i.test(pick.label);
+    if (step.target === "direct" && !direct) {
+      this.fail(stepNo, step, `Expected a direct attack, but "${pick.label}" is not direct (the opponent has attack targets).`);
+    }
+    if (step.target !== "direct" && direct) {
+      this.fail(stepNo, step, `Expected an attack on ${describeSel(step.target)}, but the attack is direct.`);
+    }
+    this.send(stepNo, step, open, { choice: pick.id });
+    if (step.target === "direct") return;
+    const next = this.openPrompt();
+    if (next && next.prompt.kind === "cards" && /attack target/i.test(next.prompt.title)) {
+      const targets = next.prompt.options.filter((o) => this.matchesSel(o, step.target as CardSel));
+      const target = this.pickOne(stepNo, step, targets, step.target as CardSel, "attack target");
+      this.send(stepNo, step, next, { selected: [target.id] });
+    } else {
+      // One legal target: the engine picks it. Check it is the expected one.
+      const events = this.events().filter((e) => e.kind === "attack");
+      const last = events[events.length - 1];
+      const want = codeOf(selCard(step.target as CardSel));
+      const view = this.game.view(0);
+      const at = last?.target;
+      const hit = at && view.seats[at.controller]?.monsters[at.sequence];
+      if (hit && hit.code != null && hit.code !== want) {
+        this.fail(stepNo, step, `The only legal attack target was ${cardLabel(hit.code)}, not ${cardLabel(want)}.`, false);
+      }
+    }
+  }
+
+  // Expectations ------------------------------------------------------------------------------
+  /** Events of both views, merged by id. The view that shows the card wins. */
+  private events(): DuelEvent[] {
+    const merged = new Map<number, DuelEvent>();
+    for (const seat of this.seats) {
+      for (const event of this.game.view(seat).events) {
+        const old = merged.get(event.id);
+        if (!old || (!old.card && event.card)) merged.set(event.id, event);
+      }
+    }
+    return [...merged.values()].sort((a, b) => a.id - b.id);
+  }
+
+  private eventMatches(event: DuelEvent, match: EventMatch): boolean {
+    if (event.kind !== match.kind) return false;
+    if (match.card != null && event.card?.code !== codeOf(match.card)) return false;
+    if (match.by && event.seat !== seatOf(match.by)) return false;
+    const extra = event as DuelEvent & { summonKind?: string };
+    if (match.summonKind && extra.summonKind !== match.summonKind) return false;
+    if (match.cause && event.cause !== match.cause) return false;
+    if (match.amount != null && event.amount !== match.amount) return false;
+    if (match.text && !event.text.includes(match.text)) return false;
+    return true;
+  }
+
+  private expectEvents(step: Extract<Step, { op: "expectEvents" }>, stepNo: number): void {
+    const events = this.events();
+    let cursor = 0;
+    for (const [index, match] of step.events.entries()) {
+      const at = events.findIndex((event, i) => i >= cursor && this.eventMatches(event, match));
+      if (at < 0) {
+        const recent = events.slice(-25).map((e) => `  #${e.id} ${e.kind}${e.card ? ` ${e.card.name}` : ""}${e.seat != null ? ` p${e.seat}` : ""} "${e.text}"`);
+        this.fail(
+          stepNo, step,
+          `Event ${index + 1} of ${step.events.length} did not happen in order: ${JSON.stringify(match)}.\nLast events:\n${recent.join("\n")}`,
+          false,
+        );
+      }
+      cursor = at + 1;
+    }
+  }
+
+  private expectPrompt(step: Step, stepNo: number, want: PromptExpect): void {
+    const open = this.need(stepNo, step, want.by);
+    if (want.kind && open.prompt.kind !== want.kind) this.fail(stepNo, step, `Prompt kind is "${open.prompt.kind}", expected "${want.kind}".`);
+    if (want.title && !open.prompt.title.includes(want.title)) this.fail(stepNo, step, `Prompt title does not contain "${want.title}".`);
+    if (want.context && open.prompt.context?.type !== want.context) {
+      this.fail(stepNo, step, `Prompt context is "${open.prompt.context?.type ?? "none"}", expected "${want.context}".`);
+    }
+    const ids = open.prompt.options.map((option) => option.id);
+    for (const id of want.offers ?? []) if (!ids.includes(id)) this.fail(stepNo, step, `Option id "${id}" is not offered.`);
+    for (const id of want.notOffers ?? []) if (ids.includes(id)) this.fail(stepNo, step, `Option id "${id}" is offered but must not be.`);
+  }
+
+  private expectBoard(step: Extract<Step, { op: "expectBoard" }>, stepNo: number): void {
+    const problems: string[] = [];
+    const board: BoardExpect = step.board;
+    for (const id of DUELIST_IDS) {
+      const want = board[id];
+      if (!want) continue;
+      if (seatOf(id) >= this.seatCount) {
+        problems.push(`${id}: format "${this.format}" has no such seat`);
+        continue;
+      }
+      this.checkDuelist(id, want, problems);
+    }
+    if (problems.length > 0) this.fail(stepNo, step, `Board differs:\n  ${problems.join("\n  ")}`, false);
+  }
+
+  private checkDuelist(id: DuelistId, want: DuelistExpect, problems: string[]): void {
+    const state = this.seatState(id);
+    if (want.lp != null && state.lp !== want.lp) problems.push(`${id}.lp: expected ${want.lp}, got ${state.lp}`);
+    if (want.deckCount != null && state.deckCount !== want.deckCount) problems.push(`${id}.deckCount: expected ${want.deckCount}, got ${state.deckCount}`);
+    const lists: Array<[string, ListExpect | undefined, DuelCard[]]> = [
+      ["hand", want.hand, state.hand],
+      ["grave", want.grave, state.graveyard],
+      ["banished", want.banished, state.banished],
+      ["extra", want.extra, state.extra],
+      ["monsters", want.monsters, state.monsters.filter((c): c is DuelCard => c != null)],
+      ["spells", want.spells, state.spells.filter((c): c is DuelCard => c != null)],
+    ];
+    for (const [name, expect, actual] of lists) {
+      if (expect !== undefined) this.checkList(`${id}.${name}`, expect, actual, problems);
+    }
+    for (const [zoneName, expect] of Object.entries(want.zones ?? {}) as Array<[Zone, ZoneExpect]>) {
+      const at = ZONES[zoneName];
+      const card = at.location === 4 ? state.monsters[at.sequence] : state.spells[at.sequence];
+      this.checkZone(`${id}.${zoneName}`, expect, card ?? null, problems);
+    }
+    if (want.deckMaster) {
+      const dm = state.deckMaster;
+      if (!dm) problems.push(`${id}.deckMaster: this duel has no Deck Master`);
+      else {
+        for (const key of ["inZone", "returns", "nextCost"] as const) {
+          const expected = want.deckMaster[key];
+          if (expected !== undefined && dm[key] !== expected) problems.push(`${id}.deckMaster.${key}: expected ${expected}, got ${dm[key]}`);
+        }
+      }
+    }
+  }
+
+  private checkList(label: string, expect: ListExpect, actual: DuelCard[], problems: string[]): void {
+    const codes = actual.map((card) => card.code);
+    const show = (list: Array<number | undefined>) => `[${list.map((c) => cardLabel(c)).join(", ")}]`;
+    if (Array.isArray(expect)) {
+      const want = expect.map(codeOf).sort((a, b) => a - b);
+      const got = codes.map((c) => c ?? -1).sort((a, b) => a - b);
+      if (JSON.stringify(want) !== JSON.stringify(got)) problems.push(`${label}: expected exactly ${show(want)}, got ${show(codes)}`);
+      return;
+    }
+    const pool = [...codes];
+    for (const ref of expect.include ?? []) {
+      const at = pool.indexOf(codeOf(ref));
+      if (at < 0) problems.push(`${label}: expected to include ${cardLabel(codeOf(ref))}, got ${show(codes)}`);
+      else pool.splice(at, 1);
+    }
+    for (const ref of expect.exclude ?? []) {
+      if (codes.includes(codeOf(ref))) problems.push(`${label}: expected to exclude ${cardLabel(codeOf(ref))}, got ${show(codes)}`);
+    }
+    if (expect.count != null && codes.length !== expect.count) problems.push(`${label}: expected ${expect.count} card(s), got ${codes.length} ${show(codes)}`);
+  }
+
+  private checkZone(label: string, expect: ZoneExpect, card: DuelCard | null, problems: string[]): void {
+    if (expect === null) {
+      if (card) problems.push(`${label}: expected empty, got ${cardLabel(card.code)}`);
+      return;
+    }
+    const ref = typeof expect === "object" ? expect.card : expect;
+    const want = codeOf(ref);
+    if (!card) {
+      problems.push(`${label}: expected ${cardLabel(want)}, zone is empty`);
+      return;
+    }
+    if (card.code !== want) problems.push(`${label}: expected ${cardLabel(want)}, got ${cardLabel(card.code)}`);
+    if (typeof expect === "object") {
+      const faceDown = (card.position & (0x02 | 0x08)) !== 0;
+      if (expect.pos === "atk" && card.position !== 0x01) problems.push(`${label}: expected face-up attack, position is ${card.position}`);
+      if (expect.pos === "def" && card.position !== 0x04) problems.push(`${label}: expected face-up defense, position is ${card.position}`);
+      if ((expect.pos === "set" || expect.pos === "facedown") && !faceDown) problems.push(`${label}: expected face-down, card is face-up`);
+      if ((expect.pos === "up" || expect.pos === "faceup") && faceDown) problems.push(`${label}: expected face-up, card is face-down`);
+      if (expect.materials != null && (card.materials?.length ?? 0) !== expect.materials) {
+        problems.push(`${label}: expected ${expect.materials} material(s), got ${card.materials?.length ?? 0}`);
+      }
+      if (expect.counters != null) {
+        const got = Object.fromEntries((card.counters ?? []).map((counter) => [counter.type, counter.count]));
+        const want = Object.fromEntries(Object.entries(expect.counters).map(([type, count]) => [Number(type), count]));
+        if (JSON.stringify(got) !== JSON.stringify(want)) problems.push(`${label}: expected counters ${JSON.stringify(want)}, got ${JSON.stringify(got)}`);
+      }
+    }
+  }
+}

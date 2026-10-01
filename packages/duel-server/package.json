@@ -10,6 +10,11 @@
     "start": "node dist/server.js",
     "test": "vitest run tests --testTimeout=15000",
     "prepare:data": "tsx scripts/prepare-data.ts",
+    "test:scenarios": "vitest run tests/scenarios",
+    "test:scenarios:json": "vitest run tests/scenarios --reporter=default --reporter=json --outputFile.json=../../.status/scenarios.json",
+    "status": "tsx scripts/status.ts",
+    "scenarios:list": "tsx tests/support/list.ts",
+    "scenarios:find-card": "tsx tests/support/find-card.ts",
     "scan:multiplayer": "tsx scripts/scan-multiplayer-scripts.ts"
   },
   "dependencies": {

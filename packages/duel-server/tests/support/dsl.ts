@@ -1,0 +1,229 @@
+import type { DuelAnswer, DuelEvent } from "@yugidraft/shared/duels";
+import type { BoardSpec, DuelistId, Stance } from "./board.js";
+import type { CardRef } from "./card-catalog.js";
+
+export type { CardRef } from "./card-catalog.js";
+export type { BoardSpec, DuelistId, DuelistSetup, CardSpec, CardEntry, Stance } from "./board.js";
+export { set as faceDown, def as defense, xyz } from "./board.js";
+
+export type Where = "hand" | "mzone" | "szone" | "grave" | "banished" | "deck" | "extra" | "dmz";
+
+/** Picks one card among the options of the current prompt. */
+export type CardSel =
+  | CardRef
+  | {
+      card: CardRef;
+      /** Whose card. Default: any. */
+      owner?: DuelistId;
+      from?: Where;
+      /** Sequence (zone index) of the card. */
+      seq?: number;
+      /** Pick the nth match (0-based) when several options match. */
+      nth?: number;
+      /** Substring of the option text, to choose between effects of one card. */
+      effect?: string;
+    };
+
+/** A zone on the field. m0-m4 Main Monster Zones, emz0/emz1 Extra Monster Zones, s0-s4 Spell/Trap, f Field, pz0/pz1 Pendulum
+ * (Master Rule 5: pz0 is the same zone as s0 and pz1 the same as s4). */
+export type Zone =
+  | "m0" | "m1" | "m2" | "m3" | "m4" | "emz0" | "emz1"
+  | "s0" | "s1" | "s2" | "s3" | "s4" | "f" | "pz0" | "pz1";
+
+export type ActionKind =
+  | "activate" | "normalSummon" | "set" | "specialSummon" | "changePosition" | "attack" | "tributeSummon";
+
+export interface EventMatch {
+  kind: DuelEvent["kind"];
+  card?: CardRef;
+  by?: DuelistId;
+  summonKind?: string;
+  cause?: string;
+  amount?: number;
+  /** Substring of the event text. */
+  text?: string;
+}
+
+export type ListExpect = CardRef[] | { include?: CardRef[]; exclude?: CardRef[]; count?: number };
+
+export type ZoneExpect =
+  | CardRef
+  | null
+  | {
+      card: CardRef;
+      pos?: Stance | "faceup" | "facedown";
+      materials?: number;
+      /** Exact counters on the card: counter type to count. {} means no counters. */
+      counters?: Record<number, number>;
+    };
+
+export interface DuelistExpect {
+  lp?: number;
+  hand?: ListExpect;
+  grave?: ListExpect;
+  banished?: ListExpect;
+  extra?: ListExpect;
+  deckCount?: number;
+  /** Exact zones. null means empty. Zones not listed are not checked. */
+  zones?: Partial<Record<Zone, ZoneExpect>>;
+  /** Cards on the monster zones, any position. */
+  monsters?: ListExpect;
+  /** Cards on the Spell/Trap, Field and Pendulum zones. */
+  spells?: ListExpect;
+  deckMaster?: { inZone?: boolean; returns?: number; nextCost?: number };
+}
+
+export type BoardExpect = Partial<Record<DuelistId, DuelistExpect>>;
+
+export interface PromptExpect {
+  by?: DuelistId;
+  kind?: string;
+  /** Substring of the prompt title. */
+  title?: string;
+  /** "action" | "chain" | "position" | "deck-master-recall" */
+  context?: string;
+  /** Option ids that must be offered, for example "to_bp", "to_ep", "shuffle". */
+  offers?: string[];
+  /** Option ids that must not be offered. */
+  notOffers?: string[];
+}
+
+export type Step =
+  | { op: "activate"; sel: CardSel; by?: DuelistId }
+  | { op: "normalSummon"; sel: CardSel; by?: DuelistId }
+  | { op: "set"; sel: CardSel; by?: DuelistId }
+  | { op: "specialSummon"; sel: CardSel; by?: DuelistId }
+  | { op: "changePosition"; sel: CardSel; by?: DuelistId }
+  | { op: "attack"; attacker: CardSel; target: CardSel | "direct"; by?: DuelistId }
+  | { op: "phase"; to: "battle" | "main2" | "end"; by?: DuelistId }
+  | { op: "pass"; by?: DuelistId }
+  | { op: "choose"; match: string; by?: DuelistId }
+  | { op: "select"; sels: CardSel[]; by?: DuelistId }
+  | { op: "auto"; by?: DuelistId }
+  | { op: "zone"; owner: DuelistId; zone: Zone; by?: DuelistId }
+  | { op: "position"; pos: "atk" | "def" | "set"; by?: DuelistId }
+  | { op: "yes"; by?: DuelistId }
+  | { op: "no"; by?: DuelistId }
+  | { op: "finish"; by?: DuelistId }
+  | { op: "number"; value: number; by?: DuelistId }
+  | { op: "announce"; card: CardRef; by?: DuelistId }
+  | { op: "raw"; answer: DuelAnswer; by?: DuelistId }
+  | { op: "expectBoard"; board: BoardExpect }
+  | { op: "expectEvents"; events: EventMatch[] }
+  | { op: "expectNoEvent"; event: EventMatch }
+  | { op: "expectResolved"; order: CardRef[] }
+  | { op: "expectChain"; links: CardRef[] }
+  | { op: "expectPrompt"; prompt: PromptExpect }
+  | { op: "expectNoPrompt" }
+  | { op: "expectOffered"; action: ActionKind | "choice"; sel: CardSel; by?: DuelistId }
+  | { op: "expectNotOffered"; action: ActionKind | "choice"; sel: CardSel; by?: DuelistId }
+  | { op: "expectResult"; winner?: DuelistId | null; team?: number | null; reason?: string }
+  | { op: "expectEliminated"; seats: DuelistId[] }
+  | { op: "expectLp"; who: { seat: DuelistId } | { team: number }; value: number }
+  | { op: "expectResponseOrder"; seats: DuelistId[] }
+  | { op: "pickOpponent"; seat: DuelistId; by?: DuelistId };
+
+// Actions -------------------------------------------------------------------------------------
+export const activate = (sel: CardSel, by?: DuelistId): Step => ({ op: "activate", sel, by });
+/** Respond to a chain window with a card effect. Same as activate. */
+export const respond = activate;
+export const normalSummon = (sel: CardSel, by?: DuelistId): Step => ({ op: "normalSummon", sel, by });
+/** Set a monster or a Spell/Trap from the hand. */
+export const setCard = (sel: CardSel, by?: DuelistId): Step => ({ op: "set", sel, by });
+export const specialSummon = (sel: CardSel, by?: DuelistId): Step => ({ op: "specialSummon", sel, by });
+export const changePosition = (sel: CardSel, by?: DuelistId): Step => ({ op: "changePosition", sel, by });
+/** Attack with a monster. Enters the Battle Phase first when the duelist is in Main Phase. */
+export const attack = (attacker: CardSel, target: CardSel | "direct", by?: DuelistId): Step => ({
+  op: "attack", attacker, target, by,
+});
+export const changePhase = (to: "battle" | "main2" | "end", by?: DuelistId): Step => ({ op: "phase", to, by });
+export const endTurn = (by?: DuelistId): Step => ({ op: "phase", to: "end", by });
+/** Decline to chain (a chain prompt answered with "no response"). */
+export const pass = (by?: DuelistId): Step => ({ op: "pass", by });
+
+// Answers to the next prompt ----------------------------------------------------------------------
+/** Pick a choice by option id or label substring. */
+export const choose = (match: string, by?: DuelistId): Step => ({ op: "choose", match, by });
+/** Answer a card-selection prompt (cards, tributes, materials). */
+export const select = (...sels: CardSel[]): Step => ({ op: "select", sels });
+/** Answer a selection prompt with the first legal options. */
+export const auto = (by?: DuelistId): Step => ({ op: "auto", by });
+export const zone = (owner: DuelistId, z: Zone, by?: DuelistId): Step => ({ op: "zone", owner, zone: z, by });
+export const position = (pos: "atk" | "def" | "set", by?: DuelistId): Step => ({ op: "position", pos, by });
+export const yes = (by?: DuelistId): Step => ({ op: "yes", by });
+export const no = (by?: DuelistId): Step => ({ op: "no", by });
+export const finish = (by?: DuelistId): Step => ({ op: "finish", by });
+export const number = (value: number, by?: DuelistId): Step => ({ op: "number", value, by });
+export const announce = (card: CardRef, by?: DuelistId): Step => ({ op: "announce", card, by });
+/** Escape hatch: send a raw answer to whatever prompt is open. */
+export const raw = (answer: DuelAnswer, by?: DuelistId): Step => ({ op: "raw", answer, by });
+
+// Expectations ------------------------------------------------------------------------------------
+export const expectBoard = (board: BoardExpect): Step => ({ op: "expectBoard", board });
+/** These events happened in this order (other events may sit between them). */
+export const expectEvents = (...events: EventMatch[]): Step => ({ op: "expectEvents", events });
+export const expectNoEvent = (event: EventMatch): Step => ({ op: "expectNoEvent", event });
+/** The chain links resolved in exactly this order (every chain-resolving event so far). */
+export const expectResolved = (...order: CardRef[]): Step => ({ op: "expectResolved", order });
+/** The chain stack now, from link 1 up. */
+export const expectChain = (...links: CardRef[]): Step => ({ op: "expectChain", links });
+export const expectPrompt = (prompt: PromptExpect): Step => ({ op: "expectPrompt", prompt });
+export const expectNoPrompt = (): Step => ({ op: "expectNoPrompt" });
+/** The open prompt offers this action on this card. */
+export const expectOffered = (action: ActionKind | "choice", sel: CardSel, by?: DuelistId): Step => ({
+  op: "expectOffered", action, sel, by,
+});
+/** The open prompt does NOT offer this action on this card. Fails if it does. */
+export const expectNotOffered = (action: ActionKind | "choice", sel: CardSel, by?: DuelistId): Step => ({
+  op: "expectNotOffered", action, sel, by,
+});
+/** What the final result must be. `seat: null` or `team: null` means a draw. Omitted fields are not checked. */
+export interface ResultExpect {
+  /** Winning seat. In Tag any seat of the winning team matches. */
+  seat?: DuelistId | null;
+  team?: number | null;
+  /** Substring of the result reason. */
+  reason?: string;
+}
+/** The duel is over. `expectResult("p0", "lp")` (1v1) or `expectResult({ team: 1, reason: "lp" })` (any format). */
+export function expectResult(winner: DuelistId | null, reason?: string): Step;
+export function expectResult(expected: ResultExpect): Step;
+export function expectResult(arg: DuelistId | null | ResultExpect, reason?: string): Step {
+  if (arg === null || typeof arg === "string") return { op: "expectResult", winner: arg, reason };
+  return { op: "expectResult", winner: arg.seat, team: arg.team, reason: arg.reason };
+}
+/** Exactly these seats are eliminated (FFA seat, or every seat of an eliminated Tag team). Every other seat is still in. */
+export const expectEliminated = (...seats: Array<DuelistId | DuelistId[]>): Step => ({ op: "expectEliminated", seats: seats.flat() });
+/** LP of a seat, or of a team (every seat of the team shows the team LP in Tag). */
+export const expectLp = (who: { seat: DuelistId } | { team: number }, value: number): Step => ({ op: "expectLp", who, value });
+/**
+ * The seats that got a chain-response prompt, in order, since the last expectResponseOrder (or the start).
+ * Pass and respond steps answer them. A chain prompt that is open now counts as the last one.
+ */
+export const expectResponseOrder = (...seats: Array<DuelistId | DuelistId[]>): Step => ({ op: "expectResponseOrder", seats: seats.flat() });
+/** Answer the "pick one opponent" prompt of a direct attack (N-seat formats): attack this seat. */
+export const pickOpponent = (seat: DuelistId, by?: DuelistId): Step => ({ op: "pickOpponent", seat, by });
+
+// Scenario ------------------------------------------------------------------------------------------
+export interface Scenario {
+  /** Unique, kebab-case. Also the test name. */
+  id: string;
+  title: string;
+  /** Ruling URL or rulebook reference that proves the expected result. Required. */
+  source: string;
+  /** Mechanics and families, for example "chain", "summon", "trap", "domain". Card codes are added on their own. */
+  tags: string[];
+  setup: BoardSpec;
+  steps: Step[];
+  /** Change the duel seed (default ["1","2","3","4"]). Only needed when shuffles matter. */
+  seed?: string[];
+  /**
+   * Set when the engine gives a wrong result. The scenario runs as it.fails: the suite stays
+   * green while the bug exists and turns red when it is fixed. Describe the bug here.
+   */
+  knownBug?: string;
+}
+
+export function defineScenario(scenario: Scenario): Scenario {
+  return scenario;
+}
