@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: yugidraft <yugidraft@localhost>
-Date: Thu, 1 Oct 2026 17:02:17 -0400
+Date: Mon, 6 Mar 2000 00:00:00 +0000
 Subject: [PATCH] core: a pick of an opponent skips a seat with a pending loss
  and refuses an answer that names one, at n > 2
 
@@ -9,6 +9,9 @@ pick, the lazy pick in a cost or target, the proc-condition pick) now builds its
 opponents without a seat that is losing (alone or through its team), the full list when every opponent loses. A seat that
 surrenders while the prompt is open is still in the list the player sees, so the SelectOption answer that names a losing seat
 gives MSG_RETRY while another option is free. Guarded by n_duelists > 2: with two duelists nothing changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
 ---
  effect.cpp      |  2 +-
  field.h         | 28 ++++++++++++++++++++++++++++

@@ -1,6 +1,6 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: yugidraft <yugidraft@localhost>
-Date: Thu, 2 Mar 2000 00:00:00 +0000
+Date: Fri, 3 Mar 2000 12:00:00 +0000
 Subject: [PATCH] core: the opponent binding covers the Normal Summon and Set
  procedures (Ra Sphere Mode), and a summon bound to a seat that is gone does
  not happen at n > 2
@@ -14,6 +14,9 @@ and MonsterSet ask for the opponent and send the monster to that field.
 When the bound seat is out of the duel (or has a pending loss) before the summon
 completes, SummonRule, MonsterSet and SpSummonRule stop before the move: the card
 stays in the hand and not in the Graveyard. 1v1 is unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
 ---
  interpreter.cpp | 15 +++++++--
  operations.cpp  | 82 +++++++++++++++++++++++++++++++++++++++++++++++--

@@ -12,6 +12,9 @@ zone mask or a zone list (two zeros for GetLocationCount, GetMZoneCount, GetLoca
 GetActivityCount), false for a check or an action that did nothing, nil for a flag label, an empty group for a group query.
 The new fold::gone_* helpers push only in an active fold scope (n > 2) and only for the Lua values 0 and 1. PLAYER_NONE,
 PLAYER_ALL, the values above 1 and every call with two duelists keep the stock result (no value), byte for byte.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
 ---
  fold.h      | 38 +++++++++++++++++++++++++
  libcard.cpp |  6 ++--
