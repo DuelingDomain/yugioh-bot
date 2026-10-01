@@ -1,3 +1,23 @@
+-- stock: the summon limit reads Duel.GetMatchingGroup(Card.IsFaceup,targetp or sump,LOCATION_MZONE,0,nil). Both values are folded: 1 means
+-- EVERY opponent of the owner of the Trap, and a read of a field with the value 1 gives the monsters of all those opponents together (a bound
+-- opponent narrows only the hand, the Deck and the Extra Deck), so the limit of one opponent would read the monsters of the others too.
+-- The limit reads the field of the duelist that summons: the real seat of the controller of the card (it goes to its own field). A Special Summon
+-- to the field of another duelist (sump and targetp differ) keeps the stock read.
+function s.sumlimit(e,c,sump,sumtype,sumpos,targetp)
+	local seat=Duel.MPSeatOf(c)
+	if seat<0 or sump~=targetp then
+		local k=s.getrace(Duel.GetMatchingGroup(Card.IsFaceup,targetp or sump,LOCATION_MZONE,0,nil))
+		return k~=0 and c:GetRace()~=k
+	end
+	local limited=false
+	aux.MPForEachDuelist(function(tp_i,seat_i)
+		if seat_i~=seat then return false end
+		local k=s.getrace(Duel.GetMatchingGroup(Card.IsFaceup,tp_i,LOCATION_MZONE,0,nil))
+		limited=k~=0 and c:GetRace()~=k
+		return true
+	end)
+	return limited
+end
 -- stock: the adjust handler keeps the race that the player 0 and the player 1 chose in s[0] and s[1]. Each living duelist keeps its own
 -- choice (slot per seat in FFA, per team in Tag) and all duelists are checked, not only the two sides of the owner.
 function s.acttg(e,tp,eg,ep,ev,re,r,rp,chk)
