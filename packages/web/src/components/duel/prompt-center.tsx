@@ -32,6 +32,7 @@ import {
   POS_FACEUP_ATTACK,
   POS_FACEUP_DEFENSE,
 } from "./constants";
+import { opponentPickLabel } from "./multi-seat";
 import { CardBack } from "./card-face";
 import { battleStepLabel, type BattleStep } from "./station-track";
 import base from "./prompts.module.css";
@@ -500,6 +501,7 @@ function ResponseBody({
   mySeat,
   onSubmit,
   onInspectCard,
+  nameOf,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
@@ -509,6 +511,7 @@ function ResponseBody({
   mySeat: number | null;
   onSubmit: (answer: DuelAnswer) => void;
   onInspectCard?: InspectCardHandler;
+  nameOf?: (seat: number) => string;
 }) {
   const context = prompt.context;
   const choose = (id: string) => onSubmit({ choice: id });
@@ -608,11 +611,14 @@ function ResponseBody({
       <div className={styles.rows}>
         {prompt.options.map((option, index) => {
           const { effectText: optionEffect } = optionTexts(option);
-          const label = humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));
+          // An opponent pick names the seat by its display name; the engine label is only "Player N".
+          const seatName = context?.type === "opponent" && option.controller != null ? nameOf?.(option.controller) : undefined;
+          const label = seatName ?? humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));
           return (
             <div
               key={option.id}
               className={styles.row}
+              data-seat={context?.type === "opponent" ? option.controller : undefined}
               data-plain={option.card ? undefined : "true"}
               data-active={draft.highlight === index}
               data-selected={prompt.kind === "toggle" ? Boolean(option.selected) : undefined}
@@ -623,6 +629,7 @@ function ResponseBody({
                 data-primary={index === draft.highlight ? true : undefined}
                 data-index={index}
                 disabled={busy}
+                aria-label={context?.type === "opponent" ? opponentPickLabel(label) : undefined}
                 onClick={() => choose(option.id)}
                 onMouseEnter={() => {
                   draft.setHighlight(index);
@@ -891,6 +898,8 @@ export interface PromptCenterProps {
   revealed?: boolean;
   /** Hovering or focusing a card in a grid or a response row shows it in the left inspector. */
   onInspectCard?: InspectCardHandler;
+  /** Display name of a seat. An opponent pick shows the name instead of the engine's "Player N". */
+  nameOf?: (seat: number) => string;
 }
 
 /**
@@ -1178,7 +1187,7 @@ export function PromptCenter(props: PromptCenterProps) {
           {hide}
         </header>
         <ResponseBody prompt={prompt} draft={draft} busy={busy} slug={slug} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
-          onInspectCard={onInspectCard} />
+          onInspectCard={onInspectCard} nameOf={props.nameOf} />
         {hasActions || optional ? (
           <footer className={styles.foot}>
             {optional ? <span className={styles.hint}>Right-click to pass</span> : null}

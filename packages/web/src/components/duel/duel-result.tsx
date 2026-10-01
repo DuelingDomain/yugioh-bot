@@ -15,6 +15,7 @@ import Link from "next/link";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 import { cardArtUrl, formatLp } from "./constants";
 import { duelFontClasses } from "./fonts";
+import { isMultiSeat, winnerLabel, winnerSeats } from "./multi-seat";
 import styles from "./duel-result.module.css";
 
 
@@ -111,7 +112,10 @@ export function describeDuelResult(room: DuelRoom): DuelResultModel {
   const winnerSeat = result ? result.winnerSeat : session.winnerSeat;
   const raw = (result?.reason ?? session.resultReason ?? "").trim();
   const kind = classifyResultReason(raw);
-  const loserSeat = winnerSeat === 0 ? 1 : winnerSeat === 1 ? 0 : null;
+  // 3 and 4 seat tables: the winners are a set (both partners in Tag); no "other seat" math.
+  const multi = isMultiSeat(engine);
+  const winners = !multi ? [] : engine?.result ? winnerSeats(engine) : winnerSeat == null ? [] : [winnerSeat];
+  const loserSeat = multi ? null : winnerSeat === 0 ? 1 : winnerSeat === 1 ? 0 : null;
   const loser = loserSeat == null ? null : { name: seatName(room, loserSeat), isMe: loserSeat === mySeat };
 
   const scores: DuelResultScore[] = session.status === "cancelled"
@@ -123,7 +127,7 @@ export function describeDuelResult(room: DuelRoom): DuelResultModel {
           name: seatName(room, seat.seat),
           lp: seat.lp,
           isMe: seat.seat === mySeat,
-          isWinner: session.status !== "interrupted" && winnerSeat != null && seat.seat === winnerSeat,
+          isWinner: session.status !== "interrupted" && winnerSeat != null && (multi ? winners.includes(seat.seat) : seat.seat === winnerSeat),
           deckMaster: seat.deckMaster ? { code: seat.deckMaster.card.code, name: seat.deckMaster.card.name } : null,
         }));
 
@@ -144,7 +148,17 @@ export function describeDuelResult(room: DuelRoom): DuelResultModel {
       scores,
     };
   }
-  const reason = reasonLine(kind, raw, loser);
+  const reason = multi ? (raw ? reasonLine(kind === "life-points" ? "other" : kind, raw, null) : null) : reasonLine(kind, raw, loser);
+  if (multi) {
+    const won = mySeat != null && winners.includes(mySeat);
+    const names = engine ? winnerLabel(engine, (seat) => seatName(room, seat)) : null;
+    const who = names ?? seatName(room, winnerSeat);
+    const plural = winners.length > 1;
+    if (mySeat == null) return { outcome: "spectator", headline: `${who} ${plural ? "win" : "wins"}`, winnerSeat, reasonKind: kind, reason, scores };
+    return won
+      ? { outcome: "win", headline: "YOU WIN", winnerSeat, reasonKind: kind, reason, scores }
+      : { outcome: "lose", headline: "YOU LOSE", winnerSeat, reasonKind: kind, reason, scores };
+  }
   if (mySeat == null) {
     return { outcome: "spectator", headline: `${seatName(room, winnerSeat)} wins`, winnerSeat, reasonKind: kind, reason, scores };
   }

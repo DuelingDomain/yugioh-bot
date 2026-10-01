@@ -1,0 +1,366 @@
+"use client";
+
+import { useState } from "react";
+import type { DuelCard, DuelFormat, DuelMasterRule, DuelSeatView } from "@yugidraft/shared/duels";
+import { Check } from "lucide-react";
+import { CardFace } from "./card-face";
+import {
+  isDefense,
+  LOCATION_DECK,
+  LOCATION_DMZONE,
+  LOCATION_EXTRA,
+  LOCATION_FZONE,
+  LOCATION_GRAVE,
+  LOCATION_HAND,
+  LOCATION_MZONE,
+  LOCATION_REMOVED,
+  POS_FACEUP_ATTACK,
+  LOCATION_SZONE,
+  zoneKey,
+} from "./constants";
+import { LifePoints } from "./life-points";
+import type { DuelActivateHandler, DuelHoverHandler } from "./field";
+import type { InspectTarget } from "./inspector";
+import { disabledZoneNames, disabledZones, opponentPickLabel, type SeatPick, type SeatRelation } from "./multi-seat";
+import styles from "./opponent-board.module.css";
+
+export type SeatBoardCallbacks = {
+  legalKeys: ReadonlySet<string>;
+  selectedKeys: ReadonlySet<string>;
+  onActivate: DuelActivateHandler;
+  onInspect: (target: InspectTarget) => void;
+  onHoverCard?: DuelHoverHandler;
+};
+
+function anyIn(keys: readonly string[], set: ReadonlySet<string>): boolean {
+  return keys.some((key) => set.has(key));
+}
+
+function cardKey(card: DuelCard): string {
+  return zoneKey(card.controller, card.location, card.sequence);
+}
+
+function withExact(card: DuelCard | null, keys: string[]): string[] {
+  if (!card) return keys;
+  const exact = cardKey(card);
+  return [exact, ...keys.filter((key) => key !== exact)];
+}
+
+function pileKeys(seat: number, location: number, cards: readonly DuelCard[]): string[] {
+  return cards.length === 0 ? [zoneKey(seat, location, 0)] : cards.map(cardKey);
+}
+
+function Marks({ legal, selected }: { legal: boolean; selected: boolean }) {
+  if (!legal && !selected) return null;
+  return (
+    <>
+      <span className={styles.ring} aria-hidden="true" />
+      <span className={styles.mark} aria-hidden="true">{selected ? <Check size={9} strokeWidth={2.6} /> : null}</span>
+    </>
+  );
+}
+
+function CardCell({
+  card,
+  label,
+  keys,
+  kind,
+  callbacks,
+  disabled = false,
+  testId,
+}: {
+  card: DuelCard | null;
+  label: string;
+  keys: string[];
+  kind: "mz" | "st" | "fz" | "emz" | "dm";
+  callbacks: SeatBoardCallbacks;
+  /** The zone is disabled for this seat (per-seat disabled zone mask). */
+  disabled?: boolean;
+  testId?: string;
+}) {
+  const legal = anyIn(keys, callbacks.legalKeys);
+  const selected = anyIn(keys, callbacks.selectedKeys);
+  const defense = card != null && card.location === LOCATION_MZONE && isDefense(card.position);
+  return (
+    <div className={styles.cell} data-zones={keys.join(" ")} data-kind={kind} data-legal={legal ? "true" : "false"}
+      data-selected={selected ? "true" : "false"} data-occupied={card ? "true" : "false"} data-defense={defense ? "true" : "false"}
+      data-disabled={disabled ? "true" : "false"} data-testid={testId}>
+      <button type="button" className={styles.cellHit} aria-label={disabled ? `${label}, disabled` : label} aria-pressed={selected}
+        aria-disabled={disabled && !card ? true : undefined}
+        onClick={(event) => { if (disabled && !card) return; callbacks.onActivate(keys, card, event.currentTarget); }}
+        onMouseEnter={(event) => callbacks.onHoverCard?.(card, event.currentTarget)}
+        onMouseLeave={() => callbacks.onHoverCard?.(null, null)}
+        onFocus={(event) => callbacks.onHoverCard?.(card, event.currentTarget)}
+        onBlur={() => callbacks.onHoverCard?.(null, null)}>
+        {card ? <CardFace card={card} /> : null}
+        <Marks legal={legal} selected={selected} />
+      </button>
+    </div>
+  );
+}
+
+function Count({
+  label,
+  count,
+  keys,
+  pile,
+  owner,
+  cards,
+  callbacks,
+}: {
+  label: string;
+  count: number;
+  keys: string[];
+  /** Piles open in the pile viewer when tapped. */
+  pile: boolean;
+  owner: string;
+  cards: readonly DuelCard[];
+  callbacks: SeatBoardCallbacks;
+}) {
+  const legal = anyIn(keys, callbacks.legalKeys);
+  const selected = anyIn(keys, callbacks.selectedKeys);
+  const title = `${owner} ${label}`;
+  function activate(anchor: HTMLElement) {
+    if (pile) {
+      callbacks.onInspect({ type: "pile", title, cards: [...cards] });
+      if (cards.length === 1) {
+        callbacks.onActivate([cardKey(cards[0])], cards[0], anchor);
+        return;
+      }
+      if (cards.length === 0) callbacks.onActivate(keys, null, anchor);
+      return;
+    }
+    callbacks.onActivate(keys, cards.length === 1 ? cards[0] : null, anchor);
+  }
+  return (
+    <button type="button" className={styles.count} data-zones={keys.join(" ")} data-legal={legal ? "true" : "false"}
+      data-selected={selected ? "true" : "false"} aria-label={`${title} (${count})`} aria-pressed={selected}
+      onClick={(event) => activate(event.currentTarget)}>
+      <span>{label}</span><b>{count}</b>
+    </button>
+  );
+}
+
+/** The Deck Master of a seat as a card, or null when it is not in its zone (shown as a status line). */
+function deckMasterCard(view: DuelSeatView): DuelCard | null {
+  const master = view.deckMaster;
+  if (!master || !master.inZone) return null;
+  return {
+    controller: view.seat,
+    location: LOCATION_DMZONE,
+    sequence: 0,
+    position: POS_FACEUP_ATTACK,
+    code: master.card.code,
+    name: master.card.name,
+    description: master.card.description,
+    attack: master.card.attack,
+    defense: master.card.defense,
+    level: master.card.level,
+    type: master.card.type,
+    attribute: master.card.attribute,
+    race: master.card.race,
+  };
+}
+
+function ExtraZoneCells({
+  view,
+  name,
+  callbacks,
+}: {
+  view: DuelSeatView;
+  name: string;
+  callbacks: SeatBoardCallbacks;
+}) {
+  const disabled = disabledZones(view);
+  return (
+    <>
+      {[5, 6].map((sequence) => {
+        const card = view.monsters[sequence] ?? null;
+        return (
+          <CardCell key={`emz-${sequence}`} card={card} kind="emz" label={`${name} extra monster zone ${sequence - 4}`}
+            keys={withExact(card, [zoneKey(view.seat, LOCATION_MZONE, sequence)])} callbacks={callbacks}
+            disabled={disabled.monsters[sequence]} testId={`seat-emz-${view.seat}-${sequence - 4}`} />
+        );
+      })}
+    </>
+  );
+}
+
+function DisabledNote({ view }: { view: DuelSeatView }) {
+  const names = disabledZoneNames(view);
+  if (names.length === 0) return null;
+  return (
+    <p className={styles.disabledNote} data-testid={`seat-disabled-${view.seat}`} data-count={names.length}>
+      <span>Disabled</span> {names.join(", ")}
+    </p>
+  );
+}
+
+/**
+ * What the shared DuelField cannot show for a seat at a 3 or 4 seat table: the seat's own Extra Monster Zones
+ * (focused opponent only; the viewer's own are in the field band) and its disabled zones.
+ */
+export function SeatExtras({
+  view,
+  name,
+  masterRule,
+  showExtraZones,
+  callbacks,
+}: {
+  view: DuelSeatView;
+  name: string;
+  masterRule: DuelMasterRule;
+  showExtraZones: boolean;
+  callbacks: SeatBoardCallbacks;
+}) {
+  const disabled = disabledZones(view);
+  const emz = showExtraZones && masterRule >= 4;
+  if (!emz && !disabled.any) return null;
+  return (
+    <div className={styles.extras} data-testid={`seat-extras-${view.seat}`} data-seat={view.seat}>
+      {emz ? (
+        <div className={styles.extraRow}>
+          <span className={styles.extraLabel}>{name} extra monster zones</span>
+          <ExtraZoneCells view={view} name={name} callbacks={callbacks} />
+        </div>
+      ) : null}
+      <DisabledNote view={view} />
+    </div>
+  );
+}
+
+function lpPrefix(format: DuelFormat | undefined, eliminated: boolean): string {
+  if (eliminated) return "Final LP";
+  return format === "tag" ? "Team LP" : "LP";
+}
+
+const RELATION_LABEL: Record<SeatRelation, string> = { self: "You", partner: "Partner", opponent: "Opponent", other: "" };
+
+export function SeatBoard({
+  view,
+  name,
+  relation,
+  active,
+  answering,
+  callbacks,
+  reducedMotion,
+  focusable,
+  onFocusSeat,
+  masterRule = 4,
+  format,
+  pick,
+}: {
+  view: DuelSeatView;
+  name: string;
+  relation: SeatRelation;
+  /** The seat has the turn. */
+  active: boolean;
+  /** The open prompt is waiting for this seat. */
+  answering: boolean;
+  callbacks: SeatBoardCallbacks;
+  reducedMotion: boolean;
+  /** Tapping the name moves this opponent to the main field. */
+  focusable?: boolean;
+  onFocusSeat?: (seat: number) => void;
+  masterRule?: DuelMasterRule;
+  format?: DuelFormat;
+  /** An opponent pick is open: this board answers it when its seat is offered. */
+  pick?: SeatPick | null;
+}) {
+  const seat = view.seat;
+  const eliminated = view.eliminated === true;
+  const leaving = !eliminated && view.pendingElimination === true;
+  const [open, setOpen] = useState(false);
+  const targeted = !eliminated && [...callbacks.legalKeys].some((key) => key.startsWith(`${seat}:`));
+  const expanded = open || targeted;
+  const fieldSpell = view.spells[5] ?? null;
+  const monsters = [0, 1, 2, 3, 4].map((sequence) => view.monsters[sequence] ?? null);
+  const disabled = disabledZones(view);
+  const master = view.deckMaster;
+  const masterFace = deckMasterCard(view);
+  const spells = [0, 1, 2, 3, 4].map((sequence) => view.spells[sequence] ?? null);
+  const handKeys = view.hand.length === 0 ? [zoneKey(seat, LOCATION_HAND, 0)] : view.hand.map(cardKey);
+  const relationText = RELATION_LABEL[relation];
+  const pickable = !eliminated && !leaving && pick?.options.has(seat) === true;
+
+  return (
+    <section className={styles.board} aria-label={`${name} board`} data-seat={seat} data-relation={relation}
+      data-active={active && !eliminated ? "true" : "false"} data-answering={answering && !eliminated ? "true" : "false"}
+      data-eliminated={eliminated ? "true" : "false"} data-leaving={leaving ? "true" : "false"} data-expanded={expanded ? "true" : "false"}
+      data-pickable={pickable ? "true" : undefined} data-team={view.team} data-testid={`seat-board-${seat}`}>
+      <header className={styles.head}>
+        <button type="button" className={styles.toggle} aria-expanded={expanded} aria-label={`${expanded ? "Collapse" : "Expand"} ${name}`}
+          onClick={() => setOpen((current) => !current)}>
+          <span className={styles.chev} aria-hidden="true" />
+        </button>
+        <div className={styles.who}>
+          {focusable && !eliminated ? (
+            <button type="button" className={styles.nameBtn} onClick={() => onFocusSeat?.(seat)} title="Show this board large">{name}</button>
+          ) : <b className={styles.name}>{name}</b>}
+          {relationText ? <span className={styles.relation} data-relation={relation}>{relationText}</span> : null}
+          {active && !eliminated ? <span className={styles.tag} data-kind="turn">To play</span> : null}
+          {answering && !eliminated ? <span className={styles.tag} data-kind="answer">Choosing</span> : null}
+          {leaving ? <span className={styles.tag} data-kind="leaving" data-testid={`seat-leaving-${seat}`}>Leaving</span> : null}
+          {eliminated ? <span className={styles.tag} data-kind="out" data-testid={`seat-eliminated-${seat}`}>Eliminated</span> : null}
+          {pickable ? (
+            <button type="button" className={styles.pick} data-testid={`seat-pick-${seat}`} aria-label={opponentPickLabel(name)}
+              onClick={() => pick?.onPick(seat)}>Choose</button>
+          ) : null}
+        </div>
+        <div className={styles.lp} data-lp-seat={seat} data-final={eliminated ? "true" : "false"} data-testid={`seat-lp-${seat}`}
+          aria-label={`${name} ${eliminated ? "final " : ""}${format === "tag" ? "team " : ""}life points`}>
+          <span className={styles.lpPrefix}>{lpPrefix(format, eliminated)}</span>
+          <LifePoints key={seat} value={view.lp} reducedMotion={reducedMotion} size="sm" />
+        </div>
+      </header>
+      {eliminated ? (
+        <p className={styles.out} role="status" data-testid={`seat-out-${seat}`}>Eliminated</p>
+      ) : (
+        <div className={styles.body}>
+          <div className={styles.counts}>
+            <Count label="Hand" count={view.hand.length} keys={handKeys} pile={false} owner={name} cards={view.hand} callbacks={callbacks} />
+            <Count label="Deck" count={view.deckCount} keys={[zoneKey(seat, LOCATION_DECK, 0)]} pile={false} owner={name} cards={[]} callbacks={callbacks} />
+            <Count label="Extra" count={view.extraCount ?? view.extra.length} keys={pileKeys(seat, LOCATION_EXTRA, view.extra)} pile owner={name} cards={view.extra} callbacks={callbacks} />
+            <Count label="GY" count={view.graveyard.length} keys={pileKeys(seat, LOCATION_GRAVE, view.graveyard)} pile owner={name} cards={view.graveyard} callbacks={callbacks} />
+            <Count label="Banished" count={view.banished.length} keys={pileKeys(seat, LOCATION_REMOVED, view.banished)} pile owner={name} cards={view.banished} callbacks={callbacks} />
+          </div>
+          <div className={styles.rows}>
+            <div className={styles.row} data-row="monsters">
+              {monsters.map((card, sequence) => (
+                <CardCell key={`mz-${sequence}`} card={card} kind="mz" label={`${name} monster zone ${sequence + 1}`}
+                  keys={withExact(card, [zoneKey(seat, LOCATION_MZONE, sequence)])} callbacks={callbacks}
+                  disabled={disabled.monsters[sequence]} testId={`seat-mz-${seat}-${sequence + 1}`} />
+              ))}
+            </div>
+            {masterRule >= 4 || master ? (
+              <div className={styles.row} data-row="special">
+                {masterRule >= 4 ? <ExtraZoneCells view={view} name={name} callbacks={callbacks} /> : null}
+                {master ? (
+                  <>
+                    <CardCell card={masterFace} kind="dm" label={`${name} Deck Master ${master.card.name}${master.inZone ? "" : ", not in its zone"}`}
+                      keys={withExact(masterFace, [zoneKey(seat, LOCATION_DMZONE, 0)])} callbacks={callbacks}
+                      testId={`seat-deckmaster-${seat}`} />
+                    <span className={styles.masterText} data-in-zone={master.inZone ? "true" : "false"}>
+                      {master.card.name}{master.inZone ? "" : " (away)"}
+                    </span>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+            <div className={styles.row} data-row="spells">
+              <CardCell card={fieldSpell} kind="fz" label={`${name} field spell`}
+                keys={withExact(fieldSpell, [zoneKey(seat, LOCATION_FZONE, 0), zoneKey(seat, LOCATION_SZONE, 5)])} callbacks={callbacks}
+                disabled={disabled.field} testId={`seat-fz-${seat}`} />
+              {spells.map((card, sequence) => (
+                <CardCell key={`st-${sequence}`} card={card} kind="st" label={`${name} spell and trap zone ${sequence + 1}`}
+                  keys={withExact(card, [zoneKey(seat, LOCATION_SZONE, sequence)])} callbacks={callbacks}
+                  disabled={disabled.spells[sequence]} testId={`seat-st-${seat}-${sequence + 1}`} />
+              ))}
+            </div>
+          </div>
+          <DisabledNote view={view} />
+        </div>
+      )}
+    </section>
+  );
+}

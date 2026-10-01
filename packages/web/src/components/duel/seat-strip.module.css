@@ -1,0 +1,143 @@
+.strip {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+}
+
+.item {
+  flex: 1 1 0;
+  min-width: 110px;
+  border: 1px solid rgb(181 153 99 / 0.34);
+  border-radius: 3px;
+  background: rgb(10 14 26 / 0.72);
+  color: #c3bba8;
+  font-size: 12px;
+}
+
+.hit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 7px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.hit {
+  cursor: pointer;
+}
+
+button.hit:hover,
+button.hit:focus-visible {
+  color: #c6b6ff;
+}
+
+.order {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: #efe7d5;
+}
+
+.rel,
+.status {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.status[data-kind="turn"] {
+  color: #e4b64f;
+}
+
+.status[data-kind="next"] {
+  color: #958f81;
+}
+
+.status[data-kind="answer"] {
+  color: #c6b6ff;
+}
+
+.status[data-kind="leaving"] {
+  border-color: rgb(228 90 77 / 0.55);
+  color: #c3bba8;
+  font-style: italic;
+}
+
+.status[data-kind="out"] {
+  color: #e45a4d;
+}
+
+.item[data-turn="true"] {
+  border-color: #e4b64f;
+}
+
+.item[data-answering="true"] {
+  outline: 2px solid #9b7eff;
+  outline-offset: 1px;
+}
+
+.item[data-pickable="true"] {
+  border-color: #9b7eff;
+  background: rgb(155 126 255 / 0.14);
+}
+
+.item[data-pickable="true"] button.hit:hover,
+.item[data-pickable="true"] button.hit:focus-visible {
+  background: rgb(155 126 255 / 0.3);
+  color: #efe7d5;
+}
+
+.item[data-focus="true"] {
+  background: rgb(155 126 255 / 0.12);
+}
+
+.item[data-relation="partner"] .rel {
+  color: #5fc4c0;
+}
+
+.item[data-eliminated="true"] {
+  opacity: 0.5;
+  filter: grayscale(0.85);
+}
+
+.item[data-eliminated="true"] .name {
+  text-decoration: line-through;
+}
+
+@media (max-width: 640px) {
+  .item {
+    min-width: 0;
+    flex-basis: calc(50% - 4px);
+  }
+}

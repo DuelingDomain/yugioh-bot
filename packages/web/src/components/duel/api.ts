@@ -3,6 +3,7 @@ import type {
   DuelCommand,
   DuelDeck,
   DuelDeckValidation,
+  DuelFormat,
   DuelHistoryScope,
   DuelListItem,
   DuelReplay,
@@ -69,12 +70,13 @@ export async function createDuel(
   mode: DuelMode,
   masterRule: DuelMasterRule,
   settings: DuelSettings,
+  format: DuelFormat = "1v1",
 ): Promise<{ session: DuelSession }> {
   return parseBody(
     await fetch("/api/duels", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, mode, masterRule, settings }),
+      body: JSON.stringify({ name, mode, masterRule, settings, format }),
     }),
   );
 }
@@ -97,9 +99,12 @@ export async function joinDuel(slug: string): Promise<{ session: DuelSession }> 
   );
 }
 
-export async function addPracticeBot(slug: string): Promise<{ session: DuelSession }> {
+/** `seat` is the 0-based empty seat to fill; leave it out to take the first empty seat. */
+export async function addPracticeBot(slug: string, seat?: number): Promise<{ session: DuelSession }> {
+  const url = `/api/duels/${encodeURIComponent(slug)}/bot`;
+  if (seat === undefined) return parseBody(await fetch(url, { method: "POST" }));
   return parseBody(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/bot`, { method: "POST" }),
+    await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seat }) }),
   );
 }
 
@@ -183,4 +188,59 @@ export async function getDuelCards(codes: number[]): Promise<{ cards: DuelCardIn
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ codes }),
   }));
+}
+
+export interface DuelPresetIssue {
+  sig: string;
+  title: string;
+  owner: string;
+}
+
+export interface DuelPreset {
+  id: string;
+  title: string;
+  format: string;
+  needsMultiCore: boolean;
+  checklist: string[];
+  /** Known problems for this scenario (may be missing on an older duel host). */
+  issues?: DuelPresetIssue[];
+  available?: boolean;
+  unavailableReason?: string | null;
+}
+
+/** The multi-duelist core installed on the duel host. */
+export interface DuelPresetCore {
+  tag: string | null;
+  sha: string | null;
+}
+
+/** Dev only. The server answers 404 when DUEL_SCENARIOS is off. */
+export async function listDuelPresets(): Promise<{ presets: DuelPreset[]; core?: DuelPresetCore }> {
+  return parseBody(await fetch("/api/duels/preset", { cache: "no-store" }));
+}
+
+export async function startDuelPreset(presetId: string): Promise<{ slug: string }> {
+  return parseBody(await fetch("/api/duels/preset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ presetId }),
+  }));
+}
+
+export async function reportDuel(slug: string, note: string): Promise<{ path: string }> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  }));
+}
+
+/** True only when the server runs with DUEL_SCENARIOS=1. */
+export async function reportEnabled(slug: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/duels/${encodeURIComponent(slug)}/report`, { cache: "no-store" });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

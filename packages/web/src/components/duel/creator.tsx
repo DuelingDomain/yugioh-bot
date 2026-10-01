@@ -9,6 +9,8 @@ import {
   DUEL_BANLIST_OPTIONS,
   duelClockRulesText,
   isCustomDomain,
+  DUEL_FORMATS,
+  type DuelFormat,
   type DuelMasterRule,
   type DuelMode,
   type DuelSettings,
@@ -17,6 +19,7 @@ import { createDuel } from "./api";
 import { cx, sheetButtonClass, SheetButton, SheetSegmented, SheetSelect, sheetPage, type Choice } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./creator.module.css";
+import { FORMAT_LABELS, FORMAT_RULES, formatSeatCount, formatStartingLp } from "./table-format";
 
 const MASTER_RULES: readonly Choice<DuelMasterRule>[] = [
   { value: 5, label: "Master Rules 5 (2020)" },
@@ -29,6 +32,7 @@ const VISIBILITY: readonly Choice<DuelSettings["visibility"]>[] = [
   { value: "public", label: "Public", icon: <Globe size={15} strokeWidth={1.6} aria-hidden /> },
   { value: "private", label: "Private", icon: <Lock size={15} strokeWidth={1.6} aria-hidden /> },
 ];
+const TABLE_FORMATS: readonly Choice<DuelFormat>[] = DUEL_FORMATS.map((value) => ({ value, label: FORMAT_LABELS[value] }));
 const FORMATS: readonly Choice<DuelMode>[] = [
   { value: "normal", label: "Standard duel" },
   { value: "domain", label: "Domain" },
@@ -56,6 +60,7 @@ export function DuelCreator() {
   const router = useRouter();
   const [name, setName] = useState("Table");
   const [mode, setMode] = useState<DuelMode>("normal");
+  const [format, setFormat] = useState<DuelFormat>("1v1");
   const [masterRule, setMasterRule] = useState<DuelMasterRule>(5);
   const [settings, setSettings] = useState(() => defaultDuelSettings("normal"));
   const [creating, setCreating] = useState(false);
@@ -74,7 +79,7 @@ export function DuelCreator() {
     setCreating(true);
     setError(null);
     try {
-      const { session } = await createDuel(name.trim(), mode, masterRule, settings);
+      const { session } = await createDuel(name.trim(), mode, masterRule, settings, format);
       router.push(`/duels/${session.slug}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not create the game.");
@@ -87,6 +92,7 @@ export function DuelCreator() {
   const formatName = mode === "domain" ? (customDomain ? "Custom Domain" : "Domain") : "Standard";
   const banlistLabel = DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist;
   const summaryRows: [string, string][] = [
+    ["Table", `${FORMAT_LABELS[format]} · ${formatSeatCount(format)} seats`],
     ["Visibility", settings.visibility === "private" ? "Invite only" : "Public"],
     ["Banlist", banlistLabel],
     ["Card pool", settings.cardPool === "both" ? "TCG + OCG" : settings.cardPool.toUpperCase()],
@@ -130,9 +136,19 @@ export function DuelCreator() {
             <section className={styles.section} aria-labelledby="creator-format">
               <div className={styles.side}>
                 <h2 id="creator-format" className={ui.sectionTitle}>Format</h2>
-                <p className={ui.hint}>Both are 1v1, single duel.</p>
+                <p className={ui.hint}>Table size and rules. Standard and Domain allow every table type.</p>
               </div>
               <div className={styles.fields}>
+                <div className={styles.wide}>
+                  <SheetSelect label="Table type" value={format} choices={TABLE_FORMATS} onChange={(value) => {
+                    setFormat(value);
+                    // Tag and free-for-all tables run on Master Rule 5 only.
+                    if (value !== "1v1") setMasterRule(5);
+                  }} />
+                  <p className={cx(ui.hint, styles.below)} data-testid="format-rule">
+                    {formatSeatCount(format)} seats · {formatStartingLp(format, settings).toLocaleString("en-US")} LP{format === "tag" ? " per team" : " each"}. {FORMAT_RULES[format]}
+                  </p>
+                </div>
                 <div className={styles.wide}>
                   <SheetSegmented label="Duel type" value={mode} choices={FORMATS} onChange={(value) => {
                     setMode(value);
@@ -141,7 +157,7 @@ export function DuelCreator() {
                     setSettings((current) => ({ ...defaultDuelSettings(value), visibility: current.visibility }));
                   }} />
                 </div>
-                <SheetSelect label="Master Rules" value={masterRule} choices={MASTER_RULES} onChange={setMasterRule} />
+                <SheetSelect label="Master Rules" value={masterRule} choices={MASTER_RULES} onChange={setMasterRule} disabled={format !== "1v1"} />
                 <SheetSelect label="Game engine" value="automatic" choices={[{ value: "automatic", label: "Automatic" }]} disabled />
               </div>
             </section>
@@ -165,7 +181,7 @@ export function DuelCreator() {
             <section className={styles.section} aria-labelledby="creator-clock">
               <div className={styles.side}>
                 <h2 id="creator-clock" className={ui.sectionTitle}>Clock &amp; life points</h2>
-                <p className={ui.hint}>Pace of the duel and where both players start.</p>
+                <p className={ui.hint}>Pace of the duel and where duelists start. In Tag this is per duelist; a team shares double.</p>
               </div>
               <div className={styles.fields}>
                 <SheetSelect label="Starting Life Points" value={settings.startingLP} choices={LIFE_POINTS} onChange={(value) => update("startingLP", value)} />
@@ -220,10 +236,10 @@ export function DuelCreator() {
 
           <aside className={styles.summary} aria-label="Game summary">
             <div className={styles.card}>
-              <p className={styles.kind}>{formatName} · MR{masterRule} · {settings.startingLP} LP · {timerShort}</p>
+              <p className={styles.kind}>{FORMAT_LABELS[format]} · {formatName} · MR{masterRule} · {formatStartingLp(format, settings).toLocaleString("en-US")} LP · {timerShort}</p>
               <p className={styles.name} title={name.trim() || "Untitled table"}>{name.trim() || "Untitled table"}</p>
               <dl className={styles.tally}>
-                <div><dd className={ui.num}>{settings.startingLP.toLocaleString("en-US")}</dd><dt>Life Points</dt></div>
+                <div><dd className={ui.num}>{formatStartingLp(format, settings).toLocaleString("en-US")}</dd><dt>{format === "tag" ? "Team LP" : "Life Points"}</dt></div>
                 <div><dd className={ui.num}>{settings.startingHand}</dd><dt>Hand</dt></div>
                 <div><dd className={ui.num}>{settings.drawPerTurn}</dd><dt>Draw</dt></div>
               </dl>

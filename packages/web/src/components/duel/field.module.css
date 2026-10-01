@@ -620,6 +620,28 @@
   min-height: 0;
 }
 
+/* A zone the core disabled: same red hatch as the opponent boards, plus a cross. */
+.zone[data-disabled="true"] {
+  opacity: 0.75;
+}
+
+.zoneOff {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border: 1px solid var(--loss);
+  border-radius: 3px;
+  background:
+    linear-gradient(to top right, transparent calc(50% - 1px), var(--loss) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
+    linear-gradient(to bottom right, transparent calc(50% - 1px), var(--loss) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
+    repeating-linear-gradient(135deg, rgb(228 90 77 / 0.22) 0 3px, transparent 3px 6px);
+}
+
+.zone[data-disabled="true"] .zoneHit {
+  cursor: not-allowed;
+}
+
 .zone:hover,
 .zone:focus-within {
   z-index: 6;

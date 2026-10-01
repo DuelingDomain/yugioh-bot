@@ -7,6 +7,7 @@ import { ArrowRight, Eye, Lock, Plus, Users } from "lucide-react";
 import { isCustomDomain, type DuelHistoryScope, type DuelListItem } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { formatLabel, formatSeatCount } from "./table-format";
 import { DUEL_LIST_KEY, cancelDuel, leaveDuel, listDuels, surrenderDuel } from "./api";
 import { cx, SheetButton, sheetButtonClass, SheetSegmented, sheetRoot } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -23,7 +24,7 @@ function statusLabel(status: DuelListItem["status"]): string {
 }
 
 function modeLabel(duel: DuelListItem): string {
-  if (duel.mode === "domain") return isCustomDomain(duel.masterRule, duel.settings) ? "Custom Domain" : "Domain 1v1";
+  if (duel.mode === "domain") return isCustomDomain(duel.masterRule, duel.settings) ? "Custom Domain" : duel.format && duel.format !== "1v1" ? "Domain" : "Domain 1v1";
   return `Master Rule ${duel.masterRule}`;
 }
 
@@ -124,7 +125,8 @@ function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelLi
           <span className={styles.chips}>
             <span className={ui.chip}>{modeLabel(duel)}</span>
             <span className={cx(ui.chip, duel.status === "active" && ui.chipGold)}>{statusLabel(duel.status)}</span>
-            <span className={ui.chip}><Users size={13} strokeWidth={1.6} aria-hidden />{duel.seats.length}/2</span>
+            <span className={ui.chip}><Users size={13} strokeWidth={1.6} aria-hidden />{duel.seats.length}/{formatSeatCount(duel.format)}</span>
+            {duel.format && duel.format !== "1v1" ? <span className={ui.chip}>{formatLabel(duel.format)}</span> : null}
             {duel.settings.visibility === "private" ? <span className={ui.chip}><Lock size={13} strokeWidth={1.6} aria-hidden />Private</span> : null}
             {activity ? <span className={styles.activity}>{activity}</span> : null}
           </span>

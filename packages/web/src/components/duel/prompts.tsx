@@ -166,9 +166,9 @@ export function selectionBounds(prompt: DuelPrompt): { min: number; max: number 
   };
 }
 
-function waitingCopy(prompt: DuelPrompt | null, mySeat: number | null): string {
+function waitingCopy(prompt: DuelPrompt | null, mySeat: number | null, seatName?: string | null): string {
   if (mySeat == null) return "Spectating. Waiting for a player to act.";
-  if (prompt && prompt.seat !== mySeat) return "Waiting for the opponent.";
+  if (prompt && prompt.seat !== mySeat) return seatName ? `Waiting for ${seatName}.` : "Waiting for the opponent.";
   return "Waiting for a response.";
 }
 
@@ -500,6 +500,7 @@ export function PromptTray({
   aim,
   headless,
   suspended,
+  waitingName,
 }: {
   prompt: DuelPrompt | null;
   mySeat: number | null;
@@ -518,6 +519,8 @@ export function PromptTray({
   suspended?: boolean;
   /** Set while the prompt is the attack-target step: picking a target aims instead of answering. */
   aim?: PromptAim;
+  /** 3 and 4 seat tables: the name of the seat that must answer. */
+  waitingName?: string | null;
 }) {
   const seated = prompt != null && mySeat != null && prompt.seat === mySeat;
   const answering = seated && active !== false;
@@ -663,7 +666,7 @@ export function PromptTray({
   if (!prompt || !answering) {
     return (
       <p className={styles.waiting} aria-live="polite">
-        {waitingCopy(prompt, mySeat)}
+        {waitingCopy(prompt, mySeat, waitingName)}
       </p>
     );
   }

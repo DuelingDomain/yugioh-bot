@@ -7,7 +7,16 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "surrender" | "add-bot" | "archive" | "cancel" | "replay";
+export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "list-presets" | "start-preset" | "report" | "debug-trace";
+
+/** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
+export function scenariosEnabled(): boolean {
+  return process.env.DUEL_SCENARIOS === "1";
+}
+
+export function scenariosOffResponse(): NextResponse {
+  return NextResponse.json({ error: "Not found" }, { status: 404 });
+}
 
 type DuelActor =
   | { ok: true; guildId: string; playerId: number; duels: DuelService }
@@ -80,6 +89,14 @@ export async function callDuelHost(input: {
   deck?: DuelDeck;
   query?: string;
   codes?: number[];
+  /** add-bot only: the 0-based empty seat to fill. */
+  seat?: number;
+  /** start-preset only. */
+  presetId?: string;
+  /** start-preset only: four decimal strings (the core seed). */
+  seed?: string[];
+  /** report only: the tester's note. */
+  note?: string;
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
@@ -98,6 +115,10 @@ export async function callDuelHost(input: {
   if (input.deck) payload.deck = input.deck;
   if (input.query !== undefined) payload.query = input.query;
   if (input.codes !== undefined) payload.codes = input.codes;
+  if (input.seat !== undefined) payload.seat = input.seat;
+  if (input.presetId !== undefined) payload.presetId = input.presetId;
+  if (input.seed !== undefined) payload.seed = input.seed;
+  if (input.note !== undefined) payload.note = input.note;
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {

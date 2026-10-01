@@ -29,6 +29,7 @@ import {
   ST_COUNT,
   zoneKey,
 } from "./constants";
+import { disabledZones } from "./multi-seat";
 import type { InspectTarget } from "./inspector";
 import styles from "./field.module.css";
 
@@ -224,12 +225,15 @@ function ZoneSlot({
   sleeve,
   pileCount,
   flip,
+  offId,
   onActivate,
   onHoverCard,
 }: {
   card: DuelCard | null;
   label: string;
   kind: string;
+  /** The core disabled this zone: test id suffix `{seat}-{m|s|f}-{sequence}`. Draws a dim zone with a cross. */
+  offId?: string;
   keys: string[];
   legalKeys: Set<string>;
   selectedKeys: Set<string>;
@@ -259,7 +263,9 @@ function ZoneSlot({
       data-occupied={card ? "true" : "false"}
       data-defense={defense ? "true" : "false"}
       data-side={flip ? "opp" : "you"}
+      data-disabled={offId ? "true" : undefined}
     >
+      {offId ? <span className={styles.zoneOff} role="img" aria-label={`${label} (disabled)`} data-testid={`zone-disabled-${offId}`} /> : null}
       <button
         type="button"
         className={styles.zoneHit}
@@ -530,6 +536,7 @@ function MonsterRow({
   callbacks: FieldCallbacks;
 }) {
   const seat = view?.seat ?? 0;
+  const off = disabledZones(view);
   const order = reversed ? [4, 3, 2, 1, 0] : [0, 1, 2, 3, 4];
   return (
     <div className={styles.zones}>
@@ -541,6 +548,7 @@ function MonsterRow({
             card={card}
             label={`Monster zone ${sequence + 1}`}
             kind="mz"
+            offId={off.monsters[sequence] ? `${seat}-m-${sequence}` : undefined}
             keys={withExact(card, [zoneKey(seat, LOCATION_MZONE, sequence)])}
             legalKeys={callbacks.legalKeys}
             selectedKeys={callbacks.selectedKeys}
@@ -567,6 +575,7 @@ function SpellRow({
   masterRule: DuelMasterRule;
 }) {
   const seat = view?.seat ?? 0;
+  const off = disabledZones(view);
   const order = reversed ? [4, 3, 2, 1, 0] : [0, 1, 2, 3, 4];
   return (
     <div className={styles.zones}>
@@ -579,6 +588,7 @@ function SpellRow({
             card={card}
             label={pendulum ? `Spell and Trap zone ${sequence + 1}, pendulum` : `Spell and Trap zone ${sequence + 1}`}
             kind="st"
+            offId={off.spells[sequence] ? `${seat}-s-${sequence}` : undefined}
             keys={stKeys(seat, sequence, card, masterRule)}
             legalKeys={callbacks.legalKeys}
             selectedKeys={callbacks.selectedKeys}
@@ -695,6 +705,7 @@ function PileColumn({
       card={fieldSpell}
       label={`${whose} Field Spell`}
       kind="field"
+      offId={disabledZones(view).field ? `${seat}-f-0` : undefined}
       keys={withExact(fieldSpell, [zoneKey(seat, LOCATION_FZONE, 0), zoneKey(seat, LOCATION_SZONE, 5)])}
       legalKeys={callbacks.legalKeys}
       selectedKeys={callbacks.selectedKeys}
@@ -748,6 +759,8 @@ export function DuelField({
   onHoverCard,
   bottomName,
   topName,
+  topSeat,
+  topLabel: topLabelOverride,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -760,13 +773,17 @@ export function DuelField({
   onHoverCard?: DuelHoverHandler;
   bottomName: string;
   topName: string;
+  /** 3 and 4 seat tables: the seat shown in the top half. Default: the other seat of a 1v1. */
+  topSeat?: number | null;
+  /** 3 and 4 seat tables: owner name in the top half's aria labels (default "Opponent"). */
+  topLabel?: string;
 }) {
   const bottomIndex = mySeat ?? 0;
-  const topIndex = bottomIndex === 0 ? 1 : 0;
+  const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
   const bottom = engine.seats.find((seat) => seat.seat === bottomIndex);
   const top = engine.seats.find((seat) => seat.seat === topIndex);
   const callbacks: FieldCallbacks = { legalKeys, selectedKeys, onActivate, onInspect, onHoverCard };
-  const topLabel = mySeat == null ? topName : "Opponent";
+  const topLabel = topLabelOverride ?? (mySeat == null ? topName : "Opponent");
   const bottomLabel = mySeat == null ? bottomName : "Your";
   const battle = isBattlePhase(engine.phase);
 
@@ -774,6 +791,16 @@ export function DuelField({
   const rightEmz = extraMonster(bottom, top, "right");
   const leftEmzKeys = withExact(leftEmz, extraMonsterKeys(bottomIndex, topIndex, "left"));
   const rightEmzKeys = withExact(rightEmz, extraMonsterKeys(bottomIndex, topIndex, "right"));
+
+  // Extra Monster Zones: the bottom seat's bit 5/6, or the top seat's bit 6/5 (mirrored band, 1v1 only).
+  // At 3+ seats the focused opponent's own Extra Monster Zones are drawn in their own row, not here.
+  const bottomOff = disabledZones(bottom);
+  const topOff = engine.seats.length > 2 ? null : disabledZones(top);
+  const emzOff = (left: boolean): string | undefined => {
+    if (left ? bottomOff.monsters[5] : bottomOff.monsters[6]) return `${bottomIndex}-m-${left ? 5 : 6}`;
+    if (topOff && (left ? topOff.monsters[6] : topOff.monsters[5])) return `${topIndex}-m-${left ? 6 : 5}`;
+    return undefined;
+  };
 
   return (
     <div
@@ -827,6 +854,7 @@ export function DuelField({
                   card={leftEmz}
                   label="Extra monster zone, column 2"
                   kind="emz"
+                  offId={emzOff(true)}
                   keys={leftEmzKeys}
                   legalKeys={legalKeys}
                   selectedKeys={selectedKeys}
@@ -839,6 +867,7 @@ export function DuelField({
                   card={rightEmz}
                   label="Extra monster zone, column 4"
                   kind="emz"
+                  offId={emzOff(false)}
                   keys={rightEmzKeys}
                   legalKeys={legalKeys}
                   selectedKeys={selectedKeys}
@@ -1017,6 +1046,7 @@ export function DeckMasterRail({
   onChooseAction,
   onInspect,
   onHoverCard,
+  topSeat,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -1028,9 +1058,11 @@ export function DeckMasterRail({
   onChooseAction: (option: DuelPromptOption) => void;
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
+  /** 3 and 4 seat tables: the opponent whose master shows in the top dock. */
+  topSeat?: number | null;
 }) {
   const bottomIndex = mySeat ?? 0;
-  const topIndex = bottomIndex === 0 ? 1 : 0;
+  const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
   const bottom = engine.seats.find((seat) => seat.seat === bottomIndex);
   const top = engine.seats.find((seat) => seat.seat === topIndex);
   return (

@@ -1,3 +1,4 @@
+import { isDuelFormat } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
 import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -26,9 +27,9 @@ export async function POST(request: NextRequest) {
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
 
-  let body: { name?: unknown; mode?: unknown; masterRule?: unknown; settings?: unknown };
+  let body: { name?: unknown; mode?: unknown; masterRule?: unknown; settings?: unknown; format?: unknown };
   try {
-    body = (await request.json()) as { name?: unknown; mode?: unknown; masterRule?: unknown; settings?: unknown };
+    body = (await request.json()) as { name?: unknown; mode?: unknown; masterRule?: unknown; settings?: unknown; format?: unknown };
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -41,6 +42,10 @@ export async function POST(request: NextRequest) {
   if (mode !== "normal" && mode !== "domain") {
     return NextResponse.json({ error: "Duel mode must be normal or domain" }, { status: 400 });
   }
+  const format = body.format ?? "1v1";
+  if (!isDuelFormat(format)) {
+    return NextResponse.json({ error: "Duel format must be 1v1, tag, ffa3, or ffa4" }, { status: 400 });
+  }
 
   try {
     const session = actor.duels.create({
@@ -48,6 +53,7 @@ export async function POST(request: NextRequest) {
       organizerPlayerId: actor.playerId,
       name,
       mode,
+      format,
       masterRule: body.masterRule as 1 | 2 | 3 | 4 | 5 | undefined,
       settings: body.settings,
     });

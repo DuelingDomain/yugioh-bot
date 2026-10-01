@@ -26,7 +26,10 @@ import {
   surrenderDuel,
 } from "./api";
 import { RoomLobby } from "./room-lobby";
+import { ReportButton } from "./report-button";
 import { DeckMasterRail, DuelField } from "./field";
+import { MultiSeatStage } from "./multi-seat-stage";
+import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, opponentPickOptions, seatNamer, type SeatPick } from "./multi-seat";
 import styles from "./room.module.css";
 import { AttackConfirm, CardActionMenu, CardHoverInfo } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
@@ -76,11 +79,12 @@ type CardMenuState = {
 type Pane = "card" | "log" | "options" | "masters";
 
 /** A pile (Graveyard, Banished, Extra Deck…) opened in the centred viewer. `cards` is the snapshot at open time. */
-type PileView = { title: string; owner: "you" | "opp"; cards: DuelCard[]; open: boolean };
+type PileView = { title: string; owner: "you" | "opp"; cards: DuelCard[]; open: boolean; seat?: number };
 
 /** The pile's live contents from the engine view, so the viewer follows moves while it is open. */
 function livePileCards(view: PileView, engine: DuelRoom["engine"], localSeat: number): DuelCard[] {
-  const seat = engine?.seats.find((entry) => (view.owner === "you" ? entry.seat === localSeat : entry.seat !== localSeat));
+  const seat = engine?.seats.find((entry) => view.seat != null ? entry.seat === view.seat
+    : view.owner === "you" ? entry.seat === localSeat : entry.seat !== localSeat);
   if (!seat) return view.cards;
   const title = view.title.toLowerCase();
   if (/graveyard|\bgy\b/.test(title)) return seat.graveyard;
@@ -296,6 +300,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const [menu, setMenu] = useState<CardMenuState | null>(null);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
   const [pile, setPile] = useState<PileView | null>(null);
+  // 3 and 4 seat tables: the opponent the player tapped to show large (null = follow the action).
+  const [pinnedFocus, setPinnedFocus] = useState<number | null>(null);
   const preferences = useDuelPreferences();
   const prompt = data?.engine?.prompt ?? null;
   const draft = usePromptDraft(prompt);
@@ -435,7 +441,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         : target.title.toLowerCase().startsWith(playerNameOf(seat).toLowerCase()) ? "you" : "opp";
       setHover(null);
       setMobileInspect(false);
-      setPile({ title: target.title, owner, cards: target.cards, open: true });
+      // Tables of 3 or 4 seats: the owner is the controller of the pile's cards, not "the other seat".
+      const pileSeat = first && isMultiSeat(data?.engine) ? first.controller : undefined;
+      setPile({ title: target.title, owner, cards: target.cards, open: true, seat: pileSeat });
       return;
     }
     setInspect(target);
@@ -543,7 +551,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     return (
       <RoomLobby room={data} slug={slug} busy={busy} actionError={actionError}
         onJoin={() => void run(() => joinDuel(slug))}
-        onAddBot={() => void run(() => addPracticeBot(slug))}
+        onAddBot={(seat) => void run(() => addPracticeBot(slug, seat))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
         onStart={() => {
           // Inside the click, so pop-up blockers allow it. Seated players on other devices get the prompt below.
@@ -562,9 +570,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const engine = data.engine;
   const localSeat = data.mySeat ?? 0;
   const bottom = engine?.seats.find((seat) => seat.seat === localSeat);
-  const top = engine?.seats.find((seat) => seat.seat !== localSeat);
+  const multi = isMultiSeat(engine);
+  const format = engineFormat(engine);
+  const focusSeat = multi && engine ? focusOpponentSeat({ engine, mySeat: data.mySeat, legalKeys, pinned: pinnedFocus }) : null;
+  const top = multi ? engine?.seats.find((seat) => seat.seat === focusSeat)
+    : engine?.seats.find((seat) => seat.seat !== localSeat);
   const mine = prompt != null && prompt.seat === data.mySeat;
   const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active";
+  // An opponent pick also answers by tapping the offered seat on the table (after the same human beat as the panel).
+  const pickOptions = multi && canAct && revealed ? opponentPickOptions(prompt, engine) : null;
+  const seatPick: SeatPick | null = pickOptions && pickOptions.size > 0
+    ? { options: pickOptions, onPick: (seat) => { const id = pickOptions.get(seat); if (id) onSubmitAnswer({ choice: id }); } }
+    : null;
   const canSurrender = data.session.status === "active" && data.mySeat != null && !engine?.result;
   const terminal = data.session.status !== "active";
   const isOrganizer = data.session.seats.some((seat) =>
@@ -598,7 +615,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     error || realtime.recovering ? "Reconnecting" : realtime.connected ? "Live" : "Polling";
   const domain = data.session.mode === "domain";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
-  const playerName = (seat: number) => data.session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
+  const playerName = seatNamer(data.session.seats);
   const spectator = data.mySeat == null;
   const battle = isBattlePhase(engine?.phase);
   // engine.battleStep is a round-4 contract field; read it defensively until every shared build carries it.
@@ -632,7 +649,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   } else if (directPromptActive && attackerKey) {
     battleAim = { mode: "aim", from: attackerKey, to: { lpSeat: oppSeat } };
   } else if (actionPreview && activeMenu) {
-    const foes = (top?.monsters ?? []).filter((card): card is DuelCard => card != null)
+    const foeViews = multi ? (engine?.seats ?? []).filter((seat) => foeSeats(format, data.mySeat).includes(seat.seat))
+      : top ? [top] : [];
+    const foes = foeViews.flatMap((view) => view.monsters).filter((card): card is DuelCard => card != null)
       .map((card) => zoneKey(card.controller, card.location, card.sequence));
     battleAim = actionPreview.direct
       ? { mode: "preview", from: actionPreview.from, to: { lpSeat: oppSeat } }
@@ -664,7 +683,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         setMobileInspect(false);
         onSubmitAnswer({ choice: option.id });
       }}
-      onActivate={onFieldActivate}
+      onActivate={onFieldActivate} topSeat={multi ? focusSeat : undefined}
       onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
   ) : null;
   const sideContent = pane === "card" ? inspector : pane === "log" ? (
@@ -779,7 +798,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           {spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
             <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
           </strong> : null}
-          <span className={styles.format}>{domain ? isCustomDomain(data.session.masterRule, data.session.settings) ? "Custom Domain" : "Domain" : `MR${data.session.masterRule}`} · 1v1</span>
+          <span className={styles.format}>{domain ? isCustomDomain(data.session.masterRule, data.session.settings) ? "Custom Domain" : "Domain" : `MR${data.session.masterRule}`} · {formatLabel(format)}</span>
         </div>
         <div className={styles.turn}>
           <strong>Turn {engine?.turn ?? "—"}</strong><span className={styles.phaseName} data-step={battleStep ?? undefined}>{headerPhase}</span>
@@ -797,6 +816,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
             {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
             {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
           </span>
+          <ReportButton slug={slug} />
           {hasResult && hideResult ? (
             <button type="button" className={styles.tool} onClick={() => setHideResult(false)}>
               <span>Show result</span>
@@ -845,18 +865,28 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         >
           <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
             draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu)}
-            active={data.session.status === "active"} aim={promptAim} headless={centered} suspended={centered && !revealed} />
+            active={data.session.status === "active"} aim={promptAim} headless={centered} suspended={centered && !revealed}
+            waitingName={multi && prompt ? playerName(prompt.seat) : null} />
         </div>
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board} ref={boardRef}>
             {engine ? (
               <>
+                {multi ? (
+                  <MultiSeatStage key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
+                    reducedMotion={preferences.reducedMotion}
+                    legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
+                    onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
+                    nameOf={playerName} promptSeat={prompt?.seat ?? null}
+                    focusSeat={focusSeat} onFocusSeat={setPinnedFocus} seatPick={seatPick} />
+                ) : (
                 <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
                   reducedMotion={preferences.reducedMotion}
                   legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                   onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
                   bottomName={playerName(localSeat)}
                   topName={playerName(top?.seat ?? 1 - localSeat)} />
+                )}
                 <FxBoundary>
                 {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug}
                   soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
@@ -874,7 +904,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                   menuOpen={Boolean(activeMenu)} chain={engine.chain} aim={promptAim}
                   aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
                   reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
-                  revealed={revealed} onInspectCard={inspectInfo} />
+                  revealed={revealed} onInspectCard={inspectInfo} nameOf={playerName} />
                 {pile ? (
                   <PileViewer title={pile.title} owner={pile.owner} open={pile.open}
                     cards={livePileCards(pile, engine, localSeat)} onClose={closePile}

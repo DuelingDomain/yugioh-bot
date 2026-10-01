@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { DUEL_BANLIST_OPTIONS, duelClockRulesText, isCustomDomain, type DuelClock, type DuelRoom, type DuelSession } from "@yugidraft/shared/duels";
+import { DUEL_BANLIST_OPTIONS, duelClockRulesText, isCustomDomain, startingLpFor, type DuelClock, type DuelRoom, type DuelSession } from "@yugidraft/shared/duels";
 import { Check, Link2 } from "lucide-react";
 import { SheetButton } from "./sheet-ui";
+import { formatLabel } from "./table-format";
 import styles from "./room.module.css";
 import own from "./room-settings.module.css";
 import clockStyles from "./room-clock.module.css";
@@ -11,13 +12,13 @@ import clockStyles from "./room-clock.module.css";
 export function DuelSettingsSummary({ session }: { session: DuelSession }) {
   const { settings } = session;
   const values = [
-    ["Format", session.mode === "domain" ? isCustomDomain(session.masterRule, settings) ? "Custom Domain" : "Domain 1v1" : "Standard 1v1"],
+    ["Format", `${session.mode === "domain" ? (isCustomDomain(session.masterRule, settings) ? "Custom Domain" : "Domain") : "Standard"} · ${formatLabel(session.format)}`],
     ["Visibility", settings.visibility === "private" ? "Invite only" : "Discord server members"],
     ["Engine", `Automatic · Master Rule ${session.masterRule}`],
     ["Banlist", DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist],
     ["Card pool", settings.cardPool === "both" ? "TCG + OCG" : settings.cardPool.toUpperCase()],
     ["Turn timer", settings.turnSeconds === 0 ? "Unlimited" : duelClockRulesText(settings.turnSeconds)],
-    ["Starting LP", settings.startingLP.toLocaleString("en-US")],
+    [session.format === "tag" ? "Team LP (shared)" : "Starting LP", startingLpFor(session.format ?? "1v1", settings).toLocaleString("en-US")],
     ["Starting hand", `${settings.startingHand} ${settings.startingHand === 1 ? "card" : "cards"}`],
     ["Draw Phase", `${settings.drawPerTurn} ${settings.drawPerTurn === 1 ? "card" : "cards"}`],
     ["Timeout", settings.turnSeconds === 0 ? "No timer" : settings.timeout === "loss" ? "Lose on timeout" : "Continue at zero"],
