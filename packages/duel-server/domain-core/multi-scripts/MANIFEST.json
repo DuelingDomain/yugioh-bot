@@ -431,6 +431,24 @@
       ]
     },
     {
+      "code": 9267769,
+      "file": "c9267769.lua",
+      "name": "Flashbang",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "73670326631aca110039963d31eb56dab195c22c86f136c9b41ba8b82ec76e43",
+      "wrap": {
+        "MPAttackedAtMe": [
+          "condition"
+        ]
+      },
+      "compareIn": [
+        "condition"
+      ]
+    },
+    {
       "code": 9336190,
       "file": "c9336190.lua",
       "name": "The Phantom Knights of Mist Claws",

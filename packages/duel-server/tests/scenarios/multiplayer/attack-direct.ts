@@ -56,34 +56,51 @@ interface DirectCase {
 }
 type DuelistExpectSetup = Record<string, unknown>;
 
-const direct = (c: DirectCase, to: "p0" | "p2"): Scenario =>
-  defineScenario({
-    id: `attack-direct-ffa3-${c.slug}-${to === "p0" ? "offered-when-the-attack-goes-to-p0" : "not-offered-when-the-attack-goes-to-p2"}`,
+type DirectFormat = "ffa3" | "ffa4";
+/** The opponent (never the holder p0) that receives the attack in the "not offered" scenarios: p2 in FFA3, p3 in FFA4 (p2 is then a bystander too). */
+const OTHER_SEAT: Record<DirectFormat, Seat> = { ffa3: "p2", ffa4: "p3" };
+
+const direct = (c: DirectCase, to: "p0" | "other", format: DirectFormat): Scenario => {
+  const other = OTHER_SEAT[format];
+  const label = format.toUpperCase();
+  // The spec of the cards names p2 as the other opponent: in FFA4 its state moves to p3 (p2 stays empty).
+  const atOther = (spec: Partial<Record<Seat, DuelistExpect>>): Partial<Record<Seat, DuelistExpect>> => {
+    if (other === "p2") return spec;
+    const { p2, ...rest } = spec;
+    return p2 ? { ...rest, p3: p2 } : rest;
+  };
+  const setup: Record<string, unknown> = { format, p0: c.p0, p1: c.p1, p2: c.p2 ?? {} };
+  if (format === "ffa4") setup.p3 = {};
+  return defineScenario({
+    id: `attack-direct-${format}-${c.slug}-${to === "p0" ? "offered-when-the-attack-goes-to-p0" : `not-offered-when-the-attack-goes-to-${other}`}`,
     title:
       to === "p0"
-        ? `FFA3: ${c.name} is offered to p0 when p1 declares a direct attack and picks p0 (the attacked seat), and it resolves`
-        : `FFA3: ${c.name} is NOT offered to p0 when p1 declares a direct attack and picks p2: the attack goes to p2, and p2 takes the damage`,
+        ? `${label}: ${c.name} is offered to p0 when p1 declares a direct attack and picks p0 (the attacked seat), and it resolves`
+        : `${label}: ${c.name} is NOT offered to p0 when p1 declares a direct attack and picks ${other}: the attack goes to ${other}, and ${other} takes the damage`,
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK", "R-FFA-ATTACK"],
-    tags: ["multiplayer", "attack", "trigger", "ffa3", `card:${c.code}`],
-    setup: { format: "ffa3", p0: c.p0, p1: c.p1, p2: c.p2 ?? {} } as Scenario["setup"],
-    // A duelist cannot attack in its first turn, so every seat ends one turn first: p1 attacks in turn 5.
-    // p0 draws the first card of its Deck in turn 4.
+    tags: ["multiplayer", "attack", "trigger", format, `card:${c.code}`],
+    setup: setup as Scenario["setup"],
+    // A duelist cannot attack in its first turn, so every seat ends one turn first: p1 attacks in the second turn of its round (turn 5 in
+    // FFA3, turn 6 in FFA4). p0 draws the first card of its Deck in its second turn.
     steps: [
       endTurn("p0"),
       endTurn("p1"),
       endTurn("p2"),
+      ...(format === "ffa4" ? [endTurn("p3")] : []),
       endTurn("p0"),
       ...(c.before ?? []),
       changePhase("battle", "p1"),
       attack(c.attacker, "direct", "p1"),
-      pickOpponent(to, "p1"),
+      pickOpponent(to === "p0" ? "p0" : other, "p1"),
       ...(to === "p0" ? c.answer : [expectPrompt({ by: "p1", offers: ["to_m2", "to_ep"] })]),
-      everySeat("ffa3", to === "p0" ? c.atP0 : c.atP2),
+      everySeat(format, to === "p0" ? c.atP0 : atOther(c.atP2)),
     ],
   });
+};
 
-const pair = (c: DirectCase): Scenario[] => [direct(c, "p0"), direct(c, "p2")];
+const pair = (c: DirectCase): Scenario[] =>
+  (["ffa3", "ffa4"] as const).flatMap((format) => [direct(c, "p0", format), direct(c, "other", format)]);
 
 export const ATTACK_DIRECT_SCENARIOS: Scenario[] = [
   // A Trap that is set (shape: a Trap that activates on the attack).
@@ -197,6 +214,17 @@ export const ATTACK_DIRECT_SCENARIOS: Scenario[] = [
     answer: [activate("Lockout Gardna", "p0")],
     atP0: { p0: { monsters: ["Lockout Gardna"] }, p1: { monsters: [RAT] } },
     atP2: { p0: { hand: ["Lockout Gardna", DARK_HOLE] }, p1: { monsters: [RAT] }, p2: { lp: 6600 } },
+  }),
+  // The attack goes to the holder, or to an opponent that is not the holder: Flashbang is offered after the battle damage (a Trap that skips the Battle Phase and Main Phase 2 of the attacker).
+  ...pair({
+    slug: "flashbang", name: "Flashbang", code: 9267769,
+    p0: { spells: [faceDown("Flashbang")] },
+    p1: { monsters: [RAT] },
+    attacker: RAT,
+    // The holder picks the opponent that skips its Battle Phase and Main Phase 2 (the attacker p1): the turn goes on to p2 in Main Phase 1.
+    answer: [activate("Flashbang", "p0"), pickOpponent("p1", "p0"), expectPrompt({ by: "p2", offers: ["to_bp", "to_ep"] })],
+    atP0: { p0: { lp: 6600, grave: ["Flashbang"] }, p1: { monsters: [RAT] } },
+    atP2: { p0: { spells: ["Flashbang"] }, p1: { monsters: [RAT] }, p2: { lp: 6600 } },
   }),
   // Tag keeps the team value: a direct attack at a seat of the team asks the partner of the target as well (p2 holds the Trap, p0 holds nothing).
   defineScenario({
