@@ -10,6 +10,7 @@ import { OcgLocation, OcgMessageType, OcgPosition, OcgResponseType, type OcgCard
 import { describe, expect, it } from "vitest";
 import type { DuelCardInfo, DuelDeck, DuelFormat, DuelPrompt } from "@yugidraft/shared/duels";
 import { DIAGNOSTICS_LIMIT, acceptsResult, createEngineGame, eliminationCodeOf } from "../src/engine.js";
+import { chooseSurrenderedAnswer } from "../src/practice-bot.js";
 import { autoResponse, mapPrompt, directAttackSeat, parseFieldPlaces } from "../src/prompts.js";
 import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, parseDuelistMessages, splitMessages } from "../src/raw-messages.js";
 import { createRevealMap, projectView, type StoredChainLink } from "../src/views.js";
@@ -398,7 +399,18 @@ describe("engine diagnostics, disabled zones and the first win", () => {
         expect(game.diagnostics().some((entry) => entry.kind === "eliminate")).toBe(false);
       } else {
         expect(game.diagnostics().some((entry) => entry.kind === "eliminate" && entry.seat === 2)).toBe(true);
+        // The core applies the loss at its next Adjust, after the open prompt is answered: right after the call the seat
+        // is out (it held the prompt) or leaving (pendingElimination). One answer later it is out in both cases.
+        const seatNow = game.view(0).seats[2]!;
+        expect(seatNow.eliminated === true || seatNow.pendingElimination === true).toBe(true);
+        if (!seatNow.eliminated) {
+          const holder = [0, 1, 2].find((seat) => game.view(seat).prompt);
+          expect(holder).toBeDefined();
+          const prompt = game.view(holder!).prompt as DuelPrompt;
+          game.answer(holder!, prompt.id, chooseSurrenderedAnswer(prompt));
+        }
         expect(game.view(0).seats[2]!.eliminated).toBe(true);
+        expect(game.view(0).seats[2]!.pendingElimination ?? false).toBe(false);
       }
     } finally {
       game.close();
