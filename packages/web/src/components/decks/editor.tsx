@@ -33,7 +33,7 @@ import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/c
 import { cx, SheetButton, SheetSegmented, SheetSelect, sheetButtonClass, sheetRoot } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
-import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, updateSavedDeck } from "./api";
+import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, saveDraftDeck, updateSavedDeck } from "./api";
 import { CardActions } from "./card-actions";
 import { CardArt } from "./card-art";
 import { CardBrowser } from "./card-browser";
@@ -74,6 +74,19 @@ import {
   type DeckSection,
   type SelectedStack,
 } from "./model";
+import {
+  DRAFT_EXTRA_MAX,
+  DRAFT_MAIN_MAX,
+  canAddFromPool,
+  deckUsage,
+  draftDeckNotes,
+  draftMainMinimum,
+  draftMainTone,
+  draftRuleText,
+  poolCounts,
+  remainingCopies,
+  type DraftDeckPool,
+} from "./pool-model";
 import { DeckSectionGrid, type CountTone, type HoveredCopy } from "./section-grid";
 import styles from "./editor.module.css";
 
@@ -83,6 +96,8 @@ const MODE_CHOICES = [
 ] as const;
 
 const HISTORY_LIMIT = 100;
+/** Passcodes per card-details request; the route takes at most 1000. */
+const POOL_CHUNK = 500;
 const HAND_SIZE = 5;
 /** The pointer must rest this long on a card before the preview changes, so crossing cards does not flash them. */
 const HOVER_IN_MS = 60;
@@ -124,6 +139,11 @@ function typingTarget(target: EventTarget | null): boolean {
   return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
 }
 
+/** The name a new draft deck starts with. */
+function draftDeckName(draftName: string): string {
+  return `${draftName.trim() || "Draft"} deck`.slice(0, MAX_NAME_LENGTH);
+}
+
 function copiesText(max: number): string {
   if (max === 0) return "is Forbidden";
   return `allows ${max} ${max === 1 ? "copy" : "copies"}`;
@@ -134,13 +154,18 @@ function mainTone(mode: DuelMode, count: number): CountTone {
   return count >= 40 && count <= 60 ? "ok" : count > 60 ? "bad" : "warn";
 }
 
-export function SavedDeckEditor({ deckId }: { deckId?: string }) {
+/**
+ * The deck editor. With `pool` it edits the player's draft deck: the card list holds only the pool,
+ * each card has as many copies as the player drafted, and there is no banlist.
+ */
+export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: DraftDeckPool }) {
   const router = useRouter();
   const pathname = usePathname();
   const routeId = parseRouteId(deckId ?? (/^\/decks\/(\d+)$/.exec(pathname)?.[1]));
 
   const [savedId, setSavedId] = useState<number | null>(null);
-  const [name, setName] = useState(DEFAULT_NAME);
+  const startName = pool ? draftDeckName(pool.draftName) : DEFAULT_NAME;
+  const [name, setName] = useState(startName);
   const [mode, setMode] = useState<DuelMode>("normal");
   const [selection, setSelection] = useState<DeckMasterSelection>({ deck: EMPTY_DECK, masterOrigin: null });
   const [history, setHistory] = useState<History>({ past: [], future: [] });
@@ -173,6 +198,9 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
   const [hand, setHand] = useState<TestHand | null>(null);
   const [masterDropping, setMasterDropping] = useState(false);
   const [hover, setHover] = useState<HoverTarget | null>(null);
+  const [poolCards, setPoolCards] = useState<DeckCardInfo[] | null>(null);
+  const [poolError, setPoolError] = useState<string | null>(null);
+  const [poolRetry, setPoolRetry] = useState(0);
   const importGeneration = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const inspectScrollRef = useRef<HTMLDivElement>(null);
@@ -185,7 +213,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
 
   const { deck, masterOrigin } = selection;
   const busy = saveBusy || deleteBusy;
-  const dirty = baseline == null ? isNewDeckDirty(name, mode, deck) : snapshotOf(name.trim(), mode, deck) !== baseline;
+  const dirty = baseline == null ? isNewDeckDirty(name.trim() === startName ? DEFAULT_NAME : name, mode, deck) : snapshotOf(name.trim(), mode, deck) !== baseline;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   useNavigationLeaveGuard(dirty, "You have unsaved deck changes. Leave without saving?");
@@ -197,7 +225,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
       ...current,
       sort: prefs.sort ?? current.sort,
       order: prefs.order ?? current.order,
-      banlist: prefs.banlist ?? current.banlist,
+      banlist: pool ? "none" : prefs.banlist ?? current.banlist,
       scope: prefs.scope ?? current.scope,
     }));
     if (prefs.view) setView(prefs.view);
@@ -205,9 +233,36 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
   }, []);
 
   useEffect(() => {
-    if (!prefsReady) return;
+    // A draft deck has no banlist; its choices must not replace the ones for normal decks.
+    if (!prefsReady || pool) return;
     saveEditorPrefs({ sort: query.sort, order: query.order, view, banlist: query.banlist, scope: query.scope });
   }, [prefsReady, query.sort, query.order, query.banlist, query.scope, view]);
+
+  // The card list of a draft deck is the pool: its card details load once.
+  useEffect(() => {
+    if (!pool) return;
+    let cancelled = false;
+    setPoolError(null);
+    const codes = pool.cards.map((card) => card.code);
+    const chunks: number[][] = [];
+    for (let at = 0; at < codes.length; at += POOL_CHUNK) chunks.push(codes.slice(at, at + POOL_CHUNK));
+    void Promise.all(chunks.map((chunk) => getDeckCards(chunk))).then(
+      (parts) => {
+        if (cancelled) return;
+        const cards = parts.flatMap((part) => part.cards);
+        const missing = parts.flatMap((part) => part.missing);
+        rememberCatalog(cards);
+        if (missing.length > 0) {
+          setUnknown((prev) => new Set([...prev, ...missing]));
+        }
+        setPoolCards(cards);
+      },
+      (reason: unknown) => {
+        if (!cancelled) setPoolError(reason instanceof Error ? reason.message : "Could not load your draft pool.");
+      },
+    );
+    return () => { cancelled = true; };
+  }, [pool, poolRetry]);
 
   useEffect(() => {
     let cancelled = false;
@@ -342,17 +397,23 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
     restore(next);
   }
 
-  const limits = query.banlist === "none" ? null : facets?.banlists[query.banlist] ?? null;
-  const limitsPending = query.banlist !== "none" && facets == null && !facetsError;
-  const banlistName = query.banlist === "none" ? null : banlistLabel(query.banlist);
+  const banlistOff = pool != null || query.banlist === "none";
+  const limits = banlistOff ? null : facets?.banlists[query.banlist] ?? null;
+  const limitsPending = !banlistOff && facets == null && !facetsError;
+  const banlistName = banlistOff ? null : banlistLabel(query.banlist);
   const counts = useMemo(() => copyCounts(deck, catalog), [deck, catalog]);
-  const problems = useMemo(() => copyProblems(deck, catalog, limits), [deck, catalog, limits]);
+  const problems = useMemo(() => (pool ? [] : copyProblems(deck, catalog, limits)), [pool, deck, catalog, limits]);
+  const poolMap = useMemo(() => (pool ? poolCounts(pool.cards) : null), [pool]);
+  const usage = useMemo(() => deckUsage(deck), [deck]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
 
+  // A draft pool counts copies by passcode: the pool lists each artwork on its own.
   const deckCount = useCallback(
-    (card: DeckCardInfo) => counts.get(`name:${card.name}`) ?? counts.get(`code:${card.code}`) ?? 0,
-    [counts],
+    (card: DeckCardInfo) => (poolMap
+      ? usage.get(card.code) ?? 0
+      : counts.get(`name:${card.name}`) ?? counts.get(`code:${card.code}`) ?? 0),
+    [counts, poolMap, usage],
   );
 
   function inspect(code: number, stack: SelectedStack | null = null) {
@@ -374,7 +435,17 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
     return defaultAddSection(card);
   }
 
+  /** A draft deck can only hold as many copies of a card as the player drafted. */
+  function poolRoomFor(code: number): boolean {
+    if (!poolMap || canAddFromPool(poolMap, usage, code)) return true;
+    setNotice(poolMap.has(code)
+      ? `${cardName(code)}: no copies left in your pool.`
+      : `${cardName(code)} is not in your draft pool.`);
+    return false;
+  }
+
   function roomFor(card: DeckCardInfo): boolean {
+    if (poolMap) return poolRoomFor(card.code);
     if (limitsPending) {
       setNotice("Loading the banlist. Try again in a moment.");
       return false;
@@ -404,7 +475,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
     }
     if (source.from === "list") {
       const card = catalog.get(source.code);
-      if (card && !roomFor(card)) return;
+      if (card ? !roomFor(card) : !poolRoomFor(source.code)) return;
     }
     commit(placeCard(selection, source, to, to === wanted ? at : undefined));
     setSelected({ section: to, code: source.code });
@@ -506,11 +577,22 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
       setSaveError("Deck name is required.");
       return;
     }
+    if (pool && deck.main.length < draftMainMinimum(pool.mainPoolCount)) {
+      setSaveError(`A draft deck needs at least ${draftMainMinimum(pool.mainPoolCount)} Main Deck cards.`);
+      return;
+    }
     setSaveBusy(true);
     setSaveError(null);
     const body = { name: trimmed, mode, deck: cloneDeck(deck) };
     try {
-      const record = savedId == null ? await createSavedDeck(body) : await updateSavedDeck(savedId, body);
+      let record: SavedDeck;
+      if (pool) {
+        const saved = await saveDraftDeck(savedId, { ...body, draftId: pool.draftId });
+        record = saved.deck;
+        if (saved.warning) setNotice(saved.warning);
+      } else {
+        record = savedId == null ? await createSavedDeck(body) : await updateSavedDeck(savedId, body);
+      }
       flushSync(() => {
         setName(record.name);
         setMode(record.mode);
@@ -520,7 +602,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
         setSavedFlash(true);
       });
       // Keep selection provenance when a new deck acquires its permanent URL.
-      if (savedId == null) window.history.replaceState(null, "", `/decks/${record.id}`);
+      if (savedId == null && !pool) window.history.replaceState(null, "", `/decks/${record.id}`);
     } catch (reason: unknown) {
       setSaveError(reason instanceof Error ? reason.message : "Could not save this deck.");
     } finally {
@@ -572,7 +654,8 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const notes = guidanceNotes(mode, deck);
+  const notes = pool ? draftDeckNotes(deck, pool.mainPoolCount) : guidanceNotes(mode, deck);
+  const mainMinimum = pool ? draftMainMinimum(pool.mainPoolCount) : 40;
   const inspected = inspectCode == null ? undefined : catalog.get(inspectCode);
   const hoverCode = hoveredCode(hover, deck, hand, mode);
   const shownCode = hoverCode ?? inspectCode;
@@ -583,6 +666,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
   useEffect(() => {
     if (inspectScrollRef.current) inspectScrollRef.current.scrollTop = 0;
   }, [shownCode]);
+  const backHref = pool ? `/draft/${pool.slug}` : "/decks";
   const statusTone = saveError ? "bad" : dirty ? "warn" : savedId != null ? "ok" : undefined;
   const statusText = saveBusy
     ? "Saving…"
@@ -598,7 +682,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
     return (
       <div className={cx(sheetRoot, styles.editor, styles.center)}>
         <p role="alert" className={ui.alert}>{loadError ?? "That deck id is not valid."}</p>
-        <Link href="/decks" className={sheetButtonClass("secondary")}>Back to decks</Link>
+        <Link href={backHref} className={sheetButtonClass("secondary")}>{pool ? "Back to the draft" : "Back to decks"}</Link>
       </div>
     );
   }
@@ -643,9 +727,9 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
     <div className={cx(sheetRoot, styles.editor)}>
       <header className={styles.toolbar}>
         <div className={styles.toolbarLead}>
-          <Link href="/decks" className={cx(sheetButtonClass("quiet", "sm"), styles.back)} aria-label="Back to decks">
+          <Link href={backHref} className={cx(sheetButtonClass("quiet", "sm"), styles.back)} aria-label={pool ? "Back to the draft" : "Back to decks"}>
             <ArrowLeft size={16} strokeWidth={1.6} aria-hidden />
-            <span className={styles.backText}>Decks</span>
+            <span className={styles.backText}>{pool ? "Draft" : "Decks"}</span>
           </Link>
           <label className={styles.nameField}>
             <span className={ui.srOnly}>Deck name</span>
@@ -657,23 +741,32 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
               onChange={(event) => { importGeneration.current += 1; setName(event.target.value); setSavedFlash(false); }}
             />
           </label>
-          <SheetSegmented
-            label="Format"
-            hideLabel
-            value={mode}
-            disabled={busy}
-            choices={MODE_CHOICES}
-            onChange={(value) => commit(selection, value)}
-          />
-          <SheetSelect
-            label="Banlist"
-            hideLabel
-            compact
-            className={styles.banlist}
-            value={query.banlist}
-            choices={BANLIST_CHOICES}
-            onChange={(banlist) => setQuery((current) => ({ ...current, banlist, limits: banlist === "none" ? [] : current.limits }))}
-          />
+          {pool ? (
+            <p className={styles.draftRule}>
+              <strong>Draft deck — {pool.draftName}</strong>
+              <span>{draftRuleText(pool.mainPoolCount)}</span>
+            </p>
+          ) : (
+            <>
+              <SheetSegmented
+                label="Format"
+                hideLabel
+                value={mode}
+                disabled={busy}
+                choices={MODE_CHOICES}
+                onChange={(value) => commit(selection, value)}
+              />
+              <SheetSelect
+                label="Banlist"
+                hideLabel
+                compact
+                className={styles.banlist}
+                value={query.banlist}
+                choices={BANLIST_CHOICES}
+                onChange={(banlist) => setQuery((current) => ({ ...current, banlist, limits: banlist === "none" ? [] : current.limits }))}
+              />
+            </>
+          )}
         </div>
         <div className={styles.toolbarActions}>
           <p className={styles.status} data-tone={statusTone} aria-live="polite">{statusText}</p>
@@ -685,21 +778,23 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
               <Redo2 size={16} strokeWidth={1.6} aria-hidden />
             </button>
           </div>
-          <DeckImportPopover
-            open={importOpen}
-            onOpenChange={(open) => { setImportOpen(open); if (open) setParseError(null); }}
-            disabled={busy}
-            mode={mode}
-            fileName={fileName}
-            error={parseError}
-            onFile={onFile}
-            onPaste={onPaste}
-          />
+          {pool ? null : (
+            <DeckImportPopover
+              open={importOpen}
+              onOpenChange={(open) => { setImportOpen(open); if (open) setParseError(null); }}
+              disabled={busy}
+              mode={mode}
+              fileName={fileName}
+              error={parseError}
+              onFile={onFile}
+              onPaste={onPaste}
+            />
+          )}
           <SheetButton size="sm" onClick={() => downloadYdkFile(name, deck)}>
             <Download size={15} strokeWidth={1.6} aria-hidden />
             Export
           </SheetButton>
-          {savedId != null ? (
+          {savedId != null && !pool ? (
             <Popover
               label="Delete"
               icon={<Trash2 size={15} strokeWidth={1.6} aria-hidden />}
@@ -755,6 +850,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
               mode={mode}
               copies={deckCount(inspected)}
               limit={copyLimit(inspected.code, catalog, limits)}
+              poolCopies={poolMap ? poolMap.get(inspected.code) ?? 0 : undefined}
               banlistName={banlistName}
               archetypes={archetypes}
               onAdd={(section) => addFromList(inspected, section)}
@@ -784,10 +880,14 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
                   ))}
                   {notes.map((note) => <li key={note}>{note}</li>)}
                 </ul>
-                <p className={ui.hint}>You can save an unfinished deck. The table checks legality when you ready up.</p>
+                <p className={ui.hint}>
+                  {pool
+                    ? "A draft deck needs its Main Deck size before it can be saved."
+                    : "You can save an unfinished deck. The table checks legality when you ready up."}
+                </p>
               </details>
             ) : (
-              <p className={styles.notesOk}>Deck size is correct for {mode === "domain" ? "Domain" : "Standard"}.</p>
+              <p className={styles.notesOk}>Deck size is correct for {pool ? "a draft deck" : mode === "domain" ? "Domain" : "Standard"}.</p>
             )}
             <div className={styles.deckTools}>
               <SheetButton kind="quiet" size="sm" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}>
@@ -815,8 +915,29 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
               <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
               <div className={ui.bannerBody}>
                 <strong>Filters and banlists are not available</strong>
-                <p>Archetype filters do not load and the editor does not check banlist limits.</p>
+                <p>{pool ? "Archetype filters do not load." : "Archetype filters do not load and the editor does not check banlist limits."}</p>
                 <SheetButton size="sm" onClick={() => setFacetsRetry((value) => value + 1)}>Try again</SheetButton>
+              </div>
+            </div>
+          ) : null}
+
+          {pool && pool.unresolved.length > 0 ? (
+            <div className={cx(ui.banner, ui.bannerBad)}>
+              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
+              <div className={ui.bannerBody}>
+                <strong>{pool.unresolved.length} {pool.unresolved.length === 1 ? "card" : "cards"} cannot be used</strong>
+                <p>The duel engine does not know {pool.unresolved.length === 1 ? "this card" : "these cards"}, so {pool.unresolved.length === 1 ? "it is" : "they are"} not in the list.</p>
+              </div>
+            </div>
+          ) : null}
+
+          {poolError ? (
+            <div className={cx(ui.banner, ui.bannerBad)}>
+              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
+              <div className={ui.bannerBody}>
+                <strong>Your draft pool is not available</strong>
+                <p>{poolError}</p>
+                <SheetButton size="sm" onClick={() => setPoolRetry((value) => value + 1)}>Try again</SheetButton>
               </div>
             </div>
           ) : null}
@@ -925,8 +1046,8 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
             title="Main"
             section="main"
             codes={deck.main}
-            target={mode === "domain" ? "/ 60" : "/ 40–60"}
-            tone={mainTone(mode, deck.main.length)}
+            target={pool ? `/ ${mainMinimum}–${DRAFT_MAIN_MAX}` : mode === "domain" ? "/ 60" : "/ 40–60"}
+            tone={pool ? draftMainTone(deck.main.length, pool.mainPoolCount) : mainTone(mode, deck.main.length)}
             emptyHint="Add cards from the list on the right."
             actions={clearButton("main", "Main")}
           />
@@ -936,7 +1057,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
             section="extra"
             codes={deck.extra}
             target="/ 15"
-            tone={deck.extra.length > 15 ? "bad" : undefined}
+            tone={deck.extra.length > DRAFT_EXTRA_MAX ? "bad" : undefined}
             emptyHint="Fusion, Synchro, Xyz and Link Monsters go here."
             actions={clearButton("extra", "Extra")}
           />
@@ -953,6 +1074,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
         </main>
 
         <CardBrowser
+          pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, card.code) } : undefined}
           query={query}
           onQueryChange={setQuery}
           archetypes={archetypes}

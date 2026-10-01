@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import Image from "next/image";
-import { Clock, Download, Layers, Package, Trash2, User, Users } from "lucide-react";
+import Link from "next/link";
+import { Clock, Layers, Package, Trash2, User, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { CardHoverPopup } from "@/components/draft/card-hover-popup";
 import { PoolBreakdown } from "@/components/draft/pool-breakdown";
@@ -38,6 +39,8 @@ interface DraftSummaryViewProps {
     playerCount: number;
     participantPickCount?: number;
     tournamentId?: number | null;
+    /** The viewer's saved draft deck, when they have built one. */
+    myDeckId?: number | null;
   };
   slug: string;
   isParticipant: boolean;
@@ -74,6 +77,7 @@ export function DraftSummaryView({
   const [popupPosition, setPopupPosition] = React.useState<{ left: number; top: number } | null>(null);
   const [imageErrors, setImageErrors] = React.useState<Set<number>>(new Set());
   const [tournamentFormat, setTournamentFormat] = React.useState<"round_robin" | "single_elim">("round_robin");
+  const [tournamentBestOf, setTournamentBestOf] = React.useState<1 | 3>(3);
   const [creatingTournament, setCreatingTournament] = React.useState(false);
   const [tournamentError, setTournamentError] = React.useState<string | null>(null);
   const [linkedTournament, setLinkedTournament] = React.useState<{ id: number; name: string; webSlug: string | null } | null>(null);
@@ -124,6 +128,8 @@ export function DraftSummaryView({
   const isCompleted = draft.status === "completed";
   const participantPickCount = draft.participantPickCount ?? 0;
   const canExportYdk = isCompleted && isParticipant && participantPickCount >= 40;
+  const canBuildDeck = isCompleted && isParticipant && participantPickCount > 0;
+  const hasDeck = draft.myDeckId != null;
   const statusLabel = isCompleted ? "Completed" : "Cancelled";
   const statusVariant = isCompleted ? ("success" as const) : ("danger" as const);
 
@@ -166,7 +172,7 @@ export function DraftSummaryView({
       const res = await fetch(`/api/drafts/${slug}/tournament`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ format: tournamentFormat }),
+        body: JSON.stringify({ format: tournamentFormat, bestOf: tournamentBestOf }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -216,16 +222,13 @@ export function DraftSummaryView({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {canExportYdk && (
-              <Button
-                variant="primary"
-                size="sm"
-                loading={exporting}
-                onClick={handleExport}
+            {canBuildDeck && (
+              <Link
+                href={`/decks/draft/${slug}`}
+                className={buttonVariants({ variant: "primary", size: "sm" })}
               >
-                <Download className="h-4 w-4" />
-                Export YDK
-              </Button>
+                {hasDeck ? "Edit deck" : "Create deck"}
+              </Link>
             )}
             {isCreator && (
               <Button
@@ -239,6 +242,18 @@ export function DraftSummaryView({
             )}
           </div>
         </div>
+        {canExportYdk && (
+          <p className="mt-4 text-sm">
+            <button
+              type="button"
+              className="text-text-secondary underline underline-offset-2 hover:text-text-primary disabled:opacity-50"
+              disabled={exporting}
+              onClick={handleExport}
+            >
+              {exporting ? "Exporting…" : "Export YDK"}
+            </button>
+          </p>
+        )}
         {isCompleted && isParticipant && !canExportYdk && (
           <p className="mt-4 text-sm text-text-secondary">
             YDK export requires 40 picks. This draft completed with {participantPickCount}.
@@ -418,6 +433,20 @@ export function DraftSummaryView({
               >
                 <option value="round_robin">Round Robin</option>
                 <option value="single_elim">Single Elimination</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="tournament-best-of" className="mb-1 block text-sm font-medium text-text-primary">
+                Match length
+              </label>
+              <select
+                id="tournament-best-of"
+                value={tournamentBestOf}
+                onChange={(e) => setTournamentBestOf(e.target.value === "1" ? 1 : 3)}
+                className="native-select rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none"
+              >
+                <option value={3}>Best of 3</option>
+                <option value={1}>Best of 1</option>
               </select>
             </div>
             <Button variant="primary" loading={creatingTournament} onClick={handleCreateTournament}>

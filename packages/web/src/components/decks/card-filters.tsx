@@ -278,10 +278,12 @@ function ArchetypePicker({ query, archetypes, onChange }: {
   );
 }
 
-export function CardFilters({ query, archetypes, onChange }: {
+export function CardFilters({ query, archetypes, onChange, hideLimits = false }: {
   query: CardQuery;
   archetypes: readonly CardArchetype[];
   onChange: (query: CardQuery) => void;
+  /** A draft pool has no banlist, so it has no banlist status. */
+  hideLimits?: boolean;
 }) {
   const monsters = query.kind === "any" || query.kind === "monster";
   const spells = query.kind === "any" || query.kind === "spell";
@@ -418,6 +420,7 @@ export function CardFilters({ query, archetypes, onChange }: {
         </Section>
       ) : null}
 
+      {hideLimits ? null : (
       <Section title="Banlist status">
         {query.banlist === "none" ? (
           <p className={styles.fHint}>Choose a banlist in the top bar to filter by Forbidden, Limited and Semi-Limited.</p>
@@ -434,6 +437,7 @@ export function CardFilters({ query, archetypes, onChange }: {
           </>
         )}
       </Section>
+      )}
 
       <Section title="Card pool">
         <SheetSegmented label="Card pool" hideLabel full value={query.pool} choices={POOL_CHOICES} onChange={(pool) => set("pool", pool)} />

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
+import { createCardCatalogService, createDraftService, createSavedDeckService } from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
@@ -222,6 +222,11 @@ export async function buildDraftResponse(slug: string, userId: string) {
     ? players.find((player) => player.playerId === currentPlayer.id)?.pickCount
     : undefined;
 
+  // The viewer's saved draft deck, so the results page offers Edit deck instead of Create deck.
+  const myDeckId = isParticipant && draft.status === "completed"
+    ? createSavedDeckService(db).findByDraft(draft.guild_id, userId, draft.id)?.id ?? null
+    : null;
+
   return {
     id: draft.id,
     guildId: draft.guild_id,
@@ -242,6 +247,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
     tournamentId: draft.tournament_id ?? null,
     players,
     participantPickCount,
+    myDeckId,
     isParticipant,
     currentPack,
     myPool,

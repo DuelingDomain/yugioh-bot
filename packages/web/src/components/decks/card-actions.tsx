@@ -19,6 +19,7 @@ export function CardActions({
   mode,
   copies,
   limit,
+  poolCopies,
   banlistName,
   archetypes,
   onAdd,
@@ -32,6 +33,8 @@ export function CardActions({
   /** All copies in the deck with this card's name (alternate artworks included). */
   copies: number;
   limit: 0 | 1 | 2 | 3;
+  /** Draft deck mode: copies of this card in the player's pool. They replace the banlist limit. */
+  poolCopies?: number;
   banlistName: string | null;
   archetypes: readonly CardArchetype[];
   onAdd: (section: DeckSection) => void;
@@ -43,8 +46,9 @@ export function CardActions({
   const sections: DeckSection[] = [home, "side"];
   if (home === "main" && deck.extra.includes(card.code)) sections.splice(1, 0, "extra");
   if (home === "extra" && deck.main.includes(card.code)) sections.splice(1, 0, "main");
-  const full = copies >= limit;
-  const status = limitName(limit);
+  const inPool = poolCopies !== undefined;
+  const full = inPool ? copies >= poolCopies : copies >= limit;
+  const status = inPool ? null : limitName(limit);
   const own = cardArchetypes(card.setcodes, archetypes);
   const isMaster = deck.deckMaster === card.code;
   const canMaster = mode === "domain" && (card.type & TYPE_MONSTER) !== 0;
@@ -53,7 +57,7 @@ export function CardActions({
     <div className={styles.actions}>
       <div className={styles.actionsHead}>
         <p className={styles.copies}>
-          <span className={ui.num}>{copies}</span> of <span className={ui.num}>{limit}</span> in deck
+          <span className={ui.num}>{copies}</span> of <span className={ui.num}>{inPool ? poolCopies : limit}</span> {inPool ? "pool copies " : ""}in deck
         </p>
         {status ? (
           <span className={cx(ui.chip, limit === 0 ? styles.chipBad : ui.chipGold)} title={banlistName ? `${status} on ${banlistName}` : status}>

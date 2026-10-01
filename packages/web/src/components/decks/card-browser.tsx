@@ -13,6 +13,7 @@ import { hasCardDrag, readCardDrag, writeCardDrag, type CardDrag } from "./drag"
 import { SORT_CHOICES, clearFilters, filterChips, queryKey, type BrowserView } from "./filter-model";
 import { LimitBadge, limitName } from "./limit-badge";
 import type { BanlistLimits } from "./model";
+import { queryPoolCards } from "./pool-search";
 import styles from "./card-browser.module.css";
 
 const PAGE = 60;
@@ -30,7 +31,16 @@ type Results = {
   error: string | null;
 };
 
+/** Draft deck mode: the list holds only the player's pool, searched in the browser. */
+export type BrowserPool = {
+  /** Pool cards; null while they load. */
+  cards: DeckCardInfo[] | null;
+  /** Copies of the card the pool still has after the deck. */
+  remaining: (card: DeckCardInfo) => number;
+};
+
 export function CardBrowser({
+  pool,
   query,
   onQueryChange,
   archetypes,
@@ -46,6 +56,7 @@ export function CardBrowser({
   onRemoveDrop,
   searchRef,
 }: {
+  pool?: BrowserPool;
   query: CardQuery;
   onQueryChange: (query: CardQuery) => void;
   archetypes: readonly CardArchetype[];
@@ -75,6 +86,9 @@ export function CardBrowser({
   const moreController = useRef<AbortController | null>(null);
   const latest = useRef(query);
   latest.current = query;
+  const poolCards = pool?.cards;
+  const archetypesRef = useRef(archetypes);
+  archetypesRef.current = archetypes;
   const onCatalogRef = useRef(onCatalog);
   onCatalogRef.current = onCatalog;
   const onHoverRef = useRef(onHover);
@@ -94,6 +108,16 @@ export function CardBrowser({
     const controller = new AbortController();
     moreController.current?.abort();
     setLoadingMore(false);
+    if (pool) {
+      if (poolCards) {
+        const found = queryPoolCards(poolCards, latest.current, (code) => archetypesRef.current.find((item) => item.codes.includes(code))?.name);
+        setResults({ key, cards: found, total: found.length, error: null });
+        setLoading(false);
+        dropHover();
+        if (scrollRef.current) scrollRef.current.scrollTop = 0;
+      }
+      return;
+    }
     setLoading(true);
     const timer = window.setTimeout(() => {
       void queryDeckCards({ ...latest.current, offset: 0, limit: PAGE }, controller.signal).then(
@@ -116,7 +140,7 @@ export function CardBrowser({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [key, retry]);
+  }, [key, retry, poolCards]);
 
   const cards = results?.cards ?? [];
   const total = results?.total ?? 0;
@@ -184,7 +208,7 @@ export function CardBrowser({
   const countText = results?.error
     ? "Search failed"
     : results == null
-      ? "Searching…"
+      ? pool ? "Loading your pool…" : "Searching…"
       : `${total.toLocaleString("en-US")} ${total === 1 ? "card" : "cards"}`;
 
   return (
@@ -320,10 +344,14 @@ export function CardBrowser({
             <ul className={view === "grid" ? styles.grid : styles.rows} data-stale={stale ? "true" : undefined}>
               {cards.map((card) => {
                 const count = deckCount(card);
-                const limit = limits ? cardLimit(limits, card) : 3;
-                const full = count >= limit;
-                const status = limitName(limit);
-                const label = `${card.name}${count ? `, ${count} in deck` : ""}${status ? `, ${status}` : ""}`;
+                const left = pool?.remaining(card) ?? 0;
+                // A pool card is full when no copy is left; a pool has no banlist marks.
+                const limit = pool || !limits ? 3 : cardLimit(limits, card);
+                const full = pool ? left <= 0 : count >= limit;
+                const status = pool ? null : limitName(limit);
+                const label = pool
+                  ? `${card.name}, ${left} ${left === 1 ? "copy" : "copies"} left in your pool`
+                  : `${card.name}${count ? `, ${count} in deck` : ""}${status ? `, ${status}` : ""}`;
                 const handlers = {
                   draggable: true,
                   "aria-pressed": inspectCode === card.code,
@@ -341,7 +369,9 @@ export function CardBrowser({
                       <button type="button" className={styles.tile} aria-label={label} data-full={full ? "true" : undefined} title={card.name} {...handlers}>
                         <CardArt code={card.code} name={card.name} />
                         <LimitBadge limit={limit} />
-                        {count > 0 ? <span className={cx(ui.num, styles.have)}>{count}</span> : null}
+                        {pool ? (
+                          <span className={cx(ui.num, styles.have)} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left}</span>
+                        ) : count > 0 ? <span className={cx(ui.num, styles.have)}>{count}</span> : null}
                       </button>
                     </li>
                   );
@@ -359,9 +389,11 @@ export function CardBrowser({
                         <span>{cardDetailsText(card)}</span>
                         {stats ? <span className={cx(ui.num, styles.rowStats)}>{(card.type & TYPE_LINK) ? `ATK ${stats}` : stats}</span> : null}
                       </span>
-                      {count > 0 ? <span className={cx(ui.num, styles.rowHave)}>×{count}</span> : null}
+                      {pool ? (
+                        <span className={cx(ui.num, styles.rowHave)} data-zero={left <= 0 ? "true" : undefined} title="Copies left in your pool">{left} left</span>
+                      ) : count > 0 ? <span className={cx(ui.num, styles.rowHave)}>×{count}</span> : null}
                     </button>
-                    <button type="button" className={styles.rowAdd} aria-label={`Add ${card.name} to the deck`} title="Add to deck" onClick={() => onAdd(card)}>
+                    <button type="button" className={styles.rowAdd} aria-label={`Add ${card.name} to the deck`} title="Add to deck" disabled={pool != null && full} onClick={() => onAdd(card)}>
                       <Plus size={16} strokeWidth={1.8} aria-hidden />
                     </button>
                   </li>
@@ -394,7 +426,7 @@ export function CardBrowser({
               </button>
             </div>
             <div className={styles.filtersScroll}>
-              <CardFilters query={query} archetypes={archetypes} onChange={onQueryChange} />
+              <CardFilters query={query} archetypes={archetypes} onChange={onQueryChange} hideLimits={pool != null} />
             </div>
             <div className={styles.filtersFoot}>
               <SheetButton kind="quiet" size="sm" disabled={chips.length === 0} onClick={() => onQueryChange(clearFilters(query))}>
