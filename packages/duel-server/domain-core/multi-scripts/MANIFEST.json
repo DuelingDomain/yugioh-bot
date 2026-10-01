@@ -1261,6 +1261,19 @@
       "stockSha256": "aa45dff987f42d5803585456668e393f744ffbe11018b7f9a7760b5956227e3f"
     },
     {
+      "code": 43262273,
+      "file": "c43262273.lua",
+      "name": "Appointer of the Red Lotus",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "redefined": [
+        "retop"
+      ],
+      "stockSha256": "721fd4a0bdaa7626b8ee164f0f69bac6ab36be006b1d82bddc447e208534680c",
+      "note": "Script fix (late-cards, R3 + R-COMMON-OPP-PICK): the card banished from the hand of the picked opponent goes back to the hand of its owner. The stock operation sent it to 1-tp, which reads as the turn player of the NEXT opponent turn, so in FFA3 the Axe Raider of p2 came back to p1. Not part of R1."
+    },
+    {
       "code": 43434803,
       "file": "c43434803.lua",
       "name": "The Shallow Grave",

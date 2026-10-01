@@ -369,6 +369,78 @@ const timeSealCutShort = defineScenario({
   ],
 });
 
+// Appointer of the Red Lotus: pay 2000 LP, show your hand, pick one opponent (hand effect, R-COMMON-OPP-PICK), banish 1 card of its hand; the card
+// returns to the hand of that opponent in the End Phase of the NEXT opponent turn: the turn of p1 (turn order), not the turn of the picked p2.
+const APPOINTER = "Appointer of the Red Lotus";
+const appointerTag = defineScenario({
+  id: "r3-tag-appointer-of-the-red-lotus-card-returns-to-the-picked-opponent-at-the-end-of-the-next-opposing-turn",
+  title: "Tag: p0 pays 2000 (team LP) and banishes the Axe Raider from the hand of the picked p3: the card returns to the hand of p3 at the end of the turn of p1 (the next opposing turn); the partner p2 is unchanged",
+  source: `${R3_RULE} [R-COMMON-OPP-PICK] [R-TAG-PARTNER]`,
+  rules: ["R-TAG-ORDER", "R-COMMON-OPP-PICK", "R-TAG-PARTNER"],
+  tags: ["multiplayer", "late-cards", "turn-count", "r3", "opp-pick", "tag", "card:43262273"],
+  setup: {
+    format: "tag",
+    p0: { hand: [ELF], spells: [{ card: APPOINTER, pos: "set" }] },
+    p1: { hand: [RAT] },
+    p2: { hand: [OX] },
+    p3: { hand: [AXE, FANG] },
+  },
+  steps: [
+    activate(APPOINTER, "p0"),
+    expectPickSeats(["p1", "p3"], "p0"),
+    pickOpponent("p3", "p0"),
+    select({ card: AXE, owner: "p3" }),
+    expectBoard({
+      p0: { lp: 14000, hand: [ELF], monsters: [], spells: [], grave: [APPOINTER], banished: [] },
+      p1: { lp: 16000, hand: [RAT], monsters: [], spells: [], grave: [], banished: [] },
+      p2: { lp: 14000, hand: [OX], monsters: [], spells: [], grave: [], banished: [] },
+      p3: { lp: 16000, hand: [FANG], monsters: [], spells: [], grave: [], banished: [AXE] },
+    }),
+    endTurn("p0"), expectTurn("p1", 2),
+    endTurn("p1"), expectTurn("p2", 3),
+    expectBoard({
+      p0: { lp: 14000, hand: [ELF], monsters: [], spells: [], grave: [APPOINTER], banished: [] },
+      p1: { lp: 16000, hand: [RAT, ELF], monsters: [], spells: [], grave: [], banished: [] },
+      p2: { lp: 14000, hand: [OX, ELF], monsters: [], spells: [], grave: [], banished: [] },
+      p3: { lp: 16000, hand: [AXE, FANG], monsters: [], spells: [], grave: [], banished: [] },
+    }),
+  ],
+});
+const appointerFfa3 = defineScenario({
+  id: "r3-ffa3-appointer-of-the-red-lotus-card-returns-at-the-end-of-the-next-opponent-turn",
+  title: "FFA3: p0 pays 2000 and banishes the Axe Raider from the hand of the picked p2: the card returns to the hand of p2 at the end of the turn of p1 (the next opponent turn); p1 and p0 are unchanged",
+  source: `${R3_RULE} [R-COMMON-OPP-PICK] (a hand effect picks one opponent at activation)`,
+  rules: ["R-FFA-ORDER", "R-COMMON-OPP-PICK"],
+  tags: ["multiplayer", "late-cards", "turn-count", "r3", "opp-pick", "ffa3", "card:43262273"],
+  setup: {
+    format: "ffa3",
+    p0: { hand: [ELF], spells: [{ card: APPOINTER, pos: "set" }] },
+    p1: { hand: [RAT] },
+    p2: { hand: [AXE, FANG] },
+  },
+  steps: [
+    activate(APPOINTER, "p0"),
+    expectPickSeats(["p1", "p2"], "p0"),
+    pickOpponent("p2", "p0"),
+    select({ card: AXE, owner: "p2" }),
+    expectBoard({
+      p0: { lp: 6000, hand: [ELF], monsters: [], spells: [], grave: [APPOINTER], banished: [] },
+      p1: { lp: 8000, hand: [RAT], monsters: [], spells: [], grave: [], banished: [] },
+      p2: { lp: 8000, hand: [FANG], monsters: [], spells: [], grave: [], banished: [AXE] },
+    }),
+    endTurn("p0"), expectTurn("p1", 2),
+    // Still banished during the turn of p1.
+    expectBoard({ p2: { hand: [FANG], banished: [AXE] } }),
+    endTurn("p1"), expectTurn("p2", 3),
+    // The next opponent turn of p0 was the turn of p1: the card is back in the hand of its owner p2, the draw of p2 comes on top.
+    expectBoard({
+      p0: { lp: 6000, hand: [ELF], monsters: [], spells: [], grave: [APPOINTER], banished: [] },
+      p1: { lp: 8000, hand: [RAT, ELF], monsters: [], spells: [], grave: [], banished: [] },
+      p2: { lp: 8000, hand: [AXE, FANG, ELF], monsters: [], spells: [], grave: [], banished: [] },
+    }),
+  ],
+});
+
 export const LATE_CARD_SCENARIOS: Scenario[] = [
   royalTribute("ffa3"),
   royalTribute("ffa4"),
@@ -395,4 +467,6 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   foolishRevivalOtherGrave("tag"),
   timeSealFfa3,
   timeSealCutShort,
+  appointerFfa3,
+  appointerTag,
 ];
