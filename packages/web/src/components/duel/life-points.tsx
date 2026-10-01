@@ -215,6 +215,33 @@ export function reelDistance(t: number, travel: number): number {
   return travel + OVERSHOOT * Math.pow(1 - v, 2);
 }
 
+export type FrameColumn = { key: string; kind: "digit" | "comma"; digit: number };
+
+/**
+ * Which columns of a rolling number show nothing right now. Reels sit in a fixed set of columns (the
+ * widest of the old and the new number), so a column that is not part of the number on screen would read
+ * as a padded "000" (3,100 -> 0) or "0,000" (0 -> 3,100). A leading column is blank while it reads 0
+ * (even mid-spin: the reel just blinks out for a digit), and the comma goes blank with the digits in
+ * front of it. The units column always shows, so 0 reads "0". Blank columns keep their width, so the
+ * plate never changes size.
+ */
+export function hiddenLeading(columns: FrameColumn[]): Set<string> {
+  const hidden = new Set<string>();
+  let started = false;
+  for (const column of columns) {
+    if (column.kind === "comma") {
+      if (!started) hidden.add(column.key);
+      continue;
+    }
+    if (!started && column.key !== "d0" && column.digit === 0) {
+      hidden.add(column.key);
+    } else {
+      started = true;
+    }
+  }
+  return hidden;
+}
+
 export function describeChange(from: number, to: number): { tone: Tone; text: string; was: string } {
   const delta = to - from;
   return {
@@ -283,16 +310,30 @@ function snapStrips(ctx: Ctx, value: number | null) {
   for (const glyph of formatGlyphs(value)) {
     if (glyph.kind !== "digit") continue;
     const el = stripEl(ctx.rollRef.current, glyph.key);
-    if (el) {
-      setStrip(el, glyph.digit);
-      showWindow(el);
-    }
+    if (el) setStrip(el, glyph.digit);
     ctx.engine.pos.set(glyph.key, glyph.digit);
   }
+  // Columns the new number does not use stay blank until React drops them (never a flash of "0,000").
+  const keep = new Set(formatGlyphs(value).map((glyph) => glyph.key));
+  const hidden = new Set<string>();
+  for (const el of Array.from(ctx.rollRef.current?.querySelectorAll<HTMLElement>("[data-place], [data-comma]") ?? [])) {
+    const key = el.dataset.place ?? el.dataset.comma ?? "";
+    if (!keep.has(key)) hidden.add(key);
+  }
+  applyHidden(ctx, hidden);
 }
 
-function showWindow(strip: HTMLElement) {
-  if (strip.parentElement) strip.parentElement.style.visibility = "";
+/** Blank (visibility: hidden, width kept) exactly the columns in `hidden`; show every other one. */
+function applyHidden(ctx: Ctx, hidden: Set<string>) {
+  const roll = ctx.rollRef.current;
+  if (!roll) return;
+  for (const strip of Array.from(roll.querySelectorAll<HTMLElement>("[data-place]"))) {
+    const cell = strip.parentElement;
+    if (cell) cell.style.visibility = hidden.has(strip.dataset.place ?? "") ? "hidden" : "";
+  }
+  for (const comma of Array.from(roll.querySelectorAll<HTMLElement>("[data-comma]"))) {
+    comma.style.visibility = hidden.has(comma.dataset.comma ?? "") ? "hidden" : "";
+  }
 }
 
 function pulse(el: HTMLElement | null) {
@@ -339,11 +380,6 @@ function startRoll(ctx: Ctx, from: number, to: number, glyphs: Glyph[]) {
     if (el) setStrip(el, column.target);
     engine.pos.set(column.key, column.target);
   }
-  for (const column of columns) {
-    const el = stripEl(ctx.rollRef.current, column.key);
-    if (el) showWindow(el);
-  }
-
   const live: LiveReel[] = [];
   for (const reel of plan.reels) {
     const el = stripEl(ctx.rollRef.current, reel.key);
@@ -360,6 +396,24 @@ function startRoll(ctx: Ctx, from: number, to: number, glyphs: Glyph[]) {
     finishRoll(ctx);
     return;
   }
+
+  // Blank the columns that are not part of the number yet (a gain adds columns) before the first paint.
+  const syncColumns = () => {
+    const frameColumns: FrameColumn[] = [];
+    for (const glyph of glyphs) {
+      if (glyph.kind === "comma") {
+        frameColumns.push({ key: glyph.key, kind: "comma", digit: 0 });
+      } else if (glyph.kind === "digit") {
+        frameColumns.push({
+          key: glyph.key,
+          kind: "digit",
+          digit: Math.round(wrap10(engine.pos.get(glyph.key) ?? 0)) % 10,
+        });
+      }
+    }
+    applyHidden(ctx, hiddenLeading(frameColumns));
+  };
+  syncColumns();
 
   engine.live = live;
   engine.active = true;
@@ -379,8 +433,6 @@ function startRoll(ctx: Ctx, from: number, to: number, glyphs: Glyph[]) {
         setStrip(reel.el, reel.target);
         engine.pos.set(reel.key, reel.target);
         clearReelFx(reel.el);
-        // A column that is not in the final number (10,000 -> 9,000) goes blank, not "0".
-        if (targets[reel.key] == null && reel.el.parentElement) reel.el.parentElement.style.visibility = "hidden";
         continue;
       }
       running = true;
@@ -399,6 +451,7 @@ function startRoll(ctx: Ctx, from: number, to: number, glyphs: Glyph[]) {
       reel.lastDist = dist;
       reel.lastT = t;
     }
+    syncColumns();
     if (running) {
       engine.raf = requestAnimationFrame(frame);
     } else {
@@ -585,7 +638,7 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
           }
           if (glyph.kind === "comma") {
             return (
-              <span key={glyph.key} className={styles.comma}>
+              <span key={glyph.key} className={styles.comma} data-comma={glyph.key}>
                 ,
               </span>
             );

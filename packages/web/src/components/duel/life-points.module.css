@@ -66,6 +66,8 @@
   display: inline-flex;
   align-items: flex-end;
   flex: none;
+  /* Room for "8,000" (4 digits + comma): a number that shrinks to "0" never pulls the tally left. */
+  min-width: 2.7em;
   height: 1em;
   color: inherit;
   transition: filter 0.7s ease-out;
