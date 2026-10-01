@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import Database from "better-sqlite3";
 import { expect, it } from "vitest";
 import type { DuelDeck, DuelFormat } from "@yugidraft/shared/duels";
@@ -56,17 +57,21 @@ describeWithCores("domain duel with 3 and 4 duelists", needs.domainMulti(dataDir
     }
   });
 
-  // A global effect sends the Deck Master of each victim seat to the Graveyard at the start of the turn of seat `turnSeat`.
+  // At the start of the turn of seat `turnSeat` (turn `turnSeat + 1`), the Deck Master of each victim seat goes to the Graveyard.
+  // One effect per victim, registered for that victim: inside an effect Lua sees the owner as `tp` (the F5 fold),
+  // and an absolute seat number would name another duelist there. `after` runs once in a further effect (Debug.* calls take absolute seats).
   function sendDmScript(turnSeat: number, victims: number[], after = ""): { name: string; content: string }[] {
-    const ops = victims.map((seat) => `Duel.SendtoGrave(Duel.GetFieldCard(${seat},0x4000,0),0x440)`).join(" ");
-    return [{
-      name: "d1-send-dm.lua",
-      content: `local e=Effect.GlobalEffect() e:SetType(0x802) e:SetCode(0x2004) e:SetCondition(function() return Duel.GetTurnPlayer()==${turnSeat} end) e:SetOperation(function(e) ${ops} ${after} e:Reset() end) Duel.RegisterEffect(e,0)`,
-    }];
+    const when = `e:SetCondition(function() return Duel.GetTurnCount()==${turnSeat + 1} end)`;
+    const effect = (seat: number, operation: string) =>
+      `local e=Effect.GlobalEffect() e:SetType(0x802) e:SetCode(0x2004) ${when} e:SetOperation(function(e,tp) ${operation} e:Reset() end) Duel.RegisterEffect(e,${seat})`;
+    const scripts = victims.map((seat) => ({ name: `d1-send-dm-${seat}.lua`, content: effect(seat, "Duel.SendtoGrave(Duel.GetFieldCard(tp,0x4000,0),0x440)") }));
+    if (after) scripts.push({ name: "d1-after.lua", content: effect(0, after) });
+    return scripts;
   }
 
   // Answer prompts (recall: yes) until `stop` is true. Returns the seats that got a recall prompt, in order.
-  function drive(game: EngineGame, stop: () => boolean, maxSteps = 400): number[] {
+  // `summonDm`: seats that summon their recalled Deck Master at the first action prompt they get (each seat once).
+  function drive(game: EngineGame, stop: () => boolean, maxSteps = 400, summonDm: Map<number, number> = new Map()): number[] {
     const recalls: number[] = [];
     for (let step = 0; step < maxSteps && !stop(); step += 1) {
       let found = false;
@@ -75,7 +80,12 @@ describeWithCores("domain duel with 3 and 4 duelists", needs.domainMulti(dataDir
         if (!prompt) continue;
         found = true;
         const ids = prompt.options.map((option) => option.id);
-        if (prompt.kind === "choice" && ids.includes("yes") && ids.includes("no")) {
+        const dmCode = summonDm.get(seat);
+        const dmSummon = dmCode === undefined || prompt.context?.type !== "action" ? undefined : prompt.options.find((option) => option.id.startsWith("summon:") && option.card?.code === dmCode);
+        if (dmSummon) {
+          summonDm.delete(seat);
+          game.answer(seat, prompt.id, { choice: dmSummon.id });
+        } else if (prompt.kind === "choice" && ids.includes("yes") && ids.includes("no")) {
           recalls.push(seat);
           game.answer(seat, prompt.id, { choice: "yes" });
         } else if (prompt.kind === "choice") {
@@ -127,6 +137,55 @@ describeWithCores("domain duel with 3 and 4 duelists", needs.domainMulti(dataDir
       game.close();
     }
   }, 60_000);
+
+  // The Deck Master of some seats goes to the Graveyard, comes back (recall: yes) and is summoned on the owner's own turn.
+  // The summon of a recalled Deck Master costs 500 LP per completed return: from the own LP in a free-for-all duel, from the
+  // shared team LP in Tag. Seats 2 and 3 at ffa4 (seats after the first two), seat 2 at ffa3, one seat of each team in Tag.
+  it.each<[DuelFormat, number, number[]]>([["ffa3", 3, [2]], ["ffa4", 4, [2, 3]], ["tag", 4, [1, 2]]])(
+    "%s: the Deck Master summon of the recalled seats %j costs 500 LP from own LP (free-for-all) or team LP (Tag)",
+    async (format, seats, victims) => {
+      const decks = domainDecks(seats);
+      const game = await createEngineGame({
+        mode: "domain", format, decks, seed: ["5", "6", "7", "8"], dataDirectory, settings,
+        startupScripts: sendDmScript(Math.min(...victims), victims), multiWasmBinary: wasmBinary(),
+      });
+      try {
+        const before = game.view(null).seats.map((seat) => seat.lp);
+        const pending = new Map(victims.map((seat) => [seat, decks[seat]!.deckMaster!] as const));
+        drive(game, () => pending.size === 0 && game.view(null).turn > Math.max(...victims) + 1, 800, pending);
+        expect(pending.size).toBe(0);
+        const view = game.view(null);
+        const paying = new Set(victims.flatMap((seat) => [seat, ...(format === "tag" ? [partnerSeatOf(format, seat)!] : [])]));
+        for (const seat of victims) {
+          expect(view.seats[seat]!.deckMaster!.returns).toBe(1);
+          expect(view.seats[seat]!.deckMaster!.inZone).toBe(false);
+          expect(view.seats[seat]!.monsters.some((card) => card?.code === decks[seat]!.deckMaster)).toBe(true);
+        }
+        view.seats.forEach((seat, index) => {
+          expect(seat.lp, `LP of seat ${index}`).toBe(paying.has(index) ? before[index]! - 500 : before[index]!);
+        });
+        // Tag: partners share one LP total, so the cost of one summon is visible at the partner too.
+        if (format === "tag") for (const seat of victims) expect(view.seats[partnerSeatOf(format, seat)!]!.lp).toBe(view.seats[seat]!.lp);
+      } finally {
+        game.close();
+      }
+    },
+    120_000,
+  );
+
+  // The engine reads ocgcore.multi-domain.wasm from the data directory when no test hook gives a binary. Skips when the
+  // data directory has no such file (the file is installed by hand, see domain-core/patches/README.md).
+  it.skipIf(!existsSync(join(dataDirectory, "ocgcore.multi-domain.wasm")))("the engine loads ocgcore.multi-domain.wasm from the data directory", async () => {
+    for (const [format, seats] of [["ffa3", 3], ["ffa4", 4], ["tag", 4]] as const) {
+      const game = await createEngineGame({ mode: "domain", format, decks: domainDecks(seats), seed: ["5", "6", "7", "8"], dataDirectory, settings });
+      try {
+        expect(game.coreInfo().wasmFile).toBe("ocgcore.multi-domain.wasm");
+        for (const seat of game.view(null).seats) expect(seat.deckMaster?.inZone).toBe(true);
+      } finally {
+        game.close();
+      }
+    }
+  });
 
   it("ffa4: an eliminated seat loses its Deck Master and the duel goes on", async () => {
     const game = await createEngineGame({
