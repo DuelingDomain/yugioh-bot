@@ -10,7 +10,7 @@ function bar(overrides: Partial<Parameters<typeof PrecheckBar>[0]> = {}) {
   const onNo = vi.fn();
   const onInspectCard = vi.fn();
   render(
-    <PrecheckBar name="Blue-Eyes Spirit Dragon" ask="You can activate an effect. Activate?" context="Battle Step"
+    <PrecheckBar name="Blue-Eyes Spirit Dragon" ask="Activate its effect?" context="Battle Step"
       cards={[{ code: 100, card }]} tone="chain" busy={false} reducedMotion={false}
       onYes={onYes} onNo={onNo} onInspectCard={onInspectCard} {...overrides} />,
   );
@@ -21,7 +21,7 @@ describe("PrecheckBar", () => {
   it("shows the card, the question and the step, and focuses Yes", () => {
     bar();
     expect(screen.getByText("Blue-Eyes Spirit Dragon")).toBeTruthy();
-    expect(screen.getByText("You can activate an effect. Activate?")).toBeTruthy();
+    expect(screen.getByText("Activate its effect?")).toBeTruthy();
     expect(screen.getByText("Battle Step")).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Yes" }));
   });
