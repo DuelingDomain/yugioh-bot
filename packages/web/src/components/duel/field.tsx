@@ -234,7 +234,7 @@ function PileLabel({ kind, count }: { kind: string; count: number }) {
     <span className={styles.pileLabel}>
       <span className={styles.plFull}>{full}</span>
       <span className={styles.plShort}>{short}</span>
-      <b className={styles.plCount}>{count}</b>
+      <b className={styles.plCount} data-pile-count={count}>{count}</b>
     </span>
   );
 }

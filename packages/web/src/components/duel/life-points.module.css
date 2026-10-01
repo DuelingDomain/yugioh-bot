@@ -83,6 +83,39 @@
   transition-duration: 0.05s;
 }
 
+/* The blow lands on the number: a short shake and a hot flash when a loss starts to roll (not in reduced motion). */
+.root[data-tone="loss"]:not(.reduced) .roll {
+  animation: lp-hit 0.46s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes lp-hit {
+  0% {
+    transform: translateX(0);
+    filter: drop-shadow(0 0 0.5em rgb(255 130 110 / 0.95)) brightness(1.7);
+  }
+
+  14% {
+    transform: translateX(-0.07em);
+  }
+
+  30% {
+    transform: translateX(0.06em);
+  }
+
+  46% {
+    transform: translateX(-0.04em);
+  }
+
+  62% {
+    transform: translateX(0.02em);
+  }
+
+  100% {
+    transform: translateX(0);
+    filter: drop-shadow(0 0 0.14em rgb(228 90 77 / 0.4)) brightness(1);
+  }
+}
+
 /* One reel window per digit. Fixed cell width: no jitter whatever the digit. */
 .digit {
   position: relative;
@@ -186,7 +219,7 @@
   display: inline-block;
   color: #958f81;
   font-weight: 600;
-  animation: lp-old-in 0.24s ease-out var(--lp-tally-delay, 0ms) both;
+  animation: lp-old-in 0.42s ease-out var(--lp-tally-delay, 0ms) both;
 }
 
 .strike {
@@ -209,7 +242,7 @@
   border-radius: 1px;
   background: var(--strike);
   transform-origin: 0 50%;
-  animation: lp-strike 0.3s cubic-bezier(0.5, 0, 0.2, 1) calc(var(--lp-tally-delay, 0ms) + 0.12s) both;
+  animation: lp-strike 0.48s cubic-bezier(0.5, 0, 0.2, 1) calc(var(--lp-tally-delay, 0ms) + 0.2s) both;
 }
 
 .chip {
@@ -220,7 +253,7 @@
   border-radius: 3px;
   background: var(--chip-fill);
   color: var(--chip-ink);
-  animation: lp-chip-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) calc(var(--lp-tally-delay, 0ms) + 0.08s) both;
+  animation: lp-chip-in 0.46s cubic-bezier(0.2, 0.9, 0.3, 1) calc(var(--lp-tally-delay, 0ms) + 0.14s) both;
 }
 
 @keyframes lp-old-in {
@@ -275,7 +308,7 @@
 /* Reduced motion: no travel, no draw-on; the tally still updates with a plain fade. */
 .reduced .old,
 .reduced .chip {
-  animation: lp-fade 0.18s ease-out both;
+  animation: lp-fade 0.26s ease-out both;
 }
 
 .reduced .strike::after {
@@ -285,7 +318,11 @@
 @media (prefers-reduced-motion: reduce) {
   .old,
   .chip {
-    animation: lp-fade 0.18s ease-out both;
+    animation: lp-fade 0.26s ease-out both;
+  }
+
+  .root[data-tone="loss"] .roll {
+    animation: none;
   }
 
   .strike::after {

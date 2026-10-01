@@ -33,7 +33,9 @@ import {
   type MoveStyle,
 } from "./move-plan";
 import styles from "./move-fx.module.css";
-import { Track } from "./summon-fx";
+import { beginDestroyHide, beginPileHold, startDestroyHideGuard } from "./destroy-hide";
+import { SHARDS, Track } from "./summon-fx";
+import { CARD_FX } from "./duel-timing";
 
 export type MoveFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -48,9 +50,9 @@ const SAMPLES = 18;
 const HIDE_FAILSAFE_MS = 1500;
 const MAX_GHOSTS = 12;
 /** The ghost dissolves over the real card this long after landing. */
-export const LAND_FADE_MS = 140;
+export const LAND_FADE_MS = CARD_FX.landFadeMs;
 /** A destination that moved during the flight is followed for this long, at the end. */
-const GLIDE_MS = 140;
+const GLIDE_MS = CARD_FX.glideMs;
 /** Moves smaller than this many px are not chased. */
 const GLIDE_MIN_PX = 2;
 
@@ -235,6 +237,61 @@ export function cardTurn(side: "you" | "opp", defense: boolean): number {
   return (side === "opp" ? 180 : 0) + (defense ? 90 : 0);
 }
 
+/* ---------- the pieces of a destroyed card ---------- */
+
+export type PieceMotion = { dx: number; dy: number; spin: number };
+
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * How far one piece springs from the middle of the card (px, relative to the flying card) and how
+ * much it turns. `cx`/`cy` are the centre of the piece in percent of the card.
+ */
+export function pieceMotion(piece: { cx: number; cy: number }, id: number, index: number, w: number, h: number): PieceMotion {
+  const rand = seeded(id * 40503 + index * 977 + 7);
+  const ox = (piece.cx - 50) / 50;
+  const oy = (piece.cy - 50) / 50;
+  return {
+    dx: ox * w * (0.22 + rand() * 0.18),
+    dy: oy * h * (0.16 + rand() * 0.12) - h * 0.03,
+    spin: (rand() - 0.5) * 60 + ox * 20,
+  };
+}
+
+/**
+ * Keyframes for one piece over the whole flight. "burst": the piece starts where it was in the card,
+ * springs apart in the first fifth, then shrinks and fades as it lands. "scattered": it starts already
+ * apart (the slice was seen) and fades in. Both end at nothing, which is when the pile shows the card.
+ */
+export function pieceFrames(motion: PieceMotion, mode: "burst" | "scattered"): Keyframe[] {
+  const apart = `translate(${motion.dx.toFixed(1)}px, ${motion.dy.toFixed(1)}px) rotate(${(motion.spin * 0.6).toFixed(1)}deg) scale(1.02)`;
+  const home = "translate(0px, 0px) rotate(0deg) scale(1)";
+  const gone = `translate(${(motion.dx * 0.5).toFixed(1)}px, ${(motion.dy * 0.5).toFixed(1)}px) rotate(${motion.spin.toFixed(1)}deg) scale(0.35)`;
+  if (mode === "scattered") {
+    return [
+      { opacity: 0, transform: apart, offset: 0 },
+      { opacity: 1, transform: apart, offset: 0.16, easing: "ease-in-out" },
+      { opacity: 0.95, transform: apart, offset: 0.7 },
+      { opacity: 0, transform: gone, offset: 1 },
+    ];
+  }
+  return [
+    { opacity: 1, transform: home, offset: 0, easing: "cubic-bezier(0.1, 0.7, 0.3, 1)" },
+    { opacity: 1, transform: apart, offset: 0.2 },
+    { opacity: 0.95, transform: apart, offset: 0.7 },
+    { opacity: 0, transform: gone, offset: 1 },
+  ];
+}
+
 function seededSign(id: number): number {
   return (id * 2654435761) % 2 === 0 ? 1 : -1;
 }
@@ -243,6 +300,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const root = useRef<HTMLDivElement>(null);
   const flipper = useRef<HTMLDivElement>(null);
   const shade = useRef<HTMLSpanElement>(null);
+  const pieceEls = useRef<Array<HTMLSpanElement | null>>([]);
   const landedRef = useRef(landed);
   landedRef.current = landed;
   const doneRef = useRef(done);
@@ -254,6 +312,8 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const source = plan.source;
   const startUp = card != null && (source ? source.faceUp || (source.side === "you" && plan.event.from?.location === LOCATION_HAND) : true);
   const endUp = card != null && plan.event.faceDown !== true;
+  // A destroyed card leaves as the pieces it broke into, never as the intact card.
+  const pieces = card != null && source != null ? plan.pieces : null;
   const startAngle = card == null ? 0 : startUp ? 0 : 180;
   const endAngle = card == null ? 0 : endUp ? 0 : 180;
 
@@ -309,8 +369,17 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
       });
       const options: KeyframeAnimationOptions = { duration: plan.durationMs, easing: "linear", fill: "both" };
       track.play(el, flight.card, options);
-      track.play(shade.current, flight.shade, options);
-      if (startAngle !== endAngle && flipper.current) {
+      if (pieces) {
+        // No shadow of a whole card under the pieces: each one springs, drifts and fades on its own.
+        pieceEls.current.forEach((piece, index) => {
+          const shard = SHARDS[index];
+          if (!piece || !shard) return;
+          track.play(piece, pieceFrames(pieceMotion(shard, plan.id, index, w, h), pieces), { duration: plan.durationMs, easing: "linear", fill: "both" });
+        });
+      } else {
+        track.play(shade.current, flight.shade, options);
+      }
+      if (!pieces && startAngle !== endAngle && flipper.current) {
         const [a, b] = flight.flip;
         track.play(
           flipper.current,
@@ -374,7 +443,23 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   return (
     <div ref={root} className={styles.ghost} data-style={plan.style} style={{ opacity: 0 } as CSSProperties}>
       <span ref={shade} className={styles.shade} />
-      <div ref={flipper} className={styles.flipper} style={{ transform: `rotateY(${startAngle}deg)` }}>
+      {pieces && card ? (
+        <div className={styles.pieces}>
+          {SHARDS.map((shard, index) => (
+            <span
+              key={index}
+              ref={(el) => {
+                pieceEls.current[index] = el;
+              }}
+              className={styles.piece}
+              style={{ clipPath: shard.clip, transformOrigin: `${shard.cx}% ${shard.cy}%` } as CSSProperties}
+            >
+              <i className={styles.pieceArt} style={{ backgroundImage: `url(${cardArtUrl(card.code, "small")})` }} />
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div ref={flipper} className={styles.flipper} style={{ transform: `rotateY(${startAngle}deg)`, display: pieces ? "none" : undefined }}>
         {card ? (
           <div className={styles.face}>
             <img className={styles.art} src={cardArtUrl(card.code, "small")} alt="" draggable={false} />
@@ -388,8 +473,8 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 
 /* ---------- the hand slides (FLIP) ---------- */
 
-export const HAND_FLIP_MS = 320;
-export const HAND_ENTER_MS = 320;
+export const HAND_FLIP_MS = CARD_FX.handFlipMs;
+export const HAND_ENTER_MS = CARD_FX.handEnterMs;
 const HAND_FLIP_ID = "duel-hand-flip";
 const HAND_FLIP_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 
@@ -574,6 +659,9 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
   // Where cards were, kept fresh so a flight can start from a hand slot that has already closed up.
   useEffect(() => startZoneSnapshots(), []);
 
+  // A hidden destroyed card stays hidden when React redraws its zone, and a held pile count stays held.
+  useEffect(() => startDestroyHideGuard(overlayRef.current?.parentElement ?? null), []);
+
   // The hands close up and make room with a slide instead of a jump.
   useHandFlip(() => overlayRef.current?.parentElement ?? null, reducedRef);
 
@@ -613,10 +701,19 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
       // The real card waits invisible at its destination until the ghost lands on it.
       const dest = findZoneElement(plan.event.zone);
       const target = dest ? hideTargetOf(dest, plan) : null;
-      if (target) {
-        const release = hideElement(target);
+      const waitMs = Math.max(0, plan.landAt + plan.holdMs - now) + HIDE_FAILSAFE_MS;
+      const releases: Array<() => void> = [];
+      if (target) releases.push(hideElement(target));
+      if (plan.destroy && plan.event.from && plan.event.zone) {
+        // The card is being destroyed: its zone shows empty from now (the ghost stands in until the break),
+        // and the pile counts it when the flight lands, not before.
+        releases.push(beginDestroyHide(`move:${plan.id}`, plan.event.from, plan.event.card?.code, waitMs));
+        releases.push(beginPileHold(`move:${plan.id}`, plan.event.zone, waitMs));
+      }
+      if (releases.length > 0) {
+        const release = () => releases.forEach((fn) => fn());
         releasesRef.current.set(plan.id, release);
-        const failsafe = window.setTimeout(release, Math.max(0, plan.landAt + plan.holdMs - now) + HIDE_FAILSAFE_MS);
+        const failsafe = window.setTimeout(release, waitMs);
         timersRef.current.add(failsafe);
       }
       const wait = plan.startAt - now;

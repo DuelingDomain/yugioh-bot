@@ -9,6 +9,7 @@
 // time. deriveChainState folds a whole window at once (first paint, reconnect, replay of a window).
 import type { DuelCardInfo, DuelChainLink, DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import { LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED, zoneKey } from "./constants";
+import { CHAIN_TIMING } from "./duel-timing";
 
 export type ChainLinkStatus = "pending" | "resolving" | "resolved";
 
@@ -209,27 +210,27 @@ export function chainSeatLabel(seat: number, mySeat: number | null, playerName: 
 
 /**
  * How long the board holds on each chain event before the next one plays. This is the pace of a
- * chain resolution (there is no centre banner for it): a link pulses while it resolves (850), a
- * negated one then shows its slash (700), and a resolved one ticks and clears away while the next
- * link is marked "up next" (520). One link is about 1.4 s, so each step can be followed.
+ * chain resolution (there is no centre banner for it): a link pulses while it resolves (1150), a
+ * negated one then shows its slash (950), and a resolved one ticks and clears away while the next
+ * link is marked "up next" (720). One link is about 1.9 s, so each step can be followed.
  */
 const STEP_MS: Record<ChainEventKind, number> = {
-  activate: 700,
-  "chain-resolving": 850,
-  "chain-resolved": 520,
-  "chain-negated": 700,
-  "chain-end": 480,
+  activate: CHAIN_TIMING.activateMs,
+  "chain-resolving": CHAIN_TIMING.resolvingMs,
+  "chain-resolved": CHAIN_TIMING.resolvedMs,
+  "chain-negated": CHAIN_TIMING.negatedMs,
+  "chain-end": CHAIN_TIMING.endMs,
 };
-const STEP_FLOOR_MS = 240;
+const STEP_FLOOR_MS = CHAIN_TIMING.floorMs;
 /** A backlog of more than this many beats is played faster, down to the floor. */
-const BACKLOG_BEATS = 10;
+const BACKLOG_BEATS = CHAIN_TIMING.backlogBeats;
 /** A link's own effect (a card move, a destroy) starts this long after its badge starts to pulse. */
-const EFFECT_LEAD_MS = 320;
-const EFFECT_LEAD_REDUCED_MS = 120;
+const EFFECT_LEAD_MS = CHAIN_TIMING.effectLeadMs;
+const EFFECT_LEAD_REDUCED_MS = CHAIN_TIMING.effectLeadReducedMs;
 
 /** How long to hold the board on a chain event before the next one plays. */
 export function chainStepDelay(kind: string, remaining: number, reducedMotion: boolean): number {
-  const base = STEP_MS[kind as ChainEventKind] ?? 400;
+  const base = STEP_MS[kind as ChainEventKind] ?? CHAIN_TIMING.fallbackMs;
   const length = reducedMotion ? Math.max(STEP_FLOOR_MS, Math.round(base * 0.8)) : base;
   if (remaining <= BACKLOG_BEATS) return length;
   return Math.max(STEP_FLOOR_MS, Math.round((length * BACKLOG_BEATS) / remaining));

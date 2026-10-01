@@ -6,12 +6,12 @@
  * The plan is a pure function of the fresh events, the clock and the measured distance, and it is
  * memoised per event id, so whichever layer sees a batch first plans it and the others read it.
  *
- * Human pacing (Master Duel / Hearthstone speed): a card placed from the hand takes 480-600 ms, a
- * toss into a pile 460-580 ms, a draw about 520 ms, a card returned to the hand 500 ms, a card
- * taken back from a pile (search, salvage) 680 ms. Moves queue one after another; the next one
+ * Human pacing (the numbers live in duel-timing.ts): a card placed from the hand takes 700-860 ms,
+ * a toss into a pile 680-840 ms, a draw about 740 ms, a card returned to the hand 700 ms, a card
+ * taken back from a pile (search, salvage) 920 ms. Moves queue one after another; the next one
  * starts when the previous one is 70% through (never less than minGapMs later, so two draws stay
  * two cards). A long burst is compressed, never skipped, so the whole queue trails no more than
- * about 3 s, and no flight is squeezed below 55% of its length.
+ * about 4.4 s, and no flight is squeezed below 60% of its length (so none is shorter than 400 ms).
  */
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
@@ -24,30 +24,31 @@ import {
 } from "./constants";
 import { battleBreakIs3d, battleDestroyAt, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
 import { playsBigSummon } from "./big-summon";
+import { MOVE_PACE } from "./duel-timing";
 import { chainEffectAt } from "./chain-beats";
 import { findZoneElement } from "./event-queue";
 
 export const MOVE_TIMING = {
-  placeMin: 480,
-  placeMax: 600,
-  tossMin: 460,
-  tossMax: 580,
-  draw: 520,
-  ret: 500,
+  placeMin: MOVE_PACE.placeMinMs,
+  placeMax: MOVE_PACE.placeMaxMs,
+  tossMin: MOVE_PACE.tossMinMs,
+  tossMax: MOVE_PACE.tossMaxMs,
+  draw: MOVE_PACE.drawMs,
+  ret: MOVE_PACE.returnMs,
   /** A card taken from the Graveyard or banished pile into the hand: it lifts out, shows its face, then settles. */
-  search: 680,
-  reduced: 150,
+  search: MOVE_PACE.searchMs,
+  reduced: MOVE_PACE.reducedMs,
   /** The next move starts when the previous one is this far through. */
-  overlap: 0.7,
+  overlap: MOVE_PACE.overlap,
   /** The next move never starts sooner than this after the previous one (a sped-up burst still reads as separate cards). */
-  minGapMs: 180,
+  minGapMs: MOVE_PACE.minGapMs,
   /** The whole queue should finish within this many ms of the newest batch arriving. */
-  queueCapMs: 3000,
+  queueCapMs: MOVE_PACE.queueCapMs,
   /** Never speed a burst up by more than this factor (1 / minSpeed). */
-  minSpeed: 0.55,
+  minSpeed: MOVE_PACE.minSpeed,
   /** Destroy: the card cracks and breaks in place first, then flies off. */
-  destroyBreakMs: 260,
-  destroyBreakBattleMs: 460,
+  destroyBreakMs: MOVE_PACE.destroyBreakMs,
+  destroyBreakBattleMs: MOVE_PACE.destroyBreakBattleMs,
 } as const;
 
 export type MoveStyle = "place" | "toss" | "draw" | "return" | "search" | "fade";
@@ -65,6 +66,15 @@ export type MovePlan = {
   leadMs: number;
   /** Extra ms the ghost stays after landing. */
   holdMs: number;
+  /** The card is being destroyed: it is hidden in its zone until this flight lands in the pile. */
+  destroy: boolean;
+  /**
+   * What the flight draws for a destroyed card instead of the intact card (never a whole card leaving
+   * the zone it just broke in): "burst" = pieces that spring apart from the break and fly to the pile;
+   * "scattered" = pieces that fade in already apart, after the slice of a fight was seen; null = the
+   * card itself (every other move, reduced motion, and the 3D break that already played its shards).
+   */
+  pieces: "burst" | "scattered" | null;
   /**
    * The flight carries a big summon: nothing is drawn (MoveFx skips it) because the portrait is the
    * arrival, and the real card stays hidden until the slam. `landAt` equals `startAt`, the moment the
@@ -167,6 +177,8 @@ type Candidate = {
   lead: number;
   hold: number;
   silent: boolean;
+  destroy: boolean;
+  pieces: "burst" | "scattered" | null;
   /** A battle holds this destroy: the flight starts no earlier than this (performance.now(), 0 = free). */
   notBefore: number;
   paired: number[];
@@ -240,6 +252,8 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     let lead = 0;
     let hold = 0;
     let silent = false;
+    let destroy = false;
+    let pieces: "burst" | "scattered" | null = null;
     let notBefore = 0;
 
     // The summon, set or activation this card lands for.
@@ -260,6 +274,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       if (!sameZone(other.zone, from) || other.card == null || other.card.code <= 0) continue;
       paired.push(other.id);
       claimed.add(other.id);
+      destroy = true;
       lead = reduced ? 0 : other.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs;
       // A fight that killed the card is still playing: it breaks only after the last strike landed.
       notBefore = battleDestroyAt(other.zone, now);
@@ -270,11 +285,15 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
         lead = 0;
         style = "fade";
       } else if (notBefore > 0 && !reduced) {
+        pieces = "scattered";
         // The DOM slice draws the halves at the break: the card leaves for the pile only after they were
         // seen. The crack and the break of the card itself keep their time (the lead grows by the same wait).
         notBefore += BREAK_SETTLE_MS;
         lead += BREAK_SETTLE_MS;
+      } else if (!reduced) {
+        pieces = "burst";
       }
+      if (style !== "toss") pieces = null;
       break;
     }
     // The effect of a resolving chain link plays while its badge is lit, never before it. A card that
@@ -283,7 +302,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     if (chainAt > now) notBefore = Math.max(notBefore, chainAt + lead);
     // A card that also breaks away from a destroyed zone keeps its flight.
     if (lead > 0) silent = false;
-    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance), lead, hold, silent, notBefore, paired, source: resolveSource(from) });
+    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance), lead, hold, silent, destroy, pieces, notBefore, paired, source: resolveSource(from) });
   }
   if (candidates.length === 0) return [];
 
@@ -327,6 +346,8 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       durationMs: dur,
       leadMs: item.lead,
       holdMs: item.hold,
+      destroy: item.destroy,
+      pieces: item.pieces,
       silent: item.silent,
       pairedIds: item.paired,
       reduced,

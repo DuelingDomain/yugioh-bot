@@ -1,4 +1,5 @@
 import { zoneKey } from "./constants";
+import { MOVE_PACE } from "./duel-timing";
 
 /**
  * The battle hold: a destroyed card stays on its zone until the fight that killed it has landed.
@@ -15,12 +16,12 @@ import { zoneKey } from "./constants";
  */
 
 /** The crack-in-place before a held destroy breaks (shorter than an unheld battle destroy). */
-export const HELD_CRACK_MS = 100;
+export const HELD_CRACK_MS = MOVE_PACE.heldCrackMs;
 
 type Zone = { controller: number; location: number; sequence: number };
 
 /** How long the shards of a 3D break fall before the card may reach the Graveyard. */
-export const BREAK_SETTLE_MS = 380;
+export const BREAK_SETTLE_MS = MOVE_PACE.breakSettleMs;
 
 const holds = new Map<string, number>();
 /** Zones whose break the 3D layer draws (a claim), so the DOM skips its own shards. */

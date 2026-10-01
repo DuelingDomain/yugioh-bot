@@ -66,7 +66,7 @@ describe("life points reel plan", () => {
     expect(Math.abs(loss?.travel ?? 0)).toBeGreaterThanOrEqual(11);
   });
 
-  it("stops reels one after another, left to right, within 1.0-1.5 s", () => {
+  it("stops reels one after another, left to right, within 1.2-1.8 s", () => {
     const cols = [col("d3", 8, 4), col("d2", 0, 5), col("d1", 0, 1), col("d0", 0, 9)];
     for (const magnitude of [1, 800, 4000, 8000]) {
       const { reels, total } = planReels(cols, -1, magnitude);
@@ -74,15 +74,15 @@ describe("life points reel plan", () => {
       expect([...durations].sort((a, b) => a - b)).toEqual(durations);
       expect(new Set(durations).size).toBe(durations.length);
       expect(total).toBe(durations[durations.length - 1]);
-      expect(total).toBeGreaterThanOrEqual(600);
-      expect(total).toBeLessThanOrEqual(900);
+      expect(total).toBeGreaterThanOrEqual(1200);
+      expect(total).toBeLessThanOrEqual(1800);
     }
   });
 
   it("scales duration and spin count with the size of the hit", () => {
     expect(rollDurationMs(1)).toBeLessThan(rollDurationMs(800));
     expect(rollDurationMs(800)).toBeLessThan(rollDurationMs(8000));
-    expect(rollDurationMs(1_000_000)).toBe(900);
+    expect(rollDurationMs(1_000_000)).toBe(1800);
     const cols = [col("d0", 0, 5)];
     const small = planReels(cols, 1, 5).reels[0];
     const big = planReels(cols, 1, 8000).reels[0];

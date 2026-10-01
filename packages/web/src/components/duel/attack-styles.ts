@@ -13,6 +13,7 @@
  */
 
 import { BREAK_SETTLE_MS } from "./battle-hold";
+import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 
 export const ATTRIBUTE = { EARTH: 0x01, WATER: 0x02, FIRE: 0x04, WIND: 0x08, LIGHT: 0x10, DARK: 0x20, DIVINE: 0x40 } as const;
 
@@ -58,13 +59,13 @@ export const STYLE_INFO: Record<AttackStyleId, { label: string; travel: string; 
  * (`total`), in ms from the start of the strike. The LP roll and the prompt reveal key off these.
  */
 export const STYLE_TIMING: Record<AttackStyleId, { impact: number; total: number }> = {
-  slash: { impact: 520, total: 1150 },
-  claw: { impact: 500, total: 1150 },
-  beam: { impact: 440, total: 1200 },
-  arcane: { impact: 560, total: 1250 },
-  lightning: { impact: 450, total: 1150 },
-  flame: { impact: 540, total: 1250 },
-  impact: { impact: 470, total: 1200 },
+  slash: { impact: paceAttack(520), total: paceAttack(1150) },
+  claw: { impact: paceAttack(500), total: paceAttack(1150) },
+  beam: { impact: paceAttack(440), total: paceAttack(1200) },
+  arcane: { impact: paceAttack(560), total: paceAttack(1250) },
+  lightning: { impact: paceAttack(450), total: paceAttack(1150) },
+  flame: { impact: paceAttack(540), total: paceAttack(1250) },
+  impact: { impact: paceAttack(470), total: paceAttack(1200) },
 };
 
 export type Signature = { style: AttackStyleId; tint?: TintKey | Tint; caption?: string };
@@ -195,19 +196,19 @@ export function battleKind(direct: boolean, destroyed: { attacker: boolean; targ
 }
 
 /** Counter strike: starts this long after the attacker's impact (a short pause to read the first hit), at this speed. */
-export const COUNTER_GAP_MS = 135;
+export const COUNTER_GAP_MS = ATTACK_TIMING.counterGapMs;
 export const COUNTER_SCALE = 0.92;
 /** How long after the impact the destroyed card's break-up takes at most. */
-export const DESTROY_TAIL_MS = 700;
+export const DESTROY_TAIL_MS = 900;
 /**
  * A destroyed card breaks this long after the strike that killed it lands, so the hit and the
  * start of the LP roll are seen first (the card never breaks before, or while, the strike travels).
  */
-export const DESTROY_BEAT_MS = 320;
+export const DESTROY_BEAT_MS = ATTACK_TIMING.destroyBeatMs;
 /** The Graveyard flight starts this long after the slice, so the halves are seen before the card leaves. */
 export const GRAVEYARD_AFTER_SLICE_MS = BREAK_SETTLE_MS;
-/** No fight holds the prompts longer than this (the slowest counter fight is about 2.2 s). */
-export const MAX_BATTLE_MS = 2400;
+/** No fight holds the prompts longer than this (the slowest counter fight is about 3 s). */
+export const MAX_BATTLE_MS = ATTACK_TIMING.maxBattleMs;
 
 export type BattleTiming = {
   /** The attacker's strike lands (damage to the defender rolls here). */
@@ -245,9 +246,11 @@ export function battleTiming(kind: BattleKind, attacker: AttackStyleId, defender
     };
   }
   if (kind === "win") {
-    return { impactMs: a.impact, attackerDamageMs: a.impact + 140, targetBreakMs: a.impact + DESTROY_BEAT_MS, attackerBreakMs: null, totalMs: a.total + DESTROY_BEAT_MS };
+    return { impactMs: a.impact, attackerDamageMs: a.impact + ATTACK_TIMING.attackerDamageGapMs, targetBreakMs: a.impact + DESTROY_BEAT_MS, attackerBreakMs: null, totalMs: a.total + DESTROY_BEAT_MS };
   }
-  return { impactMs: a.impact, attackerDamageMs: a.impact + 140, targetBreakMs: null, attackerBreakMs: null, totalMs: a.total };
+  // A direct attack ends a beat later: the plate takes the blow and its number rolls before the next thing happens.
+  const tail = kind === "direct" ? ATTACK_TIMING.directTailMs : 0;
+  return { impactMs: a.impact, attackerDamageMs: a.impact + ATTACK_TIMING.attackerDamageGapMs, targetBreakMs: null, attackerBreakMs: null, totalMs: a.total + tail };
 }
 
 export type BattleBeatId =

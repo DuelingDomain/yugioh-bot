@@ -23,10 +23,10 @@ beforeEach(() => {
 });
 
 describe("chain step lengths (the hold the board keeps per beat)", () => {
-  it("gives the resolving beat 600-900 ms of visible emphasis", () => {
+  it("gives the resolving beat 900-1300 ms of visible emphasis", () => {
     const ms = chainStepDelay("chain-resolving", 1, false);
-    expect(ms).toBeGreaterThanOrEqual(600);
-    expect(ms).toBeLessThanOrEqual(900);
+    expect(ms).toBeGreaterThanOrEqual(900);
+    expect(ms).toBeLessThanOrEqual(1300);
   });
 
   it("gives a negated link time to show its slash before it clears", () => {

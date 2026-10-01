@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { formatLp } from "./constants";
 import { duelFontClasses } from "./fonts";
+import { LP_TIMING } from "./duel-timing";
 import { noteLpMotion } from "./lp-motion";
 import styles from "./life-points.module.css";
 
@@ -33,13 +34,13 @@ const lpHoldKeys = new Set<string>();
 
 /**
  * Arm a one-shot delay for the next LP loss shown at `seat`. `key` de-duplicates re-renders
- * (use the damage event id). The hold expires after 2 s if no LP change consumes it.
+ * (use the damage event id). The hold expires after LP_TIMING.holdExpiryMs if no LP change consumes it.
  */
 export function armLpHold(seat: number, ms: number, key: string): void {
   if (lpHoldKeys.has(key)) return;
   lpHoldKeys.add(key);
   if (lpHoldKeys.size > 200) lpHoldKeys.clear();
-  lpHolds.set(seat, { ms, until: Date.now() + 2000 });
+  lpHolds.set(seat, { ms, until: Date.now() + LP_TIMING.holdExpiryMs });
 }
 
 export function takeLpHold(seat: number): number {
@@ -71,22 +72,22 @@ const UNSET = Symbol("lp-unset");
 const STRIP: readonly number[] = Array.from({ length: 30 }, (_, i) => i % 10);
 const MID = 10;
 
-// Slot-machine timing. Whole roll is ROLL_MIN_MS..ROLL_MAX_MS, scaled by the size of the hit.
-const ROLL_MIN_MS = 600;
-const ROLL_MAX_MS = 900;
+// Slot-machine timing. Whole roll is ROLL_MIN_MS..ROLL_MAX_MS (1.2 to 1.8 s), scaled by the size of the hit.
+const ROLL_MIN_MS = LP_TIMING.rollMinMs;
+const ROLL_MAX_MS = LP_TIMING.rollMaxMs;
 const BIG_HIT = 8000;
 const FIRST_STOP = 0.56; // leftmost changing reel stops at 56% of the roll, the rightmost at 100%
 const SOLO_STOP = 0.86; // a lone changing reel stops at 86%
-const SPIN_RATE_MIN = 20; // average digits per second, small hit
-const SPIN_RATE_MAX = 34; // average digits per second, big hit
+const SPIN_RATE_MIN = 14; // average digits per second, small hit (the roll is longer, so the reels turn slower: digits stay readable)
+const SPIN_RATE_MAX = 24; // average digits per second, big hit
 const SETTLE_SPLIT = 0.84; // share of a reel's time spent spinning before the snap back
 const OVERSHOOT = 0.08; // digits past the target before the snap
 const BLUR_MAX_EM = 0.045;
 const BLUR_FULL_SPEED = 55; // digits per second at which the blur is at its maximum
 const DIM_MAX = 0.22;
 const EPS = 0.001;
-const FINISH_SLACK_MS = 140;
-const CUE_MS = 500;
+const FINISH_SLACK_MS = LP_TIMING.finishSlackMs;
+const CUE_MS = LP_TIMING.cueMs;
 
 function wrap10(n: number): number {
   return ((n % 10) + 10) % 10;
@@ -161,7 +162,7 @@ export function mergeGlyphs(from: Glyph[], to: Glyph[]): Glyph[] {
 export type ReelColumn = { key: string; pos: number; target: number };
 export type ReelPlan = { key: string; from: number; target: number; travel: number; duration: number };
 
-/** Total roll time for a hit of `magnitude` LP: 0.6 s for a scratch, 0.9 s for a full 8000. */
+/** Total roll time for a hit of `magnitude` LP: 1.2 s for a scratch, 1.8 s for a full 8000. */
 export function rollDurationMs(magnitude: number): number {
   const f = Math.sqrt(Math.min(1, Math.max(0, magnitude) / BIG_HIT));
   return Math.round(ROLL_MIN_MS + (ROLL_MAX_MS - ROLL_MIN_MS) * f);
@@ -202,14 +203,15 @@ export function planReels(
 
 /**
  * Distance a reel has travelled at progress `t` (0..1) of its own duration, in digits.
- * It spins down with a long ease-out, runs slightly past the target, then snaps back.
+ * It spins down with a long ease-out (quartic, so the last digits settle slowly), runs slightly past
+ * the target, then snaps back.
  */
 export function reelDistance(t: number, travel: number): number {
   if (t <= 0) return 0;
   if (t >= 1) return travel;
   if (t < SETTLE_SPLIT) {
     const u = t / SETTLE_SPLIT;
-    return (travel + OVERSHOOT) * (1 - Math.pow(1 - u, 3));
+    return (travel + OVERSHOOT) * (1 - Math.pow(1 - u, 4));
   }
   const v = (t - SETTLE_SPLIT) / (1 - SETTLE_SPLIT);
   return travel + OVERSHOOT * Math.pow(1 - v, 2);
@@ -339,7 +341,7 @@ function applyHidden(ctx: Ctx, hidden: Set<string>) {
 function pulse(el: HTMLElement | null) {
   if (!el || typeof el.animate !== "function") return;
   try {
-    el.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: 240, easing: "ease-out" });
+    el.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: LP_TIMING.reducedFadeMs + 140, easing: "ease-out" });
   } catch {
     /* ignore */
   }

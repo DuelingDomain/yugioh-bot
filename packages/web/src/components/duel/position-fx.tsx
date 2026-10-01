@@ -36,6 +36,7 @@ import { chainEffectAt } from "./chain-beats";
 import { getMovePlan, isMoveEvent } from "./move-plan";
 import styles from "./position-fx.module.css";
 import { Track } from "./summon-fx";
+import { CARD_FX } from "./duel-timing";
 
 export type PositionFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -46,16 +47,16 @@ export type PositionFxProps = {
 };
 
 /** A quarter turn between Attack and Defense Position. */
-export const TURN_MS = 400;
+export const TURN_MS = CARD_FX.turnMs;
 /** A face-down card turning face-up (or the reverse): whole flip including the glint. */
-export const FLIP_REVEAL_MS = 560;
-/** When the face is fully showing during a reveal. Under BattleFx's BATTLE_IMPACT_MS (490) on purpose. */
-export const FLIP_FACE_AT_MS = 380;
+export const FLIP_REVEAL_MS = CARD_FX.flipRevealMs;
+/** When the face is fully showing during a reveal. Under BattleFx's BATTLE_IMPACT_MS (about 650) on purpose. */
+export const FLIP_FACE_AT_MS = CARD_FX.flipFaceAtMs;
 /** Reduced motion: the new state fades in. */
 export const REDUCED_MS = 150;
 
 const CARD_ASPECT = 0.686;
-const STAGGER_MS = 200;
+const STAGGER_MS = CARD_FX.staggerMs;
 const MAX_STAGGER_STEPS = 5;
 const MAX_ITEMS = 8;
 

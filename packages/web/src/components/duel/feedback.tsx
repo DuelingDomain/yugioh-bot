@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
 import { cardArtUrl } from "./constants";
+import { BANNER_TIMING } from "./duel-timing";
 import {
   collectFreshEvents,
   DUEL_FX_CUE_EVENT,
@@ -71,8 +72,8 @@ function cueBlurb(event: DuelEvent, card: DuelCardInfo | null): string | undefin
 
 /** Entrance and exit lengths for a cue that lives `durationMs`: in about a fifth, out a little less. */
 function cueTiming(durationMs: number, reducedMotion: boolean): CSSProperties {
-  const enter = reducedMotion ? Math.min(140, durationMs * 0.3) : clampMs(durationMs * 0.34, 80, 260);
-  const leave = reducedMotion ? Math.min(140, durationMs * 0.3) : clampMs(durationMs * 0.24, 70, 180);
+  const enter = reducedMotion ? Math.min(140, durationMs * 0.3) : clampMs(durationMs * 0.34, BANNER_TIMING.enterMin, BANNER_TIMING.enterMax);
+  const leave = reducedMotion ? Math.min(140, durationMs * 0.3) : clampMs(durationMs * 0.24, BANNER_TIMING.leaveMin, BANNER_TIMING.leaveMax);
   return {
     "--cue-total": `${Math.round(durationMs)}ms`,
     "--cue-in": `${Math.round(enter)}ms`,

@@ -37,7 +37,7 @@ export type DestroyFxProps = {
 type Box = { left: number; top: number; width: number; height: number };
 
 /** The DOM fallback: the tint flash, then the plain crack-and-shatter of SummonFx. */
-const DOM_FLASH_HOLD_MS = 700;
+const DOM_FLASH_HOLD_MS = 1000;
 type Planned = {
   key: string;
   three: boolean;
@@ -184,7 +184,7 @@ function domFlash(planned: Planned): () => void {
     document.body.appendChild(el);
     nodes.push(el);
     {
-      const flash = safeAnimate(el, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 300, easing: "ease-out", fill: "forwards" });
+      const flash = safeAnimate(el, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 450, easing: "ease-out", fill: "forwards" });
       if (flash) anims.push(flash);
     }
   }
@@ -265,7 +265,7 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
             timersRef.current.delete(timer);
             undo();
             cleanupsRef.current.delete(undo);
-          }, 400);
+          }, 600);
           timersRef.current.add(timer);
         }
       };
