@@ -1,0 +1,83 @@
+import { describe, expect, it } from "vitest";
+import { BAR_ROW_FIT, BAR_STACK_MIN, placeSelectBar, samePlace, type BarRect, type BarZone } from "@/components/duel/select-bar-place";
+
+const board: BarRect = { left: 100, right: 1100, top: 50, bottom: 950 };
+const topHand: BarRect = { left: 300, right: 900, top: 50, bottom: 130 };
+const bottomHand: BarRect = { left: 300, right: 900, top: 870, bottom: 950 };
+
+/** Two Extra Monster Zones in columns 2 and 4, with `gap` free pixels between them. */
+function emzPair(gap: number, legal: { left?: boolean; right?: boolean } = {}): BarZone[] {
+  const middle = 600;
+  return [
+    { left: middle - gap / 2 - 200, right: middle - gap / 2, top: 400, bottom: 600, legal: legal.left ?? false },
+    { left: middle + gap / 2, right: middle + gap / 2 + 200, top: 400, bottom: 600, legal: legal.right ?? false },
+  ];
+}
+
+describe("placeSelectBar", () => {
+  it("centres on the Extra Monster Zone band and the gap between the zones", () => {
+    const place = placeSelectBar({ board, emz: emzPair(700), hands: [topHand, bottomHand] });
+    expect(place.mode).toBe("mid");
+    expect(place.top).toBe(450); // band centre 500, board top 50
+    expect(place.left).toBe(500); // gap centre 600, board left 100
+  });
+
+  it("keeps one line and a limit equal to the gap when the gap holds the bar", () => {
+    const place = placeSelectBar({ board, emz: emzPair(700), hands: [] });
+    expect(place.stack).toBe(false);
+    expect(place.fit).toBe(700 - 16);
+  });
+
+  it("stacks the bar to the gap so it never covers a zone", () => {
+    const place = placeSelectBar({ board, emz: emzPair(300), hands: [] });
+    expect(place.mode).toBe("mid");
+    expect(place.stack).toBe(true);
+    expect(place.fit).toBe(300 - 16);
+    expect(300 - 16).toBeLessThan(BAR_ROW_FIT);
+  });
+
+  it("stays in the middle on a narrow gap when no Extra Monster Zone is a legal pick", () => {
+    const place = placeSelectBar({ board, emz: emzPair(100), hands: [topHand] });
+    expect(place.mode).toBe("mid");
+    expect(place.stack).toBe(true);
+    expect(place.fit).toBe(BAR_STACK_MIN);
+  });
+
+  it("falls back under the opponent's hand when a legal Extra Monster Zone would be covered", () => {
+    const place = placeSelectBar({ board, emz: emzPair(100, { right: true }), hands: [topHand, bottomHand] });
+    expect(place.mode).toBe("top");
+    expect(place.top).toBe(86); // hand bottom 130 - board top 50 + 6
+    expect(place.left).toBeNull();
+  });
+
+  it("keeps the middle for a legal Extra Monster Zone when the gap leaves it clear", () => {
+    const place = placeSelectBar({ board, emz: emzPair(300, { left: true, right: true }), hands: [] });
+    expect(place.mode).toBe("mid");
+  });
+
+  it("uses the point halfway between the hands when the format has no Extra Monster Zones", () => {
+    const place = placeSelectBar({ board, emz: [], hands: [topHand, bottomHand] });
+    // (130 + 870) / 2 - 50 = 450
+    expect(place).toMatchObject({ mode: "mid", top: 450, left: null, fit: null, stack: false });
+  });
+
+  it("falls back to the board centre when nothing can be measured", () => {
+    expect(placeSelectBar({ board, emz: [], hands: [] }).top).toBe(450);
+    const empty = placeSelectBar({ board: { left: 0, right: 0, top: 0, bottom: 0 }, emz: [], hands: [] });
+    expect(empty).toMatchObject({ mode: "mid", top: null, left: null });
+  });
+
+  it("needs a hand on each side to find the middle, else uses the board centre", () => {
+    const place = placeSelectBar({ board, emz: [], hands: [topHand] });
+    expect(place.top).toBe(450);
+  });
+});
+
+describe("samePlace", () => {
+  it("compares every field", () => {
+    const a = placeSelectBar({ board, emz: emzPair(300), hands: [] });
+    expect(samePlace(a, { ...a })).toBe(true);
+    expect(samePlace(a, { ...a, stack: !a.stack })).toBe(false);
+    expect(samePlace(a, { ...a, top: 1 })).toBe(false);
+  });
+});
