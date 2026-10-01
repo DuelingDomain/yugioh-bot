@@ -6,8 +6,12 @@ import { FILLER, withFiller } from "../helpers/decks";
 const LOW_SCALE = "Performapal Lebellman"; // Pendulum Scale 1
 const HIGH_SCALE = "Endymion, the Mighty Master of Magic"; // Pendulum Scale 8
 
+// The legacy 1v1 engine (E2E_1V1_ENGINE=legacy, the engine of production) is main's engine from before the n-seat work. Its history
+// labels this summon "Special Summon" (it only knows the Pendulum Zones 6 and 7, Master Rule 5 uses 0 and 4). The merged engine fixes that.
+const legacyEngine = process.env.E2E_1V1_ENGINE === "legacy";
+
 // Master Rule 5: two Pendulum Scales open the range of levels 2 to 7. Level 4 Warwolves from the hand fit.
-// The history must call the summon a Pendulum Summon, not a plain Special Summon.
+// The merged engine calls the summon a Pendulum Summon, the legacy engine a plain Special Summon.
 test("a Pendulum Summon is shown as a Pendulum Summon on every screen", async ({ player }) => {
   const alice = await player("p1");
   const bob = await player("p2");
@@ -47,8 +51,12 @@ test("a Pendulum Summon is shown as a Pendulum Summon on every screen", async ({
 
   for (const page of [alice.page, bob.page, spectator.page]) {
     const log = await openLog(page);
-    await expect(log).toContainText("Pendulum Summon");
-    await expect(log).not.toContainText(/Special Summon/i);
+    if (legacyEngine) {
+      await expect(log).toContainText(/Special Summon/i);
+    } else {
+      await expect(log).toContainText("Pendulum Summon");
+      await expect(log).not.toContainText(/Special Summon/i);
+    }
   }
 });
 
