@@ -878,6 +878,13 @@ export function createDuelHost(options: {
         await persistComplete(slug, guildId, game, after.result.winnerSeat, reason);
         return;
       }
+      // The loss of a seat that is flagged lands only after the open prompt is answered, and that prompt may belong to the last
+      // living seat. That seat has already won: do not wait for its answer (a time limit on it would end the duel as a draw).
+      const { living } = botTableOf(after);
+      if (living?.length === 1) {
+        await persistComplete(slug, guildId, game, living[0] ?? null, reason);
+        return;
+      }
       await emitChange(slug, guildId);
       if (drive) await driveBot(slug, guildId, game);
       return;
