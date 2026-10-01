@@ -203,7 +203,7 @@ describe("clicking an opponent board answers the prompt", () => {
       onActivate: (keys, card) => { activatePromptFromField(prompt, true, keys as string[], card as DuelCard, draft, submit); },
     });
     const board = screen.getByRole("region", { name: "Cy board" });
-    const cell = within(board).getByRole("button", { name: "Cy monster zone 2" });
+    const cell = within(board).getByRole("button", { name: "Cy monster zone 2, selectable" });
     expect(cell.closest("[data-legal]")?.getAttribute("data-legal")).toBe("true");
     fireEvent.click(cell);
     expect(submit).toHaveBeenCalledWith({ selected: ["t1"] });
@@ -223,7 +223,7 @@ describe("clicking an opponent board answers the prompt", () => {
       focusSeat: 1,
       onActivate: (keys, card) => { activatePromptFromField(prompt, true, keys as string[], card as DuelCard | null, { setSelected: vi.fn() } as never, submit); },
     });
-    fireEvent.click(within(screen.getByRole("region", { name: "Cy board" })).getByRole("button", { name: "Cy monster zone 4" }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Cy board" })).getByRole("button", { name: "Cy monster zone 4, selectable" }));
     expect(submit).toHaveBeenCalledWith({ selected: ["z3"] });
   });
 });

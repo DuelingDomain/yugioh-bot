@@ -1,4 +1,5 @@
-import type { DuelAnswer, DuelCardInfo, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelFormat, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
+import { teamOfSeat } from "@yugidraft/shared/duels";
 import {
   OcgLocation,
   OcgMessageType,
@@ -31,13 +32,15 @@ export interface MapPromptExtras {
   hintCard?: number;
   /**
    * The seat that the upper half of a SELECT_PLACE / SELECT_DISFIELD mask names. The message has no seat for it, and
-   * the core reads only the sequence of the answer (any living other seat passes). Default `player ^ 1` (1v1, Tag);
-   * with more seats the engine gives the next living opponent in turn order (`player ^ 1` can be no seat at all).
+   * the core reads only the sequence of the answer (any living other seat passes). Default `player ^ 1` (1v1);
+   * with more seats the engine gives the next living opponent in turn order (`player ^ 1` can be no seat at all,
+   * and in Tag it must not be a partner: see `nextLivingOpponentSeat`).
    */
   placeOpponent?: number;
   /**
    * The seat from the core's last HINT_PLACE_SEAT. It names the seat of the high half of the next SELECT_PLACE /
-   * SELECT_DISFIELD mask and wins over `placeOpponent`. Absent on old cores, in 1v1 and in Tag.
+   * SELECT_DISFIELD mask and wins over `placeOpponent`. Absent on old cores and in 1v1. The core sends it in Tag
+   * too: Tag has separate fields for each seat, so the seat of the high half matters there as well.
    */
   placeSeat?: number;
   /**
@@ -169,6 +172,23 @@ export function placeSeatHint(message: OcgMessage): number | null {
   if (message.type !== OcgMessageType.HINT || Number(message.hint_type) !== HINT_PLACE_SEAT) return null;
   const seat = Number(BigInt(message.hint) & 0xffffn);
   return seat === DUELIST_NONE ? null : seat;
+}
+
+/**
+ * The next living opponent of `seat` in turn order. A Tag partner is never an opponent. When no opponent lives
+ * (the duel is over) the first opposing seat of any state is returned, never a team member, so the guess for a
+ * place mask stays on the other side. `seat ^ 1` is the last resort for a table with no opposing seat at all.
+ */
+export function nextLivingOpponentSeat(format: DuelFormat, seatCount: number, seat: number, eliminated: ReadonlySet<number>): number {
+  const opposing = (other: number) => teamOfSeat(format, other) !== teamOfSeat(format, seat);
+  let fallback: number | null = null;
+  for (let step = 1; step < seatCount; step += 1) {
+    const other = (seat + step) % seatCount;
+    if (!opposing(other)) continue;
+    if (!eliminated.has(other)) return other;
+    fallback ??= other;
+  }
+  return fallback ?? seat ^ 1;
 }
 
 /**

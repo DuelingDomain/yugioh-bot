@@ -20,7 +20,7 @@ import createCore, {
   type OcgOpCode,
 } from "ocgcore-wasm";
 import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
-import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, isWaitingMessage, mapPrompt, placeSeatHint, recallPromptContext, resolveAnswer, type PendingPrompt } from "./prompts.js";
+import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, placeSeatHint, recallPromptContext, resolveAnswer, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
@@ -478,14 +478,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   /** Seats (a whole team in Tag) after `eliminate()` whose loss the core has not reported yet. */
   const leaving = new Set<number>();
   const isLeaving = (seat: number) => leaving.has(seat) && !eliminated.has(seat);
-  /** The next living opponent of a seat in turn order (the core fold's fallback opponent); `seat ^ 1` if none. */
-  const nextLivingOpponent = (seat: number): number => {
-    for (let step = 1; step < seatCount; step++) {
-      const other = (seat + step) % seatCount;
-      if (!eliminated.has(other) && teamOfSeat(format, other) !== teamOfSeat(format, seat)) return other;
-    }
-    return seat ^ 1;
-  };
+  /** The next living opponent of a seat in turn order (the core fold's fallback opponent). Never a Tag partner. */
+  const nextLivingOpponent = (seat: number): number => nextLivingOpponentSeat(format, seatCount, seat, eliminated);
   /** Zones that the core disabled, per seat (bit layout of the low half of MSG_FIELD_DISABLED). */
   const disabledZones = new Map<number, number>();
   const diagnostics: EngineDiagnostic[] = [];

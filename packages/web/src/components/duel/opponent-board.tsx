@@ -13,6 +13,7 @@ import {
   LOCATION_GRAVE,
   LOCATION_HAND,
   LOCATION_MZONE,
+  LOCATION_PZONE,
   LOCATION_REMOVED,
   POS_FACEUP_ATTACK,
   LOCATION_SZONE,
@@ -60,6 +61,14 @@ function Marks({ legal, selected }: { legal: boolean; selected: boolean }) {
   );
 }
 
+/** A zone name with its state in words: the purple ring and mark are visual only. */
+function stateLabel(label: string, state: { disabled?: boolean; legal: boolean; selected: boolean }): string {
+  const parts = [label];
+  if (state.disabled) parts.push("disabled");
+  if (state.legal) parts.push(state.selected ? "selectable, selected" : "selectable");
+  return parts.join(", ");
+}
+
 function CardCell({
   card,
   label,
@@ -81,11 +90,13 @@ function CardCell({
   const legal = anyIn(keys, callbacks.legalKeys);
   const selected = anyIn(keys, callbacks.selectedKeys);
   const defense = card != null && card.location === LOCATION_MZONE && isDefense(card.position);
+  // The ring and mark are drawn only: the state is also in the name so a screen reader hears it.
+  const name = stateLabel(label, { disabled, legal, selected });
   return (
     <div className={styles.cell} data-zones={keys.join(" ")} data-kind={kind} data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"} data-occupied={card ? "true" : "false"} data-defense={defense ? "true" : "false"}
       data-disabled={disabled ? "true" : "false"} data-testid={testId}>
-      <button type="button" className={styles.cellHit} aria-label={disabled ? `${label}, disabled` : label} aria-pressed={selected}
+      <button type="button" className={styles.cellHit} aria-label={name} aria-pressed={selected}
         aria-disabled={disabled && !card ? true : undefined}
         onClick={(event) => { if (disabled && !card) return; callbacks.onActivate(keys, card, event.currentTarget); }}
         onMouseEnter={(event) => callbacks.onHoverCard?.(card, event.currentTarget)}
@@ -134,7 +145,7 @@ function Count({
   }
   return (
     <button type="button" className={styles.count} data-zones={keys.join(" ")} data-legal={legal ? "true" : "false"}
-      data-selected={selected ? "true" : "false"} aria-label={`${title} (${count})`} aria-pressed={selected}
+      data-selected={selected ? "true" : "false"} aria-label={stateLabel(`${title} (${count})`, { legal, selected })} aria-pressed={selected}
       onClick={(event) => activate(event.currentTarget)}>
       <span>{label}</span><b>{count}</b>
     </button>
@@ -183,6 +194,51 @@ function ExtraZoneCells({
         );
       })}
     </>
+  );
+}
+
+/**
+ * Zone keys of one Spell and Trap cell. Master Rule 3 keeps its Pendulum Zones at sequence 6 and 7 (own cells);
+ * Master Rule 4 and 5 use the outer Spell and Trap Zones. Same keys as the field band (`stKeys` in field.tsx).
+ */
+function spellKeys(seat: number, sequence: number, masterRule: DuelMasterRule): string[] {
+  const keys = [zoneKey(seat, LOCATION_SZONE, sequence)];
+  if (masterRule >= 4 && sequence === 0) keys.push(zoneKey(seat, LOCATION_PZONE, 0));
+  if (masterRule >= 4 && sequence === 4) keys.push(zoneKey(seat, LOCATION_PZONE, 1));
+  return keys;
+}
+
+/** Master Rule 3 only: the two Pendulum Zones (Spell and Trap sequence 6 left, 7 right). */
+function PendulumCells({ view, name, callbacks }: { view: DuelSeatView; name: string; callbacks: SeatBoardCallbacks }) {
+  const off = disabledZones(view).pendulum;
+  return (
+    <>
+      {[6, 7].map((sequence) => {
+        const card = view.spells[sequence] ?? null;
+        const side = sequence === 6 ? "left" : "right";
+        return (
+          <CardCell key={`pz-${sequence}`} card={card} kind="st" label={`${name} ${side} pendulum zone`}
+            keys={withExact(card, [zoneKey(view.seat, LOCATION_SZONE, sequence), zoneKey(view.seat, LOCATION_PZONE, sequence - 6)])}
+            callbacks={callbacks} disabled={off[sequence - 6]} testId={`seat-pz-${view.seat}-${sequence - 5}`} />
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * The large focused opponent (top half of the field) has no compact board, so an opponent pick gets its own
+ * bar above the field. It is a real button: keyboard and screen readers use the same path as the rail boards.
+ */
+export function FocusedSeatPick({ view, name, pick }: { view: DuelSeatView; name: string; pick?: SeatPick | null }) {
+  const seat = view.seat;
+  if (view.eliminated === true || view.pendingElimination === true || pick?.options.has(seat) !== true) return null;
+  return (
+    <div className={styles.focusPick} data-pickable="true" data-seat={seat} data-testid={`seat-focus-pick-${seat}`}>
+      <span className={styles.focusName}>{name}</span>
+      <button type="button" className={styles.pick} data-testid={`seat-pick-${seat}`} aria-label={opponentPickLabel(name)}
+        onClick={() => pick.onPick(seat)}>Choose</button>
+    </div>
   );
 }
 
@@ -289,8 +345,9 @@ export function SeatBoard({
       data-eliminated={eliminated ? "true" : "false"} data-leaving={leaving ? "true" : "false"} data-expanded={expanded ? "true" : "false"}
       data-pickable={pickable ? "true" : undefined} data-team={view.team} data-testid={`seat-board-${seat}`}>
       <header className={styles.head}>
-        <button type="button" className={styles.toggle} aria-expanded={expanded} aria-label={`${expanded ? "Collapse" : "Expand"} ${name}`}
-          onClick={() => setOpen((current) => !current)}>
+        <button type="button" className={styles.toggle} aria-expanded={expanded} aria-disabled={targeted || undefined}
+          aria-label={targeted ? `${name} stays open while it has a selectable target` : `${expanded ? "Collapse" : "Expand"} ${name}`}
+          onClick={() => { if (!targeted) setOpen((current) => !current); }}>
           <span className={styles.chev} aria-hidden="true" />
         </button>
         <div className={styles.who}>
@@ -332,9 +389,10 @@ export function SeatBoard({
                   disabled={disabled.monsters[sequence]} testId={`seat-mz-${seat}-${sequence + 1}`} />
               ))}
             </div>
-            {masterRule >= 4 || master ? (
+            {masterRule >= 3 || master ? (
               <div className={styles.row} data-row="special">
                 {masterRule >= 4 ? <ExtraZoneCells view={view} name={name} callbacks={callbacks} /> : null}
+                {masterRule === 3 ? <PendulumCells view={view} name={name} callbacks={callbacks} /> : null}
                 {master ? (
                   <>
                     <CardCell card={masterFace} kind="dm" label={`${name} Deck Master ${master.card.name}${master.inZone ? "" : ", not in its zone"}`}
@@ -353,7 +411,7 @@ export function SeatBoard({
                 disabled={disabled.field} testId={`seat-fz-${seat}`} />
               {spells.map((card, sequence) => (
                 <CardCell key={`st-${sequence}`} card={card} kind="st" label={`${name} spell and trap zone ${sequence + 1}`}
-                  keys={withExact(card, [zoneKey(seat, LOCATION_SZONE, sequence)])} callbacks={callbacks}
+                  keys={withExact(card, spellKeys(seat, sequence, masterRule))} callbacks={callbacks}
                   disabled={disabled.spells[sequence]} testId={`seat-st-${seat}-${sequence + 1}`} />
               ))}
             </div>

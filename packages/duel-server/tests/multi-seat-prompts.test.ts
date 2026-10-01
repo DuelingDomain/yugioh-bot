@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { OcgLocation, OcgMessageType, OcgResponseType } from "ocgcore-wasm";
 import type { DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
 import type { CardDatabase } from "../src/cards.js";
-import { HINT_PLACE_SEAT, autoResponse, directAttackSeat, isOpponentPick, mapPrompt, opponentPickSeat, placeSeatHint, resolveAnswer } from "../src/prompts.js";
+import { HINT_PLACE_SEAT, autoResponse, directAttackSeat, isOpponentPick, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, resolveAnswer } from "../src/prompts.js";
 import { botTableOf, choosePracticeBotAnswer, chooseSeatOption, chooseSurrenderedAnswer, isSeatPick } from "../src/practice-bot.js";
 import { chooseScripted, defaultAnswer, pickOpponent } from "../src/scripted-bot.js";
 import { planAnswer } from "./fuzz/answers.js";
@@ -128,6 +128,47 @@ describe("place seat hint", () => {
     expect(withGuess.prompt.options.every((option) => option.controller === 1)).toBe(true);
     const plain = mapPrompt(placeMessage(0, mask), cards, "p1");
     expect(plain.prompt.options.every((option) => option.controller === 1)).toBe(true);
+  });
+});
+
+describe("place guess for the high half of a mask (nextLivingOpponentSeat)", () => {
+  it("FFA: the next living seat in turn order, skipping eliminated seats", () => {
+    expect(nextLivingOpponentSeat("ffa4", 4, 0, new Set())).toBe(1);
+    expect(nextLivingOpponentSeat("ffa4", 4, 0, new Set([1]))).toBe(2);
+    expect(nextLivingOpponentSeat("ffa4", 4, 3, new Set([0, 1]))).toBe(2);
+  });
+
+  it("1v1: the other seat", () => {
+    expect(nextLivingOpponentSeat("1v1", 2, 0, new Set())).toBe(1);
+    expect(nextLivingOpponentSeat("1v1", 2, 1, new Set())).toBe(0);
+  });
+
+  it("Tag: never the partner (seats 0 and 2, 1 and 3 are partners)", () => {
+    expect(nextLivingOpponentSeat("tag", 4, 0, new Set())).toBe(1);
+    expect(nextLivingOpponentSeat("tag", 4, 1, new Set())).toBe(2);
+    expect(nextLivingOpponentSeat("tag", 4, 2, new Set([3]))).toBe(1);
+    expect(nextLivingOpponentSeat("tag", 4, 0, new Set([1]))).toBe(3);
+  });
+
+  it("with no opponent alive it still names an opposing seat, never a partner or the seat itself", () => {
+    // Opposing team (1 and 3) is out: the guess stays on that side.
+    expect(nextLivingOpponentSeat("tag", 4, 0, new Set([1, 3]))).toBe(1);
+    expect(nextLivingOpponentSeat("tag", 4, 2, new Set([1, 3]))).toBe(3);
+    // FFA: everybody else is out.
+    expect(nextLivingOpponentSeat("ffa3", 3, 0, new Set([1, 2]))).toBe(1);
+  });
+
+  it("the mask prompt uses that seat for the high half", () => {
+    const mask = ~(0b1 << 16) >>> 0;
+    const seat = nextLivingOpponentSeat("tag", 4, 0, new Set([1]));
+    const { prompt } = mapPrompt(placeMessage(0, mask), cards, "p1", undefined, { placeOpponent: seat });
+    expect(prompt.options.filter((option) => option.controller !== 0).every((option) => option.controller === 3)).toBe(true);
+  });
+
+  it("the HINT_PLACE_SEAT of the core wins in Tag too", () => {
+    const mask = ~(0b1 << 16) >>> 0;
+    const { prompt } = mapPrompt(placeMessage(0, mask), cards, "p1", undefined, { placeOpponent: 1, placeSeat: 3 });
+    expect(prompt.options.filter((option) => option.controller !== 0).every((option) => option.controller === 3)).toBe(true);
   });
 });
 

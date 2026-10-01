@@ -159,6 +159,27 @@
   color: var(--ink);
 }
 
+/* The pick bar of the focused opponent: same purple as a pickable rail board. */
+.focusPick {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 7px;
+  border: 1px solid var(--pen);
+  border-radius: 4px;
+  background: rgb(10 14 26 / 0.72);
+  box-shadow: inset 0 0 0 1px rgb(155 126 255 / 0.35);
+}
+
+.focusName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
 .board[data-eliminated="true"] {
   opacity: 0.55;
   filter: grayscale(0.85);
@@ -483,6 +504,11 @@
   height: 7px;
   top: -3px;
   right: -3px;
+}
+
+.toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .cellHit:focus-visible,

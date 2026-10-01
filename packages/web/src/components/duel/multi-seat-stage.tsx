@@ -3,7 +3,7 @@
 import type { DuelEngineView, DuelMasterRule } from "@yugidraft/shared/duels";
 import { DuelField, type DuelActivateHandler, type DuelHoverHandler } from "./field";
 import type { InspectTarget } from "./inspector";
-import { SeatBoard, SeatExtras, type SeatBoardCallbacks } from "./opponent-board";
+import { FocusedSeatPick, SeatBoard, SeatExtras, type SeatBoardCallbacks } from "./opponent-board";
 import { SeatStrip } from "./seat-strip";
 import { engineFormat, isEliminated, railGroups, seatDisabledMask, seatRelation, withoutSeatExtraKeys, withoutSeatExtraZones, type SeatPick } from "./multi-seat";
 import styles from "./opponent-board.module.css";
@@ -80,6 +80,7 @@ export function MultiSeatStage({
           ))}
         </div>
       ) : null}
+      {focusView ? <FocusedSeatPick view={focusView} name={nameOf(focusView.seat)} pick={seatPick} /> : null}
       {focusView ? (
         <SeatExtras view={focusView} name={nameOf(focusView.seat)} masterRule={masterRule} showExtraZones callbacks={callbacks} />
       ) : null}

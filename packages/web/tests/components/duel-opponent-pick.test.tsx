@@ -121,6 +121,44 @@ describe("MultiSeatStage with an opponent pick", () => {
     expect(document.activeElement).toBe(button);
   });
 
+  it("the large focused opponent has its own Choose button, with the same answer as the rail boards", () => {
+    const onPick = vi.fn();
+    stage(makeEngine("ffa4", 4), 0, { seatPick: picks([1, 2, 3], onPick), focusSeat: 1 });
+    const bar = screen.getByTestId("seat-focus-pick-1");
+    expect(bar.getAttribute("data-pickable")).toBe("true");
+    const button = within(bar).getByRole("button", { name: "Choose Bo as the opponent" });
+    expect(button.tagName).toBe("BUTTON");
+    expect(button.getAttribute("type")).toBe("button");
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    expect(onPick).toHaveBeenLastCalledWith(1);
+    // The rail boards keep their own buttons, and there is one control for the focused seat only.
+    expect(screen.queryByTestId("seat-focus-pick-2")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Choose Bo as the opponent" })).toHaveLength(2); // bar + strip entry
+  });
+
+  it("gives the focused opponent no Choose button when the pick does not offer it or it is out", () => {
+    stage(makeEngine("ffa4", 4), 0, { seatPick: picks([2, 3]), focusSeat: 1 });
+    expect(screen.queryByTestId("seat-focus-pick-1")).toBeNull();
+    cleanup();
+    stage(makeEngine("ffa4", 4, { 1: { eliminated: true } }), 0, { seatPick: picks([1, 2]), focusSeat: 1 });
+    expect(screen.queryByTestId("seat-focus-pick-1")).toBeNull();
+    cleanup();
+    stage(makeEngine("ffa4", 4, { 1: { pendingElimination: true } }), 0, { seatPick: picks([1, 2]), focusSeat: 1 });
+    expect(screen.queryByTestId("seat-focus-pick-1")).toBeNull();
+    cleanup();
+    stage(makeEngine("ffa4", 4), 0, { focusSeat: 1 });
+    expect(screen.queryByTestId("seat-focus-pick-1")).toBeNull();
+  });
+
+  it("Tag: the focused opposing seat can be picked from its bar", () => {
+    const onPick = vi.fn();
+    stage(makeEngine("tag", 4), 0, { seatPick: picks([1, 3], onPick), focusSeat: 1 });
+    fireEvent.click(within(screen.getByTestId("seat-focus-pick-1")).getByRole("button"));
+    expect(onPick).toHaveBeenCalledWith(1);
+  });
+
   it("adds no pick controls without an open pick, so the table is unchanged", () => {
     stage(makeEngine("ffa4", 4), 0, { focusSeat: 1 });
     expect(screen.getByTestId("multi-seat-stage").getAttribute("data-picking")).toBeNull();
@@ -165,7 +203,7 @@ describe("a place prompt on an opponent field", () => {
     stage(makeEngine("ffa4", 4), 0, { legal: promptLegalKeys(prompt), onActivate, focusSeat: 1 });
     const board = screen.getByTestId("seat-board-3");
     expect(board.getAttribute("data-expanded")).toBe("true");
-    const cell = within(board).getByRole("button", { name: "Di monster zone 3" });
+    const cell = within(board).getByRole("button", { name: "Di monster zone 3, selectable" });
     expect(cell.closest("[data-legal]")?.getAttribute("data-legal")).toBe("true");
     expect(screen.getByTestId("seat-board-2").getAttribute("data-expanded")).toBe("false");
     fireEvent.click(cell);

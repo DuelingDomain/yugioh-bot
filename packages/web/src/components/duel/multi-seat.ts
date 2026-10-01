@@ -208,9 +208,10 @@ export function railGroups(engine: Pick<DuelEngineView, "format" | "seats">, myS
 /**
  * Disabled zones of one seat, from the optional `disabledZones` bit mask of its view. Same layout as the
  * 1v1 mask of one player: bits 0-6 Main and Extra Monster Zones (sequence 0-6), bits 8-12 Spell & Trap
- * Zones (sequence 0-4), bit 13 Field Zone.
+ * Zones (sequence 0-4), bit 13 Field Zone, bits 14-15 the two Master Rule 3 Pendulum Zones (Spell and Trap
+ * sequence 6 and 7).
  */
-export type DisabledZones = { monsters: boolean[]; spells: boolean[]; field: boolean; any: boolean };
+export type DisabledZones = { monsters: boolean[]; spells: boolean[]; pendulum: boolean[]; field: boolean; any: boolean };
 
 export function seatDisabledMask(view: object | null | undefined): number {
   const mask = (view as { disabledZones?: number } | null | undefined)?.disabledZones;
@@ -221,8 +222,9 @@ export function disabledZones(view: object | null | undefined): DisabledZones {
   const mask = seatDisabledMask(view);
   const monsters = Array.from({ length: 7 }, (_, index) => (mask & (1 << index)) !== 0);
   const spells = Array.from({ length: 5 }, (_, index) => (mask & (1 << (8 + index))) !== 0);
+  const pendulum = [(mask & (1 << 14)) !== 0, (mask & (1 << 15)) !== 0];
   const field = (mask & (1 << 13)) !== 0;
-  return { monsters, spells, field, any: field || monsters.some(Boolean) || spells.some(Boolean) };
+  return { monsters, spells, pendulum, field, any: field || monsters.some(Boolean) || spells.some(Boolean) || pendulum.some(Boolean) };
 }
 
 /** Short names of the disabled zones of a seat, for a text note. */
@@ -232,6 +234,7 @@ export function disabledZoneNames(view: object | null | undefined): string[] {
   zones.monsters.forEach((off, index) => { if (off) names.push(index < 5 ? `Monster zone ${index + 1}` : `Extra monster zone ${index - 4}`); });
   zones.spells.forEach((off, index) => { if (off) names.push(`Spell and trap zone ${index + 1}`); });
   if (zones.field) names.push("Field zone");
+  zones.pendulum.forEach((off, index) => { if (off) names.push(`${index === 0 ? "Left" : "Right"} pendulum zone`); });
   return names;
 }
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard, DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 
@@ -10,7 +10,7 @@ vi.mock("next/font/google", () => {
 });
 
 import { MultiSeatStage } from "@/components/duel/multi-seat-stage";
-import { LOCATION_MZONE } from "@/components/duel/constants";
+import { LOCATION_DECK, LOCATION_MZONE, LOCATION_PZONE, LOCATION_SZONE } from "@/components/duel/constants";
 import {
   compactSeats,
   disabledZoneNames,
@@ -214,6 +214,20 @@ describe("disabled zones per seat", () => {
     expect(disabledZoneNames({ disabledZones: mask })).toEqual(["Monster zone 2", "Extra monster zone 2", "Spell and trap zone 3", "Field zone"]);
   });
 
+  it("Master Rule 3: a disabled Pendulum Zone (bit 14) is marked and named", () => {
+    const pz = 1 << 14;
+    const zones = disabledZones({ disabledZones: pz });
+    expect(zones.pendulum).toEqual([true, false]);
+    expect(zones.any).toBe(true);
+    expect(disabledZoneNames({ disabledZones: pz })).toEqual(["Left pendulum zone"]);
+    expect(disabledZoneNames({ disabledZones: 1 << 15 })).toEqual(["Right pendulum zone"]);
+    show(fixture("ffa4", 4, { 3: { disabledZones: pz } }), 0, 1, 3);
+    const left = screen.getByTestId("seat-pz-3-1");
+    expect(left.getAttribute("data-disabled")).toBe("true");
+    expect(screen.getByTestId("seat-pz-3-2").getAttribute("data-disabled")).toBe("false");
+    expect(within(left).getByRole("button").getAttribute("aria-label")).toContain("disabled");
+  });
+
   it("marks the disabled zones of a compact board and leaves other seats alone", () => {
     show(fixture("ffa3", 3, { 2: { disabledZones: mask } }), 1, 0);
     expect(screen.getByTestId("seat-mz-2-2").getAttribute("data-disabled")).toBe("true");
@@ -229,5 +243,76 @@ describe("disabled zones per seat", () => {
     show(fixture("ffa3", 3, { 0: { disabledZones: 1 << 2 }, 1: { disabledZones: 1 << 8 } }), 0, 1);
     expect(screen.getByTestId("seat-disabled-1").textContent).toContain("Spell and trap zone 1");
     expect(screen.getByTestId("seat-disabled-0").textContent).toContain("Monster zone 3");
+  });
+});
+
+describe("compact board accessibility and Pendulum zones", () => {
+  function showLegal(engine: DuelEngineView, legal: string[], selected: string[] = [], masterRule: 3 | 4 | 5 = 4) {
+    return render(
+      <MultiSeatStage engine={engine} mySeat={0} masterRule={masterRule as never} reducedMotion
+        legalKeys={new Set(legal)} selectedKeys={new Set(selected)} onActivate={vi.fn() as never} onInspect={vi.fn()}
+        nameOf={(seat) => NAMES[seat]} promptSeat={0} focusSeat={1} onFocusSeat={vi.fn()} />,
+    );
+  }
+
+  it("says in words which cells can be chosen and which are chosen", () => {
+    const engine = fixture("ffa4", 4);
+    showLegal(engine, [`3:${LOCATION_MZONE}:1`, `3:${LOCATION_MZONE}:2`], [`3:${LOCATION_MZONE}:2`]);
+    const label = (id: string) => within(screen.getByTestId(id)).getByRole("button").getAttribute("aria-label");
+    expect(label("seat-mz-3-2")).toBe("Di monster zone 2, selectable");
+    expect(label("seat-mz-3-3")).toBe("Di monster zone 3, selectable, selected");
+    // A cell that is not a target keeps its plain name.
+    expect(label("seat-mz-3-4")).toBe("Di monster zone 4");
+    expect(label("seat-mz-2-2")).toBe("Cy monster zone 2");
+  });
+
+  it("without a prompt no label gets a state", () => {
+    show(fixture("ffa4", 4), 0, 1);
+    expect(within(screen.getByTestId("seat-mz-3-1")).getByRole("button").getAttribute("aria-label")).toBe("Di monster zone 1");
+    expect(screen.getAllByRole("button").some((button) => /selectable/.test(button.getAttribute("aria-label") ?? ""))).toBe(false);
+  });
+
+  it("the pile counters say when they are targets", () => {
+    showLegal(fixture("ffa4", 4), [`3:${LOCATION_DECK}:0`]);
+    expect(screen.getByRole("button", { name: "Di Deck (30), selectable" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Di Hand (0)" })).toBeTruthy();
+  });
+
+  it("the expand button is off while a target holds the board open, and works otherwise", () => {
+    showLegal(fixture("ffa4", 4), [`3:${LOCATION_MZONE}:1`]);
+    const held = within(screen.getByTestId("seat-board-3")).getByRole("button", { name: /Di stays open/ }) as HTMLButtonElement;
+    expect(held.getAttribute("aria-disabled")).toBe("true");
+    expect(held.disabled).toBe(false); // stays focusable
+    expect(held.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(held);
+    expect(within(screen.getByTestId("seat-board-3")).getByRole("button", { name: /Di stays open/ }).getAttribute("aria-expanded")).toBe("true");
+    const free = within(screen.getByTestId("seat-board-2")).getByRole("button", { name: "Expand Cy" }) as HTMLButtonElement;
+    expect(free.getAttribute("aria-disabled")).toBeNull();
+    expect(free.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(free);
+    expect(within(screen.getByTestId("seat-board-2")).getByRole("button", { name: "Collapse Cy" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("Master Rule 3: both Pendulum zones (Spell and Trap 6 and 7) show on a compact board and answer prompts", () => {
+    const pendulum = (sequence: number): DuelCard => ({ controller: 3, location: LOCATION_SZONE, sequence, position: 1, code: 900 + sequence, name: `Scale ${sequence}` });
+    const spells = [null, null, null, null, null, null, pendulum(6), null];
+    showLegal(fixture("ffa4", 4, { 3: { spells } }), [`3:${LOCATION_SZONE}:7`], [], 3);
+    const left = screen.getByTestId("seat-pz-3-1");
+    const right = screen.getByTestId("seat-pz-3-2");
+    expect(left.getAttribute("data-occupied")).toBe("true");
+    expect(right.getAttribute("data-occupied")).toBe("false");
+    expect(right.getAttribute("data-legal")).toBe("true");
+    expect(left.getAttribute("data-legal")).toBe("false");
+    expect(left.getAttribute("data-zones")).toContain(`3:${LOCATION_SZONE}:6`);
+    expect(left.getAttribute("data-zones")).toContain(`3:${LOCATION_PZONE}:0`);
+    expect(right.getAttribute("data-zones")).toContain(`3:${LOCATION_PZONE}:1`);
+    expect(within(right).getByRole("button").getAttribute("aria-label")).toBe("Di right pendulum zone, selectable");
+  });
+
+  it("Master Rule 4 has no separate Pendulum cells; its outer zones answer to the Pendulum location", () => {
+    showLegal(fixture("ffa4", 4), [`3:${LOCATION_PZONE}:1`]);
+    expect(screen.queryByTestId("seat-pz-3-1")).toBeNull();
+    expect(screen.getByTestId("seat-st-3-5").getAttribute("data-legal")).toBe("true");
+    expect(screen.getByTestId("seat-st-3-1").getAttribute("data-legal")).toBe("false");
   });
 });
