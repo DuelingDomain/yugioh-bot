@@ -1,0 +1,200 @@
+name: Deploy Staging
+
+# A separate staging stack on the production VM, for human tests of 3 and 4 player duels.
+# Manual only. It never runs docker compose on docker-compose.yml and never writes in /opt/yugioh-bot.
+# Runbook and owner steps: docs/deployment/staging.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git branch to run in staging"
+        required: true
+        default: feat/multiplayer-nseat-duels
+        type: string
+      refresh_db:
+        description: "Copy the production database again (staging games and sign-ins are lost)"
+        required: false
+        default: false
+        type: boolean
+      action:
+        description: "deploy builds and starts staging, stop takes it down"
+        required: true
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - stop
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    name: Staging stack on the VM
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      VM_HOST: ${{ secrets.VM_HOST }}
+      VM_USER: ${{ secrets.VM_USER }}
+      VM_SSH_PRIVATE_KEY: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+      VM_PORT: ${{ secrets.VM_PORT || '22' }}
+      # Inputs go through the environment, never straight into a shell line.
+      INPUT_REF: ${{ inputs.ref }}
+      INPUT_ACTION: ${{ inputs.action }}
+      INPUT_REFRESH_DB: ${{ inputs.refresh_db }}
+      # Optional repository variables. They are read only when .env.staging does not exist on the VM yet.
+      STAGING_DOMAIN: ${{ vars.STAGING_DOMAIN }}
+      STAGING_HOST: ${{ vars.STAGING_HOST || secrets.VM_HOST }}
+      STAGING_HTTP_PORT: ${{ vars.STAGING_HTTP_PORT }}
+
+    steps:
+      - name: Check inputs and secrets
+        run: |
+          set -eu
+          if [ -z "$VM_HOST" ] || [ -z "$VM_USER" ] || [ -z "$VM_SSH_PRIVATE_KEY" ]; then
+            echo "The VM secrets (VM_HOST, VM_USER, VM_SSH_PRIVATE_KEY) are not set." >&2
+            exit 1
+          fi
+          check() {
+            printf '%s' "$2" | grep -Eq "$3" || { echo "$1 has a value that is not allowed." >&2; exit 1; }
+          }
+          check "ref" "$INPUT_REF" '^[A-Za-z0-9._/-]+$'
+          check "action" "$INPUT_ACTION" '^(deploy|stop)$'
+          check "refresh_db" "$INPUT_REFRESH_DB" '^(true|false)$'
+          check "STAGING_HOST" "$STAGING_HOST" '^[A-Za-z0-9.-]+$'
+          if [ -n "$STAGING_DOMAIN" ]; then check "STAGING_DOMAIN" "$STAGING_DOMAIN" '^[A-Za-z0-9.-]+$'; fi
+          if [ -n "$STAGING_HTTP_PORT" ]; then check "STAGING_HTTP_PORT" "$STAGING_HTTP_PORT" '^[0-9]{2,5}$'; fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      # Same inputs as the key in deploy.yml: the standard and domain bundle is the same as production.
+      - name: Compute bundle cache key
+        if: ${{ inputs.action == 'deploy' }}
+        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
+
+      # The multi core has its own key: the series of patches and the multi build scripts.
+      # The v1 is a literal: raise it when the build step below changes (the hash cannot see it).
+      - name: Compute multi core cache key
+        if: ${{ inputs.action == 'deploy' }}
+        run: echo "MULTI_CACHE_KEY=duel-multi-core-staging-v1-${{ hashFiles('packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'patches/ocgcore-wasm+0.1.2.patch') }}" >> "$GITHUB_ENV"
+
+      - name: Read the emsdk image from pins.json
+        if: ${{ inputs.action == 'deploy' }}
+        run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
+
+      - name: Restore pinned duel-engine bundle
+        if: ${{ inputs.action == 'deploy' }}
+        id: bundle
+        uses: actions/cache/restore@v4
+        with:
+          path: data/duel-engine
+          key: ${{ env.BUNDLE_CACHE_KEY }}
+
+      - name: Setup Node.js
+        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-hit != 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Build pinned duel-engine bundle
+        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-hit != 'true' }}
+        run: |
+          npm ci --ignore-scripts
+          npx patch-package --error-on-fail
+          npm run duel:prepare
+          docker pull "$EMSDK_IMAGE"
+          npx tsx packages/duel-server/scripts/build-domain-core.ts
+          npx tsx packages/duel-server/scripts/build-domain-core.ts standard
+
+      - name: Save pinned duel-engine bundle
+        if: ${{ inputs.action == 'deploy' && steps.bundle.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: data/duel-engine
+          key: ${{ env.BUNDLE_CACHE_KEY }}
+
+      - name: Restore multi core
+        if: ${{ inputs.action == 'deploy' }}
+        id: multi
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+          key: ${{ env.MULTI_CACHE_KEY }}
+
+      # LUA_FIXED_SEED=1 and the other flags are the same as in test.yml, so staging runs the tested binary.
+      # Only the plain multi core is built. The Domain multi core does not exist yet, and without its file the
+      # duel server refuses Domain at 3 and 4 seats (packages/duel-server/src/multi-domain-guard.ts).
+      - name: Build multi core
+        if: ${{ inputs.action == 'deploy' && steps.multi.outputs.cache-hit != 'true' }}
+        run: |
+          set -eu
+          docker pull "$EMSDK_IMAGE"
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e EM_CACHE=/src/packages/duel-server/domain-core/.emcache \
+            -e LUA_FIXED_SEED=1 -e OUT_NAME=ocgcore.multi.sync.wasm \
+            -e MULTI_TREE=/src/packages/duel-server/domain-core/.build/multi-core-tree \
+            -v "$PWD":/src -w /src "$EMSDK_IMAGE" \
+            bash packages/duel-server/scripts/build-multi-core.sh
+
+      - name: Save multi core
+        if: ${{ inputs.action == 'deploy' && steps.multi.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+          key: ${{ env.MULTI_CACHE_KEY }}
+
+      - name: Verify duel-engine bundle
+        if: ${{ inputs.action == 'deploy' }}
+        run: DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
+
+      - name: Add the multi core to the bundle
+        if: ${{ inputs.action == 'deploy' }}
+        run: |
+          set -eu
+          wasm=packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+          test -s "$wasm"
+          mkdir -p "$RUNNER_TEMP/staging-bundle"
+          cp -a data/duel-engine/. "$RUNNER_TEMP/staging-bundle/"
+          cp "$wasm" "$RUNNER_TEMP/staging-bundle/ocgcore.multi.wasm"
+          sum=$(sha256sum "$wasm" | cut -d' ' -f1)
+          printf '%s  ocgcore.multi.wasm\n' "$sum" > "$RUNNER_TEMP/staging-bundle/ocgcore.multi.sha256"
+          printf 'ref=%s\ncommit=%s\nsha256=%s\nbuilt=%s\nnote=built by .github/workflows/deploy-staging.yml\n' \
+            "$INPUT_REF" "$GITHUB_SHA" "$sum" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            > "$RUNNER_TEMP/staging-bundle/ocgcore.multi.SOURCE"
+          echo "ocgcore.multi.wasm sha256 $sum"
+          echo "### Staging multi core" >> "$GITHUB_STEP_SUMMARY"
+          echo "ref \`$INPUT_REF\` at \`${GITHUB_SHA::12}\`, ocgcore.multi.wasm sha256 \`$sum\`" >> "$GITHUB_STEP_SUMMARY"
+          tar -C "$RUNNER_TEMP/staging-bundle" -czf "$RUNNER_TEMP/yugidraft-staging-bundle.tar.gz" .
+
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$VM_SSH_PRIVATE_KEY" > ~/.ssh/vm_deploy_key
+          chmod 600 ~/.ssh/vm_deploy_key
+
+      - name: Trust VM host key
+        run: ssh-keyscan -p "$VM_PORT" -H "$VM_HOST" >> ~/.ssh/known_hosts
+
+      - name: Send the bundle
+        if: ${{ inputs.action == 'deploy' }}
+        run: |
+          scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+            "$RUNNER_TEMP/yugidraft-staging-bundle.tar.gz" \
+            "$VM_USER@$VM_HOST:/tmp/yugidraft-staging-bundle.tar.gz"
+
+      # remote-deploy.sh runs in /opt/yugioh-bot-staging. All values were checked in the first step.
+      - name: Run on the VM
+        run: |
+          ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' sh -s" \
+            < scripts/staging/remote-deploy.sh
