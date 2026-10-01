@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { expect, it } from "vitest";
@@ -6,7 +6,7 @@ import type { DuelDeck, DuelFormat } from "@yugidraft/shared/duels";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { partnerSeatOf } from "@yugidraft/shared/duels";
 import { engineDataDirectory as dataDirectory } from "./engine-data-dir.js";
-import { currentDomainMultiWasm, describeWithCores, needs } from "./support/cores.js";
+import { currentDomainMultiWasm, describeWithCores, itWithCores, needs } from "./support/cores.js";
 
 // Domain duels with 3 and 4 duelists (task D1). The test loads the multi-domain core through the multiWasmBinary hook.
 // DOMAIN_MULTI_WASM names the wasm; the default is the current build (tests/support/cores.ts). Without the file every live test skips, or fails with DUEL_REQUIRE_CORES=1.
@@ -173,19 +173,52 @@ describeWithCores("domain duel with 3 and 4 duelists", needs.domainMulti(dataDir
     120_000,
   );
 
-  // The engine reads ocgcore.multi-domain.wasm from the data directory when no test hook gives a binary. Skips when the
-  // data directory has no such file (the file is installed by hand, see domain-core/patches/README.md).
-  it.skipIf(!existsSync(join(dataDirectory, "ocgcore.multi-domain.wasm")))("the engine loads ocgcore.multi-domain.wasm from the data directory", async () => {
-    for (const [format, seats] of [["ffa3", 3], ["ffa4", 4], ["tag", 4]] as const) {
-      const game = await createEngineGame({ mode: "domain", format, decks: domainDecks(seats), seed: ["5", "6", "7", "8"], dataDirectory, settings });
+  // The engine reads ocgcore.multi-domain.wasm from the data directory when no test hook gives a binary. The file is
+  // installed by hand (see domain-core/patches/README.md); a missing file skips the test, or fails it with DUEL_REQUIRE_CORES=1.
+  itWithCores(
+    "the engine loads ocgcore.multi-domain.wasm from the data directory",
+    [needs.file("installed domain multi core", join(dataDirectory, "ocgcore.multi-domain.wasm"), "Install the multi-domain core into the engine data directory (see domain-core/patches/README.md).")],
+    async () => {
+      for (const [format, seats] of [["ffa3", 3], ["ffa4", 4], ["tag", 4]] as const) {
+        const game = await createEngineGame({ mode: "domain", format, decks: domainDecks(seats), seed: ["5", "6", "7", "8"], dataDirectory, settings });
+        try {
+          expect(game.coreInfo().wasmFile).toBe("ocgcore.multi-domain.wasm");
+          for (const seat of game.view(null).seats) expect(seat.deckMaster?.inZone).toBe(true);
+        } finally {
+          game.close();
+        }
+      }
+    },
+  );
+
+  // Tag: the Deck Master summon is checked against the shared team LP, not against the LP entry of the summoning seat.
+  // Seat 2 is the partner of seat 0, so seat 0 holds the team entry. The effect of seat 0 sets the team LP at turn 1;
+  // seat 2 recalls its Deck Master and tries the summon at turn 3. The first return costs 500 LP: 400 LP must not
+  // offer the summon (the seat keeps its own, unchanged entry high), 600 LP must offer it and leave 100 LP.
+  it.each<[number, boolean]>([[400, false], [600, true]])(
+    "tag: with %i team LP the Deck Master summon of a partner seat is offered: %s",
+    async (teamLp, offered) => {
+      const decks = domainDecks(4);
+      const game = await createEngineGame({
+        mode: "domain", format: "tag", decks, seed: ["5", "6", "7", "8"], dataDirectory, settings,
+        startupScripts: sendDmScript(0, [2], `Duel.SetLP(0,${teamLp})`), multiWasmBinary: wasmBinary(),
+      });
       try {
-        expect(game.coreInfo().wasmFile).toBe("ocgcore.multi-domain.wasm");
-        for (const seat of game.view(null).seats) expect(seat.deckMaster?.inZone).toBe(true);
+        const pending = new Map([[2, decks[2]!.deckMaster!]]);
+        drive(game, () => game.view(null).turn > 5, 800, pending);
+        const view = game.view(null);
+        expect(view.seats[0]!.lp).toBe(offered ? teamLp - 500 : teamLp);
+        expect(view.seats[2]!.lp).toBe(view.seats[0]!.lp);
+        expect(pending.size).toBe(offered ? 0 : 1);
+        // The recall itself counts as the return; the cost is paid at the summon.
+        expect(view.seats[2]!.deckMaster!.returns).toBe(1);
+        expect(view.seats[2]!.monsters.some((card) => card?.code === decks[2]!.deckMaster)).toBe(offered);
       } finally {
         game.close();
       }
-    }
-  });
+    },
+    120_000,
+  );
 
   it("ffa4: an eliminated seat loses its Deck Master and the duel goes on", async () => {
     const game = await createEngineGame({
