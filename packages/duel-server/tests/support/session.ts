@@ -5,12 +5,13 @@ import { candidates as matchCandidates, matchesSel as matchSel, pickOne as match
 import { compileBoard, seatOf, type DuelistId, DUELIST_IDS } from "./board.js";
 import { cardLabel, resolveCard, type CardRef } from "./card-catalog.js";
 import type {
-  ActionKind, BoardExpect, CardSel, DuelistExpect, EventMatch, ListExpect, PromptExpect, Scenario, Step, Zone, ZoneExpect,
+  ActionKind, BoardExpect, CardSel, DuelistExpect, EventMatch, ListExpect, OptionRef, OptionsExpect, PromptExpect, Scenario, Step, Zone, ZoneExpect,
 } from "./dsl.js";
 import { readFileSync } from "node:fs";
 import createCore, { type OcgCardData } from "ocgcore-wasm";
 import { engineDataDirectory } from "../engine-data-dir.js";
 import { currentNseatWasm } from "./cores.js";
+import { EngineAnswerError } from "../../src/prompts.js";
 
 
 /** Failure of a scenario step, with the state of the duel at that moment. */
@@ -247,7 +248,8 @@ export class Session {
    */
   private settle(next: Step, stepNo: number): void {
     // A surrender keeps the routine prompt open too: giving up while a zone prompt is open is a case of its own.
-    if (["zone", "position", "raw", "auto", "choose", "surrender"].includes(next.op)) return;
+    // expectPickOptions, expectLabel and expectRetry inspect the open prompt as it is, also a routine zone or position prompt.
+    if (["zone", "position", "raw", "auto", "choose", "surrender", "expectPickOptions", "expectLabel", "expectRetry"].includes(next.op)) return;
     if (next.op === "expectPrompt") {
       const want = next.prompt;
       // Inspecting the routine prompt itself keeps it open; any other inspection settles it first.
@@ -356,7 +358,7 @@ export class Session {
       }
       case "surrender": {
         try {
-          this.game.eliminate(seatOf(step.seat), 0);
+          this.game.eliminate(seatOf(step.seat), step.reason ?? 0);
         } catch (error) {
           this.fail(stepNo, step, `The engine refused the surrender: ${(error as Error).message}`, false);
         }
@@ -431,6 +433,12 @@ export class Session {
         }
         return;
       }
+      case "expectPickOptions":
+        return this.expectPickOptions(step, stepNo);
+      case "expectLabel":
+        return this.expectLabel(step, stepNo);
+      case "expectRetry":
+        return this.expectRetry(step, stepNo);
       case "pickOpponent": {
         const open = this.need(stepNo, step, step.by);
         const want = seatOf(step.seat);
@@ -440,6 +448,107 @@ export class Session {
         }
         return this.send(stepNo, step, open, { choice: picks[0].id });
       }
+    }
+  }
+
+  private optionMatches(option: DuelPromptOption, ref: OptionRef): boolean {
+    if (ref.seat != null && option.controller !== seatOf(ref.seat)) return false;
+    if (ref.card != null && option.card?.code !== codeOf(ref.card)) return false;
+    if (ref.label != null && !option.label.toLowerCase().includes(ref.label.toLowerCase())) return false;
+    if (ref.id != null && option.id !== ref.id) return false;
+    return true;
+  }
+
+  /**
+   * Gives every ref its own option (a bipartite matching, so equal refs and overlapping refs cannot fool it).
+   * Returns the option index of each ref, or -1 when the ref has no option left.
+   */
+  private assignOptions(refs: OptionRef[], options: DuelPromptOption[]): number[] {
+    const owner = options.map(() => -1);
+    const augment = (ref: number, seen: boolean[]): boolean => {
+      for (let at = 0; at < options.length; at++) {
+        if (seen[at] || !this.optionMatches(options[at], refs[ref])) continue;
+        seen[at] = true;
+        if (owner[at] < 0 || augment(owner[at], seen)) {
+          owner[at] = ref;
+          return true;
+        }
+      }
+      return false;
+    };
+    refs.forEach((_, ref) => augment(ref, options.map(() => false)));
+    return refs.map((_, ref) => owner.indexOf(ref));
+  }
+
+  private describeOptions(options: DuelPromptOption[]): string {
+    return options.map((o) => `  ${o.id.padEnd(12)} "${o.label}"${o.controller != null ? ` [p${o.controller}]` : ""}`).join("\n") || "  (no options)";
+  }
+
+  private expectPickOptions(step: Extract<Step, { op: "expectPickOptions" }>, stepNo: number): void {
+    const open = this.need(stepNo, step, step.by);
+    const options = open.prompt.options;
+    const want: OptionsExpect = step.options;
+    const problems: string[] = [];
+    const exact = Array.isArray(want);
+    const refs = exact ? want : want.include ?? [];
+    const placed = this.assignOptions(refs, options);
+    refs.forEach((ref, index) => {
+      if (placed[index] < 0) problems.push(`no option left for ${JSON.stringify(ref)}`);
+    });
+    if (exact) {
+      const used = new Set(placed);
+      options.forEach((option, index) => {
+        if (!used.has(index)) problems.push(`unexpected option ${option.id} "${option.label}"${option.controller != null ? ` [p${option.controller}]` : ""}`);
+      });
+    } else {
+      for (const ref of want.exclude ?? []) {
+        const hit = options.find((option) => this.optionMatches(option, ref));
+        if (hit) problems.push(`${JSON.stringify(ref)} must not be offered, but ${hit.id} "${hit.label}" is`);
+      }
+      if (want.count != null && options.length !== want.count) problems.push(`expected ${want.count} option(s), got ${options.length}`);
+    }
+    if (problems.length > 0) this.fail(stepNo, step, `Options differ:\n  ${problems.join("\n  ")}\nOffered:\n${this.describeOptions(options)}`, false);
+  }
+
+  private expectLabel(step: Extract<Step, { op: "expectLabel" }>, stepNo: number): void {
+    const open = this.need(stepNo, step, step.by);
+    const hits = open.prompt.options.filter((option) => this.optionMatches(option, step.option));
+    if (hits.length !== 1) {
+      this.fail(stepNo, step, `${hits.length === 0 ? "No option matches" : `${hits.length} options match`} ${JSON.stringify(step.option)}.\nOffered:\n${this.describeOptions(open.prompt.options)}`, false);
+    }
+    if (!hits[0].label.toLowerCase().includes(step.text.toLowerCase())) {
+      this.fail(stepNo, step, `The label of option ${hits[0].id} is "${hits[0].label}", expected it to contain "${step.text}".`, false);
+    }
+  }
+
+  /** Every seat view in one string: a change in the duel state or in the open prompt changes it. */
+  private fingerprint(): string {
+    return JSON.stringify(this.seats.map((seat) => this.game.view(seat)));
+  }
+
+  private expectRetry(step: Extract<Step, { op: "expectRetry" }>, stepNo: number): void {
+    const open = this.need(stepNo, step, step.by);
+    const sender = step.as ? seatOf(step.as) : open.seat;
+    const before = this.fingerprint();
+    let refused: Error | null = null;
+    try {
+      this.game.answer(sender, open.prompt.id, step.answer);
+    } catch (error) {
+      refused = error as Error;
+    }
+    if (!refused) this.fail(stepNo, step, `The engine took the answer ${JSON.stringify(step.answer)} from p${sender}. It must refuse it.`);
+    if (!(refused instanceof EngineAnswerError)) {
+      this.fail(stepNo, step, `The answer failed with ${refused.name}: ${refused.message}. A refused answer is an EngineAnswerError.`, false);
+    }
+    if (step.error && !refused.message.includes(step.error)) {
+      this.fail(stepNo, step, `The error is "${refused.message}", expected it to contain "${step.error}".`);
+    }
+    if (this.fingerprint() !== before) {
+      this.fail(stepNo, step, `The engine refused the answer ("${refused.message}") but the state of the duel changed.`);
+    }
+    const after = this.openPrompt();
+    if (!after || after.seat !== open.seat || after.prompt.id !== open.prompt.id) {
+      this.fail(stepNo, step, `The engine refused the answer ("${refused.message}") but the open prompt is not the same one any more.`);
     }
   }
 
