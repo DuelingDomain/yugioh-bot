@@ -44,9 +44,9 @@ describe("resultGate", () => {
     expect(gate({ sinceEndMs: 3000, quietForMs: RESULT_TIMING.pauseMs })).toMatchObject({ show: true, reason: "quiet" });
   });
 
-  it("keeps the pause about one second", () => {
-    expect(RESULT_TIMING.pauseMs).toBeGreaterThanOrEqual(800);
-    expect(RESULT_TIMING.pauseMs).toBeLessThanOrEqual(1200);
+  it("keeps the pause about a second and a half", () => {
+    expect(RESULT_TIMING.pauseMs).toBeGreaterThanOrEqual(1200);
+    expect(RESULT_TIMING.pauseMs).toBeLessThanOrEqual(1800);
   });
 
   it("shows at the hard cap even when the board never reports quiet", () => {
@@ -74,7 +74,7 @@ describe("resultGate", () => {
   it("uses only a short pause under reduced motion, whatever the board does", () => {
     expect(gate({ reducedMotion: true, sinceEndMs: 0, quietForMs: null }).show).toBe(false);
     expect(gate({ reducedMotion: true, sinceEndMs: RESULT_TIMING.reducedPauseMs, quietForMs: null })).toMatchObject({ show: true, reason: "reduced" });
-    expect(RESULT_TIMING.reducedPauseMs).toBeLessThanOrEqual(300);
+    expect(RESULT_TIMING.reducedPauseMs).toBeLessThanOrEqual(500);
   });
 });
 

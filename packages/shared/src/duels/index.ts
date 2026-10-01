@@ -144,6 +144,13 @@ export interface DuelCard {
   linkMarker?: number;
   counters?: Array<{ type: number; count: number }>;
   materials?: DuelCard[];
+  /**
+   * Set on a card that is equipped to a monster (an Equip Spell, a Union monster, or any card the
+   * engine attaches with an effect): the monster's zone. Read live from the core, so it follows the
+   * monster when it moves or changes control and is gone when either card leaves the field. A hidden
+   * card carries nothing, so a face-down card never shows what it is attached to.
+   */
+  equippedTo?: DuelZoneRef;
 }
 
 export interface DuelPromptOption {
@@ -264,7 +271,7 @@ export interface DuelEvent {
   id: number;
   kind:
     | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "phase" | "damage" | "destroy" | "move" | "position";
+    | "attack" | "phase" | "damage" | "destroy" | "move" | "position" | "equip";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
@@ -275,6 +282,7 @@ export interface DuelEvent {
    * attack: the attacking monster's zone.
    * destroy: the zone the card left.
    * move: the destination zone (the card's controller after the move is `seat`).
+   * equip: the zone of the card that was equipped (it has no `card`; read it from the board).
    */
   zone?: DuelZoneRef;
   /** move: the zone the card left. Board positions are public even when the card is hidden. */
@@ -287,7 +295,13 @@ export interface DuelEvent {
   reason?: DuelMoveReason;
   /** move: the card arrived face-down (Set, or banished/returned face-down). */
   faceDown?: boolean;
-  /** attack: the attacked monster's zone; absent for a direct attack. */
+  /**
+   * move: a card effect added the card to a hand (a search from the Deck, a salvage, a bounce); it was not
+   * drawn. Set on moves to a hand that did not come from a draw. Absent on older events (a search from the
+   * Deck then reads like a draw).
+   */
+  addedToHand?: true;
+  /** attack: the attacked monster's zone; absent for a direct attack. equip: the monster it was equipped to. */
   target?: DuelZoneRef;
   /** damage: LP lost by `seat` (positive number). */
   amount?: number;

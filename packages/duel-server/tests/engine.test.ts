@@ -10,6 +10,7 @@ import {
   OcgMessageType,
   OcgPhase,
   OcgPosition,
+  OcgQueryFlags,
   OcgRace,
   OcgResponseType,
   OcgType,
@@ -254,6 +255,108 @@ describe("live race projection", () => {
     const hidden = project(1, OcgPosition.FACEDOWN_DEFENSE).seats[0].monsters[0];
     expect(hidden?.race).toBeUndefined();
     expect(JSON.stringify(hidden)).not.toMatch(/dragon/i);
+  });
+});
+
+describe("equip links in the board snapshot", () => {
+  const vacant = { position: 0, materials: 0 };
+  const player = {
+    monsters: [vacant, vacant, vacant, vacant, vacant, vacant, vacant],
+    spells: [vacant, vacant, vacant, vacant, vacant, vacant, vacant, vacant],
+    deck_size: 0,
+    hand_size: 0,
+    grave_size: 0,
+    banish_size: 0,
+    extra_size: 0,
+    extra_faceup_count: 0,
+  };
+  const monster = { code: 1, position: OcgPosition.FACEUP_ATTACK, attack: 3000, defense: 2500, level: 8 };
+  const project = (viewer: number | null, locations: Record<string, unknown[]>, flagsSeen?: bigint[]) =>
+    projectView({
+      lib: {
+        duelQueryField: () => ({ flags: 0n, players: [player, player], chain: [] }),
+        duelQueryLocation: (_handle: unknown, loc: { controller: number; location: number; flags: bigint }) => {
+          flagsSeen?.push(loc.flags);
+          return locations[`${loc.controller}:${loc.location}`] ?? [];
+        },
+      } as never,
+      handle: {} as never,
+      cards,
+      viewer,
+      revision: 1,
+      turn: 1,
+      turnSeat: 0,
+      phase: "main1",
+      lp: [8000, 8000],
+      prompt: null,
+      promptSeat: null,
+      log: [],
+      events: [],
+      result: null,
+      reveals: createRevealMap(),
+      mode: "normal",
+    });
+
+  it("asks the core for the equip relation", () => {
+    const flags: bigint[] = [];
+    project(0, {}, flags);
+    expect(flags.length).toBeGreaterThan(0);
+    for (const flag of flags) expect(Number(flag) & OcgQueryFlags.EQUIP_CARD).toBe(OcgQueryFlags.EQUIP_CARD);
+  });
+
+  it("puts the monster's zone on the equip card, for both players", () => {
+    const equip = {
+      code: 2,
+      position: OcgPosition.FACEUP,
+      equipCard: { controller: 0, location: OcgLocation.MZONE, sequence: 1, position: OcgPosition.FACEUP_ATTACK },
+    };
+    const locations = { [`0:${OcgLocation.MZONE}`]: [null, monster], [`0:${OcgLocation.SZONE}`]: [equip] };
+    const zone = { controller: 0, location: OcgLocation.MZONE, sequence: 1 };
+    expect(project(0, locations).seats[0].spells[0]?.equippedTo).toEqual(zone);
+    expect(project(1, locations).seats[0].spells[0]?.equippedTo).toEqual(zone);
+    expect(project(null, locations).seats[0].spells[0]?.equippedTo).toEqual(zone);
+    expect(project(0, locations).seats[0].monsters[1]?.equippedTo).toBeUndefined();
+  });
+
+  it("follows a monster that changed control (the zone names the other controller)", () => {
+    const equip = {
+      code: 2,
+      position: OcgPosition.FACEUP,
+      equipCard: { controller: 1, location: OcgLocation.MZONE, sequence: 3, position: OcgPosition.FACEUP_ATTACK },
+    };
+    const view = project(0, { [`0:${OcgLocation.SZONE}`]: [equip] });
+    expect(view.seats[0].spells[0]?.equippedTo).toEqual({ controller: 1, location: OcgLocation.MZONE, sequence: 3 });
+  });
+
+  it("leaves a card that is not equipped alone", () => {
+    const view = project(0, { [`0:${OcgLocation.SZONE}`]: [{ code: 2, position: OcgPosition.FACEUP }] });
+    expect(view.seats[0].spells[0]).not.toHaveProperty("equippedTo");
+  });
+
+  it("shows a hidden card's link to nobody", () => {
+    const equip = {
+      code: 2,
+      position: OcgPosition.FACEDOWN,
+      equipCard: { controller: 1, location: OcgLocation.MZONE, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE },
+    };
+    const locations = { [`1:${OcgLocation.SZONE}`]: [equip] };
+    const hidden = project(0, locations).seats[1].spells[0];
+    expect(hidden?.code).toBeUndefined();
+    expect(hidden).not.toHaveProperty("equippedTo");
+    expect(project(1, locations).seats[1].spells[0]?.equippedTo).toBeDefined();
+  });
+
+  it("keeps several equips on one monster as separate links", () => {
+    const link = { controller: 0, location: OcgLocation.MZONE, sequence: 1, position: OcgPosition.FACEUP_ATTACK };
+    const view = project(0, {
+      [`0:${OcgLocation.MZONE}`]: [null, monster],
+      [`0:${OcgLocation.SZONE}`]: [
+        { code: 2, position: OcgPosition.FACEUP, equipCard: link },
+        { code: 3, position: OcgPosition.FACEUP, equipCard: link },
+      ],
+    });
+    expect(view.seats[0].spells[0]?.equippedTo?.sequence).toBe(1);
+    expect(view.seats[0].spells[1]?.equippedTo?.sequence).toBe(1);
   });
 });
 

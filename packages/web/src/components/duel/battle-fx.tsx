@@ -18,6 +18,7 @@ import type { BattleSoundPlan } from "./attack-audio";
 import { collectFreshEvents, emitDuelFxCue, maxEventId } from "./event-queue";
 import { duelFontClasses } from "./fonts";
 import { armLpHold } from "./life-points";
+import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import styles from "./battle-fx.module.css";
 
 /**
@@ -44,11 +45,11 @@ import styles from "./battle-fx.module.css";
  */
 
 /** Reference timings (ms) for an average attack. Each play's real timing comes from its styles (attack-styles.ts). */
-export const BATTLE_TOTAL_MS = 1250;
+export const BATTLE_TOTAL_MS = paceAttack(1250);
 /** Reduced motion: flashes and fades only. */
-export const BATTLE_REDUCED_MS = 800;
-/** Reference impact time. Each style lands between 440 and 560 ms; the LP roll waits for the real one. */
-export const BATTLE_IMPACT_MS = 490;
+export const BATTLE_REDUCED_MS = ATTACK_TIMING.reducedTotalMs;
+/** Reference impact time. Each style lands between about 620 and 790 ms; the LP roll waits for the real one. */
+export const BATTLE_IMPACT_MS = paceAttack(490);
 
 export type BattleAim = {
   /** preview: dim dashed hint on an action-menu option; aim: hovering a target; locked: target chosen, awaiting confirm. */
@@ -292,11 +293,11 @@ function reducedTiming(kind: BattleKind): BattleTiming {
   // Same order as the full play (hit, then the counter, then the break), only shorter.
   const counter = hasCounterStrike(kind);
   return {
-    impactMs: 260,
-    attackerDamageMs: counter ? 420 : 400,
-    targetBreakMs: kind === "win" ? 460 : kind === "tie" ? 620 : null,
-    attackerBreakMs: kind === "lose" || kind === "tie" ? 620 : null,
-    totalMs: BATTLE_REDUCED_MS + (counter && kind !== "bounce" ? 100 : 0),
+    impactMs: ATTACK_TIMING.reducedImpactMs,
+    attackerDamageMs: counter ? ATTACK_TIMING.reducedCounterMs : ATTACK_TIMING.reducedImpactMs + 160,
+    targetBreakMs: kind === "win" ? ATTACK_TIMING.reducedBreakMs : kind === "tie" ? ATTACK_TIMING.reducedBreakTieMs : null,
+    attackerBreakMs: kind === "lose" || kind === "tie" ? ATTACK_TIMING.reducedBreakTieMs : null,
+    totalMs: BATTLE_REDUCED_MS + (counter && kind !== "bounce" ? ATTACK_TIMING.reducedCounterExtraMs : 0),
   };
 }
 
@@ -322,7 +323,9 @@ function battleDamageEvents(events: readonly DuelEvent[], attack: DuelEvent): Du
 
 /** When the LP roll for `event` starts: the counter's impact for damage to the attacker, else the strike's impact. */
 function damageDelay(event: DuelEvent, attack: DuelEvent, direct: boolean, timing: BattleTiming): number {
-  return !direct && event.seat === attack.zone?.controller ? timing.attackerDamageMs : timing.impactMs;
+  // The number moves a beat after the blow lands, so the hit is seen first and then felt.
+  const hitAt = !direct && event.seat === attack.zone?.controller ? timing.attackerDamageMs : timing.impactMs;
+  return hitAt + ATTACK_TIMING.lpAfterHitMs;
 }
 
 function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events: readonly DuelEvent[], attack: DuelEvent, layer3d = false): Play | null {

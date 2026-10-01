@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Discord from "next-auth/providers/discord";
+import { fxLabEnabled, isFxLabPublicPath } from "./fx-lab";
 
 const requiredEnv = [
   "DISCORD_CLIENT_ID",
@@ -56,7 +57,9 @@ export const {
         nextUrl.pathname.startsWith("/api/auth") ||
         nextUrl.pathname.startsWith("/_next") ||
         nextUrl.pathname === "/favicon.ico" ||
-        nextUrl.pathname.startsWith("/icons/");
+        nextUrl.pathname.startsWith("/icons/") ||
+        // The FX lab and its card art, only while DUEL_FX_LAB=1 (or in next dev).
+        (fxLabEnabled() && isFxLabPublicPath(nextUrl.pathname));
 
       if (!isLoggedIn && !isPublicRoute) {
         return Response.redirect(new URL("/login", nextUrl));

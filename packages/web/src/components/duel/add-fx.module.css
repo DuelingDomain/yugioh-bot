@@ -1,0 +1,73 @@
+/* The "Added to hand" showcase: a big card at the middle of the board with a gold glow, a label under
+   it, and a ring of light on the hand card when it lands. Nothing here takes pointer input. The card
+   itself reuses the flight ghost styles (move-fx.module.css). */
+
+.aura {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--fx-r, 4px);
+  box-shadow:
+    0 0 0 1px rgb(244 214 144 / 0.85),
+    0 0 10px 2px rgb(228 182 79 / 0.55),
+    0 0 26px 7px rgb(228 182 79 / 0.3);
+  pointer-events: none;
+}
+
+.face {
+  outline: 1px solid rgb(244 214 144 / 0.7);
+  outline-offset: -1px;
+}
+
+/* The full-size picture fades in over the small one once it has loaded (the card is shown large). */
+.full {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+}
+.full[data-ready="true"] { opacity: 1; }
+
+.label {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 14px 6px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+  color: var(--duel-chain-ink, #f4d690);
+  background: rgb(10 17 32 / 0.88);
+  border: 1px solid rgb(228 182 79 / 0.55);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.5);
+}
+
+.title {
+  font-family: var(--duel-f-ui, var(--font-duel-ui), "Arial Narrow", sans-serif);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.source {
+  font-family: var(--duel-f-ui, var(--font-duel-ui), "Arial Narrow", sans-serif);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--duel-ink-2, #c3bba8);
+}
+
+/* Placed on the hand card (left, top, width, height set in JS). */
+.ring {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  border: 2px solid var(--duel-chain, #e4b64f);
+  border-radius: 5px;
+  box-shadow:
+    0 0 14px 3px rgb(228 182 79 / 0.55),
+    inset 0 0 12px rgb(244 214 144 / 0.35);
+}

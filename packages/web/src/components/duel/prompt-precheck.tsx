@@ -12,9 +12,9 @@ export interface PrecheckCard {
 }
 
 export interface PrecheckBarProps {
-  /** Source card name, or "N effects". */
+  /** Source card name, or "N effects". The second line. */
   name: string;
-  /** The question: "You can activate an effect. Activate?" */
+  /** The question: "Activate its effect?" The title. */
   ask: string;
   /** Short phase / step line, empty when there is none. */
   context: string;
@@ -28,9 +28,11 @@ export interface PrecheckBarProps {
 }
 
 /**
- * The compact "you can activate an effect, use it?" bar. It sits in the middle of the board, like the
- * select bar, so it is easy to see; it is small so the field stays readable. Only the bar takes pointer events. Enter / Y answer Yes and Esc / N answer No through the
- * key handler in PromptCenter, which owns every shortcut of the response prompts.
+ * The compact "activate its effect?" bar. It sits in the middle of the board, like the select bar, and shares
+ * its panel style (the --pc-* tokens on the prompt layer): a thumbnail, the question as the title, the card
+ * as a muted second line, Yes and No on the right. It is small so the field stays readable. Only the bar takes
+ * pointer events. Enter / Y answer Yes and Esc / N answer No through the key handler in PromptCenter, which
+ * owns every shortcut of the response prompts.
  */
 export function PrecheckBar({ name, ask, context, cards, tone, busy, reducedMotion, onYes, onNo, onInspectCard }: PrecheckBarProps) {
   const yesRef = useRef<HTMLButtonElement>(null);
@@ -47,7 +49,7 @@ export function PrecheckBar({ name, ask, context, cards, tone, busy, reducedMoti
       data-tone={tone}
       data-reduced={reducedMotion ? "true" : "false"}
       role="group"
-      aria-label={`${name}. ${ask}`}
+      aria-label={`${ask} ${name}`}
       aria-live="polite"
     >
       <div className={styles.thumbs} data-count={cards.length}>
@@ -67,9 +69,9 @@ export function PrecheckBar({ name, ask, context, cards, tone, busy, reducedMoti
           </span>
         ))}
       </div>
-      <div className={styles.text}>
-        <b title={name}>{name}</b>
-        <span className={styles.ask}>{ask}</span>
+      <div className={styles.text} title={context ? `${name}\n${context}` : name}>
+        <b>{ask}</b>
+        <span className={styles.name}>{name}</span>
         {context ? <small className={styles.context}>{context}</small> : null}
       </div>
       <div className={styles.btns}>

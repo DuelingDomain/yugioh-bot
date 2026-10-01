@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, ArrowUpFromLine, Layers, RotateCw, Shuffle, Sparkles, Swords, Zap, type LucideIcon } from "lucide-react";
-import type { DuelCard, DuelPromptOption } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo, DuelPromptOption } from "@yugidraft/shared/duels";
 import { cardDetailsText, cardStatsText } from "./constants";
 import { duelFontClasses } from "./fonts";
 import styles from "./room.module.css";
@@ -255,7 +255,7 @@ export function CardActionMenu({
  * Passive card tooltip. It never covers an open prompt panel or pile viewer: it moves to a clear
  * side of the card, and hides when there is none.
  */
-export function CardHoverInfo({ card, anchor }: { card: DuelCard; anchor: HTMLElement }) {
+export function CardHoverInfo({ card, anchor }: { card: DuelCard | DuelCardInfo; anchor: HTMLElement }) {
   const { ref, style } = useAnchoredPosition(anchor, false, "above", true);
   const stats = cardStatsText(card);
   const details = cardDetailsText(card);

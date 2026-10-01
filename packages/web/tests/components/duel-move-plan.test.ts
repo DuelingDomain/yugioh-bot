@@ -30,15 +30,15 @@ const geometry = () => ({ distance: 300 });
 beforeEach(() => resetMoveSchedule("t"));
 
 describe("baseDuration", () => {
-  it("keeps placements between 480 and 600 ms", () => {
-    expect(baseDuration("place", 0)).toBe(480);
-    expect(baseDuration("place", 200)).toBeGreaterThan(480);
-    expect(baseDuration("place", 5000)).toBe(600);
+  it("keeps placements between 700 and 860 ms", () => {
+    expect(baseDuration("place", 0)).toBe(700);
+    expect(baseDuration("place", 200)).toBeGreaterThan(700);
+    expect(baseDuration("place", 5000)).toBe(860);
   });
-  it("keeps tosses between 460 and 580 ms and draws at 520 ms", () => {
-    expect(baseDuration("toss", 0)).toBe(460);
-    expect(baseDuration("toss", 5000)).toBe(580);
-    expect(baseDuration("draw", 300)).toBe(520);
+  it("keeps tosses between 680 and 840 ms and draws at 740 ms", () => {
+    expect(baseDuration("toss", 0)).toBe(680);
+    expect(baseDuration("toss", 5000)).toBe(840);
+    expect(baseDuration("draw", 300)).toBe(740);
     expect(baseDuration("fade", 300)).toBe(150);
   });
 });
@@ -71,12 +71,12 @@ describe("planMoves", () => {
     expect(plans[0].durationMs).toBeGreaterThanOrEqual(baseDuration("place", 300) * MOVE_TIMING.minSpeed - 1);
   });
 
-  it("keeps a batch under about 3 s and each card a distinct beat apart", () => {
-    expect(MOVE_TIMING.queueCapMs).toBeLessThanOrEqual(3000);
+  it("keeps a batch under about 4.4 s and each card a distinct beat apart", () => {
+    expect(MOVE_TIMING.queueCapMs).toBeLessThanOrEqual(4400);
     const events = Array.from({ length: 5 }, (_, i) => move(i + 1, z(0, DECK, 0), z(0, HAND, 3 + i), { reason: "draw" }));
     const plans = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
     expect(plans.every((p) => p.style === "draw")).toBe(true);
-    expect(plans[plans.length - 1].landAt).toBeLessThanOrEqual(3000 + 1);
+    expect(plans[plans.length - 1].landAt).toBeLessThanOrEqual(4400 + 1);
     for (let i = 1; i < plans.length; i += 1) {
       expect(plans[i].startAt - plans[i - 1].startAt).toBeGreaterThanOrEqual(MOVE_TIMING.minGapMs - 0.001);
     }
@@ -89,7 +89,7 @@ describe("planMoves", () => {
     expect(b.startAt).toBeLessThan(a.landAt);
   });
 
-  it("keeps every flight under 800 ms", () => {
+  it("keeps every flight under 1 s (the add to hand showcase is longer on purpose)", () => {
     const events = [
       move(1, z(0, DECK, 0), z(0, HAND, 0)),
       move(2, z(0, GRAVE, 0), z(0, HAND, 1)),
@@ -97,7 +97,8 @@ describe("planMoves", () => {
       move(4, z(0, MZONE, 1), z(0, REMOVED, 0)),
     ];
     for (const plan of planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry: () => ({ distance: 5000 }) })) {
-      expect(plan.durationMs).toBeLessThan(800);
+      if (plan.style === "add") continue;
+      expect(plan.durationMs).toBeLessThan(1000);
     }
   });
 
@@ -134,9 +135,9 @@ describe("moveStyleOf", () => {
     const style = (from: DuelZoneRef, to: DuelZoneRef, extra: Partial<DuelEvent> = {}) => moveStyleOf(move(1, from, to, extra), false);
     expect(style(z(0, DECK, 0), z(0, HAND, 3), { reason: "draw" })).toBe("draw");
     expect(style(z(0, DECK, 0), z(0, HAND, 3), { reason: "other" })).toBe("draw");
-    expect(style(z(0, GRAVE, 2), z(0, HAND, 3))).toBe("search");
-    expect(style(z(0, REMOVED, 0), z(0, HAND, 3))).toBe("search");
-    expect(style(z(0, MZONE, 2), z(0, HAND, 3), { reason: "return" })).toBe("return");
+    expect(style(z(0, GRAVE, 2), z(0, HAND, 3))).toBe("add");
+    expect(style(z(0, REMOVED, 0), z(0, HAND, 3))).toBe("add");
+    expect(style(z(0, MZONE, 2), z(0, HAND, 3), { reason: "return" })).toBe("add");
     expect(style(z(0, HAND, 3), z(0, MZONE, 1))).toBe("place");
     expect(style(z(0, HAND, 3), z(0, SZONE, 1))).toBe("place");
     expect(style(z(0, 0x40, 0), z(0, MZONE, 1))).toBe("place");
@@ -145,9 +146,10 @@ describe("moveStyleOf", () => {
     expect(style(z(0, MZONE, 3), z(0, 0x40, 0))).toBe("toss");
     expect(moveStyleOf(move(1, z(0, DECK, 0), z(0, HAND, 3)), true)).toBe("fade");
   });
-  it("plans a search from the Graveyard as a 680 ms lift, reveal and settle", () => {
-    expect(baseDuration("search", 300)).toBe(MOVE_TIMING.search);
-    expect(MOVE_TIMING.search).toBeLessThan(800);
+  it("keeps an add to hand under reduced motion, and fades every other move", () => {
+    expect(moveStyleOf(move(1, z(0, GRAVE, 2), z(0, HAND, 3)), true)).toBe("add");
+    expect(moveStyleOf(move(1, z(0, DECK, 0), z(0, HAND, 3), { addedToHand: true } as Partial<DuelEvent>), true)).toBe("add");
+    expect(moveStyleOf(move(1, z(0, HAND, 3), z(0, MZONE, 1)), true)).toBe("fade");
   });
 });
 
@@ -192,19 +194,5 @@ describe("buildFlight", () => {
     const flight = buildFlight({ style: "toss", dx: 100, dy: -100, startScale: 1, startRot: 0, endRot: 0, cardH: 100, spin: 15 });
     for (const frame of flight.card) expect(frame.opacity).toBe(1);
     expect(String(flight.card[flight.card.length - 1].transform)).toBe("translate3d(0px, 0px, 0) rotate(0deg) scale(1)");
-  });
-  it("holds a searched card face-up mid-flight before it settles", () => {
-    const flight = buildFlight({ style: "search", dx: 300, dy: 200, startScale: 1, startRot: 0, endRot: 0, cardH: 100, spin: 0 });
-    const pos = (i: number) => {
-      const m = /translate3d\(([-\d.]+)px, ([-\d.]+)px/.exec(String(flight.card[i].transform))!;
-      return Math.hypot(Number(m[1]), Number(m[2]));
-    };
-    const n = flight.card.length - 1;
-    // Around the hold (30-50% of the flight) the card barely travels.
-    const a = Math.round(n * 0.32);
-    const b = Math.round(n * 0.48);
-    expect(pos(a) - pos(b)).toBeLessThan(pos(0) * 0.12);
-    expect(flight.flip[1]).toBeLessThan(0.4);
-    expect(String(flight.card[n].transform)).toBe("translate3d(0px, 0px, 0) rotate(0deg) scale(1)");
   });
 });

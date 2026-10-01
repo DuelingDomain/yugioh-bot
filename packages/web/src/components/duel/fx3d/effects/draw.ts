@@ -486,7 +486,7 @@ export function sparks(
 /** A silhouette / generic timed mesh: shows between `at` and `end`, fades in and out. */
 export function timedMesh(
   st: Stage,
-  name: "sil" | "hex" | "tide" | "glow" | "vortex" | "galaxy" | "pillar" | "ring",
+  name: "sil" | "tide" | "glow" | "vortex" | "galaxy" | "pillar" | "ring",
   o: { p: P; w: number; h?: number; rot?: number; at: number; end: number; fadeIn?: number; fadeOut?: number; peak?: number },
   setup: (mesh: ReturnType<Rig["mesh"]>) => void,
   tick?: (mesh: ReturnType<Rig["mesh"]>, sec: number, k: number) => void,

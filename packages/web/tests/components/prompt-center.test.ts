@@ -181,6 +181,6 @@ describe("answering a pick on the board or in a strip", () => {
   it("counts the chosen cards of a one-at-a-time pick from the options", () => {
     const draft = { selected: [] } as never;
     const base = prompt({ kind: "toggle", min: 2, max: 3, options: [field(0, { selected: true }), field(1)] });
-    expect(selectionStatus(base, draft, false)).toBe("1 selected \u00b7 2 to 3");
+    expect(selectionStatus(base, draft, false)).toBe("Pick 2 to 3 \u00b7 1 selected");
   });
 });

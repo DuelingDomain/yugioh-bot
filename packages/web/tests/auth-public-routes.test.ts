@@ -81,4 +81,38 @@ describe("auth public routes", () => {
     expect(result).toBeInstanceOf(Response);
     expect((result as Response).headers.get("location")).toBe("http://localhost/login");
   });
+  describe("FX lab routes", () => {
+    afterEach(() => {
+      delete process.env.DUEL_FX_LAB;
+    });
+
+    it("lets the lab page and the card art through when DUEL_FX_LAB=1", async () => {
+      process.env.DUEL_FX_LAB = "1";
+      const authorized = await loadAuthorizedCallback();
+
+      for (const path of ["/dev/fx-lab", "/api/cards/89631139/image"]) {
+        const result = await authorized({ auth: null, request: { nextUrl: new URL(`http://localhost${path}`) } });
+        expect(result, path).toBe(true);
+      }
+    });
+
+    it("keeps the lab behind login when the switch is off", async () => {
+      const authorized = await loadAuthorizedCallback();
+
+      for (const path of ["/dev/fx-lab", "/api/cards/89631139/image"]) {
+        const result = await authorized({ auth: null, request: { nextUrl: new URL(`http://localhost${path}`) } });
+        expect(result, path).toBeInstanceOf(Response);
+      }
+    });
+
+    it("opens only the lab page and card art, nothing else under it", async () => {
+      process.env.DUEL_FX_LAB = "1";
+      const authorized = await loadAuthorizedCallback();
+
+      for (const path of ["/dev/other", "/api/cards/resolve", "/api/cards/1/image/extra", "/draft/example"]) {
+        const result = await authorized({ auth: null, request: { nextUrl: new URL(`http://localhost${path}`) } });
+        expect(result, path).toBeInstanceOf(Response);
+      }
+    });
+  });
 });

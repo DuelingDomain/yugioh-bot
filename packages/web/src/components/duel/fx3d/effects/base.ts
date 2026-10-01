@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { ArtStore } from "../art";
 import { rectToWorld } from "../coords";
 import type { FxKit, ParticleSet, ShaderName } from "../kit";
+import type { PostUniforms } from "../post";
 import type { FxRequest, FxTint, Rgb } from "../types";
 
 /** What an effect gets from the engine. */
@@ -13,11 +14,20 @@ export type FxEnv = {
   /** 1 at full quality; lower when the frame rate drops (fewer particles). */
   quality: number;
   art: ArtStore;
+  /** The uniforms of the full-screen post pass (see post.ts). Written only by instances with `usesPost`. */
+  post: PostUniforms;
 };
+
+/** Board shake of one frame: CSS px (x right, y DOWN) and radians (clockwise). The engine applies it to the page board and the canvas. */
+export type FxShake = { x: number; y: number; rot: number };
 
 /** A running effect. `update` gets seconds since the start; the engine disposes it when `durationMs` has passed. */
 export interface FxInstance {
   readonly durationMs: number;
+  /** The effect draws through the post pass (lens, shock, flash...). The engine resets the post uniforms before each `update`. */
+  readonly usesPost?: boolean;
+  /** Board shake at `sec` (before the shake preference is applied: the engine scales it by `request.shake` and clamps it). */
+  shake?(sec: number): FxShake;
   update(sec: number): void;
   dispose(): void;
 }

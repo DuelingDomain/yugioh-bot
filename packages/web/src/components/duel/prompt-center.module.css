@@ -1,6 +1,10 @@
 /* Centred prompts: Match Sheet.
    A floating sheet over the middle of the board. Gold marks a chain response, purple marks your pick.
-   The layer never blocks the field: only the panel, the bar and the pill take pointer events. */
+   The layer never blocks the field: only the panel, the bar and the pill take pointer events.
+
+   One family: the select bar, the yes/no bar (prompt-precheck.module.css) and the card-grid panel share the
+   --pc-* tokens below: a dark blurred surface, a hairline border, a soft shadow, a semibold title over a muted
+   second line, and 8px buttons. Accent colour marks only the primary action. */
 
 .layer {
   position: absolute;
@@ -11,6 +15,18 @@
   font-family: var(--duel-f-ui, var(--font-body));
   font-size: var(--duel-t-body, 13px);
   line-height: 1.35;
+
+  --pc-surface: rgb(11 17 32 / 0.95);
+  --pc-border: 1px solid rgb(239 231 213 / 0.14);
+  --pc-border-chain: 1px solid rgb(228 182 79 / 0.42);
+  --pc-shadow: 0 10px 28px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(239 231 213 / 0.06);
+  --pc-radius: 14px;
+  --pc-pad-y: 12px;
+  --pc-pad-x: 14px;
+  --pc-title: clamp(15px, calc(15 * var(--duel-unit, 1px)), 17px);
+  --pc-sub: clamp(12px, calc(12.5 * var(--duel-unit, 1px)), 14px);
+  --pc-btn-h: 32px;
+  --pc-btn-radius: 8px;
 }
 
 @keyframes rise {
@@ -38,16 +54,16 @@
   overflow-y: auto;
   isolation: isolate;
   pointer-events: auto;
-  border: 1px solid rgb(155 126 255 / 0.6);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgb(17 26 48 / 0.93), rgb(9 14 27 / 0.95));
-  backdrop-filter: blur(8px) saturate(1.1);
+  border: var(--pc-border);
+  border-radius: var(--pc-radius);
+  background: var(--pc-surface);
+  backdrop-filter: blur(10px) saturate(1.1);
   box-shadow:
-    inset 0 1px 0 rgb(239 231 213 / 0.08),
-    0 0 0 1px rgb(0 0 0 / 0.55),
-    0 22px 56px rgb(0 0 0 / 0.6);
+    inset 0 1px 0 rgb(239 231 213 / 0.06),
+    0 0 0 1px rgb(0 0 0 / 0.5),
+    0 18px 48px rgb(0 0 0 / 0.55);
   outline: none;
-  animation: rise 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: rise 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
 /* A soft dim only around the panel, so the rest of the board stays fully readable. */
@@ -60,26 +76,22 @@
   background: radial-gradient(closest-side, rgb(4 7 14 / 0.5), transparent);
 }
 
-.panel[data-tone="chain"] {
-  border-color: rgb(228 182 79 / 0.7);
-  box-shadow:
-    inset 0 1px 0 rgb(244 214 144 / 0.16),
-    0 0 0 1px rgb(0 0 0 / 0.55),
-    0 22px 56px rgb(0 0 0 / 0.6),
-    0 0 34px rgb(228 182 79 / 0.1);
-}
+.panel[data-tone="chain"] { border: var(--pc-border-chain); }
 
 .panel[data-wide="true"] { width: min(640px, calc(100% - 24px)); }
-/* A card strip is as wide as its cards need and no wider, so most of the field stays in view. */
+/* A card strip is as wide as its cards need, up to about six large cards, and never wider than the board
+   (the layer is the board box). A longer list scrolls inside the strip; the header stays whole above it. */
 .panel[data-strip="true"] {
   width: fit-content;
-  min-width: min(calc(300 * var(--duel-unit, 1px)), calc(100% - 24px));
-  max-width: min(calc(720 * var(--duel-unit, 1px)), calc(100% - 24px));
+  min-width: min(calc(420 * var(--duel-unit, 1px)), calc(100% - 24px));
+  max-width: min(calc(1000 * var(--duel-unit, 1px)), calc(100% - 24px));
   gap: calc(4 * var(--duel-unit, 1px));
-  padding: calc(9 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px)) calc(10 * var(--duel-unit, 1px));
+  padding: calc(10 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px));
 }
-.panel[data-strip="true"] .titles h2 { font-size: var(--duel-t-head, 14px); font-weight: 600; line-height: 1.25; }
-.panel[data-strip="true"] .titles p { margin-top: calc(1 * var(--duel-unit, 1px)); font-size: var(--duel-t-xs, 11px); }
+.panel[data-strip="true"] .head { padding-inline: calc(6 * var(--duel-unit, 1px)); }
+.panel[data-strip="true"] .titles { text-align: left; }
+.panel[data-strip="true"] .titles h2 { font-size: var(--pc-title); line-height: 1.25; }
+.panel[data-strip="true"] .titles p { margin-top: calc(1 * var(--duel-unit, 1px)); font-size: var(--pc-sub); }
 
 .panel[data-reduced="true"], .bar[data-reduced="true"], .pill[data-reduced="true"] { animation: none; }
 
@@ -93,18 +105,18 @@
 
 .titles h2 {
   margin: 0;
-  font-size: var(--duel-t-name, 18px);
-  font-weight: 400;
-  letter-spacing: 0.005em;
-  line-height: 1.2;
-  overflow-wrap: anywhere;
+  font-size: clamp(16px, calc(16 * var(--duel-unit, 1px)), 19px);
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+  text-wrap: balance;
 }
 .panel[data-tone="chain"] .titles h2 { color: var(--duel-chain-ink, #f4d690); }
 
 .titles p {
   margin: calc(3 * var(--duel-unit, 1px)) 0 0;
   color: var(--duel-ink-2, #c3bba8);
-  font-size: var(--duel-t-sm, 12px);
+  font-size: var(--pc-sub);
   line-height: 1.4;
 }
 
@@ -483,7 +495,7 @@
   min-height: calc(36 * var(--duel-unit, 1px));
   padding: 0 calc(16 * var(--duel-unit, 1px));
   border: 1px solid var(--duel-rule-hi, rgb(181 153 99 / 0.6));
-  border-radius: 6px;
+  border-radius: var(--pc-btn-radius, 8px);
   background: transparent;
   color: var(--duel-ink, #efe7d5);
   font-family: var(--duel-f-ui, var(--font-body));
@@ -647,30 +659,35 @@
 }
 
 /* ---------- instruction bar (on-board picks) ---------- */
-/* The bar is the current step, so it sits in the middle band of the board (between the two fields, centred
-   on the gap between the Extra Monster Zones). prompt-center.tsx sets top/left and --bar-fit (the free width
-   between those zones). The bar itself lets clicks through to the zones behind it: only its buttons take them.
+/* The bar is the current step, so it sits in the middle band of the board, centred (see select-bar-place.ts).
+   prompt-center.tsx sets top/left and --bar-fit (the free width between the Extra Monster Zones, only when
+   that gap holds the bar). It is 240 to 420px wide, never squeezed; a gap that is too narrow is not used.
+   Layout: [card thumbnail] [title over a muted second line] [buttons]. Narrow (data-stack): the buttons go
+   under the text in one even row. The bar lets clicks through to the zones behind it: only its buttons and,
+   in the middle band, its text (for the tooltip) take them.
    data-place="top" is the fallback under the opponent's hand, used only when an Extra Monster Zone is a legal
    pick and the gap is too narrow to keep it clear. */
 .bar {
   position: absolute;
   left: 50%;
   translate: -50% -50%;
+  box-sizing: border-box;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  gap: calc(6 * var(--duel-unit, 1px)) calc(12 * var(--duel-unit, 1px));
+  justify-content: space-between;
+  gap: calc(10 * var(--duel-unit, 1px)) calc(16 * var(--duel-unit, 1px));
   width: max-content;
-  max-width: min(520px, calc(100% - 24px), var(--bar-fit, 520px));
-  padding: calc(5 * var(--duel-unit, 1px)) calc(6 * var(--duel-unit, 1px)) calc(5 * var(--duel-unit, 1px)) calc(14 * var(--duel-unit, 1px));
-  border: 1px solid rgb(239 231 213 / 0.16);
-  border-radius: calc(20 * var(--duel-unit, 1px));
-  background: rgb(10 16 31 / 0.92);
-  backdrop-filter: blur(6px);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.42);
+  min-width: min(240px, calc(100% - 24px));
+  max-width: min(420px, calc(100% - 24px), var(--bar-fit, 420px));
+  padding: var(--pc-pad-y) var(--pc-pad-x);
+  border: var(--pc-border);
+  border-radius: var(--pc-radius);
+  background: var(--pc-surface);
+  backdrop-filter: blur(10px) saturate(1.1);
+  box-shadow: var(--pc-shadow);
   pointer-events: none;
-  animation: settle 0.22s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: settle 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 .bar[data-place="top"] { translate: -50% 0; }
 @media (prefers-reduced-motion: no-preference) {
@@ -680,40 +697,65 @@
   from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: none; }
 }
-/* Title on one line (ellipsis), the count as a small muted label beside it. */
-.barText { display: flex; flex: 1 1 auto; align-items: baseline; gap: calc(8 * var(--duel-unit, 1px)); min-width: 0; }
-.barText b {
+.bar[data-place="mid"] .barMain { pointer-events: auto; }
+
+.barMain {
+  display: flex;
+  flex: 1 1 calc(150 * var(--duel-unit, 1px));
+  align-items: center;
+  gap: 12px;
   min-width: 0;
-  overflow: hidden;
-  font-size: calc(13 * var(--duel-unit, 1px));
+}
+/* No buttons: the text is centred in the bar. */
+.bar[data-actions="false"] .barMain { justify-content: center; text-align: center; }
+.barThumb {
+  flex: none;
+  display: block;
+  width: 30px;
+  aspect-ratio: 59 / 86;
+  border-radius: 3px;
+  object-fit: cover;
+  background: var(--duel-panel-3, #132037);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.65), 0 3px 8px rgb(0 0 0 / 0.45);
+}
+
+/* Title: whole, wraps at spaces, never cut. Second line: card or purpose and progress, muted. */
+.barText { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.barText b {
+  font-size: var(--pc-title);
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+  text-wrap: balance;
 }
 .barText span {
-  flex: none;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   color: var(--duel-ink-2, #c3bba8);
-  font-size: calc(11.5 * var(--duel-unit, 1px));
+  font-size: var(--pc-sub);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: break-word;
 }
 /* Purple only when the pick can be confirmed. */
 .bar[data-ready="true"] .barText span { color: var(--duel-pen-ink, #c6b6ff); }
-.barBtns { display: flex; flex: none; gap: calc(6 * var(--duel-unit, 1px)); pointer-events: auto; }
+
+.barBtns { display: flex; flex: none; justify-content: flex-end; gap: 8px; margin-left: auto; pointer-events: auto; }
 .bar .btn {
-  min-height: calc(26 * var(--duel-unit, 1px));
-  padding: 0 calc(12 * var(--duel-unit, 1px));
-  border-radius: 999px;
-  font-size: calc(12.5 * var(--duel-unit, 1px));
+  min-width: 64px;
+  min-height: var(--pc-btn-h);
+  padding: 0 14px;
+  font-size: var(--pc-sub);
+  white-space: nowrap;
 }
 .bar .btn:disabled { border-style: solid; border-color: var(--duel-rule, rgb(181 153 99 / 0.34)); background: transparent; color: var(--duel-ink-2, #c3bba8); opacity: 0.45; }
 
-/* Narrow gap between the Extra Monster Zones: the count drops under the title, buttons under that. */
-.bar[data-stack="true"] { padding: calc(8 * var(--duel-unit, 1px)) calc(10 * var(--duel-unit, 1px)); text-align: center; }
-.bar[data-stack="true"] .barText { flex-wrap: wrap; justify-content: center; gap: 0 calc(8 * var(--duel-unit, 1px)); }
-.bar[data-stack="true"] .barText b { flex: 1 1 100%; }
-.bar[data-stack="true"] .barBtns { flex: 1 1 100%; justify-content: center; }
-.bar[data-stack="true"] .btn { flex: 1 1 auto; justify-content: center; }
+/* Narrow bar: the text takes the first row, the buttons share the second row evenly. */
+.bar[data-stack="true"] .barMain { flex: 1 1 100%; }
+.bar[data-stack="true"] .barBtns { flex: 1 1 100%; margin-left: 0; }
+.bar[data-stack="true"] .btn { flex: 1 1 0; }
 
 /* ---------- collapsed pill ---------- */
 .pill {

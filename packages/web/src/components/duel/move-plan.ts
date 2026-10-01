@@ -6,12 +6,15 @@
  * The plan is a pure function of the fresh events, the clock and the measured distance, and it is
  * memoised per event id, so whichever layer sees a batch first plans it and the others read it.
  *
- * Human pacing (Master Duel / Hearthstone speed): a card placed from the hand takes 480-600 ms, a
- * toss into a pile 460-580 ms, a draw about 520 ms, a card returned to the hand 500 ms, a card
- * taken back from a pile (search, salvage) 680 ms. Moves queue one after another; the next one
- * starts when the previous one is 70% through (never less than minGapMs later, so two draws stay
- * two cards). A long burst is compressed, never skipped, so the whole queue trails no more than
- * about 3 s, and no flight is squeezed below 55% of its length.
+ * Human pacing (the numbers live in duel-timing.ts): a card placed from the hand takes 700-860 ms,
+ * a toss into a pile 680-840 ms, a draw about 740 ms. A card that an effect adds to a hand (a search,
+ * Painful Choice, a salvage, a bounce) is shown: it rises to the middle of the board, is held there
+ * (about 800 ms), then flies into the hand (add-to-hand.ts). Moves queue one after another; the next
+ * one starts when the previous one is 70% through (never less than minGapMs later, so two draws stay
+ * two cards). The next move after a showcase starts when the showcase card sets off for the hand, and
+ * the showcases of one effect go first. A long burst is compressed, never skipped, so the whole queue
+ * trails no more than about 4.4 s, and no flight is squeezed below 60% of its length (a showcase hold
+ * is never under holdMinMs).
  */
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
@@ -22,34 +25,40 @@ import {
   LOCATION_REMOVED,
   zoneKey,
 } from "./constants";
-import { battleBreakIs3d, battleDestroyAt, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
+import { battleBreakIs3d, battleDestroyAt, battleTakeover, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
 import { playsBigSummon } from "./big-summon";
+import { MOVE_PACE } from "./duel-timing";
+import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type ShowcaseOrigin, type ShowcasePhases } from "./add-to-hand";
+import { chainEffectAt } from "./chain-beats";
 import { findZoneElement } from "./event-queue";
 
 export const MOVE_TIMING = {
-  placeMin: 480,
-  placeMax: 600,
-  tossMin: 460,
-  tossMax: 580,
-  draw: 520,
-  ret: 500,
-  /** A card taken from the Graveyard or banished pile into the hand: it lifts out, shows its face, then settles. */
-  search: 680,
-  reduced: 150,
+  placeMin: MOVE_PACE.placeMinMs,
+  placeMax: MOVE_PACE.placeMaxMs,
+  tossMin: MOVE_PACE.tossMinMs,
+  tossMax: MOVE_PACE.tossMaxMs,
+  draw: MOVE_PACE.drawMs,
+  reduced: MOVE_PACE.reducedMs,
   /** The next move starts when the previous one is this far through. */
-  overlap: 0.7,
+  overlap: MOVE_PACE.overlap,
   /** The next move never starts sooner than this after the previous one (a sped-up burst still reads as separate cards). */
-  minGapMs: 180,
+  minGapMs: MOVE_PACE.minGapMs,
   /** The whole queue should finish within this many ms of the newest batch arriving. */
-  queueCapMs: 3000,
+  queueCapMs: MOVE_PACE.queueCapMs,
   /** Never speed a burst up by more than this factor (1 / minSpeed). */
-  minSpeed: 0.55,
+  minSpeed: MOVE_PACE.minSpeed,
   /** Destroy: the card cracks and breaks in place first, then flies off. */
-  destroyBreakMs: 260,
-  destroyBreakBattleMs: 460,
+  destroyBreakMs: MOVE_PACE.destroyBreakMs,
+  destroyBreakBattleMs: MOVE_PACE.destroyBreakBattleMs,
 } as const;
 
-export type MoveStyle = "place" | "toss" | "draw" | "return" | "search" | "fade";
+export type MoveStyle = "place" | "toss" | "draw" | "add" | "fade";
+
+/** The "Added to hand" showcase of a move: where it starts and how long each leg lasts. */
+export type ShowcasePlan = {
+  origin: ShowcaseOrigin;
+  phases: ShowcasePhases;
+};
 
 export type MovePlan = {
   /** The move event's id. */
@@ -64,6 +73,17 @@ export type MovePlan = {
   leadMs: number;
   /** Extra ms the ghost stays after landing. */
   holdMs: number;
+  /** The card is being destroyed: it is hidden in its zone until this flight lands in the pile. */
+  destroy: boolean;
+  /** A wipe piece drew this card's flight on the canvas: the pile only fades the card in at `startAt`. */
+  takeover: boolean;
+  /**
+   * What the flight draws for a destroyed card instead of the intact card (never a whole card leaving
+   * the zone it just broke in): "burst" = pieces that spring apart from the break and fly to the pile;
+   * "scattered" = pieces that fade in already apart, after the slice of a fight was seen; null = the
+   * card itself (every other move, reduced motion, and the 3D break that already played its shards).
+   */
+  pieces: "burst" | "scattered" | null;
   /**
    * The flight carries a big summon: nothing is drawn (MoveFx skips it) because the portrait is the
    * arrival, and the real card stays hidden until the slam. `landAt` equals `startAt`, the moment the
@@ -75,6 +95,8 @@ export type MovePlan = {
   reduced: boolean;
   /** Where the card was when the move arrived (the board has already moved on by the time it flies). */
   source: ZoneSnapshot | null;
+  /** An effect added the card to a hand (style "add"): the showcase, then the flight into the hand. */
+  showcase: ShowcasePlan | null;
 };
 
 export type MoveGeometry = { distance: number };
@@ -130,6 +152,8 @@ function isPileLocation(location: number): boolean {
 }
 
 export function moveStyleOf(event: DuelEvent, reduced: boolean): MoveStyle {
+  // An add to hand keeps its own show under reduced motion (a fade in, a hold, a fade out).
+  if (isAddToHand(event)) return "add";
   if (reduced) return "fade";
   const from = event.from;
   const to = event.zone;
@@ -137,21 +161,19 @@ export function moveStyleOf(event: DuelEvent, reduced: boolean): MoveStyle {
   if (event.reason === "draw") return "draw";
   if (from.location === LOCATION_DECK && to.location === LOCATION_HAND) return "draw";
   if (isPileLocation(to.location)) return "toss";
-  if (to.location === LOCATION_HAND) return from.location === LOCATION_GRAVE || from.location === LOCATION_REMOVED ? "search" : "return";
+  // A card that goes into a hand and is not an add (a hand to hand move) is a short place.
   return "place";
 }
 
-export function baseDuration(style: MoveStyle, distance: number): number {
+export function baseDuration(style: MoveStyle, distance: number, reduced = false): number {
   const d = Math.max(0, distance);
   switch (style) {
     case "fade":
       return MOVE_TIMING.reduced;
     case "draw":
       return MOVE_TIMING.draw;
-    case "return":
-      return MOVE_TIMING.ret;
-    case "search":
-      return MOVE_TIMING.search;
+    case "add":
+      return showcasePhases(1, reduced).totalMs;
     case "toss":
       return clamp(MOVE_TIMING.tossMin + d * 0.1, MOVE_TIMING.tossMin, MOVE_TIMING.tossMax);
     default:
@@ -166,10 +188,18 @@ type Candidate = {
   lead: number;
   hold: number;
   silent: boolean;
+  destroy: boolean;
+  /** A wipe piece drew the card on the canvas: it reaches its pile at `notBefore` with a short fade. */
+  takeover: boolean;
+  pieces: "burst" | "scattered" | null;
   /** A battle holds this destroy: the flight starts no earlier than this (performance.now(), 0 = free). */
   notBefore: number;
   paired: number[];
   source: ZoneSnapshot | null;
+  /** Index in `fresh`: a run of moves is a set of candidates with no other kind of event between them. */
+  index: number;
+  /** The showcase starts here (style "add"). */
+  origin: ShowcaseOrigin | null;
 };
 
 /** Where a card was: the last snapshot of its anchor, else the anchor as it is now. */
@@ -239,6 +269,9 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     let lead = 0;
     let hold = 0;
     let silent = false;
+    let destroy = false;
+    let takeover = false;
+    let pieces: "burst" | "scattered" | null = null;
     let notBefore = 0;
 
     // The summon, set or activation this card lands for.
@@ -259,6 +292,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       if (!sameZone(other.zone, from) || other.card == null || other.card.code <= 0) continue;
       paired.push(other.id);
       claimed.add(other.id);
+      destroy = true;
       lead = reduced ? 0 : other.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs;
       // A fight that killed the card is still playing: it breaks only after the last strike landed.
       notBefore = battleDestroyAt(other.zone, now);
@@ -269,42 +303,86 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
         lead = 0;
         style = "fade";
       } else if (notBefore > 0 && !reduced) {
+        pieces = "scattered";
         // The DOM slice draws the halves at the break: the card leaves for the pile only after they were
         // seen. The crack and the break of the card itself keep their time (the lead grows by the same wait).
         notBefore += BREAK_SETTLE_MS;
         lead += BREAK_SETTLE_MS;
+      } else if (!reduced) {
+        pieces = "burst";
       }
+      if (style !== "toss") pieces = null;
       break;
     }
+    // A wipe piece (Dark Hole, Raigeki, a banish of the whole field...) drew this card on the canvas and flew
+    // it to its pile there: the page pile only takes it when that streak arrives. No flight, and no gap in
+    // the queue: all cards of the wipe arrive on the times of the piece.
+    const wipe = reduced ? null : battleTakeover(from, now);
+    if (wipe) {
+      takeover = true;
+      destroy = false;
+      notBefore = wipe.moveAt;
+      lead = 0;
+      hold = 0;
+      silent = false;
+      pieces = null;
+      style = "fade";
+    }
+    // The effect of a resolving chain link plays while its badge is lit, never before it. A card that
+    // cracks first leaves for the pile only after the crack, so the lead counts from that moment.
+    const chainAt = [event.id, ...paired].reduce((max, id) => Math.max(max, chainEffectAt(id)), 0);
+    if (chainAt > now) notBefore = Math.max(notBefore, chainAt + lead);
     // A card that also breaks away from a destroyed zone keeps its flight.
     if (lead > 0) silent = false;
-    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance), lead, hold, silent, notBefore, paired, source: resolveSource(from) });
+    const source = resolveSource(from);
+    const origin = style === "add" ? showcaseOrigin(event, now, source != null) : null;
+    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
   }
   if (candidates.length === 0) return [];
+  // The showcase of a run goes first: the card the player cares about is shown, then the rest of the
+  // effect (the other cards to the Graveyard) plays. A run is moves with no other event between them.
+  const runs: Candidate[][] = [];
+  for (const item of candidates) {
+    const run = runs[runs.length - 1];
+    const prev = run?.[run.length - 1];
+    const joined = prev != null && fresh.slice(prev.index + 1, item.index).every(isMoveEvent);
+    if (joined) run.push(item);
+    else runs.push([item]);
+  }
+  const ordered = runs.flatMap((run) => [...run.filter((item) => item.style === "add"), ...run.filter((item) => item.style !== "add")]);
+  candidates.splice(0, candidates.length, ...ordered);
 
   const t0 = Math.max(now, state.nextStartAt);
+  const t0Free = now;
   const place = (speed: number) => {
     let cursor = t0;
-    const out: Array<{ start: number; dur: number }> = [];
-    for (const item of candidates) {
-      const dur = item.base * speed;
+    const out: Array<{ start: number; dur: number; phases: ShowcasePhases | null }> = [];
+    candidates.forEach((item, index) => {
+      if (item.takeover) {
+        // Fixed time, outside the serial queue: it neither waits for the cards before it nor delays the ones after it.
+        out.push({ start: Math.max(item.notBefore, t0Free), dur: item.base, phases: null });
+        return;
+      }
+      // A showcase has fixed legs (the hold stays long enough to read); the rest of the queue gives way.
+      const phases = item.style === "add" ? showcasePhases(speed, reduced) : null;
+      const dur = phases ? phases.totalMs : item.base * speed;
       const start = Math.max(cursor + item.lead, item.notBefore);
-      out.push({ start, dur });
-      cursor = start + Math.max(dur * MOVE_TIMING.overlap, MOVE_TIMING.minGapMs);
-    }
+      out.push({ start, dur, phases });
+      // The next card of the effect starts as the showcase card sets off for the hand.
+      const gate = phases ? showcaseGateMs(phases, candidates[index + 1]?.style === "add") : Math.max(dur * MOVE_TIMING.overlap, MOVE_TIMING.minGapMs);
+      cursor = start + gate;
+    });
     return { out, cursor };
   };
   let speed = 1;
   let layout = place(speed);
-  const finishOf = (l: ReturnType<typeof place>) => {
-    const last = l.out[l.out.length - 1];
-    return last.start + last.dur;
-  };
   // Time spent waiting for a battle is not a backlog to squeeze: measure from the latest hold.
-  const floor = candidates.reduce((max, item) => Math.max(max, item.notBefore), now);
-  const span = finishOf(layout) - floor;
+  const queued = candidates.filter((item) => !item.takeover);
+  const floor = queued.reduce((max, item) => Math.max(max, item.notBefore), now);
+  const finishQueued = (l: ReturnType<typeof place>) => l.out.reduce((max, o, i) => (candidates[i].takeover ? max : Math.max(max, o.start + o.dur)), 0);
+  const span = finishQueued(layout) - floor;
   if (span > MOVE_TIMING.queueCapMs) {
-    const fixed = candidates.reduce((sum, item) => sum + item.lead, 0);
+    const fixed = queued.reduce((sum, item) => sum + item.lead, 0);
     const variable = span - fixed;
     speed = clamp((MOVE_TIMING.queueCapMs - fixed) / Math.max(1, variable), MOVE_TIMING.minSpeed, 1);
     layout = place(speed);
@@ -312,7 +390,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
 
   const created: MovePlan[] = [];
   candidates.forEach((item, index) => {
-    const { start, dur } = layout.out[index];
+    const { start, dur, phases } = layout.out[index];
     const plan: MovePlan = {
       id: item.event.id,
       event: item.event,
@@ -321,11 +399,16 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       landAt: start + dur,
       durationMs: dur,
       leadMs: item.lead,
-      holdMs: item.hold,
+      // After a showcase lands, the ring of light plays on the hand card.
+      holdMs: phases ? phases.glowMs : item.hold,
+      destroy: item.destroy,
+      takeover: item.takeover,
+      pieces: item.pieces,
       silent: item.silent,
       pairedIds: item.paired,
       reduced,
       source: item.source,
+      showcase: phases && item.origin ? { origin: item.origin, phases } : null,
     };
     plans.set(plan.id, plan);
     for (const id of item.paired) pairs.set(id, plan.id);

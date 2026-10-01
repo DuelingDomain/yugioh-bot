@@ -107,7 +107,7 @@ describe("waitForReveal", () => {
 
   it("never waits past the cap", async () => {
     const stuck = animation();
-    const at = await timeToReveal({ source: source(() => [stuck]), reducedMotion: false }, 6000);
+    const at = await timeToReveal({ source: source(() => [stuck]), reducedMotion: false }, REVEAL_TIMING.capMs + 500);
     expect(at).toBe(REVEAL_TIMING.capMs);
   });
 
@@ -165,7 +165,7 @@ describe("holdPromptReveal", () => {
 
   it("never holds past the cap", async () => {
     holdPromptReveal(10_000);
-    const at = await timeToReveal({ source: source(() => []), reducedMotion: false }, 6000);
+    const at = await timeToReveal({ source: source(() => []), reducedMotion: false }, REVEAL_TIMING.capMs + 500);
     expect(at).toBe(REVEAL_TIMING.capMs);
   });
 });

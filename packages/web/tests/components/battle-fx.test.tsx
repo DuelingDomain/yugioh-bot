@@ -8,7 +8,8 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
-import { COUNTER_GAP_MS, COUNTER_SCALE, DESTROY_BEAT_MS, MAX_BATTLE_MS } from "@/components/duel/attack-styles";
+import { COUNTER_GAP_MS, COUNTER_SCALE, DESTROY_BEAT_MS, MAX_BATTLE_MS, STYLE_TIMING } from "@/components/duel/attack-styles";
+import { ATTACK_TIMING, LP_TIMING } from "@/components/duel/duel-timing";
 import { BattleFx } from "@/components/duel/battle-fx";
 import { battleDestroyAt, clearBattleHolds } from "@/components/duel/battle-hold";
 import { AttackConfirm } from "@/components/duel/card-interactions";
@@ -66,7 +67,7 @@ describe("LP hold", () => {
     expect(takeLpHold(1)).toBe(0);
     vi.useFakeTimers();
     armLpHold(0, 490, "damage-b");
-    vi.advanceTimersByTime(2500);
+    vi.advanceTimersByTime(LP_TIMING.holdExpiryMs + 500);
     expect(takeLpHold(0)).toBe(0);
     vi.useRealTimers();
   });
@@ -233,10 +234,10 @@ describe("BattleFx", () => {
     const damage: DuelEvent = { id: 3, kind: "damage", seat: 0, amount: 500, cause: "battle", text: "" };
     const destroyed: DuelEvent = { id: 4, kind: "destroy", seat: 0, text: "", zone: { controller: 0, location: 4, sequence: 0 } };
     rerender(<BattleFx events={[phase, attack, damage, destroyed]} reducedMotion={false} seats={seats} />);
-    // slash lands at 520 ms; the counter (beam, 440 ms at counter speed) starts COUNTER_GAP_MS later.
-    expect(takeLpHold(0)).toBe(Math.round(520 + COUNTER_GAP_MS + 440 * COUNTER_SCALE));
+    // the slash lands first; the counter (beam, at counter speed) starts COUNTER_GAP_MS later; the roll waits a beat after that hit.
+    expect(takeLpHold(0)).toBe(Math.round(STYLE_TIMING.slash.impact + COUNTER_GAP_MS + STYLE_TIMING.beam.impact * COUNTER_SCALE) + ATTACK_TIMING.lpAfterHitMs);
     const total = Number.parseFloat((playLayer() as HTMLElement).style.getPropertyValue("--total"));
-    expect(total).toBeGreaterThan(1150);
+    expect(total).toBeGreaterThan(1700);
     expect(total).toBeLessThanOrEqual(MAX_BATTLE_MS);
   });
 
@@ -264,9 +265,9 @@ describe("BattleFx", () => {
     const before = performance.now();
     rerender(<BattleFx events={[phase, attack, destroyed]} reducedMotion seats={seats} />);
     const breakAt = battleDestroyAt({ controller: 1, location: 4, sequence: 0 }, before) - before;
-    // reduced: the hit lands at 260 ms, the break is after it (460 ms), still after the flash
-    expect(breakAt).toBeGreaterThan(260);
-    expect(breakAt).toBeLessThan(800);
+    // reduced: the hit lands first, the break is after it, still after the flash (the holds stay, the motion is only fades)
+    expect(breakAt).toBeGreaterThan(ATTACK_TIMING.reducedImpactMs);
+    expect(breakAt).toBeLessThan(1000);
   });
 
   it("uses flashes and fades only under reduced motion", () => {
@@ -426,7 +427,7 @@ describe("BattleFx resolution", () => {
     expect(playLayer()?.getAttribute("data-counter-style")).toBe("beam");
     expect(document.body.querySelectorAll("div[style*='clip-path']")).toHaveLength(0);
     // the attacker's LP rolls when the counter lands, not at the first strike
-    expect(takeLpHold(0)).toBe(Math.round(520 + COUNTER_GAP_MS + 440 * COUNTER_SCALE));
+    expect(takeLpHold(0)).toBe(Math.round(STYLE_TIMING.slash.impact + COUNTER_GAP_MS + STYLE_TIMING.beam.impact * COUNTER_SCALE) + ATTACK_TIMING.lpAfterHitMs);
   });
 
   it("shows a clash when the next phase closes a fight that left no damage and no destroy", () => {

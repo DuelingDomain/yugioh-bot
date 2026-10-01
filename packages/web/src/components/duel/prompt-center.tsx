@@ -38,7 +38,7 @@ import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
 import { PrecheckBar } from "./prompt-precheck";
 import { placeSelectBar, samePlace, type BarPlace, type BarRect } from "./select-bar-place";
-import { barTitleLabel } from "./select-bar-copy";
+import { selectBarCopy, type BarCopy } from "./select-bar-copy";
 import { backOutAnswer, backOutLabel } from "./pick-backout";
 import base from "./prompts.module.css";
 import styles from "./prompt-center.module.css";
@@ -295,7 +295,7 @@ export interface PrecheckCopy {
   cards: Array<{ code: number; card?: DuelCardInfo }>;
 }
 
-/** Short wording for the bar: the card (or "N effects"), the question, and the step it is in. */
+/** Short wording for the bar: the question (its title), the card (or "N effects"), and the step it is in. */
 export function precheckCopy(prompt: DuelPrompt, chain: readonly DuelChainLink[], stepName: string | null): PrecheckCopy | null {
   const kind = precheckKind(prompt);
   if (!kind) return null;
@@ -320,7 +320,7 @@ export function precheckCopy(prompt: DuelPrompt, chain: readonly DuelChainLink[]
     .filter((entry, index, all) => all.findIndex((other) => other.code === entry.code) === index);
   return {
     name: options.length === 1 ? (source?.name ?? effectText(options[0]).name) : `${options.length} effects`,
-    ask: "You can activate an effect. Activate?",
+    ask: options.length === 1 ? "Activate its effect?" : "Activate an effect?",
     context,
     cards,
   };
@@ -401,24 +401,42 @@ function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: s
   );
 }
 
-export function selectionStatus(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean): string {
-  if (aiming) return "Point at a target, then confirm";
+/**
+ * The words of a pick surface (the select bar and the card-grid header): a short title, the card or purpose,
+ * and the progress line. See select-bar-copy.ts.
+ */
+export function pickCopy(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean): BarCopy {
   const { min, max } = selectionBounds(prompt);
+  const source = promptSource(prompt);
+  const toggling = prompt.kind === "toggle";
   // A one-at-a-time pick keeps its chosen cards on the options, not in the draft.
-  const count = prompt.kind === "toggle" ? prompt.options.filter((option) => option.selected).length : draft.selected.length;
-  if (prompt.kind === "sum") {
-    const values = draft.selected
-      .map((id) => prompt.options.find((option) => option.id === id)?.values?.join("/"))
-      .filter(Boolean)
-      .join(" + ");
-    return `${prompt.target != null ? `Target ${prompt.target}` : "Select materials"}${values ? ` · ${values}` : ""}`;
-  }
-  if (prompt.kind === "tribute") {
-    return `${count} selected${prompt.min != null ? ` · release ${prompt.min}` : ""}`;
-  }
-  if (min === 1 && max === 1) return "Pick one";
-  if (min === max) return `${count} of ${min} selected`;
-  return `${count} selected · ${min} to ${max}`;
+  const count = toggling ? prompt.options.filter((option) => option.selected).length : draft.selected.length;
+  const values =
+    prompt.kind === "sum"
+      ? draft.selected
+          .map((id) => prompt.options.find((option) => option.id === id)?.values?.join("/"))
+          .filter(Boolean)
+          .join(" + ")
+      : undefined;
+  return selectBarCopy({
+    kind: prompt.kind,
+    title: fillPlaceholders(prompt.title, source?.name),
+    description: prompt.description ? fillPlaceholders(prompt.description, source?.name) : undefined,
+    min,
+    max,
+    openEnded: prompt.max == null,
+    count,
+    values,
+    target: prompt.target,
+    toggling,
+    aiming,
+    sourceName: source?.name,
+    position: prompt.context?.type === "position",
+  });
+}
+
+export function selectionStatus(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean): string {
+  return pickCopy(prompt, draft, aiming).progress;
 }
 
 /** Hovering or focusing a card tile shows that card in the left inspector, as board cards do. */
@@ -849,6 +867,18 @@ export function responseTitle(
     };
   }
   if (context?.type === "deck-master-recall") return { title: prompt.title, source };
+  if (context?.type === "position") {
+    const named = selectBarCopy({
+      kind: prompt.kind,
+      title: fillPlaceholders(prompt.title, source?.name, place).trim(),
+      min: 1,
+      max: 1,
+      count: 0,
+      sourceName: source?.name,
+      position: true,
+    });
+    return { title: named.title, sub: named.detail ?? sourceLine, source };
+  }
   const title = fillPlaceholders(prompt.title, source?.name, place).trim();
   const description = prompt.description ? fillPlaceholders(prompt.description, source?.name, place).trim() : undefined;
   if (source && isYesNo(prompt)) {
@@ -911,6 +941,7 @@ export function choiceStripItems(prompt: DuelPrompt): StripCard[] {
     order: null,
     detail: notes[index]?.detail,
     detailTitle: notes[index]?.title,
+    location: option.location,
   }));
 }
 
@@ -969,14 +1000,15 @@ function GridPicker({
   const single = !counters && min === 1 && max === 1 && prompt.kind !== "order";
   const valueDetail = prompt.kind === "sum" || prompt.kind === "tribute";
   const total = counters ? prompt.options.reduce((sum, option) => sum + (draft.counts[option.id] ?? 0), 0) : 0;
+  const copy = pickCopy(prompt, draft, Boolean(aim));
   const status = counters
     ? prompt.target != null
       ? `${total} of ${prompt.target} placed`
       : `${total} placed`
-    : selectionStatus(prompt, draft, Boolean(aim));
-  const source = promptSource(prompt);
-  const title = fillPlaceholders(prompt.title, source?.name);
-  const description = prompt.description ? fillPlaceholders(prompt.description, source?.name) : "";
+    : copy.sub;
+  const title = copy.title;
+  const fullTitle = copy.full;
+  const description = prompt.description ? fillPlaceholders(prompt.description, promptSource(prompt)?.name) : "";
 
   function pick(option: DuelPromptOption, index: number) {
     draft.setHighlight(index);
@@ -1004,6 +1036,7 @@ function GridPicker({
         selected: aim ? aim.lockedId === option.id : draft.selected.includes(option.id),
         order: prompt.kind === "order" ? draft.selected.indexOf(option.id) + 1 || null : null,
         note: valueDetail && option.values?.length ? option.values.join(" / ") : undefined,
+        location: option.location,
       }))
     : [];
 
@@ -1011,8 +1044,8 @@ function GridPicker({
     <>
       <header className={styles.head}>
         <div className={styles.titles}>
-          <h2>{title}</h2>
-          <p>{description ? `${description} · ${status}` : status}</p>
+          <h2 title={copy.tooltip}>{title}</h2>
+          <p>{description && description !== fullTitle ? `${description} · ${status}` : status}</p>
         </div>
         <button type="button" className={styles.hide} aria-label="Hide to look at the board" title="Hide to look at the board" onClick={onCollapse}>
           <EyeOff size={16} strokeWidth={1.75} aria-hidden />
@@ -1024,7 +1057,7 @@ function GridPicker({
           highlight={draft.highlight}
           busy={busy}
           multi
-          label={title}
+          label={fullTitle}
           onPick={(index) => pick(prompt.options[index], index)}
           onDouble={(index) => {
             if (single && !aim && !busy) onSubmit({ selected: [prompt.options[index].id] });
@@ -1378,11 +1411,11 @@ export function PromptCenter(props: PromptCenterProps) {
     // A one-at-a-time pick is done when Finish is offered; every other pick when its count rules hold.
     const ok = toggling ? Boolean(prompt.finishable) : canConfirm(prompt, draft);
     const source = promptSource(prompt);
-    const barTitle = fillPlaceholders(prompt.title, source?.name);
-    // The bar shows a short label; the tooltip carries the full title and the description.
-    const barTip = [barTitle, prompt.description ? fillPlaceholders(prompt.description, source?.name) : ""].filter(Boolean).join("\n");
+    // A short whole title, the card or purpose and the progress. The tooltip and aria-label keep the full engine text.
+    const copy = pickCopy(prompt, draft, aiming);
     // After the first material the engine drops Cancel; Undo unselects the last pick instead.
     const canUndo = toggling && backOutLabel(prompt) === "Undo";
+    const hasButtons = (explicit && !aiming) || Boolean(prompt.finishable) || canUndo || Boolean(prompt.cancelable);
     const barStyle = {
       top: barPlace.top ?? (barPlace.mode === "mid" ? "50%" : 8),
       left: barPlace.left ?? "50%",
@@ -1396,12 +1429,18 @@ export function PromptCenter(props: PromptCenterProps) {
         data-stack={barPlace.stack ? "true" : "false"}
         data-ready={ok ? "true" : "false"}
         style={barStyle}
+        data-actions={hasButtons ? "true" : "false"}
         role="group"
-        aria-label={barTitle}
+        aria-label={copy.full}
       >
-        <div className={styles.barText} title={barTip}>
-          <b>{barTitleLabel(barTitle)}</b>
-          <span>{selectionStatus(prompt, draft, aiming)}</span>
+        <div className={styles.barMain} title={copy.tooltip}>
+          {source ? (
+            <img src={cardArtUrl(source.code, "small")} alt="" className={styles.barThumb} draggable={false} />
+          ) : null}
+          <div className={styles.barText}>
+            <b>{copy.title}</b>
+            <span>{copy.sub}</span>
+          </div>
         </div>
         <div className={styles.barBtns}>
           {explicit && !aiming ? (

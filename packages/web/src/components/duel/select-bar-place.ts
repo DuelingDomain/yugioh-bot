@@ -1,10 +1,13 @@
 /**
  * Where the on-board "select cards" instruction bar sits.
  *
- * The bar goes in the middle band of the board (the Extra Monster Zone row, between the two fields),
- * horizontally centred. The two Extra Monster Zones flank the centre column, so the bar is sized to the
- * free gap between them and never covers a zone. When that gap is too narrow for the bar AND an Extra
- * Monster Zone is a legal pick, the bar falls back to the top edge under the opponent's hand.
+ * The bar is centred on the middle band of the board (the Extra Monster Zone row, between the two fields).
+ * It is never squeezed: it needs BAR_MIN_WIDTH. When the free gap between the two Extra Monster Zones holds
+ * that, the bar sits in the gap and is limited to it, so it covers no zone. When the gap is narrower:
+ *   an Extra Monster Zone is a legal pick  the bar keeps that zone clear and goes to the top edge under
+ *                                          the opponent's hand
+ *   no Extra Monster Zone is a legal pick  the bar stays on the centre line at its normal width, over the
+ *                                          zones (it has a solid panel and lets clicks through)
  * Pure geometry: the caller measures the DOM and passes rectangles in the same coordinate space.
  */
 
@@ -36,14 +39,16 @@ export interface BarPlace {
   left: number | null;
   /** Room the bar must fit in, px. Null: no limit beyond its own max width. */
   fit: number | null;
-  /** Too narrow for one line: title, status and buttons stack. */
+  /** Too narrow for one row: the buttons go under the text. */
   stack: boolean;
 }
 
-/** Free width needed for the one-line bar (title, status and buttons side by side). */
-export const BAR_ROW_FIT = 420;
-/** Narrowest stacked bar that still reads. */
-export const BAR_STACK_MIN = 150;
+/** Free width needed for the one-row bar (text and buttons side by side). Narrower: the buttons go under the text. */
+export const BAR_ROW_FIT = 400;
+/** Narrowest bar that still reads; a smaller gap is not used. Matches min-width in prompt-center.module.css. */
+export const BAR_MIN_WIDTH = 240;
+/** Widest bar. Matches max-width in prompt-center.module.css. */
+export const BAR_MAX_WIDTH = 420;
 /** Air kept between the bar and a zone beside it. */
 const BAR_EDGE = 8;
 const TOP_EDGE = 8;
@@ -80,8 +85,9 @@ export function placeSelectBar({ board, emz, hands }: BarPlaceInput): BarPlace {
     if (top == null && height > 0) top = height / 2;
   }
 
-  // Too tight beside a pickable Extra Monster Zone: keep that zone clear and use the old top spot.
-  if (gap != null && gap < BAR_STACK_MIN && zones.some((zone) => zone.legal)) {
+  // Too narrow for the bar beside a pickable Extra Monster Zone: keep that zone clear and use the top spot.
+  const narrow = gap != null && gap < BAR_MIN_WIDTH;
+  if (narrow && zones.some((zone) => zone.legal)) {
     let edge = TOP_EDGE;
     for (const hand of handRects) {
       if ((hand.top + hand.bottom) / 2 < board.top + height / 2) {
@@ -91,13 +97,14 @@ export function placeSelectBar({ board, emz, hands }: BarPlaceInput): BarPlace {
     return { mode: "top", top: Math.round(edge), left: null, fit: null, stack: false };
   }
 
-  const stack = gap != null && gap < BAR_ROW_FIT;
+  // A narrow gap with nothing to pick in it: stay centred at full width over the zones, not squeezed.
+  const fit = gap == null || narrow ? null : Math.min(gap, BAR_MAX_WIDTH);
   return {
     mode: "mid",
     top: top == null ? null : Math.round(top),
     left: left == null ? null : Math.round(left),
-    fit: gap == null ? null : Math.round(stack ? Math.max(gap, BAR_STACK_MIN) : gap),
-    stack,
+    fit: fit == null ? null : Math.round(fit),
+    stack: fit != null && fit < BAR_ROW_FIT,
   };
 }
 

@@ -20,6 +20,10 @@ import {
   type BattleTiming,
   type Tint,
 } from "./attack-styles";
+import { ATTACK_PACE, ATTACK_TIMING } from "./duel-timing";
+
+/** Shakes, rings and flashes at the point of impact stay this many times longer, so the hit is felt. */
+const HIT_LINGER = ATTACK_TIMING.hitLinger;
 
 export type Pt = { x: number; y: number };
 export type Box = { left: number; top: number; width: number; height: number };
@@ -288,6 +292,7 @@ function drawIn(cx: Ctx, els: Element[], at: number, dur: number, easing = "cubi
 /* ---------- shared beats ---------- */
 
 function shake(cx: Ctx, el: Element | null, at: number, amp: number, dur = 220): void {
+  dur *= HIT_LINGER;
   if (!el?.isConnected) return;
   add(cx, el, [
     { transform: "translate(0,0)" },
@@ -303,10 +308,11 @@ function hitRing(cx: Ctx, box: Box, at: number, color: string, pad = 5): void {
   const p = pad * cx.u;
   const r = place(cx, svgEl("rect", { x: box.left - p, y: box.top - p, width: box.width + 2 * p, height: box.height + 2 * p, rx: 8, fill: "none", stroke: color, "stroke-width": 1.5 }));
   r.style.filter = glow(color, 6);
-  add(cx, r, [{ opacity: 0, strokeWidth: 1 }, { opacity: 1, strokeWidth: 2.4, offset: 0.3 }, { opacity: 0, strokeWidth: 1.2 }], { at, dur: 380, easing: "ease-out" });
+  add(cx, r, [{ opacity: 0, strokeWidth: 1 }, { opacity: 1, strokeWidth: 2.4, offset: 0.3 }, { opacity: 0, strokeWidth: 1.2 }], { at, dur: 380 * HIT_LINGER, easing: "ease-out" });
 }
 
 function flashDisc(cx: Ctx, c: Pt, at: number, color: string, r: number, dur = 320): void {
+  dur *= HIT_LINGER;
   const d = place(cx, svgEl("circle", { cx: c.x, cy: c.y, r, fill: color }));
   d.style.filter = "blur(6px)";
   d.style.transformOrigin = `${c.x}px ${c.y}px`;
@@ -341,7 +347,7 @@ function caption(cx: Ctx, g: Geo, text: string, tint: Tint, at: number): void {
     { opacity: 1, transform: `translate(-50%, ${ty}%) translateY(0)`, offset: 0.18 },
     { opacity: 1, offset: 0.8 },
     { opacity: 0, transform: `translate(-50%, ${ty}%) translateY(${-dy}px)` },
-  ], { at, dur: 640, easing: "cubic-bezier(.16,1,.3,1)" });
+  ], { at, dur: 900, easing: "cubic-bezier(.16,1,.3,1)" });
 }
 
 /** The attacker's card leans into the strike. */
@@ -529,7 +535,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
           { transform: "translate(0,0) rotate(0)", opacity: 1 },
           { transform: `translate(${n[0] * sep * s}px,${n[1] * sep * s}px) rotate(${rot}deg)`, opacity: 1, offset: 0.3 },
           { transform: `translate(${n[0] * sep * s * 1.6}px,${n[1] * sep * s * 1.6 + 8}px) rotate(${rot}deg)`, opacity: 0 },
-        ], { at, dur: 560, easing: "cubic-bezier(.2,.8,.2,1)" });
+        ], { at, dur: 760, easing: "cubic-bezier(.2,.8,.2,1)" });
       });
     },
   },
@@ -593,7 +599,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
           { transform: "translate(0,0) rotate(0)", opacity: 1 },
           { transform: `translate(${dx * 0.5}px,${dy * 0.4}px) rotate(${s * 2}deg)`, opacity: 1, offset: 0.3 },
           { transform: `translate(${dx}px,${dy + 14}px) rotate(${s * 4}deg)`, opacity: 0 },
-        ], { at: at + i * 40, dur: 520, easing: "cubic-bezier(.2,.8,.2,1)" });
+        ], { at: at + i * 40, dur: 700, easing: "cubic-bezier(.2,.8,.2,1)" });
       });
     },
   },
@@ -651,7 +657,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
           { transform: "translate(0,0)", opacity: 1, filter: "brightness(1)" },
           { transform: `translate(${jx}px,${jy}px)`, opacity: 1, filter: "brightness(2.2)", offset: 0.25 },
           { transform: `translate(${g.dir.x * 26 + jx * 2}px,${g.dir.y * 26 + jy * 2}px)`, opacity: 0, filter: "brightness(2.6)" },
-        ], { at: at + delay, dur: 420, easing: "cubic-bezier(.3,.6,.4,1)" });
+        ], { at: at + delay, dur: 560, easing: "cubic-bezier(.3,.6,.4,1)" });
       });
     },
   },
@@ -706,9 +712,9 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
           { transform: "translate(0,0)", opacity: 1, filter: "brightness(1) blur(0)" },
           { transform: `translate(${dx * 0.3}px,-6px)`, opacity: 1, filter: "brightness(1.6) blur(0)", offset: 0.3 },
           { transform: `translate(${dx}px,-34px)`, opacity: 0, filter: "brightness(2.4) blur(2px)" },
-        ], { at: at + delay, dur: 520, easing: "cubic-bezier(.2,.7,.3,1)" });
+        ], { at: at + delay, dur: 700, easing: "cubic-bezier(.2,.7,.3,1)" });
       });
-      veil(cx, cut.box, g.tint.deep, at, 600, 0.55);
+      veil(cx, cut.box, g.tint.deep, at, 840, 0.55);
     },
   },
 
@@ -778,7 +784,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
           { transform: "translate(0,0) rotate(0)", opacity: 1, filter: "brightness(2.5)" },
           { transform: `translate(${(ax / L) * dist * 0.6}px,${(ay / L) * dist * 0.6}px) rotate(${rot * 0.6}deg)`, opacity: 1, filter: "brightness(1.2)", offset: 0.35 },
           { transform: `translate(${(ax / L) * dist}px,${(ay / L) * dist + 16}px) rotate(${rot}deg)`, opacity: 0, filter: "brightness(1)" },
-        ], { at: at + 30, dur: 520, easing: "cubic-bezier(.2,.8,.3,1)" });
+        ], { at: at + 30, dur: 700, easing: "cubic-bezier(.2,.8,.3,1)" });
       });
       emit(cx, { at: at + 40, life: 380, count: 12, x: g.e.x, y: g.e.y, color: g.tint.main, size: 1.4, speed: 120, gravity: 260, shape: "dot", seed: g.seed + 14 });
     },
@@ -842,7 +848,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
           { transform: "translate(0,0) rotate(0)", opacity: 1, filter: "brightness(1) sepia(0)" },
           { transform: "translate(0,0) rotate(0)", opacity: 1, filter: "brightness(.25) sepia(1) saturate(4) hue-rotate(-20deg)", offset: 0.3 },
           { transform: `translate(${dx}px,${28 + (i % 4) * 8}px) rotate(${dx * 2}deg)`, opacity: 0, filter: "brightness(.1) sepia(1)" },
-        ], { at: at + delay, dur: 560, easing: "cubic-bezier(.4,0,.6,1)" });
+        ], { at: at + delay, dur: 760, easing: "cubic-bezier(.4,0,.6,1)" });
       });
       emit(cx, { at: at + 80, life: 520, count: 12, x: g.e.x, y: g.e.y, color: g.tint.main, size: 1.6, speed: 60, gravity: -70, shape: "dot", shrink: true, seed: g.seed + 19 });
     },
@@ -917,7 +923,7 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
           { transform: "translate(0,0) rotate(0)", opacity: 1 },
           { transform: `translate(${ax * 0.06}px,${-3 - rnd() * 4}px) rotate(${rot * 0.3}deg)`, opacity: 1, offset: 0.18 },
           { transform: `translate(${ax * 0.16}px,${fall}px) rotate(${rot}deg)`, opacity: 0 },
-        ], { at: at + 40 + i * 30, dur: 560, easing: "cubic-bezier(.5,0,.8,.6)" });
+        ], { at: at + 40 + i * 30, dur: 760, easing: "cubic-bezier(.5,0,.8,.6)" });
       });
     },
   },
@@ -927,13 +933,13 @@ const STYLES: Record<AttackStyleId, StyleImpl> = {
 
 /** The defender holds: a hard flash and a contracting dashed ring. */
 function clash(cx: Ctx, box: Box, at: number, tint: Tint): void {
-  flashDisc(cx, centre(box), at, "#ffffff", Math.min(box.width, box.height) * 0.6, 260);
+  flashDisc(cx, centre(box), at, "#ffffff", Math.min(box.width, box.height) * 0.6, 280);
   const p = 14 * cx.u;
   const ring = place(cx, svgEl("rect", { x: box.left - p, y: box.top - p, width: box.width + p * 2, height: box.height + p * 2, rx: 10, fill: "none", stroke: tint.hi, "stroke-width": 2, "stroke-dasharray": "6 4" }));
   const c = centre(box);
   ring.style.transformOrigin = `${c.x}px ${c.y}px`;
   ring.style.filter = glow(tint.main, 5);
-  add(cx, ring, [{ opacity: 0, transform: "scale(1.25)" }, { opacity: 1, transform: "scale(1)", offset: 0.35 }, { opacity: 1, offset: 0.7 }, { opacity: 0, transform: "scale(.96)" }], { at, dur: 360, easing: "cubic-bezier(.2,.8,.3,1)" });
+  add(cx, ring, [{ opacity: 0, transform: "scale(1.25)" }, { opacity: 1, transform: "scale(1)", offset: 0.35 }, { opacity: 1, offset: 0.7 }, { opacity: 0, transform: "scale(.96)" }], { at, dur: 520, easing: "cubic-bezier(.2,.8,.3,1)" });
 }
 
 /** A monster in Defense Position takes the blow: three steel-white ripples. */
@@ -943,11 +949,11 @@ function shield(cx: Ctx, g: Geo, box: Box, at: number): void {
     const r = place(cx, svgEl("rect", { x: box.left - 4, y: box.top - 4, width: box.width + 8, height: box.height + 8, rx: 9, fill: "none", stroke: i === 0 ? "#ffffff" : "#bfd6ff", "stroke-width": 2 - i * 0.4 }));
     r.style.transformOrigin = `${c.x}px ${c.y}px`;
     r.style.filter = glow("#9fc4ff", 5);
-    add(cx, r, [{ opacity: 0, transform: "scale(.96)" }, { opacity: 0.95, offset: 0.12 }, { opacity: 0, transform: `scale(${1.25 + i * 0.18})` }], { at: at + i * 70, dur: 420, easing: "cubic-bezier(.2,.7,.3,1)" });
+    add(cx, r, [{ opacity: 0, transform: "scale(.96)" }, { opacity: 0.95, offset: 0.12 }, { opacity: 0, transform: `scale(${1.25 + i * 0.18})` }], { at: at + i * 90, dur: 600, easing: "cubic-bezier(.2,.7,.3,1)" });
   }
-  veil(cx, box, "#dbe9ff", at, 380, 0.55);
+  veil(cx, box, "#dbe9ff", at, 540, 0.55);
   if (g.toEl?.isConnected) {
-    add(cx, g.toEl, [{ transform: "translate(0,0)" }, { transform: `translate(${g.dir.x * 5}px,${g.dir.y * 5}px)`, offset: 0.3 }, { transform: "translate(0,0)" }], { at, dur: 320, easing: "cubic-bezier(.2,.8,.3,1)", composite: "add", fill: "none" });
+    add(cx, g.toEl, [{ transform: "translate(0,0)" }, { transform: `translate(${g.dir.x * 5}px,${g.dir.y * 5}px)`, offset: 0.3 }, { transform: "translate(0,0)" }], { at, dur: 460, easing: "cubic-bezier(.2,.8,.3,1)", composite: "add", fill: "none" });
   }
 }
 
@@ -959,7 +965,13 @@ function reflectPulse(cx: Ctx, from: Box, lp: Box, at: number): void {
   const trail = place(cx, svgEl("path", { d: `M${f1(a.x)},${f1(a.y)} Q${f1(bow.x)},${f1(bow.y)} ${f1(b.x)},${f1(b.y)}`, pathLength: 1, fill: "none", stroke: "#ff9489", "stroke-width": 2.2, "stroke-linecap": "round" }));
   trail.style.filter = glow("#e45a4d", 5);
   trail.style.strokeDasharray = "0.18 1";
-  add(cx, trail, [{ strokeDashoffset: 0.18, opacity: 0 }, { opacity: 1, offset: 0.1 }, { strokeDashoffset: -1, opacity: 1, offset: 0.9 }, { strokeDashoffset: -1.05, opacity: 0 }], { at, dur: 300, easing: "cubic-bezier(.5,0,.8,.5)" });
+  add(cx, trail, [{ strokeDashoffset: 0.18, opacity: 0 }, { opacity: 1, offset: 0.1 }, { strokeDashoffset: -1, opacity: 1, offset: 0.9 }, { strokeDashoffset: -1.05, opacity: 0 }], { at, dur: 420, easing: "cubic-bezier(.5,0,.8,.5)" });
+}
+
+/** A direct attack lands heavier than a blow on a card: a second, wider ring and a long white-hot flash on the LP plate. */
+function directImpact(cx: Ctx, box: Box, at: number, tint: Tint): void {
+  flashDisc(cx, centre(box), at, "#ffffff", Math.max(box.width, box.height) * 0.7, 480);
+  hitRing(cx, box, at + 60, tint.hi, 14);
 }
 
 /** A red wash and ring on an LP tally when its counter starts to roll. */
@@ -968,7 +980,7 @@ function lpFlash(cx: Ctx, box: Box, at: number): void {
   fl.className = cx.cls.lpFlash;
   fl.style.cssText = `position:absolute;left:${box.left - 8}px;top:${box.top - 4}px;width:${box.width + 16}px;height:${box.height + 8}px;border-radius:8px;background:rgb(228 90 77 / .3);box-shadow:0 0 22px rgb(228 90 77 / .55);opacity:0;`;
   place(cx, fl, cx.html);
-  add(cx, fl, [{ opacity: 0 }, { opacity: 1, offset: 0.18 }, { opacity: 0 }], { at, dur: 520, easing: "ease-out" });
+  add(cx, fl, [{ opacity: 0 }, { opacity: 1, offset: 0.18 }, { opacity: 0 }], { at, dur: 760, easing: "ease-out" });
   hitRing(cx, box, at, "#e45a4d", 6);
 }
 
@@ -990,14 +1002,14 @@ function geoFor(from: FxSide, to: Box, toEl: Element | null, tint: Tint, seed: n
 function runReduced(cx: Ctx, plan: AttackFxPlan): void {
   const { attacker, defender } = plan;
   const mark = (box: Box, at: number, color: string) => {
-    veil(cx, box, color, at, 500, 0.6);
+    veil(cx, box, color, at, 700, 0.6);
     const r = place(cx, svgEl("rect", { x: box.left - 5, y: box.top - 5, width: box.width + 10, height: box.height + 10, rx: 8, fill: "none", stroke: color, "stroke-width": 1.5 }));
-    add(cx, r, [{ opacity: 0 }, { opacity: 1, offset: 0.15 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }], { at, dur: 600 });
+    add(cx, r, [{ opacity: 0 }, { opacity: 1, offset: 0.15 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }], { at, dur: 840 });
   };
   const fade = (cut: FxCut | null, role: string, at: number) => {
     if (!cut) return;
     fragments(cx, cut, role, [[[0, 0], [100, 0], [100, 100], [0, 100]]], (piece) => {
-      add(cx, piece, [{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { at, dur: 380 });
+      add(cx, piece, [{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { at, dur: 560 });
     });
   };
   if (attacker.caption) caption(cx, geoFor(attacker, plan.hit, null, attacker.tint, plan.seed, !defender, cx.u), attacker.caption, attacker.tint, 0);
@@ -1048,7 +1060,8 @@ function playBeats3d(cx: Ctx, plan: AttackFxPlan, gA: Geo, geo: typeof geoFor): 
   const { attacker, defender } = plan;
   const u = cx.u;
   const impact = plan.timing.impactMs;
-  lunge(cx, gA, LUNGE_AT[attacker.style], 1);
+  lunge(cx, gA, LUNGE_AT[attacker.style] * ATTACK_PACE, ATTACK_PACE);
+  if (!defender) directImpact(cx, plan.hit, impact, attacker.tint);
   if (defender) shake(cx, defender.el, impact, 3.5 * u, 240);
   switch (plan.kind) {
     case "held":
@@ -1067,7 +1080,7 @@ function playBeats3d(cx: Ctx, plan: AttackFxPlan, gA: Geo, geo: typeof geoFor): 
         const gD = geo(defender, attacker.box, attacker.el, defender.tint, plan.seed + 100, false, u);
         const t0 = impact + COUNTER_GAP_MS;
         if (defender.caption) caption(cx, gD, defender.caption, defender.tint, t0);
-        lunge(cx, gD, t0 + LUNGE_AT[defender.style] * COUNTER_SCALE, COUNTER_SCALE);
+        lunge(cx, gD, t0 + LUNGE_AT[defender.style] * COUNTER_SCALE * ATTACK_PACE, COUNTER_SCALE * ATTACK_PACE);
         const counterAt = plan.timing.attackerDamageMs;
         shake(cx, attacker.el, counterAt, 3.5 * u, 240);
         if (plan.kind !== "lose") hitRing(cx, attacker.box, counterAt, defender.tint.main);
@@ -1093,7 +1106,8 @@ function playFull(cx: Ctx, plan: AttackFxPlan): void {
     playBeats3d(cx, plan, gA, geoFor);
     return;
   }
-  styleA.strike(cx, gA, 0, 1);
+  styleA.strike(cx, gA, 0, ATTACK_PACE);
+  if (!defender) directImpact(cx, plan.hit, impact, attacker.tint);
 
   switch (plan.kind) {
     case "win":
@@ -1117,7 +1131,7 @@ function playFull(cx: Ctx, plan: AttackFxPlan): void {
         const styleD = STYLES[defender.style];
         const t0 = impact + COUNTER_GAP_MS;
         if (defender.caption) caption(cx, gD, defender.caption, defender.tint, t0);
-        styleD.strike(cx, gD, t0, COUNTER_SCALE);
+        styleD.strike(cx, gD, t0, COUNTER_SCALE * ATTACK_PACE);
         const counterAt = plan.timing.attackerDamageMs;
         if (plan.kind === "bounce") hitRing(cx, attacker.box, counterAt, defender.tint.main);
         // a tie slices the target in the attacker's style, together with the attacker

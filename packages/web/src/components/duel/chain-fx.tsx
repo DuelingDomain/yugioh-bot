@@ -1,22 +1,32 @@
 "use client";
 
 /**
- * The chain on the board.
+ * The chain on the board, shown once.
  *
- *  - A numbered badge on the card of every chain link (Chain Link 1, 2, ...), and a soft gold ring
- *    on that card. A link that activated from the hand, the GY, the Extra Deck or the banished pile
- *    sits on its slot, or on the hand / pile when the card has left that slot. A link with no
- *    anchor on the board shows in the stack panel only.
- *  - A compact stack panel at the left edge while a chain is open (2+ links, or one link that
- *    waits for a response). Links read bottom-up: Chain Link 1 is the bottom row.
- *  - Resolution: links resolve highest first. The resolving link pulses (badge and ring) and its
- *    panel row lights up; a negated link is struck through and dimmed.
+ *  - Every link is one numbered medallion (a gold ring, the Chain Link number, a small chain-link
+ *    glyph) on the card that activated, with a soft gold ring on the card. A new link drops in with
+ *    a clink; the highest link is the largest and sits on top, so the order reads at a glance. A thin
+ *    arc joins badge N to badge N-1, so the badges read as one chain. A link that activated from the
+ *    hand, the GY, the Extra Deck or the banished pile sits on its slot, or on the hand / pile when
+ *    the card has left that slot.
+ *  - The off-board strip lists ONLY a link the board cannot place (no known zone, or its card and
+ *    its hand / pile are not on screen). A link is a badge or a strip row, never both.
+ *  - Screen readers get a visually hidden list ("Chain Link 2: card, Opponent") and a polite live
+ *    announcement for each new link, resolution, negation and the end of the chain.
+ *  - Resolution: links resolve highest first, and this is the only place it is shown (there is no
+ *    centre banner for it). The resolving link takes a gold ring burst on its badge and a soft gold
+ *    wash on its card; then its number gives way to a tick, the badge shrinks away and the arc to
+ *    it fades. The next link down is marked "up next" (data-next). A negated link is slashed and
+ *    greyed before it clears.
  *
- * Events play one beat at a time (see chainStepDelay), so a chain that resolves inside one engine
- * batch is still readable. A page that loads mid-chain starts from the chain as it stands.
- * Everything sits on a pointer-transparent overlay, animates only transform and opacity, and the
- * badges follow their zones with `translate` (never layout). Reduced motion: no movement, the
- * state shows through colour and opacity.
+ * Events play one beat at a time (see chainStepDelay, about 0.5 to 0.9 s per link), so a chain that
+ * resolves inside one engine batch is still readable. The beat times are planned in chain-beats.ts,
+ * which the banner layer reads for its sounds and the effect layers read to play a link's move or
+ * destroy while, or just after, its badge beat. A page that loads mid-chain starts from the chain
+ * as it stands. Everything visual sits on a pointer-transparent overlay, animates only transform
+ * and opacity, and the badges follow their zones with `translate` (never layout). Reduced motion:
+ * no burst, no movement and no wire; the state shows through colour and opacity, with a short hold
+ * so the order stays readable.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { DuelChainLink, DuelEvent } from "@yugidraft/shared/duels";
@@ -24,18 +34,24 @@ import { cardArtUrl } from "./constants";
 import { collectFreshEvents, findZoneElement, maxEventId } from "./event-queue";
 import {
   applyChainEvent,
+  badgeCenter,
   chainAnchor,
-  chainPanelVisible,
+  chainAnnouncement,
+  chainLinkLabel,
   chainSeatLabel,
   chainStateKey,
-  chainStepDelay,
+  chainWirePath,
   deriveChainState,
+  EMPTY_CHAIN,
   isChainEvent,
-  panelOrder,
+  nextToResolve,
+  strayLinks,
   type ChainAnchor,
   type ChainLinkState,
   type ChainState,
 } from "./chain-state";
+import { chainBeatAt, chainBeatsEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
+import { holdPromptReveal } from "./prompt-reveal";
 import styles from "./chain-fx.module.css";
 
 export type ChainFxProps = {
@@ -50,7 +66,13 @@ export type ChainFxProps = {
   playerName: (seat: number) => string;
 };
 
-/** Plays chain events one beat at a time and settles on the live chain when the beats run out. */
+const clock = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
+/**
+ * Plays chain events one beat at a time and settles on the live chain when the beats run out.
+ * The clock is the beat plan (chain-beats.ts), made in the render phase when a batch arrives, so
+ * the banners, sounds and card effects of the same batch can wait for the same beats.
+ */
 export function useChainPlayback(
   events: readonly DuelEvent[],
   snapshot: readonly DuelChainLink[],
@@ -66,6 +88,17 @@ export function useChainPlayback(
   const latest = useRef({ events, snapshot, reducedMotion });
   latest.current = { events, snapshot, reducedMotion };
 
+  // Render phase on purpose (see BattleFx): SummonFx, MoveFx and the banners plan the same batch in
+  // their effects, which run after this render, and read the plan. Planning is idempotent.
+  const planBase = useRef<{ key: string; after: number } | null>(null);
+  if (planBase.current == null || planBase.current.key !== duelKey) {
+    planBase.current = { key: duelKey, after: maxEventId(events) ?? 0 };
+    resetChainBeats(duelKey);
+  }
+  const after = planBase.current.after;
+  const freshForPlan = events.filter((event) => event.id > after);
+  if (freshForPlan.length > 0) planChainBeats(freshForPlan, { now: clock(), reduced: reducedMotion, duelKey });
+
   const commit = useCallback((next: ChainState) => {
     stateRef.current = next;
     setState(next);
@@ -73,19 +106,29 @@ export function useChainPlayback(
 
   const pump = useCallback(() => {
     if (timerRef.current != null) return;
-    const next = queueRef.current.shift();
+    const next = queueRef.current[0];
     if (!next) {
       // Out of beats: the live state is the truth.
       const live = deriveChainState(latest.current.events, latest.current.snapshot);
       if (chainStateKey(live) !== chainStateKey(stateRef.current)) commit(live);
       return;
     }
+    const wait = (at: number) => {
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        pump();
+      }, Math.max(0, at - clock()));
+    };
+    const due = chainBeatAt(next.id);
+    if (due - clock() > 8) {
+      wait(due);
+      return;
+    }
+    queueRef.current.shift();
     commit(applyChainEvent(stateRef.current, next));
-    const wait = chainStepDelay(next.kind, queueRef.current.length, latest.current.reducedMotion);
-    timerRef.current = window.setTimeout(() => {
-      timerRef.current = null;
-      pump();
-    }, wait);
+    // Hold this beat until the next one is due, or until the last beat has had its hold.
+    const following = queueRef.current[0];
+    wait(following ? chainBeatAt(following.id) : chainBeatsEndAt());
   }, [commit]);
 
   useEffect(() => {
@@ -100,7 +143,14 @@ export function useChainPlayback(
     }
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
-    for (const event of fresh) if (isChainEvent(event)) queueRef.current.push(event);
+    const chainEvents = fresh.filter(isChainEvent);
+    if (chainEvents.length > 0) {
+      // Already planned in the render; this only fills a gap.
+      planChainBeats(fresh, { now: clock(), reduced: latest.current.reducedMotion, duelKey });
+      queueRef.current.push(...chainEvents);
+      // The question after a chain waits until the chain has been played to its end.
+      if (chainEvents.some((event) => event.kind === "chain-resolving")) holdPromptReveal(chainBeatsEndAt() - clock());
+    }
     pump();
   }, [events, snapshot, duelKey, commit, pump]);
 
@@ -134,8 +184,8 @@ function resolveAnchor(anchor: ChainAnchor): HTMLElement | null {
   return findPileElement(fallback.controller, fallback.location);
 }
 
-const MIN_BADGE = 18;
-const MAX_BADGE = 34;
+const MIN_BADGE = 22;
+const MAX_BADGE = 38;
 
 type Box = { left: number; top: number; width: number; height: number };
 
@@ -159,12 +209,27 @@ function linkLabel(link: ChainLinkState): string {
   return link.name ?? "Effect";
 }
 
+/** Two interlocked links. */
+function ChainGlyph() {
+  return (
+    <svg className={styles.glyph} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <g transform="rotate(-40 12 12)" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round">
+        <rect x="1.5" y="8" width="12" height="8" rx="4" />
+        <rect x="10.5" y="8" width="12" height="8" rx="4" />
+      </g>
+    </svg>
+  );
+}
+
+const NO_LINKS: ReadonlySet<number> = new Set();
+
 export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName }: ChainFxProps) {
   const state = useChainPlayback(events, chain, duelKey, reducedMotion);
   const overlayRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef(new Map<number, HTMLElement>());
-  const [unanchored, setUnanchored] = useState(false);
-  const unanchoredRef = useRef(false);
+  const wireRefs = useRef(new Map<number, SVGPathElement>());
+  const [lost, setLost] = useState<ReadonlySet<number>>(NO_LINKS);
+  const lostKeyRef = useRef("");
   const links = state.links;
   const linksKey = useMemo(() => chainStateKey(state), [state]);
   const linksRef = useRef(links);
@@ -173,9 +238,9 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   // Keep every badge on its card: layout can move under us (resize, a hovered hand card, a summon).
   useLayoutEffect(() => {
     if (links.length === 0) {
-      if (unanchoredRef.current) {
-        unanchoredRef.current = false;
-        setUnanchored(false);
+      if (lostKeyRef.current !== "") {
+        lostKeyRef.current = "";
+        setLost(NO_LINKS);
       }
       return undefined;
     }
@@ -185,7 +250,9 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       if (!overlay) return;
       const origin = overlay.getBoundingClientRect();
       const stacked = new Map<HTMLElement, number>();
-      let lost = false;
+      const centers = new Map<number, { x: number; y: number }>();
+      const gone: number[] = [];
+      let gap = MIN_BADGE;
       for (const link of linksRef.current) {
         const slot = slotRefs.current.get(link.index);
         if (!slot) continue;
@@ -193,13 +260,15 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         const zone = anchor ? resolveAnchor(anchor) : null;
         const box = zone ? cardBox(origin, zone) : null;
         if (!zone || !box) {
-          lost = true;
+          gone.push(link.index);
           if (slot.dataset.placed !== "false") slot.dataset.placed = "false";
           continue;
         }
         const shift = stacked.get(zone) ?? 0;
         stacked.set(zone, shift + 1);
-        const size = Math.round(Math.min(MAX_BADGE, Math.max(MIN_BADGE, box.width * 0.34)));
+        const size = Math.round(Math.min(MAX_BADGE, Math.max(MIN_BADGE, box.width * 0.4)));
+        gap = Math.max(gap, size);
+        centers.set(link.index, badgeCenter(box, size, shift));
         const geo = `${Math.round(box.left)},${Math.round(box.top)},${Math.round(box.width)},${Math.round(box.height)},${size},${shift}`;
         if (slot.dataset.geo !== geo) {
           slot.dataset.geo = geo;
@@ -211,9 +280,21 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         }
         if (slot.dataset.placed !== "true") slot.dataset.placed = "true";
       }
-      if (lost !== unanchoredRef.current) {
-        unanchoredRef.current = lost;
-        setUnanchored(lost);
+      // The wire from badge N to badge N-1: only when both badges are on the board and apart.
+      for (const [index, wire] of wireRefs.current) {
+        const from = centers.get(index - 1);
+        const to = centers.get(index);
+        const d = from && to ? chainWirePath(from, to, gap * 1.1) : null;
+        if (d == null) {
+          if (wire.hasAttribute("d")) wire.removeAttribute("d");
+        } else if (wire.getAttribute("d") !== d) {
+          wire.setAttribute("d", d);
+        }
+      }
+      const key = gone.join(",");
+      if (key !== lostKeyRef.current) {
+        lostKeyRef.current = key;
+        setLost(gone.length > 0 ? new Set(gone) : NO_LINKS);
       }
     };
     const tick = () => {
@@ -228,57 +309,104 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
     return () => cancelAnimationFrame(raf);
   }, [linksKey, links.length]);
 
-  const showPanel = chainPanelVisible(state) || (links.length > 0 && unanchored);
-  const rows = panelOrder(state);
+  // Live announcements for screen readers: what changed on this beat of the chain.
+  const prevRef = useRef<ChainState>(EMPTY_CHAIN);
+  const [announcement, setAnnouncement] = useState("");
+  useEffect(() => {
+    const said = chainAnnouncement(prevRef.current, state, mySeat, playerName);
+    prevRef.current = state;
+    if (said != null) setAnnouncement(said);
+  }, [state, mySeat, playerName]);
+
+  const rows = strayLinks(state, lost);
+  const topIndex = links.length;
+  const nextIndex = nextToResolve(state);
 
   return (
-    <div ref={overlayRef} className={styles.layer} aria-hidden="true" data-chain-fx="true"
-      data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
-      {links.map((link) => (
-        <div
-          key={link.index}
-          ref={(el) => {
-            if (el) slotRefs.current.set(link.index, el);
-            else slotRefs.current.delete(link.index);
-          }}
-          className={styles.slot}
-          data-placed="false"
-          data-status={link.status}
-          data-negated={link.negated ? "true" : "false"}
-          data-chain-link={link.index}
-        >
-          <span className={styles.ring} />
-          <span className={styles.badge}>{link.index}</span>
-        </div>
-      ))}
-      {showPanel ? (
-        <div className={styles.dock}>
-          <ol className={styles.panel} data-chain-panel="true">
-            <li className={styles.head}>
-              <span>Chain</span>
-              <small>{links.length} link{links.length === 1 ? "" : "s"}</small>
-            </li>
-            {rows.map((link) => (
-              <li
-                key={link.index}
-                className={styles.row}
-                data-status={link.status}
-                data-negated={link.negated ? "true" : "false"}
-                data-mine={mySeat != null && link.seat === mySeat ? "true" : "false"}
-                data-chain-row={link.index}
-              >
-                <b className={styles.num}>{link.index}</b>
-                <span className={styles.thumb} style={artStyle(link.code)} />
-                <span className={styles.text}>
-                  <span className={styles.name}>{linkLabel(link)}</span>
-                  <small className={styles.who}>{chainSeatLabel(link.seat, mySeat, playerName)}</small>
-                </span>
-              </li>
+    <>
+      <div className={styles.sr} data-chain-sr="true">
+        {links.length > 0 ? (
+          <ol aria-label="Current chain" data-chain-sr-list="true">
+            {links.map((link) => (
+              <li key={link.index} data-chain-sr-link={link.index}>{chainLinkLabel(link, mySeat, playerName)}</li>
             ))}
           </ol>
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+        <p role="status" aria-live="polite" aria-atomic="true" data-chain-live="true">{announcement}</p>
+      </div>
+      <div ref={overlayRef} className={styles.layer} aria-hidden="true" data-chain-fx="true"
+        data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
+        {!reducedMotion ? (
+          <svg className={styles.wires} data-chain-wires="true" aria-hidden="true" focusable="false">
+            {links.filter((link) => link.index > 1).map((link) => (
+              <path
+                key={link.index}
+                ref={(el) => {
+                  if (el) wireRefs.current.set(link.index, el);
+                  else wireRefs.current.delete(link.index);
+                }}
+                className={styles.wire}
+                data-chain-wire={link.index}
+                data-status={link.status}
+              />
+            ))}
+          </svg>
+        ) : null}
+        {links.map((link) => (
+          <div
+            key={link.index}
+            ref={(el) => {
+              if (el) slotRefs.current.set(link.index, el);
+              else slotRefs.current.delete(link.index);
+            }}
+            className={styles.slot}
+            style={{ zIndex: link.index }}
+            data-placed="false"
+            data-status={link.status}
+            data-negated={link.negated ? "true" : "false"}
+            data-top={link.index === topIndex ? "true" : "false"}
+            data-next={link.index === nextIndex ? "true" : "false"}
+            data-chain-link={link.index}
+          >
+            <span className={styles.ring} />
+            <span className={styles.wash} />
+            <span className={styles.badge}>
+              <span className={styles.num} data-chain-num="true">{link.index}</span>
+              <svg className={styles.tick} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className={styles.chip}><ChainGlyph /></span>
+            </span>
+          </div>
+        ))}
+        {rows.length > 0 ? (
+          <div className={styles.dock}>
+            <ol className={styles.panel} data-chain-panel="true">
+              <li className={styles.head}>
+                <span>Chain</span>
+                <small>off board</small>
+              </li>
+              {rows.map((link) => (
+                <li
+                  key={link.index}
+                  className={styles.row}
+                  data-status={link.status}
+                  data-negated={link.negated ? "true" : "false"}
+                  data-mine={mySeat != null && link.seat === mySeat ? "true" : "false"}
+                  data-chain-row={link.index}
+                >
+                  <b className={styles.rowNum}>{link.index}</b>
+                  <span className={styles.thumb} style={artStyle(link.code)} />
+                  <span className={styles.text}>
+                    <span className={styles.name}>{linkLabel(link)}</span>
+                    <small className={styles.who}>{chainSeatLabel(link.seat, mySeat, playerName)}</small>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : null}
+      </div>
+    </>
   );
 }
-

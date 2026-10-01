@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
 import { backOutAnswer, backOutLabel } from "@/components/duel/pick-backout";
-import { barTitleLabel } from "@/components/duel/select-bar-copy";
 import { optionsForCard } from "@/components/duel/prompts";
 import { keepsPickOpen } from "@/components/duel/pick-continuation";
 import { dismissAnswer } from "@/components/duel/prompt-center";
@@ -87,22 +86,6 @@ describe("clicking a selected material", () => {
     const prompt = toggle({ options: [option("unselect:0", 0, true), option("select:1", 1)] });
     const card = { controller: 0, location: MZONE, sequence: 0 } as never;
     expect(optionsForCard(prompt, card, ["0:4:0"]).map((o) => o.id)).toEqual(["unselect:0"]);
-  });
-});
-
-describe("barTitleLabel", () => {
-  it("keeps a short title", () => {
-    expect(barTitleLabel("Select 2 card(s)")).toBe("Select 2 card(s)");
-  });
-
-  it("shortens a long material title", () => {
-    expect(barTitleLabel("Select the card(s) to use as Synchro Material")).toBe("Select materials");
-    expect(barTitleLabel("Select the card(s) to be used as Xyz material")).toBe("Select materials");
-  });
-
-  it("shortens a long generic card title and leaves other long titles whole", () => {
-    expect(barTitleLabel("Select the card(s) to send to the Graveyard")).toBe("Select cards");
-    expect(barTitleLabel("Choose something very unusual to do now")).toBe("Choose something very unusual to do now");
   });
 });
 

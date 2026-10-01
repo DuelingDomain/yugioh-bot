@@ -4,11 +4,13 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
 import { cardArtUrl } from "./constants";
+import { BANNER_TIMING } from "./duel-timing";
 import {
   collectFreshEvents,
   DUEL_FX_CUE_EVENT,
   type DuelFxCueDetail,
   fxSoundsItself,
+  hasCentreBanner,
   isDrawnOnBoard,
   isPositionEvent,
   maxEventId,
@@ -16,6 +18,7 @@ import {
 } from "./event-queue";
 import { DEFAULT_SOUND_VOLUME } from "./preferences";
 import { battleDestroyAt } from "./battle-hold";
+import { chainBeatAt, chainEffectAt } from "./chain-beats";
 import { createDuelFeedbackAudio, type DuelFeedbackAudio } from "./feedback-audio";
 import { pairedMovePlan } from "./move-plan";
 import styles from "./feedback.module.css";
@@ -33,10 +36,7 @@ const KIND_LABEL: Record<string, string> = {
   summon: "Summon",
   set: "Set",
   activate: "Activate",
-  "chain-resolving": "Resolving",
-  "chain-resolved": "Resolved",
   "chain-negated": "Negated",
-  "chain-end": "Chain end",
   attack: "Attack",
   phase: "Phase",
   damage: "Damage",
@@ -72,8 +72,8 @@ function cueBlurb(event: DuelEvent, card: DuelCardInfo | null): string | undefin
 
 /** Entrance and exit lengths for a cue that lives `durationMs`: in about a fifth, out a little less. */
 function cueTiming(durationMs: number, reducedMotion: boolean): CSSProperties {
-  const enter = reducedMotion ? Math.min(140, durationMs * 0.3) : clampMs(durationMs * 0.34, 80, 260);
-  const leave = reducedMotion ? Math.min(140, durationMs * 0.3) : clampMs(durationMs * 0.24, 70, 180);
+  const enter = reducedMotion ? Math.min(140, durationMs * 0.3) : clampMs(durationMs * 0.34, BANNER_TIMING.enterMin, BANNER_TIMING.enterMax);
+  const leave = reducedMotion ? Math.min(140, durationMs * 0.3) : clampMs(durationMs * 0.24, BANNER_TIMING.leaveMin, BANNER_TIMING.leaveMax);
   return {
     "--cue-total": `${Math.round(durationMs)}ms`,
     "--cue-in": `${Math.round(enter)}ms`,
@@ -288,29 +288,41 @@ export function DuelFeedback({
     if (fresh.length === 0) return;
     const toasts: DuelEvent[] = [];
     const now = performance.now();
+    // A sound waits for the moment its picture plays on the board.
+    const playAfter = (kind: DuelEvent["kind"], waitMs: number) => {
+      if (!soundRef.current) return;
+      if (waitMs > 30) {
+        const timer = window.setTimeout(() => {
+          holdTimersRef.current.delete(timer);
+          if (soundRef.current) audioRef.current?.play(kind);
+        }, waitMs);
+        holdTimersRef.current.add(timer);
+      } else {
+        audioRef.current?.play(kind);
+      }
+    };
     for (const event of fresh) {
       // The battle layer draws damage on the life points; MoveFx draws card movement and
       // PositionFx the turn or flip of a monster: none of them get a toast.
-      if (event.kind === "damage" || event.kind === "move" || isPositionEvent(event)) continue;
+      if (event.kind === "damage" || event.kind === "move" || event.kind === "equip" || isPositionEvent(event)) continue;
+      // When the board plays it: the chain beat of a chain event (ChainFx), or the moment a link's
+      // own effect may start (chain-beats.ts). 0 when nothing holds it, as in the replay.
+      const chainAt = Math.max(chainBeatAt(event.id), chainEffectAt(event.id));
+      const chainMs = chainAt > 0 ? chainAt - now : 0;
+      // A link resolving or resolved and the end of the chain are drawn on the board only (the badge
+      // on its card), so they get no banner: just their quiet cue, at the moment of that beat.
+      if (!hasCentreBanner(event.kind)) {
+        playAfter(event.kind, chainMs);
+        continue;
+      }
       // A card flying onto the board is heard and announced when it lands, not when it leaves.
       const landAt = pairedMovePlan(event.id)?.landAt;
       // A card a fight destroyed is announced once the fight has landed its last strike.
       const battleAt = event.kind === "destroy" ? battleDestroyAt(event.zone, now) : 0;
-      const holdMs = Math.max(landAt != null ? landAt - now : 0, battleAt > 0 ? battleAt - now : 0);
+      const holdMs = Math.max(landAt != null ? landAt - now : 0, battleAt > 0 ? battleAt - now : 0, chainMs);
       if (isDrawnOnBoard(event, reducedRef.current)) {
         // SummonFx draws it on the zone; heavy, typed and destroy effects sound their own cues at their moment.
-        const fxSounds = fxSoundsItself(event);
-        if (!fxSounds && soundRef.current) {
-          if (holdMs > 30) {
-            const timer = window.setTimeout(() => {
-              holdTimersRef.current.delete(timer);
-              if (soundRef.current) audioRef.current?.play(event.kind);
-            }, holdMs);
-            holdTimersRef.current.add(timer);
-          } else {
-            audioRef.current?.play(event.kind);
-          }
-        }
+        if (!fxSoundsItself(event)) playAfter(event.kind, holdMs);
         continue;
       }
       if (holdMs > 30) {

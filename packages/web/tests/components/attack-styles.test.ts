@@ -104,11 +104,12 @@ describe("battle timing", () => {
     expect(battleKind(true, { attacker: false, target: false }, true)).toBe("direct");
   });
 
-  it("keeps every single-strike attack at or under 1.6 s and the whole table sane", () => {
+  it("keeps every single-strike attack between 1.4 s and 2.4 s and the whole table sane", () => {
     for (const id of STYLE_IDS) {
       const t = battleTiming("win", id, "impact");
       expect(t.impactMs).toBe(STYLE_TIMING[id].impact);
-      expect(t.totalMs).toBeLessThanOrEqual(1600);
+      expect(t.totalMs).toBeLessThanOrEqual(2400);
+      expect(t.totalMs).toBeGreaterThanOrEqual(1400);
       expect(t.impactMs).toBeLessThan(t.totalMs);
     }
   });
@@ -132,7 +133,7 @@ describe("battle timing", () => {
     }
   });
 
-  it("keeps the slowest counter fight, including the fall of the shards, under 2.4 s", () => {
+  it("keeps the slowest counter fight, including the fall of the shards, under 3.6 s", () => {
     let slowest = 0;
     for (const a of STYLE_IDS) {
       for (const d of STYLE_IDS) {
@@ -143,8 +144,8 @@ describe("battle timing", () => {
         }
       }
     }
-    expect(slowest).toBeLessThanOrEqual(2400);
-    expect(MAX_BATTLE_MS).toBeLessThanOrEqual(2400);
+    expect(slowest).toBeLessThanOrEqual(3600);
+    expect(MAX_BATTLE_MS).toBeLessThanOrEqual(3600);
   });
 });
 

@@ -3,7 +3,15 @@
 
 .wrap {
   --cs-u: var(--duel-unit, 1px);
-  --cs-w: calc(84 * var(--cs-u));
+  /* Cards are sized from the unit, and the panel is capped near 1000 units wide, so about six cards show
+     whole at any window size, with the next one peeking in to say there are more. */
+  --cs-w: calc(132 * var(--cs-u));
+  --cs-gap: calc(12 * var(--cs-u));
+  /* Room inside the scroller for the lift, the check mark and the ring: overflow-x: auto clips y as well. */
+  --cs-pad-x: calc(24 * var(--cs-u));
+  --cs-pad-top: calc(24 * var(--cs-u));
+  --cs-pad-bottom: calc(12 * var(--cs-u));
+  --cs-fade: calc(44 * var(--cs-u));
   display: flex;
   flex-direction: column;
   gap: calc(2 * var(--cs-u));
@@ -21,25 +29,65 @@
 }
 .caption[data-busy="true"] { color: var(--duel-chain-ink, #f4d690); }
 
+/* The frame holds the arrows over the scroller; the arrows sit at the middle of the art. */
+.frame {
+  position: relative;
+  min-width: 0;
+}
+
 .strip {
+  --cs-fade-l: 0px;
+  --cs-fade-r: 0px;
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: calc(10 * var(--cs-u));
+  gap: var(--cs-gap);
   margin: 0;
-  /* Room for the lift on hover and the order mark that hangs off a card's corner. */
-  padding: calc(10 * var(--cs-u)) calc(8 * var(--cs-u)) calc(6 * var(--cs-u));
+  padding: var(--cs-pad-top) var(--cs-pad-x) var(--cs-pad-bottom);
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
+  /* A card never stops half cut under an edge: snapping and arrow-key follow both keep the pad. */
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--cs-pad-x);
   list-style: none;
   scrollbar-width: thin;
   scrollbar-color: rgb(155 126 255 / 0.5) transparent;
+  /* Edge fades show only on a side that has more cards beyond it. */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--cs-fade-l), #000 calc(100% - var(--cs-fade-r)), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--cs-fade-l), #000 calc(100% - var(--cs-fade-r)), transparent 100%);
 }
+.frame[data-prev="true"] .strip { --cs-fade-l: var(--cs-fade); }
+.frame[data-next="true"] .strip { --cs-fade-r: var(--cs-fade); }
+
 /* Few cards sit in the middle; many cards scroll from the left (auto margins never clip). */
 .cell:first-child { margin-left: auto; }
 .cell:last-child { margin-right: auto; }
-.cell { flex: none; width: var(--cs-w); min-width: 0; }
+.cell { flex: none; width: var(--cs-w); min-width: 0; scroll-snap-align: start; }
+
+.arrow {
+  position: absolute;
+  z-index: 2;
+  top: calc(var(--cs-pad-top) + var(--cs-w) * 43 / 59 - 18 * var(--cs-u));
+  display: grid;
+  place-items: center;
+  width: calc(36 * var(--cs-u));
+  height: calc(36 * var(--cs-u));
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid var(--duel-rule-hi, rgb(181 153 99 / 0.6));
+  border-radius: 50%;
+  background: rgb(11 17 32 / 0.92);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.5);
+  color: var(--duel-ink, #efe7d5);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.arrow[data-side="prev"] { left: calc(4 * var(--cs-u)); }
+.arrow[data-side="next"] { right: calc(4 * var(--cs-u)); }
+.arrow:hover { border-color: var(--duel-pen, #9b7eff); background: rgb(19 32 55 / 0.96); }
+.arrow:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 2px; }
 
 .card {
   display: flex;
@@ -115,8 +163,9 @@
 
 .mark {
   position: absolute;
-  top: calc(-9 * var(--cs-u));
-  right: calc(-9 * var(--cs-u));
+  /* Hangs only a little off the corner; the scroller's padding leaves room for it. */
+  top: calc(-8 * var(--cs-u));
+  right: calc(-8 * var(--cs-u));
   display: grid;
   place-items: center;
   min-width: calc(28 * var(--cs-u));
@@ -165,12 +214,17 @@
 
 :global([data-reduced="true"]) .art { transition: none; }
 @media (prefers-reduced-motion: reduce) {
-  .art { transition: none; }
+  .art, .arrow { transition: none; }
 }
 
 /* Phones: smaller cards, and the inspector is a sheet rather than the pane on the left. */
 @media (max-width: 900px) {
-  .wrap { --cs-w: calc(72 * var(--cs-u)); }
+  .wrap {
+    --cs-w: calc(88 * var(--cs-u));
+    --cs-gap: calc(10 * var(--cs-u));
+    --cs-pad-x: calc(16 * var(--cs-u));
+    --cs-fade: calc(28 * var(--cs-u));
+  }
   .hint { display: none; }
 }
 @media (pointer: coarse) {
