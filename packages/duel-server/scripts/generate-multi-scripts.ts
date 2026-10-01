@@ -190,6 +190,7 @@ export function registerR1(items: { code: number; name: string; note?: string }[
     if (manifest.cards.some((card) => card.code === item.code)) continue;
     if (!existsSync(join(directory, `c${item.code}.lua`))) throw new Error(`c${item.code}.lua is missing: write the suffix before registering the card`);
     const entry = r1Entry(item.code, item.name, readFileSync(join(stockDirectory, `c${item.code}.lua`), "utf8"));
+    if (readFileSync(join(directory, `c${item.code}.lua`), "utf8").startsWith("--@replace")) entry.replace = true;
     if (item.note) entry.note = item.note;
     manifest.cards.push(entry);
     added.push(item.code);

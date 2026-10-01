@@ -150,6 +150,16 @@ function aux.MPKeyOfSeat(seat)
 	return seat
 end
 
+-- True when fn(tp_i,seat_i) is true for at least one living OPPONENT of the duelist that runs the effect (a seat or team key other than
+-- the key of tp). It never asks for a pick (aux.MPAny does, in FFA). A value of the own side (a count, LP) is read BEFORE the call and
+-- fn compares it with the opponent that fn sees; that one value is meant for the own side. Same rules for fn as in MPForEachDuelist.
+function aux.MPAnyOpponent(tp,fn)
+	local me=aux.MPKey(tp)
+	return aux.MPAnyDuelist(function(tp_i,seat_i)
+		return aux.MPKeyOfSeat(seat_i)~=me and fn(tp_i,seat_i)
+	end)
+end
+
 -- The Lua value of the own side of the duelist that runs the effect: FFA 0, Tag its team id. A seat that Duel.MPBindSeat accepts is a
 -- living opponent, so the own team is the other one. It leaves no bind behind.
 local function mp_own_value()

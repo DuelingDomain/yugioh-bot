@@ -93,12 +93,12 @@ describe("MANIFEST.json of the overlay", () => {
 describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)", () => {
   const r1Cards = cards.filter((card) => card.classes.includes("R1"));
 
-  it("have kind hand, only the class R1, the loop guard and a loop over the living duelists", () => {
+  it("have kind hand, only the class R1, the loop guard and a loop over the living duelists (or over the controllers of a group)", () => {
     for (const card of r1Cards) {
       expect(card.kind, card.file).toBe("hand");
       expect(card.classes, card.file).toEqual(["R1"]);
-      expect(text(card).split("\n")[0], card.file).toBe("if not aux.MPForEachDuelist then return end");
-      expect(text(card), card.file).toMatch(/aux\.MP(ForEach|All|Any)Duelists?\(function\(tp_i(,seat_i)?\)/);
+      expect(text(card).split("\n")[0], card.file).toBe(card.replace ? "--@replace" : "if not aux.MPForEachDuelist then return end");
+      expect(text(card), card.file).toMatch(/aux\.MP(ForEach|All|Any)Duelists?\(function\(tp_i(,seat_i)?\)|aux\.MPForEachController\(/);
     }
   });
 

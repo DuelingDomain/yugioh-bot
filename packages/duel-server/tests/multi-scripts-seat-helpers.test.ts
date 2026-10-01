@@ -165,6 +165,32 @@ if not aux.MPAllDuelists(function() return false end) then error('all with no du
     });
   });
 
+  describe("MPAnyOpponent", () => {
+    it("FFA: skips the duelist that runs the effect, asks every other living duelist, stops at the first true (scope given back)", async () => {
+      const lua = `${FAKE_NTH([0, 1, 2])}
+Duel.MPSeat=function(p) return p end
+if not aux.MPAnyOpponent(1,function(tp,seat) LOG[#LOG+1]='a'..seat return seat==2 end) then error('opponent true') end
+if REBOUND then error('scope not given back') end
+${EXPECT_LOG("n1 a0 n2 n3 a2 n0")}`;
+      expect(await run("ffa3", lua)).toBe("");
+    });
+
+    it("Tag: skips both duelists of the own team, asks the two duelists of the other team, and is false when none is true", async () => {
+      const lua = `${FAKE_NTH([0, 1, 2, 3])}
+Duel.MPSeat=function(p) return p end
+if aux.MPAnyOpponent(0,function(tp,seat) LOG[#LOG+1]='a'..seat return false end) then error('opponent false') end
+if REBOUND then error('scope not given back') end
+${EXPECT_LOG("n1 n2 a1 n3 n4 a3 n5 n0")}`;
+      expect(await run("tag", lua)).toBe("");
+    });
+
+    it("is false when no opponent is left (the other seats are defeated)", async () => {
+      expect(await run("ffa3", `${FAKE_NTH([1])}
+Duel.MPSeat=function(p) return p end
+if aux.MPAnyOpponent(1,function() return true end) then error('no opponent') end`)).toBe("");
+    });
+  });
+
   describe("MPKeyOfSeat", () => {
     it("is the seat in FFA, and the team in Tag", async () => {
       expect(await run("ffa4", "for seat=0,3 do if aux.MPKeyOfSeat(seat)~=seat then error('ffa '..seat) end end")).toBe("");
