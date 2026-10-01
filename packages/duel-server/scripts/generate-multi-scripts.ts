@@ -61,10 +61,10 @@ export const MIRROR_GATE = 43452193;
 export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 108, r1: 92, attack: 58 } as const;
 /**
  * R1 cards whose stock script already acts on every living duelist after core patch 0053, so they need no suffix and no entry.
- * Pinned (a card is added here only after the script was read). 39513225 only sends a Confirm to the opponent (no effect on each duelist);
- * 76895648 (Dangerous Machine Type-6) rolls one die for the owner and each result acts on the owner or on "your opponent" (the bound opponent).
+ * Pinned (a card is added here only after the script was read). 39513225 only sends a Confirm to the opponent (no effect on each duelist).
+ * (76895648 Dangerous Machine Type-6 is an entry: its hand and draw results need the pick of one opponent at activation, R-COMMON-OPP-PICK.)
  */
-export const R1_NO_CHANGE: number[] = [39513225, 76895648];
+export const R1_NO_CHANGE: number[] = [39513225];
 /**
  * R2 cards whose stock script works as it is after core patch 0053: the flag is written for the real seat by a global effect and read
  * with the player value of the holder, and the core keys a flag by seat in FFA and by team in Tag. Pinned (a card is added here only

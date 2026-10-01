@@ -99,7 +99,8 @@ describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)
       expect(card.kind, card.file).toBe("hand");
       expect(card.classes, card.file).toEqual(["R1"]);
       expect(text(card).split("\n")[0], card.file).toBe(card.replace ? "--@replace" : "if not aux.MPForEachDuelist then return end");
-      expect(text(card), card.file).toMatch(/aux\.MP(ForEach|All|Any)Duelists?\(function\(tp_i(,seat_i)?\)|aux\.MPForEachController\(/);
+      // A loop over the duelists, or (R1 cards with a pick of one opponent at activation, no loop) the pick wrapper of the target step
+      expect(text(card), card.file).toMatch(/aux\.MP(ForEach|All|Any)Duelists?\(function\(tp_i(,seat_i)?\)|aux\.MPForEachController\(|aux\.MPPick\(/);
     }
   });
 
@@ -108,10 +109,10 @@ describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)
     expect(r1Cards.filter((card) => R1_NO_CHANGE.includes(card.code))).toEqual([]);
   });
 
-  it("are complete: 90 suffixes and 2 cards without change make the 92 R1 cards", () => {
+  it("are complete: 91 suffixes and 1 card without change make the 92 R1 cards", () => {
     expect(R1_COMPLETE).toBe(true);
-    expect(r1Cards).toHaveLength(90);
-    expect(R1_NO_CHANGE).toEqual([39513225, 76895648]);
+    expect(r1Cards).toHaveLength(91);
+    expect(R1_NO_CHANGE).toEqual([39513225]);
     expect(r1Cards.length + R1_NO_CHANGE.length).toBe(EXPECTED_COUNTS.r1);
   });
 

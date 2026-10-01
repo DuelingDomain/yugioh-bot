@@ -159,10 +159,6 @@ interface KnownGap {
   reason: string;
 }
 const KNOWN_GAPS: Record<number, KnownGap[]> = {
-  76895648: [
-    { format: "ffa3", trap: "c", reason: "Dangerous Machine Type-6 (R1_NO_CHANGE, no overlay): the core reports a pick during the operation step (trap c) at fn=Draw, P=0, card=76895648. The stock script may need an entry. Owner: seats-r1" },
-    { format: "tag", trap: "c", reason: "Dangerous Machine Type-6 (R1_NO_CHANGE, no overlay): the same trap c at fn=Draw in Tag. Owner: seats-r1" },
-  ],
 };
 
 function gapFor(code: number, format: DuelFormat): KnownGap | undefined {

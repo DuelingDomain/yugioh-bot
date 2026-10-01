@@ -4,7 +4,7 @@
 // the real card scripts plus the overlay, and ends with the state of EVERY seat (LP, field, hand, GY, banished zone).
 
 import {
-  activate, defineScenario, expectBoard,
+  activate, defineScenario, expectBoard, expectPickSeats, select, pickOpponent,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -18,6 +18,7 @@ const AXE = "Axe Raider";
 const FANG = "Silver Fang";
 const ELF = "Mystical Elf";
 const HOLE = "Dark Hole";
+const MACHINE = "Dangerous Machine Type-6";
 const GRAPHA = "Grapha, Dragon Overlord of Dark World";
 
 const seatsOf = (format: Format): Seat[] => (format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"]);
@@ -65,4 +66,54 @@ function grapha(format: Format): Scenario {
   });
 }
 
-export const GAPS_R1_SCENARIOS: Scenario[] = [grapha("ffa3"), grapha("tag")];
+// --- Dangerous Machine Type-6 -----------------------------------------------------------------------------------------------------------
+// A forced Standby Phase effect of p0 (the first Standby Phase of the duel). The die is rolled in the operation; results 2 (the hand of "your
+// opponent" is discarded) and 4 (your opponent draws) act on ONE opponent. The owner picks it when the effect is put on the chain
+// (R-COMMON-OPP-PICK), before the die is rolled. Result 5 (destroy a monster of your opponent) is a field: it selects among the monsters of every
+// opponent (a field is not part of R-COMMON-OPP-PICK), so p0 selects the monster of p1 here, which is NOT the picked opponent. The last opponent is picked, never p1, so a bind on the first
+// opponent would show. The die is the first draw of the duel generator: 5 * seed[1] rotated by 7 bits, times 9, modulo 6, plus 1. A seed word
+// of this size gives a result that does not depend on the format or on the core: 2 (3494825834153508910), 4 (3718197871008284709), 5
+// (4388313981572612106). Every seat has a 2-card Deck of one card name, so the setup shuffle does not change the draw.
+const DICE_RULE = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q4: Dangerous Machine Type-6 (the die result acts on ONE picked opponent)`;
+const MACHINE_PICKS: Record<"ffa3" | "tag", Seat[]> = { ffa3: ["p1", "p2"], tag: ["p1", "p3"] };
+const MACHINE_SEEDS = { 2: "3494825834153508910", 4: "3718197871008284709", 5: "4388313981572612106" } as const;
+const MACHINE_HAND: Record<Seat, string> = { p0: RAT, p1: OX, p2: FANG, p3: ELF };
+const MACHINE_FIELD: Record<Seat, string> = { p0: ELF, p1: AXE, p2: RAT, p3: OX };
+const MACHINE_DECK: Record<Seat, string> = { p0: OX, p1: AXE, p2: ELF, p3: RAT };
+
+function dangerousMachine(format: "ffa3" | "tag", die: 2 | 4 | 5): Scenario {
+  const seats = seatsOf(format);
+  const picked = MACHINE_PICKS[format][MACHINE_PICKS[format].length - 1];
+  const setup: Scenario["setup"] = { format };
+  const spec: Partial<Record<Seat, DuelistExpect>> = {};
+  for (const seat of seats) {
+    (setup as Record<string, unknown>)[seat] = {
+      hand: [MACHINE_HAND[seat]],
+      monsters: [MACHINE_FIELD[seat]],
+      deck: [MACHINE_DECK[seat], MACHINE_DECK[seat]],
+      ...(seat === "p0" ? { spells: [{ card: MACHINE, pos: "up" }] } : {}),
+    };
+    spec[seat] = { hand: [MACHINE_HAND[seat]], monsters: [MACHINE_FIELD[seat]], ...(seat === "p0" ? { spells: [MACHINE] } : {}) };
+  }
+  const what =
+    die === 2 ? `the hand card of ${picked} is discarded` : die === 4 ? `${picked} draws 1 card` : `p0 selects the monster of p1 (a field is not bound to the pick, any opponent) and it is destroyed`;
+  if (die === 2) spec[picked] = { ...spec[picked], hand: [], grave: [MACHINE_HAND[picked]] };
+  if (die === 4) spec[picked] = { ...spec[picked], hand: [MACHINE_HAND[picked], MACHINE_DECK[picked]] };
+  if (die === 5) spec.p1 = { ...spec.p1, monsters: [], grave: [MACHINE_FIELD.p1] };
+  return defineScenario({
+    id: `gaps-r1-${format}-dangerous-machine-die-${die}-${die === 2 ? "discard-of-the-picked-opponent" : die === 4 ? "draw-of-the-picked-opponent" : "destroy-of-an-opponent-monster"}`,
+    title: `${labelOf(format)}: the Standby Phase effect of Dangerous Machine Type-6 of p0, p0 picks ${picked}, the die is ${die}: ${what}; every other seat keeps its hand, field and Graveyard`,
+    source: DICE_RULE,
+    rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    tags: ["multiplayer", "gaps-r1", "r1", "dice", "opp-pick", format, "card:76895648"],
+    seed: ["1", MACHINE_SEEDS[die], "3", "4"],
+    setup,
+    steps: [expectPickSeats(MACHINE_PICKS[format], "p0"), pickOpponent(picked, "p0"), ...(die === 5 ? [select({ card: MACHINE_FIELD.p1, owner: "p1" })] : []), everySeat(format, spec)],
+  });
+}
+
+export const GAPS_R1_SCENARIOS: Scenario[] = [
+  grapha("ffa3"),
+  grapha("tag"),
+  ...([2, 4, 5] as const).flatMap((die) => [dangerousMachine("ffa3", die), dangerousMachine("tag", die)]),
+];

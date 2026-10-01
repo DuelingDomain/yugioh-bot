@@ -4065,6 +4065,16 @@
       "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
     },
     {
+      "code": 76895648,
+      "file": "c76895648.lua",
+      "name": "Dangerous Machine Type-6",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "58e45284560ffdfdf5978350bf147587a05cbf2187692e08ba391d414a5ec381"
+    },
+    {
       "code": 77066768,
       "file": "c77066768.lua",
       "name": "Card Scanner",
