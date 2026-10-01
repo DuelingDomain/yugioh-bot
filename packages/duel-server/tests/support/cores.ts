@@ -27,9 +27,11 @@ import { currentEngineDataDirectory } from "../engine-data-dir.js";
  * A developer's current local per-task build. It is used when the file exists and MULTI_WASM / DOMAIN_MULTI_WASM
  * are not set. A clean checkout and CI do not have it; they use the canonical build, which the documented build
  * (scripts/build-multi-core.sh, .github/workflows/test.yml) makes. Change the tags when the merged core is installed.
+ * P52 is the production build of patches 0001 to 0052 (OUT_NAME=ocgcore.multi-P52.sync.wasm and ocgcore.multi-domain-P52.sync.wasm); it is the build
+ * installed in data/duel-engine-next.
  */
-export const CURRENT_MULTI_TAG = "P2M";
-export const CURRENT_DOMAIN_MULTI_TAG = "D1";
+export const CURRENT_MULTI_TAG = "P52";
+export const CURRENT_DOMAIN_MULTI_TAG = "P52";
 
 export type CoreKind = "standard" | "domain" | "multi" | "domain-multi" | "native" | "data" | "live" | "local";
 
