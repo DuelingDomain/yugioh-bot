@@ -13,6 +13,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 const NEEDS_ENGINE = [
   // cards.cdb (card data, deck legality, scenario names)
   "tests/card-data-abi.test.ts",
+  "tests/card-search.test.ts",
   "tests/deck-import.test.ts",
   "tests/deck-legality-multiplayer.test.ts",
   "tests/deck-legality-settings.test.ts",
@@ -27,6 +28,7 @@ const NEEDS_ENGINE = [
   "tests/engine-eliminate.test.ts",
   "tests/engine-multi-scripts.test.ts",
   "tests/engine-events.test.ts",
+  "tests/engine-first-seat.test.ts",
   "tests/engine-master-rule.test.ts",
   "tests/engine-nseat-domain.test.ts",
   "tests/engine-nseat.test.ts",
@@ -37,6 +39,7 @@ const NEEDS_ENGINE = [
   "tests/host-eliminate.test.ts",
   "tests/host-nseat.test.ts",
   "tests/host-report-replay.test.ts",
+  "tests/host-series.test.ts",
   "tests/host-table-legality.test.ts",
   "tests/host.test.ts",
   "tests/ocgcore-wrapper-abi.test.ts",

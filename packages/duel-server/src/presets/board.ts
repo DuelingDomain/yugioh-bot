@@ -210,7 +210,8 @@ export function compileBoard(board: BoardSpec, dir?: string): CompiledBoard {
     );
   }
 
-  const settings = { ...defaultDuelSettings(mode), startingHand: 0, shuffleDeck: false, validateDeck: false };
+  // stopAtEveryWindow stays on: scenarios and presets are written against every response window the core lists.
+  const settings = { ...defaultDuelSettings(mode), startingHand: 0, shuffleDeck: false, validateDeck: false, stopAtEveryWindow: true };
   return {
     options: {
       mode,
