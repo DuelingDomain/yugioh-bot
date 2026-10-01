@@ -64,6 +64,7 @@ import { battleStepLabel, resolveBattleStep, StationTrack, type BattleStep } fro
 import { MasterReturnFx } from "./master-return-fx";
 import { MoveFx } from "./move-fx";
 import { PositionFx } from "./position-fx";
+import { ChainFx } from "./chain-fx";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
@@ -969,6 +970,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                   reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
                 {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
                 {!error && !realtime.recovering ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
+                {!error && !realtime.recovering ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
+                  reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} /> : null}
                 {!error && !realtime.recovering ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
                 <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}

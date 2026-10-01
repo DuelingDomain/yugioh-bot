@@ -1,0 +1,245 @@
+/* The chain on the board: a numbered badge and a ring on each link's card, and a compact stack
+   panel at the left edge. Nothing here takes pointer input. Only transform and opacity animate;
+   positions are set with the `translate` property from JS. */
+
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  contain: layout style;
+}
+
+/* ---------- badges ---------- */
+
+/* Placed on the card's box (translate, width, height set in JS); --b is the badge size. */
+.slot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.35s ease 0.5s;
+}
+.slot[data-placed="true"] { visibility: visible; }
+/* A link that has resolved leaves the board: the panel keeps its row. */
+.slot[data-status="resolved"] { opacity: 0; }
+
+.ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--duel-chain, #e4b64f);
+  border-radius: 5px;
+  opacity: 0.4;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.55);
+}
+.slot[data-status="resolving"] .ring {
+  border-color: var(--duel-pen-ink, #c6b6ff);
+  opacity: 0.95;
+  animation: chainRing 0.9s ease-out infinite;
+}
+.slot[data-negated="true"] .ring { border-color: var(--duel-loss, #e45a4d); opacity: 0.7; }
+
+.badge {
+  position: absolute;
+  right: 0;
+  top: 0;
+  translate: calc(34% - var(--shift, 0) * 82%) -34%;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: var(--b, 24px);
+  height: var(--b, 24px);
+  border: 2px solid var(--duel-chain, #e4b64f);
+  border-radius: 50%;
+  background: #120d1f;
+  color: var(--duel-chain-ink, #f4d690);
+  font-family: var(--duel-f-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-size: calc(var(--b, 24px) * 0.6);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.65), 0 2px 7px rgb(0 0 0 / 0.55);
+  animation: chainPop 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* The shockwave behind a resolving badge. */
+.badge::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border: 2px solid var(--duel-pen, #9b7eff);
+  border-radius: 50%;
+  opacity: 0;
+}
+.slot[data-status="resolving"] .badge {
+  border-color: var(--duel-pen-ink, #c6b6ff);
+  background: var(--duel-chain, #e4b64f);
+  color: #1a1206;
+  box-shadow: 0 0 0 3px rgb(155 126 255 / 0.6), 0 2px 8px rgb(0 0 0 / 0.55);
+  animation: chainBeat 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.slot[data-status="resolving"] .badge::after { animation: chainWave 0.9s ease-out infinite; }
+.slot[data-negated="true"] .badge {
+  border-color: var(--duel-loss, #e45a4d);
+  color: var(--duel-loss-ink, #ff9489);
+}
+.slot[data-negated="true"] .badge::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: linear-gradient(to top right, transparent 44%, var(--duel-loss, #e45a4d) 46% 54%, transparent 56%);
+}
+
+@keyframes chainPop {
+  from { opacity: 0; transform: scale(0.4); }
+  60% { opacity: 1; transform: scale(1.18); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes chainBeat {
+  from { transform: scale(1); }
+  35% { transform: scale(1.38); }
+  to { transform: scale(1.12); }
+}
+@keyframes chainWave {
+  from { opacity: 0.75; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.9); }
+}
+@keyframes chainRing {
+  from { opacity: 0.35; transform: scale(1.06); }
+  35% { opacity: 1; transform: scale(1); }
+  to { opacity: 0.8; transform: scale(1); }
+}
+
+/* ---------- stack panel ---------- */
+
+.dock {
+  position: absolute;
+  inset: 0 auto 0 calc(6 * var(--duel-unit, 1px));
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: clamp(138px, calc(176 * var(--duel-unit, 1px)), 232px);
+  max-height: 72%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  border: 1px solid rgb(228 182 79 / 0.5);
+  border-radius: 6px;
+  background: rgb(10 9 18 / 0.86);
+  color: var(--duel-ink, #efe7d5);
+  font-family: var(--duel-f-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  box-shadow: 0 6px 22px rgb(0 0 0 / 0.5);
+  animation: chainIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 4px 8px 3px;
+  border-bottom: 1px solid rgb(228 182 79 / 0.3);
+  color: var(--duel-chain-ink, #f4d690);
+  font-size: var(--duel-t-xs, 11px);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.head small { color: var(--duel-ink-3, #958f81); font-size: inherit; letter-spacing: 0.04em; }
+
+.row {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 6px;
+  border-bottom: 1px solid rgb(228 182 79 / 0.14);
+  animation: chainIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.row:last-child { border-bottom: 0; }
+
+.num {
+  flex: none;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--duel-chain, #e4b64f);
+  border-radius: 50%;
+  color: var(--duel-chain-ink, #f4d690);
+  font-family: var(--duel-f-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.thumb {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  background-color: #06080e;
+  background-position: 50% 36%;
+  background-repeat: no-repeat;
+  background-size: 131% auto;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.45);
+}
+
+.text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.name {
+  overflow: hidden;
+  font-size: var(--duel-t-sm, 12px);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.who { color: var(--duel-pen-ink, #c6b6ff); font-size: var(--duel-t-xs, 11px); }
+.row[data-mine="true"] .who { color: var(--duel-ink-2, #c3bba8); }
+
+/* The link that is resolving. */
+.row[data-status="resolving"] { background: rgb(228 182 79 / 0.16); }
+.row[data-status="resolving"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--duel-chain, #e4b64f);
+}
+.row[data-status="resolving"] .num {
+  border-color: var(--duel-pen-ink, #c6b6ff);
+  background: var(--duel-chain, #e4b64f);
+  color: #1a1206;
+}
+.row[data-status="resolved"] { opacity: 0.5; }
+.row[data-negated="true"] .name { text-decoration: line-through; }
+.row[data-negated="true"] { opacity: 0.6; }
+.row[data-negated="true"] .num { border-color: var(--duel-loss, #e45a4d); color: var(--duel-loss-ink, #ff9489); }
+
+@keyframes chainIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* ---------- reduced motion: no movement; state shows through colour and opacity ---------- */
+
+.layer[data-reduced="true"] .badge,
+.layer[data-reduced="true"] .badge::after,
+.layer[data-reduced="true"] .ring,
+.layer[data-reduced="true"] .panel,
+.layer[data-reduced="true"] .row { animation: none; }
+.layer[data-reduced="true"] .slot { transition-duration: 0.15s; transition-delay: 0.2s; }
+.layer[data-reduced="true"] .slot[data-status="resolving"] .badge { transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .badge, .badge::after, .ring, .panel, .row { animation: none !important; }
+  .slot { transition-duration: 0.15s; transition-delay: 0.2s; }
+}
