@@ -103,14 +103,80 @@ describe("ChainFx", () => {
     expect(slot(container, 1)?.dataset.status).toBe("pending");
     expect(container.querySelector('[data-chain-row="2"]')?.getAttribute("data-status")).toBe("resolving");
 
+    // Link 2 holds for its own resolve beat and its tick before link 1 starts: each step is readable.
     act(() => { vi.advanceTimersByTime(800); });
-    act(() => { vi.advanceTimersByTime(400); });
+    expect(slot(container, 2)?.dataset.status).toBe("resolved");
+    expect(slot(container, 1)?.dataset.status).toBe("pending");
+    act(() => { vi.advanceTimersByTime(600); });
     expect(slot(container, 1)?.dataset.status).toBe("resolving");
     expect(slot(container, 2)?.dataset.status).toBe("resolved");
 
     act(() => { vi.advanceTimersByTime(5000); });
     expect(container.querySelector("[data-chain-link]")).toBeNull();
     expect(container.querySelector("[data-chain-panel]")).toBeNull();
+  });
+
+  // The chain starts from the live state here (every activate is already on the board), so the first
+  // resolving beat plays at once and each beat holds for chainStepDelay: 850 ms resolving, 520 ms
+  // resolved, 700 ms negated (reduced motion: 680, 416).
+  it("marks the next link to resolve as up next, and moves the mark down as links resolve", () => {
+    const first = [activate(1, 0, 11, z(0, SZONE, 0)), activate(2, 1, 22, z(1, SZONE, 0)), activate(3, 0, 33, z(0, SZONE, 0))];
+    const { container, rerender } = render(view(first));
+    const next = () => [...container.querySelectorAll("[data-chain-link]")].filter((el) => (el as HTMLElement).dataset.next === "true").map((el) => (el as HTMLElement).dataset.chainLink);
+    // Nothing is up next while the chain is still being built.
+    expect(next()).toEqual([]);
+
+    rerender(view([...first, ev("chain-resolving", 3), ev("chain-resolved", 3), ev("chain-resolving", 2), ev("chain-resolved", 2), ev("chain-end")]));
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(slot(container, 3)?.dataset.status).toBe("resolving");
+    expect(next()).toEqual(["2"]);
+    act(() => { vi.advanceTimersByTime(900); });
+    expect(slot(container, 3)?.dataset.status).toBe("resolved");
+    expect(slot(container, 2)?.dataset.status).toBe("pending");
+    expect(next()).toEqual(["2"]);
+    act(() => { vi.advanceTimersByTime(500); });
+    expect(slot(container, 2)?.dataset.status).toBe("resolving");
+    expect(next()).toEqual(["1"]);
+  });
+
+  it("keeps a negated link marked while it resolves, and clears it only with the chain", () => {
+    const first = [activate(1, 0, 11, z(0, SZONE, 0)), activate(2, 1, 22, z(1, SZONE, 0))];
+    const { container, rerender } = render(view(first));
+    rerender(view([...first, ev("chain-resolving", 2), ev("chain-negated", 2), ev("chain-resolved", 2), ev("chain-resolving", 1), ev("chain-resolved", 1), ev("chain-end")]));
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(slot(container, 2)?.dataset.status).toBe("resolving");
+    expect(slot(container, 2)?.dataset.negated).toBe("false");
+    // The slash is drawn on the badge in its own beat, before the link is resolved.
+    act(() => { vi.advanceTimersByTime(900); });
+    expect(slot(container, 2)?.dataset.status).toBe("resolving");
+    expect(slot(container, 2)?.dataset.negated).toBe("true");
+    expect(slot(container, 1)?.dataset.negated).toBe("false");
+    act(() => { vi.advanceTimersByTime(700); });
+    // Still struck through when it is resolved; the badge only leaves with the end of the chain.
+    expect(slot(container, 2)?.dataset.status).toBe("resolved");
+    expect(slot(container, 2)?.dataset.negated).toBe("true");
+    act(() => { vi.advanceTimersByTime(5000); });
+    expect(container.querySelector("[data-chain-link]")).toBeNull();
+  });
+
+  it("holds each link for a readable beat on reduced motion, with no wire", () => {
+    const first = [activate(1, 0, 11, z(0, SZONE, 0)), activate(2, 1, 22, z(1, SZONE, 0))];
+    const { container, rerender } = render(view(first, [], 0, true));
+    rerender(view([...first, ev("chain-resolving", 2), ev("chain-resolved", 2), ev("chain-resolving", 1), ev("chain-resolved", 1), ev("chain-end")], [], 0, true));
+    expect(container.querySelector("[data-chain-fx]")?.getAttribute("data-reduced")).toBe("true");
+    expect(container.querySelector("svg[data-chain-wires]")).toBeNull();
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(slot(container, 2)?.dataset.status).toBe("resolving");
+    // Link 2 stays marked for its hold, and link 1 waits for its turn.
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(slot(container, 2)?.dataset.status).toBe("resolving");
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(slot(container, 2)?.dataset.status).toBe("resolved");
+    expect(slot(container, 1)?.dataset.status).toBe("pending");
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(slot(container, 1)?.dataset.status).toBe("resolving");
+    act(() => { vi.advanceTimersByTime(5000); });
+    expect(container.querySelector("[data-chain-link]")).toBeNull();
   });
 
   it("marks a negated link, on its badge and on its off-board row", () => {

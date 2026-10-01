@@ -13,14 +13,20 @@
  *    its hand / pile are not on screen). A link is a badge or a strip row, never both.
  *  - Screen readers get a visually hidden list ("Chain Link 2: card, Opponent") and a polite live
  *    announcement for each new link, resolution, negation and the end of the chain.
- *  - Resolution: links resolve highest first. The resolving link pulses (badge and ring); a negated
- *    link is struck through and dimmed.
+ *  - Resolution: links resolve highest first, and this is the only place it is shown (there is no
+ *    centre banner for it). The resolving link takes a gold ring burst on its badge and a soft gold
+ *    wash on its card; then its number gives way to a tick, the badge shrinks away and the arc to
+ *    it fades. The next link down is marked "up next" (data-next). A negated link is slashed and
+ *    greyed before it clears.
  *
- * Events play one beat at a time (see chainStepDelay), so a chain that resolves inside one engine
- * batch is still readable. A page that loads mid-chain starts from the chain as it stands.
- * Everything visual sits on a pointer-transparent overlay, animates only transform and opacity, and
- * the badges follow their zones with `translate` (never layout). Reduced motion: no movement and no
- * wire, the state shows through colour and opacity.
+ * Events play one beat at a time (see chainStepDelay, about 0.5 to 0.9 s per link), so a chain that
+ * resolves inside one engine batch is still readable. The beat times are planned in chain-beats.ts,
+ * which the banner layer reads for its sounds and the effect layers read to play a link's move or
+ * destroy while, or just after, its badge beat. A page that loads mid-chain starts from the chain
+ * as it stands. Everything visual sits on a pointer-transparent overlay, animates only transform
+ * and opacity, and the badges follow their zones with `translate` (never layout). Reduced motion:
+ * no burst, no movement and no wire; the state shows through colour and opacity, with a short hold
+ * so the order stays readable.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { DuelChainLink, DuelEvent } from "@yugidraft/shared/duels";
@@ -34,16 +40,18 @@ import {
   chainLinkLabel,
   chainSeatLabel,
   chainStateKey,
-  chainStepDelay,
   chainWirePath,
   deriveChainState,
   EMPTY_CHAIN,
   isChainEvent,
+  nextToResolve,
   strayLinks,
   type ChainAnchor,
   type ChainLinkState,
   type ChainState,
 } from "./chain-state";
+import { chainBeatAt, chainBeatsEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
+import { holdPromptReveal } from "./prompt-reveal";
 import styles from "./chain-fx.module.css";
 
 export type ChainFxProps = {
@@ -58,7 +66,13 @@ export type ChainFxProps = {
   playerName: (seat: number) => string;
 };
 
-/** Plays chain events one beat at a time and settles on the live chain when the beats run out. */
+const clock = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
+
+/**
+ * Plays chain events one beat at a time and settles on the live chain when the beats run out.
+ * The clock is the beat plan (chain-beats.ts), made in the render phase when a batch arrives, so
+ * the banners, sounds and card effects of the same batch can wait for the same beats.
+ */
 export function useChainPlayback(
   events: readonly DuelEvent[],
   snapshot: readonly DuelChainLink[],
@@ -74,6 +88,17 @@ export function useChainPlayback(
   const latest = useRef({ events, snapshot, reducedMotion });
   latest.current = { events, snapshot, reducedMotion };
 
+  // Render phase on purpose (see BattleFx): SummonFx, MoveFx and the banners plan the same batch in
+  // their effects, which run after this render, and read the plan. Planning is idempotent.
+  const planBase = useRef<{ key: string; after: number } | null>(null);
+  if (planBase.current == null || planBase.current.key !== duelKey) {
+    planBase.current = { key: duelKey, after: maxEventId(events) ?? 0 };
+    resetChainBeats(duelKey);
+  }
+  const after = planBase.current.after;
+  const freshForPlan = events.filter((event) => event.id > after);
+  if (freshForPlan.length > 0) planChainBeats(freshForPlan, { now: clock(), reduced: reducedMotion, duelKey });
+
   const commit = useCallback((next: ChainState) => {
     stateRef.current = next;
     setState(next);
@@ -81,19 +106,29 @@ export function useChainPlayback(
 
   const pump = useCallback(() => {
     if (timerRef.current != null) return;
-    const next = queueRef.current.shift();
+    const next = queueRef.current[0];
     if (!next) {
       // Out of beats: the live state is the truth.
       const live = deriveChainState(latest.current.events, latest.current.snapshot);
       if (chainStateKey(live) !== chainStateKey(stateRef.current)) commit(live);
       return;
     }
+    const wait = (at: number) => {
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        pump();
+      }, Math.max(0, at - clock()));
+    };
+    const due = chainBeatAt(next.id);
+    if (due - clock() > 8) {
+      wait(due);
+      return;
+    }
+    queueRef.current.shift();
     commit(applyChainEvent(stateRef.current, next));
-    const wait = chainStepDelay(next.kind, queueRef.current.length, latest.current.reducedMotion);
-    timerRef.current = window.setTimeout(() => {
-      timerRef.current = null;
-      pump();
-    }, wait);
+    // Hold this beat until the next one is due, or until the last beat has had its hold.
+    const following = queueRef.current[0];
+    wait(following ? chainBeatAt(following.id) : chainBeatsEndAt());
   }, [commit]);
 
   useEffect(() => {
@@ -108,7 +143,14 @@ export function useChainPlayback(
     }
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
-    for (const event of fresh) if (isChainEvent(event)) queueRef.current.push(event);
+    const chainEvents = fresh.filter(isChainEvent);
+    if (chainEvents.length > 0) {
+      // Already planned in the render; this only fills a gap.
+      planChainBeats(fresh, { now: clock(), reduced: latest.current.reducedMotion, duelKey });
+      queueRef.current.push(...chainEvents);
+      // The question after a chain waits until the chain has been played to its end.
+      if (chainEvents.some((event) => event.kind === "chain-resolving")) holdPromptReveal(chainBeatsEndAt() - clock());
+    }
     pump();
   }, [events, snapshot, duelKey, commit, pump]);
 
@@ -278,6 +320,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
 
   const rows = strayLinks(state, lost);
   const topIndex = links.length;
+  const nextIndex = nextToResolve(state);
 
   return (
     <>
@@ -322,11 +365,16 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             data-status={link.status}
             data-negated={link.negated ? "true" : "false"}
             data-top={link.index === topIndex ? "true" : "false"}
+            data-next={link.index === nextIndex ? "true" : "false"}
             data-chain-link={link.index}
           >
             <span className={styles.ring} />
+            <span className={styles.wash} />
             <span className={styles.badge}>
               <span className={styles.num} data-chain-num="true">{link.index}</span>
+              <svg className={styles.tick} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
               <span className={styles.chip}><ChainGlyph /></span>
             </span>
           </div>

@@ -36,11 +36,12 @@
   top: 0;
   pointer-events: none;
   visibility: hidden;
-  transition: opacity 0.35s ease 0.5s;
 }
 .slot[data-placed="true"] { visibility: visible; }
-/* A link that has resolved leaves the board: the panel keeps its row. */
-.slot[data-status="resolved"] { opacity: 0; }
+/* A link that has resolved leaves the board once its tick has been seen: the badge shrinks and the
+   card ring fades (below), then the whole slot is gone. The step that plays it is held for 520 ms
+   (chainStepDelay), so the next link starts as this one is gone. The panel keeps its row. */
+.slot[data-status="resolved"] { animation: chainSlotOut 0.5s linear both; }
 
 .ring {
   position: absolute;
@@ -53,12 +54,34 @@
 }
 /* The newest link: its card is the one to look at. */
 .slot[data-top="true"] .ring { opacity: 0.7; }
+/* Up next: the highest link still waiting, once the chain has started to resolve. */
+.slot[data-next="true"] .ring {
+  border-color: var(--duel-chain-ink, #f4d690);
+  opacity: 0.85;
+  animation: chainNext 1.1s ease-in-out infinite;
+}
+/* Resolving: the card takes a ring that settles in, and a soft gold wash that fades in and holds. */
 .slot[data-status="resolving"] .ring {
   border-color: var(--duel-pen-ink, #c6b6ff);
   opacity: 0.95;
-  animation: chainRing 0.9s ease-out infinite;
+  animation: chainRing 0.85s ease-out both;
 }
 .slot[data-negated="true"] .ring { border-color: var(--duel-loss, #e45a4d); opacity: 0.7; }
+.slot[data-status="resolved"] .ring { animation: chainFadeOut 0.5s ease-in both; }
+
+/* The soft highlight on the resolving link's card. */
+.wash {
+  position: absolute;
+  inset: 0;
+  border-radius: 5px;
+  background: radial-gradient(ellipse at 50% 40%, rgb(244 214 144 / 0.55), rgb(228 182 79 / 0.14) 72%);
+  opacity: 0;
+}
+.slot[data-status="resolving"] .wash { animation: chainWash 0.85s ease-out both; }
+.slot[data-status="resolving"][data-negated="true"] .wash {
+  background: radial-gradient(ellipse at 50% 40%, rgb(228 90 77 / 0.5), rgb(228 90 77 / 0.12) 72%);
+}
+.slot[data-status="resolved"] .wash { animation: chainFadeOut 0.4s ease-in both; opacity: 0.3; }
 
 /* Geometry (a third outside the card's top right corner, 82% step per extra link on the same card)
    is mirrored in badgeCenter() in chain-state.ts, which the wire uses. */
@@ -111,13 +134,21 @@
 }
 .glyph { width: 76%; height: 76%; }
 
-/* The shockwave behind a resolving badge. */
+/* The burst ring around a badge: gold when the link resolves, red when it is negated. */
 .badge::after {
   content: "";
   position: absolute;
   inset: -2px;
-  border: 2px solid var(--duel-pen, #9b7eff);
+  border: 2px solid var(--duel-chain, #e4b64f);
   border-radius: 50%;
+  opacity: 0;
+}
+/* The tick that takes the number's place once the link has resolved. */
+.tick {
+  position: absolute;
+  inset: 16%;
+  width: 68%;
+  height: 68%;
   opacity: 0;
 }
 .slot[data-status="resolving"] .badge {
@@ -127,12 +158,21 @@
   box-shadow: 0 0 0 3px rgb(155 126 255 / 0.6), 0 2px 8px rgb(0 0 0 / 0.55);
   animation: chainBeat 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-.slot[data-status="resolving"] .badge::after { animation: chainWave 0.9s ease-out infinite; }
+/* One burst per beat, then the badge holds its gold: the beat is 850 ms. */
+.slot[data-status="resolving"] .badge::after { animation: chainBurst 0.8s ease-out both; }
 /* chainBeat already swells the resolving badge: no extra top scale on top of it. */
 .slot[data-status="resolving"][data-top="true"] .badge { scale: 1; }
+/* Up next: a little larger than a waiting link, with a soft gold halo. */
+.slot[data-next="true"] .badge {
+  scale: 1.12;
+  box-shadow: 0 0 0 2px rgb(228 182 79 / 0.55), 0 2px 7px rgb(0 0 0 / 0.55);
+}
+/* Negated: grey and struck through by a red slash that is drawn in, with a red burst. */
 .slot[data-negated="true"] .badge {
   border-color: var(--duel-loss, #e45a4d);
+  background: #26242c;
   color: var(--duel-loss-ink, #ff9489);
+  box-shadow: 0 0 0 2px rgb(228 90 77 / 0.55), 0 2px 7px rgb(0 0 0 / 0.55);
 }
 .slot[data-negated="true"] .badge::before {
   content: "";
@@ -140,7 +180,18 @@
   inset: 2px;
   border-radius: 50%;
   background: linear-gradient(to top right, transparent 44%, var(--duel-loss, #e45a4d) 46% 54%, transparent 56%);
+  animation: chainSlash 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+.slot[data-negated="true"] .badge::after {
+  border-color: var(--duel-loss, #e45a4d);
+  animation: chainBurstLoss 0.7s ease-out both;
+}
+/* Resolved: the number gives way to a tick, then the badge shrinks away. A negated link keeps its slash instead. */
+.slot[data-status="resolved"] .num { opacity: 0; transition: opacity 0.12s linear; }
+.slot[data-status="resolved"] .tick { opacity: 1; transition: opacity 0.12s linear; }
+.slot[data-status="resolved"][data-negated="true"] .num { opacity: 1; }
+.slot[data-status="resolved"][data-negated="true"] .tick { opacity: 0; }
+.slot[data-status="resolved"] .badge { animation: chainBadgeOut 0.5s ease-in both; }
 
 /* A new link drops onto its card and lands with a small bounce. */
 @keyframes chainDrop {
@@ -158,19 +209,54 @@
 @keyframes chainStrike {
   from { opacity: 1; transform: scale(1.1); }
 }
+/* The resolving badge swells, then settles a little larger than before. */
 @keyframes chainBeat {
   from { transform: scale(1); }
   35% { transform: scale(1.38); }
   to { transform: scale(1.12); }
 }
-@keyframes chainWave {
-  from { opacity: 0.75; transform: scale(1); }
-  to { opacity: 0; transform: scale(1.9); }
+/* The ring burst: out from the badge and gone. */
+@keyframes chainBurst {
+  from { opacity: 0.9; transform: scale(1); }
+  to { opacity: 0; transform: scale(2.4); }
+}
+@keyframes chainBurstLoss {
+  from { opacity: 0.9; transform: scale(1); }
+  to { opacity: 0; transform: scale(2); }
+}
+@keyframes chainSlash {
+  from { opacity: 0; transform: scale(0.3); }
+  to { opacity: 1; transform: scale(1); }
+}
+/* Up next: the card ring breathes. */
+@keyframes chainNext {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.025); }
 }
 @keyframes chainRing {
   from { opacity: 0.35; transform: scale(1.06); }
   35% { opacity: 1; transform: scale(1); }
   to { opacity: 0.8; transform: scale(1); }
+}
+/* The wash on the resolving card comes up fast and holds a soft level for the rest of the beat. */
+@keyframes chainWash {
+  from { opacity: 0; }
+  30% { opacity: 0.6; }
+  to { opacity: 0.32; }
+}
+/* The tick shows for a beat, then the badge shrinks into its card and fades. */
+@keyframes chainBadgeOut {
+  0% { opacity: 1; transform: scale(1.12); }
+  30% { opacity: 1; transform: scale(1.3); }
+  100% { opacity: 0; transform: scale(0.35); }
+}
+@keyframes chainFadeOut {
+  to { opacity: 0; }
+}
+/* The slot stays drawn for the whole exit, then is hidden for good. */
+@keyframes chainSlotOut {
+  0%, 94% { visibility: visible; }
+  100% { visibility: hidden; }
 }
 
 /* ---------- wire: badge N to badge N-1 ---------- */
@@ -191,10 +277,11 @@
   stroke-width: 2;
   stroke-linecap: round;
   stroke-dasharray: 5 4;
-  transition: opacity 0.35s ease 0.5s;
   animation: chainWireIn 0.35s ease 0.25s backwards;
 }
-.wire[data-status="resolved"] { opacity: 0; }
+/* The arc to a link fades as the link resolves. */
+.wire[data-status="resolving"] { stroke-opacity: 0.9; }
+.wire[data-status="resolved"] { animation: chainFadeOut 0.4s ease-in both; }
 @keyframes chainWireIn { from { opacity: 0; } }
 
 /* ---------- off-board strip: only a link the board cannot place ---------- */
@@ -315,22 +402,35 @@
   to { opacity: 1; transform: translateX(0); }
 }
 
-/* ---------- reduced motion: no movement; state shows through colour and opacity ---------- */
+/* ---------- reduced motion: no burst and no movement; state shows through colour and opacity ----------
+   The hold is kept: a link stays marked for its whole beat (chainStepDelay, a little shorter), and a
+   resolved link fades after a short pause, so the top-down order stays readable. */
 
 .layer[data-reduced="true"] .badge,
+.layer[data-reduced="true"] .badge::before,
 .layer[data-reduced="true"] .badge::after,
 .layer[data-reduced="true"] .chip,
 .layer[data-reduced="true"] .ring,
+.layer[data-reduced="true"] .wash,
+.layer[data-reduced="true"] .slot,
 .layer[data-reduced="true"] .panel,
 .layer[data-reduced="true"] .row { animation: none; }
-.layer[data-reduced="true"] .slot { transition-duration: 0.15s; transition-delay: 0.2s; }
-.layer[data-reduced="true"] .slot[data-status="resolving"] .badge { transform: none; }
+.layer[data-reduced="true"] .badge::after { display: none; }
+.layer[data-reduced="true"] .slot { transition: opacity 0.15s linear 0.3s; }
+.layer[data-reduced="true"] .slot[data-status="resolved"] { opacity: 0; }
+.layer[data-reduced="true"] .slot[data-status="resolving"] .wash { opacity: 0.3; }
+.layer[data-reduced="true"] .slot[data-status="resolved"] .badge { transform: none; }
+.layer[data-reduced="true"] .slot[data-next="true"] .badge { scale: 1.12; }
 .layer[data-reduced="true"] .badge { transition: none; }
 .layer[data-reduced="true"] .wires { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .badge, .badge::after, .chip, .ring, .panel, .row, .wire { animation: none !important; }
+  .badge, .badge::before, .badge::after, .chip, .ring, .wash, .slot, .panel, .row, .wire { animation: none !important; }
+  .badge::after { display: none; }
   .badge { transition: none; }
   .wires { display: none; }
-  .slot { transition-duration: 0.15s; transition-delay: 0.2s; }
+  .slot { transition: opacity 0.15s linear 0.3s; }
+  .slot[data-status="resolved"] { opacity: 0; }
+  .slot[data-status="resolving"] .wash { opacity: 0.3; }
+  .slot[data-status="resolved"] .badge { transform: none; }
 }

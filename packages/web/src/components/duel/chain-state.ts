@@ -207,16 +207,25 @@ export function chainSeatLabel(seat: number, mySeat: number | null, playerName: 
   return seat === mySeat ? "You" : "Opponent";
 }
 
+/**
+ * How long the board holds on each chain event before the next one plays. This is the pace of a
+ * chain resolution (there is no centre banner for it): a link pulses while it resolves (850), a
+ * negated one then shows its slash (700), and a resolved one ticks and clears away while the next
+ * link is marked "up next" (520). One link is about 1.4 s, so each step can be followed.
+ */
 const STEP_MS: Record<ChainEventKind, number> = {
   activate: 700,
-  "chain-resolving": 800,
-  "chain-resolved": 380,
-  "chain-negated": 520,
+  "chain-resolving": 850,
+  "chain-resolved": 520,
+  "chain-negated": 700,
   "chain-end": 480,
 };
 const STEP_FLOOR_MS = 240;
 /** A backlog of more than this many beats is played faster, down to the floor. */
-const BACKLOG_BEATS = 6;
+const BACKLOG_BEATS = 10;
+/** A link's own effect (a card move, a destroy) starts this long after its badge starts to pulse. */
+const EFFECT_LEAD_MS = 320;
+const EFFECT_LEAD_REDUCED_MS = 120;
 
 /** How long to hold the board on a chain event before the next one plays. */
 export function chainStepDelay(kind: string, remaining: number, reducedMotion: boolean): number {
@@ -224,6 +233,23 @@ export function chainStepDelay(kind: string, remaining: number, reducedMotion: b
   const length = reducedMotion ? Math.max(STEP_FLOOR_MS, Math.round(base * 0.8)) : base;
   if (remaining <= BACKLOG_BEATS) return length;
   return Math.max(STEP_FLOOR_MS, Math.round((length * BACKLOG_BEATS) / remaining));
+}
+
+/** How long after a link starts resolving its effect (a move, a destroy) starts on the board. */
+export function chainEffectLead(reducedMotion: boolean): number {
+  return reducedMotion ? EFFECT_LEAD_REDUCED_MS : EFFECT_LEAD_MS;
+}
+
+/**
+ * The link that resolves after the current one: the highest link still waiting, once resolution has
+ * begun (a chain that is still being built has no "up next"). null when no link waits.
+ */
+export function nextToResolve(state: ChainState): number | null {
+  if (!state.links.some((link) => link.status !== "pending")) return null;
+  for (let i = state.links.length - 1; i >= 0; i -= 1) {
+    if (state.links[i].status === "pending") return state.links[i].index;
+  }
+  return null;
 }
 
 /** Cheap equality key: two states with the same key draw the same board. */

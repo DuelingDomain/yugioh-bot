@@ -10,6 +10,7 @@ import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
 import type { FxRect, FxScene } from "./fx3d/types";
 import { safeAnimate } from "./safe-animate";
+import { chainEffectAt } from "./chain-beats";
 import { holdPromptReveal } from "./prompt-reveal";
 
 /**
@@ -136,6 +137,8 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     if (row) rows.push(row);
   }
   const field = union(rows) ?? union(victims.map((v) => v.box)) ?? victims[0].box;
+  // A destroy that is the effect of a resolving chain link starts while its badge is lit, never before.
+  const startAt = Math.max(now, ...group.events.map((event) => chainEffectAt(event.id)));
   const attackImpact = attackEvent ? attackImpactAt(attackEvent.id) : 0;
   const { scene, cues } = planScene({
     piece: group.piece,
@@ -145,19 +148,19 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     field: toRect(field),
     ownerSide,
     tint: group.piece === "monster" ? tintForCode(group.sourceCode) : PIECE_TINTS[group.piece],
-    attackImpactMs: attackImpact > now ? attackImpact - now : null,
+    attackImpactMs: attackImpact > startAt ? attackImpact - startAt : null,
   });
   if (three) {
     // The victims stay on their zones until their shards break: SummonFx keeps the ghosts, MoveFx waits.
     scene.victims.forEach((victim, index) => {
       const event = victims[index].event;
-      if (event.zone) armBattleDestroy(`scene:${group.key}:${event.id}`, event.zone, victim.atMs, now, true);
+      if (event.zone) armBattleDestroy(`scene:${group.key}:${event.id}`, event.zone, victim.atMs, startAt, true);
     });
   }
   return {
     key: `${group.key}:${group.events[0].id}`,
     three,
-    startAt: now,
+    startAt,
     scene,
     cues,
     seed: (group.events[0].id * 2654435761) >>> 0,
@@ -226,45 +229,60 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
     for (const planned of plannedRef.current.values()) {
       if (planned.started) continue;
       planned.started = true;
-      const late = performance.now() - planned.startAt;
+      // A chain link's destroy waits for its badge beat; the prompt waits for it as well.
+      const wait = Math.max(0, planned.startAt - performance.now());
       const shared = planned.three ? getSharedFx3d() : null;
       // The prompt waits for what actually plays: the whole piece on the canvas, or (DOM) the flash
       // plus, when holds were armed for the canvas, the held cards breaking on their zones.
       const lastBreak = planned.three ? planned.scene.victims.reduce((max, v) => Math.max(max, v.atMs), 0) : 0;
-      holdPromptReveal(Math.max(0, (shared ? planned.scene.totalMs : Math.max(DOM_FLASH_HOLD_MS, lastBreak + DOM_FLASH_HOLD_MS)) - late));
-      if (shared) {
-        for (const victim of planned.scene.victims) if (victim.code > 0) shared.api.prefetchArt(victim.code);
-        const host = shared.host.getBoundingClientRect();
-        const controller = new AbortController();
-        controllersRef.current.add(controller);
-        void shared.api
-          .play("scene", { rect: { x: 0, y: 0, w: host.width, h: host.height }, scene: planned.scene, seed: planned.seed, skipMs: Math.min(120, Math.max(0, late)) }, controller.signal)
-          .finally(() => controllersRef.current.delete(controller));
-        for (const cue of planned.cues) {
-          const wait = Math.max(0, cue.atMs - late);
+      const playMs = shared ? planned.scene.totalMs : Math.max(DOM_FLASH_HOLD_MS, lastBreak + DOM_FLASH_HOLD_MS);
+      holdPromptReveal(Math.max(0, wait + playMs - Math.max(0, performance.now() - planned.startAt)));
+      const begin = () => {
+        const late = Math.max(0, performance.now() - planned.startAt);
+        const live = planned.three ? getSharedFx3d() : null;
+        if (live) {
+          for (const victim of planned.scene.victims) if (victim.code > 0) live.api.prefetchArt(victim.code);
+          const host = live.host.getBoundingClientRect();
+          const controller = new AbortController();
+          controllersRef.current.add(controller);
+          void live.api
+            .play("scene", { rect: { x: 0, y: 0, w: host.width, h: host.height }, scene: planned.scene, seed: planned.seed, skipMs: Math.min(120, Math.max(0, late)) }, controller.signal)
+            .finally(() => controllersRef.current.delete(controller));
+          for (const cue of planned.cues) {
+            const cueWait = Math.max(0, cue.atMs - late);
+            const timer = window.setTimeout(() => {
+              timersRef.current.delete(timer);
+              emitDuelFxCue({ cue: cue.cue, strength: cue.strength });
+            }, cueWait);
+            timersRef.current.add(timer);
+          }
+        } else {
+          // The plain crack-and-shatter of SummonFx stays; this adds the tint and the first sound.
+          if (!reducedMotion) emitDuelFxCue({ cue: planned.cues[0].cue, strength: 0.8 });
+          const undo = domFlash(planned);
+          cleanupsRef.current.add(undo);
           const timer = window.setTimeout(() => {
             timersRef.current.delete(timer);
-            emitDuelFxCue({ cue: cue.cue, strength: cue.strength });
-          }, wait);
+            undo();
+            cleanupsRef.current.delete(undo);
+          }, 400);
           timersRef.current.add(timer);
         }
+      };
+      if (wait > 0) {
+        const starter = window.setTimeout(() => {
+          timersRef.current.delete(starter);
+          begin();
+        }, wait);
+        timersRef.current.add(starter);
       } else {
-        // The plain crack-and-shatter of SummonFx stays; this adds the tint and the first sound.
-        if (!reducedMotion) emitDuelFxCue({ cue: planned.cues[0].cue, strength: 0.8 });
-        const undo = domFlash(planned);
-        cleanupsRef.current.add(undo);
-        const timer = window.setTimeout(() => {
-          timersRef.current.delete(timer);
-          undo();
-          cleanupsRef.current.delete(undo);
-        }, 400);
-        timersRef.current.add(timer);
+        begin();
       }
       const plannedKey = planned.key;
       const forget = window.setTimeout(() => {
         timersRef.current.delete(forget);
         plannedRef.current.delete(plannedKey);
-      }, planned.scene.totalMs + 500);
+      }, wait + planned.scene.totalMs + 500);
       timersRef.current.add(forget);
     }
   }, [events, active, reducedMotion]);

@@ -13,6 +13,7 @@ import {
   deriveChainState,
   EMPTY_CHAIN,
   isChainEvent,
+  nextToResolve,
   strayLinks,
   type ChainState,
 } from "../../src/components/duel/chain-state";
@@ -318,6 +319,51 @@ describe("chainStepDelay", () => {
     const fast = chainStepDelay("chain-resolving", 20, false);
     expect(fast).toBeLessThan(slow);
     expect(fast).toBeGreaterThanOrEqual(220);
+  });
+});
+
+describe("a chain resolving, link by link", () => {
+  const three = () => fold([activate(1, 0, 11, z(0, SZONE, 0)), activate(2, 1, 22, z(1, SZONE, 0)), activate(3, 0, 33, z(0, SZONE, 1))]);
+  const statuses = (s: ChainState) => s.links.map((l) => l.status);
+
+  it("has no up next while the chain is still being built", () => {
+    expect(nextToResolve(three())).toBeNull();
+    expect(nextToResolve(EMPTY_CHAIN)).toBeNull();
+  });
+
+  it("marks the link below as up next as soon as the top link resolves", () => {
+    const state = fold([ev("chain-resolving", 3)], three());
+    expect(nextToResolve(state)).toBe(2);
+  });
+
+  it("walks resolving, resolved, then the next link, top down, with one up next each time", () => {
+    let state = three();
+    const steps: Array<[DuelEvent["kind"], number, string[], number | null]> = [
+      ["chain-resolving", 3, ["pending", "pending", "resolving"], 2],
+      ["chain-resolved", 3, ["pending", "pending", "resolved"], 2],
+      ["chain-resolving", 2, ["pending", "resolving", "resolved"], 1],
+      ["chain-resolved", 2, ["pending", "resolved", "resolved"], 1],
+      ["chain-resolving", 1, ["resolving", "resolved", "resolved"], null],
+      ["chain-resolved", 1, ["resolved", "resolved", "resolved"], null],
+    ];
+    for (const [kind, index, expected, next] of steps) {
+      state = fold([ev(kind, index)], state);
+      expect(statuses(state)).toEqual(expected);
+      expect(nextToResolve(state)).toBe(next);
+    }
+  });
+
+  it("removes every link when the chain ends", () => {
+    const state = fold([ev("chain-resolving", 1), ev("chain-resolved", 1), ev("chain-end")], fold([activate(1, 0, 11, z(0, SZONE, 0))]));
+    expect(state.links).toEqual([]);
+    expect(nextToResolve(state)).toBeNull();
+  });
+
+  it("keeps a negated link marked while it is still resolving, before it clears", () => {
+    let state = fold([ev("chain-resolving", 3), ev("chain-negated", 3)], three());
+    expect(state.links[2]).toMatchObject({ status: "resolving", negated: true });
+    state = fold([ev("chain-resolved", 3)], state);
+    expect(state.links[2]).toMatchObject({ status: "resolved", negated: true });
   });
 });
 

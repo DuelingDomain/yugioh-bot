@@ -32,6 +32,7 @@ import {
   type PositionChange,
   type PositionEvent,
 } from "./event-queue";
+import { chainEffectAt } from "./chain-beats";
 import { getMovePlan, isMoveEvent } from "./move-plan";
 import styles from "./position-fx.module.css";
 import { Track } from "./summon-fx";
@@ -351,6 +352,9 @@ export function PositionFx({ events, duelKey, reducedMotion }: PositionFxProps) 
       let delayMs = Math.min(step, MAX_STAGGER_STEPS) * STAGGER_MS;
       const landAt = landingAt(fresh, event);
       if (landAt != null) delayMs = Math.max(delayMs, landAt - now);
+      // A flip that is the effect of a resolving chain link plays while its badge is lit.
+      const chainAt = chainEffectAt(event.id);
+      if (chainAt > now) delayMs = Math.max(delayMs, chainAt - now);
       step += 1;
       seqRef.current += 1;
       planned.push({

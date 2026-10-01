@@ -3,6 +3,8 @@ import type { DuelEvent } from "@yugidraft/shared/duels";
 import {
   collectFreshEvents,
   auraTintOf,
+  cueDuration,
+  hasCentreBanner,
   isHeavySummon,
   slamCrackCount,
   slamStrengthOf,
@@ -154,6 +156,22 @@ describe("auraTintOf", () => {
     expect(auraTintOf(0x20)[0]).toBe("184 120 255");
     expect(auraTintOf(0)).toEqual(["244 214 144", "155 126 255"]);
     expect(auraTintOf(undefined)).toEqual(auraTintOf(0));
+  });
+});
+
+describe("chain banners", () => {
+  it("has no centre banner for a link resolving or resolved, nor for the chain end", () => {
+    expect(hasCentreBanner("chain-resolving")).toBe(false);
+    expect(hasCentreBanner("chain-resolved")).toBe(false);
+    expect(hasCentreBanner("chain-end")).toBe(false);
+  });
+
+  it("keeps the Activate and Negated banners, at their own length", () => {
+    expect(hasCentreBanner("activate")).toBe(true);
+    expect(hasCentreBanner("chain-negated")).toBe(true);
+    expect(cueDuration("activate", false)).toBe(1500);
+    expect(cueDuration("chain-negated", false)).toBe(900);
+    expect(cueDuration("activate", true)).toBe(1200);
   });
 });
 

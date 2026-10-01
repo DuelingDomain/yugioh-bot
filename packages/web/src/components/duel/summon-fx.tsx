@@ -49,6 +49,7 @@ import {
   type SummonStyle,
 } from "./event-queue";
 import { battleBreakIs3d, battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
+import { chainEffectAt } from "./chain-beats";
 import { hiddenHoldMs } from "./big-summon";
 import { getSharedFx3d, setSharedFx3d } from "./fx3d/shared";
 import { parseRgbTriplet } from "./fx3d/coords";
@@ -2061,6 +2062,9 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         const at = kind === "destroy" ? plan.startAt - plan.leadMs : plan.landAt;
         delayMs = Math.max(0, at - now);
       }
+      // The effect of a resolving chain link starts while its badge is lit, never before.
+      const chainAt = chainEffectAt(event.id);
+      if (chainAt > now) delayMs = Math.max(delayMs, chainAt - now);
       // The layer is picked here and stays: an effect never changes layer half-way.
       const api = fx3d.current;
       const threeKey =

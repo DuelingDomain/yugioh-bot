@@ -24,6 +24,7 @@ import {
 } from "./constants";
 import { battleBreakIs3d, battleDestroyAt, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
 import { playsBigSummon } from "./big-summon";
+import { chainEffectAt } from "./chain-beats";
 import { findZoneElement } from "./event-queue";
 
 export const MOVE_TIMING = {
@@ -276,6 +277,10 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       }
       break;
     }
+    // The effect of a resolving chain link plays while its badge is lit, never before it. A card that
+    // cracks first leaves for the pile only after the crack, so the lead counts from that moment.
+    const chainAt = [event.id, ...paired].reduce((max, id) => Math.max(max, chainEffectAt(id)), 0);
+    if (chainAt > now) notBefore = Math.max(notBefore, chainAt + lead);
     // A card that also breaks away from a destroyed zone keeps its flight.
     if (lead > 0) silent = false;
     candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance), lead, hold, silent, notBefore, paired, source: resolveSource(from) });

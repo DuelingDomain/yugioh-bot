@@ -268,6 +268,16 @@ export function collectFreshEvents(
   return { nextCursor, fresh };
 }
 
+/**
+ * False for the chain events that are shown on the board only: a link resolving or resolved is the
+ * badge on its card (chain-fx.tsx, paced by chain-beats.ts), and the end of the chain clears the
+ * badges. They keep their sound cue and their log and screen reader entries, but get no banner.
+ * "activate" and "chain-negated" keep theirs.
+ */
+export function hasCentreBanner(kind: DuelEventKind): boolean {
+  return kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end";
+}
+
 /** How long a banner or toast stays: at least about 1.2 s for anything with words to read. */
 export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number {
   if (reducedMotion) {
@@ -282,11 +292,6 @@ export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number
     case "destroy":
     case "phase":
       return 1200;
-    case "chain-resolving":
-      return 800;
-    case "chain-resolved":
-    case "chain-negated":
-      return 900;
     default:
       return 900;
   }
