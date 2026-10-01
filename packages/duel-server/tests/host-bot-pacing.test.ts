@@ -99,6 +99,7 @@ async function setup(options: { botStepDelayMs?: number | ((prompt: DuelPrompt) 
     pollIntervalMs: 60_000,
     createWorker: () => worker,
     botStepDelayMs: options.botStepDelayMs,
+    stallMs: 0, // no stall watchdog interval: the timer counts below expect only the sweep interval
     onChange: (slug) => { changes.push(slug); },
   });
   hosts.push(host);

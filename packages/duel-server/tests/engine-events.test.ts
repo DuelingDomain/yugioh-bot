@@ -590,6 +590,16 @@ describe("event observer messages", () => {
       expect(projectStoredEvent(set!, 0).card?.code).toBe(9);
     });
 
+    it("shows a face-down card that changes control to both players and never to a spectator", () => {
+      const [taken] = run(move(9, at(1, OcgLocation.MZONE, 2, OcgPosition.FACEDOWN_DEFENSE), at(0, OcgLocation.MZONE, 1, OcgPosition.FACEDOWN_DEFENSE)));
+      expect(projectStoredEvent(taken!, 0).card?.code).toBe(9);
+      expect(projectStoredEvent(taken!, 1).card?.code).toBe(9);
+      const spectator = projectStoredEvent(taken!, null);
+      expect(spectator.card).toBeUndefined();
+      expect(spectator.text).toBe("A card moved");
+      expect(spectator.faceDown).toBe(true);
+    });
+
     it("shows a card that becomes public at the destination even when it left a hidden hand", () => {
       const [discard] = run(move(4, at(0, OcgLocation.HAND, 0, OcgPosition.FACEDOWN), at(0, OcgLocation.GRAVE, 0, OcgPosition.FACEUP)));
       expect(discard).toMatchObject({ reason: "discard", seat: 0 });

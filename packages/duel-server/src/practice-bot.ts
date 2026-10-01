@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { join } from "node:path";
-import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelMode, DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMode, DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
 
 export const AXE_RAIDER = 48305365;
 
@@ -36,6 +36,62 @@ export function buildPracticeBotDeck(mode: DuelMode, dataDirectory: string): Due
   }
 }
 
+/** What a bot may know about the table when it picks a seat: who is still in the duel and their LP. */
+export interface BotTable {
+  /** Seats still in the duel. Absent: every seat counts as living. */
+  living?: readonly number[];
+  /** LP per seat (a team shares one value in Tag). */
+  lp?: Readonly<Record<number, number>>;
+}
+
+/** The living seats and LP of a view, for a bot's choice. Seats that are eliminated or leaving are not living. */
+export function botTableOf(view: Pick<DuelEngineView, "seats">): BotTable {
+  const living: number[] = [];
+  const lp: Record<number, number> = {};
+  if (!view.seats || view.seats.length === 0) return {};
+  for (const seat of view.seats) {
+    lp[seat.seat] = seat.lp;
+    if (!seat.eliminated && !seat.pendingElimination) living.push(seat.seat);
+  }
+  return { living, lp };
+}
+
+/** Options that name a seat (`controller`) and that a living seat can take. If none is left the list stays whole: no deadlock. */
+function livingOptions(options: readonly DuelPromptOption[], table: BotTable | undefined): DuelPromptOption[] {
+  const living = table?.living;
+  if (!living) return [...options];
+  const kept = options.filter((option) => option.controller == null || living.includes(option.controller));
+  return kept.length > 0 ? kept : [...options];
+}
+
+/** A choice where every option is a seat to pick: the opponent pick or the direct attack pick. */
+export function isSeatPick(prompt: DuelPrompt): boolean {
+  return (
+    prompt.kind === "choice" &&
+    prompt.options.length > 0 &&
+    prompt.options.every((option) => option.id.startsWith("opt:") && option.controller != null)
+  );
+}
+
+/**
+ * The seat option a bot takes: a living seat, and among those the one with the lowest LP when LP is known
+ * (the first in list order on a tie or without LP).
+ */
+export function chooseSeatOption(prompt: DuelPrompt, table?: BotTable): DuelPromptOption | undefined {
+  const candidates = livingOptions(prompt.options, table);
+  let best: DuelPromptOption | undefined;
+  for (const option of candidates) {
+    if (!best) {
+      best = option;
+      continue;
+    }
+    const lp = table?.lp?.[option.controller as number];
+    const bestLp = table?.lp?.[best.controller as number];
+    if (lp != null && (bestLp == null || lp < bestLp)) best = option;
+  }
+  return best;
+}
+
 function pickPrefix(prompt: DuelPrompt, prefix: string): DuelPromptOption | undefined {
   return prompt.options.find((option) => option.id.startsWith(prefix));
 }
@@ -44,7 +100,11 @@ function pickId(prompt: DuelPrompt, id: string): DuelPromptOption | undefined {
   return prompt.options.find((option) => option.id === id);
 }
 
-function chooseChoice(prompt: DuelPrompt): DuelAnswer {
+function chooseChoice(prompt: DuelPrompt, table?: BotTable): DuelAnswer {
+  if (isSeatPick(prompt)) {
+    const seat = chooseSeatOption(prompt, table);
+    if (seat) return { choice: seat.id };
+  }
   if (pickId(prompt, "yes") && pickId(prompt, "no")) return { choice: "no" };
   if (prompt.cancelable && (prompt.min ?? 1) === 0) return { cancel: true };
 
@@ -84,14 +144,16 @@ function chooseChoice(prompt: DuelPrompt): DuelAnswer {
   throw new PracticeBotError("Practice bot has no legal choice");
 }
 
-function chooseCards(prompt: DuelPrompt): DuelAnswer {
+function chooseCards(prompt: DuelPrompt, table?: BotTable): DuelAnswer {
+  // A zone of a seat that left the duel is never answered. The place options already carry the hinted seat.
+  const pool = prompt.kind === "places" ? livingOptions(prompt.options, table) : prompt.options;
   const min = prompt.min ?? 0;
   const max = prompt.max ?? min;
   if (min === 0 && prompt.cancelable) return { cancel: true };
-  if (prompt.options.length < min || min > max) {
+  if (pool.length < min || min > max) {
     throw new PracticeBotError("Practice bot has no legal card selection");
   }
-  return { selected: prompt.options.slice(0, min).map((option) => option.id) };
+  return { selected: pool.slice(0, min).map((option) => option.id) };
 }
 
 function chooseTribute(prompt: DuelPrompt): DuelAnswer {
@@ -200,14 +262,14 @@ function chooseCounters(prompt: DuelPrompt): DuelAnswer {
 
 export function choosePracticeBotAnswer(
   prompt: DuelPrompt,
-  options?: { permittedCards?: DuelCardInfo[] },
+  options?: { permittedCards?: DuelCardInfo[]; table?: BotTable },
 ): DuelAnswer {
   switch (prompt.kind) {
     case "choice":
-      return chooseChoice(prompt);
+      return chooseChoice(prompt, options?.table);
     case "cards":
     case "places":
-      return chooseCards(prompt);
+      return chooseCards(prompt, options?.table);
     case "tribute":
       return chooseTribute(prompt);
     case "sum":
@@ -233,4 +295,22 @@ export function choosePracticeBotAnswer(
     default:
       throw new PracticeBotError(`Practice bot cannot answer prompt kind ${String(prompt.kind)}`);
   }
+}
+
+/**
+ * Answers for a seat that surrendered in a table with more than two seats. The core has no "leave the
+ * duel" call yet, so the seat stays in the game and only passes: it ends its turn without acting,
+ * declines every effect and never attacks. Prompts it cannot pass fall back to the practice bot choice.
+ */
+export function chooseSurrenderedAnswer(
+  prompt: DuelPrompt,
+  options?: { permittedCards?: DuelCardInfo[]; table?: BotTable },
+): DuelAnswer {
+  if (prompt.kind === "choice") {
+    if (pickId(prompt, "yes") && pickId(prompt, "no")) return { choice: "no" };
+    const pass = pickId(prompt, "to_ep") ?? pickId(prompt, "to_m2") ?? pickId(prompt, "to_bp");
+    if (pass) return { choice: pass.id };
+    if (prompt.cancelable && (prompt.min ?? 1) === 0) return { cancel: true };
+  }
+  return choosePracticeBotAnswer(prompt, options);
 }
