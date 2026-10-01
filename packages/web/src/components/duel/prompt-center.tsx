@@ -38,6 +38,8 @@ import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
 import { PrecheckBar } from "./prompt-precheck";
 import { placeSelectBar, samePlace, type BarPlace, type BarRect } from "./select-bar-place";
+import { barTitleLabel } from "./select-bar-copy";
+import { backOutAnswer, backOutLabel } from "./pick-backout";
 import base from "./prompts.module.css";
 import styles from "./prompt-center.module.css";
 
@@ -214,6 +216,20 @@ export function declineAnswer(prompt: DuelPrompt): DuelAnswer | null {
   if (isYesNo(prompt)) return { choice: "no" };
   if (prompt.cancelable) return { cancel: true };
   return null;
+}
+
+/**
+ * What right-click and Esc answer. A one-card-at-a-time pick (materials) backs out: unselect the card under
+ * the pointer, else cancel the pick, else step back one card (see pick-backout.ts). Everything else declines.
+ */
+export function dismissAnswer(prompt: DuelPrompt, zoneKeys: readonly string[] = []): DuelAnswer | null {
+  return prompt.kind === "toggle" ? backOutAnswer(prompt, zoneKeys) : declineAnswer(prompt);
+}
+
+/** The board zones under a pointer event (the zone's data-zones keys), for dismissAnswer. */
+function zoneKeysAt(target: Element | null): string[] {
+  const zones = target?.closest("[data-zones]")?.getAttribute("data-zones");
+  return zones ? zones.split(/\s+/).filter(Boolean) : [];
 }
 
 function declineLabel(prompt: DuelPrompt): string {
@@ -1277,7 +1293,7 @@ export function PromptCenter(props: PromptCenterProps) {
         event.preventDefault();
         return;
       }
-      const decline = declineAnswer(current);
+      const decline = dismissAnswer(current, zoneKeysAt(target));
       if (decline) {
         event.preventDefault();
         if (!busyRef.current) submitRef.current(decline);
@@ -1318,7 +1334,7 @@ export function PromptCenter(props: PromptCenterProps) {
         setCollapsed(false);
         return;
       }
-      const decline = declineAnswer(current);
+      const decline = dismissAnswer(current);
       if (decline) {
         if (!busyRef.current && !event.repeat) submitRef.current(decline);
       } else {
@@ -1363,6 +1379,10 @@ export function PromptCenter(props: PromptCenterProps) {
     const ok = toggling ? Boolean(prompt.finishable) : canConfirm(prompt, draft);
     const source = promptSource(prompt);
     const barTitle = fillPlaceholders(prompt.title, source?.name);
+    // The bar shows a short label; the tooltip carries the full title and the description.
+    const barTip = [barTitle, prompt.description ? fillPlaceholders(prompt.description, source?.name) : ""].filter(Boolean).join("\n");
+    // After the first material the engine drops Cancel; Undo unselects the last pick instead.
+    const canUndo = toggling && backOutLabel(prompt) === "Undo";
     const barStyle = {
       top: barPlace.top ?? (barPlace.mode === "mid" ? "50%" : 8),
       left: barPlace.left ?? "50%",
@@ -1379,8 +1399,8 @@ export function PromptCenter(props: PromptCenterProps) {
         role="group"
         aria-label={barTitle}
       >
-        <div className={styles.barText} title={prompt.description ? fillPlaceholders(prompt.description, source?.name) : undefined}>
-          <b>{barTitle}</b>
+        <div className={styles.barText} title={barTip}>
+          <b>{barTitleLabel(barTitle)}</b>
           <span>{selectionStatus(prompt, draft, aiming)}</span>
         </div>
         <div className={styles.barBtns}>
@@ -1404,6 +1424,21 @@ export function PromptCenter(props: PromptCenterProps) {
               onClick={() => onSubmit({ finish: true })}
             >
               Finish
+            </button>
+          ) : null}
+          {canUndo ? (
+            <button
+              type="button"
+              className={styles.btn}
+              data-kind="quiet"
+              disabled={busy}
+              title="Unselect the last card (Esc or right-click)"
+              onClick={() => {
+                const undo = backOutAnswer(prompt);
+                if (undo) onSubmit(undo);
+              }}
+            >
+              Undo
             </button>
           ) : null}
           {prompt.cancelable ? (
