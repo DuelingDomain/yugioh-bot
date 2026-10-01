@@ -441,6 +441,35 @@ const appointerFfa3 = defineScenario({
   ],
 });
 
+// Continuous Traps that destroy themselves after 3 of the opponent turns of the owner (RESET_OPPO_TURN, count 3): the end of the 3rd counted turn
+// is visible on the board. The same R3 count as the Steelcage, with 3 instead of 2.
+const SEA_LORD = "Sea Lord's Amulet";
+const DEPTH = "Depth Amulet";
+function onField(card: string, on: boolean): Step {
+  return expectBoard({ p0: { spells: on ? [card] : [], grave: on ? [] : [card], monsters: [] } });
+}
+const seaLordFfa3 = defineScenario({
+  id: "r3-ffa3-sea-lords-amulet-is-destroyed-after-the-third-opponent-turn",
+  title: "FFA3: Sea Lord's Amulet (RESET_OPPO_TURN, count 3) stays through the turns of p1, p2 and the next turn of p0, and is destroyed at the end of the 2nd turn of p1 (the 3rd opponent turn)",
+  source: R3_RULE,
+  rules: ["R-FFA-ORDER"],
+  tags: ["multiplayer", "late-cards", "turn-count", "r3", "ffa3", "card:61258740"],
+  setup: { format: "ffa3", p0: { spells: [{ card: SEA_LORD, pos: "set" }] } },
+  steps: [
+    activate(SEA_LORD, "p0"),
+    onField(SEA_LORD, true),
+    endTurn("p0"), expectTurn("p1", 2),
+    endTurn("p1"), expectTurn("p2", 3),
+    endTurn("p2"), expectTurn("p0", 4),
+    // Two opponent turns are over (p1, p2).
+    table(["p0", "p1", "p2"], { p0: 1, p1: 1, p2: 1 }, { spells: [SEA_LORD] }),
+    endTurn("p0"), expectTurn("p1", 5),
+    onField(SEA_LORD, true),
+    endTurn("p1"), expectTurn("p2", 6),
+    // The 3rd opponent turn (the 2nd turn of p1) is over: the card is in the Graveyard of p0.
+    table(["p0", "p1", "p2"], { p0: 1, p1: 2, p2: 2 }, { grave: [SEA_LORD] }),
+  ],
+});
 export const LATE_CARD_SCENARIOS: Scenario[] = [
   royalTribute("ffa3"),
   royalTribute("ffa4"),
@@ -469,4 +498,5 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   timeSealCutShort,
   appointerFfa3,
   appointerTag,
+  seaLordFfa3,
 ];
