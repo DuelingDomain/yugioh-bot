@@ -7,7 +7,7 @@
 #
 # Steps: (1) build libocgcore-multi.a with -DYGO_N_TRAP -D_GLIBCXX_ASSERTIONS into its own folder,
 # (2) compile nduel.cpp against it, (3) run the matrix with at most NDUEL_JOBS processes,
-# (4) write $REPO/.status/nduel-summary.json and print a table. Exit code 1 when a run fails.
+# (4) write $NDUEL_STATUS_DIR/nduel-summary.json (default $REPO/.status) and print a table. Exit code 1 when a run fails.
 #
 # Environment (all optional):
 #   NDUEL_DIR        work folder (default domain-core/.build/nduel)
@@ -20,6 +20,7 @@
 #                    exists (a local convenience that keeps parallel agents from overloading the machine) and runs the
 #                    commands directly when it does not (CI, a clean checkout).
 #   DUEL_DATA_DIR    engine data with cards.cdb and card-scripts (default $REPO/data/duel-engine-next, as in CI)
+#   NDUEL_STATUS_DIR folder for nduel-summary.json and nduel-check.json (default $REPO/.status). Set it when two runs share one tree.
 #   NDUEL_SEEDS      seeds per case (default 20)    NDUEL_TURNS  turn limit (default 60)
 #   NDUEL_LP         starting LP (default 3000)     NDUEL_JOBS   parallel runs (default 3, max 3)
 #   NDUEL_CASES      space list of: n2 n2b n2s n3 n4 tag d3 d4 dtag (default: the first six, plus d* with NDUEL_DOMAIN=1; n2b = repeat of n2, n2s = --setup-always)
@@ -92,7 +93,7 @@ BIN_DOMAIN="$DIR/nduel-domain"
 DTREE="$DIR/domain-tree"; DNATIVE="$DIR/domain-native"
 RUNS="$DIR/runs"
 GOLDEN="$PKG/scripts/native/golden.tsv"
-STATUS_DIR="$REPO/.status"
+STATUS_DIR="${NDUEL_STATUS_DIR:-$REPO/.status}"
 mkdir -p "$DIR" "$STATUS_DIR"
 if [[ "$MODE_RUN" == check ]]; then
   [[ -f "$GOLDEN" ]] || { echo "no golden file: $GOLDEN (run --record first)"; exit 2; }
