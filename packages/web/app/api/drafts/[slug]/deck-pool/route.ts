@@ -1,0 +1,47 @@
+import { NextResponse } from "next/server";
+import { getDb } from "@/lib/db";
+import { auth } from "@/lib/auth";
+import { env } from "@/lib/env";
+import { createSavedDeckService } from "@yugidraft/shared/services";
+import { findDraftDeckContext, loadDraftDeckPool } from "../../draft-deck-pool";
+
+export const runtime = "nodejs";
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ slug: string }> },
+) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const guildId = env.discordGuildId;
+    if (!guildId) {
+      return NextResponse.json({ error: "Guild is not configured" }, { status: 500 });
+    }
+
+    const { slug } = await params;
+    const db = getDb();
+    const found = findDraftDeckContext(db, guildId, session.user.id, { slug });
+    if (!found.ok) return found.response;
+    const { draft } = found;
+
+    const loaded = await loadDraftDeckPool(db, guildId, draft);
+    if (!loaded.ok) return loaded.response;
+    const { pool } = loaded;
+
+    const saved = createSavedDeckService(db).findByDraft(guildId, session.user.id, draft.id);
+    return NextResponse.json({
+      draftId: draft.id,
+      draftName: draft.name,
+      cards: pool.cards,
+      mainPoolCount: pool.mainPoolCount,
+      savedDeckId: saved?.id ?? null,
+      unresolved: pool.unresolved,
+    });
+  } catch (error) {
+    console.error("[api/drafts/[slug]/deck-pool] error:", error);
+    return NextResponse.json({ error: "Failed to load the draft pool" }, { status: 500 });
+  }
+}

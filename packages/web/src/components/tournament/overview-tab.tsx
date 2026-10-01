@@ -2,6 +2,8 @@
 
 import { YourActionCard } from "./your-action-card";
 import { TournamentSettingsForm } from "./tournament-settings-form";
+import { TournamentRulesForm } from "./tournament-rules-form";
+import { MyDeckPanel } from "./my-deck-panel";
 import { OverviewProgress } from "./overview-progress";
 import { OverviewRecentResults } from "./overview-recent-results";
 import { OverviewStandings } from "./overview-standings";
@@ -55,6 +57,9 @@ export function OverviewTab({
           onChanged={onChanged}
         />
       )}
+      {showActionCard && (
+        <MyDeckPanel tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
+      )}
       <OverviewProgress tournament={tournament} />
 
       <div className="grid gap-6 lg:grid-cols-12">
@@ -76,6 +81,9 @@ export function OverviewTab({
               initialReportConfirmWindowHours={tournament.reportConfirmWindowHours}
               onSaved={onChanged}
             />
+          )}
+          {isHost && (
+            <TournamentRulesForm tournament={tournament} tournamentSlug={tournamentSlug} onSaved={onChanged} />
           )}
           {isHost && <OverviewHostControls tournamentSlug={tournamentSlug} onCompleted={onChanged} />}
         </aside>

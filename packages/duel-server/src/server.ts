@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "@yugidraft/shared/db";
-import { httpTransport } from "@yugidraft/shared/notify";
+import { createBroadcaster, httpTransport } from "@yugidraft/shared/notify";
 import { loadCardDatabase } from "./cards.js";
 import { createDuelHost } from "./host.js";
 
@@ -16,6 +16,8 @@ const wsTransport = httpTransport({
   url: process.env.WS_INTERNAL_URL ?? "",
   secret: process.env.WS_INTERNAL_SECRET ?? "",
 });
+// The broadcaster logs a warning when the ws server rejects or cannot be reached; it never throws.
+const broadcaster = createBroadcaster(wsTransport);
 const archiveAfterMs = Number(process.env.DUEL_ARCHIVE_AFTER_MS);
 const idleWorkerMs = Number(process.env.DUEL_IDLE_WORKER_MS);
 const botStepMs = Number(process.env.DUEL_BOT_STEP_MS ?? 900);
@@ -26,6 +28,9 @@ const host = createDuelHost({
   searchCards: (query) => cards.search(query),
   onChange: async (slug, guildId) => {
     await wsTransport.post("/internal/duel/changed", JSON.stringify({ slug, guildId }));
+  },
+  notifyTournament: async ({ kind, slug }) => {
+    await broadcaster.tournament({ kind, slug });
   },
   archiveAfterMs: Number.isFinite(archiveAfterMs) ? archiveAfterMs : undefined,
   idleWorkerMs: Number.isFinite(idleWorkerMs) ? idleWorkerMs : undefined,

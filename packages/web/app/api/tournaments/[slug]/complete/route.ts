@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { createTournamentService, createMatchService } from "@yugidraft/shared/services";
 import { announcer, broadcaster } from "@/lib/notify";
+import { notifyDuelChange } from "@/lib/notify-duel";
 
 export const runtime = "nodejs";
 
@@ -20,8 +21,8 @@ export async function POST(
     const db = getDb();
 
     const tournament = db
-      .prepare("select id, status, created_by_user_id from tournaments where web_slug = ?")
-      .get(slug) as { id: number; status: string; created_by_user_id: string } | undefined;
+      .prepare("select id, guild_id, status, created_by_user_id from tournaments where web_slug = ?")
+      .get(slug) as { id: number; guild_id: string; status: string; created_by_user_id: string } | undefined;
 
     if (!tournament) {
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
@@ -36,7 +37,7 @@ export async function POST(
     }
 
     const tournaments = createTournamentService(db);
-    const completed = tournaments.complete(tournament.id);
+    const { tournament: completed, changedDuelSlugs } = tournaments.completeWithChanges(tournament.id);
 
     const matches = createMatchService(db);
     if (matches.claimTournamentCompletionAnnouncement(completed.id)) {
@@ -44,6 +45,7 @@ export async function POST(
     }
 
     void broadcaster.tournament({ kind: "completed", slug });
+    for (const duelSlug of changedDuelSlugs) void notifyDuelChange(duelSlug, tournament.guild_id);
 
     return NextResponse.json({ id: completed.id, status: completed.status });
   } catch (error) {

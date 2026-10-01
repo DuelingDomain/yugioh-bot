@@ -28,6 +28,8 @@ export {
   PINNED_TCG_BANLIST_ID,
 } from "./settings.js";
 export type { DuelBanlistOption } from "./banlist-options.js";
+export type { DeckPoolIssue } from "./pool.js";
+export { checkDeckAgainstPool, deckCardCounts } from "./pool.js";
 export { DUEL_BANLIST_OPTIONS } from "./banlist-options.js";
 
 export interface DuelDeck {
@@ -44,6 +46,54 @@ export interface SavedDeck {
   deck: DuelDeck;
   createdAt: string;
   updatedAt: string;
+  /** Set when the deck was built from the owner's pool in this draft. */
+  draftId?: number | null;
+}
+
+export type DuelBestOf = 1 | 3;
+
+/**
+ * `active`: a game is in lobby or in progress. `between_games`: the side-deck
+ * window before the next game. `completed`: a player won the series.
+ * `cancelled`: stopped before a winner (lobby cancel or organizer result).
+ */
+export type DuelSeriesStatus = "active" | "between_games" | "completed" | "cancelled";
+
+/**
+ * Public state of a match of 1 or 3 games between two players. `playerIds`
+ * order is fixed when the series is made; it is not the seat order of a game
+ * (the loser of the last game takes seat 0 in the next one).
+ */
+export interface DuelSeriesSummary {
+  id: number;
+  bestOf: DuelBestOf;
+  ranked: boolean;
+  status: DuelSeriesStatus;
+  playerIds: [number, number];
+  displayNames: [string, string];
+  wins: [number, number];
+  /** Number of the latest game (1-based). */
+  gameNumber: number;
+  /** Slug of the latest game's duel; clients follow it to the next game. */
+  currentDuelSlug: string | null;
+  winnerPlayerId: number | null;
+  tournamentId: number | null;
+  tournamentSlug: string | null;
+  tournamentMatchId: number | null;
+  /** ISO time when the side-deck window ends; null when there is no deadline. */
+  nextGameAt: string | null;
+  /** Per playerIds index: the player clicked Ready (or has no side deck). */
+  sideReady: [boolean, boolean];
+  /** Per playerIds index: the player's deck has side deck cards. */
+  hasSide: [boolean, boolean];
+}
+
+/** The viewer's own decks in a series; only sent to that player. */
+export interface DuelSeriesSideState {
+  /** The registered deck (tournament) or the game 1 deck (casual). */
+  baseDeck: DuelDeck;
+  /** The deck for the next game, after side deck swaps. */
+  currentDeck: DuelDeck;
 }
 
 export interface DuelDeckCardRef {
@@ -317,6 +367,14 @@ export interface DuelSession {
   winnerPlayerId: number | null;
   winnerSeat: number | null;
   resultReason: string | null;
+  /** Match length chosen at create time (a series game copies its series). */
+  bestOf?: DuelBestOf;
+  /** Ranked: a finished series writes a match record (Elo). */
+  ranked?: boolean;
+  /** Series this game belongs to; null for a duel with no series (practice bot, or not started). */
+  seriesId?: number | null;
+  /** 1-based game number inside the series. */
+  gameNumber?: number | null;
 }
 
 export interface DuelRoom {
@@ -329,6 +387,10 @@ export interface DuelRoom {
   metadataOnly: boolean;
   error?: string;
   inviteCode?: string;
+  /** The series of this game, or null. */
+  series?: DuelSeriesSummary | null;
+  /** The viewer's series decks when the viewer is a series player; otherwise null. */
+  mySide?: DuelSeriesSideState | null;
 }
 
 /** A table row in the lobby list or match history, as seen by one viewer. */
@@ -337,6 +399,8 @@ export interface DuelListItem extends DuelSession {
   mySeat: number | null;
   /** Last start or accepted input; falls back to creation time. */
   lastActivityAt: string;
+  /** The series of this game, or null. */
+  series?: DuelSeriesSummary | null;
 }
 
 /** `mine` lists only duels the viewer played; `all` lists every duel the viewer may open. */
@@ -366,3 +430,47 @@ export interface DuelCommand {
   revision: number;
   answer: DuelAnswer;
 }
+
+export type {
+  CardArchetype,
+  CardFacets,
+  CardKindFilter,
+  CardLimitStatus,
+  CardMatch,
+  CardPoolFilter,
+  CardQuery,
+  CardQueryResult,
+  CardRange,
+  CardSearchScope,
+  CardSearchTerm,
+  CardSort,
+  DeckCardInfo,
+  MonsterTypeKey,
+  SortOrder,
+  SpellTypeKey,
+  TrapTypeKey,
+} from "./card-query.js";
+export {
+  CARD_ATTRIBUTES,
+  CARD_LIMIT_KEYS,
+  CARD_POOL_OCG,
+  CARD_POOL_TCG,
+  CARD_QUERY_PAGE_MAX,
+  CARD_QUERY_TEXT_MAX,
+  CARD_RACES,
+  CARD_TYPE_BITS,
+  CardQueryError,
+  LINK_ARROW_MASK,
+  LINK_ARROWS,
+  MONSTER_TYPE_BITS,
+  MONSTER_TYPE_KEYS,
+  SPELL_TYPE_KEYS,
+  TRAP_TYPE_KEYS,
+  cardLimit,
+  cardTypeRank,
+  emptyCardQuery,
+  foldCardText,
+  inArchetype,
+  parseCardQuery,
+  parseCardSearchTerms,
+} from "./card-query.js";

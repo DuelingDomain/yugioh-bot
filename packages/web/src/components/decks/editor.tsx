@@ -1,47 +1,130 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import type { DuelCardInfo, DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
-import { AlertTriangle, ArrowLeft, Download, FileUp, Save } from "lucide-react";
-import { getDuelCards } from "@/components/duel/api";
-import { DeckMasterPicker } from "@/components/duel/deck-master-picker";
-import { CardInspector, type InspectTarget } from "@/components/duel/inspector";
-import { parseDeckText, selectDomainMaster, serializeYdk, type DeckMasterSelection } from "@/components/duel/ydk";
-import { cx, SheetButton, SheetSegmented, sheetButtonClass, sheetRoot } from "@/components/duel/sheet-ui";
+import {
+  cardLimit,
+  emptyCardQuery,
+  type CardArchetype,
+  type CardFacets,
+  type CardQuery,
+  type DeckCardInfo,
+  type DuelDeck,
+  type DuelMode,
+  type SavedDeck,
+} from "@yugidraft/shared/duels";
+import {
+  AlertTriangle,
+  ArrowDownUp,
+  ArrowLeft,
+  Crown,
+  Download,
+  Hand,
+  Redo2,
+  Save,
+  Trash2,
+  Undo2,
+  X,
+} from "lucide-react";
+import { TYPE_MONSTER } from "@/components/duel/constants";
+import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
+import { cx, SheetButton, SheetSegmented, SheetSelect, sheetButtonClass, sheetRoot } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
-import { createSavedDeck, deleteSavedDeck, getSavedDeck, updateSavedDeck } from "./api";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
+import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, saveDraftDeck, updateSavedDeck } from "./api";
+import { CardActions } from "./card-actions";
+import { CardArt } from "./card-art";
+import { CardBrowser } from "./card-browser";
+import { CardPreview } from "./card-preview";
+import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
+import {
+  BANLIST_CHOICES,
+  banlistLabel,
+  loadEditorPrefs,
+  saveEditorPrefs,
+  type BrowserView,
+} from "./filter-model";
+import { deckNameFromFile, MAX_IMPORT_FILE_BYTES } from "./import";
+import { DeckImportPopover, Popover } from "./import-popover";
 import {
   DEFAULT_NAME,
   EMPTY_DECK,
   MAX_NAME_LENGTH,
-  addCode,
   allCodes,
-  cardLabel,
+  chooseMaster,
+  clearSection,
   cloneDeck,
+  copyCounts,
+  copyLimit,
+  copyProblems,
+  defaultAddSection,
   downloadYdkFile,
   guidanceNotes,
   importForLibrary,
   isNewDeckDirty,
-  moveOne,
-  removeOne,
-  shiftMasterOrigin,
+  placeCard,
+  removeCard,
+  shuffled,
   snapshotOf,
+  sortDeck,
   uniqueCodes,
+  type CardSource,
   type DeckSection,
   type SelectedStack,
 } from "./model";
-import { DeckSearchPanel } from "./search-panel";
-import { DeckSectionGrid } from "./section-grid";
+import {
+  DRAFT_EXTRA_MAX,
+  DRAFT_MAIN_MAX,
+  canAddFromPool,
+  deckUsage,
+  draftDeckNotes,
+  draftMainMinimum,
+  draftMainTone,
+  draftRuleText,
+  poolCounts,
+  remainingCopies,
+  type DraftDeckPool,
+} from "./pool-model";
+import { DeckSectionGrid, type CountTone, type HoveredCopy } from "./section-grid";
 import styles from "./editor.module.css";
 
 const MODE_CHOICES = [
   { value: "normal" as const, label: "Standard" },
   { value: "domain" as const, label: "Domain" },
 ] as const;
+
+const HISTORY_LIMIT = 100;
+/** Passcodes per card-details request; the route takes at most 1000. */
+const POOL_CHUNK = 500;
+const HAND_SIZE = 5;
+/** The pointer must rest this long on a card before the preview changes, so crossing cards does not flash them. */
+const HOVER_IN_MS = 60;
+/** Moving between cards keeps the preview; leaving the cards goes back to the selected card after this wait. */
+const HOVER_OUT_MS = 160;
+
+/** One undo step. The format is part of it, because a format change can move the Deck Master. */
+type Snapshot = { selection: DeckMasterSelection; mode: DuelMode };
+type History = { past: Snapshot[]; future: Snapshot[] };
+type TestHand = { drawn: number[]; pile: number[] };
+/**
+ * The card under the pointer. A deck copy is kept by position, so the preview follows the deck when it changes.
+ * A hand card or the Deck Master is kept with its place, so the preview ends when that card goes away.
+ */
+type HoverTarget =
+  | HoveredCopy
+  | { code: number; from: "list" | "master" }
+  | { code: number; from: "hand"; index: number };
+
+/** The code of the hovered card, or null when that card is gone: a removed element never sends pointerleave. */
+function hoveredCode(hover: HoverTarget | null, deck: DuelDeck, hand: TestHand | null, mode: DuelMode): number | null {
+  if (hover == null) return null;
+  if ("section" in hover) return deck[hover.section][hover.index] ?? null;
+  if (hover.from === "hand") return hand?.drawn[hover.index] === hover.code ? hover.code : null;
+  if (hover.from === "master") return mode === "domain" && deck.deckMaster === hover.code ? hover.code : null;
+  return hover.code;
+}
 
 function parseRouteId(raw: string | undefined): number | "new" | "invalid" {
   if (raw == null || raw === "") return "new";
@@ -51,20 +134,42 @@ function parseRouteId(raw: string | undefined): number | "new" | "invalid" {
   return id;
 }
 
-export function SavedDeckEditor({ deckId }: { deckId?: string }) {
+function typingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+}
+
+/** The name a new draft deck starts with. */
+function draftDeckName(draftName: string): string {
+  return `${draftName.trim() || "Draft"} deck`.slice(0, MAX_NAME_LENGTH);
+}
+
+function copiesText(max: number): string {
+  if (max === 0) return "is Forbidden";
+  return `allows ${max} ${max === 1 ? "copy" : "copies"}`;
+}
+
+function mainTone(mode: DuelMode, count: number): CountTone {
+  if (mode === "domain") return count === 60 ? "ok" : count > 60 ? "bad" : "warn";
+  return count >= 40 && count <= 60 ? "ok" : count > 60 ? "bad" : "warn";
+}
+
+/**
+ * The deck editor. With `pool` it edits the player's draft deck: the card list holds only the pool,
+ * each card has as many copies as the player drafted, and there is no banlist.
+ */
+export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: DraftDeckPool }) {
   const router = useRouter();
   const pathname = usePathname();
   const routeId = parseRouteId(deckId ?? (/^\/decks\/(\d+)$/.exec(pathname)?.[1]));
 
   const [savedId, setSavedId] = useState<number | null>(null);
-  const [name, setName] = useState(DEFAULT_NAME);
+  const startName = pool ? draftDeckName(pool.draftName) : DEFAULT_NAME;
+  const [name, setName] = useState(startName);
   const [mode, setMode] = useState<DuelMode>("normal");
   const [selection, setSelection] = useState<DeckMasterSelection>({ deck: EMPTY_DECK, masterOrigin: null });
+  const [history, setHistory] = useState<History>({ past: [], future: [] });
   const [baseline, setBaseline] = useState<string | null>(null);
-  const [paste, setPaste] = useState("");
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [parseError, setParseError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(routeId === "invalid" ? "That deck id is not valid." : null);
   const [loading, setLoading] = useState(typeof routeId === "number");
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -73,23 +178,120 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [catalog, setCatalog] = useState<Map<number, DuelCardInfo>>(() => new Map());
+  const [importOpen, setImportOpen] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<Map<number, DeckCardInfo>>(() => new Map());
   const [unknown, setUnknown] = useState<Set<number>>(() => new Set());
   const [blocked, setBlocked] = useState<Set<number>>(() => new Set());
   const [metaError, setMetaError] = useState<string | null>(null);
   const [metaRetry, setMetaRetry] = useState(0);
-  const [metaLoading, setMetaLoading] = useState(false);
   const [selected, setSelected] = useState<SelectedStack | null>(null);
   const [inspectCode, setInspectCode] = useState<number | null>(null);
+  const [query, setQuery] = useState<CardQuery>(() => emptyCardQuery());
+  const [view, setView] = useState<BrowserView>("grid");
+  const [prefsReady, setPrefsReady] = useState(false);
+  const [facets, setFacets] = useState<CardFacets | null>(null);
+  const [facetsError, setFacetsError] = useState(false);
+  const [facetsRetry, setFacetsRetry] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [hand, setHand] = useState<TestHand | null>(null);
+  const [masterDropping, setMasterDropping] = useState(false);
+  const [hover, setHover] = useState<HoverTarget | null>(null);
+  const [poolCards, setPoolCards] = useState<DeckCardInfo[] | null>(null);
+  const [poolError, setPoolError] = useState<string | null>(null);
+  const [poolRetry, setPoolRetry] = useState(0);
   const importGeneration = useRef(0);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const inspectScrollRef = useRef<HTMLDivElement>(null);
+  const hoverTimer = useRef<number | undefined>(undefined);
 
-  useEffect(() => () => { importGeneration.current += 1; }, []);
+  useEffect(() => () => {
+    importGeneration.current += 1;
+    window.clearTimeout(hoverTimer.current);
+  }, []);
 
   const { deck, masterOrigin } = selection;
-  const dirty = baseline == null ? isNewDeckDirty(name, mode, deck) : snapshotOf(name.trim(), mode, deck) !== baseline;
+  const busy = saveBusy || deleteBusy;
+  const dirty = baseline == null ? isNewDeckDirty(name.trim() === startName ? DEFAULT_NAME : name, mode, deck) : snapshotOf(name.trim(), mode, deck) !== baseline;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   useNavigationLeaveGuard(dirty, "You have unsaved deck changes. Leave without saving?");
+
+  // Preferences are read after mount, so the server render and the first client render agree.
+  useEffect(() => {
+    const prefs = loadEditorPrefs();
+    setQuery((current) => ({
+      ...current,
+      sort: prefs.sort ?? current.sort,
+      order: prefs.order ?? current.order,
+      banlist: pool ? "none" : prefs.banlist ?? current.banlist,
+      scope: prefs.scope ?? current.scope,
+    }));
+    if (prefs.view) setView(prefs.view);
+    setPrefsReady(true);
+  }, []);
+
+  useEffect(() => {
+    // A draft deck has no banlist; its choices must not replace the ones for normal decks.
+    if (!prefsReady || pool) return;
+    saveEditorPrefs({ sort: query.sort, order: query.order, view, banlist: query.banlist, scope: query.scope });
+  }, [prefsReady, query.sort, query.order, query.banlist, query.scope, view]);
+
+  // The card list of a draft deck is the pool: its card details load once.
+  useEffect(() => {
+    if (!pool) return;
+    let cancelled = false;
+    setPoolError(null);
+    const codes = pool.cards.map((card) => card.code);
+    const chunks: number[][] = [];
+    for (let at = 0; at < codes.length; at += POOL_CHUNK) chunks.push(codes.slice(at, at + POOL_CHUNK));
+    void Promise.all(chunks.map((chunk) => getDeckCards(chunk))).then(
+      (parts) => {
+        if (cancelled) return;
+        const cards = parts.flatMap((part) => part.cards);
+        const missing = parts.flatMap((part) => part.missing);
+        rememberCatalog(cards);
+        if (missing.length > 0) {
+          setUnknown((prev) => new Set([...prev, ...missing]));
+        }
+        setPoolCards(cards);
+      },
+      (reason: unknown) => {
+        if (!cancelled) setPoolError(reason instanceof Error ? reason.message : "Could not load your draft pool.");
+      },
+    );
+    return () => { cancelled = true; };
+  }, [pool, poolRetry]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFacetsError(false);
+    void getDeckCardFacets().then(
+      (result) => { if (!cancelled) setFacets(result); },
+      () => { if (!cancelled) setFacetsError(true); },
+    );
+    return () => { cancelled = true; };
+  }, [facetsRetry]);
+
+  // A deck file dropped outside the import box must not make the browser leave the editor.
+  useEffect(() => {
+    function stopFileDrop(event: DragEvent) {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    }
+    window.addEventListener("dragover", stopFileDrop);
+    window.addEventListener("drop", stopFileDrop);
+    return () => {
+      window.removeEventListener("dragover", stopFileDrop);
+      window.removeEventListener("drop", stopFileDrop);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   useEffect(() => {
     if (routeId === "invalid" || routeId === "new" || routeId === savedId) return;
@@ -114,27 +316,18 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
 
   useEffect(() => {
     const needed = uniqueCodes(allCodes(deck)).filter((code) => !catalog.has(code) && !unknown.has(code) && !blocked.has(code));
-    if (needed.length === 0) {
-      setMetaLoading(false);
-      return;
-    }
+    if (needed.length === 0) return;
     let cancelled = false;
-    setMetaLoading(true);
     setMetaError(null);
-    void getDuelCards(needed).then(
+    void getDeckCards(needed).then(
       ({ cards, missing }) => {
         if (cancelled) return;
-        setCatalog((prev) => {
-          const next = new Map(prev);
-          for (const card of cards) next.set(card.code, card);
-          return next;
-        });
+        rememberCatalog(cards);
         setUnknown((prev) => {
           const next = new Set(prev);
           for (const code of missing) next.add(code);
           return next;
         });
-        setMetaLoading(false);
       },
       (reason: unknown) => {
         if (cancelled) return;
@@ -144,60 +337,202 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
           return next;
         });
         setMetaError(reason instanceof Error ? reason.message : "Could not load card details.");
-        setMetaLoading(false);
       },
     );
     return () => { cancelled = true; };
   }, [deck, metaRetry]);
 
-  function applyRecord(record: SavedDeck) {
-    setSavedId(record.id);
-    setName(record.name);
-    setMode(record.mode);
-    setSelection({ deck: cloneDeck(record.deck), masterOrigin: null });
-    setPaste(serializeYdk(record.deck));
-    setParseError(null);
-    setBaseline(snapshotOf(record.name, record.mode, record.deck));
-  }
+  // A test hand shows one draw of the current Main Deck; a changed deck needs a new draw.
+  const mainKey = deck.main.join(",");
+  useEffect(() => { setHand(null); }, [mainKey]);
 
-  function commit(next: DeckMasterSelection) {
-    importGeneration.current += 1;
-    setSelection(next);
-    setPaste(serializeYdk(next.deck));
-    setParseError(null);
-    setSavedFlash(false);
-  }
-
-  const rememberCatalog = useCallback((cards: DuelCardInfo[]) => {
+  const rememberCatalog = useCallback((cards: DeckCardInfo[]) => {
+    if (cards.length === 0) return;
     setCatalog((prev) => {
+      if (cards.every((card) => prev.get(card.code) === card)) return prev;
       const next = new Map(prev);
       for (const card of cards) next.set(card.code, card);
       return next;
     });
   }, []);
 
-  function addCard(card: DuelCardInfo, section: DeckSection) {
-    rememberCatalog([card]);
-    commit({ ...selection, deck: addCode(deck, section, card.code) });
-    setSelected({ section, code: card.code });
-    setInspectCode(card.code);
+  function applyRecord(record: SavedDeck) {
+    setSavedId(record.id);
+    setName(record.name);
+    setMode(record.mode);
+    setSelection({ deck: cloneDeck(record.deck), masterOrigin: null });
+    setHistory({ past: [], future: [] });
+    setParseError(null);
+    setBaseline(snapshotOf(record.name, record.mode, record.deck));
   }
 
-  function chooseMaster(code?: number) {
-    commit(selectDomainMaster(selection, code));
-    if (code != null) setInspectCode(code);
+  function commit(next: DeckMasterSelection, nextMode: DuelMode = mode) {
+    if (busy || (next === selection && nextMode === mode)) return;
+    importGeneration.current += 1;
+    setHistory((current) => ({ past: [...current.past.slice(-(HISTORY_LIMIT - 1)), { selection, mode }], future: [] }));
+    setSelection(next);
+    setMode(nextMode);
+    setParseError(null);
+    setSavedFlash(false);
+  }
+
+  function restore(step: Snapshot) {
+    importGeneration.current += 1;
+    setSelection(step.selection);
+    setMode(step.mode);
+    setSavedFlash(false);
+  }
+
+  function undo() {
+    const previous = history.past.at(-1);
+    if (busy || !previous) return;
+    setHistory({ past: history.past.slice(0, -1), future: [{ selection, mode }, ...history.future] });
+    restore(previous);
+  }
+
+  function redo() {
+    const next = history.future[0];
+    if (busy || !next) return;
+    setHistory({ past: [...history.past, { selection, mode }], future: history.future.slice(1) });
+    restore(next);
+  }
+
+  const banlistOff = pool != null || query.banlist === "none";
+  const limits = banlistOff ? null : facets?.banlists[query.banlist] ?? null;
+  const limitsPending = !banlistOff && facets == null && !facetsError;
+  const banlistName = banlistOff ? null : banlistLabel(query.banlist);
+  const counts = useMemo(() => copyCounts(deck, catalog), [deck, catalog]);
+  const problems = useMemo(() => (pool ? [] : copyProblems(deck, catalog, limits)), [pool, deck, catalog, limits]);
+  const poolMap = useMemo(() => (pool ? poolCounts(pool.cards) : null), [pool]);
+  const usage = useMemo(() => deckUsage(deck), [deck]);
+  const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
+  const archetypes = facets?.archetypes ?? [];
+
+  // A draft pool counts copies by passcode: the pool lists each artwork on its own.
+  const deckCount = useCallback(
+    (card: DeckCardInfo) => (poolMap
+      ? usage.get(card.code) ?? 0
+      : counts.get(`name:${card.name}`) ?? counts.get(`code:${card.code}`) ?? 0),
+    [counts, poolMap, usage],
+  );
+
+  function inspect(code: number, stack: SelectedStack | null = null) {
+    window.clearTimeout(hoverTimer.current);
+    setHover(null);
+    setInspectCode(code);
+    setSelected(stack);
+  }
+
+  function pointAt(target: HoverTarget | null) {
+    window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = window.setTimeout(() => setHover(target), target ? HOVER_IN_MS : HOVER_OUT_MS);
+  }
+
+  /** Main and Extra only take the cards that belong there; the Side Deck takes any card. */
+  function sectionFor(code: number, wanted: DeckSection): DeckSection {
+    const card = catalog.get(code);
+    if (!card || wanted === "side") return wanted;
+    return defaultAddSection(card);
+  }
+
+  /** A draft deck can only hold as many copies of a card as the player drafted. */
+  function poolRoomFor(code: number): boolean {
+    if (!poolMap || canAddFromPool(poolMap, usage, code)) return true;
+    setNotice(poolMap.has(code)
+      ? `${cardName(code)}: no copies left in your pool.`
+      : `${cardName(code)} is not in your draft pool.`);
+    return false;
+  }
+
+  function roomFor(card: DeckCardInfo): boolean {
+    if (poolMap) return poolRoomFor(card.code);
+    if (limitsPending) {
+      setNotice("Loading the banlist. Try again in a moment.");
+      return false;
+    }
+    const max = limits ? cardLimit(limits, card) : 3;
+    const have = deckCount(card);
+    if (have < max) return true;
+    setNotice(max === 3
+      ? `${card.name}: you already have 3 copies.`
+      : `${card.name}: ${banlistName ?? "the banlist"} ${copiesText(max)}.`);
+    return false;
+  }
+
+  function addFromList(card: DeckCardInfo, wanted?: DeckSection) {
+    rememberCatalog([card]);
+    if (!roomFor(card)) return;
+    const to = wanted === "side" ? "side" : defaultAddSection(card);
+    commit(placeCard(selection, { code: card.code, from: "list" }, to));
+  }
+
+  function dropCard(source: CardSource, wanted: DeckSection, at?: number) {
+    const to = sectionFor(source.code, wanted);
+    // A card dropped on the wrong section of its own home stays where it is.
+    if (to !== wanted && source.from === to) {
+      setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "Extra" : "Main"} Deck.`);
+      return;
+    }
+    if (source.from === "list") {
+      const card = catalog.get(source.code);
+      if (card ? !roomFor(card) : !poolRoomFor(source.code)) return;
+    }
+    commit(placeCard(selection, source, to, to === wanted ? at : undefined));
+    setSelected({ section: to, code: source.code });
+    setInspectCode(source.code);
+    if (to !== wanted) {
+      setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "Extra" : "Main"} Deck.`);
+    }
+  }
+
+  function removeCopy(source: CardSource) {
+    const next = removeCard(selection, source);
+    commit(next);
+    if (source.from !== "list" && source.from !== "master" && !next.deck[source.from].includes(source.code)) {
+      setSelected(null);
+    }
+  }
+
+  function makeMaster(code: number, section?: DeckSection) {
+    const card = catalog.get(code);
+    if (card && (card.type & TYPE_MONSTER) === 0) {
+      setNotice("The Deck Master must be a monster.");
+      return;
+    }
+    // A Deck Master that is not in the deck yet is a new copy, so it must fit the copy limit.
+    const inDeck = deck.main.includes(code) || deck.extra.includes(code) || deck.side.includes(code);
+    if (card && !inDeck && !roomFor(card)) return;
+    commit(chooseMaster(selection, code, section));
+    setInspectCode(code);
+    setSelected(null);
+  }
+
+  function cardName(code: number): string {
+    return catalog.get(code)?.name ?? `Passcode ${code}`;
+  }
+
+  function showArchetype(archetype: CardArchetype) {
+    setQuery((current) => ({ ...current, archetypes: [...archetype.codes], archetypeMode: "member", text: "" }));
+    searchRef.current?.focus();
   }
 
   function applyImported(raw: DuelDeck) {
     if (allCodes(raw).length === 0) {
       throw new Error("No cards found. Import a YDK deck or a ydke:// link.");
     }
-    commit(importForLibrary(raw, mode));
+    const nextMode = raw.deckMaster != null ? "domain" : mode;
+    commit(importForLibrary(raw, nextMode), nextMode);
     setSelected(null);
+    setImportOpen(false);
+    setNotice("Deck imported. Press Ctrl+Z to undo.");
   }
 
   function onFile(file: File) {
-    if (saveBusy || deleteBusy) return;
+    if (busy) return;
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      setParseError("This file is too large to be a YDK deck.");
+      return;
+    }
     const generation = ++importGeneration.current;
     setFileName(file.name);
     void file.text().then(
@@ -205,6 +540,8 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
         if (generation !== importGeneration.current) return;
         try {
           applyImported(parseDeckText(text));
+          // A new deck that still has the default name takes the file's name.
+          if (savedId == null && name.trim() === DEFAULT_NAME) setName(deckNameFromFile(file.name));
         } catch (reason: unknown) {
           setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
         }
@@ -217,55 +554,45 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
     );
   }
 
-  function onPasteApply() {
+  function onPaste(text: string) {
     importGeneration.current += 1;
     try {
-      applyImported(parseDeckText(paste));
+      applyImported(parseDeckText(text));
     } catch (reason: unknown) {
       setParseError(reason instanceof Error ? reason.message : "Could not parse that deck.");
     }
   }
 
-  function removeSelected() {
-    if (!selected) return;
-    const removed = removeOne(deck, selected.section, selected.code);
-    if (removed.removedIndex < 0) return;
-    const nextDeck = removed.deck;
-    commit({
-      deck: nextDeck,
-      masterOrigin: shiftMasterOrigin(masterOrigin, selected.section, removed.removedIndex),
-    });
-    if (!nextDeck[selected.section].includes(selected.code)) setSelected(null);
-  }
-
-  function addSelectedCopy() {
-    if (!selected) return;
-    commit({ ...selection, deck: addCode(deck, selected.section, selected.code) });
-  }
-
-  function moveSelected(to: DeckSection) {
-    if (!selected || selected.section === to) return;
-    const nextDeck = moveOne(deck, selected.section, to, selected.code);
-    const removedIndex = deck[selected.section].lastIndexOf(selected.code);
-    commit({
-      deck: nextDeck,
-      masterOrigin: shiftMasterOrigin(masterOrigin, selected.section, removedIndex),
-    });
-    setSelected({ section: to, code: selected.code });
+  function dealHand() {
+    const pile = shuffled(deck.main);
+    setHand({ drawn: pile.slice(0, HAND_SIZE), pile: pile.slice(HAND_SIZE) });
   }
 
   async function save() {
+    // Ctrl+S also works on the loading and error screens; there is no deck to save there.
+    if (busy || loading || loadError != null || routeId === "invalid" || (typeof routeId === "number" && savedId == null)) return;
     importGeneration.current += 1;
     const trimmed = name.trim();
     if (!trimmed) {
       setSaveError("Deck name is required.");
       return;
     }
+    if (pool && deck.main.length < draftMainMinimum(pool.mainPoolCount)) {
+      setSaveError(`A draft deck needs at least ${draftMainMinimum(pool.mainPoolCount)} Main Deck cards.`);
+      return;
+    }
     setSaveBusy(true);
     setSaveError(null);
     const body = { name: trimmed, mode, deck: cloneDeck(deck) };
     try {
-      const record = savedId == null ? await createSavedDeck(body) : await updateSavedDeck(savedId, body);
+      let record: SavedDeck;
+      if (pool) {
+        const saved = await saveDraftDeck(savedId, { ...body, draftId: pool.draftId });
+        record = saved.deck;
+        if (saved.warning) setNotice(saved.warning);
+      } else {
+        record = savedId == null ? await createSavedDeck(body) : await updateSavedDeck(savedId, body);
+      }
       flushSync(() => {
         setName(record.name);
         setMode(record.mode);
@@ -275,7 +602,7 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
         setSavedFlash(true);
       });
       // Keep selection provenance when a new deck acquires its permanent URL.
-      if (savedId == null) window.history.replaceState(null, "", `/decks/${record.id}`);
+      if (savedId == null && !pool) window.history.replaceState(null, "", `/decks/${record.id}`);
     } catch (reason: unknown) {
       setSaveError(reason instanceof Error ? reason.message : "Could not save this deck.");
     } finally {
@@ -298,259 +625,475 @@ export function SavedDeckEditor({ deckId }: { deckId?: string }) {
     }
   }
 
+  const shortcuts = useRef({ undo, redo, save });
+  shortcuts.current = { undo, redo, save };
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const mod = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (mod && key === "s") {
+        event.preventDefault();
+        void shortcuts.current.save();
+        return;
+      }
+      if (typingTarget(event.target)) return;
+      if (mod && key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) shortcuts.current.redo();
+        else shortcuts.current.undo();
+      } else if (mod && key === "y") {
+        event.preventDefault();
+        shortcuts.current.redo();
+      } else if (!mod && !event.altKey && event.key === "/") {
+        event.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
-  const notes = guidanceNotes(mode, deck);
+  const notes = pool ? draftDeckNotes(deck, pool.mainPoolCount) : guidanceNotes(mode, deck);
+  const mainMinimum = pool ? draftMainMinimum(pool.mainPoolCount) : 40;
   const inspected = inspectCode == null ? undefined : catalog.get(inspectCode);
-  const inspectTarget: InspectTarget | null = inspected ? { type: "info", card: inspected } : null;
-  const selectedName = selected ? cardLabel(selected.code, catalog) : null;
-  const selectedCount = selected ? deck[selected.section].filter((code) => code === selected.code).length : 0;
-  const mainTarget = mode === "domain" ? "of 60" : "40–60";
-  const extraTarget = "up to 15";
-  const sideTarget = mode === "domain" ? "kept on this save" : "up to 15";
-  const statusTone = saveError ? "bad" : dirty ? "warn" : savedFlash || savedId != null ? "ok" : undefined;
+  const hoverCode = hoveredCode(hover, deck, hand, mode);
+  const shownCode = hoverCode ?? inspectCode;
+  const shown = shownCode == null ? undefined : catalog.get(shownCode);
+  // Deck controls belong to the selected card, so they hide while the pane shows another card.
+  const previewing = hoverCode != null && hoverCode !== inspectCode;
+
+  useEffect(() => {
+    if (inspectScrollRef.current) inspectScrollRef.current.scrollTop = 0;
+  }, [shownCode]);
+  const backHref = pool ? `/draft/${pool.slug}` : "/decks";
+  const statusTone = saveError ? "bad" : dirty ? "warn" : savedId != null ? "ok" : undefined;
   const statusText = saveBusy
     ? "Saving…"
     : saveError
       ? saveError
       : dirty
         ? "Unsaved changes"
-        : savedFlash
+        : savedFlash || savedId != null
           ? "Saved"
-          : savedId != null
-            ? "Saved"
-            : "New unsaved deck";
+          : "New deck";
 
   if (routeId === "invalid" || (loadError && savedId == null)) {
     return (
-      <div className={cx(sheetRoot, styles.wrap)}>
-        <div className={styles.loadError}>
-          <p role="alert" className={ui.alert}>{loadError ?? "That deck id is not valid."}</p>
-          <Link href="/decks" className={sheetButtonClass("secondary")}>Back to decks</Link>
-        </div>
+      <div className={cx(sheetRoot, styles.editor, styles.center)}>
+        <p role="alert" className={ui.alert}>{loadError ?? "That deck id is not valid."}</p>
+        <Link href={backHref} className={sheetButtonClass("secondary")}>{pool ? "Back to the draft" : "Back to decks"}</Link>
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className={cx(sheetRoot, styles.wrap)}>
+      <div className={cx(sheetRoot, styles.editor, styles.center)}>
         <p className={ui.hint}>Loading deck…</p>
       </div>
     );
   }
 
+  const sectionProps = {
+    catalog,
+    unknown,
+    limits,
+    over,
+    selected,
+    onSelect: (stack: SelectedStack) => inspect(stack.code, stack),
+    onHover: pointAt,
+    onRemove: removeCopy,
+    onDrop: dropCard,
+  };
+
+  const clearButton = (section: DeckSection, label: string) => (
+    <SheetButton
+      kind="quiet"
+      size="sm"
+      disabled={deck[section].length === 0 || busy}
+      aria-label={`Remove every card from the ${label} Deck`}
+      onClick={() => {
+        commit(clearSection(selection, section));
+        setNotice(`${label} Deck cleared. Press Ctrl+Z to undo.`);
+      }}
+    >
+      <Trash2 size={14} strokeWidth={1.6} aria-hidden />
+      Clear
+    </SheetButton>
+  );
+
   return (
-    <fieldset className={cx(sheetRoot, styles.wrap)} disabled={saveBusy || deleteBusy} aria-label="Deck editor">
+    <div className={cx(sheetRoot, styles.editor)}>
       <header className={styles.toolbar}>
         <div className={styles.toolbarLead}>
-          <Link href="/decks" className={sheetButtonClass("quiet", "sm")}>
+          <Link href={backHref} className={cx(sheetButtonClass("quiet", "sm"), styles.back)} aria-label={pool ? "Back to the draft" : "Back to decks"}>
             <ArrowLeft size={16} strokeWidth={1.6} aria-hidden />
-            Decks
+            <span className={styles.backText}>{pool ? "Draft" : "Decks"}</span>
           </Link>
-          <p className={styles.counts} aria-label="Deck counts">
-            <span>Main <b className={ui.num}>{deck.main.length}</b></span>
-            <span>Extra <b className={ui.num}>{deck.extra.length}</b></span>
-            <span>Side <b className={ui.num}>{deck.side.length}</b></span>
-            {deck.deckMaster != null ? <span>Master <b className={ui.num}>1</b></span> : null}
-          </p>
+          <label className={styles.nameField}>
+            <span className={ui.srOnly}>Deck name</span>
+            <input
+              className={styles.nameInput}
+              value={name}
+              maxLength={MAX_NAME_LENGTH}
+              disabled={busy}
+              onChange={(event) => { importGeneration.current += 1; setName(event.target.value); setSavedFlash(false); }}
+            />
+          </label>
+          {pool ? (
+            <p className={styles.draftRule}>
+              <strong>Draft deck — {pool.draftName}</strong>
+              <span>{draftRuleText(pool.mainPoolCount)}</span>
+            </p>
+          ) : (
+            <>
+              <SheetSegmented
+                label="Format"
+                hideLabel
+                value={mode}
+                disabled={busy}
+                choices={MODE_CHOICES}
+                onChange={(value) => commit(selection, value)}
+              />
+              <SheetSelect
+                label="Banlist"
+                hideLabel
+                compact
+                className={styles.banlist}
+                value={query.banlist}
+                choices={BANLIST_CHOICES}
+                onChange={(banlist) => setQuery((current) => ({ ...current, banlist, limits: banlist === "none" ? [] : current.limits }))}
+              />
+            </>
+          )}
         </div>
         <div className={styles.toolbarActions}>
           <p className={styles.status} data-tone={statusTone} aria-live="polite">{statusText}</p>
-          <SheetButton kind="primary" loading={saveBusy} disabled={saveBusy} onClick={() => void save()}>
-            <Save size={16} strokeWidth={1.6} aria-hidden />
-            Save
+          <div className={styles.history}>
+            <button type="button" className={styles.toolIcon} aria-label="Undo" title="Undo (Ctrl+Z)" disabled={busy || history.past.length === 0} onClick={undo}>
+              <Undo2 size={16} strokeWidth={1.6} aria-hidden />
+            </button>
+            <button type="button" className={styles.toolIcon} aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={busy || history.future.length === 0} onClick={redo}>
+              <Redo2 size={16} strokeWidth={1.6} aria-hidden />
+            </button>
+          </div>
+          {pool ? null : (
+            <DeckImportPopover
+              open={importOpen}
+              onOpenChange={(open) => { setImportOpen(open); if (open) setParseError(null); }}
+              disabled={busy}
+              mode={mode}
+              fileName={fileName}
+              error={parseError}
+              onFile={onFile}
+              onPaste={onPaste}
+            />
+          )}
+          <SheetButton size="sm" onClick={() => downloadYdkFile(name, deck)}>
+            <Download size={15} strokeWidth={1.6} aria-hidden />
+            Export
           </SheetButton>
-          <SheetButton onClick={() => downloadYdkFile(name, deck)}>
-            <Download size={16} strokeWidth={1.6} aria-hidden />
-            Export YDK
-          </SheetButton>
-          {savedId != null ? (
-            deleteOpen ? (
+          {savedId != null && !pool ? (
+            <Popover
+              label="Delete"
+              icon={<Trash2 size={15} strokeWidth={1.6} aria-hidden />}
+              kind="quiet"
+              open={deleteOpen}
+              onOpenChange={(open) => { setDeleteOpen(open); setDeleteError(null); }}
+              disabled={busy}
+            >
               <div className={styles.confirm}>
-                <p>Delete {name.trim() || "this deck"}?</p>
+                <p>Delete <strong>{name.trim() || "this deck"}</strong>? You cannot undo this.</p>
                 {deleteError ? <p role="alert" className={ui.alert}>{deleteError}</p> : null}
-                <div className={styles.actionRow}>
-                  <SheetButton kind="danger" size="sm" loading={deleteBusy} disabled={deleteBusy} onClick={() => void confirmDelete()}>
-                    Delete
-                  </SheetButton>
-                  <SheetButton kind="quiet" size="sm" disabled={deleteBusy} onClick={() => { setDeleteOpen(false); setDeleteError(null); }}>
-                    Keep
-                  </SheetButton>
+                <div className={styles.popoverActions}>
+                  <SheetButton kind="quiet" size="sm" disabled={deleteBusy} onClick={() => setDeleteOpen(false)}>Keep</SheetButton>
+                  <SheetButton kind="danger" size="sm" loading={deleteBusy} onClick={() => void confirmDelete()}>Delete deck</SheetButton>
                 </div>
               </div>
-            ) : (
-              <SheetButton kind="danger" size="sm" onClick={() => setDeleteOpen(true)}>Delete</SheetButton>
-            )
+            </Popover>
           ) : null}
+          <SheetButton kind="primary" size="sm" loading={saveBusy} disabled={busy} title="Save (Ctrl+S)" onClick={() => void save()}>
+            <Save size={15} strokeWidth={1.6} aria-hidden />
+            Save
+          </SheetButton>
         </div>
       </header>
 
-      <div className={styles.identity}>
-        <label className={styles.nameField}>
-          <span className={ui.label}>Deck name</span>
-          <input
-            className={ui.input}
-            value={name}
-            maxLength={MAX_NAME_LENGTH}
-            onChange={(event) => { importGeneration.current += 1; setName(event.target.value); setSavedFlash(false); }}
-          />
-        </label>
-        <SheetSegmented
-          label="Format"
-          value={mode}
-          choices={MODE_CHOICES}
-          onChange={(value) => { importGeneration.current += 1; setMode(value); setSavedFlash(false); }}
-        />
-      </div>
-
-      <details className={styles.guidance}>
-        <summary>Private deck · Legality is checked when you ready up{notes.length ? ` · ${notes.length} deck-building note${notes.length === 1 ? "" : "s"}` : ""}</summary>
-        <p className={ui.hint}>You can save unfinished decks. Saving does not certify that a deck is legal for a table.</p>
-        {notes.length > 0 ? <ul className={ui.bannerList}>{notes.map((note) => <li key={note}>{note}</li>)}</ul> : null}
-      </details>
-
-      {metaError ? (
-        <div className={cx(ui.banner, ui.bannerBad)}>
-          <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
-          <div className={ui.bannerBody}>
-            <strong>Card details unavailable</strong>
-            <p>{metaError} Passcodes stay in the list.</p>
-            <SheetButton size="sm" onClick={() => { setBlocked(new Set()); setMetaRetry((value) => value + 1); }}>Retry details</SheetButton>
-          </div>
-        </div>
-      ) : null}
-
-      {metaLoading ? <p className={ui.hint}>Loading card details…</p> : null}
-
-      <div className={styles.workspace}>
-        <div className={styles.inspect}>
-          <div className={styles.inspectPane}>
-            {inspectCode != null && !inspected
-              ? <p className={styles.inspectNotice}>Passcode {inspectCode}: {unknown.has(inspectCode) ? "not in the engine catalog. The card is kept in your deck." : metaError ? "card details unavailable." : "loading card details…"}</p>
-              : <CardInspector target={inspectTarget} />}
-          </div>
-          {selected && selectedName ? (
-            <div className={styles.actions} aria-label="Selected card">
-              <p className={styles.actionsName}>{selectedName}</p>
-              <p className={ui.hint}>
-                {selected.section === "main" ? "Main" : selected.section === "extra" ? "Extra" : "Side"}
-                {" · "}
-                {selectedCount} {selectedCount === 1 ? "copy" : "copies"}
-                {unknown.has(selected.code) ? " · unavailable in catalog" : ""}
+      <div className={styles.panes}>
+        <aside className={styles.inspectPane} aria-label="Card details">
+          <div ref={inspectScrollRef} className={styles.inspectScroll}>
+            {shownCode == null ? (
+              <div className={styles.inspectEmpty}>
+                <p className={styles.inspectEmptyTitle}>Point at a card to read it here. Click a card to select it.</p>
+                <ul className={styles.tips}>
+                  <li><b>Add</b> Double-click, right-click or drag a card from the list.</li>
+                  <li><b>Remove</b> Right-click a card in the deck, press Delete, or drag it back to the list.</li>
+                  <li><b>Move</b> Drag a card between Main, Extra and Side.</li>
+                  <li><b>Keys</b> <kbd>/</kbd> search · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save</li>
+                </ul>
+              </div>
+            ) : shown ? (
+              <CardPreview card={shown} />
+            ) : (
+              <p className={styles.inspectNotice}>
+                Passcode {shownCode}: {unknown.has(shownCode)
+                  ? "this card is not in the card database. It stays in your deck."
+                  : metaError ? "card details are not available." : "loading card details…"}
               </p>
-              <div className={styles.actionRow}>
-                <SheetButton size="sm" onClick={addSelectedCopy}>Add copy</SheetButton>
-                <SheetButton size="sm" onClick={removeSelected}>Remove</SheetButton>
-              </div>
-              <p className={ui.label}>Move copy to</p>
-              <div className={styles.actionRow}>
-                <SheetButton size="sm" disabled={selected.section === "main"} onClick={() => moveSelected("main")}>Main</SheetButton>
-                <SheetButton size="sm" disabled={selected.section === "extra"} onClick={() => moveSelected("extra")}>Extra</SheetButton>
-                <SheetButton size="sm" disabled={selected.section === "side"} onClick={() => moveSelected("side")}>Side</SheetButton>
-              </div>
-              {mode === "domain" ? (
-                <SheetButton size="sm" onClick={() => chooseMaster(selected.code)}>Use as Deck Master</SheetButton>
-              ) : null}
-            </div>
-          ) : (
-            <p className={ui.hint}>Select a card in the list to inspect it and add, remove, or move copies. Those controls stay visible here — nothing important is hover-only.</p>
-          )}
-        </div>
+            )}
+          </div>
+          {inspected && !previewing ? (
+            <CardActions
+              card={inspected}
+              deck={deck}
+              mode={mode}
+              copies={deckCount(inspected)}
+              limit={copyLimit(inspected.code, catalog, limits)}
+              poolCopies={poolMap ? poolMap.get(inspected.code) ?? 0 : undefined}
+              banlistName={banlistName}
+              archetypes={archetypes}
+              onAdd={(section) => addFromList(inspected, section)}
+              onRemove={(section) => removeCopy({ code: inspected.code, from: section })}
+              onMaster={() => makeMaster(inspected.code, selected?.code === inspected.code ? selected.section : undefined)}
+              onArchetype={showArchetype}
+            />
+          ) : null}
+        </aside>
 
-        <div className={styles.board}>
-          <details className={styles.disclosure}>
-            <summary><FileUp size={16} aria-hidden /> Import YDK / YDKE</summary>
-          <div className={styles.import}>
-            <label
-              className={styles.drop}
-              data-dragging={dragging ? "true" : undefined}
-              onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(event) => {
-                event.preventDefault();
-                setDragging(false);
-                const file = event.dataTransfer.files?.[0];
-                if (file) onFile(file);
-              }}
-            >
-              <input
-                type="file"
-                accept=".ydk,text/plain"
-                className={ui.srOnly}
-                aria-label="YDK file"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) onFile(file);
-                  event.target.value = "";
-                }}
-              />
-              <FileUp size={22} strokeWidth={1.4} aria-hidden />
-              <span className={styles.dropTitle}>{fileName ?? "Drop a .ydk file"}</span>
-              <span className={styles.dropHint}>{fileName ? "Choose another file to replace it" : "or click to choose one"}</span>
-            </label>
-            <div className={styles.paste}>
-              <label>
-                <span className={ui.label}>Paste YDK or YDKE</span>
-                <textarea
-                  value={paste}
-                  rows={6}
-                  spellCheck={false}
-                  className={cx(ui.input, ui.textarea)}
-                  placeholder={"#main\n46986414\n#extra\n!side"}
-                  onChange={(event) => { importGeneration.current += 1; setPaste(event.target.value); }}
-                />
-              </label>
-              <SheetButton size="sm" onClick={onPasteApply}>Load paste</SheetButton>
+        <main className={styles.deckPane} aria-label="Deck">
+          <div className={styles.deckBar}>
+            {notes.length > 0 || problems.length > 0 ? (
+              <details className={styles.notes}>
+                <summary>
+                  <AlertTriangle size={15} strokeWidth={1.6} aria-hidden />
+                  {problems.length > 0
+                    ? `${problems.length} ${problems.length === 1 ? "card has" : "cards have"} too many copies`
+                    : `${notes.length} deck ${notes.length === 1 ? "note" : "notes"}`}
+                </summary>
+                <ul className={ui.bannerList}>
+                  {problems.map((problem) => (
+                    <li key={problem.key}>
+                      {problem.name}: {problem.count} copies, {problem.max === 0 ? "Forbidden" : `${problem.max} allowed`}
+                      {banlistName && problem.max < 3 ? ` on ${banlistName}` : ""}.
+                    </li>
+                  ))}
+                  {notes.map((note) => <li key={note}>{note}</li>)}
+                </ul>
+                <p className={ui.hint}>
+                  {pool
+                    ? "A draft deck needs its Main Deck size before it can be saved."
+                    : "You can save an unfinished deck. The table checks legality when you ready up."}
+                </p>
+              </details>
+            ) : (
+              <p className={styles.notesOk}>Deck size is correct for {pool ? "a draft deck" : mode === "domain" ? "Domain" : "Standard"}.</p>
+            )}
+            <div className={styles.deckTools}>
+              <SheetButton kind="quiet" size="sm" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}>
+                <ArrowDownUp size={14} strokeWidth={1.6} aria-hidden />
+                Sort
+              </SheetButton>
+              <SheetButton kind="quiet" size="sm" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => (hand ? setHand(null) : dealHand())}>
+                <Hand size={14} strokeWidth={1.6} aria-hidden />
+                Test hand
+              </SheetButton>
             </div>
           </div>
-          <p className={ui.hint}>
-            Domain imports: a lone Side card with no #deckmaster becomes the Deck Master. Extra Side cards are kept.
-            A new import replaces the previous master — it will not linger from the last file.
-          </p>
-          {parseError ? <p role="alert" className={ui.alert}>{parseError}</p> : null}
-          </details>
+
+          {notice ? (
+            <p className={styles.notice} role="status">
+              {notice}
+              <button type="button" className={styles.noticeClose} aria-label="Close message" onClick={() => setNotice(null)}>
+                <X size={14} aria-hidden />
+              </button>
+            </p>
+          ) : null}
+
+          {facetsError ? (
+            <div className={cx(ui.banner, ui.bannerBad)}>
+              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
+              <div className={ui.bannerBody}>
+                <strong>Filters and banlists are not available</strong>
+                <p>{pool ? "Archetype filters do not load." : "Archetype filters do not load and the editor does not check banlist limits."}</p>
+                <SheetButton size="sm" onClick={() => setFacetsRetry((value) => value + 1)}>Try again</SheetButton>
+              </div>
+            </div>
+          ) : null}
+
+          {pool && pool.unresolved.length > 0 ? (
+            <div className={cx(ui.banner, ui.bannerBad)}>
+              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
+              <div className={ui.bannerBody}>
+                <strong>{pool.unresolved.length} {pool.unresolved.length === 1 ? "card" : "cards"} cannot be used</strong>
+                <p>The duel engine does not know {pool.unresolved.length === 1 ? "this card" : "these cards"}, so {pool.unresolved.length === 1 ? "it is" : "they are"} not in the list.</p>
+              </div>
+            </div>
+          ) : null}
+
+          {poolError ? (
+            <div className={cx(ui.banner, ui.bannerBad)}>
+              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
+              <div className={ui.bannerBody}>
+                <strong>Your draft pool is not available</strong>
+                <p>{poolError}</p>
+                <SheetButton size="sm" onClick={() => setPoolRetry((value) => value + 1)}>Try again</SheetButton>
+              </div>
+            </div>
+          ) : null}
+
+          {metaError ? (
+            <div className={cx(ui.banner, ui.bannerBad)}>
+              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
+              <div className={ui.bannerBody}>
+                <strong>Card details are not available</strong>
+                <p>{metaError} The passcodes stay in the deck.</p>
+                <SheetButton size="sm" onClick={() => { setBlocked(new Set()); setMetaRetry((value) => value + 1); }}>Try again</SheetButton>
+              </div>
+            </div>
+          ) : null}
+
+          {hand ? (
+            <section className={styles.hand} aria-label="Test hand">
+              <header className={styles.handHead}>
+                <h2 className={styles.sectionTitle}>Test hand <span className={cx(ui.num, styles.sectionTarget)}>{hand.drawn.length} {hand.drawn.length === 1 ? "card" : "cards"} · {hand.pile.length} left</span></h2>
+                <div className={styles.sectionActions}>
+                  <SheetButton kind="quiet" size="sm" disabled={hand.pile.length === 0} onClick={() => setHand({ drawn: [...hand.drawn, hand.pile[0]!], pile: hand.pile.slice(1) })}>Draw</SheetButton>
+                  <SheetButton kind="quiet" size="sm" onClick={dealHand}>New hand</SheetButton>
+                  <button type="button" className={styles.toolIcon} aria-label="Close test hand" onClick={() => setHand(null)}>
+                    <X size={15} aria-hidden />
+                  </button>
+                </div>
+              </header>
+              <ul className={styles.handCards}>
+                {hand.drawn.map((code, index) => (
+                  <li key={`${index}-${code}`}>
+                    <button
+                      type="button"
+                      className={styles.card}
+                      aria-label={cardName(code)}
+                      title={cardName(code)}
+                      onClick={() => inspect(code)}
+                      onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code, from: "hand", index }); }}
+                      onPointerLeave={() => pointAt(null)}
+                    >
+                      <CardArt code={code} name={cardName(code)} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           {mode === "domain" ? (
-            <details className={styles.disclosure}>
-              <summary>Deck Master · {deck.deckMaster == null ? "Choose a monster" : cardLabel(deck.deckMaster, catalog)}</summary>
-              <DeckMasterPicker code={deck.deckMaster} onChange={chooseMaster} custom />
-            </details>
+            <section
+              className={styles.master}
+              aria-label="Deck Master"
+              data-dropping={masterDropping ? "true" : undefined}
+              onDragOver={(event) => {
+                if (!hasCardDrag(event)) return;
+                event.preventDefault();
+                setMasterDropping(true);
+              }}
+              onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
+              onDrop={(event) => {
+                setMasterDropping(false);
+                const drag = readCardDrag(event);
+                if (!drag || drag.from === "master") return;
+                event.preventDefault();
+                makeMaster(drag.code, drag.from === "list" ? undefined : drag.from);
+              }}
+            >
+              <div className={styles.masterSlot}>
+                {deck.deckMaster != null ? (
+                  <button
+                    type="button"
+                    className={styles.card}
+                    aria-label={`Deck Master: ${cardName(deck.deckMaster)}`}
+                    aria-pressed={inspectCode === deck.deckMaster && selected == null}
+                    title={cardName(deck.deckMaster)}
+                    draggable
+                    onClick={() => inspect(deck.deckMaster!)}
+                    onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }}
+                    onPointerLeave={() => pointAt(null)}
+                    onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })}
+                    onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}
+                  >
+                    <CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} />
+                  </button>
+                ) : (
+                  <Crown size={22} strokeWidth={1.3} aria-hidden />
+                )}
+              </div>
+              <div className={styles.masterText}>
+                <h2 className={styles.sectionTitle}>Deck Master</h2>
+                <p className={ui.hint}>
+                  {deck.deckMaster != null
+                    ? cardName(deck.deckMaster)
+                    : "Drag a monster here, or select one and press Use as Deck Master."}
+                </p>
+                {deck.deckMaster != null ? (
+                  <SheetButton kind="quiet" size="sm" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>
+                    Clear
+                  </SheetButton>
+                ) : null}
+              </div>
+            </section>
           ) : null}
 
           <DeckSectionGrid
+            {...sectionProps}
             title="Main"
             section="main"
             codes={deck.main}
-            target={mainTarget}
-            catalog={catalog}
-            unknown={unknown}
-            selected={selected}
-            onSelect={(stack) => { setSelected(stack); setInspectCode(stack.code); }}
+            target={pool ? `/ ${mainMinimum}–${DRAFT_MAIN_MAX}` : mode === "domain" ? "/ 60" : "/ 40–60"}
+            tone={pool ? draftMainTone(deck.main.length, pool.mainPoolCount) : mainTone(mode, deck.main.length)}
+            emptyHint="Add cards from the list on the right."
+            actions={clearButton("main", "Main")}
           />
           <DeckSectionGrid
+            {...sectionProps}
             title="Extra"
             section="extra"
             codes={deck.extra}
-            target={extraTarget}
-            catalog={catalog}
-            unknown={unknown}
-            selected={selected}
-            onSelect={(stack) => { setSelected(stack); setInspectCode(stack.code); }}
+            target="/ 15"
+            tone={deck.extra.length > DRAFT_EXTRA_MAX ? "bad" : undefined}
+            emptyHint="Fusion, Synchro, Xyz and Link Monsters go here."
+            actions={clearButton("extra", "Extra")}
           />
           <DeckSectionGrid
+            {...sectionProps}
             title="Side"
             section="side"
             codes={deck.side}
-            target={sideTarget}
-            catalog={catalog}
-            unknown={unknown}
-            selected={selected}
-            onSelect={(stack) => { setSelected(stack); setInspectCode(stack.code); }}
+            target={mode === "domain" ? "not used in Domain" : "/ 15"}
+            tone={deck.side.length > 15 || (mode === "domain" && deck.side.length > 0) ? "bad" : undefined}
+            emptyHint="Drag cards here, or use + Side on a selected card."
+            actions={clearButton("side", "Side")}
           />
-        </div>
+        </main>
 
-        <DeckSearchPanel onAdd={addCard} onCatalog={rememberCatalog} />
+        <CardBrowser
+          pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, card.code) } : undefined}
+          query={query}
+          onQueryChange={setQuery}
+          archetypes={archetypes}
+          limits={limits}
+          view={view}
+          onViewChange={setView}
+          deckCount={deckCount}
+          inspectCode={selected == null ? inspectCode : null}
+          onInspect={(card) => { rememberCatalog([card]); inspect(card.code); }}
+          onHover={(card) => {
+            if (card) rememberCatalog([card]);
+            pointAt(card ? { code: card.code, from: "list" } : null);
+          }}
+          onAdd={(card) => addFromList(card)}
+          onCatalog={rememberCatalog}
+          onRemoveDrop={(drag) => removeCopy(drag)}
+          searchRef={searchRef}
+        />
       </div>
-    </fieldset>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { DraftSummaryView } from "../../src/components/draft/draft-summary-view";
 import { installVirtualizerJsdomEnv } from "../helpers/virtualizer-jsdom";
 
@@ -291,6 +291,64 @@ describe("DraftSummaryView", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/drafts/test-draft/pool");
     expect(await screen.findByText("Pot of Greed")).toBeTruthy();
 
+    vi.unstubAllGlobals();
+  });
+
+  const renderView = (draft: Record<string, unknown>, props: Record<string, unknown> = {}) =>
+    render(
+      <DraftSummaryView
+        draft={draft as any}
+        isParticipant={true}
+        isCreator={false}
+        slug="test-draft"
+        onExportYdk={vi.fn().mockResolvedValue("#main")}
+        onDelete={vi.fn()}
+        {...props}
+      />,
+    );
+
+  it("shows Create deck as a link to the draft deck editor", () => {
+    renderView({ ...baseDraft, participantPickCount: 15 });
+    const link = screen.getByRole("link", { name: /create deck/i });
+    expect(link.getAttribute("href")).toBe("/decks/draft/test-draft");
+    expect(screen.queryByRole("link", { name: /edit deck/i })).toBeNull();
+  });
+
+  it("shows Edit deck when the player already has a draft deck", () => {
+    renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7 });
+    expect(screen.getByRole("link", { name: /edit deck/i }).getAttribute("href")).toBe("/decks/draft/test-draft");
+    expect(screen.queryByRole("link", { name: /create deck/i })).toBeNull();
+  });
+
+  it("hides the deck link for a spectator and for a player with no picks", () => {
+    renderView({ ...baseDraft, participantPickCount: 15 }, { isParticipant: false });
+    expect(screen.queryByRole("link", { name: /(create|edit) deck/i })).toBeNull();
+  });
+
+  it("keeps Export YDK as a small secondary button for 40 picks", () => {
+    renderView({ ...baseDraft, participantPickCount: 40 });
+    const button = screen.getByRole("button", { name: /export ydk/i });
+    expect(button.className).toMatch(/underline/);
+    expect(screen.getByRole("link", { name: /create deck/i })).toBeTruthy();
+  });
+
+  it("sends Best of 3 by default and the chosen length when the creator makes a tournament", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 4, name: "T", webSlug: "t-4" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderView({ ...baseDraft, participantPickCount: 15 }, { isCreator: true });
+
+    const select = screen.getByLabelText(/match length/i) as HTMLSelectElement;
+    expect(select.value).toBe("3");
+    fireEvent.change(select, { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Tournament" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/drafts/test-draft/tournament");
+    expect(JSON.parse(init.body)).toEqual({ format: "round_robin", bestOf: 1 });
     vi.unstubAllGlobals();
   });
 });

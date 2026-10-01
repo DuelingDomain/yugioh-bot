@@ -2,6 +2,7 @@
 .wrap { width: 100%; max-width: 900px; margin: 0 auto; display: grid; gap: 32px; padding-block: 8px 48px; }
 .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
 .headText { display: grid; gap: 6px; }
+.headActions { display: flex; flex-wrap: wrap; gap: 10px; }
 .section { display: grid; gap: 12px; }
 .bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--duel-rule-lo); }
 .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

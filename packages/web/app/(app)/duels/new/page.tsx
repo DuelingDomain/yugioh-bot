@@ -1,5 +1,6 @@
 import { DuelCreator } from "@/components/duel/creator";
 
-export default function NewDuelPage() {
-  return <DuelCreator />;
+export default async function NewDuelPage({ searchParams }: { searchParams: Promise<{ challenge?: string | string[] }> }) {
+  const { challenge } = await searchParams;
+  return <DuelCreator focusOpponent={challenge != null} />;
 }

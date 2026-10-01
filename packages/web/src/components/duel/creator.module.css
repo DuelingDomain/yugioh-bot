@@ -49,3 +49,19 @@
   .fields { grid-template-columns: minmax(0, 1fr); gap: 18px; }
   .card { padding: 18px; }
 }
+
+/* ---------- match: opponent, length, ranked ---------- */
+.picker { display: grid; gap: 8px; }
+.picked { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.results { display: grid; gap: 2px; max-height: 240px; overflow-y: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--duel-rule-lo); border-radius: 8px; background: var(--duel-panel-2, rgb(14 23 41 / 0.9)); }
+.result { display: block; width: 100%; padding: 9px 12px; border-radius: 6px; color: var(--duel-ink); font-size: 14px; text-align: left; }
+.result:hover:not(:disabled) { background: var(--duel-pen-soft); }
+.result:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -2px; }
+.toggle { display: flex; align-items: flex-start; gap: 10px; color: var(--duel-ink); font-size: 14px; cursor: pointer; }
+.toggle input { flex: none; width: 18px; height: 18px; margin-top: 2px; accent-color: var(--duel-pen); }
+.toggle small { display: block; margin-top: 2px; color: var(--duel-ink-3); font-size: 13px; line-height: 1.5; }
+
+/* ---------- challenge sent ---------- */
+.sent { display: grid; gap: 12px; padding: 4px 0; }
+.sentTitle { color: var(--duel-ink); font-size: 15px; font-weight: 450; line-height: 1.4; }
+.sentRow { display: flex; flex-wrap: wrap; gap: 8px; }

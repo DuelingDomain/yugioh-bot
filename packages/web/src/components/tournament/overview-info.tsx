@@ -1,4 +1,6 @@
 import { formatMatchTime } from "@/lib/format-date";
+import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
+import { isDraftTournament, rulesValueFromTournament } from "./duel-rules";
 import type { TournamentDetail } from "./types";
 
 function formatLabel(format: string): string {
@@ -14,6 +16,18 @@ export function OverviewInfo({ tournament }: { tournament: TournamentDetail }) {
     { label: "Started", value: started || "—" },
     { label: "Players", value: String(tournament.participants.length) },
   ];
+  if (tournament.bestOf != null || tournament.duelRules) {
+    const rules = rulesValueFromTournament(tournament);
+    rows.push({ label: "Match length", value: `Best of ${rules.bestOf}` });
+    if (isDraftTournament(tournament)) {
+      rows.push({ label: "Rules", value: "Draft pool, no banlist" });
+    } else {
+      const banlist = DUEL_BANLIST_OPTIONS.find((option) => option.id === rules.banlist)?.label ?? rules.banlist;
+      rows.push({ label: "Mode", value: rules.mode === "domain" ? "Domain" : "Normal" });
+      rows.push({ label: "Banlist", value: banlist });
+      rows.push({ label: "Turn time", value: rules.turnSeconds === 0 ? "No timer" : `${rules.turnSeconds} s` });
+    }
+  }
 
   return (
     <section className="rounded-xl border border-border bg-surface p-5">

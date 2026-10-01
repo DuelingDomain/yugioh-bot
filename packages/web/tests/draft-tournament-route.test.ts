@@ -107,4 +107,41 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     const response = await POST(request, { params: Promise.resolve({ slug: "test-slug" }) });
     expect(response.status).toBe(400);
   });
+
+  async function postWithBody(body: unknown) {
+    const { POST } = await import("../app/api/drafts/[slug]/tournament/route");
+    const request = new Request("http://localhost/api/drafts/test-slug/tournament", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }) as NextRequest;
+    return POST(request, { params: Promise.resolve({ slug: "test-slug" }) });
+  }
+
+  async function storedBestOf(): Promise<number> {
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(process.env.DATABASE_PATH!);
+    const row = db.prepare("select best_of from tournaments order by id desc limit 1").get() as { best_of: number };
+    db.close();
+    return row.best_of;
+  }
+
+  it("makes a Best of 3 tournament when bestOf is missing", async () => {
+    await setupCompletedDraft();
+    expect((await postWithBody({ format: "round_robin" })).status).toBe(201);
+    expect(await storedBestOf()).toBe(3);
+  });
+
+  it("passes bestOf 1 on to the tournament", async () => {
+    await setupCompletedDraft();
+    expect((await postWithBody({ format: "round_robin", bestOf: 1 })).status).toBe(201);
+    expect(await storedBestOf()).toBe(1);
+  });
+
+  it("returns 400 when bestOf is not 1 or 3", async () => {
+    await setupCompletedDraft();
+    const response = await postWithBody({ format: "round_robin", bestOf: 5 });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/bestOf/);
+  });
 });

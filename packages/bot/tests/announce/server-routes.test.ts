@@ -19,6 +19,7 @@ describe("announce server new routes", () => {
         onTournamentCreated: vi.fn(),
         onTournamentStarted: vi.fn(),
         onTournamentCompleted: vi.fn(),
+        onDuelInvite: vi.fn(),
         onMatchReportPending,
         onMatchResolved,
       },
@@ -60,6 +61,7 @@ describe("announce server new routes", () => {
         onTournamentCreated: vi.fn(),
         onTournamentStarted: vi.fn(),
         onTournamentCompleted,
+        onDuelInvite: vi.fn(),
         onMatchReportPending: vi.fn(),
         onMatchResolved: vi.fn(),
       },
@@ -75,5 +77,43 @@ describe("announce server new routes", () => {
     );
     expect(res.status).toBe(204);
     expect(onTournamentCompleted).toHaveBeenCalledWith({ tournamentId: 7 });
+  });
+
+  it("dispatches duel-invite", async () => {
+    const onDuelInvite = vi.fn(async () => {});
+    const server = createAnnounceServer({
+      secret: "s",
+      handlers: {
+        onDraftCreated: vi.fn(),
+        onDraftStarted: vi.fn(),
+        onDraftCompleted: vi.fn(),
+        onTournamentCreated: vi.fn(),
+        onTournamentStarted: vi.fn(),
+        onTournamentCompleted: vi.fn(),
+        onDuelInvite,
+        onMatchReportPending: vi.fn(),
+        onMatchResolved: vi.fn(),
+      },
+    });
+    const payload = {
+      guildId: "g",
+      opponentDiscordUserId: "u2",
+      challengerName: "Yugi",
+      duelName: "Yugi vs Kaiba",
+      bestOf: 3,
+      ranked: true,
+      tournamentName: null,
+      url: "http://localhost:3000/duels/abc",
+    };
+    const body = JSON.stringify(payload);
+    const res = await server.handle(
+      new Request("http://x/internal/announce/duel-invite", {
+        method: "POST",
+        body,
+        headers: { "x-announce-signature": sign(body, "s") },
+      }),
+    );
+    expect(res.status).toBe(204);
+    expect(onDuelInvite).toHaveBeenCalledWith(payload);
   });
 });

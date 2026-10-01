@@ -1,6 +1,7 @@
 "use client";
 
 import { MatchBoard } from "./match-board";
+import { MyDeckPanel } from "./my-deck-panel";
 import { YourActionCard } from "./your-action-card";
 import { deriveMyMatches } from "./use-my-matches";
 import type { TournamentDetail } from "./types";
@@ -35,6 +36,9 @@ export function MyMatchesTab({
 
   return (
     <div>
+      <div className="mb-6">
+        <MyDeckPanel tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
+      </div>
       <YourActionCard
         actionMatch={actionMatch}
         tournamentSlug={tournamentSlug}

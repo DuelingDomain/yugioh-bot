@@ -1,14 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type DragEvent } from "react";
 import Link from "next/link";
-import { ArrowRight, Plus } from "lucide-react";
+import { ArrowRight, FileUp, Plus } from "lucide-react";
 import type { SavedDeck } from "@yugidraft/shared/duels";
 import { cx, SheetButton, sheetButtonClass, sheetRoot } from "@/components/duel/sheet-ui";
 import ui from "@/components/duel/sheet-ui.module.css";
 import { deleteSavedDeck, listSavedDecks } from "./api";
+import { DeckImportPanel, useDeckImport } from "./import-panel";
 import { formatWhen, modeLabel } from "./model";
 import styles from "./library.module.css";
+
+function hasFiles(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer.types).includes("Files");
+}
 
 export function SavedDeckLibrary() {
   const [decks, setDecks] = useState<SavedDeck[] | null>(null);
@@ -16,6 +21,14 @@ export function SavedDeckLibrary() {
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
+
+  const onImported = useCallback((deck: SavedDeck) => {
+    // While the first list load is in flight, that load picks the new deck up.
+    setDecks((current) => (current == null ? current : [deck, ...current.filter((item) => item.id !== deck.id)]));
+  }, []);
+  const importer = useDeckImport(onImported);
 
   const load = useCallback(() => {
     setError(null);
@@ -54,17 +67,45 @@ export function SavedDeckLibrary() {
   }
 
   return (
-    <div className={cx(sheetRoot, styles.wrap)}>
+    <div
+      className={cx(sheetRoot, styles.wrap)}
+      onDragOver={(event) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        setImportOpen(true);
+        setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(event) => {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        setDragging(false);
+        setImportOpen(true);
+        importer.importFiles(event.dataTransfer.files, importer.mode);
+      }}
+    >
       <header className={styles.head}>
         <div className={styles.headText}>
           <h1 className={ui.title}>Decks</h1>
           <p className={ui.lede}>Private lists you can import at a table. Saving here does not make a deck legal for a duel.</p>
         </div>
-        <Link href="/decks/new" className={sheetButtonClass("primary", "lg")}>
-          <Plus size={17} strokeWidth={1.7} aria-hidden />
-          New deck
-        </Link>
+        <div className={styles.headActions}>
+          <SheetButton size="lg" aria-expanded={importOpen} onClick={() => setImportOpen((open) => !open)}>
+            <FileUp size={17} strokeWidth={1.7} aria-hidden />
+            Import YDK
+          </SheetButton>
+          <Link href="/decks/new" className={sheetButtonClass("primary", "lg")}>
+            <Plus size={17} strokeWidth={1.7} aria-hidden />
+            New deck
+          </Link>
+        </div>
       </header>
+
+      {importOpen ? (
+        <DeckImportPanel importer={importer} dragging={dragging} onClose={() => setImportOpen(false)} />
+      ) : null}
 
       {decks == null && !error ? (
         <div className={styles.skeleton} aria-busy="true" aria-label="Loading saved decks">
@@ -83,11 +124,17 @@ export function SavedDeckLibrary() {
 
       {decks && decks.length === 0 ? (
         <div className={styles.empty}>
-          <p>No saved decks yet. Build a list, import a YDK, and reuse it when you sit down at a table.</p>
-          <Link href="/decks/new" className={sheetButtonClass("primary")}>
-            <Plus size={16} strokeWidth={1.7} aria-hidden />
-            Create a deck
-          </Link>
+          <p>No saved decks yet. Import your YDK files or build a list, and reuse it when you sit down at a table.</p>
+          <div className={styles.emptyActions}>
+            <SheetButton onClick={() => setImportOpen(true)}>
+              <FileUp size={16} strokeWidth={1.7} aria-hidden />
+              Import YDK files
+            </SheetButton>
+            <Link href="/decks/new" className={sheetButtonClass("primary")}>
+              <Plus size={16} strokeWidth={1.7} aria-hidden />
+              Create a deck
+            </Link>
+          </div>
         </div>
       ) : null}
 

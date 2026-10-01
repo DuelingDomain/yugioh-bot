@@ -6,12 +6,15 @@ import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, type Lu
 import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yugidraft/shared/duels";
 import { DeckCardPreview } from "./deck-card-preview";
 import { DeckEditor } from "./deck-editor";
+import { SeriesBadges } from "./series-banner";
+import { deckCounts } from "./side-deck-model";
 import { DuelSettingsSummary, RoomInvite } from "./room-settings";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./room-lobby.module.css";
+import seriesStyles from "./series.module.css";
 
-function SeatCard({ index, taken, mine }: { index: number; taken: DuelSeat | undefined; mine: boolean }) {
+function SeatCard({ index, taken, mine, waitLabel }: { index: number; taken: DuelSeat | undefined; mine: boolean; waitLabel: string }) {
   if (!taken) {
     return (
       <li className={cx(styles.seat, styles.seatOpen)}>
@@ -38,7 +41,7 @@ function SeatCard({ index, taken, mine }: { index: number; taken: DuelSeat | und
       </span>
       <span className={cx(styles.status, taken.ready && styles.statusReady)}>
         <Icon size={15} strokeWidth={1.7} aria-hidden />
-        {taken.ready ? "Ready" : "Deck needed"}
+        {taken.ready ? "Ready" : waitLabel}
       </span>
     </li>
   );
@@ -53,6 +56,7 @@ export function RoomLobby({
   onJoin,
   onAddBot,
   onReady,
+  onMarkReady,
   onStart,
   onCancel,
   onLeave,
@@ -64,6 +68,8 @@ export function RoomLobby({
   onJoin: () => void;
   onAddBot: () => void;
   onReady: (deck: DuelDeck) => void;
+  /** Tournament games: ready up with the registered deck. */
+  onMarkReady?: () => void;
   onStart: () => void;
   onCancel: () => void;
   onLeave: () => void;
@@ -75,13 +81,24 @@ export function RoomLobby({
   const readyCount = session.seats.filter((seat) => seat.ready).length;
   const myMeta = mySeat != null ? session.seats.find((seat) => seat.seat === mySeat) : undefined;
   const isOrganizer = myMeta?.playerId === session.organizerPlayerId;
-  const canStart = isOrganizer && occupied >= 2 && readyCount >= 2 && session.status === "lobby";
 
   const formatLabel = session.mode === "domain"
     ? isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain 1v1 · singleton"
     : `Master Rule ${session.masterRule}`;
   const isPrivate = session.settings.visibility === "private";
-  const showPreview = mySeat != null;
+  const series = room.series;
+  const tournamentGame = series != null && series.tournamentId != null;
+  const lockedDeck = tournamentGame && mySeat != null;
+  // A series game starts by itself once both players are ready, so the organizer has no Start button.
+  const autoStart = series != null;
+  const showPreview = mySeat != null && !lockedDeck;
+  const seriesCancel = series != null && mySeat != null && occupied >= 2;
+  const showBotPanel = isOrganizer && occupied < 2;
+  // A bot game never makes a series, so a Best of 3 or Ranked table plays one uncounted game against it.
+  const botNote = series == null && (session.bestOf === 3 || session.ranked === true) && (showBotPanel || session.seats.some((seat) => seat.isBot))
+    ? <p className={ui.hint} data-testid="practice-bot-note">Games against the practice bot do not count. This table plays one game and records nothing.</p>
+    : null;
+  const canStart = !autoStart && isOrganizer && occupied >= 2 && readyCount >= 2 && session.status === "lobby";
 
   return (
     <div className={cx(sheetPage, styles.page)}>
@@ -92,6 +109,7 @@ export function RoomLobby({
             <p className={styles.chips}>
               <span className={cx(ui.chip, ui.chipAccent)}>{formatLabel}</span>
               <span className={ui.chip}>Lobby</span>
+              {series ? <SeriesBadges series={series} showGame /> : null}
               <span className={ui.chip}>
                 {isPrivate ? <Lock size={13} strokeWidth={1.6} aria-hidden /> : <Globe size={13} strokeWidth={1.6} aria-hidden />}
                 {isPrivate ? "Private" : "Public"}
@@ -114,14 +132,18 @@ export function RoomLobby({
             <section className={styles.panel} aria-label="Seats">
               <ul className={styles.seats}>
                 {[0, 1].map((seat) => (
-                  <SeatCard key={seat} index={seat} taken={session.seats.find((item) => item.seat === seat)} mine={seat === mySeat} />
+                  <SeatCard key={seat} index={seat} taken={session.seats.find((item) => item.seat === seat)} mine={seat === mySeat} waitLabel={tournamentGame ? "Not ready" : "Deck needed"} />
                 ))}
               </ul>
               {mySeat != null ? (
                 <p className={styles.help} role="status">
-                  {myMeta?.ready
-                    ? "Your deck is ready. Both seats must be ready before the organizer starts."
-                    : "Import your deck, then click Ready with this deck. Deck needed means no valid deck has been submitted yet."}
+                  {tournamentGame
+                    ? myMeta?.ready
+                      ? "You are ready. The game starts when both players are ready."
+                      : "Your registered deck is locked for this tournament. Click Ready when you can play."
+                    : myMeta?.ready
+                      ? autoStart ? "Your deck is ready. The game starts when both players are ready." : "Your deck is ready. Both seats must be ready before the organizer starts."
+                      : "Import your deck, then click Ready with this deck. Deck needed means no valid deck has been submitted yet."}
                 </p>
               ) : null}
               {actionError ? <p role="alert" className={ui.alert}>{actionError}</p> : null}
@@ -134,10 +156,18 @@ export function RoomLobby({
                   <SheetButton kind="primary" size="lg" loading={busy} disabled={busy} onClick={onStart}>
                     Start duel<Swords size={17} strokeWidth={1.6} aria-hidden />
                   </SheetButton>
+                ) : lockedDeck ? (
+                  <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || myMeta?.ready || !onMarkReady} onClick={onMarkReady}>
+                    Ready<CheckCircle2 size={17} strokeWidth={1.6} aria-hidden />
+                  </SheetButton>
+                ) : autoStart && mySeat != null ? (
+                  <p className={styles.startHint}>Starts when both players are ready</p>
                 ) : isOrganizer ? (
                   <p className={styles.startHint}>Start unlocks when both seats are ready.</p>
                 ) : null}
-                {isOrganizer ? (
+                {seriesCancel ? (
+                  <SheetButton kind="quiet" disabled={busy} onClick={onCancel}>Cancel series</SheetButton>
+                ) : isOrganizer ? (
                   <SheetButton kind="quiet" disabled={busy} onClick={onCancel}>Cancel table</SheetButton>
                 ) : mySeat != null ? (
                   <SheetButton kind="quiet" disabled={busy} onClick={onLeave}>Leave table</SheetButton>
@@ -145,7 +175,21 @@ export function RoomLobby({
               </div>
             </section>
 
-            {mySeat != null ? (
+            {lockedDeck ? (
+              <section className={cx(styles.panel, seriesStyles.lockedDeck)} aria-label="Registered deck">
+                <h2 className={ui.sectionTitle}>Registered deck (locked)</h2>
+                {room.myDeck ? (
+                  <dl className={seriesStyles.lockedCounts}>
+                    {(["main", "extra", "side"] as const).map((key) => (
+                      <div key={key}><dt style={{ display: "inline" }}>{key[0].toUpperCase() + key.slice(1)}</dt><dd style={{ display: "inline" }}><b>{deckCounts(room.myDeck!)[key]}</b></dd></div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className={ui.hint}>Your registered deck loads when the game opens.</p>
+                )}
+                <p className={ui.hint}>The deck you registered for this tournament is used for every game. You cannot change it here.</p>
+              </section>
+            ) : mySeat != null ? (
               <section className={cx(styles.panel, styles.deckPanel)} aria-label="Deck import">
                 <DeckEditor
                   slug={slug}
@@ -164,7 +208,7 @@ export function RoomLobby({
             <section className={styles.panel}>
               <DuelSettingsSummary session={session} />
             </section>
-            {isOrganizer && occupied < 2 ? (
+            {showBotPanel ? (
               <section className={cx(styles.panel, styles.bot)} aria-label="Practice bot">
                 <h2 className={ui.sectionTitle}>Practice bot</h2>
                 <p className={ui.hint}>
@@ -174,7 +218,10 @@ export function RoomLobby({
                 <SheetButton loading={busy} disabled={busy} onClick={onAddBot}>
                   <Bot size={16} strokeWidth={1.6} aria-hidden />Add practice bot
                 </SheetButton>
+                {botNote}
               </section>
+            ) : botNote ? (
+              <section className={styles.panel}>{botNote}</section>
             ) : null}
           </aside>
         </div>

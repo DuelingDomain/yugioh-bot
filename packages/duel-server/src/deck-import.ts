@@ -141,20 +141,13 @@ function canonicalForName(index: EngineIndex, name: string, sourceId: number): n
   fail(`Unknown card ${sourceId} (${name})`);
 }
 
-export async function normalizeImportedDeck(
-  deck: DuelDeck,
-  dataDirectory: string,
+/** Maps ids the engine card database lacks to engine passcodes, through the synced catalog and card names. */
+async function resolveMissingIds(
+  index: EngineIndex,
+  allIds: number[],
   db: Database.Database,
-  options: NormalizeImportedDeckOptions = {},
-): Promise<DuelDeck> {
-  if (deck == null || typeof deck !== "object") fail("Deck must include main, extra, and side arrays");
-  const main = requireCardIds(deck.main);
-  const extra = requireCardIds(deck.extra);
-  const side = requireCardIds(deck.side);
-  const deckMaster = deck.deckMaster === undefined ? undefined : requireCardId(deck.deckMaster);
-
-  const index = loadEngineIndex(dataDirectory);
-  const allIds = deckMaster === undefined ? [...main, ...extra, ...side] : [...main, ...extra, ...side, deckMaster];
+  options: NormalizeImportedDeckOptions,
+): Promise<Map<number, number>> {
   const missing: number[] = [];
   const seenMissing = new Set<number>();
   for (const id of allIds) {
@@ -188,6 +181,24 @@ export async function normalizeImportedDeck(
       }
     }
   }
+  return resolved;
+}
+
+export async function normalizeImportedDeck(
+  deck: DuelDeck,
+  dataDirectory: string,
+  db: Database.Database,
+  options: NormalizeImportedDeckOptions = {},
+): Promise<DuelDeck> {
+  if (deck == null || typeof deck !== "object") fail("Deck must include main, extra, and side arrays");
+  const main = requireCardIds(deck.main);
+  const extra = requireCardIds(deck.extra);
+  const side = requireCardIds(deck.side);
+  const deckMaster = deck.deckMaster === undefined ? undefined : requireCardId(deck.deckMaster);
+
+  const index = loadEngineIndex(dataDirectory);
+  const allIds = deckMaster === undefined ? [...main, ...extra, ...side] : [...main, ...extra, ...side, deckMaster];
+  const resolved = await resolveMissingIds(index, allIds, db, options);
 
   const remap = (id: number): number => resolved.get(id) ?? id;
   const normalized: DuelDeck = {
@@ -197,4 +208,21 @@ export async function normalizeImportedDeck(
   };
   if (deckMaster !== undefined) normalized.deckMaster = remap(deckMaster);
   return normalized;
+}
+
+/** Engine passcode for each input id, resolved like `normalizeImportedDeck`; an id that cannot be resolved maps to null. */
+export async function normalizeCardCodes(
+  codes: number[],
+  dataDirectory: string,
+  db: Database.Database,
+  options: Pick<NormalizeImportedDeckOptions, "fetch"> = {},
+): Promise<Map<number, number | null>> {
+  const ids = requireCardIds(codes);
+  const index = loadEngineIndex(dataDirectory);
+  const resolved = await resolveMissingIds(index, ids, db, { ...options, keepUnresolved: true });
+  const result = new Map<number, number | null>();
+  for (const id of ids) {
+    result.set(id, index.byId.has(id) ? id : (resolved.get(id) ?? null));
+  }
+  return result;
 }

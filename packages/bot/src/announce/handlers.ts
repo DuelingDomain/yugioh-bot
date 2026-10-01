@@ -10,6 +10,7 @@ import {
   tournamentCreatedAnnouncement,
   tournamentStartedAnnouncement,
   reportPendingAnnouncement,
+  duelInviteMessage,
 } from "./messages.js";
 import { announceTournamentCompleted } from "../lib/announce-tournament-completed.js";
 import { deleteNotifyMessage } from "../lib/notify-message.js";
@@ -19,7 +20,7 @@ export function createAnnounceHandlers({
   db,
   guildSettings,
 }: {
-  client: Pick<Client, "channels">;
+  client: Pick<Client, "channels" | "users">;
   db: Database.Database;
   drafts: DraftService;
   messenger: DraftMessenger;
@@ -85,6 +86,16 @@ export function createAnnounceHandlers({
 
     async onTournamentCompleted({ tournamentId }) {
       await announceTournamentCompleted(client, db, guildSettings, tournamentId);
+    },
+
+    async onDuelInvite({ opponentDiscordUserId, challengerName, duelName, bestOf, ranked, tournamentName, url }) {
+      // A closed DM or an unknown user must not fail the announce call.
+      try {
+        const user = await client.users.fetch(opponentDiscordUserId);
+        await user.send(duelInviteMessage({ challengerName, duelName, bestOf, ranked, tournamentName, url }));
+      } catch (err) {
+        console.warn(`[announce] could not DM duel invite to ${opponentDiscordUserId}:`, err);
+      }
     },
   };
 }

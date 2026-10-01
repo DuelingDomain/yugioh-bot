@@ -40,6 +40,8 @@ type ButtonDependencies = {
   deleteNotifyMessage?: (matchId: number) => Promise<void>;
   announceTournamentCompleted?: (tournamentId: number) => Promise<void>;
   broadcaster: Broadcaster;
+  /** Tells the ws server a duel game changed (series closed by a cancelled event). */
+  notifyDuelChange?: (slug: string, guildId: string) => Promise<void>;
 };
 
 const WEB_URL = process.env.WEB_URL ?? "http://localhost:3000";
@@ -817,7 +819,8 @@ export async function handleButton(
     }
 
     requireEventCreator(tournament, interaction.user.id);
-    deps.tournaments.cancel(tournament.id);
+    const { changedDuelSlugs } = deps.tournaments.cancelWithChanges(tournament.id);
+    for (const duelSlug of changedDuelSlugs) void deps.notifyDuelChange?.(duelSlug, guildId);
     await interaction.reply({ content: `Cancelled event: ${tournament.name}.`, ephemeral: true });
     return;
   }

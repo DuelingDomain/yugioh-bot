@@ -65,6 +65,18 @@ export async function POST(
       );
     }
 
+    const openSeries = db
+      .prepare(
+        "select 1 from duel_series where tournament_match_id = ? and status in ('active', 'between_games') limit 1",
+      )
+      .get(tournamentMatch.id);
+    if (openSeries) {
+      return NextResponse.json(
+        { error: "An online duel is in progress for this match. Finish it or ask the organizer to set the result." },
+        { status: 409 }
+      );
+    }
+
     // Find the reporter's player record
     const reporter = db
       .prepare(

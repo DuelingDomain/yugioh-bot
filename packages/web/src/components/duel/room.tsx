@@ -20,6 +20,7 @@ import {
   getDuelRoom,
   joinDuel,
   leaveDuel,
+  markDuelReady,
   sendDuelAction,
   setDuelDeck,
   startDuel,
@@ -51,7 +52,10 @@ import {
 } from "./prompts";
 import { cardArtUrl, isBattlePhase, phaseLabel, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
-import { exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
+import { duelWindowPath, exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
+import { SeriesBanner } from "./series-banner";
+import { SideDeckPanel } from "./side-deck-panel";
+import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
 import { SheetButton } from "./sheet-ui";
 import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } from "./room-settings";
 import { battleStepLabel, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
@@ -282,6 +286,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [hideResult, setHideResult] = useState(false);
+  const [sideOpen, setSideOpen] = useState(false);
   // Read after mount: the server render cannot know whether this is the duel window.
   const [inDuelWindow, setInDuelWindow] = useState(windowed);
   const [playHere, setPlayHere] = useState(false);
@@ -377,6 +382,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     setInspect(null);
     setPile(null);
     setHideResult(false);
+    setSideOpen(false);
     setMobileInspect(false);
     setActionError(null);
   }, [slug]);
@@ -404,6 +410,24 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     },
     [mutate],
   );
+
+  // A series moves on to its next game by itself: follow it, keeping the duel window.
+  const nextTarget = data ? nextGameTarget(data, slug) : null;
+  const goToGame = useCallback((next: string) => {
+    router.replace(inDuelWindow ? duelWindowPath(next) : `/duels/${encodeURIComponent(next)}`);
+  }, [router, inDuelWindow]);
+  useEffect(() => {
+    if (nextTarget) goToGame(nextTarget);
+  }, [nextTarget, goToGame]);
+
+  // The side deck window and the next game start on the server; poll in case the socket misses it.
+  const seriesWaiting = data?.series != null && isSeriesOpen(data.series) && data.session.status !== "active"
+    && data.session.status !== "lobby";
+  useEffect(() => {
+    if (!seriesWaiting) return undefined;
+    const timer = window.setInterval(() => void refreshRoom(), 2000);
+    return () => window.clearInterval(timer);
+  }, [seriesWaiting, refreshRoom]);
 
   const onSubmitAnswer = useCallback(
     (answer: DuelAnswer) => {
@@ -545,6 +569,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         onJoin={() => void run(() => joinDuel(slug))}
         onAddBot={() => void run(() => addPracticeBot(slug))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
+        onMarkReady={() => void run(() => markDuelReady(slug))}
         onStart={() => {
           // Inside the click, so pop-up blockers allow it. Seated players on other devices get the prompt below.
           if (!inDuelWindow) openWindow();
@@ -570,7 +595,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const isOrganizer = data.session.seats.some((seat) =>
     seat.seat === data.mySeat && seat.playerId === data.session.organizerPlayerId);
   const canArchive = terminal && isOrganizer && !data.session.archivedAt;
-  const showResult = !hideResult && (engine?.result != null || terminal);
+  const series = data.series ?? null;
+  const myIndex = series ? seriesPlayerIndex(data, series) : null;
+  const sidePanelOpen = sideOpen && series != null && myIndex != null && data.mySide != null && isBetweenGames(data, slug);
+  const showResult = !hideResult && !sidePanelOpen && (engine?.result != null || terminal);
   const hasResult = engine?.result != null || terminal;
   const exitDuel = () => {
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
@@ -827,6 +855,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           </button>
         </div>
       </header>
+      {series && !showResult ? (
+        <SeriesBanner room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame}
+          onOpenSide={() => setSideOpen(true)} />
+      ) : null}
       {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
         <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
       {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
@@ -939,7 +971,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       </Modal>
       {showResult ? (
         <DuelResultScreen room={data} slug={slug} reducedMotion={preferences.reducedMotion}
-          soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel} />
+          soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel}
+          onOpenSide={() => { setHideResult(true); setSideOpen(true); }}
+          onSeriesChanged={() => void refreshRoom()} onNavigate={goToGame} />
+      ) : null}
+      {sidePanelOpen && series && myIndex != null && data.mySide ? (
+        <SideDeckPanel slug={slug} series={series} myIndex={myIndex} side={data.mySide}
+          onClose={() => setSideOpen(false)} onChanged={() => void refreshRoom()} onNavigate={goToGame} />
       ) : null}
     </div>
   );

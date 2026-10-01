@@ -58,6 +58,8 @@ type CommandDependencies = {
   messenger: DraftMessenger;
   announceTournamentCompleted?: (tournamentId: number) => Promise<void>;
   broadcaster: Broadcaster;
+  /** Tells the ws server a duel game changed (series closed by a cancelled event). */
+  notifyDuelChange?: (slug: string, guildId: string) => Promise<void>;
 };
 
 const playerSeedOptionNames = Array.from({ length: 8 }, (_, index) => `player${index + 1}`);
@@ -567,7 +569,8 @@ async function handleEvent(
       const name = requireStringOption(interaction, "name");
       const tournament = requireTournament(deps, guildId, name);
       requireEventCreator(tournament, interaction.user.id);
-      deps.tournaments.cancel(tournament.id);
+      const { changedDuelSlugs } = deps.tournaments.cancelWithChanges(tournament.id);
+      for (const duelSlug of changedDuelSlugs) void deps.notifyDuelChange?.(duelSlug, guildId);
       await interaction.reply(`Cancelled event: ${tournament.name}.`);
       return;
     }
