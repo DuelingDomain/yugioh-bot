@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   COMPARE_EXTRA, COMPARE_FALSE_POSITIVES, EXPECTED_COUNTS, MIRROR_GATE, OVERLAY_DIRECTORY, R1_COMPLETE, R1_NO_CHANGE, R2_NO_CHANGE, TRIAGE_FILE,
-  checkLists, r1Codes, r1Entry, readManifest, readTriage, run, wholeFileText, type Manifest, type ManifestCard, type Triage,
+  cardName, checkLists, fillMissingNames, r1Codes, r1Entry, readManifest, readTriage, registerR1, run, wholeFileText, type Manifest, type ManifestCard, type Triage,
 } from "../scripts/generate-multi-scripts.js";
 import { scanCorpus } from "../scripts/scan-multiplayer-scripts.js";
 import { currentEngineDataDirectory } from "./engine-data-dir.js";
@@ -128,6 +129,59 @@ describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)
       stockSha256: createHash("sha256").update("text").digest("hex"),
     });
   });
+});
+
+describe("the names of the entries (95200102 is not in cards.cdb: its name is the first line of the stock script)", () => {
+  const temp = mkdtempSync(join(tmpdir(), "mp-names-"));
+  const stockDir = join(temp, "stock");
+  const overlayDir = join(temp, "overlay");
+  mkdirSync(stockDir);
+  mkdirSync(overlayDir);
+  writeFileSync(join(stockDir, "c7.lua"), "--Commande Duel JP002\nlocal s,id=GetID()\n");
+  writeFileSync(join(stockDir, "c8.lua"), "\uFEFF--Named With BOM  \r\nlocal s,id=GetID()\n");
+  writeFileSync(join(stockDir, "c9.lua"), "local s,id=GetID()\n");
+  writeFileSync(join(stockDir, "c10.lua"), "--@replace\nlocal s,id=GetID()\n");
+  writeFileSync(join(overlayDir, "c7.lua"), "if not aux.MPForEachDuelist then return end\n");
+  writeFileSync(join(overlayDir, "c9.lua"), "if not aux.MPForEachDuelist then return end\n");
+  const entry = (code: number, name: string): ManifestCard => r1Entry(code, name, "x");
+  const writeManifest = (list: ManifestCard[]) => writeFileSync(join(overlayDir, "MANIFEST.json"), JSON.stringify({ version: 1, cards: list }, null, 2) + "\n");
+
+  it("keeps a given name, and takes an empty one from the first line of the stock script", () => {
+    expect(cardName(7, "Given", stockDir)).toBe("Given");
+    expect(cardName(7, "", stockDir)).toBe("Commande Duel JP002");
+    expect(cardName(7, undefined, stockDir)).toBe("Commande Duel JP002");
+    expect(cardName(8, "  ", stockDir)).toBe("Named With BOM");
+  });
+
+  it("throws when no name is possible (no first-line comment, or a --@ marker)", () => {
+    expect(() => cardName(9, "", stockDir)).toThrow(/card 9 has no name/);
+    expect(() => cardName(10, "", stockDir)).toThrow(/card 10 has no name/);
+  });
+
+  it("registerR1 never writes an empty name", () => {
+    writeManifest([]);
+    expect(registerR1([{ code: 7, name: "" }], stockDir, overlayDir)).toEqual([7]);
+    expect(readManifest(overlayDir).cards.map((card) => card.name)).toEqual(["Commande Duel JP002"]);
+    expect(() => registerR1([{ code: 9, name: "" }], stockDir, overlayDir)).toThrow(/card 9 has no name/);
+  });
+
+  it("checkLists reports an empty name, and run fills it from the stock script (not in check mode)", () => {
+    writeManifest([entry(7, "")]);
+    const problems = checkLists(readManifest(overlayDir), null).join("\n");
+    expect(problems).toContain("card 7 has an empty name");
+    expect(run({ check: true, directory: overlayDir, triage: null, stockDirectory: stockDir }).problems.join("\n")).toContain("card 7 has an empty name");
+    expect(readManifest(overlayDir).cards[0].name).toBe("");
+    expect(run({ check: false, directory: overlayDir, triage: null, stockDirectory: stockDir }).problems.join("\n")).not.toContain("empty name");
+    expect(readManifest(overlayDir).cards[0].name).toBe("Commande Duel JP002");
+    expect(fillMissingNames(stockDir, overlayDir)).toEqual([]);
+  });
+
+  it("the real manifest has no empty name, and 95200102 is Commande Duel JP002", () => {
+    expect(cards.filter((card) => !card.name.trim()).map((card) => card.code)).toEqual([]);
+    expect(cards.find((card) => card.code === 95200102)?.name).toBe("Commande Duel JP002");
+  });
+
+  afterAll(() => rmSync(temp, { recursive: true, force: true }));
 });
 
 describe("the R2 entries (state per seat: Q6, the key is the seat in FFA and the team in Tag)", () => {

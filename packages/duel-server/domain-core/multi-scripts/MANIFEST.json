@@ -4831,7 +4831,7 @@
     {
       "code": 95200102,
       "file": "c95200102.lua",
-      "name": "",
+      "name": "Commande Duel JP002",
       "kind": "hand",
       "classes": [
         "R1"

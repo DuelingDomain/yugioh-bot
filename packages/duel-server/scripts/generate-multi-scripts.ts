@@ -240,6 +240,7 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
   const problems: string[] = [];
   const codes = manifest.cards.map((card) => card.code);
   if (new Set(codes).size !== codes.length) problems.push("a card is listed twice");
+  for (const card of manifest.cards) if (!card.name || !card.name.trim()) problems.push(`card ${card.code} has an empty name (run the generator with DUEL_DATA_DIR to take it from the stock script)`);
   const compare = sorted(manifest.cards.filter((card) => card.classes.includes("COMPARE")).map((card) => card.code));
   const chooser = sorted(manifest.cards.filter((card) => card.classes.includes("CHOOSER") && !COMPARE_EXTRA.includes(card.code)).map((card) => card.code));
   const whole = manifest.cards.filter((card) => card.kind === "whole");
@@ -312,6 +313,34 @@ export function readTriage(file = TRIAGE_FILE): Triage[] | null {
   return Array.isArray(value) ? value : value.entries;
 }
 
+/**
+ * The name of a card entry: the given name, or, when it is empty, the first line of the stock script (`--Name`). A card that is not in
+ * cards.cdb (95200102, "Commande Duel JP002") has no other name source. Throws when there is none: an entry never has an empty name.
+ */
+export function cardName(code: number, name: string | undefined, stockDirectory: string): string {
+  if (name && name.trim()) return name.trim();
+  const first = readFileSync(join(stockDirectory, `c${code}.lua`), "utf8").replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0] ?? "";
+  const fromScript = /^--\s*([^@\s].*?)\s*$/.exec(first)?.[1];
+  if (!fromScript) throw new Error(`card ${code} has no name: pass one, or the stock script needs the first line "--Name"`);
+  return fromScript;
+}
+
+/**
+ * Read-modify-write of MANIFEST.json: gives every entry with an empty name the name of its stock script (see cardName). Re-reads the
+ * file right before the write. Returns the codes that got a name.
+ */
+export function fillMissingNames(stockDirectory: string, directory = OVERLAY_DIRECTORY): number[] {
+  const manifest = readManifest(directory);
+  const done: number[] = [];
+  for (const card of manifest.cards) {
+    if (card.name && card.name.trim()) continue;
+    card.name = cardName(card.code, card.name, stockDirectory);
+    done.push(card.code);
+  }
+  if (done.length > 0) writeFileSync(join(directory, "MANIFEST.json"), JSON.stringify(manifest, null, 2) + "\n");
+  return done;
+}
+
 /** The R1 entry of a card: kind hand, class R1, the stock hash. `stock` is the text of the stock script. */
 export function r1Entry(code: number, name: string, stock: string): ManifestCard {
   return {
@@ -335,7 +364,7 @@ export function registerR1(items: { code: number; name: string; note?: string }[
   for (const item of items) {
     if (manifest.cards.some((card) => card.code === item.code)) continue;
     if (!existsSync(join(directory, `c${item.code}.lua`))) throw new Error(`c${item.code}.lua is missing: write the suffix before registering the card`);
-    const entry = r1Entry(item.code, item.name, readFileSync(join(stockDirectory, `c${item.code}.lua`), "utf8"));
+    const entry = r1Entry(item.code, cardName(item.code, item.name, stockDirectory), readFileSync(join(stockDirectory, `c${item.code}.lua`), "utf8"));
     if (readFileSync(join(directory, `c${item.code}.lua`), "utf8").startsWith("--@replace")) entry.replace = true;
     if (item.note) entry.note = item.note;
     manifest.cards.push(entry);
@@ -372,7 +401,7 @@ export function registerAttack(items: AttackItem[], stockDirectory: string, dire
     const entry: ManifestCard = {
       code: item.code,
       file: `c${item.code}.lua`,
-      name: item.name,
+      name: cardName(item.code, item.name, stockDirectory),
       kind: "hand",
       classes: ["ATTACK"],
       stockSha256: createHash("sha256").update(readFileSync(join(stockDirectory, `c${item.code}.lua`), "utf8")).digest("hex"),
@@ -414,7 +443,7 @@ export function registerR2(items: R2Item[], stockDirectory: string, directory = 
     const entry: ManifestCard = {
       code: item.code,
       file: `c${item.code}.lua`,
-      name: item.name,
+      name: cardName(item.code, item.name, stockDirectory),
       kind,
       classes: ["R2"],
       r2Class: item.r2Class,
@@ -441,9 +470,10 @@ export interface RunResult {
   r1?: number;
 }
 
-/** Writes (or, with `check`, only compares) the `whole` files, then checks the lists and the files of the manifest. */
-export function run(options: { check: boolean; directory?: string; triage?: Triage[] | null }): RunResult {
+/** Writes (or, with `check`, only compares) the `whole` files, then checks the lists and the files of the manifest. Without `check` and with a `stockDirectory`, an entry with an empty name first gets the name of its stock script. */
+export function run(options: { check: boolean; directory?: string; triage?: Triage[] | null; stockDirectory?: string }): RunResult {
   const directory = options.directory ?? OVERLAY_DIRECTORY;
+  if (!options.check && options.stockDirectory) fillMissingNames(options.stockDirectory, directory);
   const manifest = readManifest(directory);
   const triage = options.triage === undefined ? readTriage() : options.triage;
   const problems = checkLists(manifest, triage);
@@ -490,7 +520,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(0);
   }
   const check = process.argv.includes("--check");
-  const result = run({ check });
+  const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? (process.env.DUEL_DATA_DIR ? join(process.env.DUEL_DATA_DIR, "card-scripts/official") : undefined);
+  const result = run({ check, stockDirectory });
   for (const file of result.written) console.log(`wrote ${file}`);
   if (result.r1 !== undefined) console.log(`R1 count (Mirror Gate excluded): ${result.r1}`);
   for (const problem of result.problems) console.error(`problem: ${problem}`);
