@@ -403,4 +403,21 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       expectBoard({ p1: { monsters: [SANGAN], grave: [WITCH] }, p2: { monsters: [BUG], grave: [OX] } }),
     ],
   }),
+  defineScenario({
+    id: "compare-ffa3-dominus-spiral-only-opponent-with-a-monster",
+    title: "FFA3: Dominus Spiral is bound to the only opponent that has a monster: no pick of the opponent without one, Sangan returns to the hand",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "chooser", "ffa3", "card:42091632"],
+    // p1 has Sangan, p2 has no monster. The probe run for p2 finds no target, so p0 is not asked and the bound opponent is p1.
+    setup: { format: "ffa3", p0: { spells: [{ card: "Dominus Spiral", pos: "set" }] }, p1: { monsters: [SANGAN] } },
+    steps: [
+      activate("Dominus Spiral", "p0"),
+      expectBoard({
+        p0: { lp: 8000, monsters: [], spells: [], grave: ["Dominus Spiral"], banished: [] },
+        p1: { lp: 8000, monsters: [], spells: [], hand: [SANGAN], grave: [], banished: [] },
+        p2: { lp: 8000, monsters: [], spells: [], hand: [], grave: [], banished: [] },
+      }),
+    ],
+  }),
 ];

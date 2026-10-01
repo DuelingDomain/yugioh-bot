@@ -60,11 +60,13 @@ function aux.MPPick(fn)
 	end
 end
 
--- Chooser card, target or cost step with chk: chk==0 asks for the pick (MPPick), the real step binds and runs in window ONE (MPOne).
+-- Chooser card, target or cost step with chk. The real step (chk~=0) binds and runs in window ONE (MPOne).
+-- chk==0, nothing bound: the first run asks for the pick (MPPick); fn sees every opponent, so it only tells that SOME opponent has a legal target.
+-- chk==0, bound (the per-opponent probe run, or a link that is already bound): fn runs in window ONE (MPOne), so an opponent with no legal target is not offered in the pick.
 function aux.MPTarget(fn)
 	local pick,one=aux.MPPick(fn),aux.MPOne(fn)
 	return function(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
-		if chk==0 then return pick(e,tp,eg,ep,ev,re,r,rp,chk,chkc) end
+		if chk==0 and not (Duel.MPMode()~=0 and Duel.MPBound()) then return pick(e,tp,eg,ep,ev,re,r,rp,chk,chkc) end
 		return one(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
 	end
 end

@@ -89,13 +89,6 @@ interface KnownGap {
   reason: string;
 }
 const KNOWN_GAPS: Record<number, KnownGap[]> = {
-  42091632: [
-    {
-      format: "ffa3",
-      luaError: /attempt to index a nil value \(local 'tc'\)/,
-      reason: "Dominus Spiral: the opponent pick binds an opponent without a monster (no pick prompt when one opponent has monsters), so the operation sees no target",
-    },
-  ],
   84136000: [
     {
       format: "ffa3",
