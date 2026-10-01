@@ -13,8 +13,10 @@ coverage/
 packages/bot/data/
 packages/*/tests/
 packages/*/test/
+packages/*/.next/
 packages/*/.next-*/
 packages/duel-server/domain-core/.build/
 packages/duel-server/domain-core/.emsdk/
 packages/duel-server/domain-core/out/
 packages/duel-server/domain-core/.*.bak/
+.worktrees/
