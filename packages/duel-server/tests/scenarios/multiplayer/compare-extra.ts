@@ -225,7 +225,7 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "compare-extra-ffa3-numeron-dragon-not-offered-when-the-direct-attack-may-go-to-another-seat",
-    title: "FFA3: Number 100: Numeron Dragon is NOT offered when p1 attacks p2 directly: p0 has an empty field and hand, but p2 has no monster either, so the attack is not known to be at p0 (the core gives no read of the attacked duelist)",
+    title: "FFA3: Number 100: Numeron Dragon is NOT offered when p1 attacks p2 directly: p0 has an empty field and hand, but p2 has no monster either, and p1 picks p2 for the attack, so the attacked duelist is p2 (Duel.MPAttackedSeat), not p0",
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "chooser", "trigger", "ffa3", "card:57314798"],
@@ -243,6 +243,28 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
       pickOpponent("p2", "p1"),
       expectPrompt({ by: "p1", offers: ["to_m2", "to_ep"] }),
       everySeat("ffa3", { p0: { lp: 8200, grave: [NUMERON, DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { lp: 6600 } }),
+    ],
+  }),
+  defineScenario({
+    id: "compare-extra-ffa3-numeron-dragon-offered-when-the-direct-attack-is-picked-at-p0",
+    title: "FFA3: Number 100: Numeron Dragon is offered from the Graveyard to p0 when p1 attacks directly, p2 has no monster either and p1 picks p0 (the attacked duelist is p0, Duel.MPAttackedSeat)",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK", "R-FFA-ATTACK"],
+    tags: ["multiplayer", "chooser", "trigger", "ffa3", "card:57314798"],
+    // Same set-up as the scenario above, but p1 picks p0 for the direct attack: p0 is the attacked duelist, so only p0 is asked.
+    setup: { format: "ffa3", p0: { monsters: [NUMERON], deck: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: {} },
+    steps: [
+      endTurn("p0"),
+      endTurn("p1"),
+      endTurn("p2"),
+      activate(DIAN, "p0"),
+      endTurn("p0"),
+      changePhase("battle", "p1"),
+      attack(ELF, { card: NUMERON, owner: "p0" }, "p1"),
+      attack(RAT, "direct", "p1"),
+      pickOpponent("p0", "p1"),
+      yes("p0"),
+      everySeat("ffa3", { p0: { lp: 8200, monsters: [NUMERON], grave: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: {} }),
     ],
   }),
   defineScenario({

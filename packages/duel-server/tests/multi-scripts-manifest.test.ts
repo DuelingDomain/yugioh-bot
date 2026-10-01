@@ -227,7 +227,7 @@ describe("the overlay files", () => {
   });
 
   it("uses only helpers that mp-utility.lua defines and core functions of the F7 window", () => {
-    const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPSeatOf", "MPBindSeat", "MPNthDuelist", "MPSeat"]);
+    const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPAttackedSeat", "MPSeatOf", "MPBindSeat", "MPNthDuelist", "MPSeat"]);
     for (const card of cards) {
       for (const [, helper] of text(card).matchAll(/\baux\.(MP\w+)/g)) {
         expect(helperText, `${card.file}: aux.${helper}`).toContain(`function aux.${helper}(`);
