@@ -176,6 +176,19 @@ describe("duel format rooms", () => {
     duels.setSetup(s.slug, "g1", null);
     expect(duels.privateState(s.slug, "g1").setup).toBeUndefined();
   });
+
+  it("keeps the engine a duel started on, and refuses an unknown engine", () => {
+    const { duels, ids } = setup();
+    const s = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal" });
+    duels.join(s.slug, "g1", ids[1]!);
+    duels.setDeck(s.slug, "g1", ids[0]!, deck(1));
+    duels.setDeck(s.slug, "g1", ids[1]!, deck(101));
+    duels.activate(s.slug, "g1", ids[0]!, ["1"], "b", null, { engine: "pinned" });
+    expect(duels.privateState(s.slug, "g1").setup).toEqual({ engine: "pinned" });
+    duels.setSetup(s.slug, "g1", { engine: "legacy", surrenderedSeats: [1] });
+    expect(duels.privateState(s.slug, "g1").setup).toEqual({ engine: "legacy", surrenderedSeats: [1] });
+    expect(() => duels.setSetup(s.slug, "g1", { engine: "multi" } as never)).toThrow(/engine must be/);
+  });
 });
 
 describe("final snapshots per seat", () => {

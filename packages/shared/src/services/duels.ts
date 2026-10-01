@@ -33,6 +33,7 @@ import {
 import { randomBytes, timingSafeEqual } from "node:crypto";
 // duel-series.ts imports this module too; see the note there about the cycle.
 import { createSeriesStore } from "./duel-series.js";
+import { isDuelEngineChoice, type DuelEngineChoice } from "../duels/engine-switch.js";
 
 const MIN_MAIN = 40;
 const MAX_MAIN = 60;
@@ -85,6 +86,11 @@ export interface DuelSetup {
   presetId?: string;
   /** Seat number (as text) to bot policy name, for example `{ "1": "scripted" }`. */
   botPolicies?: Record<string, string>;
+  /**
+   * The engine a one-against-one duel started on (`DUEL_1V1_ENGINE`). A recover and a replay use it, so a switch of the env
+   * value does not change a running duel. Absent means `legacy`: duels from before this field ran on that engine.
+   */
+  engine?: DuelEngineChoice;
 }
 
 export interface DuelPrivateState {
@@ -358,6 +364,7 @@ function parseSetup(raw: string | null | undefined): DuelSetup | undefined {
     }
     if (typeof input.presetId === "string" && input.presetId) setup.presetId = input.presetId;
     if (isPolicyMap(input.botPolicies)) setup.botPolicies = input.botPolicies;
+    if (isDuelEngineChoice(input.engine)) setup.engine = input.engine;
     return setup;
   } catch {
     return undefined;
@@ -369,7 +376,7 @@ function validateSetup(setup: unknown): DuelSetup {
     throw new DuelServiceError("Duel setup must be an object", 400);
   }
   const input = setup as Record<string, unknown>;
-  const extra = Object.keys(input).find((key) => key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies");
+  const extra = Object.keys(input).find((key) => key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies" && key !== "engine");
   if (extra) throw new DuelServiceError(`Unknown duel setup field: ${extra}`, 400);
   const out: DuelSetup = {};
   if (input.startupScripts !== undefined) {
@@ -399,6 +406,10 @@ function validateSetup(setup: unknown): DuelSetup {
   if (input.botPolicies !== undefined) {
     if (!isPolicyMap(input.botPolicies)) throw new DuelServiceError("botPolicies must map seat numbers to policy names", 400);
     out.botPolicies = input.botPolicies;
+  }
+  if (input.engine !== undefined) {
+    if (!isDuelEngineChoice(input.engine)) throw new DuelServiceError("engine must be legacy or pinned", 400);
+    out.engine = input.engine;
   }
   return out;
 }

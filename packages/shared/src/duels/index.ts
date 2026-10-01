@@ -39,6 +39,8 @@ export {
   NO_BANLIST_ID,
   PINNED_TCG_BANLIST_ID,
 } from "./settings.js";
+export { DEFAULT_DUEL_1V1_ENGINE, DUEL_1V1_ENGINE_ENV, duel1v1Engine, isDuelEngineChoice } from "./engine-switch.js";
+export type { DuelEngineChoice } from "./engine-switch.js";
 export {
   MULTIPLAYER_TABLES_ENV,
   MULTIPLAYER_TABLES_OFF_MESSAGE,
