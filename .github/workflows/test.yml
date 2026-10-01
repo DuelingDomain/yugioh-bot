@@ -52,11 +52,11 @@ jobs:
 
       # Same inputs as the deploy bundle key in deploy.yml, plus the multi core series and its build scripts.
       # The prefix differs from deploy.yml on purpose: this bundle also holds the multi cores and a different path.
-      # The v1 is a literal: raise it when the build steps or flags in this file change (the hash cannot see them).
+      # The v2 is a literal: raise it when the build steps or flags in this file change (the hash cannot see them).
       # The emsdk image comes from pins.json (a pins.json change also changes the key).
       - name: Compute bundle cache key
         id: key
-        run: echo "key=duel-engine-ci-v1-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=duel-engine-ci-v2-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
 
       - name: Read the emsdk image from pins.json
         run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
@@ -112,6 +112,8 @@ jobs:
           # Differential references: patches 1 and 2 only (same rules, different binary layout).
           build_multi ocgcore.multi-ref.sync.wasm "MULTI_TREE=$tree/multi-ref-tree" PATCH_LIMIT=2
           build_multi ocgcore.multi-ref-domain.sync.wasm "MULTI_TREE=$tree/multi-ref-tree" PATCH_LIMIT=2 APPLY_DOMAIN=1
+          # Debug core of the Table test (tests/multi-scripts-table.test.ts): the full series with -DYGO_N_TRAP.
+          build_multi ocgcore.multi-trap.sync.wasm "MULTI_TREE=$tree/multi-core-tree" EXTRA_CXXFLAGS=-DYGO_N_TRAP
 
       - name: Install multi cores into the bundle
         if: steps.bundle.outputs.cache-hit != 'true'
@@ -140,7 +142,7 @@ jobs:
           for f in ocgcore.standard.wasm ocgcore.domain.wasm ocgcore.multi.wasm ocgcore.multi-domain.wasm ocgcore.multi.SOURCE cards.cdb; do
             test -s "$BUNDLE_DIR/$f" || { echo "bundle file missing or empty: $BUNDLE_DIR/$f" >&2; exit 1; }
           done
-          for f in ocgcore.multi.sync.wasm ocgcore.multi-ref.sync.wasm ocgcore.multi-domain.sync.wasm ocgcore.multi-ref-domain.sync.wasm; do
+          for f in ocgcore.multi.sync.wasm ocgcore.multi-ref.sync.wasm ocgcore.multi-domain.sync.wasm ocgcore.multi-ref-domain.sync.wasm ocgcore.multi-trap.sync.wasm; do
             test -s "packages/duel-server/domain-core/dist/$f" || { echo "differential core missing or empty: $f" >&2; exit 1; }
           done
           DUEL_DATA_DIR="$PWD/$BUNDLE_DIR" sh packages/duel-server/scripts/install-engine-bundle.sh
@@ -199,6 +201,8 @@ jobs:
       MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
       DOMAIN_MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
       NSEAT_LIVE: "1"
+      # The Table test (tests/multi-scripts-table.test.ts) needs the debug core of the cores job; in require mode a missing file fails.
+      TABLE_TRAP_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-trap.sync.wasm
     steps:
       - name: Checkout
         uses: actions/checkout@v4

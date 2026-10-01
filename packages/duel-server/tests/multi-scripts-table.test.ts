@@ -27,12 +27,12 @@ import { liveNseat } from "./support/live-nseat.js";
 // The debug core is not in git. Build it with
 //   MULTI_TREE=<tree> OUT_NAME=ocgcore.multi-<tag>-trap.sync.wasm EXTRA_CXXFLAGS=-DYGO_N_TRAP scripts/build-multi-core.sh
 // and put the file in domain-core/dist (the tag is CURRENT_MULTI_TAG of tests/support/cores.ts), or name it with TABLE_TRAP_WASM.
-// Without it the live table is skipped (a local file).
+// Without it the live table is skipped; with DUEL_REQUIRE_CORES=1 (CI, npm run test:engine) the missing file FAILS. CI builds it in the cores job.
 
 const TRAP_WASM = process.env.TABLE_TRAP_WASM
   ? resolve(process.env.TABLE_TRAP_WASM)
   : fileURLToPath(new URL(`../domain-core/dist/ocgcore.multi-${CURRENT_MULTI_TAG}-trap.sync.wasm`, import.meta.url));
-const trapWasm = needs.localFile("debug multi core (-DYGO_N_TRAP)", TRAP_WASM, "Build it with EXTRA_CXXFLAGS=-DYGO_N_TRAP (see the head of tests/multi-scripts-table.test.ts) or set TABLE_TRAP_WASM.");
+const trapWasm = needs.file("debug multi core (-DYGO_N_TRAP)", TRAP_WASM, "Build it with EXTRA_CXXFLAGS=-DYGO_N_TRAP (see the head of tests/multi-scripts-table.test.ts) or set TABLE_TRAP_WASM.");
 
 const overlayDirectory = process.env.TABLE_OVERLAY ? resolve(process.env.TABLE_OVERLAY) : OVERLAY_DIRECTORY;
 const manifest = readManifest(overlayDirectory);
