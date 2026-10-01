@@ -8,6 +8,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+import { COUNTER_GAP_MS, COUNTER_SCALE, MAX_BATTLE_MS } from "@/components/duel/attack-styles";
 import { BattleFx } from "@/components/duel/battle-fx";
 import { battleDestroyAt, clearBattleHolds } from "@/components/duel/battle-hold";
 import { AttackConfirm } from "@/components/duel/card-interactions";
@@ -222,18 +223,18 @@ describe("BattleFx", () => {
     expect(playLayer()?.getAttribute("data-kind")).toBe("held");
   });
 
-  it("waits for the counter strike before rolling the attacker's LP, and keeps a counter fight under 1.85 s", () => {
+  it("waits for the counter strike before rolling the attacker's LP, and keeps a counter fight under the battle ceiling", () => {
     const seats = seatsOf(warrior, machine);
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
     act(() => undefined);
     const damage: DuelEvent = { id: 3, kind: "damage", seat: 0, amount: 500, cause: "battle", text: "" };
     const destroyed: DuelEvent = { id: 4, kind: "destroy", seat: 0, text: "", zone: { controller: 0, location: 4, sequence: 0 } };
     rerender(<BattleFx events={[phase, attack, damage, destroyed]} reducedMotion={false} seats={seats} />);
-    // slash lands at 520 ms; the counter (beam, 440 ms at 0.7 speed) starts 100 ms later.
-    expect(takeLpHold(0)).toBe(Math.round(520 + 100 + 440 * 0.7));
+    // slash lands at 520 ms; the counter (beam, 440 ms at counter speed) starts COUNTER_GAP_MS later.
+    expect(takeLpHold(0)).toBe(Math.round(520 + COUNTER_GAP_MS + 440 * COUNTER_SCALE));
     const total = Number.parseFloat((playLayer() as HTMLElement).style.getPropertyValue("--total"));
     expect(total).toBeGreaterThan(1150);
-    expect(total).toBeLessThanOrEqual(1850);
+    expect(total).toBeLessThanOrEqual(MAX_BATTLE_MS);
   });
 
   it("keeps the losing attacker standing until the counter strike has landed", () => {

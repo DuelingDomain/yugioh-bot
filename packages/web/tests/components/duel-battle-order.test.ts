@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import { armBattleDestroy, battleDestroyAt, clearBattleHolds, HELD_CRACK_MS } from "../../src/components/duel/battle-hold";
-import { battleTiming, COUNTER_GAP_MS, DESTROY_BEAT_MS, STYLE_IDS, STYLE_TIMING } from "../../src/components/duel/attack-styles";
+import { battleTiming, COUNTER_GAP_MS, COUNTER_SCALE, DESTROY_BEAT_MS, STYLE_IDS, STYLE_TIMING } from "../../src/components/duel/attack-styles";
 import { MOVE_TIMING, pairedMovePlan, planMoves, resetMoveSchedule } from "../../src/components/duel/move-plan";
 
 const MZONE = 0x04;
@@ -30,7 +30,7 @@ describe("battle timing order", () => {
         // the attacker breaks after the COUNTER strike lands, never while it is still travelling
         expect(lose.attackerDamageMs).toBeGreaterThan(counterStart);
         expect(lose.attackerBreakMs).toBe(lose.attackerDamageMs + DESTROY_BEAT_MS);
-        expect(lose.attackerBreakMs).toBeGreaterThan(counterStart + STYLE_TIMING[d].impact * 0.7);
+        expect(lose.attackerBreakMs).toBeGreaterThan(counterStart + STYLE_TIMING[d].impact * COUNTER_SCALE);
         expect(lose.targetBreakMs).toBeNull();
       }
 

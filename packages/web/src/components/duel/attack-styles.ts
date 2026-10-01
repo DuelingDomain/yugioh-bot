@@ -191,8 +191,8 @@ export function battleKind(direct: boolean, destroyed: { attacker: boolean; targ
 }
 
 /** Counter strike: starts this long after the attacker's impact, at this speed. */
-export const COUNTER_GAP_MS = 100;
-export const COUNTER_SCALE = 0.7;
+export const COUNTER_GAP_MS = 115;
+export const COUNTER_SCALE = 0.8;
 /** In a tie the defender's recoil breaks the attacker this long after the impact. */
 export const TIE_RECOIL_MS = 200;
 /** How long after the impact the destroyed card's break-up takes at most. */
@@ -203,7 +203,7 @@ export const DESTROY_TAIL_MS = 700;
  */
 export const DESTROY_BEAT_MS = 320;
 /** No fight holds the prompts longer than this. */
-export const MAX_BATTLE_MS = 1850;
+export const MAX_BATTLE_MS = 2000;
 
 export type BattleTiming = {
   /** The attacker's strike lands (damage to the defender rolls here). */

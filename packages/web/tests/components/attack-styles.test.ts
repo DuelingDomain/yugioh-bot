@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ATTRIBUTE,
+  MAX_BATTLE_MS,
   NAME_RULES,
   RACE_STYLES,
   SIGNATURES,
@@ -100,15 +101,15 @@ describe("battle timing", () => {
     }
   });
 
-  it("keeps a counter-strike fight under the 2.2 s signature ceiling, and rolls the attacker's LP at the counter's impact", () => {
+  it("keeps a counter-strike fight under the battle ceiling, and rolls the attacker's LP at the counter's impact", () => {
     for (const a of STYLE_IDS) {
       for (const d of STYLE_IDS) {
         const t = battleTiming("lose", a, d);
-        expect(t.totalMs).toBeLessThanOrEqual(1850);
+        expect(t.totalMs).toBeLessThanOrEqual(MAX_BATTLE_MS);
         expect(t.attackerDamageMs).toBeGreaterThan(t.impactMs);
         expect(t.attackerDamageMs).toBeLessThan(t.totalMs);
       }
-      expect(battleTiming("tie", a, "slash").totalMs).toBeLessThanOrEqual(1850);
+      expect(battleTiming("tie", a, "slash").totalMs).toBeLessThanOrEqual(MAX_BATTLE_MS);
     }
   });
 });
