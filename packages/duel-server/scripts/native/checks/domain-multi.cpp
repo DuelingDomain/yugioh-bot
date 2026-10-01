@@ -2,7 +2,7 @@
 // Build and run: bash packages/duel-server/scripts/native/checks/run.sh <check name> (see README.md).
 // Usage: check <format> [part]
 //   format: ffa3 | ffa4 | tag | two   ("two" = a 2-duelist duel without SetupDuelists, the n == 2 sanity run)
-//   part:   setup | tax | flow | recall | elim | all (default)
+//   part:   setup | tax | flow | recall | elim | reach | all (default)
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -14,6 +14,7 @@
 #include "ocgapi_constants.h"
 #include "duel.h"
 #include "field.h"
+#include "interpreter.h"
 #include "common.h"
 
 static std::string last_log;
@@ -277,6 +278,9 @@ static void part_setup(const Format& fmt) {
 	// A card that is not a Deck Master is not one.
 	EXPECT(!f.player[0].list_main.empty() && !f.domain_is_deck_master(f.player[0].list_main.front()), "%s: a deck card counts as Deck Master", fmt.name.c_str());
 	EXPECT(f.domain_owner_of(nullptr) == f.none_id(), "%s: owner_of(nullptr) is not none_id()", fmt.name.c_str());
+	// No recall prompt is open at the start: the owner slot holds none_id() (PLAYER_NONE = 2 would be a real seat at 3 and 4 duelists).
+	EXPECT(f.core.domain_recall_player == f.none_id(), "%s: domain_recall_player starts as %u, expected none_id() %u", fmt.name.c_str(),
+	       static_cast<unsigned>(f.core.domain_recall_player), static_cast<unsigned>(f.none_id()));
 	std::printf("ok   %s setup: every seat has a Deck Master (QueryCount 1, owner = seat)\n", fmt.name.c_str());
 	OCG_DestroyDuel(d);
 }
@@ -510,6 +514,74 @@ static void part_elim(const Format& fmt) {
 	OCG_DestroyDuel(d);
 }
 
+// Seats that build_range_list gives for the Deck Master zone: bit q is set when seat q is searched in LOCATION_DECKMASTER.
+static unsigned dm_reach(OCG_Duel d, uint8_t self, uint32_t loc1, uint32_t loc2) {
+	field::range_list rl;
+	F(d).build_range_list(rl, self, loc1, loc2);
+	unsigned mask = 0;
+	for(uint8_t i = 0; i < rl.count; ++i)
+		if(rl.loc[i] & DM_LOC)
+			mask |= 1u << rl.who[i];
+	return mask;
+}
+
+// The Deck Master zone is an individual location (like the hand): a script that searches it with "self" reaches the own zone
+// only, never the zone of a Tag partner; "oppo" reaches the living opponents, or only the bound opponent inside an opponent
+// scope (F5). Without LOCATION_DECKMASTER in the individual set the zone counted as a field class location and reached the
+// partner (self side) and every opponent (oppo side, scope ignored).
+static void part_reach(const Format& fmt) {
+	if(fmt.n == 2) {
+		std::printf("skip %s reach: only for 3 and 4 duelists\n", fmt.name.c_str());
+		return;
+	}
+	const int before_failures = failures;
+	OCG_Duel d = make_domain_duel(fmt);
+	OCG_StartDuel(d);
+	auto& f = F(d);
+	unsigned all_opp[4] = {0, 0, 0, 0};
+	for(uint8_t p = 0; p < fmt.n; ++p)
+		for(uint8_t q = 0; q < fmt.n; ++q)
+			if(f.team_of(p) != f.team_of(q))
+				all_opp[p] |= 1u << q;
+	for(uint8_t p = 0; p < fmt.n; ++p) {
+		EXPECT(dm_reach(d, p, DM_LOC, 0) == (1u << p), "%s: seat %d searching its own Deck Master zone reaches mask 0x%x", fmt.name.c_str(), p,
+		       dm_reach(d, p, DM_LOC, 0));
+		EXPECT(dm_reach(d, p, 0, DM_LOC) == all_opp[p], "%s: seat %d searching the opponent Deck Master zones reaches mask 0x%x, expected 0x%x", fmt.name.c_str(),
+		       p, dm_reach(d, p, 0, DM_LOC), all_opp[p]);
+		// A field class location next to it still reaches the living partner (Tag): the Deck Master bit must not widen it.
+		const unsigned both = dm_reach(d, p, LOCATION_MZONE | DM_LOC, 0);
+		EXPECT((both & (1u << p)) != 0, "%s: seat %d lost its own zone with MZONE|DM (0x%x)", fmt.name.c_str(), p, both);
+	}
+	if(fmt.tag) {
+		EXPECT(dm_reach(d, 0, DM_LOC, 0) == 0x1u, "tag: seat 0 reaches the Deck Master of its partner (0x%x)", dm_reach(d, 0, DM_LOC, 0));
+		EXPECT(dm_reach(d, 1, DM_LOC, 0) == 0x2u, "tag: seat 1 reaches the Deck Master of its partner (0x%x)", dm_reach(d, 1, DM_LOC, 0));
+		EXPECT(dm_reach(d, 2, DM_LOC, 0) == 0x4u, "tag: seat 2 reaches the Deck Master of its partner (0x%x)", dm_reach(d, 2, DM_LOC, 0));
+		EXPECT(dm_reach(d, 3, DM_LOC, 0) == 0x8u, "tag: seat 3 reaches the Deck Master of its partner (0x%x)", dm_reach(d, 3, DM_LOC, 0));
+		// The monster zones of the partner stay reachable (the field class is not changed).
+		field::range_list rl;
+		f.build_range_list(rl, 0, LOCATION_MZONE, 0);
+		unsigned mz = 0;
+		for(uint8_t i = 0; i < rl.count; ++i)
+			if(rl.loc[i] & LOCATION_MZONE)
+				mz |= 1u << rl.who[i];
+		EXPECT(mz == 0x5u, "tag: seat 0 reaches monster zones 0x%x, expected its own and its partner (0x5)", mz);
+	}
+	// Opponent scope (F5): seat 0 runs a scope with the bound opponent 1 (and, with 3 or more opponents, another one).
+	auto* lua = static_cast<duel*>(d)->lua;
+	for(uint8_t opp = 1; opp < fmt.n; ++opp) {
+		if(f.team_of(opp) == f.team_of(0))
+			continue;
+		uint8_t bound = opp;
+		lua->push_scope(0, &bound);
+		const unsigned got = dm_reach(d, 0, 0, DM_LOC);
+		lua->scopes.pop_back();
+		EXPECT(got == (1u << opp), "%s: bound opponent %d: the Deck Master zone search reaches mask 0x%x, expected only seat %d", fmt.name.c_str(), opp, got, opp);
+	}
+	if(failures == before_failures)
+		std::printf("ok   %s reach: the Deck Master zone is individual (own seat only, living opponents or the bound one)\n", fmt.name.c_str());
+	OCG_DestroyDuel(d);
+}
+
 int main(int argc, char** argv) {
 	const std::string fname = argc > 1 ? argv[1] : "ffa4";
 	const std::string part = argc > 2 ? argv[2] : "all";
@@ -520,6 +592,7 @@ int main(int argc, char** argv) {
 	if(all || part == "flow") part_flow(fmt);
 	if(all || part == "recall") part_recall_order(fmt);
 	if(all || part == "elim") part_elim(fmt);
+	if(all || part == "reach") part_reach(fmt);
 	std::printf("%s %s: %d failure(s)\n", failures ? "FAIL" : "PASS", fname.c_str(), failures);
 	return failures ? 1 : 0;
 }

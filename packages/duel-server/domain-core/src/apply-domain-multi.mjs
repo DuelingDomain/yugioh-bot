@@ -95,9 +95,25 @@ patch("field.h", [
     `	lpcost cost[MAX_DUELISTS];
 	field_effect effects;`,
   ],
+  // reset_sentinels (the series): the recall prompt owner starts as none_id() too. A stray value of PLAYER_NONE (2) is
+  // a real seat at 3 and 4 duelists.
+  [
+    `		core.conti_player = none_id();
+		nil_event.event_player = none_id();`,
+    `		core.conti_player = none_id();
+		core.domain_recall_player = none_id();
+		nil_event.event_player = none_id();`,
+  ],
 ]);
 
 patch("field.cpp", [
+  // build_range_list (the series): the Deck Master zone is an individual location like the hand, the Deck and the Extra
+  // Deck. Without it a Tag partner's Deck Master counted as a field card of the team, and in a free for all the bound
+  // opponent scope (F5) skipped it.
+  [
+    `	constexpr uint32_t individual = LOCATION_HAND | LOCATION_DECK | LOCATION_EXTRA;`,
+    `	constexpr uint32_t individual = LOCATION_HAND | LOCATION_DECK | LOCATION_EXTRA | LOCATION_DECKMASTER;`,
+  ],
   // Domain text of check_lp_cost (the Domain patch put it there).
   [
     `	cost[playerid].amount += val;
