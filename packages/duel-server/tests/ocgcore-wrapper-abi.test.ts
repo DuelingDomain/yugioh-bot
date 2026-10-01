@@ -176,3 +176,50 @@ describe("ocgcore-wasm queries with the TYPE flag", () => {
     }
   });
 });
+
+// Counters. The merged parser reads each counter as type then count. The old wrapper (main's, the legacy 1v1 engine) read them the
+// other way round and production shows that: legacy keeps it, for duelQuery AND for duelQueryLocation (a review found that the location
+// query always used the merged parser, so the card inspector showed "Counter 4098: 3" in legacy mode where main shows "Counter 3: 4098").
+describe("ocgcore-wasm counters query, both modes", () => {
+  const counterCard = 46986414; // any monster; the counter is added by a script
+
+  async function queryCounters(legacy: boolean) {
+    const cards = loadCardDatabase(engineDataDirectory);
+    const core = await createCore({ sync: true, ...(legacy ? { legacyMessages: true } : {}) } as { sync: true });
+    const errors: string[] = [];
+    const handle = core.createDuel({
+      flags: OcgDuelMode.MODE_MR5,
+      seed: [1n, 2n, 3n, 4n],
+      team1: { startingLP: 8000, startingDrawCount: 5, drawCountPerTurn: 1 },
+      team2: { startingLP: 8000, startingDrawCount: 5, drawCountPerTurn: 1 },
+      cardReader: cards.cardData,
+      scriptReader: cards.readScript,
+      errorHandler: (_type, text) => errors.push(text),
+    });
+    assert(handle);
+    try {
+      for (const name of ["constant.lua", "utility.lua"]) {
+        const script = cards.readScript(name);
+        assert(script);
+        assert(core.loadScript(handle, name, script));
+      }
+      core.duelNewCard(handle, { team: 0, duelist: 0, code: counterCard, controller: 0, location: OcgLocation.MZONE, sequence: 0, position: OcgPosition.FACEUP_ATTACK });
+      assert(core.loadScript(handle, "counter.lua", "Duel.GetFieldCard(0,LOCATION_MZONE,0):AddCounter(0x1002,3)"));
+      const flags = (OcgQueryFlags.CODE | OcgQueryFlags.COUNTERS) as OcgQueryFlags;
+      const single = core.duelQuery(handle, { controller: 0, location: OcgLocation.MZONE, sequence: 0, overlaySequence: 0, flags });
+      const location = core.duelQueryLocation(handle, { controller: 0, location: OcgLocation.MZONE, flags });
+      expect(errors).toEqual([]);
+      return { single: single?.counters, location: location[0]?.counters };
+    } finally {
+      core.destroyDuel(handle);
+    }
+  }
+
+  it("merged parser: counter type is the key, the count the value, in duelQuery and duelQueryLocation", async () => {
+    expect(await queryCounters(false)).toEqual({ single: { 0x1002: 3 }, location: { 0x1002: 3 } });
+  });
+
+  it("legacy parser: duelQuery and duelQueryLocation agree and keep main's layout (count is the key)", async () => {
+    expect(await queryCounters(true)).toEqual({ single: { 3: 0x1002 }, location: { 3: 0x1002 } });
+  });
+});
