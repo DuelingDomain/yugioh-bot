@@ -99,7 +99,8 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
     setError(null);
     try {
       const { session, notified } = await createDuel(name.trim(), mode, masterRule, { ...settings, visibility }, {
-        format,
+        // A 1v1 request carries no format: the body stays the one the server has always read.
+        ...(format !== "1v1" ? { format } : {}),
         opponentPlayerId: opponent?.id ?? null, bestOf, ranked,
       });
       if (opponent) {
