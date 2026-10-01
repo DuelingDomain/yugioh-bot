@@ -28,6 +28,8 @@ interface Parsers {
   Reader: new (view: DataView, offset?: number) => Reader;
   query: (reader: Reader) => Record<string, unknown> | null;
   message: (reader: Reader) => Record<string, unknown> | null;
+  /** The wrapper keeps "this core is the legacy core" in a module variable that duelGetMessage sets. The cut-out code has its own copy. */
+  setLegacy: (legacy: boolean) => void;
 }
 
 function loadParsers(): Parsers {
@@ -35,7 +37,7 @@ function loadParsers(): Parsers {
   const body = [classSource, cutBlock("function p(e){"), cutBlock("function G(e){"), cutBlock("function Q(e){"), cutBlock("function te(e){")].join("\n");
   const factory = new Function(
     "u", "L", "I",
-    `${body}\nreturn { Reader: F, query: Q, message: te };`,
+    `var __yl=false;\n${body}\nreturn { Reader: F, query: Q, message: te, setLegacy(value){ __yl=value; } };`,
   ) as (u: unknown, l: unknown, i: unknown) => Parsers;
   return factory(OcgQueryFlags, OcgLocation, OcgPosition);
 }
@@ -113,6 +115,29 @@ describe("patched ocgcore-wasm parsers", () => {
     const loop = wrapperSource.slice(wrapperSource.indexOf("duelGetMessage({"), wrapperSource.indexOf("duelSetResponse("));
     expect(loop).toContain("try{R=te(T)}catch");
     expect(loop).toContain("continue");
+  });
+});
+
+// createCore({ legacyMessages: true }) (the legacy 1v1 engine) keeps the message layout of the wrapper that production ran before the
+// n-seat work. The two messages below are the ones whose layout differs, and a failed parse is not skipped: it throws.
+describe("patched ocgcore-wasm parsers, legacy message mode", () => {
+  const parsers = loadParsers();
+  parsers.setLegacy(true);
+
+  it("reads ANNOUNCE_ATTRIB available as an 8 bit value", () => {
+    const data = [...le(1, 141), ...le(1, 1), ...le(1, 2), ...le(1, 0x40)];
+    expect(parsers.message(readerOf(parsers, data))).toEqual({ type: 141, player: 1, count: 2, available: 0x40 });
+  });
+
+  it("reads SWAP_GRAVE_DECK as player, deck size, then bitmap bits up to the deck size", () => {
+    const data = [...le(1, 35), ...le(1, 0), ...le(4, 3), ...le(4, 2), 0b00000101, 0b00000010];
+    expect(parsers.message(readerOf(parsers, data))).toEqual({ type: 35, player: 0, deck_size: 3, returned_to_extra: [0, 2] });
+  });
+
+  it("reads MOVE with one location byte and a from/to pair per card", () => {
+    const place = [...le(4, 111), ...le(1, 0), ...le(1, 2), ...le(4, 0), ...le(4, 0)]; // code, controller, location, sequence, position
+    const data = [...le(1, 36), ...le(1, 4), ...le(4, 1), ...place, ...place];
+    expect((parsers.message(readerOf(parsers, data)) as { cards?: unknown[] }).cards).toHaveLength(1);
   });
 });
 

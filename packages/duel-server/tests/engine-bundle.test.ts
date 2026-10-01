@@ -34,12 +34,12 @@ afterEach(() => {
 describe("verifyEngineBundle", () => {
   it("accepts a complete bundle without integrity entries", () => {
     const { directory, wrapperPath } = bundle();
-    expect(verifyEngineBundle(directory, { wrapperPath })).toEqual({ bundleVersion: "v1" });
+    expect(verifyEngineBundle(directory, { wrapperPath, engine: "pinned" })).toEqual({ bundleVersion: "v1" });
   });
 
   it("accepts matching sha256 values", () => {
     const { directory, wrapperPath } = bundle({ integrity: { standardWasm: sha("standard"), domainWasm: sha("domain"), wrapper: sha("wrapper") } });
-    expect(verifyEngineBundle(directory, { wrapperPath }).bundleVersion).toBe("v1");
+    expect(verifyEngineBundle(directory, { wrapperPath, engine: "pinned" }).bundleVersion).toBe("v1");
   });
 
   it.each([
@@ -50,12 +50,12 @@ describe("verifyEngineBundle", () => {
     ["card-scripts", /Card scripts directory is missing.*card-scripts/],
   ])("names the missing %s", (name, pattern) => {
     const { directory, wrapperPath } = bundle({ skip: [name] });
-    expect(() => verifyEngineBundle(directory, { wrapperPath })).toThrow(pattern);
+    expect(() => verifyEngineBundle(directory, { wrapperPath, engine: "pinned" })).toThrow(pattern);
   });
 
   it("rejects a manifest without bundleVersion", () => {
     const { directory, wrapperPath } = bundle({ bundleVersion: null });
-    expect(() => verifyEngineBundle(directory, { wrapperPath })).toThrow(/no bundleVersion/);
+    expect(() => verifyEngineBundle(directory, { wrapperPath, engine: "pinned" })).toThrow(/no bundleVersion/);
   });
 
   it.each([
@@ -64,7 +64,7 @@ describe("verifyEngineBundle", () => {
     ["wrapper", /wrapper does not match manifest integrity\.wrapper.*patch-package/],
   ])("rejects a %s hash mismatch", (key, pattern) => {
     const { directory, wrapperPath } = bundle({ integrity: { [key]: sha("something else") } });
-    expect(() => verifyEngineBundle(directory, { wrapperPath })).toThrow(pattern);
+    expect(() => verifyEngineBundle(directory, { wrapperPath, engine: "pinned" })).toThrow(pattern);
   });
 
   describe("the files of the legacy 1v1 engine", () => {

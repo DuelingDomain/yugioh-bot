@@ -37,23 +37,23 @@ describe("verifyEngineBundle and integrity.multiScripts", () => {
   it("accepts a matching folder hash", () => {
     const source = makeOverlay([{ code: 1, text: "A" }]);
     const directory = bundle({ multiScripts: multiScriptsFolderHash(source) }, source);
-    expect(verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory) }).bundleVersion).toBe("v1");
+    expect(verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory), engine: "pinned" }).bundleVersion).toBe("v1");
   });
 
   it("accepts an older bundle without integrity.multiScripts", () => {
     const directory = bundle({});
-    expect(verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory) }).bundleVersion).toBe("v1");
+    expect(verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory), engine: "pinned" }).bundleVersion).toBe("v1");
   });
 
   it("rejects a folder that changed", () => {
     const source = makeOverlay([{ code: 1, text: "A" }]);
     const directory = bundle({ multiScripts: multiScriptsFolderHash(source) }, source);
     writeFileSync(join(directory, "multi-scripts", "c1.lua"), "changed");
-    expect(() => verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory) })).toThrow(/does not match manifest integrity\.multiScripts.*duel:prepare/);
+    expect(() => verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory), engine: "pinned" })).toThrow(/does not match manifest integrity\.multiScripts.*duel:prepare/);
   });
 
   it("rejects a missing folder when the manifest lists it", () => {
     const directory = bundle({ multiScripts: sha("x") });
-    expect(() => verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory) })).toThrow(/Multi-scripts folder is missing at .*multi-scripts.*duel:prepare/);
+    expect(() => verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory), engine: "pinned" })).toThrow(/Multi-scripts folder is missing at .*multi-scripts.*duel:prepare/);
   });
 });
