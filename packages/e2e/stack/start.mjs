@@ -71,7 +71,11 @@ for (const port of Object.values(ports)) {
   if (!(await portFree(port))) throw new Error(`Port ${port} is already in use. Stop the old E2E stack first.`);
 }
 
-const standaloneDir = resolve(repoRoot, "packages/web/.next/standalone/packages/web");
+// `E2E_STANDALONE_DIR` points at a copy of the web build (for example one with another baked ws port), so a second
+// stack can run while the repo build is being rebuilt. Default: the repo build.
+const standaloneDir = process.env.E2E_STANDALONE_DIR
+  ? resolve(process.env.E2E_STANDALONE_DIR)
+  : resolve(repoRoot, "packages/web/.next/standalone/packages/web");
 for (const [label, file] of [
   ["web standalone build", resolve(standaloneDir, "server.js")],
   ["ws build", resolve(repoRoot, "packages/ws/dist/server.js")],

@@ -166,8 +166,12 @@ export async function startTable(
 /** The opponent boards a player sees at a multi-seat table (`section[data-relation="opponent"]`). */
 export const opponentBoards = (page: Page): Locator => page.locator('[data-testid="multi-seat-stage"] section[data-relation="opponent"]');
 
-/** Each seat sees every other seat's board, and no seat shows the viewer's own board as an opponent. */
+/**
+ * Each seat sees every other seat, and no seat shows the viewer's own board as an opponent. The turn order strip lists
+ * `count` opponents. The focused opponent fills the top field, so the rail holds one board fewer.
+ */
 export async function expectOpponentBoards(page: Page, count: number): Promise<void> {
   await expect(page.getByTestId("multi-seat-stage")).toBeVisible();
-  await expect(opponentBoards(page)).toHaveCount(count);
+  await expect(page.getByTestId("seat-strip").locator('[data-relation="opponent"]')).toHaveCount(count);
+  await expect(opponentBoards(page)).toHaveCount(count - 1);
 }

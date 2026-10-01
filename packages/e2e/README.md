@@ -126,7 +126,7 @@ Limits: only duels with recorded answers replay (a duel that never started has n
 
 - `helpers/duel.ts` has `createTable(page, name, { format: "ffa4", ... })` (the "Table type" select) and `addBotToSeat(page, slug, seat)` (`POST /api/duels/<slug>/bot` with `{ seat }`).
 - `helpers/board.ts` has `startTable(humans, label, decks, { format, bots })`: the first human creates the table, bots fill the given 0-based seats, the others join, everyone imports a deck and readies, the host starts. `expectOpponentBoards(page, 3)` checks the multi-seat stage (`data-testid="multi-seat-stage"`, `section[data-relation="opponent"]`).
-- `tests/duel-4p-ffa.spec.ts` is a skeleton, all `test.fixme` until the 3 and 4 seat lobby is in the web build: 4-FFA start with 3 opponent boards for each seat, 1 human with 3 bots, no attack before every duelist had a turn, and a spell that hits all 3 opponents. Remove `fixme` one test at a time and fix the selectors against the real UI.
+- `tests/duel-4p-ffa.spec.ts` runs 4 browser players on one table (6 tests): 4-FFA start with 3 opponent boards for each seat, 1 human with 3 bots, no attack before every duelist had a turn, a spell that hits all 3 opponents (Raigeki), a card that picks one opponent (Mind Crush: the prompt lists each living opponent by name and only the picked one is hit), and a direct attack that asks which duelist, followed by three surrenders and the final result screens. A surrender shows "Leaving" until the turn or step ends. The attack prompt labels rows "Player N" (seat + 1), not display names.
 - The stall detector, the timeline and the leak scan already work for any number of players.
 
 - The seed already has p3 and p4 (`stack/env.mjs`). Add more players there if needed.
@@ -152,8 +152,10 @@ bash packages/duel-server/domain-core/.build/phase1/run-locked.sh e2e 1 \
   env E2E_WORKERS=1 npx playwright test duel-presets-multi -c packages/e2e/playwright.config.ts
 # one preset, one seed (run from packages/e2e; E2E_SEED = four decimal numbers a,b,c,d or one number)
 E2E_WORKERS=1 E2E_PRESET=raigeki-dark-hole-ffa4 E2E_SEED=12345 npx playwright test duel-presets-multi
-# the 4 player lobby specs (test.fixme by default)
-E2E_UNFIXME=1 E2E_WORKERS=1 npx playwright test duel-4p-ffa
+# the 4 player spec
+E2E_WORKERS=1 npx playwright test duel-4p-ffa
+# use a copy of the web build (for example one with other ports baked in) instead of packages/web/.next/standalone
+E2E_STANDALONE_DIR=/path/to/standalone/packages/web E2E_WORKERS=1 npx playwright test duel-4p-ffa
 ```
 
 Build first when the sources changed (`npm run stack:build --workspace=packages/e2e`, it needs the `build` lock).
