@@ -2,7 +2,7 @@
 // Stock cores returned NO Lua value from Duel.GetLocationCount (and the other count and group functions) when the bound seat was dead, so a script
 // that compares the result ("nothing > 0") stopped the duel. The scenarios run the STOCK script of Snake-Eyes Diabellstar: the test file
 // (dead-bound-opponent.test.ts) loads an overlay folder without the c27260347.lua workaround, so the core alone must keep the duel running.
-// Plain data, also read by scripts/rule-coverage.ts. They need a core with the OQ3 patch (NSEAT_WASM, see the test file).
+// Plain data, also read by scripts/rule-coverage.ts. They need a core with patch 0059 (OQ3, the P59 build or later).
 // Every scenario ends with the state of every seat.
 
 import {

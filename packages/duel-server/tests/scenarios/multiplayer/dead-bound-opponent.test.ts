@@ -12,9 +12,8 @@ import { DEAD_BOUND_OPPONENT_SCENARIOS, STOCK_SCRIPT_CARD } from "./dead-bound-o
 
 // Live scenarios of core fix OQ3 (a dead bound opponent is "no effect", never a Lua error). They run the STOCK script of Snake-Eyes Diabellstar:
 // the overlay folder of the repo is copied without c27260347.lua (and without its manifest row) and DUEL_MULTI_SCRIPTS_DIR names the copy.
-// Same gate as the other live N-seat files: NSEAT_LIVE=1 and a multi core. These scenarios need a core with the OQ3 patch. Until the patch is
-// installed as a numbered repo patch, name the core: NSEAT_WASM=domain-core/dist/ocgcore.multi-oq3.sync.wasm (Standard) or
-// NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-oq3.sync.wasm (Domain). On an older core the duel stops with "attempt to compare nil with number".
+// Same gate as the other live N-seat files: NSEAT_LIVE=1 and a multi core. These scenarios need a core with patch 0059 (the P59 build or later,
+// installed in data/duel-engine-next). On an older core the duel stops with "attempt to compare nil with number".
 let folder: string | undefined;
 let before: string | undefined;
 
