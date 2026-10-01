@@ -470,6 +470,30 @@ const seaLordFfa3 = defineScenario({
     table(["p0", "p1", "p2"], { p0: 1, p1: 2, p2: 2 }, { grave: [SEA_LORD] }),
   ],
 });
+const depthTag = defineScenario({
+  id: "r3-tag-depth-amulet-partner-turn-does-not-count",
+  title: "Tag: Depth Amulet (RESET_OPPO_TURN, count 3) ignores the turn of the partner p2 and is destroyed at the end of the 2nd turn of p1 (p1, p3, p1 are the 3 opposing turns)",
+  source: `${R3_RULE} [R-TAG-ORDER] [R-TAG-PARTNER]`,
+  rules: ["R-TAG-ORDER", "R-TAG-PARTNER"],
+  tags: ["multiplayer", "late-cards", "turn-count", "r3", "tag", "card:8279188"],
+  setup: { format: "tag", p0: { spells: [{ card: DEPTH, pos: "set" }] } },
+  steps: [
+    activate(DEPTH, "p0"),
+    onField(DEPTH, true),
+    endTurn("p0"), expectTurn("p1", 2),
+    endTurn("p1"), expectTurn("p2", 3),
+    // 1 opposing turn (p1) is over. The turn of the partner p2 does not count.
+    endTurn("p2"), expectTurn("p3", 4),
+    endTurn("p3"), expectTurn("p0", 5),
+    // 2 opposing turns (p1, p3) are over.
+    onField(DEPTH, true),
+    endTurn("p0"), expectTurn("p1", 6),
+    endTurn("p1"), expectTurn("p2", 7),
+    // The 3rd opposing turn (the 2nd turn of p1) is over: the card is in the Graveyard of p0.
+    table(["p0", "p1", "p2", "p3"], { p0: 1, p1: 2, p2: 2, p3: 1 }, { grave: [DEPTH] }, 16000),
+  ],
+});
+
 export const LATE_CARD_SCENARIOS: Scenario[] = [
   royalTribute("ffa3"),
   royalTribute("ffa4"),
@@ -499,4 +523,5 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   appointerFfa3,
   appointerTag,
   seaLordFfa3,
+  depthTag,
 ];
