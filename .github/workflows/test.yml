@@ -231,6 +231,10 @@ jobs:
       - name: Engine tests
         run: npm run test:engine
 
+      # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
+      - name: Engine smoke scripts
+        run: npm run test:smoke --workspace=packages/duel-server
+
   native:
     name: Native checks (ASan and UBSan)
     if: github.event_name != 'schedule'

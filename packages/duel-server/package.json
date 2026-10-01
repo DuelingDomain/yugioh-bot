@@ -11,6 +11,7 @@
     "test": "vitest run tests --testTimeout=15000",
     "test:unit": "vitest run tests --config vitest.unit.config.ts --testTimeout=15000",
     "test:engine": "DUEL_REQUIRE_CORES=1 NSEAT_LIVE=1 vitest run tests --testTimeout=15000",
+    "test:smoke": "for f in tests/*.smoke.ts; do echo \"== $f\"; tsx \"$f\" || exit 1; done",
     "test:native": "bash scripts/native/checks/run.sh",
     "prepare:data": "tsx scripts/prepare-data.ts",
     "test:scenarios": "vitest run tests/scenarios",
