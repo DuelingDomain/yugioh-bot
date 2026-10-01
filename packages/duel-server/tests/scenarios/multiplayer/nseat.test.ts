@@ -7,7 +7,7 @@ import {
   expectPrompt, expectResponseOrder, expectRetry, expectTurn, expectResult, pass, pickOpponent, surrender, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { EngineAnswerError } from "../../../src/prompts.js";
-import { Session, probeSetupDuelists, ScenarioError } from "../../support/session.js";
+import { Session, isLuaScriptError, probeSetupDuelists, ScenarioError } from "../../support/session.js";
 import { runScenarios } from "../../support/runner.js";
 import { describeWithCores, needs } from "../../support/cores.js";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
@@ -287,6 +287,21 @@ describe("N-seat DSL steps (no core)", () => {
       throw new Error("core crashed");
     };
     expect(() => run(session("ffa3", broken), expectRetry({ choice: "x" }))).toThrow(/failed with Error: core crashed/);
+  });
+
+  it("expectRetry fails on a Lua script error unless the step names that script error", () => {
+    const refused = (message: string) => fakeGame({ format: "ffa3", prompts: [attackPrompt(0, [1, 2])], refuse: () => message });
+    const chunk = 'Invalid answer: [string "c42091632.lua"]:46: attempt to index a nil value (local \'tc\')';
+    const file = "Invalid answer: c42091632.lua:46: attempt to index a nil value";
+    // No expected error, and an expected error that the script error also contains: both are a failed scenario.
+    expect(() => run(session("ffa3", refused(chunk)), expectRetry({ choice: "x" }))).toThrow(/Lua script error/);
+    expect(() => run(session("ffa3", refused(file)), expectRetry({ choice: "x" }))).toThrow(/Lua script error/);
+    expect(() => run(session("ffa3", refused(file)), expectRetry({ choice: "x" }, { error: "Invalid answer" }))).toThrow(/Lua script error/);
+    // The step that expects the script error passes.
+    run(session("ffa3", refused(file)), expectRetry({ choice: "x" }, { error: "c42091632.lua:46" }));
+    // A plain refusal still passes.
+    run(session("ffa3", refused("Invalid answer")), expectRetry({ choice: "x" }, { error: "Invalid answer" }));
+    expect(isLuaScriptError("Invalid answer")).toBe(false);
   });
 
   it("the three prompt-inspection steps keep a routine zone prompt open", () => {

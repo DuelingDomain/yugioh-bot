@@ -138,6 +138,11 @@ export async function runScenario(scenario: Scenario): Promise<void> {
   }
 }
 
+/** A Lua script error of the core: the message names a chunk (`[string "c123.lua"]`) or a script file line (`c123.lua:46:`). */
+export function isLuaScriptError(message: string): boolean {
+  return message.includes('[string "c') || message.includes(".lua:");
+}
+
 export class Session {
   private readonly format: DuelFormat;
   private readonly seatCount: number;
@@ -542,6 +547,10 @@ export class Session {
     }
     if (step.error && !refused.message.includes(step.error)) {
       this.fail(stepNo, step, `The error is "${refused.message}", expected it to contain "${step.error}".`);
+    }
+    // A Lua script error is a bug in a card script, not a refused answer: it passes only when the step names that error.
+    if (isLuaScriptError(refused.message) && !(step.error && isLuaScriptError(step.error))) {
+      this.fail(stepNo, step, `The refusal is a Lua script error ("${refused.message}"), not a refused answer. Fix the script, or name the script error in the step.`);
     }
     if (this.fingerprint() !== before) {
       this.fail(stepNo, step, `The engine refused the answer ("${refused.message}") but the state of the duel changed.`);
