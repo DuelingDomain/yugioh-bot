@@ -23,6 +23,9 @@ const NECRO = "Necrovalley";
 const ROYAL = "Royal Tribute";
 const MESSENGER = "Messenger of Peace";
 const DICE_JAR = "Dice Jar";
+const CUP = "Cup of Ace";
+const ANTE = "Ante";
+const SKULL = "Summoned Skull";
 
 const seatsOf = (format: Format): Seat[] => (format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"]);
 
@@ -160,6 +163,37 @@ function diceJar(format: Format, ownerWins: boolean): Scenario {
   });
 }
 
+// --- Cup of Ace (a coin toss with an effect on an opponent) ------------------------------------------------------------------------
+// "Toss a coin: heads, you draw 2 cards; tails, your opponent draws 2 cards." The draw reaches ONE opponent: the activator picks it at
+// activation (R-COMMON-OPP-PICK). Seed 5 gives tails (the coin stream does not change with the format or the core). The stock script is used.
+const COIN = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q4: Cup of Ace (a coin toss; the draw goes to one picked opponent)`;
+const DECK_OF: Record<Seat, [string, string]> = { p0: [RAT, OX], p1: [OX, AXE], p2: [AXE, FANG], p3: [FANG, ELF] };
+
+function cupOfAce(format: Format): Scenario {
+  const seats = seatsOf(format);
+  const label = format === "tag" ? "Tag" : format.toUpperCase();
+  const picked = PICKS[format][PICKS[format].length - 1];
+  const setup: Scenario["setup"] = { format };
+  for (const seat of seats) (setup as Record<string, unknown>)[seat] = { ...(seat === "p0" ? { hand: [CUP] } : {}), deck: [...DECK_OF[seat]] };
+  const spec: Partial<Record<Seat, DuelistExpect>> = {};
+  for (const seat of seats) spec[seat] = { hand: seat === picked ? [...DECK_OF[seat]] : [], grave: seat === "p0" ? [CUP] : [] };
+  return defineScenario({
+    id: `late-${format}-cup-of-ace-tails-the-picked-opponent-draws-2`,
+    title: `${label}: p0 activates Cup of Ace and picks ${picked}: the coin is tails, so only ${picked} draws 2 cards; p0 and every other duelist draw nothing`,
+    source: COIN,
+    rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    tags: ["multiplayer", "late-cards", "coin", "opp-pick", "draw", format, "card:37812118"],
+    seed: ["5", "6", "7", "8"],
+    setup,
+    steps: [
+      activate(CUP, "p0"),
+      expectPickSeats(PICKS[format], "p0"),
+      pickOpponent(picked, "p0"),
+      everySeat(format, spec),
+    ],
+  });
+}
+
 export const LATE_CARD_SCENARIOS: Scenario[] = [
   royalTribute("ffa3"),
   royalTribute("ffa4"),
@@ -174,4 +208,7 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   diceJar("ffa3", false),
   diceJar("ffa4", false),
   diceJar("tag", false),
+  cupOfAce("ffa3"),
+  cupOfAce("ffa4"),
+  cupOfAce("tag"),
 ];
