@@ -874,6 +874,21 @@
       "stockSha256": "6379973afe9c35e13999ee3f759c5a4bbca78fee6fc1451d145039917668cbb0"
     },
     {
+      "code": 45986603,
+      "file": "c45986603.lua",
+      "name": "Snatch Steal",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+TRIGGER_F",
+      "redefined": [
+        "reccon",
+        "rectg",
+        "recop"
+      ],
+      "stockSha256": "78b51f03f84b95c8036a40295563836812ef46f269d0e73d5b6e10d4bba60da4",
+      "note": "Script fix (s2-duelstyle-swap-1): only the owner of the stolen monster gains the 1000 LP, in its own Standby Phase, with no pick (Duel.MPTurnOwns). Not part of R1."
+    },
+    {
       "code": 46772449,
       "file": "c46772449.lua",
       "name": "Evilswarm Exciton Knight",
