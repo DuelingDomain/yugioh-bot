@@ -5,13 +5,14 @@
 
 import {
   activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered,
-  expectPickOptions, expectPickSeats, pass, pickOpponent, select, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+  expectPickOptions, expectPickSeats, pass, pickOpponent, position, select, auto, choose, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
 // The windows of a turn in which p0 may chain its set Ultimate Sky: p0 passes each one.
 const passWindows = (seat: Seat, count: number): Step[] => Array.from({ length: count }, () => pass(seat));
+const passSeats = (...seats: Seat[]): Step[] => seats.map((seat) => pass(seat));
 const passTurns = (...seats: Seat[]): Step[] => seats.map((seat) => endTurn(seat));
 const RAT = "Giant Rat";
 const OX = "Battle Ox";
@@ -23,6 +24,8 @@ const DIAN = "Dian Keto the Cure Master";
 const ECCLESIA = "Incredible Ecclesia, the Virtuous";
 const ACCUSATION = "Mistaken Accusation";
 const BUG = "Man-Eater Bug";
+const O_LION = "Mecha Phantom Beast O-Lion";
+const BLACKFALCON = "Mecha Phantom Beast Blackfalcon";
 const OPP_PICK = `${SOURCE} [R-COMMON-OPP-PICK]`;
 
 /**
@@ -303,7 +306,7 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK", "R-FFA-CHAIN"],
     tags: ["multiplayer", "compare", "chain", "ffa3", "card:38817295", "card:15693423"],
-    // The third link of W10 (Scramble!! Scramble!! of p2, with a Mecha Phantom Beast token) is not driven: p2 is never offered it, see the report.
+    // p2 holds no Scramble!! Scramble!! here, so only p0 and p1 are asked: the third link is in the scenario below (it needs a Mecha Phantom Beast in the Deck of p2).
     // p0 has 5 cards on the field (Elf and 4 set Spells), p1 has 3 (2 monsters and the set Trap). Evenly Matched: p0 banishes 5 - 3 = 2 of its own cards.
     setup: {
       format: "ffa3",
@@ -329,6 +332,52 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
         p0: { lp: 7200, monsters: [ELF], spells: ["Hinotama"], grave: ["Ultimate Sky"], banished: ["Raigeki", "Dark Hole"] },
         p1: { monsters: [WITCH, BUG], grave: ["Evenly Matched"] },
         p2: { monsters: [OX] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "compare-extra-ffa3-w10-three-links-sky-evenly-matched-scramble",
+    title: "FFA3 (W10, three links): Ultimate Sky of p0, Evenly Matched of p1 and Scramble!! Scramble!! of p2 (a Mecha Phantom Beast token) in one chain: every living seat with a legal chain is asked in turn order after each link, each link reads its own opponent",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK", "R-FFA-CHAIN"],
+    tags: ["multiplayer", "compare", "chain", "ffa3", "card:38817295", "card:15693423", "card:83054225"],
+    // Scramble!! Scramble!! is a legal chain only with a Mecha Phantom Beast in the Deck (and the token to release): the Deck of p2 holds 2, O-Lion is drawn on turn 3.
+    // The windows before the chain, as seats in the order the core asks them: p0 (Ultimate Sky) and p2 (Scramble!!) are asked in most of them.
+    // p0 has 5 cards on the field, p1 has 3: Evenly Matched, p0 banishes 5 - 3 = 2 of its own cards. p2 has 1 monster (the token) and p0 has 1 monster (Sangan, an effect monster), p1 has 2.
+    setup: {
+      format: "ffa3",
+      p0: { monsters: [SANGAN], spells: [{ card: "Ultimate Sky", pos: "set" }, { card: "Raigeki", pos: "set" }, { card: "Dark Hole", pos: "set" }, { card: "Hinotama", pos: "set" }] },
+      p1: { monsters: [WITCH, BUG], spells: [{ card: "Evenly Matched", pos: "set" }] },
+      p2: { monsters: [31533705], spells: [{ card: "Scramble!! Scramble!!", pos: "set" }], deck: [O_LION, BLACKFALCON] },
+    },
+    steps: [
+      // Turn 1 (p0): the scenario starts in its Main Phase 1.
+      endTurn("p0"), ...passSeats("p2", "p0", "p2"),
+      // Turn 2 (p1).
+      ...passSeats("p2", "p0", "p2", "p0", "p2", "p0"), endTurn("p1"), ...passSeats("p2", "p0", "p2", "p0"),
+      // Turn 3 (p2).
+      ...passSeats("p2", "p0", "p2", "p0", "p2", "p0"), endTurn("p2"), ...passSeats("p0", "p2", "p0"),
+      // Turn 4 (p0): Main Phase 1, Battle Phase (no attack), Main Phase 2.
+      ...passSeats("p0", "p2", "p0", "p2", "p0", "p2"), changePhase("battle", "p0"), ...passSeats("p2", "p0", "p2"),
+      changePhase("main2", "p0"), pass("p2"),
+      activate("Ultimate Sky", "p0"),
+      // The target cap is the face-up monster count of ONE opponent that passes the compare alone: p1 has 2, p2 has 1 (it does not pass), so the cap is 2, not 3.
+      // The 3 cards that can be negated are Sangan of p0, the Witch and the Bug of p1.
+      // The prompt closes by itself at 2 picks: after it the next prompt is the chain prompt of p1 (with a cap of 3 it would stay open).
+      choose(WITCH, "p0"), choose(BUG, "p0"),
+      // After link 1 the core asks p1, then p2 (it has a legal chain): not p0 again.
+      activate("Evenly Matched", "p1"),
+      // After link 2 p2 is asked, although it controls the token only. The compare of Scramble!! asks p2 for the opponent.
+      activate("Scramble!! Scramble!!", "p2"),
+      expectPickSeats(["p0", "p1"], "p2"),
+      pickOpponent("p1", "p2"),
+      // Link 3 resolves first: p2 Special Summons Blackfalcon. Link 2: p0 banishes 2 cards of its own.
+      auto("p2"), position("atk", "p2"),
+      select("Raigeki", "Dark Hole"),
+      everySeat("ffa3", {
+        p0: { lp: 6400, monsters: [SANGAN], spells: ["Hinotama"], grave: ["Ultimate Sky"], banished: ["Raigeki", "Dark Hole"] },
+        p1: { monsters: [WITCH, BUG], grave: ["Evenly Matched"] },
+        p2: { monsters: [BLACKFALCON], grave: ["Scramble!! Scramble!!"], hand: [O_LION] },
       }),
     ],
   }),

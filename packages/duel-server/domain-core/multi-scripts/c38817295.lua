@@ -1,11 +1,37 @@
 --@replace
 -- Ultimate Sky: the inline activation condition asks if any one opponent controls more monsters.
--- The original text follows, only that condition changed.
+-- The target cap is the face-up monster count of ONE opponent: the largest count among the opponents that pass the compare alone.
+-- The original text follows, only that condition and that cap changed.
 local MPAny,MPValue=aux.MPAny or function(f) return f end,aux.MPValue or function(f) return f end
 --月女神の至天
 --Ultimate Sky
 --scripted by pyrQ
 local s,id=GetID()
+-- Face-up monsters of the opponents that control more monsters than you alone: the largest count of ONE opponent (FFA).
+-- Two seats and Tag (one joined opposing side): the plain count. A bound link reads its bound opponent.
+function s.opp_cap(tp)
+	local function one()
+		if Duel.GetFieldGroupCount(tp,0,LOCATION_MZONE)>Duel.GetFieldGroupCount(tp,LOCATION_MZONE,0) then
+			return Duel.GetMatchingGroupCount(Card.IsFaceup,tp,0,LOCATION_MZONE,nil)
+		end
+		return 0
+	end
+	if not (Duel.MPMode and Duel.MPMode()==1) then return Duel.GetMatchingGroupCount(Card.IsFaceup,tp,0,LOCATION_MZONE,nil) end
+	if Duel.MPBound() then
+		Duel.MPWindow(0)
+		local r=one()
+		Duel.MPWindowEnd()
+		return r
+	end
+	local best=0
+	for i=1,Duel.MPOppCount() do
+		Duel.MPWindow(i)
+		local r=one()
+		Duel.MPWindowEnd()
+		if r>best then best=r end
+	end
+	return best
+end
 function s.initial_effect(c)
 	--If your opponent controls more monsters than you do: Activate 1 of these effects (but you can only use each effect of "Ultimate Sky" once per turn);
 	--● Target face-up cards on the field up to the number of face-up monsters your opponent controls and pay 800 LP for each target; negate their effects until the end of this turn
@@ -31,7 +57,7 @@ function s.efftg(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
 	if chkc then return e:GetChainData().choice==1 and chkc:IsNegatable() and chkc:IsOnField() and chkc~=c end
 	--● Target face-up cards on the field up to the number of face-up monsters your opponent controls and pay 800 LP for each target; negate their effects until the end of this turn
 	local negate_group=Duel.GetTargetGroup(Card.IsNegatable,tp,LOCATION_ONFIELD,LOCATION_ONFIELD,c)
-	local opp_faceup_monster_count=Duel.GetMatchingGroupCount(Card.IsFaceup,tp,0,LOCATION_MZONE,nil)
+	local opp_faceup_monster_count=s.opp_cap(tp)
 	local option_1=not Duel.HasFlagEffect(tp,id)
 		and #negate_group>0
 		and opp_faceup_monster_count>0
