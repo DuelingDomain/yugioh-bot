@@ -15,6 +15,10 @@
     "status": "tsx scripts/status.ts",
     "scenarios:list": "tsx tests/support/list.ts",
     "scenarios:find-card": "tsx tests/support/find-card.ts",
+    "fuzz": "FUZZ_RUNS=200 vitest run tests/fuzz --testTimeout=300000",
+    "fuzz:nightly": "tsx scripts/fuzz-nightly.ts",
+    "fuzz:repro": "tsx scripts/fuzz-repro.ts",
+    "fuzz:n": "tsx scripts/fuzz-n.ts",
     "scan:multiplayer": "tsx scripts/scan-multiplayer-scripts.ts"
   },
   "dependencies": {
@@ -26,6 +30,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "latest",
     "@types/node": "latest",
+    "fast-check": "^4.10.2",
     "tsx": "latest",
     "typescript": "latest",
     "vitest": "latest"
