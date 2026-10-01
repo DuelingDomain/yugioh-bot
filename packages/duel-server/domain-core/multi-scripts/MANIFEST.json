@@ -1502,6 +1502,18 @@
       "replace": true
     },
     {
+      "code": 27769400,
+      "file": "c27769400.lua",
+      "name": "Tualatin",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "r2Class": "TABLE",
+      "stockSha256": "b99e4aa0a39f232eae1020b8e43b5e3f981ca4fc627e92819405d720e8e53ef1",
+      "note": "the state is global with ONE slot (s[0] the monsters of the opponents of the turn player, s[1] their count): in FFA the group joined the monsters of every opponent, so the event came only when ALL of them were destroyed, for every holder, with no seat. The check keeps one group and one count per key (seat in FFA, team in Tag), and raises the event with a bit mask of the keys whose monsters (2 or more) were all destroyed by battle; the condition asks for the own key in that mask."
+    },
+    {
       "code": 27770341,
       "file": "c27770341.lua",
       "name": "Super Rejuvenation",

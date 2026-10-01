@@ -3,7 +3,7 @@
 // live core (NSEAT_LIVE=1) with the real card scripts and the overlay. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, changePosition, defineScenario, endTurn, expectBoard, expectOffered, expectPrompt, faceDown,
+  activate, attack, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -11,6 +11,8 @@ import { SOURCE } from "./nseat-scenarios.js";
 type Seat = "p0" | "p1" | "p2" | "p3";
 type Format = "ffa3" | "ffa4" | "tag";
 
+const TUALATIN = "Tualatin";
+const OX = "Battle Ox"; // 1700 ATK
 const ELF = "Mystical Elf"; // 800 ATK
 const ALTUS = "Cloudian - Altus"; // destroys itself in face-up Defense Position
 const RAGING = "Raging Cloudian";
@@ -24,6 +26,51 @@ function everySeat(format: Format, spec: Partial<Record<Seat, DuelistExpect>>): 
 }
 
 const EACH = `${SOURCE} [R-COMMON-EACH-PLAYER]`;
+
+const tualatin = (format: "ffa3" | "tag"): Scenario => {
+  const tag = format === "tag";
+  const attacker: Seat = "p1";
+  // FFA3: p1 attacks in turn 5 (every duelist has had a turn). Tag: p1 attacks in its second turn, the field of a team is shared
+  const toBattle: Step[] = tag ? [endTurn("p0"), endTurn("p1"), endTurn("p2"), endTurn("p3"), endTurn("p0")] : [endTurn("p0"), endTurn("p1"), endTurn("p2"), endTurn("p0")];
+  return defineScenario({
+    id: `r2-checks-${format}-tualatin-offered-only-to-the-${tag ? "team" : "seat"}-whose-monsters-were-all-destroyed`,
+    title: tag
+      ? "Tag: p1 destroys both monsters of the team of p0 in battle: Tualatin of p0 is offered and Special Summoned, the Tualatin of the opposing partner p3 stays in the hand"
+      : "FFA3: p1 destroys both monsters of p0 in battle: Tualatin of p0 is offered and Special Summoned, Tualatin of p2 (its monsters stay) stays in the hand",
+    source: EACH,
+    rules: ["R-COMMON-EACH-PLAYER"],
+    tags: ["multiplayer", "r2-checks", format, "card:27769400"],
+    setup: (tag
+      ? {
+          format,
+          p0: { hand: [TUALATIN], monsters: [ELF, ELF], deck: [ELF] },
+          p1: { monsters: [OX, OX], deck: [ELF, ELF] },
+          p2: { deck: [ELF] },
+          p3: { hand: [TUALATIN], deck: [ELF] },
+        }
+      : {
+          format,
+          p0: { hand: [TUALATIN], monsters: [ELF, ELF], deck: [ELF] },
+          p1: { monsters: [OX, OX], deck: [ELF, ELF] },
+          p2: { hand: [TUALATIN], monsters: [ELF, ELF], deck: [ELF] },
+        }) as unknown as Scenario["setup"],
+    steps: [
+      ...toBattle,
+      changePhase("battle", attacker),
+      attack({ card: OX, nth: 0 }, { card: ELF, owner: "p0", nth: 0 }, attacker),
+      attack({ card: OX, nth: 0 }, { card: ELF, owner: "p0", nth: 0 }, attacker),
+      expectOffered("activate", TUALATIN, "p0"),
+      activate(TUALATIN, "p0"),
+      // Tualatin is Special Summoned; its forced trigger asks p0 for an Attribute: EARTH destroys the two Battle Ox of p1 (the LIGHT Elves of p2 stay)
+      zone("p0", "m0", "p0"),
+      choose("Face-up Attack", "p0"),
+      choose("EARTH", "p0"),
+      everySeat(format, tag
+        ? { p0: { lp: 14200, monsters: [TUALATIN], grave: [ELF, ELF] }, p1: { grave: [OX, OX] }, p2: { lp: 14200 }, p3: { hand: [TUALATIN, ELF] } }
+        : { p0: { lp: 6200, monsters: [TUALATIN], grave: [ELF, ELF] }, p1: { grave: [OX, OX] }, p2: { monsters: [ELF, ELF], hand: [TUALATIN, ELF] } }),
+    ],
+  });
+};
 
 /**
  * Raging Cloudian (a global watcher, registered with Duel.RegisterEffect(e,0)): the Cloudian monster of a duelist is destroyed by its own effect
@@ -58,4 +105,4 @@ const raging = (format: "ffa3" | "ffa4", holder: Seat): Scenario => {
   });
 };
 
-export const R2_CHECK_SCENARIOS: Scenario[] = [raging("ffa3", "p0"), raging("ffa3", "p1"), raging("ffa3", "p2"), raging("ffa4", "p3")];
+export const R2_CHECK_SCENARIOS: Scenario[] = [tualatin("ffa3"), tualatin("tag"), raging("ffa3", "p0"), raging("ffa3", "p1"), raging("ffa3", "p2"), raging("ffa4", "p3")];

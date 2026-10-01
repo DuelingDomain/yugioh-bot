@@ -122,6 +122,7 @@ const NO_CONDITION_RUN: Record<number, string> = {
   3900605: "Absorbing Jar: the target is a Flip effect and the rest are continuous Summon and Set locks; the generic game does not flip a Set monster",
   18114794: "Summon Breaker: a Field Spell whose trigger is a custom event raised by a global effect after a Normal or Flip Summon; no such event reaches its condition",
   27770341: "Super Rejuvenation: a continuous Spell driven by EVENT_RELEASE, EVENT_DISCARD and the End Phase; the generic game gives none that reaches a function of the card",
+  27769400: "Tualatin: a hand trigger on a custom event that a global check raises when ALL monsters of a duelist (2 or more at the start of the Battle Phase) are destroyed by battle; the generic game does not do it (tests/scenarios/multiplayer/r2-checks.ts plays it)",
   29724053: "Summon Gate: a continuous Spell with a Special Summon limit and a global counter of Special Summons; in Tag no function of the card runs in the generic game (at three seats the Spell does run)",
   32056070: "You and A.I.: a Continuous Spell whose trigger is a custom event raised by a global effect after a Special Summon; no such event reaches its target",
   51194046: "Qliphort Monolith: both effects work from the Pendulum Zone; the generic board has no Pendulum Zone",
