@@ -431,6 +431,20 @@
       ]
     },
     {
+      "code": 9336190,
+      "file": "c9336190.lua",
+      "name": "The Phantom Knights of Mist Claws",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "f1123e364b5444a03a15261c34e0207a55f8294043ccdc876dc1f1b4d692e774",
+      "compareIn": [
+        "inline"
+      ],
+      "replace": true
+    },
+    {
       "code": 9418365,
       "file": "c9418365.lua",
       "name": "Bujin Hirume",
@@ -1461,6 +1475,20 @@
       "note": "the global check asks Duel.GetBattleMonster for the literals 0 and 1 and writes the flag for 0 and 1; it asks for every real seat and writes the flag of the seat of the battle monster (flag keyed by seat in FFA, team in Tag)."
     },
     {
+      "code": 27352108,
+      "file": "c27352108.lua",
+      "name": "Chobham Armor Dragon",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "d9f2714f8f6ffa193614e6bce50744359fe8108232997bd857f7543969418f00",
+      "compareIn": [
+        "inline"
+      ],
+      "replace": true
+    },
+    {
       "code": 27770341,
       "file": "c27770341.lua",
       "name": "Super Rejuvenation",
@@ -1969,6 +1997,20 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "326b6c2da53db6e5837a0df646f1286d72dd8c394fab613883418a8a7f8486de"
+    },
+    {
+      "code": 37310367,
+      "file": "c37310367.lua",
+      "name": "Lockout Gardna",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "72e6014bc8ab91843af3b1878b31abf5ab1aabd3a68e6590a11c84e48bb302b4",
+      "compareIn": [
+        "inline"
+      ],
+      "replace": true
     },
     {
       "code": 37780349,
@@ -3732,6 +3774,20 @@
         "s"
       ],
       "seatInit": "false"
+    },
+    {
+      "code": 71442223,
+      "file": "c71442223.lua",
+      "name": "Cubic Rebirth",
+      "kind": "hand",
+      "classes": [
+        "ATTACK"
+      ],
+      "stockSha256": "b14857de6861f7c892298cf61311118255c41896f18419f031ee16e5695aae7d",
+      "compareIn": [
+        "inline"
+      ],
+      "replace": true
     },
     {
       "code": 71645242,

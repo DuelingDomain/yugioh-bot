@@ -179,6 +179,25 @@ export const ATTACK_DIRECT_SCENARIOS: Scenario[] = [
     atP0: { p0: { grave: ["Drowning Mirror Force"] } },
     atP2: { p0: { spells: ["Drowning Mirror Force"] }, p1: { monsters: [RAT, OX] }, p2: { lp: 6600 } },
   }),
+  // Cards with an inline condition (`--@replace` files): a hand monster that Special Summons itself.
+  ...pair({
+    slug: "chobham-armor-dragon", name: "Chobham Armor Dragon", code: 27352108,
+    p0: { hand: ["Chobham Armor Dragon"], deck: [DARK_HOLE] },
+    p1: { monsters: [RAT] },
+    attacker: RAT,
+    answer: [activate("Chobham Armor Dragon", "p0")],
+    atP0: { p0: { monsters: ["Chobham Armor Dragon"] }, p1: { monsters: [RAT] } },
+    atP2: { p0: { hand: ["Chobham Armor Dragon", DARK_HOLE] }, p1: { monsters: [RAT] }, p2: { lp: 6600 } },
+  }),
+  ...pair({
+    slug: "lockout-gardna", name: "Lockout Gardna", code: 37310367,
+    p0: { hand: ["Lockout Gardna"], deck: [DARK_HOLE] },
+    p1: { monsters: [RAT] },
+    attacker: RAT,
+    answer: [activate("Lockout Gardna", "p0")],
+    atP0: { p0: { monsters: ["Lockout Gardna"] }, p1: { monsters: [RAT] } },
+    atP2: { p0: { hand: ["Lockout Gardna", DARK_HOLE] }, p1: { monsters: [RAT] }, p2: { lp: 6600 } },
+  }),
   // Tag keeps the team value: a direct attack at a seat of the team asks the partner of the target as well (p2 holds the Trap, p0 holds nothing).
   defineScenario({
     id: "attack-direct-tag-counter-gate-offered-to-the-partner",
