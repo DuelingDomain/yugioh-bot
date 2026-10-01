@@ -353,6 +353,14 @@ export class Session {
         const open = this.need(stepNo, step, step.by);
         return this.send(stepNo, step, open, step.answer);
       }
+      case "surrender": {
+        try {
+          this.game.eliminate(seatOf(step.seat), 0);
+        } catch (error) {
+          this.fail(stepNo, step, `The engine refused the surrender: ${(error as Error).message}`, false);
+        }
+        return;
+      }
       case "expectBoard":
         return this.expectBoard(step, stepNo);
       case "expectEvents":
@@ -546,12 +554,17 @@ export class Session {
     if (step.target === "direct" && !direct) {
       this.fail(stepNo, step, `Expected a direct attack, but "${pick.label}" is not direct (the opponent has attack targets).`);
     }
-    if (step.target !== "direct" && direct) {
-      this.fail(stepNo, step, `Expected an attack on ${describeSel(step.target)}, but the attack is direct.`);
-    }
+    // An attacker that has monster targets AND a direct attack (N-seat: another opponent has no monster) is labelled "directly".
+    // The core then asks "Attack directly?": a target attack answers no. Without that question the attack is purely direct.
     this.send(stepNo, step, open, { choice: pick.id });
     if (step.target === "direct") return;
-    const next = this.openPrompt();
+    let next = this.openPrompt();
+    if (direct) {
+      const question = next && next.prompt.kind === "choice" && /attack directly/i.test(next.prompt.title) ? next : null;
+      if (!question) this.fail(stepNo, step, `Expected an attack on ${describeSel(step.target)}, but the attack is direct.`);
+      this.send(stepNo, step, question, { choice: "no" });
+      next = this.openPrompt();
+    }
     if (next && next.prompt.kind === "cards" && /attack target/i.test(next.prompt.title)) {
       const targets = next.prompt.options.filter((o) => this.matchesSel(o, step.target as CardSel));
       const target = this.pickOne(stepNo, step, targets, step.target as CardSel, "attack target");

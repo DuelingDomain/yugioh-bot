@@ -97,6 +97,7 @@ export type Step =
   | { op: "attack"; attacker: CardSel; target: CardSel | "direct"; by?: DuelistId }
   | { op: "phase"; to: "battle" | "main2" | "end"; by?: DuelistId }
   | { op: "pass"; by?: DuelistId }
+  | { op: "surrender"; seat: DuelistId }
   | { op: "choose"; match: string; by?: DuelistId }
   | { op: "select"; sels: CardSel[]; by?: DuelistId }
   | { op: "auto"; by?: DuelistId }
@@ -142,6 +143,12 @@ export const changePhase = (to: "battle" | "main2" | "end", by?: DuelistId): Ste
 export const endTurn = (by?: DuelistId): Step => ({ op: "phase", to: "end", by });
 /** Decline to chain (a chain prompt answered with "no response"). */
 export const pass = (by?: DuelistId): Step => ({ op: "pass", by });
+
+/**
+ * The seat gives up (FFA surrender): `game.eliminate` runs `Debug.EliminateDuelist`. The core applies the loss at its next Adjust, so
+ * with a prompt open for another seat the loss lands after that seat answers. Works at any time, no prompt is needed.
+ */
+export const surrender = (seat: DuelistId): Step => ({ op: "surrender", seat });
 
 // Answers to the next prompt ----------------------------------------------------------------------
 /** Pick a choice by option id or label substring. */
