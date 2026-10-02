@@ -34,14 +34,14 @@ import { MultiSeatStage } from "./multi-seat-stage";
 import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, opponentPickOptions, seatNamer, type SeatPick } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
-import { AttackConfirm, CardActionMenu, CardHoverInfo } from "./card-interactions";
+import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
 import { FxBoundary } from "./fx-boundary";
 import { BattleFx, type BattleAim } from "./battle-fx";
 import fxStyles from "./battle-fx.module.css";
 import { DuelFeedback } from "./feedback";
 import { duelFontClasses } from "./fonts";
-import { DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
+import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
 import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
@@ -55,7 +55,7 @@ import {
   usePromptDraft,
   type PromptAim,
 } from "./prompts";
-import { isBattlePhase, phaseLabel, zoneKey } from "./constants";
+import { isBattlePhase, phaseTitle, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { duelWindowPath, exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
 import { ownWindowGateVisible } from "./start-flow";
@@ -64,7 +64,7 @@ import { SideDeckPanel } from "./side-deck-panel";
 import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
 import { SheetButton } from "./sheet-ui";
 import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } from "./room-settings";
-import { battleStepLabel, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
+import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
 import { MasterReturnFx } from "./master-return-fx";
 import { MoveFx } from "./move-fx";
 import { PositionFx } from "./position-fx";
@@ -76,151 +76,15 @@ import { usePickContinuation } from "./pick-continuation";
 import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
 import { useResultGate } from "./result-reveal";
 import { PileViewer } from "./pile-viewer";
-import { shouldClosePileForPrompt } from "./pile-focus";
+import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
+import { MatchSheetLog } from "./text-log";
 import {
   CardTabEmpty, DEFAULT_SIDE_PANE, DESKTOP_PANES, desktopPane, mobilePanes, SidePanel, SideTabs, useIsNarrow, type SidePane,
 } from "./side-panel";
 
 
-type CardMenuState = {
-  anchor: HTMLElement;
-  title: string;
-  options: DuelPromptOption[];
-  promptId: string;
-  revision: number;
-  tone: "action" | "chain";
-};
-
-/** A pile (Graveyard, Banished, Extra Deck…) opened in the centred viewer. `cards` is the snapshot at open time. */
-type PileView = { title: string; owner: "you" | "opp"; cards: DuelCard[]; open: boolean; seat?: number };
-
-/** The pile's live contents from the engine view, so the viewer follows moves while it is open. */
-function livePileCards(view: PileView, engine: DuelRoom["engine"], localSeat: number): DuelCard[] {
-  const seat = engine?.seats.find((entry) => view.seat != null ? entry.seat === view.seat
-    : view.owner === "you" ? entry.seat === localSeat : entry.seat !== localSeat);
-  if (!seat) return view.cards;
-  const title = view.title.toLowerCase();
-  if (/graveyard|\bgy\b/.test(title)) return seat.graveyard;
-  if (/banish/.test(title)) return seat.banished;
-  if (/extra/.test(title)) return seat.extra;
-  return view.cards;
-}
-
 /** The attack target the player pointed at; only the confirm submits it. */
 type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLElement; name: string };
-
-const SHAKE_LABEL = { off: "Off", low: "Low", medium: "Medium", high: "High" } as const;
-
-/** A face-down or unnamed target reads as "face-down monster" in the confirm. */
-function targetName(option: DuelPromptOption): string {
-  const name = option.card?.name?.trim();
-  if (name) return name;
-  return !option.label || /^Card \d+$/.test(option.label) ? "face-down monster" : option.label;
-}
-
-function zoneAnchor(key: string): HTMLElement | null {
-  const zone = document.querySelector<HTMLElement>(`[data-zones~="${key}"]`);
-  return zone?.querySelector<HTMLElement>("button") ?? zone;
-}
-
-/** Put the confirm on the side of the target away from the attacker, so it never covers the arrow. */
-function confirmSide(attackerKey: string | null, anchor: HTMLElement): "above" | "below" {
-  const from = attackerKey ? document.querySelector(`[data-zones~="${attackerKey}"]`) : null;
-  if (!from) return "above";
-  return from.getBoundingClientRect().top > anchor.getBoundingClientRect().top ? "above" : "below";
-}
-
-// Action ids the engine sends that never change the board: phase moves and a
-// hand shuffle. When the local action prompt offers nothing else, the player has
-// no legal play left and the station track lets "End Turn" glow.
-const PASSIVE_ACTION_IDS: ReadonlySet<string> = new Set(["to_bp", "to_m2", "to_ep", "shuffle"]);
-
-function hasNoLegalMoves(options: readonly DuelPromptOption[]): boolean {
-  return options.length > 0 && options.every((option) => PASSIVE_ACTION_IDS.has(option.id));
-}
-
-function phaseTitle(phase: string | null | undefined): string {
-  const label = phaseLabel(phase);
-  switch (label) {
-    case "Draw":
-    case "Standby":
-    case "Battle":
-    case "End":
-      return `${label} Phase`;
-    case "Main 1":
-      return "Main Phase 1";
-    case "Main 2":
-      return "Main Phase 2";
-    case "Damage":
-      return "Damage Step";
-    case "Damage calculation":
-      return "Damage Calculation";
-    default:
-      return label;
-  }
-}
-
-
-const LOG_PHASE_KEYS: ReadonlySet<string> = new Set([
-  "draw", "standby", "main1", "battle_start", "battle_step", "damage", "damage_cal", "battle", "main2", "end",
-]);
-
-type LogKind = "turn" | "phase" | "loss" | "gain" | "chain" | "result" | "line";
-
-function logKind(text: string): LogKind {
-  if (/^Turn \d+/.test(text)) return "turn";
-  if (LOG_PHASE_KEYS.has(text)) return "phase";
-  if (/ wins \(|^Draw \(/.test(text)) return "result";
-  if (/ takes \d+ damage| pays \d+ LP/.test(text)) return "loss";
-  if (/ gains \d+ LP/.test(text)) return "gain";
-  if (/ is activating$|^A chain link was negated$|^Chain ended$/.test(text)) return "chain";
-  return "line";
-}
-
-/** The engine log names seats "Player N"; show the table's display names instead. */
-function logText(text: string, kind: LogKind, playerName: (seat: number) => string): string {
-  if (kind === "phase") return phaseTitle(text);
-  return text.replace(/\bPlayer ([12])\b/g, (_match, seat: string) => playerName(Number(seat) - 1));
-}
-
-function MatchSheetLog({
-  entries,
-  playerName,
-  players,
-}: {
-  entries: ReadonlyArray<{ id: number; text: string }>;
-  playerName: (seat: number) => string;
-  players: string;
-}) {
-  const listRef = useRef<HTMLOListElement>(null);
-  const count = entries.length;
-  // Follow the newest entry id: the engine caps the log at 400 lines, so the length stops changing.
-  const lastId = entries[count - 1]?.id;
-  useEffect(() => {
-    // Scroll only the sheet's own list; scrollIntoView would also scroll the side pane
-    // and push the history rail above it out of view.
-    const list = listRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
-  }, [lastId, count]);
-  return (
-    <div className={styles.sheet}>
-      <div className={styles.sheetHead}>
-        <h2>Match sheet</h2>
-        <span>{players}</span>
-      </div>
-      <ol ref={listRef} className={styles.log} aria-label="Duel log">
-        {entries.map((entry) => {
-          const kind = logKind(entry.text);
-          return (
-            <li key={entry.id} data-kind={kind}>
-              {logText(entry.text, kind, playerName)}
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
-}
 
 export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: string; inviteCode?: string; windowed?: boolean }) {
   const router = useRouter();
@@ -812,7 +676,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         <div className={fxStyles.segment} role="group" aria-label="Screen shake">
           {DUEL_SHAKE_LEVELS.map((level) => (
             <button key={level} type="button" aria-pressed={preferences.shake === level}
-              onClick={() => preferences.setShake(level)}>{SHAKE_LABEL[level]}</button>
+              onClick={() => preferences.setShake(level)}>{DUEL_SHAKE_LABEL[level]}</button>
           ))}
         </div>
         <p className={fxStyles.shakeNote}>How hard heavy summons rattle the field.</p>

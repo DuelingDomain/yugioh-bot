@@ -9,6 +9,8 @@ export type DuelShakePreference = "off" | "low" | "medium" | "high";
 
 export const DUEL_SHAKE_LEVELS: readonly DuelShakePreference[] = ["off", "low", "medium", "high"];
 
+export const DUEL_SHAKE_LABEL: Readonly<Record<DuelShakePreference, string>> = { off: "Off", low: "Low", medium: "Medium", high: "High" };
+
 export type DuelPreferences = {
   soundEnabled: boolean;
   setSoundEnabled: (enabled: boolean) => void;

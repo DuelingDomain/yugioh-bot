@@ -92,6 +92,28 @@ export function phaseLabel(phase: string | number | null | undefined): string {
   return PHASE_LABELS[key] ?? PHASE_LABELS[raw.toLowerCase()] ?? raw;
 }
 
+/** The phase as the header names it: "Main Phase 1", "Battle Phase", "Damage Step". */
+export function phaseTitle(phase: string | null | undefined): string {
+  const label = phaseLabel(phase);
+  switch (label) {
+    case "Draw":
+    case "Standby":
+    case "Battle":
+    case "End":
+      return `${label} Phase`;
+    case "Main 1":
+      return "Main Phase 1";
+    case "Main 2":
+      return "Main Phase 2";
+    case "Damage":
+      return "Damage Step";
+    case "Damage calculation":
+      return "Damage Calculation";
+    default:
+      return label;
+  }
+}
+
 /** Battle, Damage and Damage calculation all count as the Battle Phase (the board warms to ember). */
 export function isBattlePhase(phase: string | number | null | undefined): boolean {
   const label = phaseLabel(phase);

@@ -3,12 +3,12 @@
 import { useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { Circle, Diamond, Eye, Radio, Volume2, VolumeX } from "lucide-react";
-import type { DuelCard, DuelPromptOption } from "@yugidraft/shared/duels";
+import type { DuelCard } from "@yugidraft/shared/duels";
 import { isCustomDomain } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
-import { AttackConfirm, CardActionMenu, CardHoverInfo } from "../card-interactions";
+import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName, zoneAnchor } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
-import { isBattlePhase, zoneKey } from "../constants";
+import { isBattlePhase, phaseTitle, zoneKey } from "../constants";
 import { DestroyFx } from "../destroy-fx";
 import { DuelResultScreen } from "../duel-result";
 import { resolveEquipLinks } from "../equip-links";
@@ -22,6 +22,8 @@ import { MasterReturnFx } from "../master-return-fx";
 import { MoveFx } from "../move-fx";
 import { engineFormat, formatLabel } from "../multi-seat";
 import { PileViewer } from "../pile-viewer";
+import { livePileCards } from "../pile-focus";
+import { MatchSheetLog } from "../text-log";
 import { PositionFx } from "../position-fx";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { optionsForCard, PromptTray } from "../prompts";
@@ -29,7 +31,7 @@ import { useResultGate } from "../result-reveal";
 import { DuelClockDisplay } from "../room-settings";
 import { SeriesBanner } from "../series-banner";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs } from "../side-panel";
-import { battleStepLabel, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
+import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
 import { SummonFx } from "../summon-fx";
 import { useDuelPreferences } from "../preferences";
 import roomStyles from "../room.module.css";
@@ -37,12 +39,11 @@ import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
 import { OpponentBar } from "./opponent-bar";
 import { attackLockAt, placeLabel, placings, seatStrip, toneBySeat, trackOutOrder } from "./seat-state";
-import { TableSettings, TableTextLog } from "./table-side";
-import { confirmSide, phaseTitle, targetName, zoneAnchor } from "./table-labels";
+import { TableSettings } from "./table-side";
 import { TableStage } from "./table-stage";
 import { useAimFlow } from "./use-aim-flow";
 import { useCamera } from "./use-camera";
-import { livePileCards, useTableUi } from "./use-table-ui";
+import { useTableUi } from "./use-table-ui";
 import { SEAT_TONE_HEX, type CameraLockReason, type CameraState, type TableController, type TableFormat } from "./types";
 import styles from "./table-shell.module.css";
 
@@ -68,9 +69,6 @@ export interface TableShellProps {
    */
   initialOutOrder?: readonly (readonly number[])[];
 }
-
-const PASSIVE_ACTION_IDS: ReadonlySet<string> = new Set(["to_bp", "to_m2", "to_ep", "shuffle"]);
-const hasNoLegalMoves = (options: readonly DuelPromptOption[]) => options.length > 0 && options.every((option) => PASSIVE_ACTION_IDS.has(option.id));
 
 /**
  * The whole table of a 3 or 4 seat duel: header, history and card tabs, the stage, the Deck Master column, the station
@@ -198,7 +196,7 @@ export function TableShell({ controller: given, initialCamera, initialLock = nul
       />
       <details className={roomStyles.textLog}>
         <summary>Text log</summary>
-        <TableTextLog entries={engine.log} nameOf={nameOf} players={playersText} />
+        <MatchSheetLog entries={engine.log} playerName={nameOf} players={playersText} />
       </details>
     </div>
   );

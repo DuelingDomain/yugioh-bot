@@ -4,41 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DuelAnswer, DuelCard, DuelPromptOption } from "@yugidraft/shared/duels";
 import { zoneKey } from "../constants";
 import { activatePromptFromField, isAttackTargetPrompt, optionsForCard } from "../prompts";
-import { shouldClosePileForPrompt } from "../pile-focus";
+import { livePileCards, shouldClosePileForPrompt, type PileView } from "../pile-focus";
+import type { CardMenuState } from "../card-interactions";
 import { promptLegalKeys } from "../prompts";
 import { DEFAULT_SIDE_PANE, type SidePane } from "../side-panel";
 import type { BattleAim, DuelActivateHandler, InspectTarget, TableController } from "./types";
 
 /**
  * The interaction state of a table that the room keeps in its own component: the card action menu, the hover
- * card, the pile viewer, the inspector target and the declared attacker. It mirrors room.tsx on purpose and wraps
- * a controller, so TableStage and the aim flow see menu-aware handlers. A room that owns this state keeps its own
- * and leaves this hook out.
+ * card, the pile viewer, the inspector target and the declared attacker. It wraps a controller, so TableStage and the
+ * aim flow see menu-aware handlers. Pure helpers (pile contents, attack confirm side) are shared with room.tsx.
  */
-
-export type CardMenuState = {
-  anchor: HTMLElement;
-  title: string;
-  options: DuelPromptOption[];
-  promptId: string;
-  revision: number;
-  tone: "action" | "chain";
-};
-
-/** A pile (Graveyard, Banished, Extra Deck) opened in the centred viewer. `cards` is the snapshot at open time. */
-export type PileView = { title: string; owner: "you" | "opp"; cards: DuelCard[]; open: boolean; seat?: number };
-
-/** The pile's live contents from the engine view, so the viewer follows moves while it is open. */
-export function livePileCards(view: PileView, engine: TableController["engine"], viewerSeat: number | null): DuelCard[] {
-  const local = viewerSeat ?? 0;
-  const seat = engine.seats.find((entry) => (view.seat != null ? entry.seat === view.seat : view.owner === "you" ? entry.seat === local : entry.seat !== local));
-  if (!seat) return view.cards;
-  const title = view.title.toLowerCase();
-  if (/graveyard|\bgy\b/.test(title)) return seat.graveyard;
-  if (/banish/.test(title)) return seat.banished;
-  if (/extra/.test(title)) return seat.extra;
-  return view.cards;
-}
 
 export interface TableUi {
   /** The base controller with menu-aware activate, pile-aware inspect, hover and the declared attacker. */
@@ -232,3 +208,5 @@ export function useTableUi(base: TableController): TableUi {
     inspectCard,
   };
 }
+
+export type { CardMenuState, PileView };

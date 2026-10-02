@@ -8,6 +8,16 @@ import { duelFontClasses } from "./fonts";
 import styles from "./station-track.module.css";
 
 
+/**
+ * Action ids the engine sends that never change the board: phase moves and a hand shuffle. When the local action prompt
+ * offers nothing else, the player has no legal play left and the track lets "End Turn" glow.
+ */
+const PASSIVE_ACTION_IDS: ReadonlySet<string> = new Set(["to_bp", "to_m2", "to_ep", "shuffle"]);
+
+export function hasNoLegalMoves(options: readonly DuelPromptOption[]): boolean {
+  return options.length > 0 && options.every((option) => PASSIVE_ACTION_IDS.has(option.id));
+}
+
 /* ---------- Battle Phase steps ---------- */
 
 /** Sub-steps of the Battle Phase, as the engine reports them (DuelEngineView.battleStep). */
