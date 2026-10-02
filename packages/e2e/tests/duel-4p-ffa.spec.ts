@@ -13,8 +13,8 @@ const decks = (first: string[]) => Array.from({ length: 4 }, (_, seat) => ({ mai
 
 const openSeats = (player: (key: (typeof KEYS)[number]) => Promise<Seat>) => Promise.all(KEYS.map((key) => player(key)));
 const ownMonsters = (page: Page) => page.locator('[data-seat-field][data-side="you"] [data-kind="mz"][data-occupied="true"]');
-/** The Life Points of a seat. A rail board, the focused top field and the own side all carry `data-lp-seat`. */
-const lpOf = (page: Page, seat: number) => page.locator(`[data-lp-seat="${seat}"]`).first();
+/** TableShell gives each seat exactly one holographic LP panel. */
+const lpOf = (page: Page, seat: number) => page.locator(`[data-table-stage] [data-lp-seat="${seat}"]`);
 /** The phase bar. The Battle plate is a button only while the engine offers the Battle Phase. */
 const toBattle = (page: Page) => page.getByRole("button", { name: /^To Battle/ });
 /** The Battle plate in the list of phase plates (not the primary dock button, which also names the Battle Phase). */
@@ -43,9 +43,10 @@ test.describe("4-player FFA", () => {
         await expectOpponentBoards(seat.page, 3);
       }
       await expect(turnLabel(seat.page)).toHaveText("Turn 1");
-      // The turn order strip lists every seat, and seat 0 is to play.
-      await expect(seat.page.getByTestId("seat-strip").getByRole("listitem")).toHaveCount(4);
-      await expect(seat.page.getByTestId("seat-strip-0")).toHaveAttribute("data-turn", "true");
+      await expect(seat.page.locator("[data-table-shell]")).toBeVisible();
+      await expect(seat.page.locator("[data-table-stage='ffa4'] [data-seat-field]")).toHaveCount(4);
+      await expect(seat.page.locator("[data-lp-seat]")).toHaveCount(4);
+      await expect(seat.page.locator("[data-arc='0']")).toHaveAttribute("data-lit", "true");
     }
   });
 
@@ -126,9 +127,9 @@ test.describe("4-player FFA", () => {
       await expect(panel.getByRole("button", { name: `Choose ${name} as the opponent` })).toHaveCount(1);
     }
     await expect(panel.getByRole("button", { name: "Choose E2E Alice as the opponent" })).toHaveCount(0);
-    for (const seat of [1, 2, 3]) await expect(alice.page.getByTestId(`seat-strip-pick-${seat}`)).toBeVisible();
-    await expect(alice.page.getByTestId("seat-strip-pick-0")).toHaveCount(0);
-    await alice.page.getByTestId("seat-strip-pick-2").click();
+    for (const seat of [1, 2, 3]) await expect(alice.page.getByTestId(`holo-pick-${seat}`)).toBeVisible();
+    await expect(alice.page.getByTestId("holo-pick-0")).toHaveCount(0);
+    await alice.page.getByTestId("holo-pick-2").click();
 
     // Name the filler card: every copy in the picked opponent's hand goes to the Graveyard.
     await alice.page.getByLabel("Search card name").fill(FILLER);
@@ -176,12 +177,12 @@ test.describe("4-player FFA", () => {
 
     // Seat 3 surrenders in the middle of the attack. The seat shows "Leaving" until the step is done, and the duel goes on.
     await surrender(dave.page);
-    for (const seat of [alice, bob, carol]) await expect(seat.page.getByTestId("seat-strip-leaving-3")).toBeVisible();
+    for (const seat of [alice, bob, carol]) await expect(seat.page.locator("[data-holo='3']")).toHaveAttribute("data-leaving", "true");
     await expect(alice.page.getByTestId("duel-result")).toHaveCount(0);
 
     // Seat 0 ends the turn: seat 3 is out for good. The turn goes 1, 2, then back to 0: seat 3 is skipped.
     await endTurn(alice.page, 6);
-    for (const seat of seats) await expect(seat.page.getByTestId("seat-strip-3")).toHaveAttribute("data-eliminated", "true");
+    for (const seat of seats) await expect(seat.page.locator("[data-holo='3']")).toHaveAttribute("data-elim", "true");
     await expect(dave.page.getByTestId("self-eliminated")).toBeVisible();
     // Bob and Carol hold 7 cards on their second turn: a summon keeps the hand at the limit, so no discard prompt opens.
     await normalSummon(bob);
@@ -192,10 +193,10 @@ test.describe("4-player FFA", () => {
 
     // Seat 1 surrenders in the turn of seat 0 and leaves when that turn is done. Then the turn goes to seat 2.
     await surrender(bob.page);
-    await expect(alice.page.getByTestId("seat-strip-leaving-1")).toBeVisible();
+    await expect(alice.page.locator("[data-holo='1']")).toHaveAttribute("data-leaving", "true");
     await expect(alice.page.getByTestId("duel-result")).toHaveCount(0);
     await endTurn(alice.page, 9);
-    await expect(alice.page.getByTestId("seat-strip-1")).toHaveAttribute("data-eliminated", "true");
+    await expect(alice.page.locator("[data-holo='1']")).toHaveAttribute("data-elim", "true");
     await expect(turnLabel(carol.page)).toHaveText("Turn 9");
 
     // The last surrender leaves one duelist: the game ends and the screens differ for each viewer.
