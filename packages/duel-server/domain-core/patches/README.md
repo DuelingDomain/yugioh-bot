@@ -75,6 +75,8 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 
 | `0062-tag-synchro.patch` | Partner monsters are Synchro material. The own and partner fields use the same material check. | None with 2 duelists. Each changed path keeps the stock branch at `n_duelists == 2`. 8 P61 live failures; 16 fixed checks in the supplied Standard and Domain proof. |
 
+| `0063-tag-unique.patch` | Owner rule [R-TAG-UNIQUE]: a unique-on-field limit counts one copy per team. Registration, removal and field scans include the team. | None with 2 duelists. Each changed path keeps the stock branch at `n_duelists == 2`. 10 P61 live failures; 25 fixed checks in the supplied Standard and Domain proof. |
+
 ## Commands
 
 Run all commands in the repository root.

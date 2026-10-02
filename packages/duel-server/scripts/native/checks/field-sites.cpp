@@ -201,7 +201,8 @@ static void mode_unique(bool bad_values) {
 		pc->unique_location = LOCATION_MZONE;
 		f.add_unique_card(pc);
 		for(int p = 0; p < n; ++p) {
-			const bool want = p == con || !f.same_team(con, static_cast<uint8_t>(p));
+			// Both unique ranges cover every seat, including a Tag partner.
+			const bool want = true;
 			const bool has = f.core.unique_cards[p].count(pc) != 0;
 			EXPECT(has == want, "%s: unique_cards[%d] has card %d, want %d", layout_name[layout], p, has, want);
 		}

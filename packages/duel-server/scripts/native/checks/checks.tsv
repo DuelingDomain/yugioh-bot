@@ -59,3 +59,4 @@ pending-loss-pick	pending-loss-pick	-	ready	n > 2: a pick of one opponent (the c
 attacked-seat	attacked-seat	-	ready	n > 2: Duel.MPAttackedSeat() gives the real seat that the current attack goes at (direct attack pick at FFA3 seats 1 and 2, one open opponent without a pick, attack on a monster, FFA4, Tag), nil otherwise; the value at each event and the LP of every seat when the attack is redirected to a monster of another opponent (FFA3, Tag), to nil (direct, damage to the controller of the old target), negated, chained (FFA3, FFA4) or the target leaves. Core patch 0058
 tag-team-loss	tag-team-loss	-	ready	Tag: a team at 0 LP or with a member that draws from an empty Deck loses; CANNOT_LOSE_LP and CANNOT_LOSE_DECK work per member (the team stays alive); both teams at 0 = draw
 tag-team-rules	tag-team-rules	-	ready	Tag review rule check
+tag-unique-review	tag-unique-review	-	ready	Tag review rule check
