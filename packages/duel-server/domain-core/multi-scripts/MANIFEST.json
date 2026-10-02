@@ -3368,6 +3368,19 @@
       "stockSha256": "bba517904b492d90fccdc1d5e2d9e32f5164bc4d8769d37286b3ec6e6863930b"
     },
     {
+      "code": 59712426,
+      "file": "c59712426.lua",
+      "name": "Arcana Force XV - The Fiend",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "bbbe6da1b8c515b41fb6366198e9ccb43bb4ee9e94de8bcb8334873454dccf85",
+      "note": "Damage the real destruction target controller.",
+      "redefines": [
+        "hdestg",
+        "hdesop"
+      ]
+    },
+    {
       "code": 59762399,
       "file": "c59762399.lua",
       "name": "Performapal Odd-Eyes Light Phoenix",
@@ -4970,6 +4983,20 @@
         "R1"
       ],
       "stockSha256": "b3d16bf1a076a7b1d85e3b759ee84d0d591a5ff0215b019d33789ccb3ff01048"
+    },
+    {
+      "code": 86449372,
+      "file": "c86449372.lua",
+      "name": "TA.I. Strike",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "29ae40bde1c0a87321b5b637e35a41be1656d6271c363b1593aef5665eb4d63d",
+      "note": "Keep the real battle controllers before the damage step ends.",
+      "redefines": [
+        "activate",
+        "damage",
+        "damop"
+      ]
     },
     {
       "code": 87588741,
