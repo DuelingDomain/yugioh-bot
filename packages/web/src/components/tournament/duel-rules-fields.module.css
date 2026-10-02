@@ -1,3 +1,5 @@
+/* The sheet's narrow rule keys off the whole sheet, so a form in the 300px rail would keep two columns. Fit to our own width. */
+:global(.ms) .fields.fields { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
 .seg button:disabled { opacity: 0.55; cursor: not-allowed; }
 .seg button:focus-visible { outline: 2px solid var(--pen); outline-offset: 1px; }
 .select:disabled { opacity: 0.55; cursor: not-allowed; }

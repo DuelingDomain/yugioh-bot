@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Check, Copy, LogOut, Megaphone, UserPlus, X } from "lucide-react";
 import { RankGem, SheetPanel, DangerZone, DangerRow, ConfirmPanel } from "@/components/sheet";
 import { Link as LinkIcon } from "lucide-react";
+import { generateSingleElimFirstRound } from "@yugidraft/shared/tournaments";
+import styles from "./tournament-lobby.module.css";
 import { MyDeckPanel } from "./my-deck-panel";
 import { DeckMarker } from "./deck-marker";
 import { RulesPanel } from "./sheet/rules-panel";
@@ -32,6 +34,15 @@ function roundsOf(format: string, players: number) {
     return r;
   }
   return players % 2 === 0 ? Math.max(0, players - 1) : players;
+}
+
+/** Seats are in join order, which is the order start() hands the engine, so seat numbers stand in for players. */
+export function firstRoundNote(players: number) {
+  if (players < 2) return "";
+  const { byes, pairings } = generateSingleElimFirstRound(Array.from({ length: players }, (_, i) => i + 1));
+  const shown = pairings.slice(0, 2).map((p) => `${p.playerOneId} with ${p.playerTwoId}`);
+  const list = pairings.length > 2 ? `${shown.join(", ")} and so on` : shown.join(" and ");
+  return `${byes.length ? `Seat ${byes[0]} gets a bye. ` : ""}Round 1 pairs ${list}.`;
 }
 
 export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChanged, ratings }: TournamentLobbyProps) {
@@ -103,7 +114,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
         {isCreator && (
           <section className="panel invite" aria-labelledby="invite-t">
             <h2 className="panel-t"><span id="invite-t">Invite players</span><small>anyone in the server can join</small></h2>
-            <div className="invite-row">
+            <div className={`invite-row ${styles.inviteRow}`}>
               <input className="input" readOnly value={link} aria-label="Invite link" />
               <div className="acts">
                 <button
@@ -135,7 +146,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
         {!isCreator && (
           <section className="panel invite" aria-labelledby="invite-t">
             <h2 className="panel-t"><span id="invite-t">Invite link</span><small>share it so others can join</small></h2>
-            <div className="invite-row">
+            <div className={`invite-row ${styles.inviteRow}`}>
               <input className="input" readOnly value={link} aria-label="Invite link" />
               <div className="acts">
                 <button type="button" className="btn btn-secondary" onClick={async () => { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
@@ -159,10 +170,10 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
               const hostSeat = isCreator && you;
               return (
                 <li key={p.playerId} className={`seat${you ? " me" : ""}`}>
-                  {single ? <span className="no">{i + 1}</span> : null}
-                  <RankGem tier={rating?.rank ?? "none"} size="lg" />
+                  {single ? <span className="no">{i + 1}</span> : <RankGem tier={rating?.rank ?? "none"} size="lg" />}
                   <span className="who">
                     <span className="nm">
+                      {single && <RankGem tier={rating?.rank ?? "none"} />}
                       <span className="t">{p.displayName}</span>
                       {you && <span className="youtag">you</span>}
                       {hostSeat && <span className="hosttag">host</span>}
@@ -192,7 +203,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
               <li key={`open-${i}`} className="seat open"><UserPlus className="ic" aria-hidden="true" /><span>Open seat · needed to start</span></li>
             ))}
           </ul>
-          {single && count > 1 && <p className="small">Round 1 pairs 1 with {count % 2 === 0 ? count : count - 1}{count >= 4 ? " and 2 with " + (count % 2 === 0 ? count - 1 : count - 2) : ""}. With an odd count, seat 1 gets the bye.</p>}
+          {single && count > 1 && <p className="small">{firstRoundNote(count)}</p>}
           {isParticipant && isCreator && (
             <div className="inline-note">
               <p>Hosting and playing in this tournament.</p>
