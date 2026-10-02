@@ -367,6 +367,23 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   74440055: ["ffa3", "ffa4", "tag"], // Cactus Fighter
   81522098: ["ffa3", "ffa4", "tag"], // Mimighoul Dragon
   82933935: ["ffa3", "ffa4", "tag"], // Mimighoul Flower
+  69811710: ["ffa3", "ffa4", "tag"], // Girsu, the Orcust Mekk-Knight
+  82012319: ["ffa3", "ffa4", "tag"], // Scrap Golem
+  9400127: ["ffa3", "ffa4", "tag"], // Flogos, the Wind Warrior
+  78783557: ["ffa3", "ffa4", "tag"], // Veidos the Eruption Dragon of Extinction
+  82773292: ["ffa3", "ffa4", "tag"], // Indulged Darklord
+  88124568: ["ffa3", "ffa4", "tag"], // SPYRAL Double Agent
+  71015787: ["ffa3", "ffa4", "tag"], // Silent Wobby
+  68378605: ["ffa3", "ffa4", "tag"], // Vodnika the Water Dragon
+  26913989: ["ffa3", "ffa4", "tag"], // Geistgrinder Golem
+  82994509: ["ffa3", "ffa4", "tag"], // Horseytail
+  81003500: ["ffa3", "ffa4", "tag"], // Necroid Shaman
+  66661678: ["ffa3", "ffa4", "tag"], // Royal Knight of the Ice Barrier
+  57844634: ["ffa3", "ffa4", "tag"], // Nimble Musasabi
+  65676461: ["ffa3", "ffa4", "tag"], // Number 32: Shark Drake
+  59900655: ["ffa3", "ffa4", "tag"], // Gold Pride - Nytro Head
+  63013339: ["ffa3", "ffa4", "tag"], // Sky Striker Ace - Camellia
+  65477143: ["ffa3", "ffa4", "tag"], // Abyss Actor - Liberty Dramatist
 };
 
 export const MULTIPLAYER_CARD_RULES: readonly MultiplayerCardRule[] = CARD_RULE_DRAFTS.map((draft) => {

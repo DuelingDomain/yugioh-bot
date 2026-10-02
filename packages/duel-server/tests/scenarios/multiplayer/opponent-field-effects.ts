@@ -77,16 +77,16 @@ export interface EffectSpec {
   pickBy?: Seat;
   /** The seats offered. Default: all opponents of p0. */
   offered?: (roles: Roles) => Seat[];
-  /** End state of p0 (exact zones). */
-  p0End: Zones;
+  /** End state of p0 (exact zones). A function gets the roles of the format (the life points of Tag differ). */
+  p0End: Zones | ((roles: Roles) => Zones);
   /** What the picked opponent gains, added to its setup. */
   gain?: Zones;
   /** End state of the picked opponent instead of setup + gain. */
-  tgtEnd?: Zones;
+  tgtEnd?: Zones | ((roles: Roles) => Zones);
   /** End state of the other opponents instead of their setup. */
-  othersEnd?: Zones;
+  othersEnd?: Zones | ((roles: Roles) => Zones);
   /** End state of the Tag partner instead of its setup. */
-  partnerEnd?: Zones;
+  partnerEnd?: Zones | ((roles: Roles) => Zones);
   /** Formats of the card. Default all three. */
   formats?: Format[];
   /** The duelists may attack in the first turn (the setup flag of the DSL). */
@@ -138,12 +138,13 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
     for (const seat of roles.opponents) setup[seat] = seat === roles.tgt ? tgtSetup : oppSetup;
     if (roles.partner) setup[roles.partner] = partnerSetup;
     for (const [seat, value] of Object.entries(spec.seats ?? {})) if (seat in setup || seat === roles.partner) setup[seat] = value;
-    const seatSpec: Partial<Record<Seat, Zones>> = { p0: spec.p0End };
-    for (const seat of roles.others) seatSpec[seat] = spec.othersEnd ?? zonesOf(oppSetup);
-    seatSpec[roles.tgt] = spec.tgtEnd ?? merge(zonesOf(tgtSetup), spec.gain);
-    if (roles.partner) seatSpec[roles.partner] = spec.partnerEnd ?? zonesOf(partnerSetup);
+    const at = (zones: Zones | ((r: Roles) => Zones) | undefined): Zones | undefined => (typeof zones === "function" ? zones(roles) : zones);
+    const seatSpec: Partial<Record<Seat, Zones>> = { p0: at(spec.p0End)! };
+    for (const seat of roles.others) seatSpec[seat] = at(spec.othersEnd) ?? zonesOf(oppSetup);
+    seatSpec[roles.tgt] = at(spec.tgtEnd) ?? merge(zonesOf(tgtSetup), spec.gain);
+    if (roles.partner) seatSpec[roles.partner] = at(spec.partnerEnd) ?? zonesOf(partnerSetup);
     for (const [seat, value] of Object.entries(spec.seats ?? {})) {
-      if (seat === roles.tgt) seatSpec[seat] = spec.tgtEnd ?? merge(zonesOf(value), spec.gain);
+      if (seat === roles.tgt) seatSpec[seat] = at(spec.tgtEnd) ?? merge(zonesOf(value), spec.gain);
       else if (seat !== "p0" && !(seat in (spec.seatEnd ?? {}))) seatSpec[seat as Seat] = zonesOf(value);
     }
     Object.assign(seatSpec, spec.seatEnd ?? {});

@@ -1290,4 +1290,89 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "opponent-field-effects-ffa4-mimighoul-flower-goes-to-the-picked-opponent",
     "opponent-field-effects-tag-mimighoul-flower-goes-to-an-opposing-member",
   ], // Mimighoul Flower
+  69811710: [
+    "opponent-field-effects-ffa3-girsu-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-girsu-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-girsu-goes-to-an-opposing-member",
+  ], // Girsu, the Orcust Mekk-Knight
+  82012319: [
+    "opponent-field-effects-ffa3-scrap-golem-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-scrap-golem-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-scrap-golem-goes-to-an-opposing-member",
+  ], // Scrap Golem
+  9400127: [
+    "opponent-field-effects-ffa3-flogos-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-flogos-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-flogos-goes-to-an-opposing-member",
+  ], // Flogos, the Wind Warrior
+  78783557: [
+    "opponent-field-effects-ffa3-veidos-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-veidos-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-veidos-goes-to-an-opposing-member",
+  ], // Veidos the Eruption Dragon of Extinction
+  82773292: [
+    "opponent-field-effects-ffa3-indulged-darklord-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-indulged-darklord-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-indulged-darklord-goes-to-an-opposing-member",
+  ], // Indulged Darklord
+  88124568: [
+    "opponent-field-effects-ffa3-spyral-double-agent-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-spyral-double-agent-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-spyral-double-agent-goes-to-an-opposing-member",
+  ], // SPYRAL Double Agent
+  71015787: [
+    "opponent-field-effects-ffa3-silent-wobby-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-silent-wobby-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-silent-wobby-goes-to-an-opposing-member",
+  ], // Silent Wobby
+  68378605: [
+    "opponent-field-effects-ffa3-vodnika-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-vodnika-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-vodnika-goes-to-an-opposing-member",
+  ], // Vodnika the Water Dragon
+  26913989: [
+    "opponent-field-effects-ffa3-geistgrinder-golem-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-geistgrinder-golem-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-geistgrinder-golem-goes-to-an-opposing-member",
+  ], // Geistgrinder Golem
+  82994509: [
+    "opponent-field-effects-ffa3-horseytail-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-horseytail-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-horseytail-goes-to-an-opposing-member",
+  ], // Horseytail
+  81003500: [
+    "opponent-field-effects-ffa3-elemental-hero-necroid-shaman-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-elemental-hero-necroid-shaman-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-elemental-hero-necroid-shaman-goes-to-an-opposing-member",
+  ], // Necroid Shaman
+  66661678: [
+    "opponent-field-effects-ffa3-royal-knight-of-the-ice-barrier-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-royal-knight-of-the-ice-barrier-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-royal-knight-of-the-ice-barrier-goes-to-an-opposing-member",
+  ], // Royal Knight of the Ice Barrier
+  57844634: [
+    "opponent-field-effects-ffa3-nimble-musasabi-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-nimble-musasabi-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-nimble-musasabi-goes-to-an-opposing-member",
+  ], // Nimble Musasabi
+  65676461: [
+    "opponent-field-effects-ffa3-number-32-shark-drake-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-number-32-shark-drake-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-number-32-shark-drake-goes-to-an-opposing-member",
+  ], // Number 32: Shark Drake
+  59900655: [
+    "opponent-field-effects-ffa3-gold-pride-nytro-head-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-gold-pride-nytro-head-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-gold-pride-nytro-head-goes-to-an-opposing-member",
+  ], // Gold Pride - Nytro Head
+  63013339: [
+    "opponent-field-effects-ffa3-sky-striker-ace-camellia-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-sky-striker-ace-camellia-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-sky-striker-ace-camellia-goes-to-an-opposing-member",
+  ], // Sky Striker Ace - Camellia
+  65477143: [
+    "opponent-field-effects-ffa3-abyss-actor-liberty-dramatist-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-abyss-actor-liberty-dramatist-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-abyss-actor-liberty-dramatist-goes-to-an-opposing-member",
+  ], // Abyss Actor - Liberty Dramatist
 };
