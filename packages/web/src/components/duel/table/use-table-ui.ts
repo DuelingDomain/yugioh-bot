@@ -49,7 +49,7 @@ export function useTableUi(base: TableController): TableUi {
 
   const promptId = prompt?.id ?? null;
   const revision = engine.revision;
-  const activeMenu = !busy && menu?.promptId === promptId && menu?.revision === revision ? menu : null;
+  const activeMenu = canAct && !busy && menu?.promptId === promptId && menu?.revision === revision ? menu : null;
 
   // A new prompt or revision drops the menu and the hover card.
   useEffect(() => {
@@ -135,7 +135,7 @@ export function useTableUi(base: TableController): TableUi {
       setHover(null);
       if (card) showInspector({ type: "card", card });
       base.onActivate(keys, card, anchor);
-      if (busy || !prompt) return;
+      if (busy || !canAct || !prompt) return;
       if (mine && (prompt.kind === "choice" || prompt.kind === "toggle")) {
         const options = optionsForCard(prompt, card, keys);
         if (prompt.kind === "toggle" && options.length === 1) {
@@ -157,7 +157,7 @@ export function useTableUi(base: TableController): TableUi {
       setMenu(null);
       activatePromptFromField(prompt, mine, keys, card, draft, submit);
     },
-    [base, busy, draft, mine, prompt, revision, showInspector, submit],
+    [base, busy, canAct, draft, mine, prompt, revision, showInspector, submit],
   );
 
   const onMenuOptionHover = useCallback((option: DuelPromptOption | null) => {

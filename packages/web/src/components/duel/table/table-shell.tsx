@@ -160,6 +160,7 @@ export function TableShell({
   const session = room.session;
   const domain = session.mode === "domain";
   const spectator = viewerSeat == null;
+  const viewerOut = engine.seats.some((seat) => seat.seat === viewerSeat && (seat.eliminated || seat.pendingElimination));
   const terminal = session.status !== "active";
   const hasResult = engine.result != null || terminal;
   const resultReady = useResultGate({
@@ -193,7 +194,7 @@ export function TableShell({
   const soundLabel = preferences.soundEnabled ? "On" : "Off";
   const connectionLabel = labelForConnection(terminal, connection);
 
-  const promptMine = prompt != null && !spectator && prompt.seat === viewerSeat && !terminal;
+  const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
   const actionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
@@ -387,7 +388,7 @@ export function TableShell({
             draft={controller.draft}
             onSubmit={controller.onAnswer}
             menuOpen={suspended}
-            active={!terminal}
+            active={!terminal && !viewerOut}
             aim={flow.promptAim ?? undefined}
             headless={centered}
             suspended={suspended || flow.seatKeys || (centered && !controller.revealed)}
@@ -421,7 +422,7 @@ export function TableShell({
                 <PromptCenter
                   prompt={prompt ?? (!hasResult ? pick.waiting : null)}
                   mySeat={viewerSeat}
-                  active={!terminal}
+                  active={!terminal && !viewerOut}
                   slug={session.slug}
                   busy={controller.busy || (prompt == null && pick.waiting != null)}
                   draft={controller.draft}

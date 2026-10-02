@@ -177,12 +177,25 @@ describe("live room table mount", () => {
     else state.room!.engine!.seats = state.room!.engine!.seats.map((seat) => ({ ...seat, eliminated: seat.seat === 0 }));
     const { container } = mount();
     expect(screen.queryByTestId("seat-strip-pick-1")).toBeNull();
+    expect(screen.queryAllByRole("button", { name: /as the opponent$/ })).toHaveLength(0);
     const card = container.querySelector("[data-zones='1:4:0']")!;
     await act(async () => {
       fireEvent.click(card.querySelector("button") ?? card);
       fireEvent.keyDown(window, { key: "1" });
     });
     expect(screen.queryByRole("menu")).toBeNull();
+    expect(state.send).not.toHaveBeenCalled();
+  });
+
+  it.each(["eliminated", "pendingElimination"] as const)("hides stale own-card actions while %s", async (out) => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map((seat) => ({ ...seat, [out]: seat.seat === 0 }));
+    const { container } = mount();
+    const card = container.querySelector("[data-zones='0:2:0']")!;
+    expect(card).not.toBeNull();
+    await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Battle Phase" })).toBeNull();
     expect(state.send).not.toHaveBeenCalled();
   });
 
