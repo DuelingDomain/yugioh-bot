@@ -91,3 +91,7 @@ Tag cards owned by a different duelist still need the real-owner API, including 
 ## Pin Baller LP compare
 
 Gold Pride - Pin Baller (28497830) used folded players in a global protection callback. After Solemn Strike paid its cost, the callback could compare a number with nil for a later seat. Its overlay stores the real own and picked-opponent keys when the target is set, then reads current LP with those keys. Live proof: `pin-baller-lp.ts`. All six stock cases fail with the Lua error. All six fixed cases pass on both cores, for lower and higher LP after the cost.
+
+## Lucky Cloud state
+
+Lucky Cloud (82760689) mixed Cloudian summon names from different FFA seats. It now stores a separate group and repeat flag for each seat or Tag team. Live proof: `lucky-cloud-state.ts`. Three stock cross-seat cases draw wrongly; four own and Tag-partner controls pass. All seven fixed cases pass on both cores.

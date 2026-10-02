@@ -4693,6 +4693,15 @@
       "stockSha256": "4c3a10e09be6aad83b8fdecfe1080c3d74548dad8df73cb33244a7266a023aef"
     },
     {
+      "code": 82760689,
+      "file": "c82760689.lua",
+      "name": "Lucky Cloud",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "807ab9475cb8e96d0c1c4ccd8ec535b07ccada3645196f25ce9bd169b017d2d7",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 83054225,
       "file": "c83054225.lua",
       "name": "Scramble!! Scramble!!",
