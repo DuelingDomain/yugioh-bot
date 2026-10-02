@@ -215,14 +215,14 @@ const states = {
     phase: "battle",
     battleStep: "battle",
     edit: (seats) => {
-      seats[ROOK].monsters = seats[ROOK].monsters.map(() => null);
+      for (const seat of FOES) seats[seat].monsters.fill(null);
     },
     prompt: () => ({
       id: "direct-attack",
       seat: ASTER,
       kind: "choice",
       title: "Select a duelist to attack",
-      options: [{ id: `direct-${ROOK}`, label: `Attack ${NAMES[ROOK]} directly`, controller: ROOK }],
+      options: FOES.map((seat) => ({ id: `direct-${seat}`, label: `Attack Player ${seat + 1} directly`, controller: seat })),
     }),
     ui: { aim: { mode: "aim", from: attackerKey, to: { lpSeat: ROOK } } },
   }),

@@ -201,6 +201,11 @@
 .slot[data-slot="prompt"] :global([data-prompt-panel] [data-testid="priority-chips"]) {
   flex-wrap: wrap;
 }
+/* Three rival choices grow down into the left lane, below its LP and beside your monsters. */
+.board[data-format="ffa4"] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
+  inset: 58% auto auto 10px;
+  max-height: 30%;
+}
 
 /*
  * A rival's hand backs hang off the owner's back edge. In a 1v1 they tuck half behind the field; on a table of 3 or
