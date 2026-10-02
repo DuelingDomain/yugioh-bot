@@ -483,7 +483,7 @@ export function TableShell({
             />
           </div>
         </section>
-        {masterRail ? (
+        {masterRail && !narrow ? (
           <aside className={roomStyles.masters} aria-label="Deck Masters">
             {masterRail}
             <CameraControls {...cameraProps} variant="panel" />

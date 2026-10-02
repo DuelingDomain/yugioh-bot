@@ -35,6 +35,7 @@ describe("table phone panes", () => {
     expect(within(bar).getAllByRole("button").map((node) => node.textContent)).toEqual(["Card", "Log", "Settings", "Masters"]);
     fireEvent.click(within(bar).getByRole("button", { name: "Masters" }));
     expect(screen.getByRole("dialog", { name: "Deck Masters" }).querySelector("[data-master-dock]")).not.toBeNull();
+    expect(document.querySelectorAll("[data-master-dock='0']")).toHaveLength(1);
   });
 
   it("leaves Masters out for Standard tables", () => {
