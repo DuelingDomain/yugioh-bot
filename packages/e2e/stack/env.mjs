@@ -35,7 +35,8 @@ export const players = [
 ];
 
 export const dbPath = resolve(stackDir, "e2e.sqlite");
-export const cardImageDir = resolve(stackDir, "card-images");
+// Keep stub images out of the manual cache even when switching modes without cleanup.
+export const cardImageDir = resolve(stackDir, manualMode ? "manual-card-images" : "card-images");
 /** Where the multi-seat preset runs write their evidence. `.status/` is outside git. */
 export const multiStatusDir = resolve(repoRoot, ".status/e2e-multi");
 

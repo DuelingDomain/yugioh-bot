@@ -176,6 +176,10 @@ run("web", process.execPath, ["server.js"], {
     // Stub inputs: these fake ids count as guild members.
     E2E_STUB_GUILD_ID: guildId,
     E2E_STUB_MEMBER_IDS: players.map((player) => player.discordId).join(","),
+    E2E_MANUAL: manualMode ? "1" : "0",
+    E2E_CARD_IMAGE_SOURCE_DIR: manualMode
+      ? (process.env.CARD_IMAGE_CACHE_DIR ?? "/home/sulman633/repos/yugioh-bot/data/card-images")
+      : "",
     WS_INTERNAL_URL: wsInternal,
     WS_INTERNAL_SECRET: secrets.ws,
     DUEL_INTERNAL_URL: `http://127.0.0.1:${ports.duel}`,
