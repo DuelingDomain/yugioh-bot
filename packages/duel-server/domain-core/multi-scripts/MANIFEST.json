@@ -2949,7 +2949,7 @@
       ],
       "r2Class": "FLAG-L0",
       "stockSha256": "55e379ce353b1668d24d4f1e81075386643251ec9b2c2ee4fc85857951caefa8",
-      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+      "note": "The global monster destruction flag reaches every living seat. Read the flag of the holder. A separate global Adjust records the actual turn seat; the Deck branch compares it with the current controller, including an exchanged card and a Tag partner. Announce the branch to every opponent without asking for one."
     },
     {
       "code": 52350806,
