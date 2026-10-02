@@ -46,27 +46,32 @@ function lightExtras(): number[] {
   } finally { db.close(); }
 }
 
-let divineBeastData: string | undefined;
+const divineData: Partial<Record<"attribute" | "beast", string>> = {};
 
-function divineBeastFixture(): string {
-  if (divineBeastData) return divineBeastData;
-  divineBeastData = mkdtempSync(join(tmpdir(), "domain-divine-beast-"));
-  copyFileSync(join(DATA, "cards.cdb"), join(divineBeastData, "cards.cdb"));
-  symlinkSync(join(DATA, "strings.conf"), join(divineBeastData, "strings.conf"));
-  symlinkSync(join(DATA, "card-scripts"), join(divineBeastData, "card-scripts"), "dir");
-  const db = new Database(join(divineBeastData, "cards.cdb"));
+function divineFixture(kind: "attribute" | "beast"): string {
+  const cached = divineData[kind];
+  if (cached) return cached;
+  const fixture = mkdtempSync(join(tmpdir(), `domain-divine-${kind}-`));
+  divineData[kind] = fixture;
+  copyFileSync(join(DATA, "cards.cdb"), join(fixture, "cards.cdb"));
+  symlinkSync(join(DATA, "strings.conf"), join(fixture, "strings.conf"));
+  symlinkSync(join(DATA, "card-scripts"), join(fixture, "card-scripts"), "dir");
+  const db = new Database(join(fixture, "cards.cdb"));
   try {
-    // All official Divine-Beasts also have Divine Attribute. Use a private WATER
-    // Obelisk to test the Type rule without the Attribute rule hiding a failure.
-    expect(db.prepare("UPDATE datas SET attribute = 2 WHERE id = ?").run(OBELISK).changes).toBe(1);
+    // Private WATER / Divine-Beast and Divine / Dragon copies isolate each rule.
+    // None of the three test Deck Masters has WATER Attribute or Dragon Type.
+    const update = kind === "beast"
+      ? "UPDATE datas SET attribute = 2 WHERE id = ?"
+      : "UPDATE datas SET attribute = 64, race = 8192 WHERE id = ?";
+    expect(db.prepare(update).run(OBELISK).changes).toBe(1);
   } finally {
     db.close();
   }
-  return divineBeastData;
+  return fixture;
 }
 
 afterAll(() => {
-  if (divineBeastData) rmSync(divineBeastData, { recursive: true, force: true });
+  for (const fixture of Object.values(divineData)) rmSync(fixture, { recursive: true, force: true });
 });
 
 for (const table of ["1v1", "ffa3", "ffa4", "tag"] as const) {
@@ -163,7 +168,17 @@ for (const table of ["1v1", "ffa3", "ffa4", "tag"] as const) {
     });
 
     it.each([DARK_MAGICIAN, AXE_RAIDER, CYBER_DRAGON])("admits Divine-Beast alone with unrelated Deck Master %i", master => {
-      const fixture = divineBeastFixture();
+      const fixture = divineFixture("beast");
+      const valid = deck([OBELISK], [], master);
+      expect(inspectDeck("domain", valid, fixture, settings, { table }).issues).toEqual([]);
+      expect(() => validateDeck("domain", valid, fixture, settings, { table })).not.toThrow();
+      expect(inspectDeck("domain", deck([GAGAGIGO], [], master), fixture, settings, { table }).issues).toEqual([
+        { message: expect.stringContaining("outside the Deck Master's Domain"), cards: [expect.objectContaining({ section: "main", index: 0, code: GAGAGIGO })] },
+      ]);
+    });
+
+    it.each([DARK_MAGICIAN, AXE_RAIDER, CYBER_DRAGON])("admits Divine Attribute alone with unrelated Deck Master %i", master => {
+      const fixture = divineFixture("attribute");
       const valid = deck([OBELISK], [], master);
       expect(inspectDeck("domain", valid, fixture, settings, { table }).issues).toEqual([]);
       expect(() => validateDeck("domain", valid, fixture, settings, { table })).not.toThrow();
