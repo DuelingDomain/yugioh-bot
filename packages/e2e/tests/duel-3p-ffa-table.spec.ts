@@ -169,7 +169,12 @@ test.describe("FFA3 real-engine table rules", () => {
     const errors = collectTableErrors(alice.page);
     const slug = await startTablePreset(alice.page, "ffa3-mind-crush-pick");
     await expectRealCore(alice.page, slug, "scripted", info);
-    // The pre-set preset Trap is offered in the first draw response window.
+    // Standard MR5 skips the turn-1 draw; this preset's Trap is offered on the human's next draw.
+    await endTurn(alice.page, 4);
+    await expect.poll(async () => (await readTableTrace(alice.page, slug)).promptLog.some((entry) =>
+      entry.turn === 4 && entry.promptSeat === 0 && entry.promptType === "chain" &&
+      entry.options.some((option) => option.card?.name === "Mind Crush"),
+    )).toBe(true);
     await activateSingleResponse(alice.page);
     for (const seat of [1, 2]) await expect(alice.page.getByTestId(`holo-pick-${seat}`)).toBeVisible();
     await expect(alice.page.getByTestId("holo-pick-0")).toHaveCount(0);

@@ -15,7 +15,7 @@ export const preset: Preset = {
   },
   bots: { 1: [], 2: [] },
   checklist: [
-    "The first draw opens a response window for the pre-set Trap.",
+    "End the first turn. Your next draw on turn 4 opens a response window for the pre-set Trap.",
     "Activate Mind Crush and pick seat 2. Name Sangan.",
     "Only seat 2 discards Sangan; seat 1 keeps Sangan and has an empty Graveyard.",
   ],
