@@ -70,8 +70,13 @@ const FIELD = new Set<number>([OcgLocation.MZONE, OcgLocation.SZONE]);
 /** Places a face-up card can leave from with its name known to the table. */
 const FACE_UP_PUBLIC = new Set<number>([OcgLocation.MZONE, OcgLocation.SZONE, OcgLocation.REMOVED, OcgLocation.EXTRA]);
 
+/** Domain's Deck Master Zone: the core reports it as location 0 (views.ts LOCATION_DECKMASTER is 0x4000). */
+function fromDeckMaster(location: number): boolean {
+  return location === 0 || location === 0x4000;
+}
+
 function leavesPublicly(from: MoveMessage["from"]): boolean {
-  if (from.location === OcgLocation.GRAVE) return true;
+  if (from.location === OcgLocation.GRAVE || fromDeckMaster(from.location)) return true;
   return FACE_UP_PUBLIC.has(from.location) && !isFaceDown(from.position);
 }
 
@@ -96,7 +101,7 @@ export function destroyedLogText(cards: CardDatabase, code: number): string {
  */
 export function moveLogLines(message: MoveMessage, cards: CardDatabase): LogLine[] {
   const { from, to } = message;
-  if (!from.location || !to.location) return [];
+  if (!to.location) return [];
   if (from.controller === to.controller && from.location === to.location) return [];
   const name = () => nameOf(cards, message.card);
   const fromField = FIELD.has(from.location);

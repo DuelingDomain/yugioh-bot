@@ -105,6 +105,13 @@ describe("move log lines", () => {
     expect(moveLogLines(move(3, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.DECK, 0, OcgPosition.FACEDOWN_DEFENSE)), cards)).toEqual([]);
   });
 
+  it("names a Deck Master leaving the Deck Master Zone, which the core reports as location 0", () => {
+    const master = at(0, 0 as OcgLocation, 0);
+    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.GRAVE, 0)), cards), 1)).toEqual(["Stardust Dragon was sent to the Graveyard"]);
+    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.REMOVED, 0)), cards), null)).toEqual(["Stardust Dragon was banished"]);
+    expect(seen(moveLogLines(move(1, master, at(0, OcgLocation.HAND, 0)), cards), 1)).toEqual(["Stardust Dragon was added to Player 1's hand"]);
+  });
+
   it("says nothing for field arrivals and moves within one place", () => {
     expect(moveLogLines(move(1, at(0, OcgLocation.EXTRA, 0, OcgPosition.FACEDOWN_DEFENSE), field), cards)).toEqual([]);
     expect(moveLogLines(move(1, at(0, OcgLocation.GRAVE, 1), grave), cards)).toEqual([]);
