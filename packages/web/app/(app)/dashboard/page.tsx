@@ -1,14 +1,13 @@
 import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Trophy, Layers, Swords, TrendingUp, ArrowRight, Target, Flame, Star, Coins } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { TournamentCard, type TournamentCardProps } from "@/components/tournament/tournament-card";
-import { DraftCard, type DraftCardProps } from "@/components/draft/draft-card";
+import { SheetRoot } from "@/components/sheet";
+import { DraftRow, TournamentRow, type DashboardDraft, type DashboardTournament } from "@/components/dashboard/dashboard-rows";
+import { YourStanding, type StandingProfile } from "@/components/dashboard/your-standing";
+import { WelcomePanel } from "@/components/dashboard/welcome-panel";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { createScoringService } from "@yugidraft/shared/services";
-import { RankBadge } from "@/components/rank/rank-badge";
 
 interface Stats {
   wins: number;
@@ -27,14 +26,12 @@ export default async function DashboardPage() {
     .all(discordUserId, env.discordGuildId) as Array<{ id: number; guild_id: string }>;
   const playerIds = playerRows.map((r) => r.id);
 
-  let tournaments: TournamentCardProps[] = [];
-  let drafts: DraftCardProps[] = [];
+  let tournaments: DashboardTournament[] = [];
+  let drafts: DashboardDraft[] = [];
   let stats: Stats = { wins: 0, losses: 0 };
 
   // Profile stats (winnings / rank / streak) — only if this user has a player row
-  let seasonWinnings: number | null = null;
-  let rankName: string | null = null;
-  let currentStreak: number | null = null;
+  let profileData: StandingProfile | null = null;
 
   if (playerIds.length > 0) {
     // Use first player row (single-guild assumption on dashboard)
@@ -43,9 +40,12 @@ export default async function DashboardPage() {
       try {
         const scoring = createScoringService(db);
         const profile = scoring.getProfile(firstPlayer.guild_id, firstPlayer.id, "season");
-        seasonWinnings = profile.winnings;
-        rankName = profile.rank.name;
-        currentStreak = profile.currentStreak;
+        profileData = {
+          rating: profile.rating,
+          rank: profile.rank,
+          winnings: profile.winnings,
+          currentStreak: profile.currentStreak,
+        };
       } catch {
         // No player_ratings row yet — leave nulls, show dashes
       }
@@ -125,110 +125,59 @@ export default async function DashboardPage() {
     stats = { wins: statsRow?.wins ?? 0, losses: statsRow?.losses ?? 0 };
   }
 
-  const totalGames = stats.wins + stats.losses;
-  const winRate = totalGames > 0 ? Math.round((stats.wins / totalGames) * 100) : 0;
+  const hasPlayer = playerIds.length > 0;
+  const today = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 
   return (
-    <div>
-      <h1 className="mb-8 font-display text-2xl text-text-primary sm:text-3xl">Dashboard</h1>
-
-      <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard icon={<Trophy className="h-5 w-5 text-accent-gold" />} label="Wins" value={stats.wins} />
-        <StatCard icon={<Target className="h-5 w-5 text-accent-cta" />} label="Losses" value={stats.losses} />
-        <StatCard icon={<Swords className="h-5 w-5 text-accent-primary" />} label="Matches" value={totalGames} />
-        <StatCard icon={<TrendingUp className="h-5 w-5 text-accent-success" />} label="Win Rate" value={`${winRate}%`} />
-        <StatCard
-          icon={<Coins className="h-5 w-5 text-accent-gold" />}
-          label="Season Winnings"
-          value={seasonWinnings !== null ? seasonWinnings : "—"}
-        />
-        <StatCard
-          icon={<Star className="h-5 w-5 text-accent-primary" />}
-          label="Rank"
-          value={rankName !== null ? <RankBadge rank={rankName} /> : "—"}
-        />
-        <StatCard
-          icon={
-            currentStreak !== null && currentStreak > 0
-              ? <Flame className="h-5 w-5 text-accent-cta" />
-              : <TrendingUp className="h-5 w-5 text-text-muted" />
-          }
-          label="Win Streak"
-          value={currentStreak !== null ? currentStreak : "—"}
-        />
-      </div>
-
-      <section className="mb-8">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 font-body text-lg font-semibold text-text-primary">
-            <Trophy className="h-5 w-5 text-accent-gold" />
-            Your Tournaments
-          </h2>
-          <Link href="/tournaments">
-            <Button variant="ghost" size="sm">
-              View All
-              <ArrowRight className="ml-1 h-4 w-4" />
-            </Button>
-          </Link>
+    <SheetRoot>
+      <header className="page-h sheet-head">
+        <div>
+          <h1 className="t-title">Dashboard</h1>
+          {hasPlayer && <p className="page-sub">{today}</p>}
         </div>
-        {tournaments.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface p-6 text-center">
-            <p className="text-text-secondary">No active tournaments. Join one from Discord!</p>
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {tournaments.map((t) => (
-              <TournamentCard key={t.id} tournament={t} />
-            ))}
-          </div>
-        )}
-      </section>
+      </header>
 
-      <section>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 font-body text-lg font-semibold text-text-primary">
-            <Layers className="h-5 w-5 text-accent-primary" />
-            Your Drafts
-          </h2>
-          <Link href="/drafts">
-            <Button variant="ghost" size="sm">
-              View All
-              <ArrowRight className="ml-1 h-4 w-4" />
-            </Button>
-          </Link>
+      {!hasPlayer ? (
+        <WelcomePanel />
+      ) : (
+        <div className="db">
+          <YourStanding profile={profileData} record={stats} />
+          <div className="db-cols">
+            <section aria-label="Your tournaments">
+              <div className="sec-h">
+                <h2 className="sec-t">Your tournaments</h2>
+                <Link className="link sec-aux" href="/tournaments">All tournaments</Link>
+              </div>
+              <div className="db-list">
+                {tournaments.length === 0 ? (
+                  <p className="db-none">
+                    You&apos;re not in a tournament right now. <Link className="link" href="/tournaments">See what&apos;s open</Link> or use{" "}
+                    <code className="cmd">/event join</code>.
+                  </p>
+                ) : (
+                  tournaments.map((t) => <TournamentRow key={t.id} tournament={t} />)
+                )}
+              </div>
+            </section>
+            <section aria-label="Your drafts">
+              <div className="sec-h">
+                <h2 className="sec-t">Your drafts</h2>
+                <Link className="link sec-aux" href="/drafts">All drafts</Link>
+              </div>
+              <div className="db-list">
+                {drafts.length === 0 ? (
+                  <p className="db-none">
+                    You&apos;re not in a draft right now. <Link className="link" href="/drafts">See what&apos;s open</Link> or use{" "}
+                    <code className="cmd">/draft join</code>.
+                  </p>
+                ) : (
+                  drafts.map((d) => <DraftRow key={d.id} draft={d} />)
+                )}
+              </div>
+            </section>
+          </div>
         </div>
-        {drafts.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface p-6 text-center">
-            <p className="text-text-secondary">No active drafts. Join one from Discord!</p>
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {drafts.map((d) => (
-              <DraftCard key={d.id} draft={d} />
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-surface p-4">
-      <div className="mb-2 flex items-center gap-2">
-        {icon}
-        <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">{label}</span>
-      </div>
-      <div className="font-display text-2xl text-text-primary">{value}</div>
-    </div>
+      )}
+    </SheetRoot>
   );
 }
