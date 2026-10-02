@@ -246,6 +246,11 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
       built.prompt.target = summon.level;
       built.prompt.sumMode = "exact";
       built.prompt.source = sourceOf(cards, summon.code, built.seat, zoneRef(summon));
+      // A material with its own Synchro Level (Road Synchron) adds a value the core does not report.
+      for (const option of built.prompt.options) {
+        const code = option.card?.code;
+        if (code && cards.readScript(`c${code}.lua`)?.includes("EFFECT_SYNCHRO_LEVEL")) option.synchroLevelVaries = true;
+      }
     }
     if (!built.prompt.source && extras?.hintCard) {
       const source = sourceOf(cards, extras.hintCard, built.seat);

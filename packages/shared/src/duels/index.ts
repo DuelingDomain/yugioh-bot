@@ -188,6 +188,8 @@ export interface DuelPromptOption {
   values?: number[];
   /** Current Level from this viewer's card projection; takes precedence over the printed Level. */
   currentLevel?: number;
+  /** The card counts as another Level for a Synchro Summon (EFFECT_SYNCHRO_LEVEL), so its Level is not its contribution. */
+  synchroLevelVaries?: boolean;
   max?: number;
   selected?: boolean;
   /** Full printed text of the card this option is bound to (absent when the card is hidden from the viewer). */

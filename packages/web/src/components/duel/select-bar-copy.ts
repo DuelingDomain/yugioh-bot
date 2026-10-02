@@ -104,30 +104,29 @@ function sumValuesMet(contributions: number[][], target: number, mode: DuelPromp
 }
 
 /**
- * The core's rule for an "at least" sum (Group.SelectWithSumGreater): the group reaches the target and
- * drops below it without its smallest card, so no card is spare. Each card takes one of its engine values.
+ * The core's check for an "at least" sum (playerop.cpp, SELECT_SUM with select_max), over required and chosen
+ * cards alike: the highest values reach the target, and the lowest values minus the smallest one do not.
  */
 function minimalSumMet(contributions: number[][], target: number): boolean {
-  // States are (total, smallest value so far); totals past the target only matter through that smallest value.
-  let states = new Map<string, [number, number]>([["0:Infinity", [0, Infinity]]]);
+  if (contributions.length === 0) return false;
+  let highest = 0;
+  let lowest = 0;
+  let smallest = Infinity;
   for (const values of contributions) {
-    const next = new Map<string, [number, number]>();
-    for (const [total, smallest] of states.values()) {
-      for (const value of values) {
-        const state: [number, number] = [total + value, Math.min(smallest, value)];
-        next.set(state.join(":"), state);
-      }
-    }
-    states = next;
+    const real = values.filter((value) => value > 0);
+    const low = real.length ? Math.min(...real) : 0;
+    highest += values.length ? Math.max(...values) : 0;
+    lowest += low;
+    smallest = Math.min(smallest, low);
   }
-  for (const [total, smallest] of states.values()) {
-    if (contributions.length > 0 && total >= target && total - smallest < target) return true;
-  }
-  return false;
+  return highest >= target && lowest - smallest < target;
 }
 
 export function synchroSelectionValues(prompt: DuelPrompt): Pick<BarCopyInput, "total"> {
-  const levels = prompt.options.filter((option) => option.selected).map((option) => option.currentLevel ?? option.card?.level);
+  const selected = prompt.options.filter((option) => option.selected);
+  // Without the engine's contribution a total would be wrong; the counter falls back to the selected count.
+  if (selected.some((option) => option.synchroLevelVaries)) return { total: undefined };
+  const levels = selected.map((option) => option.currentLevel ?? option.card?.level);
   return { total: levels.every((level) => level != null) ? levels.reduce<number>((sum, level) => sum + level!, 0) : undefined };
 }
 

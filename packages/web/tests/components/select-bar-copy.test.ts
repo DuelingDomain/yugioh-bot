@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectBarCopy, sumSelectionValues, type BarCopyInput } from "@/components/duel/select-bar-copy";
+import { selectBarCopy, sumSelectionValues, synchroSelectionValues, type BarCopyInput } from "@/components/duel/select-bar-copy";
 import type { DuelPrompt } from "@yugidraft/shared/duels";
 
 function copy(overrides: Partial<BarCopyInput> = {}) {
@@ -199,14 +199,42 @@ describe("sumSelectionValues", () => {
     expect(met(ritual, ["c0", "c1", "c2"])).toBe(false);
   });
 
-  it("tries each alternative value for an at-least sum", () => {
+  it("checks alternative values the way the core does: highest values reach, lowest values have no spare", () => {
     expect(met(sum(4, "at-least", [[1, 3], [2]]), ["c0", "c1"])).toBe(true);
     expect(met(sum(4, "at-least", [[1, 5], [4]]), ["c0", "c1"])).toBe(false);
+    // 6 + 1 reaches 5, and 2 + 1 - 1 stays under it: the core accepts, though no single assignment has no spare.
+    expect(met(sum(5, "at-least", [[2, 6], [1]]), ["c0", "c1"])).toBe(true);
+  });
+
+  it("counts required cards in the at-least check, as the core does", () => {
+    // The core takes the smallest value over required and chosen cards together: a required 1 makes the chosen 4 spare.
+    const required = sum(4, "at-least", [[1], [4]]);
+    expect(met(required, ["c0", "c1"])).toBe(false);
+    expect(met(required, ["c0"])).toBe(false);
   });
 
   it("meets an exact sum only on the target", () => {
     const synchro = sum(7, "exact", [[3], [4], [2]]);
     expect(met(synchro, ["c0", "c1"])).toBe(true);
     expect(met(synchro, ["c0", "c2"])).toBe(false);
+  });
+});
+
+describe("synchroSelectionValues", () => {
+  const toggle = (options: Array<{ level: number; selected?: boolean; varies?: boolean }>): DuelPrompt => ({
+    id: "p", seat: 0, kind: "toggle", title: "Select the Synchro Material", target: 6, sumMode: "exact",
+    options: options.map((entry, index) => ({ id: `c${index}`, label: `Card ${index}`, currentLevel: entry.level,
+      selected: entry.selected, synchroLevelVaries: entry.varies })),
+  } as DuelPrompt);
+
+  it("sums the selected materials' current Levels", () => {
+    expect(synchroSelectionValues(toggle([{ level: 4, selected: true }, { level: 2, selected: true }, { level: 3 }])).total).toBe(6);
+  });
+
+  it("gives no total once a material with its own Synchro Level is selected, so the count shows instead", () => {
+    const prompt = toggle([{ level: 4, selected: true, varies: true }, { level: 4 }]);
+    expect(synchroSelectionValues(prompt).total).toBeUndefined();
+    expect(selectBarCopy({ kind: "toggle", title: prompt.title, min: 1, max: 1, count: 1, target: 6, sumMode: "exact",
+      ...synchroSelectionValues(prompt) }).counter).toBe("1 selected");
   });
 });

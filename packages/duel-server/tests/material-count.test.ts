@@ -18,6 +18,19 @@ describe("material-count: stock-core summon prompt evidence", () => {
     expect(result.completedView.prompt?.target).toBeUndefined();
   });
 
+  it("flags a material whose Synchro Level differs from its Level (Road Synchron counts as 2)", async () => {
+    const scenario = { kind: "synchro", monster: "Stardust Charge Warrior", materials: ["Photon Thrasher", "Road Synchron"] } as const;
+    const result = await runMaterialCountScenario(scenario as unknown as typeof materialCountScenarios[number]);
+    expect(result.prompts.length).toBeGreaterThan(0);
+    for (const prompt of result.prompts) {
+      expect(prompt).toMatchObject({ kind: "toggle", target: 6, sumMode: "exact", source: { name: "Stardust Charge Warrior" } });
+      const road = prompt.options.find((option) => option.card?.name === "Road Synchron");
+      if (road) expect(road.synchroLevelVaries).toBe(true);
+      expect(prompt.options.find((option) => option.card?.name === "Photon Thrasher")?.synchroLevelVaries).toBeUndefined();
+    }
+    expect(result.prompts.some((prompt) => prompt.options.some((option) => option.card?.name === "Road Synchron"))).toBe(true);
+  });
+
   it("rejects Ritual at Level 2, retains the same prompt, then accepts Level 2 + 3", async () => {
     let checked = false;
     const scenario = materialCountScenarios.find((entry) => entry.kind === "ritual")!;
