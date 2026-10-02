@@ -28,11 +28,12 @@ describe("DuelCreator Domain rule", () => {
     expect(note.textContent).toContain("First-turn draws follow the selected Master Rule.");
   });
 
-  it.each([5, 3])("explains the first-turn draw for Domain MR%s", (masterRule) => {
+  it.each([5, 3])("does not promise a first-turn draw for an unpinned 1v1 Domain MR%s table", (masterRule) => {
     render(<DuelCreator multiplayerTables />);
     fireEvent.click(screen.getByLabelText("Domain"));
     fireEvent.change(screen.getByLabelText("Master Rules"), { target: { value: String(masterRule) } });
-    expect(screen.getByRole("status").textContent).toContain("In Domain, every duelist draws on their first turn.");
+    expect(screen.getByRole("status").textContent).not.toContain("every duelist draws");
+    expect(screen.getByRole("status").textContent).toContain("First-turn draws follow the selected Master Rule.");
   });
 
   it("offers Standard and Domain at a 1v1 table", () => {
@@ -78,6 +79,7 @@ describe("DuelCreator Domain rule", () => {
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: format } });
     expect(screen.getByLabelText("Domain")).toBeTruthy();
     expect(screen.queryByTestId("domain-blocked")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("In Domain, every duelist draws on their first turn.");
     fireEvent.click(screen.getByRole("button", { name: /Create game/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ format, mode: "domain", settings: { validateDeck: true, startingLP: 8000, stopAtEveryWindow: true } });
