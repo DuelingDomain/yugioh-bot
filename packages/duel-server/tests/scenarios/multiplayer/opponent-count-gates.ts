@@ -1,4 +1,4 @@
-import { activate, defineScenario, expectBoard, expectNotOffered, select, specialSummon, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, defineScenario, expectBoard, expectNotOffered, pickOpponent, select, specialSummon, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
 const SEATS: DuelistId[] = ["p0", "p1", "p2", "p3"];
 const HANDS = ["Giant Rat", "Battle Ox", "Axe Raider", "Silver Fang"];
 export const COUNT_GATE_CARDS = { cannons: 25096909, linkerbell: 54635100, pendransaction: 58720904, asset: 98520301 } as const;
@@ -19,20 +19,22 @@ function countGate(kind: CountGate, format: "1v1" | "ffa3" | "ffa4" | "tag", noO
     setup.p0!.spells = [{ card: NAMES[kind], pos: "set" }];
     setup.p0!.extra = [xyz, xyz, noOpponent ? "Giltia the D. Knight" : "Karbonala Warrior"];
     for (let i = 0; i < count; i++) {
-      setup[SEATS[i]]!.hand = Array<string>(i === 0 ? (count === 3 ? 2 : 1) : count === 3 ? 3 : 2).fill(HANDS[i]);
-      board[SEATS[i]]!.hand = setup[SEATS[i]]!.hand;
+      const hand = Array<string>(i === 0 ? (count === 3 ? 2 : 1) : count === 3 ? 3 : 2).fill(HANDS[i]);
+      setup[SEATS[i]]!.hand = hand;
+      board[SEATS[i]]!.hand = hand;
     }
     if (noOpponent) { board.p0!.spells = [NAMES[kind]]; board.p0!.extra = setup.p0!.extra; }
-    else { board.p0!.grave = [NAMES[kind]]; board.p0!.banished = setup.p0!.extra; steps.push(activate(NAMES[kind], "p0"), select(...setup.p0!.extra)); }
+    else { board.p0!.grave = [NAMES[kind]]; board.p0!.banished = setup.p0!.extra; steps.push(activate(NAMES[kind], "p0"), ...(format === "1v1" ? [] : [pickOpponent(last, "p0")]), select(...setup.p0!.extra)); }
   } else if (kind === "linkerbell") {
-    setup.p0!.monsters = ["Mystical Elf", "Giant Rat"];
+    const materials = ["Mystical Elf", "Giant Rat"];
+    setup.p0!.monsters = materials;
     setup.p0!.extra = [NAMES[kind], ...Array<string>(3).fill("Number 39: Utopia")];
     for (let i = 1; i < count; i++) {
       setup[SEATS[i]]!.extra = Array<string>(i === count - 1 && !noOpponent ? 1 : 2).fill("Number 39: Utopia");
       board[SEATS[i]]!.extra = setup[SEATS[i]]!.extra;
     }
-    if (noOpponent) { board.p0!.monsters = setup.p0!.monsters; board.p0!.extra = setup.p0!.extra; }
-    else { board.p0!.monsters = [NAMES[kind]]; board.p0!.grave = ["Mystical Elf", "Giant Rat"]; board.p0!.extra = Array<string>(3).fill("Number 39: Utopia"); steps.push(specialSummon(NAMES[kind], "p0"), select({ card: "Mystical Elf", owner: "p0" }, { card: "Giant Rat", owner: "p0" })); }
+    if (noOpponent) { board.p0!.monsters = materials; board.p0!.extra = setup.p0!.extra; }
+    else { board.p0!.monsters = [NAMES[kind]]; board.p0!.grave = materials; board.p0!.extra = Array<string>(3).fill("Number 39: Utopia"); steps.push(specialSummon(NAMES[kind], "p0"), select({ card: "Mystical Elf", owner: "p0" }, { card: "Giant Rat", owner: "p0" })); }
   } else if (kind === "pendransaction") {
     setup.p0!.monsters = [{ card: NAMES[kind], materials: ["Mystical Elf"] }];
     setup.p0!.extra = Array<string>(2).fill("Number 39: Utopia");
@@ -44,9 +46,11 @@ function countGate(kind: CountGate, format: "1v1" | "ffa3" | "ffa4" | "tag", noO
     if (!noOpponent) { board.p0!.grave = ["Mystical Elf"]; steps.push(activate(NAMES[kind], "p0")); }
   } else {
     setup.p0!.monsters = [NAMES[kind]]; board.p0!.monsters = [NAMES[kind]];
-    setup.p0!.hand = Array<string>(format === "tag" && !noOpponent ? 9 : 3).fill(HANDS[0]); board.p0!.hand = setup.p0!.hand;
+    const hand = Array<string>(format === "tag" && !noOpponent ? 9 : 3).fill(HANDS[0]);
+    setup.p0!.hand = hand; board.p0!.hand = hand;
     for (let i = 1; i < count; i++) {
-      setup[SEATS[i]]!.hand = Array<string>(i === count - 1 && !noOpponent ? 1 : 6).fill(HANDS[i]); board[SEATS[i]]!.hand = setup[SEATS[i]]!.hand;
+      const otherHand = Array<string>(i === count - 1 && !noOpponent ? 1 : 6).fill(HANDS[i]);
+      setup[SEATS[i]]!.hand = otherHand; board[SEATS[i]]!.hand = otherHand;
     }
     if (!noOpponent) steps.push(activate(NAMES[kind], "p0"));
   }
