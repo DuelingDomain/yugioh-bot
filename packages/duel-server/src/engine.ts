@@ -742,6 +742,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // FFA: the duelist. Tag: the whole team loses its cards and turns.
       const lost = format === "tag" ? seatsOfTeam(format, teamOfSeat(format, raw.duelist)) : [raw.duelist];
       const newlyLost = lost.filter((seat) => !eliminated.has(seat));
+      // A queued surrender has its own place, also when no card-removal message separates losses.
+      if (queuedSurrenders.has(raw.duelist)) eliminationGroup = null;
       if (newlyLost.length) {
         if (!eliminationGroup) {
           eliminationGroup = [];
@@ -963,34 +965,28 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         throw new Error("This duel core has no Debug.EliminateDuelist");
       }
       if (atTurnEnd) {
-        // One operation flags every queued loss before Adjust checks the result.
+        // Each loss has one effect, in queue order. DELAY makes the core run Adjust
+        // after each operation, so the last living seat wins before its loss can run.
         // EVENT_TURN_END follows all End Phase actions, also when the turn ends early.
-        // Its effects are already collected at a turn-end prompt. A late queue flags the loss
-        // there, while the open prompt stays. The event's Adjust applies that loss.
         const script = `
-if Duel.GetCurrentPhase()==PHASE_END and Duel.CheckEvent(EVENT_TURN_END) then
-  Debug.EliminateDuelist(${seat},${reason})
-else
-  if not __yugidraft_surrender_eot then
-    __yugidraft_surrender_eot={}
-    local e=Effect.GlobalEffect()
-    e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
-    e:SetCode(EVENT_TURN_END)
-    e:SetOperation(function(effect)
-      local queue=__yugidraft_surrender_eot
-      __yugidraft_surrender_eot=nil
-      for p=0,${seatCount - 1} do
-        if queue[p] then
-          local ok,err=pcall(Debug.EliminateDuelist,p,queue[p])
-          if not ok and not tostring(err):find("Debug.EliminateDuelist: the duelist is not in the duel.",1,true) then error(err) end
-        end
-      end
-      effect:Reset()
-    end)
-    Duel.RegisterEffect(e,0)
-  end
-  __yugidraft_surrender_eot[${seat}]=${reason}
-end`;
+local late=Duel.GetCurrentPhase()==PHASE_END and Duel.CheckEvent(EVENT_TURN_END)
+local queue=__yugidraft_surrender_eot or {}
+__yugidraft_surrender_eot=queue
+table.insert(queue,${seat})
+local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetProperty(EFFECT_FLAG_DELAY)
+e:SetCountLimit(1)
+e:SetCode(late and EVENT_ADJUST or EVENT_TURN_END)
+if late then e:SetCondition(function() return queue[1]==${seat} end) end
+e:SetOperation(function(effect)
+  table.remove(queue,1)
+  if #queue==0 then __yugidraft_surrender_eot=nil end
+  local ok,err=pcall(Debug.EliminateDuelist,${seat},${reason})
+  if not ok and not tostring(err):find("Debug.EliminateDuelist: the duelist is not in the duel.",1,true) then error(err) end
+  effect:Reset()
+end)
+Duel.RegisterEffect(e,0)`;
         if (!lib.loadScript(handle, "duel-surrender-eot.lua", script)) {
           const detail = errors.join("; ");
           errors.length = 0;

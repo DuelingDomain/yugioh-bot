@@ -471,20 +471,101 @@ Duel.RegisterEffect(e,0)`]);
       expect(states(replayed.spectator)).toEqual(states(room.engine!));
     }, 60_000);
 
-    it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s applies two queued losses together", async (format) => {
+    it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s applies losses in queue order", async (format) => {
       const t = await table(mode, format);
       await t.view();
-      const losers = format === "ffa3" ? [1, 2] : [2, 3];
+      const losers = format === "ffa3" ? [2, 1] : [3, 2];
       for (const seat of losers) await t.post("surrender", seat);
       allIn(await t.view(), t.count);
       await t.answer(0, { choice: "to_ep" });
       allIn(await t.view(), t.count);
       await t.answer(0, { choice: "no" });
       const final = await t.view();
-      expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) => format === "tag" || losers.includes(seat) ? "out" : "in"));
-      if (format === "tag") expect(final.result?.winnerSeat).toBeNull();
-      else if (format === "ffa3") expect(final.result?.winnerSeat).toBe(0);
-      else expect(final).toMatchObject({ turn: 2, turnSeat: 1, result: null });
+      expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) =>
+        (format === "tag" ? teamOfSeat(format, seat) === 1 : losers.includes(seat)) ? "out" : "in"));
+      if (format === "tag") expect(final.result?.winnerSeat).toBe(0);
+      else {
+        expect(final.eliminationOrder).toEqual(losers.map((seat) => [seat]));
+        if (format === "ffa3") expect(final.result?.winnerSeat).toBe(0);
+        else expect(final).toMatchObject({ turn: 2, turnSeat: 1, result: null });
+      }
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(states(replayed.spectator)).toEqual(states(final));
+      expect(replayed.spectator.eliminationOrder).toEqual(final.eliminationOrder);
+    }, 60_000);
+
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s last in the queue wins", async (format) => {
+      const order = format === "ffa3" ? [2, 0, 1] : [3, 1, 0, 2];
+      const winner = order.at(-1)!;
+      const t = await table(mode, format, false, [`local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
+e:SetOperation(function() Duel.SelectYesNo(${winner},30) end)
+Duel.RegisterEffect(e,0)`]);
+      await t.view(winner);
+      for (const seat of order) await t.post("surrender", seat);
+      const final = await t.view(winner);
+      expect(final.result?.winnerSeat).toBe(winner);
+      expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === winner ? "in" : "out"));
+      expect(final.eliminationOrder).toEqual(order.slice(0, -1).map((seat) => [seat]));
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(states(replayed.spectator)).toEqual(states(final));
+      expect(replayed.spectator.eliminationOrder).toEqual(final.eliminationOrder);
+    }, 60_000);
+
+    it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s keeps queue order during a turn-end prompt", async (format) => {
+      const t = await table(mode, format, false, [`local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_TURN_END)
+e:SetOperation(function() Duel.SelectYesNo(0,30) end)
+Duel.RegisterEffect(e,0)`]);
+      await t.view();
+      await t.answer(0, { choice: "to_ep" });
+      await t.answer(0, { choice: "no" });
+      const order = format === "ffa3" ? [2, 1] : [3, 2];
+      for (const seat of order) await t.post("surrender", seat);
+      await t.answer(0, { choice: "no" });
+      const final = await t.view();
+      expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) =>
+        (format === "tag" ? teamOfSeat(format, seat) === 1 : order.includes(seat)) ? "out" : "in"));
+      if (format === "tag") expect(final.result?.winnerSeat).toBe(0);
+      else expect(final.eliminationOrder).toEqual(order.map((seat) => [seat]));
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(states(replayed.spectator)).toEqual(states(final));
+      expect(replayed.spectator.eliminationOrder).toEqual(final.eliminationOrder);
+    }, 60_000);
+
+    it("R-COMMON-SURRENDER-EOT: a late queue follows the earlier queues", async () => {
+      const t = await table(mode, "ffa4", false, [`local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_TURN_END)
+e:SetOperation(function() Duel.SelectYesNo(0,30) end)
+Duel.RegisterEffect(e,0)`]);
+      await t.view();
+      await t.post("surrender", 3);
+      await t.post("surrender", 2);
+      await t.answer(0, { choice: "to_ep" });
+      await t.answer(0, { choice: "no" });
+      await t.post("surrender", 1);
+      await t.answer(0, { choice: "no" });
+      const final = await t.view();
+      expect(final.result?.winnerSeat).toBe(0);
+      expect(states(final)).toEqual(["in", "out", "out", "out"]);
+      expect(final.eliminationOrder).toEqual([[3], [2], [1]]);
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(replayed.spectator.eliminationOrder).toEqual(final.eliminationOrder);
+    }, 60_000);
+
+    it("R-COMMON-SURRENDER-EOT: the first Tag team loses when its seat queues first", async () => {
+      const t = await table(mode, "tag");
+      await t.view();
+      await t.post("surrender", 2);
+      await t.post("surrender", 3);
+      await t.answer(0, { choice: "to_ep" });
+      await t.answer(0, { choice: "no" });
+      const final = await t.view(1);
+      expect(final.result?.winnerSeat).toBe(1);
+      expect(states(final)).toEqual(["out", "in", "out", "in"]);
       const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
       expect(states(replayed.spectator)).toEqual(states(final));
     }, 60_000);
