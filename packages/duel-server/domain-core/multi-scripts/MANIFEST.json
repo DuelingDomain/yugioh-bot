@@ -2959,6 +2959,15 @@
       ]
     },
     {
+      "code": 53039326,
+      "file": "c53039326.lua",
+      "name": "Iron Core Specimen Lab",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "0954e24a3c67732a6c16952f8059943e63a0416fd79c3a7c5380b734467af3c3",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 53244294,
       "file": "c53244294.lua",
       "name": "Number 57: Tri-Head Dust Dragon",

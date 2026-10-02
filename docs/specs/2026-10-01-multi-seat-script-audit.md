@@ -51,3 +51,7 @@ Criosphinx (18654201) represented returned monster owners with two bits. It now 
 Mecha Bunny (10110717) damaged a picked opponent instead of the actual target controller. Mimighoul Fork (19338434) gave two draws to a picked opponent instead of the sent card's owner. These overlays bind the target controller for damage and the controller of the Graveyard card for the owner's draw. Fork keeps the opponent's effect choice. Live proof: `owner-actions.ts`. The stock probe fails five of six outcomes; the fixed six cases pass on each core.
 
 The first Marron fix used one damage action per Tag team. The Q3 rule requires each living duelist. The corrected Tag scenarios fail that first fix (expected 14000, got 15000) and pass 4/4 on each core.
+
+## Global owner events
+
+Iron Core Specimen Lab (53039326) raised upkeep events only for owners 0 and 1. The global callback now puts each real owner in its own event. Live proof: `iron-core-owner.ts`. Three later-owner stock outcomes fail; three seat-1 controls pass. All six fixed cases pass on both cores.
