@@ -53,6 +53,7 @@ export interface PreviewHarnessProps {
   /** The route of this mode, for the state links (for example "/dev/table-preview/ffa3"). */
   basePath?: string;
   renderStage: PreviewStageRenderer;
+  tools?: ReactNode;
 }
 
 function useViewport(): { width: number; height: number } {
@@ -82,7 +83,7 @@ function HarnessBody({
 }
 
 /** The preview frame: a thin top bar (state links, camera hint, viewport size) and the stage under it. */
-export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage }: PreviewHarnessProps) {
+export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage, tools }: PreviewHarnessProps) {
   const query = useSearchParams();
   const reduced = query.get("reduced") === "1";
   const viewport = useViewport();
@@ -99,7 +100,8 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage 
   const state = set.states[activeId];
   const preview: PreviewContext = { cam: parsePreviewCam(cam), lock: parsePreviewLock(lock), viewport, reduced };
   const base = basePath ?? `/dev/table-preview/${set.format}`;
-  const suffix = [cam ? `cam=${encodeURIComponent(cam)}` : null, lock ? `lock=${encodeURIComponent(lock)}` : null, reduced ? "reduced=1" : null]
+  const fixture = query.get("fixture");
+  const suffix = [fixture ? `fixture=${encodeURIComponent(fixture)}` : null, cam ? `cam=${encodeURIComponent(cam)}` : null, lock ? `lock=${encodeURIComponent(lock)}` : null, reduced ? "reduced=1" : null]
     .filter((part): part is string => part != null)
     .join("&");
 
@@ -114,6 +116,7 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage 
             </Link>
           ))}
         </nav>
+        {tools}
         <span className={styles.hint}>?cam=home|overview|fly|focus:&lt;seat&gt;|look:&lt;seat&gt; &middot; ?lock=&lt;reason&gt; &middot; ?reduced=1</span>
         <span className={styles.size}>{viewport.width}&times;{viewport.height}</span>
       </header>

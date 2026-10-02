@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { DuelAnswer } from "@yugidraft/shared/duels";
-import { seatPickFor } from "../../multi-seat";
+import { seatNamer, seatPickFor } from "../../multi-seat";
 import { promptLegalKeys, promptSelectedKeys, usePromptDraft } from "../../prompts";
 import type { BattleAim, DuelActivateHandler, TableController } from "../types";
 import type { TableFixtureState } from "./common";
@@ -29,10 +29,7 @@ export function useFixtureController(state: TableFixtureState, options: FixtureC
   const [aim, setAim] = useState<BattleAim | null>(state.ui?.aim ?? null);
   const seats = room.session.seats;
 
-  const nameOf = useCallback(
-    (seat: number) => seats.find((entry) => entry.seat === seat)?.displayName ?? `Player ${seat + 1}`,
-    [seats],
-  );
+  const nameOf = useMemo(() => seatNamer(seats), [seats]);
 
   const onAnswer = useCallback(
     (answer: DuelAnswer) => {
