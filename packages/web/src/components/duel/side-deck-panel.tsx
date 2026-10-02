@@ -226,6 +226,9 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
               Pick a card from your Main or Extra Deck, then one from your Side Deck, to swap them.
               Your Side Deck keeps its size. Extra Deck cards swap only with Extra Deck monsters.
             </p>
+            {series.nextGameAt != null ? (
+              <p className={ui.hint}>When the timer runs out, the next game starts with your last saved deck, ready or not.</p>
+            ) : null}
             <OpponentSideChip series={series} index={myIndex} />
           </div>
           <div className={styles.badges}>

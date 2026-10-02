@@ -210,6 +210,11 @@ describe("SideDeckPanel", () => {
     expect(api.saveSeriesSideDeck.mock.invocationCallOrder[0]).toBeLessThan(api.readySeries.mock.invocationCallOrder[0]);
   });
 
+  it("says the timer starts the next game with the last saved deck", () => {
+    panel();
+    expect(screen.getByText(/When the timer runs out, the next game starts with your last saved deck/)).toBeTruthy();
+  });
+
   it("un-readies a ready player on the server as soon as they start a swap, before any save", async () => {
     const props = panel({ sideReady: [true, true] });
     expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(true);
