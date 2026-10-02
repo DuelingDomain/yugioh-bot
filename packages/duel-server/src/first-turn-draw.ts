@@ -28,6 +28,8 @@ export function savedFirstTurnDraw(
     if (typeof stored !== "boolean") throw new Error("Saved first-turn draw rule must be a boolean.");
     return stored;
   }
+  // Before the draw flag was saved, every 1v1 engine used the stock Master Rule draw rule (MR1/MR2 only).
+  // This also applies to old pinned records.
   if (format === "1v1") return firstTurnDrawFor(mode, masterRule, "legacy", format);
   if (masterRule <= 2) return true;
   if (format === "tag") return false;
