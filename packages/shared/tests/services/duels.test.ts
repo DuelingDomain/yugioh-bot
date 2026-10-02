@@ -81,7 +81,7 @@ function setup() {
 
 function readyDuel(app: ReturnType<typeof setup>, mode: "normal" | "domain" = "normal") {
   const session = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Duel", mode });
-  app.duels.join(session.slug, "g1", app.p2);
+  app.duels.takeSeat(session.slug, "g1", app.p2);
   app.duels.setDeck(session.slug, "g1", app.p1, validDeck(1));
   app.duels.setDeck(session.slug, "g1", app.p2, validDeck(1000, 12345678));
   return session;
@@ -100,15 +100,15 @@ describe("duel persistence invariants", () => {
     expect(created.seats[0]?.isBot).toBe(false);
     expect(created.masterRule).toBe(5);
 
-    const joined = app.duels.join(created.slug, "g1", app.p2);
+    const joined = app.duels.takeSeat(created.slug, "g1", app.p2);
     expect(joined.seats.map((seat) => [seat.seat, seat.playerId])).toEqual([
       [0, app.p1],
       [1, app.p2],
     ]);
-    expect(app.duels.join(created.slug, "g1", app.p2).seats).toHaveLength(2);
+    expect(app.duels.takeSeat(created.slug, "g1", app.p2).seats).toHaveLength(2);
 
     try {
-      app.duels.join(created.slug, "g1", app.p3);
+      app.duels.takeSeat(created.slug, "g1", app.p3);
       throw new Error("expected join to fail");
     } catch (error) {
       expect(error).toBeInstanceOf(DuelServiceError);
@@ -151,7 +151,7 @@ describe("duel persistence invariants", () => {
   it("lets only the seated owner set a shaped deck before start and marks ready", () => {
     const app = setup();
     const session = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Decks", mode: "domain" });
-    app.duels.join(session.slug, "g1", app.p2);
+    app.duels.takeSeat(session.slug, "g1", app.p2);
 
     try {
       app.duels.setDeck(session.slug, "g1", app.p3, validDeck());
@@ -187,7 +187,7 @@ describe("duel persistence invariants", () => {
       expect((error as DuelServiceError).message).toMatch(/two ready players/);
     }
 
-    app.duels.join(session.slug, "g1", app.p2);
+    app.duels.takeSeat(session.slug, "g1", app.p2);
     app.duels.setDeck(session.slug, "g1", app.p1, validDeck(1));
 
     try {
@@ -236,7 +236,7 @@ describe("duel persistence invariants", () => {
     }
 
     try {
-      app.duels.join(session.slug, "g1", app.outsider);
+      app.duels.takeSeat(session.slug, "g1", app.outsider);
       throw new Error("expected outsider join to fail");
     } catch (error) {
       expect((error as DuelServiceError).status).toBe(400);
@@ -269,10 +269,10 @@ describe("duel persistence invariants", () => {
     expect(reentered.seats.map((seat) => seat.playerId)).toEqual([app.p1, app.p2]);
 
     try {
-      app.duels.join(session.slug, "g1", app.p3);
-      throw new Error("expected unseated active join to fail");
+      app.duels.takeSeat(session.slug, "g1", app.p3);
+      throw new Error("expected unseated active claim to fail");
     } catch (error) {
-      expect((error as DuelServiceError).status).toBe(400);
+      expect((error as DuelServiceError).status).toBe(409);
     }
 
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Open", mode: "normal" });
@@ -377,7 +377,7 @@ describe("practice bot seats", () => {
     expect(bot?.seat).not.toBe(human?.seat);
 
     try {
-      app.duels.join(session.slug, "g1", app.p2);
+      app.duels.takeSeat(session.slug, "g1", app.p2);
       throw new Error("expected join to fail");
     } catch (error) {
       expect(error).toBeInstanceOf(DuelServiceError);
@@ -396,7 +396,7 @@ describe("practice bot seats", () => {
       expect((error as DuelServiceError).status).toBe(403);
     }
 
-    app.duels.join(session.slug, "g1", app.p2);
+    app.duels.takeSeat(session.slug, "g1", app.p2);
     try {
       app.duels.addPracticeBot(session.slug, "g1", app.p1, validDeck(9000));
       throw new Error("expected occupied add to fail");
@@ -433,7 +433,7 @@ describe("practice bot seats", () => {
     expect(without.seats[0].playerId).toBe(app.p1);
     expect(app.db.prepare<[], { n: number }>("select count(*) as n from duel_seats where is_bot = 1").get()?.n).toBe(0);
 
-    const joined = app.duels.join(session.slug, "g1", app.p2);
+    const joined = app.duels.takeSeat(session.slug, "g1", app.p2);
     expect(joined.seats).toHaveLength(2);
     app.duels.leave(session.slug, "g1", app.p2);
     expect(app.duels.addPracticeBot(session.slug, "g1", app.p1, validDeck(8000)).seats.some((seat) => seat.isBot)).toBe(true);
@@ -607,10 +607,10 @@ describe("duel snapshots archive and cancel", () => {
     const seated = app.duels.join(lobby.slug, "g1", app.p1);
     expect(seated.status).toBe("cancelled");
     try {
-      app.duels.join(lobby.slug, "g1", app.p2);
-      throw new Error("expected join after cancel to fail");
+      app.duels.takeSeat(lobby.slug, "g1", app.p2);
+      throw new Error("expected claim after cancel to fail");
     } catch (error) {
-      expect((error as DuelServiceError).status).toBe(400);
+      expect((error as DuelServiceError).status).toBe(409);
     }
 
     const active = readyDuel(app);
@@ -702,7 +702,7 @@ describe("creator settings persistence", () => {
     app.duels.setDeck(session.slug, "g1", app.p1, { main: [7, 8, 9], extra: [], side: [] });
     expect(app.duels.room(session.slug, "g1", app.p1).myDeck?.main).toEqual([7, 8, 9]);
 
-    app.duels.join(session.slug, "g1", app.p2);
+    app.duels.takeSeat(session.slug, "g1", app.p2);
     app.duels.setDeck(session.slug, "g1", app.p2, { main: [11], extra: [], side: [] });
     start(app, session.slug);
     expect(app.duels.join(session.slug, "g1", app.p1).settings.startingLP).toBe(4000);
@@ -737,7 +737,7 @@ describe("private invite access", () => {
       expect((error as DuelServiceError).status).toBe(403);
     }
     try {
-      app.duels.join(session.slug, "g1", app.p3);
+      app.duels.takeSeat(session.slug, "g1", app.p3);
       throw new Error("expected nonmember join to fail");
     } catch (error) {
       expect((error as DuelServiceError).status).toBe(403);
@@ -752,14 +752,14 @@ describe("private invite access", () => {
     expect(app.duels.list("g1", app.p3).map((row) => row.slug)).not.toContain(session.slug);
 
     app.duels.admit(session.slug, "g1", app.p3, organizerRoom.inviteCode!);
-    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).not.toContain(session.slug);
+    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toContain(session.slug);
     const admitted = app.duels.room(session.slug, "g1", app.p3);
     expect(admitted.role).toBe("spectator");
     expect(admitted.inviteCode).toBeUndefined();
 
-    const seated = app.duels.join(session.slug, "g1", app.p3);
+    const seated = app.duels.takeSeat(session.slug, "g1", app.p3);
     expect(seated.seats.some((seat) => seat.playerId === app.p3)).toBe(true);
-    expect(app.duels.join(session.slug, "g1", app.p3).seats).toHaveLength(2);
+    expect(app.duels.takeSeat(session.slug, "g1", app.p3).seats).toHaveLength(2);
     expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toContain(session.slug);
 
     app.duels.setDeck(session.slug, "g1", app.p1, validDeck(1));
@@ -857,13 +857,13 @@ describe("duel lobby listing, history and leave", () => {
     expect(stamp()).not.toBe("2000-01-01 00:00:00");
   });
 
-  it("hides other players' lobbies and idle duels but keeps own tables", () => {
+  it("shows accessible lobbies and hides idle duels but keeps own tables", () => {
     const app = setup();
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
     const active = readyDuel(app);
     start(app, active.slug);
 
-    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([active.slug]);
+    expect(app.duels.list("g1", app.p3).map((row) => row.slug).sort()).toEqual([active.slug, lobby.slug].sort());
     expect(app.duels.list("g1", app.p1).map((row) => row.slug).sort()).toEqual([active.slug, lobby.slug].sort());
     expect(app.duels.list("g1", app.p3).find((row) => row.slug === active.slug)?.mySeat).toBeNull();
     expect(app.duels.list("g1", app.p2)[0]?.mySeat).toBe(1);
@@ -871,10 +871,10 @@ describe("duel lobby listing, history and leave", () => {
     app.db
       .prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where web_slug = ?")
       .run(active.slug);
-    expect(app.duels.list("g1", app.p3)).toEqual([]);
+    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([lobby.slug]);
     expect(app.duels.list("g1", app.p1).map((row) => row.slug)).toContain(active.slug);
-    expect(app.duels.list("g1", app.p2).map((row) => row.slug)).toEqual([active.slug]);
-    expect(app.duels.list("g1", app.p3, { idleAfterMs: 20 * 60 * 1000 }).map((row) => row.slug)).toEqual([active.slug]);
+    expect(app.duels.list("g1", app.p2).map((row) => row.slug)).toEqual([active.slug, lobby.slug]);
+    expect(app.duels.list("g1", app.p3, { idleAfterMs: 20 * 60 * 1000 }).map((row) => row.slug).sort()).toEqual([active.slug, lobby.slug].sort());
     expect(DUEL_LIVE_IDLE_AFTER_MS).toBe(15 * 60 * 1000);
   });
 
@@ -911,7 +911,7 @@ describe("duel lobby listing, history and leave", () => {
       settings: { visibility: "private" },
     });
     app.duels.admit(secret.slug, "g1", app.p2, app.duels.room(secret.slug, "g1", app.p1).inviteCode!);
-    app.duels.join(secret.slug, "g1", app.p2);
+    app.duels.takeSeat(secret.slug, "g1", app.p2);
     app.duels.setDeck(secret.slug, "g1", app.p1, validDeck(1));
     app.duels.setDeck(secret.slug, "g1", app.p2, validDeck(1000));
     start(app, secret.slug);
@@ -923,7 +923,7 @@ describe("duel lobby listing, history and leave", () => {
   it("lets a guest leave a lobby but enforces leave rules", () => {
     const app = setup();
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "L", mode: "normal" });
-    app.duels.join(lobby.slug, "g1", app.p2);
+    app.duels.takeSeat(lobby.slug, "g1", app.p2);
     const status = (fn: () => unknown) => {
       try {
         fn();
@@ -948,7 +948,7 @@ describe("rock-paper-scissors opening", () => {
   function lobby() {
     const { db, duels, p1, p2 } = setup();
     const room = duels.create({ guildId: "g1", organizerPlayerId: p1, name: "T", mode: "normal" });
-    duels.join(room.slug, "g1", p2);
+    duels.takeSeat(room.slug, "g1", p2);
     duels.setDeck(room.slug, "g1", p1, validDeck(1));
     duels.setDeck(room.slug, "g1", p2, validDeck(500));
     return { db, duels, p1, p2, slug: room.slug };

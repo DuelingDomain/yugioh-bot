@@ -132,7 +132,7 @@ describe("createChallenge", () => {
     expect(duel.seats.every((seat) => !seat.ready)).toBe(true);
     const row = app.db.prepare("select invite_code from duels where id = ?").get(duel.id) as { invite_code: string | null };
     expect(row.invite_code).toBeTruthy();
-    // The opponent already has a seat, so the link seats them.
+    // The named opponent already has a seat; entry preserves it.
     expect(app.duels.join(duel.slug, "g1", app.p2).seats).toHaveLength(2);
     expect(app.series.forDuel(duel.id)?.id).toBe(series.id);
   });
@@ -145,10 +145,10 @@ describe("createChallenge", () => {
     expectStatus(() => app.series.createChallenge({ ...base, bestOf: 5 as 1 }), 400);
   });
 
-  it("does not let a third player join the fixed seats", () => {
+  it("does not let an uninvited third player take the fixed seats", () => {
     const app = setup();
     const { duel } = challenge(app, 1);
-    expectStatus(() => app.duels.join(duel.slug, "g1", app.p3), 409);
+    expectStatus(() => app.duels.takeSeat(duel.slug, "g1", app.p3), 403);
     expectStatus(() => app.duels.leave(duel.slug, "g1", app.p2), 409);
   });
 });
@@ -161,7 +161,7 @@ describe("system start and ready", () => {
     expect(active.status).toBe("active");
 
     const open = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Open", mode: "normal" });
-    app.duels.join(open.slug, "g1", app.p2);
+    app.duels.takeSeat(open.slug, "g1", app.p2);
     app.duels.setDeck(open.slug, "g1", app.p1, validDeck(1));
     app.duels.setDeck(open.slug, "g1", app.p2, validDeck(1000));
     expectStatus(() => start(app, open.slug, null), 403);
@@ -210,7 +210,7 @@ describe("open table attach", () => {
     expect(open.bestOf).toBe(3);
     expect(open.ranked).toBe(true);
     expect(open.seriesId).toBeNull();
-    app.duels.join(open.slug, "g1", app.p2);
+    app.duels.takeSeat(open.slug, "g1", app.p2);
     app.duels.setDeck(open.slug, "g1", app.p1, validDeck(1));
     app.duels.setDeck(open.slug, "g1", app.p2, validDeck(1000));
     const active = start(app, open.slug, app.p1);

@@ -114,7 +114,10 @@ export interface DuelService {
     options?: { archived?: boolean; scope?: DuelHistoryScope; idleAfterMs?: number },
   ): DuelListItem[];
   get(slug: string, guildId: string): DuelSession;
+  /** Enters as a spectator; an existing player's seat is preserved. */
   join(slug: string, guildId: string, playerId: number): DuelSession;
+  /** Claims an open human seat before any opening or series has started. Defaults to the first open seat. */
+  takeSeat(slug: string, guildId: string, playerId: number, seat?: number): DuelSession;
   leave(slug: string, guildId: string, playerId: number): DuelSession;
   addPracticeBot(slug: string, guildId: string, organizerPlayerId: number, deck: DuelDeck): DuelSession;
   /** Takes the practice bot out of its seat (organizer only, lobby only) so a human can sit there. */
@@ -443,6 +446,7 @@ export function createDuelService(db: Database.Database): DuelService {
         and (
           organizer_player_id = @viewer
           or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
+          or status = 'lobby'
           or (status = 'active' and datetime(coalesce(last_activity_at, created_at)) >= datetime('now', @idle))
         )
       order by
@@ -677,32 +681,38 @@ export function createDuelService(db: Database.Database): DuelService {
     },
   );
 
-  const joinTx = db.transaction((slug: string, guildId: string, playerId: number) => {
+  const takeSeatTx = db.transaction((slug: string, guildId: string, playerId: number, requestedSeat?: number) => {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(playerId, guildId);
-
-    const seats = seatRows(row.id);
-    if (seats.some((seat) => seat.player_id === playerId)) {
-      return mapSession(row);
-    }
-    if (row.series_id !== null && row.status === "lobby") {
+    assertRoomAccess(row, playerId);
+    if (row.status !== "lobby") throw new DuelServiceError("Seats can only be taken before the duel starts", 409);
+    assertNoOpening(row);
+    if (row.series_id !== null) {
       throw new DuelServiceError("This match is between two players; seats are fixed", 409);
     }
-    assertRoomAccess(row, playerId);
-    if (row.status !== "lobby") throw new DuelServiceError("Duel is not open to join", 400);
-    if (seats.length >= MAX_SEATS) {
-      throw new DuelServiceError("Duel is full", 409);
+    if (requestedSeat !== undefined && (!Number.isInteger(requestedSeat) || requestedSeat < 0 || requestedSeat >= MAX_SEATS)) {
+      throw new DuelServiceError("Seat must be 0 or 1", 400);
+    }
+
+    const seats = seatRows(row.id);
+    const mine = seats.find((seat) => seat.player_id === playerId);
+    if (mine) {
+      if (requestedSeat !== undefined && mine.seat !== requestedSeat) {
+        throw new DuelServiceError("You are already seated in this duel", 409);
+      }
+      return mapSession(row);
     }
 
     const used = new Set(seats.map((seat) => seat.seat));
-    let seat = 0;
-    while (used.has(seat) && seat < MAX_SEATS) seat += 1;
-    if (seat >= MAX_SEATS) throw new DuelServiceError("Duel is full", 409);
+    const seat = requestedSeat ?? [0, 1].find((index) => !used.has(index));
+    if (seat === undefined || used.has(seat)) {
+      throw new DuelServiceError("That seat is already taken. You are still watching; choose another open seat.", 409);
+    }
 
     try {
       insertSeat.run(row.id, seat, playerId);
     } catch (error) {
-      if (isConstraintError(error)) throw new DuelServiceError("Duel is full", 409);
+      if (isConstraintError(error)) throw new DuelServiceError("That seat is already taken. You are still watching; choose another open seat.", 409);
       throw error;
     }
     return mapSession(row);
@@ -1024,7 +1034,15 @@ export function createDuelService(db: Database.Database): DuelService {
     },
 
     join(slug, guildId, playerId) {
-      return joinTx(slug, guildId, playerId);
+      const row = loadDuelRow(slug, guildId);
+      assertPlayerGuild(playerId, guildId);
+      assertRoomAccess(row, playerId);
+      return mapSession(row);
+    },
+
+    takeSeat(slug, guildId, playerId, seat) {
+      // Reserve the writer lock before checking occupancy, including claims from another process.
+      return takeSeatTx.immediate(slug, guildId, playerId, seat);
     },
 
     leave(slug, guildId, playerId) {

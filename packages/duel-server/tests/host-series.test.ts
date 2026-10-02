@@ -255,7 +255,7 @@ describe("series game lobby ops", () => {
     expect(started.data.session.status).toBe("active");
 
     const plain = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Plain", mode: "normal" });
-    app.duels.join(plain.slug, GUILD, app.p2);
+    app.duels.takeSeat(plain.slug, GUILD, app.p2);
     app.duels.setDeck(plain.slug, GUILD, app.p1, deckWithSide());
     app.duels.setDeck(plain.slug, GUILD, app.p2, deckWithSide(true));
     const refused = await post(host, { op: "start", slug: plain.slug, playerId: app.p2 });

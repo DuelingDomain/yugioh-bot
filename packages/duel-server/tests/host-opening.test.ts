@@ -91,7 +91,7 @@ function deckFor(reverse = false): DuelDeck {
 /** An open table with two ready players; p1 is the organizer in seat 0. */
 function openTable(app: App) {
   const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Table", mode: "normal" });
-  app.duels.join(table.slug, GUILD, app.p2);
+  app.duels.takeSeat(table.slug, GUILD, app.p2);
   app.duels.setDeck(table.slug, GUILD, app.p1, deckFor());
   app.duels.setDeck(table.slug, GUILD, app.p2, deckFor(true));
   return table.slug;
