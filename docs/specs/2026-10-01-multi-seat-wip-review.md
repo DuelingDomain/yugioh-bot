@@ -107,3 +107,5 @@ The final task report lists current TypeScript errors in other owners' files. No
 ## Review corrections
 
 - Finding 1: a real-engine probe changed only the owner value in the possible summon hint to PLAYER_ALL. The FFA pick disappeared. Six cases per installed P68 core now check no pick, the actual owner choice, and every seat. Four cases fail on the prior suffix; the two Tag controls pass.
+
+- Finding 2: Time Wizard now has a 1700 ATK monster on every unpicked field, including the Tag partner. Eighteen cases per P68 core check both coin results, every Graveyard and the exact LP sum. A private suffix that keeps only own and bound fields fails all 16 multiplayer cases per core; its two 1v1 controls pass. The active suffix already has the correct all-field action.
