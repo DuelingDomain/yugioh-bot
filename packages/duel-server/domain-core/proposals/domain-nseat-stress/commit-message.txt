@@ -1,7 +1,0 @@
-core: keep removed chain cards out of eliminated seats
-
-Clear removed cards from leave_confirmed during elimination. SolveChain must not send these cards to the Graveyard after the seat leaves. The elimination function does nothing with two seats.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
-
