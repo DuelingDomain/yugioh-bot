@@ -1369,7 +1369,17 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "57055edfc27f4d768fb2f0a1693fa25ee9b33d0ac2f5e68de2eeaf2699dcfad0",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Bind one opponent before the reveal and return operations. Each living duelist gains 2000 LP after a copy is revealed.",
+      "wrap": {
+        "MPTarget": [
+          "target",
+          "thtg"
+        ],
+        "MPOne": [
+          "activate",
+          "thop"
+        ]
+      }
     },
     {
       "code": 21623008,

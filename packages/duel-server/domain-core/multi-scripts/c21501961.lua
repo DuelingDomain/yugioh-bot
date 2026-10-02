@@ -22,3 +22,8 @@ function s.activate(e,tp,eg,ep,ev,re,r,rp)
 		end
 	end
 end
+-- Both effects must bind during their target step, before an opponent answers or receives the card.
+s.target=aux.MPTarget(s.target)
+s.activate=aux.MPOne(s.activate)
+s.thtg=aux.MPTarget(s.thtg)
+s.thop=aux.MPOne(s.thop)
