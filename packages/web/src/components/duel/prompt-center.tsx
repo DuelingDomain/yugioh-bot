@@ -803,14 +803,16 @@ function ResponseBody({
       <div className={styles.rows}>
         {prompt.options.map((option, index) => {
           const { effectText: optionEffect } = optionTexts(option);
-          // An opponent pick names the seat by its display name; the engine label is only "Player N".
-          const seatName = context?.type === "opponent" && option.controller != null ? nameOf?.(option.controller) : undefined;
-          const label = seatName ?? humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));
+          // Seat-only choices use the same names as the LP panels, including duplicate-name seat numbers.
+          const directAttack = option.controller != null && option.location == null && /^Attack .+ directly$/i.test(option.label);
+          const seatName = (context?.type === "opponent" || directAttack) && option.controller != null ? nameOf?.(option.controller) : undefined;
+          const label = directAttack && seatName ? `Attack ${seatName} directly`
+            : seatName ?? humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));
           return (
             <div
               key={option.id}
               className={styles.row}
-              data-seat={context?.type === "opponent" ? option.controller : undefined}
+              data-seat={context?.type === "opponent" || directAttack ? option.controller : undefined}
               data-plain={option.card ? undefined : "true"}
               data-active={draft.highlight === index}
               data-selected={prompt.kind === "toggle" ? Boolean(option.selected) : undefined}
@@ -821,7 +823,7 @@ function ResponseBody({
                 data-primary={index === draft.highlight ? true : undefined}
                 data-index={index}
                 disabled={busy}
-                aria-label={context?.type === "opponent" ? opponentPickLabel(label) : undefined}
+                aria-label={context?.type === "opponent" ? opponentPickLabel(label) : directAttack && seatName ? label : undefined}
                 onClick={() => choose(option.id)}
                 onMouseEnter={() => {
                   draft.setHighlight(index);
