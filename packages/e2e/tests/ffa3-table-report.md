@@ -423,3 +423,154 @@ The retained snapshot WASM SHA-256 is
 The WASM and the inspected Battle Fader/utility overlay hashes remained unchanged
 after both runs. No live stack, engine-owned worktree, engine rule logic, core or
 Lua overlay was changed by this task. No push, PR or main merge was performed.
+
+
+## Elimination, Domain and 1v1 regression proof (2026-10-02)
+
+This section updates the earlier elimination and Domain gaps without changing the
+historical evidence above. The new spec is `duel-3p-ffa-elimination.spec.ts`, with
+an isolated browser helper and twelve additive real-card presets. Human seat 0
+acts through UI controls; bot scripts only act for seats 1 and 2. Read-only room
+views and `readTableTrace().promptLog`, bounded response loops and `expect.poll`
+supply synchronization. No fixed sleeps, engine rule changes, core changes, Lua
+changes or changes to other browser specs were made by this task.
+
+### Proven elimination clauses and pending differences
+
+| Rule or clause | New evidence | Status |
+| --- | --- | --- |
+| R-FFA-ELIMINATION: cards owned by the loser but controlled elsewhere leave the game | Change of Heart transfers Gemini Elf to the human; Hinotama eliminates its owner. The Elf leaves the human field, is absent from both living seats' hands/GYs/banishment, and neither living Deck gains a card. Exchange separately proves the loser's Celtic Guardian leaves a living hand. Out chips/fields and reload agree. | Proven for a transferred monster and exchanged hand card. |
+| R-FFA-RETURN-OWNED-CARDS: monster returns with its position | A bot takes the human's defense-position Elf with Change of Heart and is eliminated by Just Desserts before End Phase. Desired assertion requires the Elf in its living owner's monster zone with controller 0 and position 4. Current engine sends it to that owner's Graveyard. | Expected failure plus passing current-engine control. |
+| R-FFA-RETURN-OWNED-CARDS: hand returns to its owner | Exchange puts the human's Axe Raider in the bot's hand. Eliminating the bot should restore Axe Raider to the human hand. Current engine sends it to the human Graveyard; the loser's Celtic Guardian correctly leaves the human hand. | Expected failure plus passing current-engine control. |
+| R-FFA-ELIMINATION: ongoing effects stop immediately | Losing the Swords owner removes its attack restriction; the human Elf attacks seat 2 for 1,900 damage in the same turn. A living-owner control still has Swords and offers no attack. | Proven with a positive and negative control. |
+| R-FFA-ELIMINATION: must draw from an empty Deck | Pot of Greed empties seat 1's Deck on turn 2; its zero-Deck action prompt proves it stays live. The required draw on turn 5 eliminates only seat 1, with all LP still 8,000 and no duel result. Action origins continue through seats 2 and 0; the UI agrees. | Proven; empty Deck alone does not lose. |
+| R-FFA-ELIMINATION: cut-short own turn counts as ended | Seat 2 uses self-lethal Destruction Ring on its own turn 3. The next live seat 0 starts turn 4. Nightmare's Steelcage expires after that second opponent turn without reaching a normal End Phase. Prompt log, card locations, out chip, active ring arc and LP agree. | Proven for the Steelcage turn counter. |
+| R-FFA-ELIMINATION: already-open links have no effect after loss | Lethal Just Desserts resolves above the losing seat's Heavy Storm; seat 2's Burden survives. The living-seat control destroys it. A surrendered seat's Dust Tornado also leaves the human's Burden intact; the matching living Dust control destroys it. | Proven for lethal damage during resolution and surrender during chain construction. |
+| R-FFA-ELIMINATION: flagged cards and ongoing effects remain until the chain ends | After seat 1 surrenders with Dust Tornado open, seat 2 adds Jar of Greed while loss is pending. With all three links still open, current engine has already eliminated seat 1, removed its cards and raised the human Elf from 1,500 to 1,900 ATK by removing Burden. Desired assertion requires pending=true, eliminated=false, the rival Elf present and human ATK 1,500 until chain end. | Expected failure plus passing current-engine control; the trigger is adding another link after surrender. |
+| R-FFA-WINNER: simultaneous last-two loss is a draw | Hinotama eliminates seat 2; Destruction Ring then takes both remaining seats from 1,000 to 0 in one resolution. Engine elimination groups are [[2],[0,1]], every seat is out, engine and room winnerSeat plus room winnerPlayerId are null, and result UI says DRAW before and after reload. | Proven and persisted. |
+| R-FFA-LP and R-FFA-ORDER | Exact per-seat LP nodes show independent burn/battle damage and unchanged LP on deck-out. Complete first-action logs show clockwise origins, skipping the eliminated seat; painted turn ring, who-pill and active arc agree. Seats keep their original numbers. | Sanity coverage proven alongside the elimination cases. |
+
+All three pending tests use `test.fail(true, "<ADR id> pending engine change...")`
+and assert the desired engine state. Setup, human clicks and common UI checks
+run before that annotation; each fails at its specific engine-state equality,
+not a timeout. The separate `current engine: ...` test proves the observed
+behavior. Expected failures do not establish that the desired rule works.
+
+### Two accepted elimination repetitions
+
+One focused locked session ran `--repeat-each=2 --retries=0` with one Chromium
+worker and reduced motion at 1440x900. UTC start was
+2026-10-02T22:58:35.067Z; Playwright duration was 269.825 seconds. Every test
+result has retry 0. Both repetitions ran identical spec, board and bot code;
+earlier diagnostic runs are excluded.
+
+Each repetition has **13 ordinary passes and 3 expected engine failures**:
+**26 ordinary passes, 6 expected failures, no skips, no unexpected failures and
+no flaky results** in total. Four authentication setup passes ran once for the
+session. Playwright's aggregate **36 passed** includes those authentication
+passes and the six expected failures.
+
+| Exact test name in `duel-3p-ffa-elimination.spec.ts` | Repetition 1 | Repetition 2 |
+| --- | --- | --- |
+| R-FFA-ELIMINATION: the eliminated owner's monster leaves another duelist's field; LP and clockwise UI stay independent | Pass | Pass |
+| current engine: a survivor's stolen monster goes to its owner's Graveyard when the controller is eliminated | Pass | Pass |
+| R-FFA-RETURN-OWNED-CARDS: a survivor's stolen monster returns to its monster zone with its position kept | Expected failure | Expected failure |
+| current engine: the loser's exchanged card leaves a living hand, but the survivor's card goes to its Graveyard | Pass | Pass |
+| R-FFA-RETURN-OWNED-CARDS: an exchanged card returns to its living owner's hand while the loser's card leaves | Expected failure | Expected failure |
+| R-FFA-ELIMINATION: continuous Swords stops immediately and an attack works in the same turn | Pass | Pass |
+| R-FFA-ELIMINATION control: a living duelist's continuous Swords still prevents an attack | Pass | Pass |
+| R-FFA-ELIMINATION: an empty Deck stays live until a required draw eliminates only that seat | Pass | Pass |
+| R-FFA-ELIMINATION: a turn cut short by its duelist's loss starts the next live seat and expires Steelcage | Pass | Pass |
+| R-FFA-ELIMINATION: a duelist eliminated mid-chain has its already-open Heavy Storm link resolve without effect | Pass | Pass |
+| R-FFA-ELIMINATION control: a living duelist's open Heavy Storm link resolves | Pass | Pass |
+| R-FFA-ELIMINATION control: a living Dust Tornado destroys its target in the same chain setup | Pass | Pass |
+| current engine: another chain link eliminates the surrendered seat early, and its Dust Tornado has no effect | Pass | Pass |
+| R-FFA-ELIMINATION: a flagged duelist keeps its cards and continuous effects until the open chain ends | Expected failure | Expected failure |
+| R-FFA-WINNER: the last two duelists reach zero LP together and the persisted result screen says DRAW with no winner | Pass | Pass |
+| Domain FFA3: a legal singleton deck starts on the Domain core with three Deck Masters; the human summons and reloads | Pass | Pass |
+
+### Domain FFA3 can run on this snapshot
+
+Both Domain repetitions passed. The browser creates a Domain FFA3 table,
+uploads a legal singleton 60-card deck built from the read-only catalog, readies
+it with validation enabled, adds two practice bots and starts the duel. Engine
+and UI show three Axe Raider Deck Masters in their own master zones. The human
+summons Axe Raider through its normal-summon button and a legal zone prompt;
+its field placement and master state persist after reload. The smoke has no
+dependency on a manually seeded saved deck.
+
+Every Standard preset room verifies `ocgcore.multi.wasm`, SHA-256
+`896d6528b16227e1702088c42da8570a6c394be9c0dd93ad4f2aac9951e5c22e`.
+Domain verifies `ocgcore.multi-domain.wasm`, SHA-256
+`f1f8adaeaff21328970ffe894bf70cd86cc3afa18731a8aae4a397206824e2cb`.
+Final hashes match the initial snapshot. `E2E_MANUAL=1` provides the verified,
+derived wrapper manifest required for this snapshot; source manifests, WASM
+and scripts remain unchanged. Every session uses the requested snapshot and
+exclusive stack lock, with its supervised stack stopped before lock release.
+
+### 1v1 regression run once at the implementation HEAD
+
+The build/run began at `f7499136b0e21d2e4d51387c14e7fcbe96a729b0`
+(`test: cover three-seat elimination and Domain play`). All eleven 1v1 duel
+spec files listed below ran once with one worker and `--retries=0`, inside one
+exclusive lock. UTC start was 2026-10-02T23:07:50.733Z; duration was 200.762
+seconds. The result is **10 duel-test passes and 2 failures**, plus four auth
+setup passes: Playwright reports **14 passed, 2 failed**, no skips or flaky
+results. This task does not modify 1v1 source or specs.
+
+| Spec | Exact test name | Result |
+| --- | --- | --- |
+| `card-chain-hand-trap.spec.ts` | a hand trap chained to a searcher negates it and both players see the chain | Pass |
+| `card-face-down-privacy.spec.ts` | face-down cards stay hidden from the opponent and a spectator | Pass |
+| `card-pendulum-summon.spec.ts` | a Pendulum Summon is shown as a Pendulum Summon on every screen | Pass |
+| `card-trap-battle.spec.ts` | Mirror Force destroys the attackers and both screens show them in the graveyard | Pass |
+| `duel-1v1-match.spec.ts` | two players join, duel, surrender, and find the match in history and replay | Pass |
+| `duel-domain.spec.ts` | a Deck Master is summoned from its zone, destroyed, recalled, and summoned again for a Life Point cost | Fail |
+| `duel-practice-bot-spectator.spec.ts` | host plays one action against the practice bot and a spectator sees no hand faces | Pass |
+| `duel-prompts.spec.ts` | a number prompt and an order prompt can be answered and do not stick | Fail |
+| `duel-prompts.spec.ts` | a card-name prompt for one duelist and a card pick for the other both work | Pass |
+| `duel-reconnect.spec.ts` | both duelists can reload during a chain and keep playing | Pass |
+| `duel-win-spectator.spec.ts` | a battle win shows win, lose and spectator screens | Pass |
+| `live-tables-rules.spec.ts` | an open lobby shows only to its players and Close removes it | Pass |
+
+The Domain lifecycle failure is at `duel-domain.spec.ts:64`, inside the existing
+`endTurn` helper: Turn 4 was expected after End Turn, but the screen remained
+on Turn 3 for the 15-second assertion timeout. The number/order failure is at
+`duel-prompts.spec.ts:23`: the order group never displayed the expected
+`0 of 3 selected` text within 15 seconds. These are observed failures; this run
+does not establish their causes. No repair or rerun was made.
+
+Concurrent worker commit `b26124d63fb36bae94a4619a065b0fdd6affdd24`
+added separate multiplayer rule tests/presets during this session. The
+1v1 build began at the HEAD recorded above, and no concurrent 1v1 source change
+was observed. The later `c80f017c` commit only adds a third checklist item to
+the two Swords presets; boards and bot scripts are identical to the accepted
+browser proof.
+
+### Additional checks, limits and cleanup
+
+Fresh E2E and duel-server typechecks passed after rebuilding shared declarations
+under the lock. All twelve new presets passed registration, unique-ID,
+bot-seat, rule-ID, checklist and real-card board-compilation validation. The
+existing focused preset suite had **39 passes, 1 failure and 38 unselected
+skips**: all 38 registered boards compiled, and availability passed; the
+registry's fixed older list at `tests/presets.test.ts:83` omits the new presets.
+That existing test is outside this task's owned files and remains unchanged.
+The earlier two-item Swords checklist failure described in the rules section
+above is resolved by `c80f017c`. Production stack builds passed with the
+existing dynamic file-tracing warnings.
+
+Remaining engine work: same-kind monster/hand return and pending loss landing
+only after the open chain ends. Broader return cases (spell/trap zones,
+Graveyard/banishment, occupied-zone fallback), the token exception, surrender
+after a link has already begun resolving, every other ended-turn counter,
+Domain recall/elimination mechanics, Tag and FFA4 elimination are outside this
+spec's proof. Domain coverage is a startup/summon/reload smoke, not a full match.
+The two 1v1 failures and the obsolete package registry inventory need follow-up.
+
+Generated web builds/coverage, shared stack state, this task's Playwright
+traces/test-results and rebuilt shared/ws/duel-server dist directories were
+removed under the exclusive lock. Compact result summaries, validation logs and
+read-only JSON observations remain in the ignored `.status/ffa3-elimination-evidence/`
+directory. The core snapshot is retained. No live stack, engine-owned worktree,
+push, PR or main merge was used.
