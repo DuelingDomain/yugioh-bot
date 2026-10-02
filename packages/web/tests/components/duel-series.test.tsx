@@ -287,6 +287,8 @@ describe("SideDeckPanel", () => {
     const props = panel({ sideReady: [false, true] });
     fireEvent.click(await tile("Card 3"));
     fireEvent.click(await tile("Card 10"));
+    // The first edit sends its un-ready; Ready waits for it.
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
     await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
 
@@ -302,7 +304,8 @@ describe("SideDeckPanel", () => {
     await waitFor(() => expect(props.onNavigate).toHaveBeenCalledWith("game-2"));
     expect(api.saveSeriesSideDeck).toHaveBeenCalledTimes(1);
     expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", { main: [1, 2, 10], extra: [100, 101], side: [3, 11] });
-    expect(api.unreadySeries).not.toHaveBeenCalled();
+    // The clicks during the lock changed nothing and sent nothing.
+    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
   });
 
   it("un-readies an edit made right after Ready, before the room has refreshed", async () => {
@@ -362,6 +365,41 @@ describe("SideDeckPanel", () => {
     await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(api.unreadySeries).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends un-ready on the first edit after the panel opens, even when it shows the player not ready, and only once", async () => {
+    const props = panel({ sideReady: [false, false] });
+    fireEvent.click(await tile("Card 2"));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
+    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
+    // A player shown as not ready gets no "no longer ready" copy.
+    expect(screen.queryByText(/no longer ready/)).toBeNull();
+    fireEvent.click(await tile("Card 10"));
+    fireEvent.click(await tile("Card 3"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
+  });
+
+  it("un-readies on the first edit after a reopen when Ready worked but the room's refresh failed", async () => {
+    const base = makeDeck();
+    const between = { status: "between_games" as const, nextGameAt: soon(), hasSide: [true, false] as [boolean, boolean] };
+    api.readySeries.mockResolvedValue({ series: makeSeries({ ...between, sideReady: [true, false] }), nextSlug: null });
+    const onClose = vi.fn();
+    const onChanged = vi.fn().mockRejectedValue(new Error("Refresh failed"));
+    // The room keeps its stale snapshot: this player is not ready.
+    const element = () => (
+      <SideDeckPanel slug="game-1" series={makeSeries({ ...between, sideReady: [false, false] })} myIndex={0}
+        side={{ baseDeck: base, currentDeck: base }} onClose={onClose} onChanged={onChanged} onNavigate={vi.fn()} />
+    );
+    const first = render(element());
+    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    first.unmount();
+    expect(api.unreadySeries).not.toHaveBeenCalled();
+
+    render(element());
+    fireEvent.click(await tile("Card 2"));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
   });
 
   it("un-readies on the next edit when a Ready's answer was lost", async () => {

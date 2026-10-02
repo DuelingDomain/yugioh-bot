@@ -78,15 +78,19 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Ready: the server's flag is the truth. This panel's own requests know newer answers than the
-  // room's last refresh, so `known` holds what they said until the server's flag next changes.
+  // Ready for the badge and the copy only: the server's flag, or what this panel's own requests said
+  // since the room last refreshed it. Whether an edit sends un-ready never depends on these.
   const serverReady = series.sideReady[myIndex];
   const [seenReady, setSeenReady] = useState(serverReady);
   const [known, setKnown] = useState<boolean | null>(null);
-  /** A Ready (or un-ready) whose answer was lost: the server may say ready, so the next edit un-readies. */
-  const [maybeReady, setMaybeReady] = useState(false);
   /** This player's Ready was taken back (by editing or a save); shown until they are ready again. */
   const [unreadied, setUnreadied] = useState(false);
+  /**
+   * An un-ready went out since the panel opened, since the last Ready click, or since the last
+   * snapshot showing this player ready. Until then the next edit always sends one: un-ready is
+   * harmless on a player who is not ready, so the panel never has to know whether they are.
+   */
+  const unreadySent = useRef(false);
   /** The un-ready request in flight; Ready waits for it so the two cannot land out of order. */
   const unreadying = useRef<Promise<void> | null>(null);
   const [meta, setMeta] = useState<ReadonlyMap<number, CardMeta>>(new Map());
@@ -103,9 +107,10 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   if (serverReady !== seenReady) {
     setSeenReady(serverReady);
     setKnown(null);
-    setMaybeReady(false);
     if (serverReady) setUnreadied(false);
   }
+  // A snapshot showing this player ready (Ready from another tab, say) re-arms the un-ready.
+  useEffect(() => { if (serverReady) unreadySent.current = false; }, [series, serverReady]);
 
   const { base } = { base: side.baseDeck };
   const codesKey = deckCodes(base).sort((a, b) => a - b).join(",");
@@ -138,27 +143,28 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   const swaps = swapCount(base, draft);
   const imReady = known ?? serverReady;
 
-  /**
-   * Any edit takes Ready back on the server straight away whenever the server might have this player
-   * ready: its latest flag says so, this panel's own requests said so, or a Ready's answer was lost.
-   * Un-ready is harmless when already not ready, so a spare request costs nothing.
-   */
+  /** The first edit (see `unreadySent`) takes any Ready back on the server straight away. */
   function leaveReady() {
-    if (!(serverReady || imReady || maybeReady) || unreadying.current) return;
+    if (unreadySent.current || unreadying.current) return;
+    unreadySent.current = true;
+    const wasReady = imReady;
     const before = known;
-    setKnown(false);
-    setMaybeReady(false);
-    setUnreadied(true);
+    if (wasReady) {
+      setKnown(false);
+      setUnreadied(true);
+    }
     unreadying.current = unreadySeries(slug).then(
       (result) => {
         if (result.nextSlug) onNavigate(result.nextSlug);
         else void onChanged();
       },
       (cause: unknown) => {
-        // Still ready as far as anyone knows: the next edit tries again, and a save also clears Ready.
-        setKnown(before);
-        setMaybeReady(true);
-        setUnreadied(false);
+        // The next edit tries again, and saving a changed deck also clears Ready.
+        unreadySent.current = false;
+        if (wasReady) {
+          setKnown(before);
+          setUnreadied(false);
+        }
         setError(cause instanceof Error ? cause.message : "Could not take back your Ready. Try again.");
       },
     ).finally(() => { unreadying.current = null; });
@@ -229,16 +235,17 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   });
   // `dirty` and `draft` are read at the click: the cards stay locked until this finishes.
   const ready = () => work(async () => {
+    // Whatever this Ready's outcome, the next edit sends un-ready.
+    unreadySent.current = false;
     await unreadying.current;
     if (dirty) await saveSeriesSideDeck(slug, draft);
-    setMaybeReady(true);
     const result = await readySeries(slug);
-    setMaybeReady(false);
     setKnown(result.series.sideReady[myIndex]);
     setUnreadied(false);
     if (result.nextSlug) onNavigate(result.nextSlug);
     else {
-      // Close once the room has the new Ready, so reopening the panel never starts from stale state.
+      // Close once the room has the new Ready, so reopening usually shows it. A failed refresh is safe:
+      // a reopened panel sends un-ready on its first edit anyway.
       await Promise.resolve(onChanged()).catch(() => undefined);
       onClose();
     }
