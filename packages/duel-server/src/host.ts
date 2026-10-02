@@ -814,7 +814,14 @@ export function createDuelHost(options: {
       await emitChange(slug, guildId);
       throw new RequestError("Duel interrupted: engine resource version changed", 409);
     }
-    const firstTurnDraw = drawRuleOf(state);
+    let firstTurnDraw: boolean;
+    try {
+      firstTurnDraw = drawRuleOf(state);
+    } catch (error) {
+      service.interrupt(slug, guildId, (error as Error).message);
+      await emitChange(slug, guildId);
+      throw error;
+    }
     const game = spawn();
     try {
       await game.create(workerCreateOptions(

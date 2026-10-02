@@ -42,7 +42,9 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
     ...(mode === "domain" ? { deckMaster: 48305365 } : {}) }));
   for (let seat = 0; seat < count; seat++) duels.setDeck(session.slug, "g", players[seat]!, decks[seat]!);
   const workers: GameWorker[] = [];
+  const changes: Array<{ slug: string; guildId: string; status: string }> = [];
   const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], stallMs: 0,
+    onChange: (slug, guildId) => { changes.push({ slug, guildId, status: duels.privateState(slug, guildId).session.status }); },
     pollIntervalMs: 60_000, createWorker: () => { const worker = new GameWorker(); workers.push(worker); return worker; } });
   resources.push({ host, db });
   const post = async (op: string, seat = 0, extra: Record<string, unknown> = {}) => {
@@ -54,7 +56,7 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
   const bundle = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")).bundleVersion as string;
   const pin = pinnedEngineVersion(bundle, count, count > 2 ? activeMultiScriptsHash(DATA) : null);
   const options = { mode, format, masterRule: session.masterRule, settings: session.settings, decks, seed, dataDirectory: DATA };
-  return { db, duels, session, decks, options, count, players, post, pin, workers };
+  return { db, duels, session, decks, options, count, players, post, pin, workers, changes };
 }
 
 function checkDraws(view: DuelEngineView, firstTurnDraw: boolean, actor: number) {
@@ -195,7 +197,8 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     expect(response.status).toBe(409);
     expect(response.data.error).toContain("first-turn draw rule was not saved");
     expect(t.workers).toHaveLength(0);
-    t.duels.interrupt(t.session.slug, "g", "Test finished");
+    expect(t.duels.privateState(t.session.slug, "g").session.status).toBe("interrupted");
+    expect(t.changes).toEqual([{ slug: t.session.slug, guildId: "g", status: "interrupted" }]);
     const replay = await t.post("replay");
     expect(replay.status).toBe(409);
     expect(replay.data.error).toContain("first-turn draw rule was not saved");
