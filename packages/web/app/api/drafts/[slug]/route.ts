@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { analyzeCube, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
+import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 
 export const runtime = "nodejs";
 
@@ -144,6 +145,10 @@ export async function PUT(
     // Edits can retain library cubes deleted since attachment, including in the request body.
     const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds, { allowMissing: true });
     if (denied) return denied;
+    const assignmentError = hostThemeAssignmentError(db, existing.guildId, mergedConfig, drafts.players(draft.id).map((p) => p.playerId));
+    if (assignmentError) {
+      return NextResponse.json({ error: assignmentError }, { status: 400 });
+    }
 
     if (name !== undefined) {
       if (!name.trim()) {
@@ -154,7 +159,7 @@ export async function PUT(
         .prepare(
           "select id from drafts where guild_id = (select guild_id from drafts where id = ?) and name = ? and status in ('pending', 'active') and id != ?"
         )
-        .get(draft.id, name) as { id: number } | undefined;
+        .get(draft.id, name, draft.id) as { id: number } | undefined;
 
       if (existing) {
         return NextResponse.json({ error: "A draft with that name already exists" }, { status: 400 });
