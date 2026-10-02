@@ -80,6 +80,18 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(words.some((word) => word === "choosing" || word === "turn")).toBe(true);
   });
 
+  it("tints the who pill with the colour of the seat whose turn it is", () => {
+    const { container } = render(<Shell id="main" />);
+    const pill = container.querySelector("[data-testid='who-pill']") as HTMLElement;
+    expect(pill.style.getPropertyValue("--seat-main")).toMatch(/^#|^rgb/);
+    expect(pill.style.getPropertyValue("--seat-ink")).not.toBe("");
+  });
+
+  it("opens the Card tab on one of your own cards before anything is hovered", () => {
+    const { container } = render(<Shell id="main" />);
+    expect(container.querySelector("[data-testid='card-tab-empty']")).toBeNull();
+  });
+
   it("puts rival Deck Masters on the holo panels, and only your own master and the camera panel in the right column", () => {
     const { container } = render(<Shell id="main" />);
     const aside = container.querySelector("[aria-label='Deck Masters']") as HTMLElement;

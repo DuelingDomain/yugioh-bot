@@ -53,3 +53,11 @@
   color: #958f81;
   font-style: normal;
 }
+
+/* The who pill takes the colour of the seat whose turn it is (3 and 4 seat tables), so the header names the turn by colour too. */
+.shell.shell .whoTone {
+  border-color: color-mix(in srgb, var(--seat-main) 60%, transparent);
+  background: color-mix(in srgb, var(--seat-main) 12%, transparent);
+  color: var(--seat-ink);
+}
+.shell.shell .whoTone svg { color: var(--seat-main); }

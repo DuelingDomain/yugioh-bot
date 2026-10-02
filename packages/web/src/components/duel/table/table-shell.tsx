@@ -28,6 +28,7 @@ import { PositionFx } from "../position-fx";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { optionsForCard, PromptTray } from "../prompts";
 import { useResultGate } from "../result-reveal";
+import { firstInspectCard } from "../tag/tag-logic";
 import { DuelClockDisplay } from "../room-settings";
 import { SeriesBanner } from "../series-banner";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs } from "../side-panel";
@@ -199,7 +200,9 @@ export function TableShell({
   };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
   const logVisible = ui.pane === "log";
-  const inspectorTarget: InspectTarget | null = ui.inspect;
+  // Before anything is hovered the Card tab shows the viewer's first face-up monster (else a hand card), as the tag table does.
+  const startCard = ui.inspect ? null : firstInspectCard(engine, viewerSeat);
+  const inspectorTarget: InspectTarget | null = ui.inspect ?? (startCard ? { type: "card", card: startCard } : null);
   const cardPanel = inspectorTarget ? (
     <CardInspector
       target={inspectorTarget}
@@ -261,7 +264,12 @@ export function TableShell({
         <div className={roomStyles.turn}>
           <strong>Turn {engine.turn}</strong>
           <span className={roomStyles.phaseName} data-step={battleStep ?? undefined}>{headerPhase}</span>
-          <span className={roomStyles.whoPill} data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}>
+          <span
+            className={`${roomStyles.whoPill} ${styles.whoTone}`}
+            data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
+            data-testid="who-pill"
+            style={{ "--seat-main": toneOf(turnSeat).main, "--seat-ink": toneOf(turnSeat).ink } as CSSProperties}
+          >
             {spectator ? <Eye size={13} strokeWidth={1.75} aria-hidden /> : myTurn
               ? <Diamond size={13} strokeWidth={1.75} fill="currentColor" aria-hidden />
               : <Circle size={13} strokeWidth={1.75} aria-hidden />}
