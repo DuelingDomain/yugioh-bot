@@ -7,7 +7,7 @@ import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
 import { expectPrompt, type DuelistId } from "../../support/dsl.js";
-import { GRASS_DECK_COUNTS_SCENARIOS } from "./grass-deck-counts.js";
+import { GRASS_DECK_COUNTS_SCENARIOS, GRASS_TAG_DECLARED_DECK_SCENARIOS } from "./grass-deck-counts.js";
 // Keep the count fixture stable across cores with different first-turn draw flags.
 // This is the same one-phase fixture pattern used by compileBoard for turn:p1.
 const SKIP_OPENING_DRAW = `
@@ -16,7 +16,7 @@ skip:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skip:SetTargetRange(1,1); Duel.Regi
 local undo=Effect.GlobalEffect(); undo:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS); undo:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
 undo:SetOperation(function(e) skip:Reset() e:Reset() end); Duel.RegisterEffect(undo,0) end`;
 describeWithCores("live Grass Deck comparisons", liveNseat, () => {
-  for (const scenario of GRASS_DECK_COUNTS_SCENARIOS) it(scenario.id, async () => {
+  for (const scenario of [...GRASS_DECK_COUNTS_SCENARIOS, ...GRASS_TAG_DECLARED_DECK_SCENARIOS]) it(scenario.id, async () => {
     const compiled = compileBoard(scenario.setup);
     compiled.options.startupScripts![0].content += SKIP_OPENING_DRAW;
     {

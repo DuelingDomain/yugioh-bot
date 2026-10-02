@@ -29,3 +29,19 @@ export const GRASS_DECK_COUNTS_SCENARIOS: Scenario[] = [
   ...(["ffa3", "ffa4", "tag"] as const).map(format => grass(format, true)),
   ...(["ffa3", "ffa4", "tag"] as const).map(format => grass(format, false, true)),
 ];
+
+// Both rivals qualify. The selected Deck, not the joined Decks or the smallest Deck, sets the mill count.
+export const GRASS_TAG_DECLARED_DECK_SCENARIOS: Scenario[] = (["p1", "p3"] as const).map(recipient => {
+  const scenario = structuredClone(grass("tag", false, true));
+  const remaining = recipient === "p1" ? 5 : 3;
+  const final = scenario.steps.find(step => step.op === "expectBoard")!;
+  if (final.op !== "expectBoard") throw new Error("Grass needs a final board");
+  final.board.p0!.deckCount = remaining;
+  final.board.p0!.grave = ["That Grass Looks Greener", ...Array<string>(8 - remaining).fill("Blue-Eyes White Dragon")];
+  for (const step of scenario.steps) if (step.op === "pickOpponent") step.seat = recipient;
+  scenario.id = `grass-tag-declared-deck-${recipient}-sizes-5-and-3`;
+  scenario.title = `Tag: Grass declares ${recipient} and mills ${8 - remaining} cards from its own Deck`;
+  scenario.source = "docs/adr/0002-multiplayer-duel-rules.md [R-TAG-SHARED-CARDS]; owner answer 2026-10-02";
+  scenario.rules = ["R-COMMON-OPP-PICK", "R-TAG-SHARED-CARDS"];
+  return defineScenario(scenario);
+});

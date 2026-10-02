@@ -10,7 +10,7 @@ Each fix has a separate commit with its suffix, generated manifest entry and rea
 
 | Code | Card | Saved defect and final change | Green cases per core | Without the fix, per core |
 | --- | --- | --- | ---: | --- |
-| 11110587 | That Grass Looks Greener | Compare every eligible opposing Deck; choose one before milling the acting Deck. | 7 | 3 fail, 4 pass |
+| 11110587 | That Grass Looks Greener | Compare one declared smaller Deck in FFA and Tag; mill only the acting Deck. | 12 | Joined-Deck Tag variant: 4 fail. Smallest-Deck variant: 1 fail. |
 | 22593417 | Topologic Gumblar Dragon | Bind the opponent before either hand discards. | 7 | 6 fail, 1 pass |
 | 26273196 | Time Wizard of Tomorrow | Choose the damage opponent at activation. Check both coin results. | 18 | 12 fail, 6 pass |
 | 46918794 | Tremendous Fire | Choose the damage opponent at activation. | 9 | 6 fail, 3 pass |
@@ -115,3 +115,5 @@ The final task report lists current TypeScript errors in other owners' files. No
 - Finding 4: six decline cases put monsters on two opponent fields and check the complete destroy options. The prior suffix fails the two Tag cases on each P68 core. Individual GetFieldCard reads now build the bound duelist's monster group; joined Tag field queries are not used for this choice. All 18 cases pass per core.
 
 - Finding 5: Gumblar checks both hand options in every case. Grass checks the exact eligible seats when two opponents qualify; a sole eligible opponent is bound silently and must leave an action prompt. Banquet uses explicit steps to check every opponent option, every unchanged seat and no resolution before the pick. No harness auto-picks an unexpected Grass or Banquet prompt. The three suites pass 21 cases per core. Negative suffixes fail 16 cases per core: Gumblar 6, Grass 7, Banquet 3.
+
+- Finding 6: the owner answer already records one declared opposing Deck in Tag. Two new cases use own Deck 8, opposing Decks 5 and 3, and partner Deck 12. Choosing seat 1 mills 3; choosing seat 3 mills 5. Every other Deck and every LP total stays unchanged. The 12-case Grass suite passes per core. A joined-Deck comparison fails all four positive Tag cases, including both new cases. An automatic smallest-Deck operation fails the new seat-1 case per core.
