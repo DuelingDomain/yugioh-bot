@@ -99,3 +99,7 @@ Lucky Cloud (82760689) mixed Cloudian summon names from different FFA seats. It 
 ## Pair Bear recovery
 
 Pair Bear Scare!! (21501961) recovered LP for only two folded players. It now recovers 2000 LP for each living duelist. One picked opponent still reveals a copy and decides the branch. Live proof: `each-player-lp-responses.ts`. All four stock recovery outcomes fail. The 28 response cases and 12 variable-amount cases pass on both cores. Each Tag pool gains 4000 LP under Q3.
+
+## Chaos Emperor Tag hands
+
+Chaos Emperor Dragon (82301904) left the Tag partner's hand unchanged. The Tag-only overlay sends the union of every duelist's hand and field. Its stock damage calculation stays in place. The FFA ban stays. Live proof: `chaos-emperor-tag.ts`. The stock Tag outcome fails; the fixed Tag outcome and stock 1v1 control pass on both cores.

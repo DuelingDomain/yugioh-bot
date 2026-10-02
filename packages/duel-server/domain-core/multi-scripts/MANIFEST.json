@@ -4645,6 +4645,15 @@
       "seatInit": "false"
     },
     {
+      "code": 82301904,
+      "file": "c82301904.lua",
+      "name": "Chaos Emperor Dragon - Envoy of the End",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "19355461d1871ae1bd6ca6460825c37c882c7ba1b6ca7330f57090631563bf6e",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 82340056,
       "file": "c82340056.lua",
       "name": "Offering to the Immortals",
