@@ -104,6 +104,8 @@ export type LabSeries = {
   marks?: "even" | "uneven";
   /** Side deck screen: the player's deck has no Side Deck. */
   noSide?: boolean;
+  /** Stress the between-games layout with a maximum-size Main Deck. */
+  mainCount?: 60;
 };
 
 export type LabCategory = "Attacks" | "Destroy" | "Summons" | "Card moves" | "Chain" | "LP" | "Banners" | "Board states" | "Match";

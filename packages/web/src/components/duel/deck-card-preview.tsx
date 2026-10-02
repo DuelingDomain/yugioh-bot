@@ -41,12 +41,12 @@ function useCardInfo(code: number | null): DuelCardInfo | null | undefined {
 }
 
 /** Large art and text of the deck card under the pointer, beside the deck lists. */
-export function DeckCardPreview({ code }: { code: number | null }) {
+export function DeckCardPreview({ code, compact = false }: { code: number | null; compact?: boolean }) {
   const card = useCardInfo(code);
 
   if (code == null) {
     return (
-      <div className={styles.preview}>
+      <div className={styles.preview} data-compact={compact || undefined}>
         <div className={styles.artEmpty} aria-hidden />
         <p className={styles.hint}>Hover a card in your deck to see it here.</p>
       </div>
@@ -59,7 +59,7 @@ export function DeckCardPreview({ code }: { code: number | null }) {
   const description = card?.description?.trim() ?? "";
 
   return (
-    <div className={styles.preview} aria-live="polite">
+    <div className={styles.preview} data-compact={compact || undefined} aria-live="polite">
       <div className={`${styles.art} card-frame`}>
         <img key={code} src={cardArtUrl(code, "full")} alt={card?.name ?? `Card ${code}`} />
       </div>

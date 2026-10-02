@@ -1,6 +1,6 @@
-/* The Between games screen: a full-screen deck view in the duel room's dark style. It reuses the deck
-   editor's sections and card tiles (decks/editor.module.css); this file only adds the frame, the OUT / IN
-   marks and the siding panel. Gold marks the timer and cards coming in, purple the cards going out. */
+/* Dense deck thumbnails in the duel room's dark style. Gold marks the timer and
+   cards coming in, purple the cards going out. The editor's grids are deliberately
+   not shared: all three sections must fit beside the controls on desktop. */
 .screen {
   --b-gold: var(--duel-chain-ink, #f4d690);
   --b-pen: var(--duel-pen-ink, #c6b6ff);
@@ -8,6 +8,10 @@
   --b-rule-hi: var(--duel-rule, rgb(181 153 99 / 0.4));
   /* The opponent chips come from series.module.css, which reads these. */
   --s-ink-2: var(--duel-ink-2);
+  --s-ink: var(--duel-ink);
+  --s-ink-3: var(--duel-ink-3);
+  --s-rule: var(--b-rule);
+  --s-rule-hi: var(--b-rule-hi);
   --s-gold: var(--b-gold);
   --s-pen: var(--b-pen);
   position: fixed;
@@ -18,6 +22,7 @@
   background: linear-gradient(180deg, #0a1122 0%, #070b15 55%, #05080f 100%);
   color: var(--duel-ink);
   color-scheme: dark;
+  overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -27,14 +32,14 @@
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 10px 20px;
-  padding: 14px clamp(14px, 2.2vw, 28px) 12px;
+  gap: 6px 16px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--b-rule);
 }
 .headMain { display: grid; gap: 2px; min-width: 0; }
-.eyebrow { color: var(--duel-ink-3); font-size: 11.5px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; }
-.title { color: var(--duel-ink); font-size: clamp(22px, 2.6vw, 28px); font-weight: 300; line-height: 1.15; letter-spacing: -0.01em; }
-.result { color: var(--duel-ink-2); font-size: 14px; }
+.eyebrow { color: var(--duel-ink-3); font-size: 10px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; }
+.title { color: var(--duel-ink); font-size: 22px; font-weight: 300; line-height: 1.15; letter-spacing: -0.01em; }
+.result { color: var(--duel-ink-2); font-size: 13px; }
 .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .chip {
   display: inline-flex;
@@ -57,29 +62,45 @@
 /* ---------- body: the deck on the left, the siding panel on the right ---------- */
 .body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(300px, 26vw, 380px);
+  grid-template-columns: minmax(0, 1fr) clamp(290px, 22vw, 330px);
+  min-width: 0;
   min-height: 0;
 }
 .deck {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
   min-height: 0;
-  padding: 12px clamp(12px, 1.6vw, 22px) 32px;
+  padding: 10px 12px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgb(181 153 99 / 0.3) transparent;
 }
-.sectionHint { color: var(--duel-ink-4); font-size: 12.5px; }
+.section { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--b-rule); border-radius: 8px; background: rgb(10 17 32 / 0.55); }
+.sectionHead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 22px; }
+.sectionTitle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; font-size: 14px; font-weight: 500; }
+.sectionCount { color: var(--duel-ink); font-size: 20px; line-height: 1; }
+.sectionCount[data-tone="bad"] { color: var(--duel-loss-ink); }
+.sectionTarget, .sectionHint { color: var(--duel-ink-3); font-size: 12px; font-weight: 400; }
+.empty { color: var(--duel-ink-2); font-size: 13px; }
+.cards {
+  display: grid;
+  grid-template-columns: repeat(20, minmax(0, 1fr));
+  gap: 4px;
+  /* Cap the art even on a wide monitor; height scales down on short screens. */
+  max-width: calc(20 * clamp(44px, 8.5dvh, 76px) + 19 * 4px);
+}
+.cards > li { position: relative; min-width: 0; }
 
 .panel {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto auto auto auto;
-  gap: 12px;
+  gap: 8px;
+  min-width: 0;
   min-height: 0;
-  padding: 12px 16px 16px;
+  padding: 10px 12px 12px;
   border-left: 1px solid var(--b-rule);
   background: rgb(6 10 19 / 0.6);
   overflow-y: auto;
@@ -87,8 +108,7 @@
   scrollbar-width: thin;
   scrollbar-color: rgb(181 153 99 / 0.3) transparent;
 }
-.preview { min-height: 0; overflow-y: auto; }
-.preview > div { max-width: 230px; }
+.preview { min-height: 0; overflow: hidden; }
 
 /* ---------- the out / in counter ---------- */
 .counter {
@@ -96,10 +116,10 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border: 1px solid var(--b-rule);
   border-radius: 9px;
-  font-size: 20px;
+  font-size: 18px;
   color: var(--duel-ink);
 }
 .counterNote { color: var(--duel-ink-3); font-size: 12.5px; }
@@ -107,14 +127,14 @@
 .counter[data-state="even"] .counterNote { color: var(--b-gold); }
 .counter[data-state="uneven"] { border-color: rgb(228 90 77 / 0.55); background: var(--duel-loss-soft, rgb(228 90 77 / 0.1)); }
 .counter[data-state="uneven"] .counterNote { color: var(--duel-loss-ink, #ff9489); }
-.help { color: var(--duel-ink-3); font-size: 12.5px; line-height: 1.5; }
+.help { color: var(--duel-ink-2); font-size: 12.5px; line-height: 1.4; }
 
 .nextBlock { display: grid; gap: 6px; justify-items: start; }
 .first { color: var(--duel-ink-2); font-size: 13.5px; }
 .botNote { color: var(--duel-ink-3); font-size: 12.5px; }
 
 .actions { display: grid; gap: 8px; }
-.reason { min-height: 2.9em; color: var(--duel-ink-2); font-size: 13px; line-height: 1.45; }
+.reason { color: var(--duel-ink-2); font-size: 13px; line-height: 1.4; }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .buttons > :first-child { flex: 1 1 100%; }
 .error { color: var(--duel-loss-ink, #ff9489); font-size: 13px; }
@@ -131,16 +151,14 @@ button.tile[data-tag] { z-index: 1; }
 button.tile[data-tag="out"] {
   box-shadow:
     0 0 0 1px rgb(0 0 0 / 0.55),
-    0 0 8px 2px rgb(155 126 255 / 0.9),
-    0 0 20px 5px rgb(155 126 255 / 0.5),
-    0 0 34px 8px rgb(155 126 255 / 0.22);
+    0 0 0 2px var(--b-pen),
+    0 0 8px 2px rgb(155 126 255 / 0.4);
 }
 button.tile[data-tag="in"] {
   box-shadow:
     0 0 0 1px rgb(0 0 0 / 0.55),
-    0 0 6px 2px rgb(244 214 144 / 0.9),
-    0 0 18px 5px rgb(228 182 79 / 0.5),
-    0 0 30px 8px rgb(228 182 79 / 0.2);
+    0 0 0 2px var(--b-gold),
+    0 0 8px 2px rgb(228 182 79 / 0.4);
 }
 .tag, .exTag {
   position: absolute;
@@ -179,10 +197,11 @@ button.tile[data-tag="in"] {
 
 /* ---------- narrow: one column, the panel under the deck ---------- */
 @media (max-width: 900px) {
-  .body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
-  .panel { grid-template-rows: auto; border-left: 0; border-top: 1px solid var(--b-rule); max-height: 52dvh; padding: 10px 14px 12px; }
-  .preview { display: none; }
-  .help { display: none; }
+  .body { display: block; overflow-y: auto; overflow-x: hidden; }
+  .deck { overflow: visible; }
+  .cards { grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); max-width: none; }
+  .panel { grid-template-rows: auto; border-left: 0; border-top: 1px solid var(--b-rule); overflow: visible; padding: 10px 14px 12px; }
+  .preview { height: 220px; }
   .counter { font-size: 17px; padding: 6px 10px; }
   .reason { min-height: 0; }
   .buttons > :first-child { flex: 1 1 auto; }

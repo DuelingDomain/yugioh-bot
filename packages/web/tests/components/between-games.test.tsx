@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelDeck } from "@yugidraft/shared/duels";
 import { TYPE_FUSION } from "../../src/components/duel/constants";
@@ -62,6 +62,17 @@ const counter = () => screen.getByTestId("swap-counter").textContent ?? "";
 const readyButton = () => screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement;
 
 describe("BetweenGamesScreen: what it shows", () => {
+  it("previews a focused card and keeps the clicked card visible after the pointer leaves", async () => {
+    screenFor();
+    const tile = await card("Card 2, Main Deck");
+    fireEvent.focus(tile);
+    expect(screen.getByRole("img", { name: "Card 2" }).getAttribute("src")).toBe("/api/cards/2/image");
+    fireEvent.click(tile);
+    fireEvent.pointerLeave(tile);
+    fireEvent.blur(tile);
+    expect(screen.getByRole("img", { name: "Card 2" }).getAttribute("src")).toBe("/api/cards/2/image");
+  });
+
   it("shows the match score, the next game and who won the last game", async () => {
     screenFor();
     await card("Card 1, Main Deck");
@@ -296,13 +307,23 @@ describe("BetweenGamesScreen: Ready", () => {
     expect(api.readySeries).not.toHaveBeenCalled();
   });
 
-  it("does not submit unbalanced local marks when the timer expires", async () => {
-    screenFor({ series: { nextGameAt: new Date(Date.now() - 1000).toISOString() } });
-    fireEvent.click(await card("Card 2, Main Deck"));
-    expect(screen.getByTestId("between-timer").textContent).toBe("Starts in 0:00");
-    expect(readyButton().disabled).toBe(true);
-    expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
-    expect(api.readySeries).not.toHaveBeenCalled();
+  it.each([false, true])("does not submit unsaved marks at timer expiry (balanced: %s)", async (balanced) => {
+    vi.useFakeTimers();
+    try {
+      const deck = makeDeck();
+      const series = makeSeries({ status: "between_games", hasSide: [true, true], nextGameAt: new Date(Date.now() + 1000).toISOString() });
+      const room = makeSeriesRoom({ series, mySide: { baseDeck: deck, currentDeck: deck } });
+      render(<BetweenGamesScreen room={room} slug="game-1" onChanged={vi.fn()} onNavigate={vi.fn()}
+        initialMarks={{ out: [{ section: "main", index: 1 }], inn: balanced ? [0] : [] }} />);
+      expect(readyButton().disabled).toBe(!balanced);
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      expect(screen.getByTestId("between-timer").textContent).toBe("Starts in 0:00");
+      expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
+      expect(api.readySeries).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
   });
 
   it("with no Side Deck there is nothing to swap, and Ready sends no deck", async () => {

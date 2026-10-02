@@ -307,6 +307,7 @@ describe("series advance", () => {
     const { duel, series } = await startChallenge(app, host, 3);
     const winner = seatPlayer(app, duel.slug, 0);
     const loser = seatPlayer(app, duel.slug, 1);
+    const lastDecks = new Map(duel.seats.map((seat) => [seat.playerId, app.duels.privateState(duel.slug, GUILD).decks[seat.seat]]));
 
     await endGame(host, workers[0]!, duel.slug, winner, 0);
     const between = app.series.get(series.id, GUILD);
@@ -327,6 +328,8 @@ describe("series advance", () => {
     const game2 = app.duels.get(after.currentDuelSlug!, GUILD);
     expect(game2.status).toBe("active");
     expect(seatPlayer(app, game2.slug, 0)).toBe(loser);
+    const nextDecks = app.duels.privateState(game2.slug, GUILD).decks;
+    for (const seat of game2.seats) expect(nextDecks[seat.seat]).toEqual(lastDecks.get(seat.playerId));
     expect(changes).toContain(duel.slug);
     expect(changes).toContain(game2.slug);
   });

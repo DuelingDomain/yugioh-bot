@@ -31,8 +31,8 @@ const EMPTY_DECK: DuelDeck = { main: [], extra: [], side: [] };
 
 type Tag = "out" | "in";
 
-/** One card of the deck view: a deck editor tile that can carry an OUT or IN mark. */
-function Tile({ code, name, label, tag, extra, locked, onClick, onHover }: {
+/** A focusable thumbnail that can carry an OUT or IN mark. */
+function Tile({ code, name, label, tag, extra, locked, onClick, onHover, onSelect }: {
   code: number;
   name: string;
   label: string;
@@ -42,12 +42,13 @@ function Tile({ code, name, label, tag, extra, locked, onClick, onHover }: {
   locked: boolean;
   onClick: () => void;
   onHover: (code: number | null) => void;
+  onSelect: (code: number) => void;
 }) {
   return (
     <li>
       <button type="button" className={cx(deckStyles.card, styles.tile)} data-tag={tag} data-locked={locked ? "true" : undefined}
         aria-pressed={tag != null} aria-disabled={locked || undefined} aria-label={label} title={name}
-        onClick={() => { if (!locked) onClick(); }}
+        onClick={() => { onSelect(code); if (!locked) onClick(); }}
         onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover(code); }}
         onPointerLeave={() => onHover(null)}
         onFocus={() => onHover(code)}
@@ -70,16 +71,16 @@ function Section({ title, count, target, tone, hint, children, empty }: {
   empty: string;
 }) {
   return (
-    <section className={deckStyles.section} aria-label={`${title} Deck`} data-testid={`section-${title.toLowerCase()}`}>
-      <header className={deckStyles.sectionHead}>
-        <h2 className={deckStyles.sectionTitle}>
+    <section className={styles.section} aria-label={`${title} Deck`} data-testid={`section-${title.toLowerCase()}`}>
+      <header className={styles.sectionHead}>
+        <h2 className={styles.sectionTitle}>
           {title}
-          <span className={cx(ui.num, deckStyles.sectionCount)} data-tone={tone} data-testid={`count-${title.toLowerCase()}`}>{count}</span>
-          <span className={deckStyles.sectionTarget}>{target}</span>
+          <span className={cx(ui.num, styles.sectionCount)} data-tone={tone} data-testid={`count-${title.toLowerCase()}`}>{count}</span>
+          <span className={styles.sectionTarget}>{target}</span>
         </h2>
         {hint ? <p className={styles.sectionHint}>{hint}</p> : null}
       </header>
-      {Children.toArray(children).length === 0 ? <p className={deckStyles.empty}>{empty}</p> : <ul className={deckStyles.cards}>{children}</ul>}
+      {Children.toArray(children).length === 0 ? <p className={styles.empty}>{empty}</p> : <ul className={styles.cards}>{children}</ul>}
     </section>
   );
 }
@@ -115,6 +116,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<ReadonlyMap<number, CardMeta>>(knownCards ?? new Map());
   const [hovered, setHovered] = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
 
   // The server deck changed (Ready saved it, or a new game began): the marks start again from it.
   const serverKey = JSON.stringify(current);
@@ -200,14 +202,14 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     const tag: Tag | undefined = isMarkedOut(marks, "main", i) ? "out" : undefined;
     return (
       <Tile key={`main-${i}`} code={code} name={nameOf(code)} label={flag(code, "Main", tag)} tag={tag} locked={locked}
-        onClick={() => setMarks(toggleOut(marks, "main", i))} onHover={setHovered} />
+        onClick={() => setMarks(toggleOut(marks, "main", i))} onHover={setHovered} onSelect={setSelected} />
     );
   });
   const extraCards = current.extra.map((code, i) => {
     const tag: Tag | undefined = isMarkedOut(marks, "extra", i) ? "out" : undefined;
     return (
       <Tile key={`extra-${i}`} code={code} name={nameOf(code)} label={flag(code, "Extra", tag)} tag={tag} locked={locked}
-        onClick={() => setMarks(toggleOut(marks, "extra", i))} onHover={setHovered} />
+        onClick={() => setMarks(toggleOut(marks, "extra", i))} onHover={setHovered} onSelect={setSelected} />
     );
   });
   // A Side card that is marked in shows in the section it will join, with an IN mark; click to take it back.
@@ -217,7 +219,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
       const code = current.side[sideIndex];
       return (
         <Tile key={`in-${section}-${sideIndex}`} code={code} name={nameOf(code)} label={flag(code, section === "main" ? "Main" : "Extra", "in")}
-          tag="in" locked={locked} onClick={() => setMarks(toggleIn(marks, sideIndex))} onHover={setHovered} />
+          tag="in" locked={locked} onClick={() => setMarks(toggleIn(marks, sideIndex))} onHover={setHovered} onSelect={setSelected} />
       );
     });
   const sideCards = current.side.map((code, i) => {
@@ -226,7 +228,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     const extra = type != null && isExtraDeckType(type);
     return (
       <Tile key={`side-${i}`} code={code} name={nameOf(code)} label={flag(code, "Side", tag, extra)} tag={tag} extra={extra} locked={locked}
-        onClick={() => setMarks(toggleIn(marks, i))} onHover={setHovered} />
+        onClick={() => setMarks(toggleIn(marks, i))} onHover={setHovered} onSelect={setSelected} />
     );
   });
 
@@ -271,14 +273,14 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
         </div>
 
         <aside className={styles.panel} aria-label="Siding">
-          <div className={styles.preview}><DeckCardPreview code={hovered} /></div>
+          <div className={styles.preview}><DeckCardPreview code={hovered ?? selected} compact /></div>
 
           <div className={styles.counter} data-state={counterState} role="status" aria-live="polite" data-testid="swap-counter">
             <span className={ui.num}>{plan.out} out · {plan.inn} in</span>
             <span className={styles.counterNote}>{!changed ? "No changes" : plan.balanced ? "Even" : "Not even"}</span>
           </div>
           <p className={styles.help}>
-            Click a card in the Main or Extra Deck to take it out, then the same number from the Side Deck to bring in.
+            Take cards out, then bring in Side cards. Main and Extra must each keep their count.
           </p>
 
           <div className={styles.nextBlock}>
@@ -293,7 +295,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
           <div className={styles.actions}>
             <p className={styles.reason} id="between-reason" data-testid="ready-reason">{readyReason ?? status}</p>
             <div className={styles.buttons}>
-              <SheetButton kind="primary" size="lg" loading={busy && !confirmCancel} disabled={imReady || busy || readyReason != null}
+              <SheetButton kind="primary" loading={busy && !confirmCancel} disabled={imReady || busy || readyReason != null}
                 aria-describedby="between-reason" onClick={() => void ready()}>
                 Ready
               </SheetButton>

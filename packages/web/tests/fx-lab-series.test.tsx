@@ -29,6 +29,7 @@ describe("fx lab: Best of 3 scenarios", () => {
       "match-label-game-2",
       "match-label-game-3",
       "match-side-deck",
+      "match-side-deck-60",
       "match-side-even",
       "match-side-uneven",
       "match-side-none",
@@ -107,6 +108,16 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByTestId("section-main")).toBeTruthy();
     expect(screen.getByTestId("section-extra")).toBeTruthy();
     expect(screen.getByTestId("section-side")).toBeTruthy();
+    expect(room.mySide!.currentDeck.main).toHaveLength(40);
+    expect(room.mySide!.currentDeck.extra).toHaveLength(15);
+    expect(room.mySide!.currentDeck.side).toHaveLength(15);
+  });
+
+  it("offers a maximum-size deck for checking desktop layout", () => {
+    const { room } = open("match-side-deck-60");
+    expect(room.mySide!.currentDeck.main).toHaveLength(60);
+    expect(room.mySide!.currentDeck.extra).toHaveLength(15);
+    expect(room.mySide!.currentDeck.side).toHaveLength(15);
   });
 
   it("shows siding with matching counts: Ready is on", () => {
