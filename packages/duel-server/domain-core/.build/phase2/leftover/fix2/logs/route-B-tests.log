@@ -1,7 +1,0 @@
-RUN  v4.1.5 /home/sulman633/repos/yugioh-bot/.worktrees/domain-multiplayer/packages/duel-server/domain-core/.build/phase2/leftover/fix2/scratch/route-B/packages/duel-server
-
-
- Test Files  1 passed (1)
-      Tests  34 passed (34)
-   Start at  16:19:40
-   Duration  1.41s (transform 165ms, setup 22ms, import 190ms, tests 1.13s, environment 0ms)

@@ -1,8 +1,0 @@
-/home/sulman633/repos/yugioh-bot/.worktrees/domain-multiplayer/packages/duel-server/domain-core/.build/phase2/leftover/fix2/scratch/base/packages/duel-server/owner-rule-probe.mts:1
-import {readFileSync} from "node:fs"; import {parseAdrRules} from "./scripts/rule-coverage.ts"; const id="R-COMMON-RETURN-TO-OWNER"; if (!parseAdrRules(readFileSync("../../docs/adr/0002-multiplayer-duel-rules.md","utf8")).some(r=>r.id===id)) throw Error("return-to-owner rule was not parsed"); console.log("return-to-owner rule parsed");
-                                                                                                                                                                                                                                                        ^
-
-Error: return-to-owner rule was not parsed
-    at <anonymous> (/home/sulman633/repos/yugioh-bot/.worktrees/domain-multiplayer/packages/duel-server/domain-core/.build/phase2/leftover/fix2/scratch/base/packages/duel-server/owner-rule-probe.mts:1:249)
-
-Node.js v24.12.0

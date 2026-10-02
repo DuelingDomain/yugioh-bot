@@ -1,7 +1,0 @@
-{
-  "captured_at": "2026-10-02T20:23:48.721574+00:00",
-  "current_source": "/home/sulman633/repos/yugioh-bot/.worktrees/domain-multiplayer/packages/duel-server/domain-core/.build/phase1/df-c6/out/ffa4-shared-zones-scenarios-old-to-new.patch",
-  "sha256": "91a630589a80ba1dc9812b4e9a15cdcf66fae857d4989703784fe5ebc1e4c51e",
-  "checks_tsv_after_c6_sha256": "881e76a0d20fa07d1004d87d9c1a22f8b330bf75aa4c8b8739b4db074a873624",
-  "instruction": "Apply C6 before leftover registration. Regenerate registration and the owner-context C6 variant if C6 changes checks.tsv or its shared context again."
-}
