@@ -115,7 +115,7 @@ export function HoloLp({
         {turn ? <span className={styles.turnChip}>Turn</span> : null}
       </div>
       <div className={styles.main} data-lp-seat={seat}>
-        <LifePoints value={lp} reducedMotion={reducedMotion} size={me ? "lg" : "sm"} />
+        <LifePoints value={lp} reducedMotion={reducedMotion} size={me ? "lg" : "sm"} showChange={false} />
         {lastDamage != null && lastDamage > 0 && lp != null ? (
           <span className={styles.hit} data-damage-chip title="Last damage">
             <s aria-label="LP before">{(lp + lastDamage).toLocaleString("en-US")}</s>

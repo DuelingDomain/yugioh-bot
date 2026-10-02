@@ -47,6 +47,13 @@ describe("HoloLp", () => {
     expect(container.querySelector("[data-damage-chip]")).toBeNull();
   });
 
+  it("shows one damage history after a live LP update, without a second LifePoints tally", () => {
+    const { container, rerender } = render(<HoloLp {...holo({ lp: 8000 })} />);
+    rerender(<HoloLp {...holo({ lp: 6000, lastDamage: 2000 })} />);
+    expect(container.querySelectorAll('[data-lp-seat="1"] [data-damage-chip]')).toHaveLength(1);
+    expect(container.querySelectorAll("[data-change]")).toHaveLength(0);
+  });
+
   it("owns exactly one data-lp-seat for its seat", () => {
     const { container } = render(<HoloLp {...holo()} />);
     const nodes = container.querySelectorAll("[data-lp-seat]");
