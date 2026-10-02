@@ -232,7 +232,7 @@ export function SharedExtraZones({ pair, nameOf, callbacks }: {
           + (firstOff ? `, ${firstName} zone disabled` : "") + (acrossOff ? `, ${acrossName} zone disabled` : "");
         return <CardCell key={sequence} card={card} kind="emz" label={label}
           keys={withExact(card, [zoneKey(first.seat, LOCATION_MZONE, sequence), zoneKey(across.seat, LOCATION_MZONE, mirror)])}
-          callbacks={callbacks} disabled={firstOff && acrossOff} testId={`shared-emz-${first.seat}-${across.seat}-${sequence - 4}`} />;
+          callbacks={callbacks} disabled={firstOff || acrossOff} testId={`shared-emz-${first.seat}-${across.seat}-${sequence - 4}`} />;
       })}
     </div>
   );

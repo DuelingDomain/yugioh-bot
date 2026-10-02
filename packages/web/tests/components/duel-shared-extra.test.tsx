@@ -131,15 +131,15 @@ describe("FFA4 shared Extra Monster Zones", () => {
     expect(submit).toHaveBeenCalledWith({ selected: ["across-zone"] });
   });
 
-  it("keeps a shared cell usable when only one seat's zone is disabled", () => {
+  it.each([0, 2])("blocks an empty shared cell when seat %s alone disables the zone", (seat) => {
     const onActivate = vi.fn();
     const key = zoneKey(2, LOCATION_MZONE, 6);
-    render(stage(fixture("ffa4", { 0: { disabledZones: 1 << 5 } }), 0, 1, { legal: new Set([key]), onActivate }));
+    render(stage(fixture("ffa4", { [seat]: { disabledZones: 1 << (seat === 0 ? 5 : 6) } }), 0, 1, { legal: new Set([key]), onActivate }));
     const button = within(screen.getByTestId("shared-emz-0-2-1")).getByRole("button");
-    expect(button.getAttribute("aria-disabled")).not.toBe("true");
-    expect(button.getAttribute("aria-label")).toContain("Ada zone disabled");
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.getAttribute("aria-label")).toContain(`${NAMES[seat]} zone disabled`);
     fireEvent.click(button);
-    expect(onActivate).toHaveBeenCalledOnce();
+    expect(onActivate).not.toHaveBeenCalled();
   });
 
   it("blocks an empty pair cell disabled for both seats but still lets an occupied card be inspected", () => {
