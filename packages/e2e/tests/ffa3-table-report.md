@@ -43,10 +43,92 @@ They have no dedicated browser tests here. Browser gaps also include R-FFA-TRIGG
 R-FFA-NEGATE, R-COMMON-EACH-PLAYER, R-COMMON-ONGOING, R-COMMON-SEAT-STATE,
 R-COMMON-CONT-NEG, direct-attack responses restricted to the attacked seat, and Domain/Tag gameplay.
 
-**Owner question:** with no chain open, should a surrendered seat leave after the next
-answered prompt, at the next adjustment/step, or at the end of the turn? The current
-FFA3 and FFA4 tests record Leaving until a turn boundary; this report does not choose
-an ADR rule for that delay.
+## Surrender and spectator proof (2026-10-02)
+
+This section supersedes the historical surrender timing question and open-chain
+surrender gap elsewhere in this report. The decided rule is **owner rule 2026-10-02:
+surrender at end of turn**: with no open chain, a surrendered multiplayer seat stays
+Leaving until the current turn ends, then is eliminated with its seat order retained.
+The engine does not yet implement that timing. No engine rules were edited.
+
+The old surrender test was moved from `duel-3p-ffa-table.spec.ts` into
+`duel-3p-ffa-surrender.spec.ts` and extended with human UI actions, spectator choices,
+and read-only `readTableTrace` prompt-log evidence. All seats are human; synchronization
+uses bounded polling of real prompts rather than sleeps.
+
+### Exact engine difference
+
+In both FFA3 and FFA4, the last seat surrenders while seat 0 holds its turn-1 Main
+Phase 1 action prompt with no chain. The seat remains pending after surrender and
+after the Normal Summon answer opens the `places` prompt. Answering zone placement
+eliminates the seat at the next adjustment: the next prompt is still seat 0's action
+prompt in **turn 1, Main Phase 1**. Elimination is neither immediate on surrender,
+nor at the first answer, nor deferred to the end of the turn. The recorded prompt
+sequence is `choice/action -> places -> choice/action`, all at turn 1/main1/seat 0.
+
+Each format has a separate `current engine: ... no-chain surrender lands after summon
+placement in the same Main Phase` control and an owner-rule test marked
+`test.fail(true, "owner rule 2026-10-02: surrender at end of turn pending engine change")`.
+All four expected failures occur at the intended `eliminated === false` assertion;
+none is a UI timeout. They demonstrate the unresolved rule difference.
+
+### Proven behavior and limits
+
+| New-spec test group | Run 1 | Run 2 | Exact evidence |
+| --- | ---: | ---: | --- |
+| current engine: queued surrender reaches a turn boundary, then the eliminated player watches live turns and placings | 1 pass | 1 pass | Leaving during Bob's held prompt; Bob ends turn 2; Alice is eliminated on turn 3 with empty owned zones and retained seat 0. Ending the turn is the next adjustment in this path, so this alone does not prove the owner timing rule. |
+| an eliminated player can leave the room while the other duelists keep playing | 1 pass | 1 pass | Leave room navigates to `/duels`; remaining duel continues to turn 4 with original seat IDs. |
+| current engine: FFA3/FFA4 no-chain summon-placement controls | 2 passes | 2 passes | Same-turn elimination described above, engine snapshots and full prompt logs. |
+| FFA3/FFA4 owner rule: Leaving through a summon until end of turn | 2 expected failures | 2 expected failures | Engine eliminates before end of turn. |
+| FFA3/FFA4 surrender during your own turn passes to the next live seat in order | 2 passes | 2 passes | Next action prompt is turn 2/seat 1 in FFA3; seat 2 in FFA4 after seat 1 was eliminated. Eliminated seat cannot act. |
+| FFA3/FFA4 R-FFA-ELIMINATION: surrender during an open chain | 2 passes | 2 passes | Bob's chain-response prompt stays unchanged; Alice is Leaving and her monster remains while the chain is open. Bob clicks No, so no negation confounds the test. Alice's Pot of Greed link produces no two-card draw; after the chain ends Alice is eliminated and her monster is removed in engine and UI. |
+
+The FFA3 watch path proves a clear **Stay and watch / Leave room** choice after actual
+elimination and after reload. Watching uses the existing public worker projection and
+a signed null-seat connection token, with spectator role, no prompt, no own hand,
+and no private deck/side data. Live prompt-log turns are `[1,0], [2,1], [3,2], [4,1]`;
+the spectator sees turns 3 and 4 and the final standings `[2,1,0]`, including after
+reload. Watching submits zero action POSTs. Room membership and original standings
+remain intact. Only eliminated FFA3/FFA4 players may opt into this projection;
+living and Leaving players are rejected. Ordinary 1v1 projection is unchanged.
+
+### Verification and screenshots
+
+The accepted run began at **2026-10-02 22:43:47.917 UTC**, lasted **285.404 seconds**,
+and ran the new spec with `--repeat-each=2 --workers=1 --retries=0` inside the exclusive
+E2E stack lock, after a production stack build. Result: **16 ordinary browser passes,
+4 expected owner-rule failures, 0 skips, 0 unexpected, 0 flaky**. Four authentication
+setup passes make the Playwright summary **24 passed**; every result has retry 0.
+Targeted web tests passed **65/65**, host spectator unit tests **5/5**, and web,
+duel-server and E2E typechecks passed. The existing full 1v1 suite was not rerun.
+
+The snapshot WASM SHA-256 remains
+`896d6528b16227e1702088c42da8570a6c394be9c0dd93ad4f2aac9951e5c22e`.
+`E2E_MANUAL=1` derives a verified wrapper manifest under the isolated `.stack` because
+the snapshot's wrapper manifest differs from the installed wrapper; snapshot bytes
+are unchanged. The run uses `E2E_DUEL_DATA_DIR=$PWD/data/duel-engine-snap`, the local
+card-image source, and `E2E_BOT_STEP_MS=250`. Optional `E2E_SURRENDER_SHOT_DIR` exports
+only the second repetition's screenshots; ordinary runs need no external directory.
+
+Three 1440×900 PNGs were exported to
+`/home/sulman633/repos/yugioh-bot/.fx-demo/three-way/shots/`:
+
+| File | SHA-256 |
+| --- | --- |
+| `live-ffa3-r3-surrender-leaving.png` | `8e0f54cd2dcb396e25adeae15609ffeebb36d8ff2f9afbb2aa7b037d5521e34d` |
+| `live-ffa3-r3-surrender-choice.png` | `03b09a31163527ea2255b86f24da711e40753e48d459fde7175f96d443b034f4` |
+| `live-ffa3-r3-surrender-spectator-result.png` | `9764874678d531738cab4ecadbc2b5d2b48f37ff17d32fcfcde7ee66400e4fc4` |
+
+After export, cleanup ran under the exclusive stack lock with all four isolated
+stack ports stopped. Generated `.next`, web coverage, `.stack`, built
+`packages/{duel-server,shared,ws}/dist`, and this worker's Playwright results/traces
+were removed. The snapshot and three exported PNGs remain. No live stack, engine
+owner worktree, rule implementation, push, PR or main merge was touched.
+
+Remaining: the engine owner must defer no-chain surrender through all remaining
+actions until end of the current turn. The UI follows actual engine state and cannot
+claim this timing is implemented. Broader elimination clauses and the legacy 1v1
+Domain `startGame`/`firstTurnDraw` decision remain outside this surrender task.
 
 ## Opus re-check gaps and deferred decisions
 
