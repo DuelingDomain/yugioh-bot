@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { Circle, Diamond, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import type { DuelCard } from "@yugidraft/shared/duels";
@@ -28,7 +28,7 @@ import { PositionFx } from "../position-fx";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { optionsForCard, PromptTray } from "../prompts";
 import { priorityOrder } from "../priority-chips";
-import { Sheet } from "@/components/ui/sheet";
+import { usePickContinuation } from "../pick-continuation";
 import { useResultGate } from "../result-reveal";
 import { firstInspectCard } from "../tag/tag-logic";
 import { DuelClockDisplay } from "../room-settings";
@@ -43,7 +43,8 @@ import { tableLayout } from "./geometry";
 import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
 import { attackLockAt, placeLabel, placings, seatStrip, toneBySeat, trackOutOrder } from "./seat-state";
-import { TableSettings } from "./table-side";
+import { TableSettings, type TableConnection } from "./table-settings";
+import { TablePhonePanes } from "./table-phone-panes";
 import { TableStage } from "./table-stage";
 import { tableZoneAnchor } from "./zone-find";
 import { useAimFlow } from "./use-aim-flow";
@@ -85,6 +86,11 @@ export interface TableShellProps {
   busy?: boolean;
   headerTools?: ReactNode;
   modals?: ReactNode;
+  notices?: ReactNode;
+  settingsTools?: ReactNode;
+  connection?: TableConnection;
+  /** The room's prompt reveal gate must wait on this shell's board effects. */
+  boardRef?: RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -102,10 +108,21 @@ export function TableShell({
   busy: roomBusy = false,
   headerTools,
   modals,
+  notices,
+  settingsTools,
+  connection,
+  boardRef: roomBoardRef,
 }: TableShellProps) {
   // The room's own busy state joins the controller's: no answer goes out while either is set.
   const given = useMemo(() => (roomBusy && !supplied.busy ? { ...supplied, busy: true, canAct: false } : supplied), [roomBusy, supplied]);
-  const ui = useTableUi(given);
+  const pick = usePickContinuation(given.prompt);
+  const onAnswer = useCallback<TableController["onAnswer"]>((answer) => {
+    if (given.busy || !given.canAct || !given.prompt) return;
+    pick.noteAnswer(given.prompt, answer);
+    given.onAnswer(answer);
+  }, [given, pick.noteAnswer]);
+  const tracked = useMemo(() => ({ ...given, onAnswer }), [given, onAnswer]);
+  const ui = useTableUi(tracked);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
   const format = engineFormat(engine);
@@ -116,17 +133,18 @@ export function TableShell({
     [format, engine.seats.length, viewerSeat],
   );
   const rootRef = useRef<HTMLDivElement>(null);
-  const boardRef = useRef<HTMLDivElement>(null);
-  const flow = useAimFlow(base, layout, rootRef, { suspended: ui.suspended });
+  const ownBoardRef = useRef<HTMLDivElement>(null);
+  const boardRef = roomBoardRef ?? ownBoardRef;
+  const narrow = useIsNarrow();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const suspended = ui.suspended || (narrow && sheetOpen);
+  const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
-  const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended: ui.suspended });
+  const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended });
   const preferences = useDuelPreferences();
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
-  const narrow = useIsNarrow();
-  const [sheetOpen, setSheetOpen] = useState(false);
-
   const session = room.session;
   const domain = session.mode === "domain";
   const spectator = viewerSeat == null;
@@ -161,6 +179,8 @@ export function TableShell({
   const myTurn = !spectator && turnSeat === viewerSeat;
   const turnText = myTurn ? "Your turn" : `${nameOf(turnSeat)}'s turn`;
   const soundLabel = preferences.soundEnabled ? "On" : "Off";
+  const connectionLabel = terminal ? "Finished" : connection?.syncing || connection?.stale ? "Catching up…"
+    : connection?.error || connection?.recovering ? "Reconnecting" : connection && !connection.connected ? "Polling" : "Live";
 
   const promptMine = prompt != null && !spectator && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;
@@ -212,7 +232,8 @@ export function TableShell({
     out: camera.out,
   };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
-  const logVisible = ui.pane === "log";
+  const logVisible = ui.pane === "log" && (!narrow || sheetOpen);
+  const inspectCard = (target: InspectTarget) => { ui.inspectCard(target); if (narrow) setSheetOpen(true); };
   // Before anything is hovered the Card tab shows the viewer's first face-up monster (else a hand card), as the tag table does.
   const startCard = ui.inspect ? null : firstInspectCard(engine, viewerSeat);
   const inspectorTarget: InspectTarget | null = ui.inspect ?? (startCard ? { type: "card", card: startCard } : null);
@@ -235,7 +256,7 @@ export function TableShell({
         engine={engine}
         mySeat={viewerSeat}
         playerName={nameOf}
-        onInspectCard={(card) => ui.inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
+        onInspectCard={(card) => inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
         reducedMotion={controller.reducedMotion}
         active={logVisible}
         onUnread={setLogUnread}
@@ -291,9 +312,9 @@ export function TableShell({
         </div>
         <div className={roomStyles.status}>
           {headerTools}
-          <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={!terminal}>
-            {terminal ? <Radio size={15} strokeWidth={1.75} aria-hidden /> : <i className={roomStyles.liveDot} aria-hidden />}
-            {terminal ? "Finished" : spectator ? "Live duel · watching" : "Live duel"}
+          <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
+            {connectionLabel === "Live" ? <i className={roomStyles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
+            {connectionLabel === "Live" ? spectator ? "Live duel · watching" : "Live duel" : connectionLabel}
           </span>
           {hasResult && hideResult ? (
             <button type="button" className={roomStyles.tool} onClick={() => setHideResult(false)}><span>Show result</span></button>
@@ -321,6 +342,7 @@ export function TableShell({
           onOpenSide={() => actions?.onOpenSide?.()}
         />
       ) : null}
+      {notices}
       <div className={roomStyles.layout}>
         {narrow ? null : (
           <aside className={roomStyles.inspector}>
@@ -329,14 +351,14 @@ export function TableShell({
               mySeat={viewerSeat}
               playerName={nameOf}
               seatTones={seatTones}
-              onInspectCard={(card) => ui.inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
+              onInspectCard={(card) => inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
               onOpenLog={() => ui.setPane("log")}
             />
             <SideTabs panes={DESKTOP_PANES} selected={desktopPane(ui.pane)} unread={logUnread} onSelect={ui.setPane} />
             <div className={roomStyles.sideContent}>
               <SidePanel pane="card" selected={desktopPane(ui.pane)}>{cardPanel}</SidePanel>
               <SidePanel pane="log" selected={desktopPane(ui.pane)} keepMounted>{logPanel}</SidePanel>
-              <SidePanel pane="settings" selected={desktopPane(ui.pane)}><TableSettings controller={controller} preferences={preferences} /></SidePanel>
+              <SidePanel pane="settings" selected={desktopPane(ui.pane)}><TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} /></SidePanel>
             </div>
           </aside>
         )}
@@ -386,11 +408,11 @@ export function TableShell({
               }
               promptCenter={
                 <PromptCenter
-                  prompt={prompt}
+                  prompt={prompt ?? (!hasResult ? pick.waiting : null)}
                   mySeat={viewerSeat}
                   active={!terminal}
                   slug={session.slug}
-                  busy={controller.busy}
+                  busy={controller.busy || (prompt == null && pick.waiting != null)}
                   draft={controller.draft}
                   onSubmit={controller.onAnswer}
                   menuOpen={ui.menu != null}
@@ -441,7 +463,7 @@ export function TableShell({
                       open={ui.pile.open}
                       cards={livePileCards(ui.pile, engine, viewerSeat)}
                       onClose={ui.closePile}
-                      onInspectCard={(card) => ui.inspectCard({ type: "card", card })}
+                      onInspectCard={(card) => inspectCard({ type: "card", card })}
                       onHoverCard={(card) => { if (ui.pane === "card") ui.setInspect({ type: "card", card }); }}
                       onActivateCard={onInspectorActivate}
                       legalKeys={controller.legalKeys}
@@ -480,24 +502,11 @@ export function TableShell({
           attackLock={attackLockAt(format, engine.seats.length, engine.turn)}
         />
       </div>
-      {narrow ? (
-        <>
-          <div className={roomStyles.mobileBar}>
-            <SideTabs
-              mobile
-              panes={DESKTOP_PANES}
-              selected={desktopPane(ui.pane)}
-              unread={logUnread}
-              onSelect={(pane) => { ui.setPane(pane); setSheetOpen(true); }}
-            />
-          </div>
-          <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={ui.pane === "log" ? "Duel log" : ui.pane === "settings" ? "Settings" : "Card"}>
-            <SidePanel pane="card" selected={desktopPane(ui.pane)} semantic={false}>{cardPanel}</SidePanel>
-            <SidePanel pane="log" selected={desktopPane(ui.pane)} semantic={false} keepMounted>{logPanel}</SidePanel>
-            <SidePanel pane="settings" selected={desktopPane(ui.pane)} semantic={false}><TableSettings controller={controller} preferences={preferences} /></SidePanel>
-          </Sheet>
-        </>
-      ) : null}
+      {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}
+        onClose={() => setSheetOpen(false)} onSelect={(pane) => { ui.setPane(pane); setSheetOpen(true); }}
+        card={cardPanel} log={logPanel}
+        settings={<TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} />}
+        masters={masterRail} /> : null}
       {ui.menu ? (
         <CardActionMenu
           anchor={ui.menu.anchor}
@@ -524,7 +533,7 @@ export function TableShell({
           onBack={flow.cancel}
         />
       ) : null}
-      {ui.hover && !ui.menu && !ui.pile?.open ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
+      {ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
       {showResult ? (
         <DuelResultScreen
           room={room}

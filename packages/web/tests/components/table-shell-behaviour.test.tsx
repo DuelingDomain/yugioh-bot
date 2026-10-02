@@ -51,7 +51,7 @@ describe("TableShell on the 3-way fixtures: phone width", () => {
       expect(container.querySelector("[data-testid='history-strip']")).toBeNull();
       const bar = container.querySelector("[aria-label='Mobile duel panels']") as HTMLElement;
       expect(bar).not.toBeNull();
-      expect([...bar.querySelectorAll("button")].map((node) => node.textContent?.replace(/\d+\+?$/, ""))).toEqual(["Card", "Log", "Settings"]);
+      expect([...bar.querySelectorAll("button")].map((node) => node.textContent?.replace(/\d+\+?$/, ""))).toEqual(["Card", "Log", "Settings", "Masters"]);
       act(() => void fireEvent.click(getByRole("button", { name: /^Log/ })));
       expect(document.body.querySelector("[role='dialog']")).not.toBeNull();
       const switcher = container.querySelector("[data-seat-switcher]") as HTMLElement;
