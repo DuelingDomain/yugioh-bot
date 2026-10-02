@@ -23,6 +23,7 @@ function scenario(format: Format, name: string, data: Partial<Scenario> & Pick<S
 }
 
 export const DOMAIN_NSEAT_STRESS: Scenario[] = [];
+export { setup as stressSetup, board as stressBoard, scenario as stressScenario, MASTER as STRESS_MASTERS };
 for (const format of ["ffa3", "ffa4", "tag"] as const) {
   const owner: Seat = format === "ffa3" ? "p2" : "p3";
   DOMAIN_NSEAT_STRESS.push(

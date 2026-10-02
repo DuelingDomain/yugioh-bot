@@ -63,3 +63,9 @@ The fuzz driver now counts real Deck Master leaves and returns per seat. A live
 seed in each format proves that the report includes actual Deck Master play.
 The new tests failed before this report change and pass after it. Deck creation
 and the random answer policy already support Domain and need no change.
+
+P61 also passes 32 summon cases at FFA3 seat 2, FFA4 seat 3, and Tag seats 2
+and 3. These prove Monster Set, Fusion, Synchro, Xyz, Ritual, and Pendulum
+Summons. Both Normal and Pendulum main-deck masters can Pendulum Summon. An
+Extra Deck Pendulum master is excluded from the scale activation and Pendulum
+Summon. All cases check the Deck Master zone and the board of every seat.
