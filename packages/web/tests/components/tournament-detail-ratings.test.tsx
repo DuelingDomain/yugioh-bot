@@ -54,6 +54,19 @@ describe("tournament live ratings", () => {
     expect(screen.getByText("In progress")).toBeInTheDocument();
   });
 
+  it("keeps the last good Elo when a match update ratings refresh fails", async () => {
+    const refresh = deferred();
+    let requests = 0;
+    setup(() => ++requests === 1 ? Response.json(ratingsAt(1184)) : refresh.promise);
+    render(<TournamentDetailPage />);
+    const match = await screen.findByRole("region", { name: "Your match" });
+    expect(await within(match).findByText("1184")).toBeInTheDocument();
+    act(() => handlers.onMatchUpdated?.());
+    expect(requests).toBe(2);
+    await act(async () => refresh.resolve(Response.json({}, { status: 500 })));
+    expect(within(screen.getByRole("region", { name: "Your match" })).getByText("1184")).toBeInTheDocument();
+  });
+
   it.each([200, 500])("keeps the latest Elo when an older ratings response returns status %s", async status => {
     const old = deferred(), latest = deferred();
     let requests = 0;

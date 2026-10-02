@@ -61,7 +61,7 @@ export default function TournamentDetailPage() {
       const data = await response.json();
       if (request === ratingsRequest.current) setRatings(buildPlayerRatings(data.rows));
     } catch {
-      if (request === ratingsRequest.current) setRatings(new Map());
+      // Keep the last good ratings when a refresh fails; the initial map is already empty.
     }
   }, []);
   useEffect(() => {
