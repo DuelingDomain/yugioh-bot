@@ -110,7 +110,16 @@ const CHECKS: Record<string, Check[]> = {
     },
     (ctx) => expectState(ctx, ["activate Raigeki"], (step) => [1, 2, 3].every((seat) => monstersOf(step, seat).length === 0) && has(monstersOf(step, 0), "Celtic Guardian"), "bot monsters gone, Celtic Guardian stays"),
     (ctx) => expectState(ctx, ["activate Dark Hole"], (step) => allEmptyBut(step, []) && has(seatOf(step, 0)?.grave ?? [], "Celtic Guardian"), "no monster left, Celtic Guardian in the grave"),
-    noHostPrompt((prompt) => prompt.kind !== "choice" || !prompt.options.every((option) => /pass|no|cancel/i.test(option)), "a bot got a prompt that is not a plain pass"),
+    (ctx) => {
+      const darkHole = did(ctx, "activate Dark Hole");
+      const resolved = darkHole && ctx.steps.find((step) => step.revision !== null && step.revision > darkHole.revision && allEmptyBut(step, []));
+      if (!resolved) return { verdict: "not-reached", detail: "Dark Hole has not resolved" };
+      // Normal action prompts on the bots' subsequent turns are outside these spells' response
+      // windows. Only the captured interval through Dark Hole's resolution must be plain passes.
+      return noHostPrompt((prompt) => prompt.kind !== "choice" || !prompt.options.every((option) => /pass|no|cancel/i.test(option)), "a bot got a prompt that is not a plain pass")({
+        ...ctx, steps: ctx.steps.filter((step) => step.revision !== null && step.revision <= resolved.revision!),
+      });
+    },
   ],
   "raigeki-dark-hole-tag": [
     (ctx) => {
