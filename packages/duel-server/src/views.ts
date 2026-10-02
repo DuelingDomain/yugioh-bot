@@ -15,7 +15,7 @@ import {
   type OcgMessage,
   type OcgQueryFlags as OcgQueryFlagsValue,
 } from "ocgcore-wasm";
-import { partnerSeatOf, seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
+import { partnerSeatOf, seatCountFor, sharedExtraSeatOf, teamOfSeat } from "@yugidraft/shared/duels";
 import { raceLabel, type CardDatabase } from "./cards.js";
 import { fillPlaceholders, locationLabel } from "./text.js";
 
@@ -1196,6 +1196,7 @@ export function projectView(args: {
     const domain = args.domainState?.[seat];
     const view: DuelSeatView = {
       seat,
+      sharedExtraWith: sharedExtraSeatOf(format, seat, args.eliminated),
       lp: args.lp[seat] ?? 0,
       hand,
       deckCount: player ? player.deck_size : args.lib.duelQueryCount(args.handle, controller, OcgLocation.DECK),
@@ -1266,6 +1267,7 @@ function emptySeatView(
 ): DuelSeatView {
   const view: DuelSeatView = {
     seat,
+    sharedExtraWith: null,
     lp,
     hand: [],
     deckCount: 0,
