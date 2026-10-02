@@ -1,71 +1,149 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { installVirtualizerJsdomEnv } from "./helpers/virtualizer-jsdom";
 import { CubeEditor } from "@/components/cubes/cube-editor";
+
+vi.mock("next/font/google", () => {
+  const font = () => ({ variable: "font-var", className: "font-class" });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));
 
-vi.mock("next/image", () => ({
-  default: ({ alt, fill: _fill, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { fill?: boolean }) => (
-    <img alt={alt} {...props} />
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
   ),
 }));
+
+type Entry = { catalogCardId: number; pool: "main" | "extra"; maxCopies: number };
 
 function card(id: number, name: string, type: string, frameType: string) {
   return { id, name, type, frameType, effectText: "", imageUrl: "i", imageUrlSmall: "i" };
 }
 
-const initialDetail = {
-  cube: { id: 5, name: "Custom", archetype: null, banlist: null },
-  pools: { main: [], extra: [] },
-  cards: [],
-};
+const CARDS = [card(1, "Main A", "Normal Monster", "normal"), card(2, "Xyz B", "XYZ Monster", "xyz")];
 
-const afterImport = {
-  pools: {
-    main: [{ catalogCardId: 1, pool: "main", maxCopies: 1 }],
-    extra: [{ catalogCardId: 2, pool: "extra", maxCopies: 1 }],
-  },
-  cards: [card(1, "Main A", "Normal Monster", "normal"), card(2, "Xyz B", "XYZ Monster", "xyz")],
-  added: 2,
-  unknown: [],
-};
+let main: Entry[];
+let extra: Entry[];
+let posts: Array<Record<string, unknown>>;
 
-describe("CubeEditor", () => {
-  beforeEach(() => {
-    installVirtualizerJsdomEnv();
-    const fetchMock = vi.fn(async (input: any, init?: any) => {
+function detail() {
+  return { pools: { main: [...main], extra: [...extra] }, cards: CARDS };
+}
+
+beforeEach(() => {
+  main = [];
+  extra = [];
+  posts = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: unknown, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/api/cubes/5") && (!init || init.method === undefined)) {
-        return { ok: true, json: async () => initialDetail } as Response;
-      }
       if (url.endsWith("/api/cubes/5/cards")) {
-        return { ok: true, json: async () => afterImport } as Response;
+        const body = JSON.parse(String(init?.body)) as Record<string, any>;
+        posts.push(body);
+        if (body.op === "import") {
+          main = [{ catalogCardId: 1, pool: "main", maxCopies: 1 }];
+          extra = [{ catalogCardId: 2, pool: "extra", maxCopies: 1 }];
+          return { ok: true, json: async () => ({ ...detail(), added: 2, unknown: [] }) } as Response;
+        }
+        if (body.op === "setMaxCopies") {
+          main = main.map((e) => (e.catalogCardId === body.catalogCardId ? { ...e, maxCopies: body.maxCopies } : e));
+        } else if (body.op === "remove") {
+          main = main.filter((e) => e.catalogCardId !== body.catalogCardId);
+        } else if (body.op === "add") {
+          main = [...main, { catalogCardId: body.catalogCardId, pool: "main", maxCopies: body.maxCopies ?? 3 }];
+        }
+        return { ok: true, json: async () => detail() } as Response;
+      }
+      if (url.endsWith("/api/cubes/5")) {
+        return {
+          ok: true,
+          json: async () => ({ cube: { id: 5, name: "Custom", archetype: null, banlist: null }, ...detail() }),
+        } as Response;
       }
       return { ok: true, json: async () => ({ cards: [] }) } as Response;
-    });
-    vi.stubGlobal("fetch", fetchMock);
-  });
+    }),
+  );
+});
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
-  it("imports passcodes and updates the main/extra pool counts", async () => {
-    render(<CubeEditor cubeId={5} />);
+async function open() {
+  render(<CubeEditor cubeId={5} />);
+  await screen.findByRole("heading", { name: "Custom" });
+}
 
-    // initial load resolves
-    await waitFor(() => expect(screen.getByText("Custom")).toBeInTheDocument());
-    expect(screen.getByText(/0 main · 0 extra/)).toBeInTheDocument();
+describe("CubeEditor", () => {
+  it("imports passcodes and updates the pool counts", async () => {
+    await open();
 
-    fireEvent.change(screen.getByLabelText("Paste passcodes"), { target: { value: "1\n2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Passcodes" }));
+    fireEvent.change(screen.getByLabelText("Passcodes, one per line"), { target: { value: "1\n2" } });
     fireEvent.click(screen.getByRole("button", { name: /add passcodes/i }));
 
-    await waitFor(() => expect(screen.getByText(/1 main · 1 extra/)).toBeInTheDocument());
+    expect(posts[0]).toMatchObject({ op: "import", codes: [1, 2] });
+    await screen.findByText(/Added 2 cards/);
+    expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Extra\s*1/ })).toBeInTheDocument();
+  });
+
+  describe("with a card in the cube", () => {
+    beforeEach(() => {
+      main = [{ catalogCardId: 1, pool: "main", maxCopies: 2 }];
+    });
+
+    it("selects on click and does not remove", async () => {
+      await open();
+      const tile = screen.getByRole("button", { name: "Main A, 2 copies" });
+      fireEvent.click(tile);
+      expect(tile).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("heading", { name: "Selected" })).toBeInTheDocument();
+      expect(posts).toHaveLength(0);
+    });
+
+    it("steps copies with setMaxCopies and stops at 1 and 3", async () => {
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Main A, 2 copies" }));
+      fireEvent.click(screen.getByRole("button", { name: "One more copy" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "One more copy" })).toBeDisabled());
+      expect(posts[0]).toEqual({ op: "setMaxCopies", catalogCardId: 1, maxCopies: 3 });
+
+      fireEvent.click(screen.getByRole("button", { name: "One fewer copy" }));
+      await waitFor(() => expect(posts).toHaveLength(2));
+      fireEvent.click(await screen.findByRole("button", { name: "One fewer copy" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "One fewer copy" })).toBeDisabled());
+      expect(posts.map((p) => p.maxCopies)).toEqual([3, 2, 1]);
+    });
+
+    it("removes with the button, then Undo adds it back with the old copies", async () => {
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Main A, 2 copies" }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove from cube" }));
+
+      const toast = await screen.findByText("Removed Main A (×2) from Main");
+      expect(posts[0]).toEqual({ op: "remove", catalogCardId: 1 });
+
+      fireEvent.click(within(toast.parentElement as HTMLElement).getByRole("button", { name: "Undo" }));
+      await waitFor(() => expect(posts).toHaveLength(2));
+      expect(posts[1]).toEqual({ op: "add", catalogCardId: 1, pool: "main", maxCopies: 2 });
+      await screen.findByRole("button", { name: "Main A, 2 copies" });
+    });
+
+    it("shows the Theme Draft check against 42 main and 17 extra", async () => {
+      await open();
+      expect(screen.getByRole("img", { name: "2 of 42 main copies" })).toBeInTheDocument();
+      expect(screen.getByRole("img", { name: "0 of 17 Extra copies" })).toBeInTheDocument();
+      expect(screen.getByText(/40 main copies short/)).toBeInTheDocument();
+    });
   });
 });
