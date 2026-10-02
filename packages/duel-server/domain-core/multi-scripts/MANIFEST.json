@@ -3113,10 +3113,12 @@
       ],
       "effectType": "SINGLE+TRIGGER_F",
       "redefined": [
-        "sptg"
+        "sptg",
+        "spop"
       ],
       "chooserClass": "CH-EACH",
-      "stockSha256": "56d09211c1bf32d4ca6b981bb31ddabae4858936747f84d261dfe6881ac30137"
+      "stockSha256": "56d09211c1bf32d4ca6b981bb31ddabae4858936747f84d261dfe6881ac30137",
+      "note": "The target stores the operation info for the activator when the group is not 2 cards (the core demands 2 for PLAYER_ALL); the operation Special Summons each target for the duelist whose Graveyard holds it (windows)."
     },
     {
       "code": 59054773,
