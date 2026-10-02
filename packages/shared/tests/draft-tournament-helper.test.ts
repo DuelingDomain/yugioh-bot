@@ -5,6 +5,7 @@ import { createDraftService } from "../src/services/drafts.js";
 import { createDraftTournamentService } from "../src/services/draft-tournament.js";
 import { createSavedDeckService } from "../src/services/saved-decks.js";
 import { createTournamentDuelService } from "../src/services/tournament-duels.js";
+import { createTournamentService } from "../src/services/tournaments.js";
 
 function seedDb(db: Database.Database) {
   db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'Alice')").run();
@@ -32,6 +33,72 @@ function completeDraft(db: Database.Database) {
 }
 
 describe("createTournamentFromDraft", () => {
+  it.each([
+    {
+      name: "uses shuffled seats for five-player tournament pairings and the bye",
+      randomizeSeats: true,
+      joinOrder: [1, 2, 3, 4, 5],
+      seatOrder: [2, 3, 4, 5, 1],
+      pairings: [[2, null], [3, 1], [4, 5]],
+    },
+    {
+      name: "preserves main's pairings and the bye when randomizeSeats is false",
+      randomizeSeats: false,
+      joinOrder: [5, 1, 2, 3, 4],
+      seatOrder: [5, 1, 2, 3, 4],
+      pairings: [[1, null], [2, 5], [3, 4]],
+    },
+    {
+      name: "preserves main's pairings and the bye when randomizeSeats is omitted",
+      randomizeSeats: undefined,
+      joinOrder: [5, 1, 2, 3, 4],
+      seatOrder: [5, 1, 2, 3, 4],
+      pairings: [[1, null], [2, 5], [3, 4]],
+    },
+  ])("$name", ({ randomizeSeats, joinOrder, seatOrder, pairings }) => {
+    const db = new Database(":memory:");
+    migrate(db);
+    seedDb(db);
+    for (let i = 3; i <= 5; i++) {
+      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', ?, ?)")
+        .run(`u${i}`, `Player ${i}`);
+    }
+    const drafts = createDraftService(db, { random: () => 0 });
+    const config = {
+      setNames: ["Set A"], packsPerPlayer: 1, packSize: 1, cardsPerPlayer: 1, randomizeSeats,
+    };
+    const draft = drafts.create("g1", "ch1", "Five-player draft", config, "u1", joinOrder[0]);
+    for (const playerId of joinOrder.slice(1)) drafts.join(draft.id, playerId);
+    if (randomizeSeats === undefined) {
+      // Older drafts can omit the key instead of storing the normalized default.
+      db.prepare("update drafts set config_json = ? where id = ?")
+        .run(JSON.stringify(config), draft.id);
+    }
+    db.prepare("update draft_players set joined_at = ? where draft_id = ?")
+      .run("2026-05-01 00:00:00", draft.id);
+    drafts.start(draft.id);
+    for (const playerId of [1, 2, 3, 4, 5]) {
+      drafts.pickCard(draft.id, playerId, drafts.currentPackOptions(draft.id, playerId)[0].id);
+    }
+    expect(drafts.findById(draft.id).status).toBe("completed");
+    expect(drafts.players(draft.id).map((player) => player.playerId)).toEqual(seatOrder);
+
+    const result = createDraftTournamentService(db).createTournamentFromDraft({
+      draftId: draft.id, format: "single_elim", createdByUserId: "u1",
+    });
+    const tournaments = createTournamentService(db);
+    tournaments.start(result.tournamentId);
+
+    const matches = tournaments.matches(result.tournamentId);
+    expect(matches.map((match) => [match.playerOneId, match.playerTwoId])).toEqual(pairings);
+    expect(matches[0]).toEqual(expect.objectContaining({
+      status: "completed", metadata: { bye: true, winnerId: pairings[0][0] },
+    }));
+    expect(tournaments.participants(result.tournamentId))
+      .toEqual(randomizeSeats ? seatOrder : [1, 2, 3, 4, 5]);
+    db.close();
+  });
+
   it("creates a tournament and seeds all players", () => {
     const db = new Database(":memory:");
     migrate(db);
