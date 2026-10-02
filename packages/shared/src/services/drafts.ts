@@ -145,7 +145,22 @@ function isExtraDeckCatalogRow(row: CatalogRow) {
   );
 }
 
-export function createDraftService(db: Database.Database) {
+export function createDraftService(
+  db: Database.Database,
+  options: { random?: () => number } = {},
+) {
+  const random = options.random ?? Math.random;
+  const seatOrder = (playerIds: number[], config: DraftConfig): number[] => {
+    if (!config.randomizeSeats) return playerIds;
+
+    const shuffled = playerIds.slice();
+    for (let i = shuffled.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
   const findById = (draftId: number): Draft => {
     const row = db.prepare("select * from drafts where id = ?").get(draftId);
 
@@ -670,7 +685,7 @@ export function createDraftService(db: Database.Database) {
     }
 
     const assignSeat = db.prepare("update draft_players set seat_index = ? where draft_id = ? and player_id = ?");
-    for (const [seatIndex, playerId] of playerIds.entries()) {
+    for (const [seatIndex, playerId] of seatOrder(playerIds, draft.config).entries()) {
       assignSeat.run(seatIndex, draftId, playerId);
     }
 
@@ -721,7 +736,7 @@ export function createDraftService(db: Database.Database) {
       `,
     );
 
-    for (const [seatIndex, playerId] of playerIds.entries()) {
+    for (const [seatIndex, playerId] of seatOrder(playerIds, draft.config).entries()) {
       assignSeat.run(seatIndex, draftId, playerId);
     }
 
@@ -1258,7 +1273,7 @@ export function createDraftService(db: Database.Database) {
           from draft_players dp
           inner join players p on p.id = dp.player_id
           where dp.draft_id = ?
-          order by dp.joined_at asc, dp.rowid asc
+          order by dp.seat_index asc, dp.joined_at asc, dp.rowid asc
         `,
         )
         .all(draftId)
