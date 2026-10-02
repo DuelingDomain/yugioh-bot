@@ -167,4 +167,19 @@ describe("live room table mount", () => {
     fireEvent.click(screen.getByTestId("duel-result").querySelector("button[data-kind=primary]")!);
     expect(state.replace).toHaveBeenCalledWith("/duels");
   });
+
+  it("keeps simultaneous live losses tied and restores engine ties after remount", () => {
+    room(FFA3_FIXTURES.states.main.room);
+    const view = mount();
+    room(FFA3_FIXTURES.states.result.room);
+    state.room!.engine!.result = { winnerSeat: 0, reason: "Surrender" };
+    state.room!.engine!.log = [{ id: 1, text: "Player 2 is eliminated" }, { id: 2, text: "Player 3 is eliminated" }];
+    view.rerender(<DuelRoomView slug="live" windowed />);
+    const places = () => [...screen.getByTestId("duel-result").querySelectorAll("[data-place]")].map((node) => node.textContent);
+    expect(places()).toEqual(["1st", "2nd", "2nd"]);
+    view.unmount();
+    state.room!.engine!.eliminationOrder = [[1, 2]];
+    mount();
+    expect(places()).toEqual(["1st", "2nd", "2nd"]);
+  });
 });

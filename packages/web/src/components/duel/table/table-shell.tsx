@@ -44,7 +44,7 @@ import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
 import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
-import { attackLockAt, placeLabel, placings, toneBySeat } from "./seat-state";
+import { attackLockAt, placeLabel, placings, toneBySeat, trackOutOrder } from "./seat-state";
 import { TableSettings, type TableConnection } from "./table-settings";
 import { TablePhonePanes } from "./table-phone-panes";
 import { TableStage } from "./table-stage";
@@ -169,7 +169,7 @@ export function TableShell({
 
   // Who left, in order (groups: seats that left in one update share a place): the placings of a table of 3 or 4 read it.
   const [outOrder, setOutOrder] = useState<number[][]>(() => eliminationOrder(engine, initialOutOrder));
-  const nextOut = eliminationOrder(engine, outOrder);
+  const nextOut = trackOutOrder(outOrder, engine);
   if (nextOut.length !== outOrder.length || nextOut.some((group, at) => group.length !== outOrder[at].length || group.some((seat, index) => seat !== outOrder[at][index]))) setOutOrder(nextOut);
   const standings = useMemo(() => placings(engine, outOrder), [engine, outOrder]);
 

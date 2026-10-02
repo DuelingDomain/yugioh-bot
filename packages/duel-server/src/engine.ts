@@ -487,6 +487,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const lp: number[] = Array.from({ length: seatCount }, () => team.startingLP);
   const lpOf = (seat: number) => lp[teamOfSeat(format, seat)] ?? 0;
   const eliminated = new Set<number>();
+  const eliminationOrder: number[][] = [];
+  let eliminationGroup: number[] | null = null;
   /** Seats (a whole team in Tag) after `eliminate()` whose loss the core has not reported yet. */
   const leaving = new Set<number>();
   const isLeaving = (seat: number) => leaving.has(seat) && !eliminated.has(seat);
@@ -547,6 +549,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   };
 
   const applyMessage = (message: OcgMessage) => {
+    eliminationGroup = null;
     battleStep = nextBattleStep(battleStep, message);
     switch (message.type) {
       case OcgMessageType.RETRY:
@@ -711,6 +714,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
 
   /** A multi-duelist message that the wrapper drops: MSG_DUELIST_ELIMINATED (200) and MSG_ATTACK_DUELIST (201). */
   const applyRaw = (raw: RawDuelistMessage) => {
+    if (raw.type !== MSG_DUELIST_ELIMINATED) eliminationGroup = null;
     if (raw.type === MSG_DUELIST_ELIMINATED) {
       // A seat is 0..seatCount-1. Anything else (0xFF, "no duelist") eliminates nobody.
       if (raw.duelist >= seatCount) {
@@ -719,7 +723,15 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       }
       // FFA: the duelist. Tag: the whole team loses its cards and turns.
       const lost = format === "tag" ? seatsOfTeam(format, teamOfSeat(format, raw.duelist)) : [raw.duelist];
-      for (const seat of lost) eliminated.add(seat);
+      const newlyLost = lost.filter((seat) => !eliminated.has(seat));
+      if (newlyLost.length) {
+        if (!eliminationGroup) {
+          eliminationGroup = [];
+          eliminationOrder.push(eliminationGroup);
+        }
+        eliminationGroup.push(...newlyLost);
+        for (const seat of newlyLost) eliminated.add(seat);
+      }
       diagnose("msg200", raw.duelist, `reason ${raw.reason}`);
       const reason = cards.victory(raw.reason) ?? `Win reason ${raw.reason}`;
       appendLog(format === "tag" ? `Team ${teamOfSeat(format, raw.duelist) + 1} is eliminated (${reason})` : `Player ${raw.duelist + 1} is eliminated (${reason})`);
@@ -892,6 +904,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         ...(multi ? { format, eliminated, leaving: new Set([...leaving].filter(isLeaving)), chain: chainMemory.slice(0, liveChainSize) } : {}),
       });
       // Disabled zones are public board facts. The field is set only for seats that have one.
+      if (multi) projected.eliminationOrder = eliminationOrder.map((group) => [...group]);
       for (const entry of projected.seats) {
         const mask = disabledZones.get(entry.seat);
         if (mask) entry.disabledZones = mask;

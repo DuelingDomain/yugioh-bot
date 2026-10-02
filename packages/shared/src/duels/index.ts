@@ -397,6 +397,8 @@ export interface DuelEngineView {
   /** The current Battle Phase step; null outside the Battle Phase. Best effort from core messages. */
   battleStep?: DuelBattleStep | null;
   seats: DuelSeatView[];
+  /** Earliest losses first. Seats reported together share a place. Absent on older views and 1v1. */
+  eliminationOrder?: number[][];
   prompt: DuelPrompt | null;
   chain: DuelChainLink[];
   events: DuelEvent[];
