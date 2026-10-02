@@ -1,7 +1,0 @@
-RUN  v4.1.5 /home/sulman633/repos/yugioh-bot/.worktrees/domain-multiplayer/packages/duel-server
-
-
- Test Files  1 passed (1)
-      Tests  12 passed (12)
-   Start at  16:12:47
-   Duration  2.85s (transform 518ms, setup 41ms, import 664ms, tests 1.92s, environment 0ms)

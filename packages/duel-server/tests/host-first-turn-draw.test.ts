@@ -84,7 +84,7 @@ const mergedEngine = (format: DuelFormat) => (format === "1v1" ? { engine: "pinn
 const stableCases = [
   ...([1, 2, 3, 4, 5] as const).map((masterRule) => ({ mode: "normal" as const, format: "1v1" as const, masterRule })),
   { mode: "normal", format: "tag", masterRule: 5 },
-  ...([1, 2] as const).map((masterRule) => ({ mode: "domain" as const, format: "1v1" as const, masterRule })),
+  ...([1, 2, 3, 4] as const).map((masterRule) => ({ mode: "domain" as const, format: "1v1" as const, masterRule })),
 ] satisfies Array<{ mode: DuelMode; format: DuelFormat; masterRule: DuelMasterRule }>;
 
 describeWithCores("first-turn draw survives real worker recovery and journal replay", [needs.standard(DATA), needs.domain(DATA),
@@ -170,13 +170,15 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
 
   it.each(stableCases)("$mode MR$masterRule $format: an old record can infer the unchanged draw rule", async ({ mode, format, masterRule }) => {
     const t = await table(mode, format, masterRule);
-    const game = await createEngineGame(t.options);
+    const firstTurnDraw = masterRule <= 2;
+    const game = await createEngineGame({ ...t.options, firstTurnDraw });
     let initial: DuelEngineView[];
     let expected: DuelEngineView[];
     try {
       initial = Array.from({ length: t.count }, (_, viewer) => game.view(viewer));
-      for (const view of initial) checkDraws(view, masterRule <= 2, 0);
+      for (const view of initial) checkDraws(view, firstTurnDraw, 0);
       t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, mergedEngine(format));
+      expect(t.duels.privateState(t.session.slug, "g").setup?.firstTurnDraw).toBeUndefined();
       const view = game.view(0);
       const command = { promptId: view.prompt!.id, revision: view.revision, answer: { choice: "to_ep" } };
       game.answer(0, command.promptId, command.answer);
@@ -200,7 +202,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
   it.each((["normal", "domain"] as const).flatMap((mode) =>
     (["ffa3", "ffa4"] as const).map((format) => ({ mode, format }))))("$mode $format: a journal without a stored rule fails with a clear message", async ({ mode, format }) => {
     const t = await table(mode, format);
-    t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, mergedEngine(format));
+    t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null);
     const response = await t.post("view");
     expect(response.status).toBe(409);
     expect(response.data.error).toContain("first-turn draw rule was not saved");
