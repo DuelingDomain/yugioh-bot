@@ -10,7 +10,7 @@ on:
       ref:
         description: "Git branch to run in staging"
         required: true
-        default: feat/multiplayer-nseat-duels
+        default: n-player-ui-implementation
         type: string
       refresh_db:
         description: "Copy the production database again (staging games and sign-ins are lost)"

@@ -69,7 +69,9 @@
   flex-direction: column;
   height: 100dvh;
   min-width: 0;
+  /* clip, unlike hidden, cannot be scrolled by focus or scrollIntoView, so the room never shifts. */
   overflow: hidden;
+  overflow: clip;
   color: var(--duel-ink);
   font-family: var(--duel-f-ui);
   font-size: var(--duel-t-body);
@@ -279,11 +281,15 @@
    instead of over the board (the field's fx layers clip themselves). */
 .board {
   position: relative;
-  z-index: 1;
+  z-index: var(--duel-z-board);
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: visible;
+}
+/* The opening hands wait hidden until the card layers are ready to deal them. */
+.board[data-deal-wait="true"] [data-hand-seat] {
+  visibility: hidden;
 }
 .board::after {
   content: "";
@@ -334,7 +340,8 @@
 }
 
 /* ---------- prompt dock ---------- */
-.promptDock { position: relative; min-width: 0; }
+/* Above the board box (and so above every board FX layer): the docked prompt is always readable. */
+.promptDock { position: relative; z-index: var(--duel-z-prompt); min-width: 0; }
 /* Replay keeps its controls in the board column. */
 .promptDock[data-idle="true"] { padding: calc(6 * var(--duel-unit)) 0 0; }
 /* Nothing to answer: the station track carries the status. The live region stays for screen readers. */
@@ -445,6 +452,16 @@
 .options a { color: var(--duel-pen-ink); text-decoration: underline; text-underline-offset: 3px; }
 .options :focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
 
+/* Notices (connection lost, action failed) float over the top of the layout, out of flow: a notice
+   that came and went in flow would resize the whole board. Only the notice itself takes clicks. */
+.notices {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: var(--duel-z-prompt);
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
 .error {
   flex: none;
   display: flex;
@@ -453,8 +470,9 @@
   padding: calc(7 * var(--duel-unit)) calc(16 * var(--duel-unit));
   border-bottom: 1px solid rgb(228 182 79 / 0.45);
   color: var(--duel-chain-ink);
-  background: rgb(228 182 79 / 0.1);
+  background: linear-gradient(rgb(228 182 79 / 0.14), rgb(228 182 79 / 0.14)), var(--duel-panel);
   font-size: var(--duel-t-body);
+  pointer-events: auto;
 }
 .error button { text-decoration: underline; text-underline-offset: 3px; }
 
@@ -463,7 +481,7 @@
 /* ---------- anchored card menu (portal) ---------- */
 .cardMenu {
   position: fixed;
-  z-index: 100;
+  z-index: var(--duel-z-menu);
   width: max-content;
   min-width: calc(190 * var(--duel-unit));
   max-width: min(calc(340 * var(--duel-unit)), calc(100vw - 16px));
@@ -529,7 +547,7 @@
 .cardTooltip {
   pointer-events: none;
   position: fixed;
-  z-index: 90;
+  z-index: var(--duel-z-tooltip);
   display: flex;
   flex-direction: column;
   gap: calc(2 * var(--duel-unit));
@@ -614,7 +632,7 @@
   .shell[data-fit="true"] .promptDock[data-mode="float"],
   .shell[data-fit="true"] .promptDock[data-mode="flow"] {
     position: absolute;
-    z-index: 12;
+    z-index: var(--duel-z-prompt);
     left: 6px;
     right: 6px;
     bottom: 4px;
@@ -629,8 +647,9 @@
   .identity a { font-size: 17px; }
   .viewerRole { padding: 0; border: 0; background: transparent; font-size: 10px; line-height: 12px; }
   .viewerRole svg { width: 12px; height: 12px; }
-  .turn { justify-content: flex-start; }
+  .turn { justify-content: flex-start; overflow: hidden; }
   .turn strong, .turn > span { font-size: 13px; }
+  .turn > .phaseName { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .connectionStatus { padding: 0 4px; font-size: 11px; }
   .track { padding-bottom: 0; }
   .mobileBar {

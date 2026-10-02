@@ -6,6 +6,7 @@ import { ArrowRight, ArrowUpFromLine, Layers, RotateCw, Shuffle, Sparkles, Sword
 import type { DuelCard, DuelCardInfo, DuelPromptOption } from "@yugidraft/shared/duels";
 import { cardDetailsText, cardStatsText } from "./constants";
 import { duelFontClasses } from "./fonts";
+import { safeAnimate } from "./safe-animate";
 import styles from "./room.module.css";
 import fx from "./battle-fx.module.css";
 
@@ -296,6 +297,37 @@ export function CardHoverInfo({ card, anchor }: { card: DuelCard | DuelCardInfo;
       <strong>{card.name ?? `Card ${card.code}`}</strong>
       {stats ? <span className={styles.tooltipStats}>{stats}</span> : null}
       {details ? <span>{details}</span> : null}
+    </div>,
+    document.body,
+  );
+}
+
+/** A short left-right shake of the card button a pick refused. Skipped with reduced motion. */
+export function shakeRefusedCard(anchor: HTMLElement, reducedMotion: boolean): void {
+  if (reducedMotion) return;
+  safeAnimate(anchor, [
+    { transform: "translateX(0)" },
+    { transform: "translateX(-5px)" },
+    { transform: "translateX(5px)" },
+    { transform: "translateX(-3px)" },
+    { transform: "translateX(0)" },
+  ], { duration: 260, easing: "ease-out" });
+}
+
+/**
+ * A short note on a card whose click a pick refused (the pick is full, or the card must stay picked).
+ * It sits above the card like the hover tooltip and clears itself, so nothing is left to dismiss.
+ */
+export function PickRefusalHint({ anchor, text, onDone }: { anchor: HTMLElement; text: string; onDone: () => void }) {
+  const { ref, style } = useAnchoredPosition(anchor, false, "above");
+  useEffect(() => {
+    const timer = window.setTimeout(onDone, 2200);
+    return () => window.clearTimeout(timer);
+  }, [text, onDone]);
+
+  return createPortal(
+    <div ref={ref} className={`${styles.cardTooltip} ${duelFontClasses}`} style={style} role="status" data-pick-hint>
+      <span>{text}</span>
     </div>,
     document.body,
   );

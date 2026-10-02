@@ -60,7 +60,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   return NextResponse.json(sessionFromHost(result.data));
 }
 
-/** Takes the practice bot out of its seat. A lobby-only seat change, so it needs no duel engine (like join and leave). */
+/** Takes the practice bot out of its seat. A lobby-only seat change, so it needs no duel engine (like taking and leaving seats). */
 export async function DELETE(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;

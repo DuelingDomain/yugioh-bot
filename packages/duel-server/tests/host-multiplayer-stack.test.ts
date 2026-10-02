@@ -71,7 +71,7 @@ for (const mode of ["normal", "domain"] as const) {
       try {
         const session = t.service.create({ guildId: "g", organizerPlayerId: t.players[0]!, name: "Test stack", mode, format,
           settings: { banlist: "none", turnSeconds: 0, shuffleDeck: false } });
-        for (const player of t.players.slice(1)) t.service.join(session.slug, "g", player);
+        for (const player of t.players.slice(1)) t.service.takeSeat(session.slug, "g", player);
         const deck = buildPracticeBotDeck(mode, DATA);
         for (let seat = 0; seat < count; seat++) {
           const submitted = await t.post("deck", { slug: session.slug, deck }, seat);

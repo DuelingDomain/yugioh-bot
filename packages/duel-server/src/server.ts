@@ -43,6 +43,8 @@ const host = createDuelHost({
   idleWorkerMs: Number.isFinite(idleWorkerMs) ? idleWorkerMs : undefined,
   // Base pause before a practice bot summon/set/activation; other actions scale from it. 0 answers instantly.
   botStepDelayMs: Number.isFinite(botStepMs) && botStepMs > 0 ? botStepMs : 0,
+  // Rock-paper-scissors decides who goes first in game 1. DUEL_RPS_OPENING=0 turns it off.
+  openingRps: process.env.DUEL_RPS_OPENING !== "0",
 });
 const server = createServer(async (request, response) => {
   try {

@@ -21,7 +21,6 @@
  * Reduced motion: no flight, a 200 ms fade-in of the real picture at the dock.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { createPortal } from "react-dom";
 import type { DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_REMOVED } from "./constants";
 import { auraTintOf, collectFreshEvents, maxEventId } from "./event-queue";
@@ -381,7 +380,7 @@ function Ghost({ item, landed, done }: { item: Item; landed: () => void; done: (
 /* ---------- layer ---------- */
 
 export function MasterReturnFx({ events, seats, duelKey, reducedMotion, mySeat }: MasterReturnFxProps) {
-  const [host, setHost] = useState<HTMLElement | null>(null);
+  const [mounted, setMounted] = useState(false);
   const [items, setItems] = useState<Item[]>([]);
   const cursorRef = useRef<number | null>(null);
   const prevSeatsRef = useRef<DuelSeatView[] | null>(null);
@@ -393,7 +392,7 @@ export function MasterReturnFx({ events, seats, duelKey, reducedMotion, mySeat }
   reducedRef.current = reducedMotion;
 
   useEffect(() => {
-    setHost(document.body);
+    setMounted(true);
   }, []);
 
   const clearAll = () => {
@@ -479,13 +478,13 @@ export function MasterReturnFx({ events, seats, duelKey, reducedMotion, mySeat }
     setItems((current) => current.filter((item) => item.id !== id));
   };
 
-  if (!host) return null;
-  return createPortal(
+  if (!mounted) return null;
+  // Not a portal at the page root: a fixed layer there would sit above the prompt panels in the board.
+  return (
     <div className={styles.layer} aria-hidden="true">
       {items.map((item) => (
         <Ghost key={item.id} item={item} landed={() => release(item.id)} done={() => finish(item.id)} />
       ))}
-    </div>,
-    host,
+    </div>
   );
 }

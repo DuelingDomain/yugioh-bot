@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { ArrowRight, Eye, Lock, Plus, Swords, Users } from "lucide-react";
 import { isCustomDomain, type DuelHistoryScope, type DuelListItem } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { formatLabel, formatSeatCount } from "./table-format";
-import { DUEL_LIST_KEY, cancelDuel, leaveDuel, listDuels, surrenderDuel } from "./api";
+import { DUEL_LIST_KEY, cancelDuel, leaveDuel, listDuels, surrenderDuel, takeDuelSeat } from "./api";
 import { isNotableSeries, SeriesBadges } from "./series-banner";
 import { cx, SheetButton, sheetButtonClass, SheetSegmented, sheetRoot } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -113,32 +114,70 @@ function closeCopy(duel: DuelListItem): CloseCopy {
 }
 
 function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelListItem) => void }) {
+  const router = useRouter();
+  const [joining, setJoining] = useState(false);
   const own = duel.mySeat != null;
+  const seatCount = formatSeatCount(duel.format);
+  const openSeat = Array.from({ length: seatCount }, (_, seat) => seat)
+    .find((index) => !duel.seats.some((seat) => seat.seat === index));
+  const open = duel.status === "lobby" && openSeat != null && duel.seriesId == null && duel.series == null;
+  const full = duel.status === "lobby" && duel.seats.length >= seatCount;
   const activity = relativeActivity(duel.lastActivityAt);
+  const roomPath = `/duels/${duel.slug}`;
+
+  async function join() {
+    if (joining || openSeat == null) return;
+    setJoining(true);
+    let destination = roomPath;
+    try {
+      await takeDuelSeat(duel.slug, openSeat);
+    } catch {
+      destination = `${roomPath}?join=failed`;
+    } finally {
+      setJoining(false);
+    }
+    router.push(destination);
+  }
+
+  const content = (
+    <>
+      <span className={styles.rowMain}>
+        <span className={styles.rowTitle}>
+          <span className={styles.name}>{duel.name}</span>
+          {own ? <span className={cx(ui.chip, ui.chipAccent)}>Your table</span> : null}
+        </span>
+        <span className={styles.chips}>
+          <span className={ui.chip}>{modeLabel(duel)}</span>
+          <span className={cx(ui.chip, duel.status === "active" && ui.chipGold)}>{statusLabel(duel.status)}</span>
+          {isNotableSeries(duel.series) ? <SeriesBadges series={duel.series} showGame plain /> : null}
+          <span className={ui.chip}><Users size={13} strokeWidth={1.6} aria-hidden />{duel.seats.length}/{seatCount}</span>
+          {duel.format && duel.format !== "1v1" ? <span className={ui.chip}>{formatLabel(duel.format)}</span> : null}
+          {duel.settings.visibility === "private" ? <span className={ui.chip}><Lock size={13} strokeWidth={1.6} aria-hidden />Private</span> : null}
+          {activity ? <span className={styles.activity}>{activity}</span> : null}
+        </span>
+      </span>
+      <span className={styles.go}>
+        {own || open ? null : <Eye size={15} strokeWidth={1.6} aria-hidden />}
+        {own ? "Return" : open ? "Join" : full ? "Full — watch" : "Watch"}
+        <ArrowRight size={15} strokeWidth={1.6} aria-hidden />
+      </span>
+    </>
+  );
   return (
     <li className={styles.row}>
-      <Link href={`/duels/${duel.slug}`} className={styles.rowLink}>
-        <span className={styles.rowMain}>
-          <span className={styles.rowTitle}>
-            <span className={styles.name}>{duel.name}</span>
-            {own ? <span className={cx(ui.chip, ui.chipAccent)}>Your table</span> : null}
-          </span>
-          <span className={styles.chips}>
-            <span className={ui.chip}>{modeLabel(duel)}</span>
-            <span className={cx(ui.chip, duel.status === "active" && ui.chipGold)}>{statusLabel(duel.status)}</span>
-            {isNotableSeries(duel.series) ? <SeriesBadges series={duel.series} showGame plain /> : null}
-            <span className={ui.chip}><Users size={13} strokeWidth={1.6} aria-hidden />{duel.seats.length}/{formatSeatCount(duel.format)}</span>
-            {duel.format && duel.format !== "1v1" ? <span className={ui.chip}>{formatLabel(duel.format)}</span> : null}
-            {duel.settings.visibility === "private" ? <span className={ui.chip}><Lock size={13} strokeWidth={1.6} aria-hidden />Private</span> : null}
-            {activity ? <span className={styles.activity}>{activity}</span> : null}
-          </span>
-        </span>
-        <span className={styles.go}>
-          {own ? null : <Eye size={15} strokeWidth={1.6} aria-hidden />}
-          {own ? "Return" : "Watch"}
-          <ArrowRight size={15} strokeWidth={1.6} aria-hidden />
-        </span>
-      </Link>
+      {!own && open ? (
+        <button type="button" className={styles.rowLink} disabled={joining} aria-busy={joining || undefined}
+          onClick={() => void join()}>
+          {content}
+        </button>
+      ) : <Link href={roomPath} className={styles.rowLink}>{content}</Link>}
+      {!own && open ? (
+        <div className={styles.close}>
+          <Link href={`/duels/${duel.slug}`} className={sheetButtonClass("quiet", "sm")}>
+            <Eye size={15} strokeWidth={1.6} aria-hidden />Watch
+          </Link>
+        </div>
+      ) : null}
       {own ? (
         <div className={styles.close}>
           <SheetButton kind="quiet" size="sm" onClick={() => onClose(duel)} aria-label={`Close ${duel.name}`}>
@@ -246,7 +285,7 @@ export function DuelLobby({ initialView = "live" }: { initialView?: DuelListView
         <p className={ui.hint}>
           {history
             ? "Finished duels with replays and saved final boards."
-            : "Your open tables and duels in progress. Finished duels move to Match history."}
+            : "Open tables and duels in progress. Join takes an open seat; Watch enters as a spectator. Finished duels move to Match history."}
         </p>
         {isLoading && !data ? <p className={ui.hint}>Loading tables…</p> : null}
         {error && !data ? (

@@ -245,7 +245,7 @@ export function PileViewer({
         <div className={styles.preview} aria-live="polite">
           {previewCard ? (
             <>
-              <div className={styles.previewArt}>
+              <div className={`${styles.previewArt} card-frame`}>
                 {previewHidden ? (
                   <CardBack kind={previewSleeve} className={styles.previewBack} />
                 ) : (

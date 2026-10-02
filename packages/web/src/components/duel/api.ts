@@ -3,6 +3,7 @@ import type {
   DuelCardInfo,
   DuelCommand,
   DuelDeck,
+  DuelFirstChoice,
   DuelDeckValidation,
   DuelFormat,
   DuelHistoryScope,
@@ -11,6 +12,7 @@ import type {
   DuelMasterRule,
   DuelMode,
   DuelRoom,
+  DuelRpsMove,
   DuelSeriesSummary,
   DuelSession,
   DuelSettings,
@@ -129,10 +131,12 @@ export async function acceptDuelInvite(slug: string, inviteCode: string): Promis
   }));
 }
 
-export async function joinDuel(slug: string): Promise<{ session: DuelSession }> {
-  return parseBody(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/join`, { method: "POST" }),
-  );
+export async function takeDuelSeat(slug: string, seat: number): Promise<{ session: DuelSession }> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/seat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ seat }),
+  }));
 }
 
 /** `seat` is the 0-based empty seat to fill; leave it out to take the first empty seat. */
@@ -204,6 +208,17 @@ export async function readySeries(slug: string): Promise<{ series: DuelSeriesSum
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/series/ready`, { method: "POST" }));
 }
 
+/** The loser of the last game chooses to go first or second in the next game; `slug` is any game of the series. */
+export async function chooseSeriesFirst(slug: string, choice: DuelFirstChoice): Promise<{ series: DuelSeriesSummary; nextSlug: string | null }> {
+  return parseBody(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/series/first`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice }),
+    }),
+  );
+}
+
 /** Cancel a series (casual: either player; tournament: the tournament creator). The body is not used. */
 export async function cancelSeries(seriesId: number): Promise<void> {
   const res = await fetch(`/api/duels/series/${seriesId}/cancel`, { method: "POST" });
@@ -212,6 +227,28 @@ export async function cancelSeries(seriesId: number): Promise<void> {
     const body: unknown = await res.json().catch(() => null);
     throw new DuelRequestError(errorMessage(body, res.status), res.status);
   }
+}
+
+/** Plays a rock-paper-scissors move in the opening. The pick is final. */
+export async function pickOpeningMove(slug: string, move: DuelRpsMove): Promise<DuelRoom> {
+  return parseBody(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/opening`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ move }),
+    }),
+  );
+}
+
+/** The opening winner chooses to go first or second. */
+export async function chooseOpeningOrder(slug: string, choice: DuelFirstChoice): Promise<DuelRoom> {
+  return parseBody(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/opening`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice }),
+    }),
+  );
 }
 
 export async function startDuel(slug: string): Promise<DuelRoom> {

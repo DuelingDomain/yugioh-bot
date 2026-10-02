@@ -67,6 +67,7 @@ export const CARDS = {
   // Extra Deck, Ritual and Pendulum monsters
   darkPaladin: info(98502113, "Dark Paladin", TYPE_MONSTER | TYPE_FUSION, 2900, 2400, 8, ATTRIBUTE.DARK, "Spellcaster"),
   ultimateDragon: info(23995347, "Blue-Eyes Ultimate Dragon", TYPE_MONSTER | TYPE_FUSION, 4500, 3800, 12, ATTRIBUTE.LIGHT, "Dragon"),
+  blueSpirit: info(59822133, "Blue-Eyes Spirit Dragon", TYPE_MONSTER | TYPE_SYNCHRO | TYPE_EFFECT, 3000, 2500, 9, ATTRIBUTE.WIND, "Dragon"),
   stardust: info(44508094, "Stardust Dragon", TYPE_MONSTER | TYPE_SYNCHRO, 2500, 2000, 8, ATTRIBUTE.WIND, "Dragon"),
   utopia: info(84013237, "Number 39: Utopia", TYPE_MONSTER | TYPE_XYZ, 2500, 2000, 4, ATTRIBUTE.LIGHT, "Warrior"),
   decodeTalker: info(1861629, "Decode Talker", TYPE_MONSTER | TYPE_LINK, 2300, 0, 3, ATTRIBUTE.DARK, "Cyberse"),

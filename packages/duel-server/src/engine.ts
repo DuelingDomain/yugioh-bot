@@ -832,7 +832,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       );
       lastSelectHint = undefined;
       lastPlaceSeat = undefined;
-      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow });
+      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, phase });
       if (automated) {
         lib.duelSetResponse(handle, automated);
         continue;

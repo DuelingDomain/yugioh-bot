@@ -21,7 +21,7 @@ async function table(format: DuelFormat = "ffa3", eliminated = true) {
     Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(`u${seat}`, `P${seat}`).lastInsertRowid));
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "watch", mode: "normal", format });
-  for (const player of players.slice(1)) duels.join(session.slug, "g", player);
+  for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
   const deck = buildPracticeBotDeck("normal", DATA);
   for (const player of players) duels.setDeck(session.slug, "g", player, deck);
   let running = true;

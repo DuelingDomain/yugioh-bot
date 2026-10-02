@@ -130,15 +130,15 @@ describe("DuelCreator match options", () => {
     expect(await screen.findByText("Challenge sent — the bot sent Imran a DM")).toBeTruthy();
   });
 
-  it("warns on an open table that Best of 3 and Ranked do not count against the practice bot", () => {
+  it("says on an open table that Best of 3 works against the practice bot and Ranked does not count", () => {
     render(<DuelCreator multiplayerTables />);
     expect(screen.queryByTestId("practice-note")).toBeNull();
     fireEvent.click(screen.getByRole("radio", { name: "Best of 3" }));
-    expect(screen.getByTestId("practice-note").textContent).toMatch(/practice bot never counts/);
+    expect(screen.getByTestId("practice-note").textContent).toMatch(/Best of 3 works against the practice bot, with side decking/);
     fireEvent.click(screen.getByRole("radio", { name: "Best of 1" }));
     expect(screen.queryByTestId("practice-note")).toBeNull();
     fireEvent.click(screen.getByRole("checkbox", { name: /Ranked/ }));
-    expect(screen.getByTestId("practice-note")).toBeTruthy();
+    expect(screen.getByTestId("practice-note").textContent).toMatch(/practice bot never counts/);
   });
 
   it("clears the picked opponent", async () => {

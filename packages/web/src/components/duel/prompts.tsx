@@ -270,6 +270,16 @@ export function toggleSelected(prompt: DuelPrompt, current: string[], optionId: 
   return [...current, optionId];
 }
 
+/** Why a click on a card changes nothing: the pick is full, or the card is a forced pick that cannot be undone. */
+export type PickRefusal = { reason: "full" | "mandatory"; text: string };
+
+/** Null when the click toggles the card; else the reason it cannot. Mirrors toggleSelected. */
+export function pickRefusal(prompt: DuelPrompt, current: string[], optionId: string): PickRefusal | null {
+  if (toggleSelected(prompt, current, optionId) !== current) return null;
+  if (current.includes(optionId)) return { reason: "mandatory", text: "This card must stay picked" };
+  return { reason: "full", text: `Already picked ${current.length}. Click a picked card to undo it` };
+}
+
 function OptionButton({
   option,
   index,
@@ -1003,6 +1013,7 @@ export function activatePromptFromField(
   card: DuelCard | null,
   draft: PromptDraft,
   onSubmit?: (answer: DuelAnswer) => void,
+  onRefuse?: (refusal: PickRefusal) => void,
 ): boolean {
   if (!prompt || !mine) return false;
   if (
@@ -1025,6 +1036,12 @@ export function activatePromptFromField(
   ) {
     draft.setSelected([option.id]);
     onSubmit?.({ selected: [option.id] });
+    return true;
+  }
+  const refusal = pickRefusal(prompt, draft.selected, option.id);
+  if (refusal) {
+    // Nothing changes: say why, instead of a click that looks ignored.
+    onRefuse?.(refusal);
     return true;
   }
   draft.setSelected((current) => toggleSelected(prompt, current, option.id));

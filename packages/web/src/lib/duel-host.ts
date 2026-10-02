@@ -8,13 +8,13 @@ import {
   TournamentDuelError,
   type DuelService,
 } from "@yugidraft/shared/services";
-import type { CardQuery, DuelCommand, DuelDeck, DuelMasterRule, DuelMode } from "@yugidraft/shared/duels";
+import type { CardQuery, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove } from "@yugidraft/shared/duels";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "series-side" | "series-ready" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace";
+export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "series-side" | "series-ready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace";
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
@@ -115,6 +115,10 @@ export async function callDuelHost(input: {
   mode?: DuelMode;
   masterRule?: DuelMasterRule;
   settings?: unknown;
+  /** Rock-paper-scissors move for `opening-pick`. */
+  move?: DuelRpsMove;
+  /** First or second for `opening-choose` and `series-first`. */
+  choice?: DuelFirstChoice;
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
@@ -142,6 +146,8 @@ export async function callDuelHost(input: {
   if (input.mode !== undefined) payload.mode = input.mode;
   if (input.masterRule !== undefined) payload.masterRule = input.masterRule;
   if (input.settings !== undefined) payload.settings = input.settings;
+  if (input.move !== undefined) payload.move = input.move;
+  if (input.choice !== undefined) payload.choice = input.choice;
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {

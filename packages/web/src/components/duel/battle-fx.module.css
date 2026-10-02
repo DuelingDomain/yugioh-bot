@@ -1,6 +1,7 @@
 /* Battle effects: the attack styles' host layer, the cut card, the aim layer,
-   the attack confirm and the screen-shake control. The layer and the confirm render
-   in portals outside the room shell, so they carry their own tokens.
+   the attack confirm and the screen-shake control. The confirm renders in a portal outside the
+   room shell, so the layer and the confirm carry their own tokens. Layer order: see the --duel-z-* scale in app/globals.css
+   (the layer is board FX, below the prompts; the confirm is a menu, above everything on the board).
 
    One attack lasts 1.15-1.25 s (up to about 1.55 s when the attacker loses and the defender
    strikes back). Each style lands between 440 and 560 ms; the LP roll starts then (attack-styles.ts). */
@@ -29,7 +30,7 @@
 .layer {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: var(--duel-z-fx-front);
   overflow: hidden;
   pointer-events: none;
 }
@@ -228,7 +229,7 @@
 
 .confirm {
   position: fixed;
-  z-index: 110;
+  z-index: var(--duel-z-confirm);
   display: grid;
   gap: calc(6 * var(--fx-unit));
   width: max-content;

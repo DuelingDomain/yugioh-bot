@@ -7,6 +7,8 @@ const errorMessages: Record<string, string> = {
   OAuthAccountNotLinked: "This Discord account is not linked.",
   Callback: "Authentication callback error. Please try again.",
   AccessDenied: "Access denied. You may not be authorized.",
+  GuildMembershipRequired: "You must be a member of the Discord server to use this app.",
+  GuildMembershipUnavailable: "Cannot verify your Discord server membership right now. Please try again later.",
   Verification: "Verification failed. Please try again.",
   Configuration: "Server authentication misconfiguration.",
   Default: "An unexpected authentication error occurred. Please try again.",

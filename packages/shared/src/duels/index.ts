@@ -1,4 +1,5 @@
 import type { DuelClock, DuelFormat, DuelSettings } from "./settings.js";
+import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
 
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
@@ -53,6 +54,21 @@ export {
 export { MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "./multi-domain.js";
 export type { DuelTableCapabilities } from "./multi-domain.js";
 export type { DuelBanlistOption } from "./banlist-options.js";
+export type {
+  DuelFirstChoice,
+  DuelOpeningReveal,
+  DuelOpeningState,
+  DuelOpeningView,
+  DuelRpsMove,
+} from "./opening.js";
+export {
+  DUEL_OPENING_PICK_MS,
+  DUEL_OPENING_REVEAL_MS,
+  DUEL_RPS_MOVES,
+  isFirstChoice,
+  isRpsMove,
+  rpsWinner,
+} from "./opening.js";
 export type { DeckPoolIssue } from "./pool.js";
 export { checkDeckAgainstPool, deckCardCounts } from "./pool.js";
 export { DUEL_BANLIST_OPTIONS } from "./banlist-options.js";
@@ -111,6 +127,15 @@ export interface DuelSeriesSummary {
   sideReady: [boolean, boolean];
   /** Per playerIds index: the player's deck has side deck cards. */
   hasSide: [boolean, boolean];
+  /**
+   * Between games after a decided game: the playerIds index of the loser, who chooses to go first or
+   * second. Null before game 1, after a draw or an interrupt (the seats swap then), and while a game runs.
+   */
+  firstChooser: 0 | 1 | null;
+  /** What the chooser picked for the next game; null until they choose (the default is first). */
+  firstChoice: DuelFirstChoice | null;
+  /** One player plays the practice bot: `playerIds[1]` is 0 and the bot's name stands in `displayNames[1]`. */
+  vsBot: boolean;
 }
 
 /** The viewer's own decks in a series; only sent to that player. */
@@ -400,6 +425,12 @@ export interface DuelEngineView {
   /** Earliest losses first. Seats reported together share a place. Absent on older views and 1v1. */
   eliminationOrder?: number[][];
   prompt: DuelPrompt | null;
+  /**
+   * Public seat the engine is waiting on, including when that viewer cannot see the prompt.
+   * null while processing or after the duel; absent in older clients' saved views/replays.
+   * This reveals ownership only, never the answering player's prompt or options.
+   */
+  prioritySeat?: number | null;
   chain: DuelChainLink[];
   events: DuelEvent[];
   log: Array<{ id: number; text: string }>;
@@ -464,6 +495,8 @@ export interface DuelRoom {
   mySide?: DuelSeriesSideState | null;
   /** True when the duel host was busy and answered with the last view it built for this seat. The client asks again soon. */
   stale?: boolean;
+  /** Rock-paper-scissors before the game starts; null when there is none. */
+  opening?: DuelOpeningView | null;
 }
 
 /** A table row in the lobby list or match history, as seen by one viewer. */

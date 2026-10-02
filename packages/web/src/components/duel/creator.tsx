@@ -210,7 +210,9 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 ) : null}
                 {!matchLocked && !challenge && (bestOf === 3 || ranked) ? (
                   <p className={cx(ui.hint, styles.wide)} data-testid="practice-note">
-                    Best of 3 and Ranked only count when two players play each other. A game against the practice bot never counts.
+                    {bestOf === 3
+                      ? "Best of 3 works against the practice bot, with side decking between games. Best of 3 and Ranked only count when two players play each other."
+                      : "Ranked only counts when two players play each other. A game against the practice bot never counts."}
                   </p>
                 ) : null}
               </div>

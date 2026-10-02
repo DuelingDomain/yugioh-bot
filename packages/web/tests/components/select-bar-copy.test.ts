@@ -143,3 +143,24 @@ describe("selectBarCopy progress", () => {
     expect(copy({ title: "Select the card(s) to send to the Graveyard", min: 1, max: 1 }).sub).toBe("Send to the Graveyard · Pick 1");
   });
 });
+
+describe("selectBarCopy ask, counter and remaining", () => {
+  it("splits the progress into the ask and the count chip", () => {
+    expect(copy({ min: 2, max: 2, count: 0 })).toMatchObject({ instruction: "Pick 2", counter: "0/2 selected", remaining: 2 });
+    expect(copy({ min: 2, max: 2, count: 2 })).toMatchObject({ instruction: "Pick 2", counter: "2/2 selected", remaining: null });
+    expect(copy({ min: 1, max: 3, count: 0 })).toMatchObject({ instruction: "Pick 1 to 3", counter: "0 selected", remaining: 1 });
+    expect(copy({ min: 0, max: 3, count: 1 })).toMatchObject({ instruction: "Pick up to 3", counter: "1 selected", remaining: null });
+  });
+
+  it("has no chip for a single pick and no help where the count is not plain", () => {
+    expect(copy({ min: 1, max: 1 })).toMatchObject({ instruction: "Pick 1", counter: null });
+    expect(copy({ kind: "tribute", min: 2, max: 3, count: 1 })).toMatchObject({ instruction: "", counter: "1 selected", remaining: null });
+    expect(copy({ kind: "sum", target: 8, values: "4 + 4", min: 1, max: 3 })).toMatchObject({ instruction: "Total 8", counter: "4 + 4", remaining: null });
+    expect(copy({ aiming: true })).toMatchObject({ instruction: "Point at a target, then confirm", counter: null, remaining: null });
+  });
+
+  it("keeps the progress as the ask and the count joined", () => {
+    const out = copy({ min: 2, max: 2, count: 1 });
+    expect(out.progress).toBe(`${out.instruction} · ${out.counter}`);
+  });
+});

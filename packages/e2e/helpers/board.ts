@@ -21,7 +21,7 @@ export async function startDuel(
   const slug = await createTable(alice.page, table, options);
   await bob.page.goto(`/duels/${slug}`);
   await expect(bob.page.getByRole("heading", { level: 1, name: table })).toBeVisible();
-  await bob.page.getByRole("button", { name: "Join table" }).click();
+  await bob.page.getByRole("button", { name: /^Take seat \d+$/ }).first().click();
   await importDeckUploadAndReady(bob.page, ydkUpload(bobDeck), bobDeck.main.length);
   await importDeckUploadAndReady(alice.page, ydkUpload(aliceDeck), aliceDeck.main.length);
   const start = alice.page.getByRole("button", { name: /^Start duel/ });
@@ -169,7 +169,7 @@ export async function startTable(
   for (const guest of guests) {
     await guest.page.goto(`/duels/${slug}`);
     await expect(guest.page.getByRole("heading", { level: 1, name: table })).toBeVisible();
-    await guest.page.getByRole("button", { name: "Join table" }).click();
+    await guest.page.getByRole("button", { name: /^Take seat \d+$/ }).first().click();
   }
   for (const [index, guest] of guests.entries()) {
     const deck = decks[index + 1]!;

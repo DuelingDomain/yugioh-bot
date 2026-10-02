@@ -1,16 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  betweenGamesInfo,
+  opponentFirstStatus,
+  viewerChoosesFirst,
   canCancelInterrupted,
   formatCountdown,
   isBetweenGames,
   nextGameTarget,
+  opponentSideStatus,
   secondsUntil,
+  seriesCompactScore,
+  seriesGameLabel,
   seriesKindLabel,
   seriesOutcome,
   seriesPlayerIndex,
   seriesRecordLabel,
   seriesScoreForViewer,
   seriesScoreText,
+  seriesWinnerIndex,
 } from "../src/components/duel/series-model";
 import { makeSeries, makeSeriesRoom } from "./helpers/duel-series";
 
@@ -110,5 +117,205 @@ describe("following the series", () => {
     expect(canCancelInterrupted(makeSeries({ status: "between_games", nextGameAt: null }))).toBe(true);
     expect(canCancelInterrupted(makeSeries({ status: "between_games", nextGameAt: "2026-01-01T00:00:00Z" }))).toBe(false);
     expect(canCancelInterrupted(makeSeries({ status: "between_games", tournamentId: 1 }))).toBe(false);
+  });
+});
+
+describe("seriesGameLabel", () => {
+  it("names the game and the score of a Best of 3, the viewer's wins first", () => {
+    const room = makeSeriesRoom({ series: makeSeries({ wins: [1, 0], gameNumber: 2 }), status: "active" });
+    room.session.gameNumber = 2;
+    expect(seriesGameLabel(room)).toEqual({ game: "Game 2 of 3", score: "1–0", title: "You 1 – 0 Imran" });
+    const other = makeSeriesRoom({ series: makeSeries({ wins: [1, 0], gameNumber: 2 }), mySeat: 1, status: "active" });
+    other.session.gameNumber = 2;
+    expect(seriesGameLabel(other)).toEqual({ game: "Game 2 of 3", score: "0–1", title: "You 0 – 1 Sulman" });
+  });
+
+  it("uses the game of the duel on screen, not the latest game of the series", () => {
+    const room = makeSeriesRoom({ series: makeSeries({ status: "completed", wins: [2, 1], gameNumber: 3 }) });
+    room.session.gameNumber = 1;
+    expect(seriesGameLabel(room)?.game).toBe("Game 1 of 3");
+  });
+
+  it("shows a spectator the names in player order", () => {
+    const room = makeSeriesRoom({ series: makeSeries({ wins: [1, 0] }), mySeat: null, status: "active" });
+    expect(seriesGameLabel(room)?.title).toBe("Sulman 1 – 0 Imran");
+    expect(seriesGameLabel(room)?.score).toBe("1–0");
+  });
+
+  it("is null for a single game, a Best of 1 and a cancelled series", () => {
+    expect(seriesGameLabel(makeSeriesRoom({ series: null }))).toBeNull();
+    expect(seriesGameLabel(makeSeriesRoom({ series: makeSeries({ bestOf: 1 }) }))).toBeNull();
+    expect(seriesGameLabel(makeSeriesRoom({ series: makeSeries({ status: "cancelled" }) }))).toBeNull();
+  });
+
+  it("writes the compact score", () => {
+    expect(seriesCompactScore({ wins: [2, 1] }, 0)).toBe("2–1");
+    expect(seriesCompactScore({ wins: [2, 1] }, 1)).toBe("1–2");
+    expect(seriesCompactScore({ wins: [2, 1] }, null)).toBe("2–1");
+  });
+});
+
+describe("betweenGamesInfo", () => {
+  const between = (overrides: Parameters<typeof makeSeries>[0] = {}) =>
+    makeSeries({ status: "between_games", wins: [1, 0], ...overrides });
+
+  it("says who won, the score, the next game and that the opponent is choosing", () => {
+    const room = makeSeriesRoom({ series: between({ firstChooser: 1 }) });
+    room.session.winnerSeat = 0;
+    expect(betweenGamesInfo(room, "game-1")).toEqual({
+      result: "Game 1 won by you · 1–0",
+      next: "Game 2 of 3",
+      first: "Opponent is choosing to go first or second…",
+    });
+  });
+
+  it("tells the loser that they choose, and what they chose", () => {
+    const room = makeSeriesRoom({ series: between({ wins: [0, 1], firstChooser: 0 }) });
+    room.session.winnerSeat = 1;
+    expect(betweenGamesInfo(room, "game-1")).toEqual({
+      result: "Game 1 won by Imran · 0–1",
+      next: "Game 2 of 3",
+      first: "You choose to go first or second",
+    });
+    const chose = makeSeriesRoom({ series: between({ wins: [0, 1], firstChooser: 0, firstChoice: "second" }) });
+    chose.session.winnerSeat = 1;
+    expect(betweenGamesInfo(chose, "game-1")?.first).toBe("Imran goes first (you chose to go second)");
+    const first = makeSeriesRoom({ series: between({ wins: [0, 1], firstChooser: 0, firstChoice: "first" }) });
+    first.session.winnerSeat = 1;
+    expect(betweenGamesInfo(first, "game-1")?.first).toBe("You go first (you chose to go first)");
+  });
+
+  it("tells the winner what the opponent chose", () => {
+    const room = makeSeriesRoom({ series: between({ firstChooser: 1, firstChoice: "second" }) });
+    room.session.winnerSeat = 0;
+    expect(betweenGamesInfo(room, "game-1")?.first).toBe("You go first (the opponent chose to go second)");
+  });
+
+  it("keeps the old wording for a series saved before the choice existed", () => {
+    const room = makeSeriesRoom({ series: between({ wins: [0, 1] }) });
+    room.session.winnerSeat = 1;
+    expect(betweenGamesInfo(room, "game-1")?.first).toBe("You go first (the loser of game 1 goes first)");
+  });
+
+  it("uses the winner's player id when the session has one", () => {
+    const room = makeSeriesRoom({ series: between({ wins: [0, 1] }) });
+    room.session.winnerPlayerId = 2;
+    room.session.winnerSeat = null;
+    expect(betweenGamesInfo(room, "game-1")?.result).toBe("Game 1 won by Imran · 0–1");
+  });
+
+  it("swaps the seats after a draw or an interrupted game", () => {
+    const draw = makeSeriesRoom({ series: between({ wins: [0, 0] }) });
+    draw.session.winnerSeat = null;
+    expect(betweenGamesInfo(draw, "game-1")).toMatchObject({ result: "Game 1 was a draw · 0–0", first: "Imran goes first (the seats swap)" });
+    const cut = makeSeriesRoom({ series: between({ wins: [0, 0], nextGameAt: null }), status: "interrupted" });
+    cut.session.winnerSeat = null;
+    expect(betweenGamesInfo(cut, "game-1")).toMatchObject({ result: "Game 1 did not finish · 0–0" });
+  });
+
+  it("counts the game number from the duel on screen", () => {
+    const room = makeSeriesRoom({ series: between({ wins: [1, 1], gameNumber: 2 }) });
+    room.session.gameNumber = 2;
+    room.session.winnerSeat = 1;
+    expect(betweenGamesInfo(room, "game-1")).toMatchObject({ result: "Game 2 won by Imran · 1–1", next: "Game 3 of 3" });
+  });
+
+  it("is null unless the series waits between games on this duel", () => {
+    expect(betweenGamesInfo(makeSeriesRoom({ series: makeSeries({ status: "active" }) }), "game-1")).toBeNull();
+    expect(betweenGamesInfo(makeSeriesRoom({ series: makeSeries({ status: "completed" }) }), "game-1")).toBeNull();
+    expect(betweenGamesInfo(makeSeriesRoom({ series: between() }), "another-game")).toBeNull();
+    expect(betweenGamesInfo(makeSeriesRoom({ series: null }), "game-1")).toBeNull();
+  });
+});
+
+describe("opponentSideStatus", () => {
+  it("says the opponent is siding until they click Ready", () => {
+    const series = makeSeries({ status: "between_games", nextGameAt: "2026-10-01T10:00:00.000Z", sideReady: [false, false] });
+    expect(opponentSideStatus(series, 0)).toEqual({ text: "Opponent is siding…", ready: false });
+    expect(opponentSideStatus({ ...series, sideReady: [false, true] }, 0)).toEqual({ text: "Opponent ready", ready: true });
+    expect(opponentSideStatus({ ...series, sideReady: [true, false] }, 1)).toEqual({ text: "Opponent ready", ready: true });
+  });
+
+  it("does not say siding when no deadline runs, and is null for a spectator", () => {
+    const series = makeSeries({ status: "between_games", nextGameAt: null });
+    expect(opponentSideStatus(series, 0)).toEqual({ text: "Opponent is not ready", ready: false });
+    expect(opponentSideStatus(series, null)).toBeNull();
+  });
+});
+
+describe("the first or second choice", () => {
+  const between = (overrides: Parameters<typeof makeSeries>[0] = {}) =>
+    makeSeries({ status: "between_games", wins: [0, 1], nextGameAt: "2030-01-01T00:00:00.000Z", ...overrides });
+
+  it("says that the viewer chooses only when they are the chooser between games", () => {
+    expect(viewerChoosesFirst(between({ firstChooser: 0 }), 0)).toBe(true);
+    expect(viewerChoosesFirst(between({ firstChooser: 0 }), 1)).toBe(false);
+    expect(viewerChoosesFirst(between({ firstChooser: null }), 0)).toBe(false);
+    expect(viewerChoosesFirst(between({ firstChooser: 0 }), null)).toBe(false);
+    expect(viewerChoosesFirst(makeSeries({ status: "active", firstChooser: 0 }), 0)).toBe(false);
+  });
+
+  it("shows the opponent's choosing state and then the result", () => {
+    expect(opponentFirstStatus(between({ firstChooser: 1 }), 0)).toEqual({ text: "Opponent is choosing to go first or second…", done: false });
+    expect(opponentFirstStatus(between({ firstChooser: 1, firstChoice: "second" }), 0)).toEqual({ text: "Opponent chose to go second", done: true });
+    expect(opponentFirstStatus(between({ firstChooser: 0 }), 0)).toBeNull();
+    expect(opponentFirstStatus(between({ firstChooser: null }), 0)).toBeNull();
+  });
+
+  it("names the chooser to a spectator", () => {
+    expect(opponentFirstStatus(between({ firstChooser: 0 }), null)).toEqual({ text: "Sulman is choosing to go first or second…", done: false });
+    expect(opponentFirstStatus(between({ firstChooser: 0, firstChoice: "first" }), null)).toEqual({ text: "Sulman chose to go first", done: true });
+  });
+});
+
+describe("a series against the practice bot", () => {
+  const botSeries = (overrides: Parameters<typeof makeSeries>[0] = {}) =>
+    makeSeries({ vsBot: true, playerIds: [1, 0], displayNames: ["Sulman", "Practice Bot"], ...overrides });
+  const botRoom = (series: ReturnType<typeof makeSeries>, winnerSeat: number | null) => {
+    const room = makeSeriesRoom({ series });
+    room.session.seats[1] = { seat: 1, playerId: null, displayName: "Practice Bot", ready: true, isBot: true } as never;
+    room.session.winnerSeat = winnerSeat;
+    return room;
+  };
+
+  it("finds the human at index 0", () => {
+    const series = botSeries();
+    expect(seriesPlayerIndex(makeSeriesRoom({ series, mySeat: 0 }), series)).toBe(0);
+  });
+
+  it("counts the bot as the winner of a finished series, and no one as a draw winner", () => {
+    expect(seriesWinnerIndex(botSeries({ status: "completed", wins: [1, 2] }))).toBe(1);
+    expect(seriesWinnerIndex(botSeries({ status: "completed", wins: [2, 1], winnerPlayerId: 1 }))).toBe(0);
+    expect(seriesWinnerIndex(botSeries({ status: "active", wins: [0, 1] }))).toBeNull();
+  });
+
+  it("names the bot as the series winner and says nothing is recorded", () => {
+    const lost = botSeries({ status: "completed", wins: [1, 2] });
+    expect(seriesOutcome(lost, 0)).toEqual({ headline: "Practice Bot wins the series", detail: "Final score 1 – 2" });
+    expect(seriesOutcome(botSeries({ status: "completed", wins: [2, 0], winnerPlayerId: 1 }), 0)?.headline).toBe("You win the series");
+    expect(seriesRecordLabel(lost)).toBe("Practice match. No result recorded");
+    expect(seriesKindLabel(lost)).toBe("Practice");
+  });
+
+  it("names the bot as the winner of a game, and lets the beaten human choose", () => {
+    const room = botRoom(botSeries({ status: "between_games", wins: [0, 1], firstChooser: 0 }), 1);
+    expect(betweenGamesInfo(room, "game-1")).toEqual({
+      result: "Game 1 won by Practice Bot · 0–1",
+      next: "Game 2 of 3",
+      first: "You choose to go first or second",
+    });
+  });
+
+  it("shows that the beaten bot goes first by itself", () => {
+    const room = botRoom(botSeries({ status: "between_games", wins: [1, 0], firstChooser: 1, firstChoice: "first" }), 0);
+    expect(betweenGamesInfo(room, "game-1")).toMatchObject({
+      result: "Game 1 won by you · 1–0",
+      first: "Practice Bot goes first (the opponent chose to go first)",
+    });
+  });
+
+  it("swaps the seats after a draw with the bot in seat 1", () => {
+    const room = botRoom(botSeries({ status: "between_games", wins: [0, 0] }), null);
+    expect(betweenGamesInfo(room, "game-1")?.first).toBe("Practice Bot goes first (the seats swap)");
   });
 });

@@ -184,8 +184,8 @@ export async function buildDraftResponse(slug: string, userId: string) {
     if (ids.length > 0) {
       const placeholders = ids.map(() => "?").join(",");
       const rows = db
-        .prepare(`select id, name, archetype from cubes where id in (${placeholders})`)
-        .all(...ids) as Array<{ id: number; name: string; archetype: string | null }>;
+        .prepare(`select id, name, archetype from cubes where guild_id = ? and id in (${placeholders})`)
+        .all(draft.guild_id, ...ids) as Array<{ id: number; name: string; archetype: string | null }>;
       const countStmt = db.prepare("select pool, count(*) as n from cube_cards where cube_id = ? group by pool");
       const sampleStmt = db.prepare(
         "select cc.image_url_small as img from cube_cards tc join card_catalog cc on cc.ygoprodeck_id = tc.catalog_card_id where tc.cube_id = ? limit 4",

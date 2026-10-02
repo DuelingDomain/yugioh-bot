@@ -31,26 +31,18 @@
   flex: none;
   width: min(100%, calc(190 * var(--duel-unit, 1px)));
   min-width: 0;
-  aspect-ratio: 59 / 86;
   margin: 0 auto calc(4 * var(--duel-unit, 1px));
-  overflow: hidden;
-  border-radius: 6px;
   background: #06080e;
   box-shadow: 0 10px 26px rgb(0 0 0 / 0.5);
 }
 
-.art img,
+/* .art also carries the global card-frame rule (app/globals.css): the whole card frame shows, no crop. */
 .artBack {
   display: block;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
-  object-fit: cover;
 }
-
-/* Crop the printed card border, as the field does. */
-.art img { transform: scale(1.075); }
-.artBack { transform: none; }
 
 .body {
   display: flex;

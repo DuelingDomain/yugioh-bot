@@ -148,6 +148,8 @@ run("duel", process.execPath, ["packages/duel-server/dist/server.js"], {
     // The engine of new 1v1 duels. The E2E stack tests the merged engine (pinned) unless E2E_1V1_ENGINE=legacy asks for the
     // engine that production uses (the data dir then needs the legacy Domain files, see docs/deployment/duel-engine-switch.md).
     DUEL_1V1_ENGINE: process.env.E2E_1V1_ENGINE ?? "pinned",
+    // Card-flow specs require the host to keep the first seat; opening specs can opt in.
+    DUEL_RPS_OPENING: process.env.E2E_RPS_OPENING ?? "0",
     // Fast practice bot. The default pause is 900 ms per step.
     DUEL_BOT_STEP_MS: process.env.E2E_BOT_STEP_MS ?? "120",
     // The host defaults. A live .env value must not change them.

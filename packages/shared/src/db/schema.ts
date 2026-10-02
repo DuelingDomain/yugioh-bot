@@ -612,6 +612,13 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "best_of", "integer not null default 1");
   addColumnIfMissing(db, "duels", "ranked", "integer not null default 0");
   db.exec("create index if not exists duels_series_idx on duels (series_id, game_number) where series_id is not null");
+  // Rock-paper-scissors before game 1: the opening state (JSON) while it runs, null otherwise.
+  addColumnIfMissing(db, "duels", "opening_json", "text");
+  // Between games the loser chooses to go first or second (index into the series players, and 'first' | 'second').
+  addColumnIfMissing(db, "duel_series", "first_chooser", "integer");
+  addColumnIfMissing(db, "duel_series", "first_choice", "text");
+  // A best of 3 against the practice bot: index 0 is the human, index 1 the bot (player1_id repeats the human).
+  addColumnIfMissing(db, "duel_series", "vs_bot", "integer not null default 0");
 
   // Tournament duel rules and match length. duel_rules_json holds
   // { mode, masterRule, settings }; null means the defaults for a normal duel.

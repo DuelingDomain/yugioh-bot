@@ -20,7 +20,7 @@ import styles from "./duel-result.module.css";
 import seriesStyles from "./series.module.css";
 import { SeriesBadges } from "./series-banner";
 import { SeriesNextControls } from "./series-next";
-import { isBetweenGames, seriesOutcome, seriesPlayerIndex, seriesRecordLabel, seriesScoreForViewer } from "./series-model";
+import { betweenGamesInfo, isBetweenGames, seriesOutcome, seriesPlayerIndex, seriesRecordLabel, seriesScoreForViewer } from "./series-model";
 
 
 /** The longest animation ends near 1.55 s; the timer settles just after it. */
@@ -35,8 +35,6 @@ export type DuelResultScreenProps = {
   onClose: () => void;
   /** Leave the duel (closes the duel window, or returns to the tables list). */
   onExit?: () => void;
-  /** Series only: open the side deck panel between games. */
-  onOpenSide?: () => void;
   /** Series only: the series changed (Ready, Cancel series); reload the room. */
   onSeriesChanged?: () => void;
   /** Series only: go to the next game's room. */
@@ -269,10 +267,9 @@ function wordmarkTier(text: string): "xl" | "lg" | "md" | "sm" {
 }
 
 /** Series score, the series result at the end, and the between-games controls. */
-function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
+function SeriesResult({ room, slug, onChanged, onNavigate }: {
   room: DuelRoom;
   slug: string;
-  onOpenSide?: () => void;
   onChanged?: () => void;
   onNavigate?: (slug: string) => void;
 }) {
@@ -282,6 +279,7 @@ function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
   const outcome = seriesOutcome(series, index);
   const record = seriesRecordLabel(series);
   const between = isBetweenGames(room, slug);
+  const info = betweenGamesInfo(room, slug);
   return (
     <section className={styles.seriesBlock} aria-label="Series">
       <SeriesBadges series={series} hideScore />
@@ -291,6 +289,12 @@ function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
           <p className={seriesStyles.resultLine}>{outcome.detail}</p>
           {record ? <p className={seriesStyles.resultRecord}>{record}</p> : null}
         </div>
+      ) : info ? (
+        <div className={seriesStyles.result} data-testid="between-games-info">
+          <p className={seriesStyles.resultHead}>{info.result}</p>
+          <p className={seriesStyles.resultLine}>Up next: <b>{info.next}</b></p>
+          <p className={seriesStyles.resultRecord}>{info.first}</p>
+        </div>
       ) : (
         <p className={seriesStyles.resultLine}>
           Series score <b>{seriesScoreForViewer(series, index)}</b>
@@ -299,7 +303,7 @@ function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
       )}
       {between ? (
         <SeriesNextControls room={room} slug={slug} tone="result" onChanged={onChanged ?? noop}
-          onNavigate={onNavigate ?? noop} onOpenSide={onOpenSide} />
+          onNavigate={onNavigate ?? noop} />
       ) : null}
     </section>
   );
@@ -311,7 +315,7 @@ const subscribeNever = () => () => undefined;
 const readBody = () => document.body;
 const readNoBody = () => null;
 
-export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, onOpenSide, onSeriesChanged, onNavigate, placings }: DuelResultScreenProps) {
+export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, onSeriesChanged, onNavigate, placings }: DuelResultScreenProps) {
   const described = useMemo(() => describeDuelResult(room), [room]);
   const model = useMemo(() => {
     if (!placings || placings.length === 0) return described;
@@ -486,7 +490,7 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
         ) : null}
 
         {room.series ? (
-          <SeriesResult room={room} slug={slug} onOpenSide={onOpenSide} onChanged={onSeriesChanged} onNavigate={onNavigate} />
+          <SeriesResult room={room} slug={slug} onChanged={onSeriesChanged} onNavigate={onNavigate} />
         ) : null}
 
         <div className={styles.actions}>

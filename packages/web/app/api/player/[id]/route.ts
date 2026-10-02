@@ -11,6 +11,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
   const scope = new URL(request.url).searchParams.get("scope") === "all" ? "all" : "season";
-  const scoring = createScoringService(getDb());
+  const db = getDb();
+  const player = db.prepare("select id from players where id = ? and guild_id = ?").get(Number(id), env.discordGuildId);
+  if (!player) return NextResponse.json({ error: "Player not found" }, { status: 404 });
+  const scoring = createScoringService(db);
   return NextResponse.json(scoring.getProfile(env.discordGuildId, Number(id), scope));
 }

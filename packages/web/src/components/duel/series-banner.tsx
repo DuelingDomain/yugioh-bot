@@ -3,7 +3,9 @@
 import Link from "next/link";
 import type { DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { SeriesNextControls } from "./series-next";
-import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesKindLabel, seriesLengthLabel, seriesScoreText } from "./series-model";
+import {
+  isBetweenGames, isSeriesOpen, nextGameTarget, seriesGameLabel, seriesKindLabel, seriesLengthLabel, seriesScoreText,
+} from "./series-model";
 import styles from "./series.module.css";
 
 /** True when the series is worth a badge row: a Best of 3, a tournament game or a ranked game. */
@@ -40,16 +42,29 @@ export function SeriesBadges({ series, showGame = false, hideScore = false, plai
 }
 
 /**
- * A thin strip under the room header for the side deck window (countdown, Ready, Side deck) and
+ * "Game 2 of 3 · 1–0" for the top-right of the duel room header. Nothing for a single game, so the
+ * header stays as it was. The score counts the viewer's wins first.
+ */
+export function SeriesGameLabel({ room }: { room: Pick<DuelRoom, "session" | "mySeat" | "series"> }) {
+  const label = seriesGameLabel(room);
+  if (!label) return null;
+  return (
+    <span className={styles.gameLabel} title={label.title} data-testid="series-game-label">
+      <b>{label.game}</b><i aria-hidden>·</i><span aria-label={`Match score ${label.score}`}>{label.score}</span>
+    </span>
+  );
+}
+
+/**
+ * A thin strip under the room header for the side deck window (countdown, Ready) and
  * for a spectator who can follow the series to its next game. Nothing else shows in the strip so
  * the board keeps its height during a game.
  */
-export function SeriesBanner({ room, slug, onChanged, onNavigate, onOpenSide }: {
+export function SeriesBanner({ room, slug, onChanged, onNavigate }: {
   room: DuelRoom;
   slug: string;
   onChanged: () => void;
   onNavigate: (slug: string) => void;
-  onOpenSide: () => void;
 }) {
   const series = room.series;
   if (!series) return null;
@@ -63,7 +78,7 @@ export function SeriesBanner({ room, slug, onChanged, onNavigate, onOpenSide }: 
         <SeriesBadges series={series} showGame />
       </div>
       {between ? (
-        <SeriesNextControls room={room} slug={slug} tone="sheet" onChanged={onChanged} onNavigate={onNavigate} onOpenSide={onOpenSide} />
+        <SeriesNextControls room={room} slug={slug} tone="sheet" onChanged={onChanged} onNavigate={onNavigate} />
       ) : follow ? (
         <span className={styles.stripNext}>
           A later game is being played.
