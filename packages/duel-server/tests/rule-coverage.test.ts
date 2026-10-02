@@ -192,6 +192,13 @@ describe("scenario lists", () => {
 });
 
 describe("allow-list file", () => {
+  it("has no pending entry for a rule with an outcome scenario", async () => {
+    const rules = parseAdrRules(readFileSync(new URL("../../../docs/adr/0002-multiplayer-duel-rules.md", import.meta.url), "utf8"));
+    const refs = scenarioRefs((await loadScenarioLists()).flatMap(list => list.scenarios));
+    const pending = loadPending(pendingListPath);
+    expect(staleEntries(buildRows(rules, refs, pending), pending)).toEqual([]);
+  });
+
   const withFile = (text: string, check: (path: string) => void) => {
     const directory = mkdtempSync(join(tmpdir(), "rule-coverage-"));
     try {
