@@ -94,6 +94,20 @@ const GADGET = "Cyberse Gadget";
 const SOUL = "Successor Soul";
 const LEONIDAS = "D/D/D Rebel King Leonidas";
 const OOKAZI = "Ookazi";
+const EVOLUTION = "Pendulum Evolution";
+const VENEMY = "Starving Venemy Dragon";
+const RAINBOW = "Rainbow Dragon";
+const OVERDRIVE = "Ultimate Crystal Rainbow Dragon Overdrive";
+const BEASTS = ["Crystal Beast Sapphire Pegasus", "Crystal Beast Cobalt Eagle", "Crystal Beast Ruby Carbuncle", "Crystal Beast Amethyst Cat", "Crystal Beast Emerald Tortoise", "Crystal Beast Amber Mammoth", "Crystal Beast Topaz Tiger"];
+const LV5 = "Armed Dragon LV5";
+const LV7 = "Armed Dragon LV7";
+const VW_TIGER = "VW-Tiger Catapult";
+const XYZ_CANNON = "XYZ-Dragon Cannon";
+const VWXYZ = "VWXYZ-Dragon Catapult Cannon";
+const CATAPULT = "Armed Dragon Catapult Cannon";
+const TYPHON = "Super Starslayer TY-PHON - Sky Crisis";
+const DRAGONAR = "Number 99: Utopia Dragonar";
+const UTOPIA39 = "Number 39: Utopia";
 const HEART = "Heart of the Blue-Eyes";
 const ANKH = "Millennium Ankh";
 const INCARNATE = "The Unstoppable Exodia Incarnate";
@@ -689,6 +703,97 @@ const heart = (format: "ffa3" | "tag"): Scenario => {
     { [holder]: { monsters: [HEART, INCARNATE] }, [summoner]: { grave: [ELF, ELF, BEWD] }, ...(tag ? {} : { p0: { grave: [HEART] } }) });
 };
 
+const dragonar = (format: "ffa3" | "tag", self: boolean): Scenario => {
+  const { holder, first, setup, label, tag } = holderOf(format, true);
+  setup[holder] = { monsters: [xyz(DRAGONAR, [ELF, ELF, ELF]), ELF], extra: [UTOPIA39], deck: [ELF, ELF, ELF, ELF] };
+  // the quick effect of Dragonar opens a chain window for the holder at every phase of the turns before: pass them (counted per turn)
+  const windows = tag ? [5, 5, 5] : [5, 4, 5, 5];
+  const toTurn = first.flatMap((st, k) => [st, ...Array.from({ length: windows[k] }, () => pass(holder))]);
+  const dmg = self ? 3000 : 800;
+  const victim: Step[] = [pickOpponent("p0", holder)];
+  const steps: Step[] = self
+    ? [...toTurn, changePhase("battle", holder), pass(holder), attack({ card: DRAGONAR }, "direct", holder), ...victim,
+      expectOffered("activate", DRAGONAR, holder), activate(DRAGONAR, holder), select({ card: ELF, nth: 0 }, { card: ELF, nth: 1 })]
+    : [...toTurn, expectOffered("activate", DRAGONAR, holder), changePhase("battle", holder), pass(holder), attack({ card: ELF }, "direct", holder), ...victim,
+      changePhase("main2", holder), expectNotOffered("activate", DRAGONAR, holder)];
+  const lp = (tag ? 16000 : 8000) - dmg;
+  return probe(format, `number-99-utopia-dragonar-${self ? "own" : "other-monster"}-direct-attack-of-${holder}`, 95134948,
+    `${label}: ${holder} attacks directly with ${self ? "Dragonar itself (the flag of the duelist is the own flag of Dragonar): its effect is offered at the attack, detaches 2 and Special Summons Number 39: Utopia" : "another monster (a flag of the duelist that is not the own flag of Dragonar): Dragonar is offered in the Main Phase 1 before and not in the Main Phase 2 after"}`,
+    setup, steps,
+    { p0: { lp: tag ? lp : lp }, ...(tag ? { p2: { lp } } : {}), [holder]: self ? { monsters: [DRAGONAR, ELF, UTOPIA39], grave: [ELF, ELF] } : { monsters: [DRAGONAR, ELF] } });
+};
+
+const typhon = (format: "ffa3" | "tag", twice: boolean): Scenario => {
+  const { holder, setup, label, tag } = holderOf(format, false);
+  setup.p0 = {
+    hand: twice ? [POLY, POLY] : [POLY], monsters: twice ? [MANIPULATOR, MASAKI, MANIPULATOR, MASAKI] : [MANIPULATOR, MASAKI],
+    extra: twice ? [FLAME, FLAME] : [FLAME], deck: [ELF, ELF, ELF, ELF],
+  };
+  setup[holder] = { monsters: [ELF], extra: [TYPHON], deck: [ELF, ELF, ELF, ELF] };
+  const fuse = (pick: boolean): Step[] => [activate(POLY, "p0"), ...(pick ? [select(FLAME)] : []), select(MANIPULATOR, MASAKI)];
+  const steps: Step[] = [...fuse(twice), ...(twice ? fuse(false) : []), endTurn("p0"), twice ? expectOffered("specialSummon", TYPHON, holder) : expectNotOffered("specialSummon", TYPHON, holder)];
+  return probe(format, `ty-phon-flag-of-${twice ? "two" : "one"}-extra-deck-summon-of-p0-for-${holder}`, 93039339,
+    `${label}: p0 Fusion Summons ${twice ? "twice" : "once"} from the Extra Deck in its turn; in the next turn ${holder} is ${twice ? "" : "not "}offered the alternative Xyz Summon of TY-PHON`,
+    setup, twice ? [...steps, specialSummon(TYPHON, holder)] : steps,
+    {
+      p0: { monsters: twice ? [FLAME, FLAME] : [FLAME], grave: twice ? [POLY, MANIPULATOR, MASAKI, POLY, MANIPULATOR, MASAKI] : [POLY, MANIPULATOR, MASAKI] },
+      [holder]: twice ? { monsters: [TYPHON] } : { monsters: [ELF] },
+    });
+};
+
+const catapult = (format: "ffa3" | "tag"): Scenario => {
+  const { holder, first, setup, label, tag } = holderOf(format, true);
+  const negative: Seat = "p0";
+  setup[negative] = { monsters: [ELF, VWXYZ, LV7], extra: [CATAPULT], deck: [ELF, ELF, ELF, ELF] };
+  setup[holder] = { monsters: [LV5, VW_TIGER, XYZ_CANNON], extra: [VWXYZ, CATAPULT], deck: [LV7, ELF, ELF, ELF] };
+  const steps: Step[] = [
+    ...first, changePhase("battle", holder), attack({ card: LV5 }, { card: ELF, owner: "p0" }, holder), endTurn(holder), yes(holder),
+    ...(tag ? [] : [endTurn("p2")]),
+    expectNotOffered("specialSummon", CATAPULT, negative), endTurn(negative),
+    ...(tag ? [endTurn("p1"), endTurn("p2")] : []),
+    specialSummon(VWXYZ, holder), select(VW_TIGER, XYZ_CANNON), expectOffered("specialSummon", CATAPULT, holder), specialSummon(CATAPULT, holder), select(VWXYZ, LV7),
+  ];
+  return probe(format, `armed-dragon-catapult-cannon-flags-of-${holder}-not-of-${negative}`, 75906310,
+    `${label}: ${holder} destroys a monster with Armed Dragon LV5, Special Summons LV7 at the End Phase and Special Summons VWXYZ-Dragon Catapult Cannon (both flags of ${tag ? "team 1" : holder}); in the next turn Armed Dragon Catapult Cannon is offered to ${holder} and is not offered to ${negative} (VWXYZ and LV7 on its field by setup: no flag)`,
+    setup, steps,
+    {
+      // the Elf of p0 is destroyed by the battle (1600 damage: the team LP in Tag)
+      p0: { lp: tag ? 14400 : 6400, monsters: [VWXYZ, LV7], grave: [ELF] }, ...(tag ? { p2: { lp: 14400 } } : {}),
+      [holder]: { monsters: [CATAPULT], grave: [LV5], banished: [VW_TIGER, XYZ_CANNON, LV7, VWXYZ] },
+    });
+};
+
+const overdrive = (format: "ffa3" | "tag"): Scenario => {
+  const { holder, first, setup, label, tag } = holderOf(format, false);
+  const negative: Seat = "p0";
+  setup[negative] = { monsters: [RAINBOW], grave: BEASTS, extra: [OVERDRIVE], deck: [ELF, ELF, ELF, ELF] };
+  setup[holder] = { hand: [RAINBOW], grave: BEASTS, extra: [OVERDRIVE], deck: [ELF, ELF, ELF, ELF] };
+  const steps: Step[] = [
+    expectNotOffered("specialSummon", OVERDRIVE, negative), ...first,
+    specialSummon(RAINBOW, holder), expectOffered("specialSummon", OVERDRIVE, holder), specialSummon(OVERDRIVE, holder), select(RAINBOW, ...BEASTS),
+  ];
+  return probe(format, `ultimate-crystal-rainbow-dragon-overdrive-flag-of-${holder}-not-of-${negative}`, 84544192,
+    `${label}: ${holder} Special Summons Rainbow Dragon from the hand (flag of ${tag ? "team 1" : holder}) and is offered the contact Fusion Summon of Overdrive; ${negative} has Rainbow Dragon on the field by setup and 7 Crystal Beasts in the Graveyard (no Special Summon, no flag) and is not offered it`,
+    setup, steps, { [holder]: { monsters: [OVERDRIVE], banished: [RAINBOW, ...BEASTS] }, p0: { monsters: [RAINBOW], grave: BEASTS } });
+};
+
+const evolution = (format: "ffa3" | "tag"): Scenario => {
+  const { holder, first, setup, label, tag } = holderOf(format, false);
+  const negative: Seat = "p0";
+  setup[negative] = { hand: [EVOLUTION, DM], pendulum: ["Stargazer Magician", "Timegazer Magician"], deck: [ELF, ELF, ELF, ELF] };
+  setup[holder] = { hand: [EVOLUTION, POLY, LEONIDAS, DM, ELF], pendulum: ["Stargazer Magician", "Timegazer Magician"], extra: [VENEMY], deck: [ELF, ELF, ELF, ELF] };
+  const steps: Step[] = [
+    activate(EVOLUTION, negative), expectNotOffered("activate", { card: EVOLUTION, effect: "Pendulum Summon" }, negative), ...first,
+    activate(EVOLUTION, holder), expectNotOffered("activate", { card: EVOLUTION, effect: "Pendulum Summon" }, holder), activate(POLY, holder), select(LEONIDAS, DM), expectOffered("activate", { card: EVOLUTION, effect: "Pendulum Summon" }, holder), activate({ card: EVOLUTION, effect: "Pendulum Summon" }, holder), pickOpponent("p0", holder), select(ELF),
+  ];
+  return probe(format, `pendulum-evolution-flag-of-${holder}-not-of-${negative}`, 55795155,
+    `${label}: ${holder} Fusion Summons the Pendulum Monster Starving Venemy Dragon from the Extra Deck (flag of ${tag ? "team 1" : holder}): its Pendulum Summon effect of Pendulum Evolution is offered after the summon and not before; ${negative} has the same face-up Spell and no flag: not offered`,
+    setup, steps, {
+      [holder]: { monsters: [VENEMY, ELF], spells: [EVOLUTION, "Stargazer Magician", "Timegazer Magician"], grave: [LEONIDAS, DM, POLY] },
+      p0: { hand: [DM], spells: [EVOLUTION, "Stargazer Magician", "Timegazer Magician"] },
+    });
+};
+
 /**
  * Evolution Burst 52875873: a global check keeps a flag for the controller of an attacking Cyber Dragon; the cost needs Duel.GetFlagEffect(tp,id)==0. The holder is
  * offered the Spell before its Cyber Dragon attacks and is not offered it in the Main Phase 2 after the attack.
@@ -776,5 +881,5 @@ export const R2_NOCHANGE_SCENARIOS: Scenario[] = [
   screams("ffa3"),
   screams("tag"),
   burst("ffa3"),
-  burst("tag"), sacrifice("ffa3", false), sacrifice("ffa3", true), sacrifice("tag", false), sacrifice("tag", true), beacon("ffa3"), beacon("tag"), soul("ffa3", 1), soul("ffa3", 2), soul("tag", 1), soul("tag", 2), leonidas("ffa3"), leonidas("tag"), tell("ffa3"), tell("tag"), whisker("ffa3"), whisker("tag"), legacy("ffa3", true), legacy("ffa3", false), legacy("tag", true), legacy("tag", false), heart("ffa3"), heart("tag"),
+  burst("tag"), sacrifice("ffa3", false), sacrifice("ffa3", true), sacrifice("tag", false), sacrifice("tag", true), beacon("ffa3"), beacon("tag"), soul("ffa3", 1), soul("ffa3", 2), soul("tag", 1), soul("tag", 2), leonidas("ffa3"), leonidas("tag"), tell("ffa3"), tell("tag"), whisker("ffa3"), whisker("tag"), legacy("ffa3", true), legacy("ffa3", false), legacy("tag", true), legacy("tag", false), heart("ffa3"), heart("tag"), dragonar("ffa3", true), dragonar("ffa3", false), dragonar("tag", true), dragonar("tag", false), typhon("ffa3", true), typhon("ffa3", false), typhon("tag", true), typhon("tag", false), catapult("ffa3"), catapult("tag"), overdrive("ffa3"), overdrive("tag"), evolution("ffa3"), evolution("tag"),
 ];
