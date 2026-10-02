@@ -13,6 +13,7 @@ const cases = (["normal", "domain"] as DuelMode[]).flatMap((mode) =>
   ([5] as DuelMasterRule[]).flatMap((masterRule) => formats.map((format) => ({ mode, masterRule, format }))),
 );
 cases.push(...([1, 2, 3] as DuelMasterRule[]).map((masterRule) => ({ mode: "normal" as const, masterRule, format: "1v1" as const })));
+cases.push(...([1, 2, 3, 4] as DuelMasterRule[]).map((masterRule) => ({ mode: "domain" as const, masterRule, format: "1v1" as const })));
 
 // DRAW messages become deck-to-hand move events in observeMoveEvents. Opening-hand
 // messages precede the first Draw Phase, so this checks the turn draw separately.
@@ -54,6 +55,12 @@ describeWithCores("owner first-turn draw rule on installed cores", [needs.standa
   it("Standard MR3 FFA3: P68 rejects old-rule flags before any first turn", async () => {
     await expect(createEngineGame({ mode: "normal", masterRule: 3, format: "ffa3", dataDirectory,
       seed: ["1", "2", "3", "4"], decks: Array.from({ length: 3 }, () => ({ main: Array(40).fill(15025844), extra: [], side: [] })),
+    })).rejects.toThrow("DUEL_CANNOT_SUMMON_OATH_OLD is not supported with more than 2 duelists");
+  });
+
+  it("Domain MR3 FFA3: P68 also rejects old-rule flags with the Domain draw flag", async () => {
+    await expect(createEngineGame({ mode: "domain", masterRule: 3, format: "ffa3", dataDirectory,
+      seed: ["1", "2", "3", "4"], decks: Array.from({ length: 3 }, () => ({ main: Array(40).fill(15025844), extra: [], side: [], deckMaster: 48305365 })),
     })).rejects.toThrow("DUEL_CANNOT_SUMMON_OATH_OLD is not supported with more than 2 duelists");
   });
 
