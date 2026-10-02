@@ -38,12 +38,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     extraDeckEnabled: draft.config.extraDeckEnabled ?? true,
   };
 
-  const assignmentError = hostThemeAssignmentError(db, draft.guildId, draft.config, drafts.players(draft.id).map((p) => p.playerId));
+  const playerIds = drafts.players(draft.id).map((p) => p.playerId);
+  const assignmentError = hostThemeAssignmentError(db, draft.guildId, draft.config, playerIds);
   if (assignmentError) return NextResponse.json({ errors: [assignmentError], warnings: [] });
 
   // Host assignments are fixed; other modes can use any allowed theme at start.
   const cubeIds = draft.config.themeSelection === "host_assigned"
-    ? [...new Set(Object.values(draft.config.themeAssignments ?? {}))]
+    ? [...new Set(playerIds.map((playerId) => draft.config.themeAssignments![String(playerId)]))]
     : draft.config.allowedCubeIds ?? [];
   const errors: string[] = [];
   const warnings: string[] = [];

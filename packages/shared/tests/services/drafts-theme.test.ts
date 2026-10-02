@@ -123,6 +123,25 @@ describe("theme draft — config normalization", () => {
 });
 
 describe("theme draft — start & assignment", () => {
+  it.each(["detached", "deleted", "duplicate"])("ignores an unjoined player's %s host assignment at start", (staleAssignment) => {
+    const { db, drafts, draftId, playerIds, themeIds } = makeThemeDraft({
+      config: { extraDeckEnabled: false },
+      themes: [{ main: 42, extra: 0 }, { main: 42, extra: 0 }, { main: 0, extra: 0 }],
+      assign: [0, 1],
+    });
+    const unjoinedPlayerId = insertPlayer(db, "g", "u2", "P2");
+    const config = drafts.findById(draftId).config;
+    config.themeAssignments![String(unjoinedPlayerId)] = staleAssignment === "duplicate" ? themeIds[0] : themeIds[2];
+    if (staleAssignment === "detached") config.allowedCubeIds = themeIds.slice(0, 2);
+    if (staleAssignment === "deleted") db.prepare("delete from cubes where id = ?").run(themeIds[2]);
+    db.prepare("update drafts set config_json = ? where id = ?").run(JSON.stringify(config), draftId);
+
+    expect(drafts.start(draftId).status).toBe("active");
+    expect(db.prepare("select player_id, cube_id from draft_player_cube where draft_id = ? order by player_id").all(draftId))
+      .toEqual([{ player_id: playerIds[0], cube_id: themeIds[0] }, { player_id: playerIds[1], cube_id: themeIds[1] }]);
+    for (const playerId of playerIds) expect(drafts.currentPackOptions(draftId, playerId)).toHaveLength(3);
+  });
+
   it.each(["foreign-guild", "deleted"])("rejects a %s host-assigned cube without activating the draft", (invalidCube) => {
     const { db, drafts, draftId, themeIds } = makeThemeDraft({
       config: { extraDeckEnabled: false },

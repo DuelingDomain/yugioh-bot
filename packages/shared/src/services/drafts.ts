@@ -686,10 +686,10 @@ export function createDraftService(
 
     if (draft.config.themeSelection === "host_assigned") {
       const assignments = draft.config.themeAssignments ?? {};
-      const assignedCubeIds = Object.values(assignments);
+      const assignedCubeIds = playerIds.map((playerId) => assignments[String(playerId)]);
       const allowed = draft.config.allowedCubeIds ?? [];
       const validAssignment = (cubeId: number) => Number.isInteger(cubeId) && allowed.includes(cubeId);
-      if (!playerIds.every((playerId) => validAssignment(assignments[String(playerId)])) || !assignedCubeIds.every(validAssignment)) {
+      if (!assignedCubeIds.every(validAssignment)) {
         throw new Error("Host-assigned themes require an allowed theme assignment for every player. Choose Random or Players pick instead.");
       }
 

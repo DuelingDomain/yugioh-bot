@@ -11,11 +11,10 @@ export function hostThemeAssignmentError(
 
   const allowed = config.allowedCubeIds ?? [];
   const assignments = config.themeAssignments ?? {};
-  const assignedCubeIds = Object.values(assignments);
+  // Creation joins the creator; other entry points pass the current lobby's players.
+  const assignedCubeIds = playerIds.map((playerId) => assignments[String(playerId)]);
   const validAssignment = (cubeId: number) => typeof cubeId === "number" && Number.isInteger(cubeId) && allowed.includes(cubeId);
-  const complete = playerIds.every((playerId) => validAssignment(assignments[String(playerId)]))
-    && assignedCubeIds.every(validAssignment);
-  if (!complete) {
+  if (!assignedCubeIds.every(validAssignment)) {
     return "Host-assigned themes require an allowed theme assignment for every player. Choose Random or Players pick instead.";
   }
 

@@ -179,6 +179,48 @@ describe("theme lobby routes", () => {
   }, 30000);
 
   describe.each(["edit", "preflight", "start"])("host assignment validation at %s", (entryPoint) => {
+    it.each(["detached", "deleted", "duplicate"])("ignores an unjoined player's %s assignment", async (staleAssignment) => {
+      const { cubeIds, p1, p2 } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }, { main: 0, extra: 0 }], {
+        themeSelection: "host_assigned", themeAssignments: { "1": 1, "2": 2, "3": staleAssignment === "duplicate" ? 1 : 3 }, extraDeckEnabled: false,
+      });
+      const { getDb } = await import("@/lib/db");
+      const db = getDb();
+      db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'u3', 'P3')").run();
+      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      const params = { params: Promise.resolve({ slug: "theme-slug" }) };
+      if (staleAssignment === "detached") {
+        const { DELETE } = await import("../app/api/drafts/[slug]/cubes/route");
+        const detached = await DELETE(new Request("http://localhost", {
+          method: "DELETE", body: JSON.stringify({ cubeId: cubeIds[2] }),
+        }), params);
+        expect(detached.status).toBe(200);
+        expect((await detached.json()).allowedCubeIds).toEqual(cubeIds.slice(0, 2));
+      }
+      if (staleAssignment === "deleted") db.prepare("delete from cubes where id = ?").run(cubeIds[2]);
+
+      if (entryPoint === "preflight") {
+        const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
+        const response = await GET(new Request("http://localhost"), params);
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ errors: [], warnings: [] });
+      } else {
+        const { PUT, POST } = await import("../app/api/drafts/[slug]/route");
+        const response = entryPoint === "edit"
+          ? await PUT(new Request("http://localhost", {
+            method: "PUT", body: JSON.stringify({ name: "Renamed Night", config: { pickSeconds: 60 } }),
+          }) as NextRequest, params)
+          : await POST(new Request("http://localhost", { method: "POST" }), params);
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        if (entryPoint === "edit") expect(body).toMatchObject({ name: "Renamed Night", config: { pickSeconds: 60 } });
+        else {
+          expect(body.status).toBe("active");
+          expect(db.prepare("select player_id, cube_id from draft_player_cube order by player_id").all())
+            .toEqual([{ player_id: p1, cube_id: cubeIds[0] }, { player_id: p2, cube_id: cubeIds[1] }]);
+        }
+      }
+    }, 30000);
+
     it("rejects an unused allowed theme from another guild", async () => {
       const { cubeIds } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }, { main: 42, extra: 0 }], {
         themeSelection: "host_assigned", themeAssignments: { "1": 1, "2": 2 }, extraDeckEnabled: false,
@@ -319,6 +361,28 @@ describe("theme lobby routes", () => {
       }
     }, 30000);
   });
+
+  it("preflight ignores an empty theme assigned only to an unjoined player", async () => {
+    const { cubeIds, p1, p2 } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }, { main: 0, extra: 0 }], {
+      themeSelection: "host_assigned", themeAssignments: { "1": 1, "2": 2, "3": 3 }, extraDeckEnabled: false,
+    });
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'u3', 'P3')").run();
+    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    const params = { params: Promise.resolve({ slug: "theme-slug" }) };
+    const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
+    const response = await GET(new Request("http://localhost"), params);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ errors: [], warnings: [] });
+    const { POST } = await import("../app/api/drafts/[slug]/route");
+    const started = await POST(new Request("http://localhost", { method: "POST" }), params);
+    expect(started.status).toBe(200);
+    expect((await started.json()).status).toBe("active");
+    expect(db.prepare("select player_id, cube_id from draft_player_cube order by player_id").all())
+      .toEqual([{ player_id: p1, cube_id: cubeIds[0] }, { player_id: p2, cube_id: cubeIds[1] }]);
+  }, 30000);
 
   it("rejects enabling uniqueThemes when the merged assignments contain duplicates", async () => {
     await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], {

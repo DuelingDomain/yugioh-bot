@@ -98,7 +98,7 @@ describe("POST /api/drafts (theme mode)", () => {
     expect(db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
   });
 
-  it("validates assignments beyond the creator", async () => {
+  it("defers validation of an unjoined player's assignment at creation", async () => {
     const db = await setupHostCreation();
     const { POST } = await import("../app/api/drafts/route");
     const response = await POST(new Request("http://localhost/api/drafts", {
@@ -109,12 +109,13 @@ describe("POST /api/drafts (theme mode)", () => {
       }),
     }) as NextRequest);
 
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toMatch(/allowed theme assignment/i);
-    expect(db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
+    expect(response.status).toBe(201);
+    const row = db.prepare("select config_json from drafts").get() as { config_json: string };
+    expect(JSON.parse(row.config_json).themeAssignments).toEqual({ "1": 1, "2": 999 });
+    expect(db.prepare("select player_id from draft_players").all()).toEqual([{ player_id: 1 }]);
   });
 
-  it.each([true, false, undefined])("enforces assignment uniqueness with uniqueThemes=%s", async (uniqueThemes) => {
+  it.each([true, false, undefined])("ignores unjoined players when checking uniqueness at creation (uniqueThemes=%s)", async (uniqueThemes) => {
     const db = await setupHostCreation();
     db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'creator-user', 'Yugi')").run();
     db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', 'other-user', 'Kaiba')").run();
@@ -127,15 +128,10 @@ describe("POST /api/drafts (theme mode)", () => {
       }),
     }) as NextRequest);
 
-    if (uniqueThemes === false) {
-      expect(response.status).toBe(201);
-      const row = db.prepare("select config_json from drafts").get() as { config_json: string };
-      expect(JSON.parse(row.config_json)).toMatchObject({ uniqueThemes: false, themeAssignments: { "1": 1, "2": 1 } });
-    } else {
-      expect(response.status).toBe(400);
-      expect((await response.json()).error).toMatch(/distinct.*uniqueThemes/i);
-      expect(db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
-    }
+    expect(response.status).toBe(201);
+    const row = db.prepare("select config_json from drafts").get() as { config_json: string };
+    expect(JSON.parse(row.config_json)).toMatchObject({ uniqueThemes: uniqueThemes ?? true, themeAssignments: { "1": 1, "2": 1 } });
+    expect(db.prepare("select player_id from draft_players").all()).toEqual([{ player_id: 1 }]);
   });
 
   it("creates a theme draft and persists theme config without a card pool", async () => {
