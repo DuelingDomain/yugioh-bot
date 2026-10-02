@@ -279,6 +279,79 @@ describe("SideDeckPanel", () => {
     expect(ready.disabled).toBe(false);
   });
 
+  it("locks the cards while Ready is in flight, so an edit cannot slip past the Ready", async () => {
+    let finish!: (value: unknown) => void;
+    api.readySeries.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const props = panel({ sideReady: [false, true] });
+    fireEvent.click(await tile("Card 3"));
+    fireEvent.click(await tile("Card 10"));
+    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
+    await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
+
+    const card = await tile("Card 1");
+    expect((card as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(card);
+    fireEvent.click(await tile("Card 11"));
+    expect(card.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("1 card swapped from your registered deck")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Reset to registered deck" }) as HTMLButtonElement).disabled).toBe(true);
+
+    finish({ series: makeSeries({ status: "between_games", sideReady: [true, true] }), nextSlug: "game-2" });
+    await waitFor(() => expect(props.onNavigate).toHaveBeenCalledWith("game-2"));
+    expect(api.saveSeriesSideDeck).toHaveBeenCalledTimes(1);
+    expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", { main: [1, 2, 10], extra: [100, 101], side: [3, 11] });
+    expect(api.unreadySeries).not.toHaveBeenCalled();
+  });
+
+  it("un-readies an edit made right after Ready, before the room has refreshed", async () => {
+    let refreshed!: () => void;
+    api.readySeries.mockResolvedValue({ series: makeSeries({ status: "between_games", sideReady: [true, false] }), nextSlug: null });
+    const props = panel({ sideReady: [false, false] });
+    props.onChanged.mockReturnValue(new Promise<void>((resolve) => { refreshed = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
+    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
+    // The panel stays open until the room has the new Ready, so reopening never shows stale state.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(props.onClose).not.toHaveBeenCalled();
+    refreshed();
+    await waitFor(() => expect(props.onClose).toHaveBeenCalled());
+
+    // Still mounted with the room's old props (sideReady false): the edit must still take Ready back.
+    expect(screen.getByText("You are ready")).toBeTruthy();
+    fireEvent.click(await tile("Card 2"));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
+  });
+
+  it("un-readies again when the server says the player is ready once more", async () => {
+    const base = makeDeck();
+    const between = { status: "between_games" as const, nextGameAt: soon(), hasSide: [true, false] as [boolean, boolean] };
+    const element = (sideReady: [boolean, boolean]) => (
+      <SideDeckPanel slug="game-1" series={makeSeries({ ...between, sideReady })} myIndex={0}
+        side={{ baseDeck: base, currentDeck: base }} onClose={vi.fn()} onChanged={vi.fn()} onNavigate={vi.fn()} />
+    );
+    const { rerender } = render(element([true, false]));
+    fireEvent.click(await tile("Card 2"));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(1));
+    fireEvent.click(await tile("Card 2"));
+
+    // The room refreshes (not ready), then Ready arrives from another tab.
+    rerender(element([false, false]));
+    rerender(element([true, false]));
+    expect(await screen.findByText("You are ready")).toBeTruthy();
+    fireEvent.click(await tile("Card 3"));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
+  });
+
+  it("un-readies on the next edit when a Ready's answer was lost", async () => {
+    api.readySeries.mockRejectedValue(new Error("Network down"));
+    panel({ sideReady: [false, false] });
+    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
+    expect(await screen.findByText("Network down")).toBeTruthy();
+    // The Ready may have landed on the server, so the edit takes it back to be safe.
+    fireEvent.click(await tile("Card 2"));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
+  });
+
   it("closes on Escape", async () => {
     const props = panel();
     await tile("Card 1");

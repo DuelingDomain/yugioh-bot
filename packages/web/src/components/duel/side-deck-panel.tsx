@@ -23,18 +23,19 @@ import {
 
 type CardMeta = { name: string; type: number };
 
-function Tile({ code, meta, selected, changed, onClick }: {
+function Tile({ code, meta, selected, changed, disabled, onClick }: {
   code: number;
   meta: CardMeta | undefined;
   selected: boolean;
   changed: boolean;
+  disabled: boolean;
   onClick: () => void;
 }) {
   const name = meta?.name ?? String(code);
   return (
     <li>
       <button type="button" className={styles.tile} aria-pressed={selected} data-changed={changed ? "true" : undefined}
-        aria-label={changed ? `${name}, swapped in` : name} title={name} onClick={onClick}>
+        aria-label={changed ? `${name}, swapped in` : name} title={name} disabled={disabled} onClick={onClick}>
         <img src={cardArtUrl(code, "small")} alt="" loading="lazy" draggable={false}
           onError={(event) => { event.currentTarget.style.visibility = "hidden"; }} />
       </button>
@@ -57,6 +58,7 @@ function Group({ title, count, children }: { title: string; count: number; child
  * next game, Ready saves first when needed. A ready player who starts editing is un-readied on the
  * server at once (before anything is saved), so the opponent's Ready cannot start the next game while
  * they are still swapping; they click Ready again when done. Saving a changed deck also clears Ready.
+ * The cards are locked while a save or Ready is in flight, so no edit can slip past the deck it sends.
  */
 export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged, onNavigate }: {
   slug: string;
@@ -64,7 +66,8 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   myIndex: 0 | 1;
   side: DuelSeriesSideState;
   onClose: () => void;
-  onChanged: () => void;
+  /** Refreshes the room; a returned promise settles once the room has the new state. */
+  onChanged: () => void | Promise<unknown>;
   onNavigate: (slug: string) => void;
 }) {
   const [draft, setDraft] = useState<DuelDeck>(side.currentDeck);
@@ -75,6 +78,13 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Ready: the server's flag is the truth. This panel's own requests know newer answers than the
+  // room's last refresh, so `known` holds what they said until the server's flag next changes.
+  const serverReady = series.sideReady[myIndex];
+  const [seenReady, setSeenReady] = useState(serverReady);
+  const [known, setKnown] = useState<boolean | null>(null);
+  /** A Ready (or un-ready) whose answer was lost: the server may say ready, so the next edit un-readies. */
+  const [maybeReady, setMaybeReady] = useState(false);
   /** This player's Ready was taken back (by editing or a save); shown until they are ready again. */
   const [unreadied, setUnreadied] = useState(false);
   /** The un-ready request in flight; Ready waits for it so the two cannot land out of order. */
@@ -89,6 +99,12 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
     setDraft(side.currentDeck);
     setOut(null);
     setInIndex(null);
+  }
+  if (serverReady !== seenReady) {
+    setSeenReady(serverReady);
+    setKnown(null);
+    setMaybeReady(false);
+    if (serverReady) setUnreadied(false);
   }
 
   const { base } = { base: side.baseDeck };
@@ -120,18 +136,24 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   const dirty = !sameDeck(draft, side.currentDeck);
   const atBase = sameDeck(draft, base);
   const swaps = swapCount(base, draft);
-  const imReady = series.sideReady[myIndex] && !unreadied;
+  const imReady = known ?? serverReady;
 
-  /** Any edit while ready takes Ready back on the server straight away. */
+  /** Any edit while ready (or possibly ready) takes Ready back on the server straight away. */
   function leaveReady() {
-    if (!imReady || unreadying.current) return;
+    if (!(imReady || maybeReady) || unreadying.current) return;
+    const before = known;
+    setKnown(false);
+    setMaybeReady(false);
     setUnreadied(true);
     unreadying.current = unreadySeries(slug).then(
       (result) => {
         if (result.nextSlug) onNavigate(result.nextSlug);
-        else onChanged();
+        else void onChanged();
       },
       (cause: unknown) => {
+        // Still ready as far as anyone knows: the next edit tries again, and a save also clears Ready.
+        setKnown(before);
+        setMaybeReady(true);
         setUnreadied(false);
         setError(cause instanceof Error ? cause.message : "Could not take back your Ready. Try again.");
       },
@@ -157,6 +179,7 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   }
 
   function pickDeckCard(section: SwapSection, index: number) {
+    if (busy) return;
     leaveReady();
     setProblem(null);
     if (out?.section === section && out.index === index) {
@@ -169,6 +192,7 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   }
 
   function pickSideCard(index: number) {
+    if (busy) return;
     leaveReady();
     setProblem(null);
     if (inIndex === index) {
@@ -194,17 +218,24 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
 
   const save = () => work(async () => {
     const result = await saveSeriesSideDeck(slug, draft);
-    if (imReady && !result.series.sideReady[myIndex]) setUnreadied(true);
-    onChanged();
+    const nowReady = result.series.sideReady[myIndex];
+    if (imReady && !nowReady) setUnreadied(true);
+    setKnown(nowReady);
+    void onChanged();
   });
+  // `dirty` and `draft` are read at the click: the cards stay locked until this finishes.
   const ready = () => work(async () => {
     await unreadying.current;
     if (dirty) await saveSeriesSideDeck(slug, draft);
+    setMaybeReady(true);
     const result = await readySeries(slug);
+    setMaybeReady(false);
+    setKnown(result.series.sideReady[myIndex]);
     setUnreadied(false);
     if (result.nextSlug) onNavigate(result.nextSlug);
     else {
-      onChanged();
+      // Close once the room has the new Ready, so reopening the panel never starts from stale state.
+      await Promise.resolve(onChanged()).catch(() => undefined);
       onClose();
     }
   });
@@ -212,7 +243,7 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   const tiles = (section: SwapSection) => draft[section].map((code, index) => (
     <Tile key={`${section}-${index}`} code={code} meta={meta.get(code)}
       selected={out?.section === section && out.index === index}
-      changed={base[section][index] !== code}
+      changed={base[section][index] !== code} disabled={busy}
       onClick={() => pickDeckCard(section, index)} />
   ));
 
@@ -234,7 +265,7 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
           <div className={styles.badges}>
             <span className={styles.badge} data-tone="accent">Game {series.gameNumber + 1} of {series.bestOf}</span>
             {seconds != null ? <span className={styles.badge} data-tone="gold" role="timer">Starts in {formatCountdown(seconds)}</span> : null}
-            {series.sideReady[myIndex] || unreadied
+            {imReady || unreadied
               ? <span className={styles.badge} data-tone={imReady ? "accent" : undefined}>{imReady ? "You are ready" : "Not ready"}</span>
               : null}
             <span className={styles.badge}>Main {counts.main}</span>
@@ -252,7 +283,7 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
             <Group title="Side" count={draft.side.length}>
               {draft.side.map((code, index) => (
                 <Tile key={`side-${index}`} code={code} meta={meta.get(code)} selected={inIndex === index}
-                  changed={base.side[index] !== code} onClick={() => pickSideCard(index)} />
+                  changed={base.side[index] !== code} disabled={busy} onClick={() => pickSideCard(index)} />
               ))}
             </Group>
           </div>

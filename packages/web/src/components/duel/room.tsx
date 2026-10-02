@@ -1039,7 +1039,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       ) : null}
       {sidePanelOpen && series && myIndex != null && data.mySide ? (
         <SideDeckPanel slug={slug} series={series} myIndex={myIndex} side={data.mySide}
-          onClose={() => setSideOpen(false)} onChanged={() => void refreshRoom()} onNavigate={goToGame} />
+          onClose={() => setSideOpen(false)} onChanged={refreshRoom} onNavigate={goToGame} />
       ) : null}
     </div>
   );
