@@ -93,7 +93,7 @@ export function ThemeMenu({
             disabled={busy}
             title="Detach from this draft (keeps the cube in your library)"
             onClick={() => {
-              close(false);
+              close(true);
               onDetach();
             }}
           >
@@ -107,7 +107,7 @@ export function ThemeMenu({
             disabled={busy}
             title="Delete cube from your library for good"
             onClick={() => {
-              close(false);
+              close(true);
               onDelete();
             }}
           >

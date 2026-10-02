@@ -181,6 +181,17 @@ describe("DraftManageView — header, players, start", () => {
     await userEvent.click(screen.getByRole("button", { name: "Yes, cancel" }));
     expect(onCancel).toHaveBeenCalledOnce();
   });
+
+  it("backs out of the cancel confirm with Escape and refocuses Cancel draft", async () => {
+    const onCancel = vi.fn();
+    render(<DraftManageView {...baseProps} onCancel={onCancel} />);
+    await userEvent.click(screen.getByRole("button", { name: "Cancel draft" }));
+    expect(screen.getByRole("button", { name: "Go back" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByText("Cancel this draft?")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel draft" })).toHaveFocus();
+    expect(onCancel).not.toHaveBeenCalled();
+  });
 });
 
 describe("DraftManageView — theme draft", () => {
@@ -238,6 +249,15 @@ describe("DraftManageView — theme draft", () => {
     expect(screen.queryByText("Yours")).not.toBeInTheDocument();
   });
 
+  it("drops the claimed line once the host detaches that theme", async () => {
+    stubFetch((url) => (url.endsWith("/claim-cube") ? Response.json({ ok: true, cubeId: 7 }) : undefined));
+    const { rerender } = render(<DraftManageView {...baseProps} slug="s" draft={themeDraft()} isCreator={false} isParticipant />);
+    await userEvent.click(screen.getByRole("button", { name: "Claim Despia" }));
+    expect(await screen.findByText("You claimed Despia. Claim another to switch.")).toBeInTheDocument();
+    rerender(<DraftManageView {...baseProps} slug="s" draft={{ ...themeDraft(), allowedCubes: [cubes[1]] }} isCreator={false} isParticipant />);
+    expect(screen.queryByText(/You claimed Despia/)).not.toBeInTheDocument();
+  });
+
   it("shows no Claim buttons for random themes", async () => {
     stubFetch();
     render(<DraftManageView {...baseProps} slug="s" draft={themeDraft({ themeSelection: "random" })} isCreator={false} isParticipant />);
@@ -278,6 +298,18 @@ describe("DraftManageView — theme draft", () => {
     await userEvent.click(screen.getByRole("menuitem", { name: "Detach" }));
     await waitFor(() => expect(detach).toHaveBeenCalledWith({ cubeId: 7 }));
     expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("keeps focus on the menu button when the host backs out of Delete", async () => {
+    stubFetch();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<DraftManageView {...baseProps} slug="s" draft={themeDraft()} isCreator isParticipant />);
+    const more = screen.getByRole("button", { name: "More for Despia" });
+    await userEvent.click(more);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
+    expect(confirm).toHaveBeenCalled();
+    expect(more).toHaveFocus();
+    confirm.mockRestore();
   });
 
   it("disables Start until each player has a theme of their own", () => {

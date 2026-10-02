@@ -18,6 +18,15 @@ interface PoolPreviewProps {
 /** Summary-rail preview of the resolved pool: counts by kind, six cards, and the full pool in a side sheet. */
 export function PoolPreview({ cards, unknownIds, loading }: PoolPreviewProps) {
   const [open, setOpen] = React.useState(false);
+  // The shared Sheet only captures and sets focus when it mounts already open, so it mounts
+  // with the first open and stays until its close animation ends (it restores focus then).
+  const [sheetMounted, setSheetMounted] = React.useState(false);
+  React.useEffect(() => {
+    if (open || !sheetMounted) return;
+    const timer = setTimeout(() => setSheetMounted(false), 350);
+    return () => clearTimeout(timer);
+  }, [open, sheetMounted]);
+  const close = React.useCallback(() => setOpen(false), []);
   const tally = React.useMemo(() => tallyPool(cards), [cards]);
   const thumbs = React.useMemo(() => cards.filter((c) => c.imageUrlSmall).slice(0, 6), [cards]);
 
@@ -27,10 +36,12 @@ export function PoolPreview({ cards, unknownIds, loading }: PoolPreviewProps) {
         <span>Pool preview</span>
         <small aria-live="polite">{loading ? "Resolving" : cards.length > 0 ? `${tally.total} cards` : ""}</small>
       </p>
-      {cards.length === 0 ? (
+      {cards.length === 0 && unknownIds.length === 0 ? (
         <p className={styles.pvEmpty}>{loading ? "Looking up the cards." : "Add sets or card IDs to preview the pool."}</p>
       ) : (
         <>
+          {cards.length > 0 && (
+            <>
           <p className={styles.tally}>
             <span data-k="monster">
               <b>{tally.monsters}</b>Monsters
@@ -50,14 +61,31 @@ export function PoolPreview({ cards, unknownIds, loading }: PoolPreviewProps) {
               </li>
             ))}
           </ul>
-          <button className="btn btn-quiet btn-sm btn-block" type="button" onClick={() => setOpen(true)}>
+            </>
+          )}
+          {unknownIds.length > 0 && (
+            <p className={styles.pvEmpty} role="status">
+              {unknownIds.length === 1 ? "1 card ID isn't" : `${unknownIds.length} card IDs aren't`} in the card list yet:{" "}
+              {unknownIds.slice(0, 6).join(", ")}
+              {unknownIds.length > 6 ? ` and ${unknownIds.length - 6} more` : ""}.
+            </p>
+          )}
+          <button
+            className="btn btn-quiet btn-sm btn-block"
+            type="button"
+            onClick={() => {
+              setOpen(true);
+              setSheetMounted(true);
+            }}
+          >
             <Eye className="ic sm" aria-hidden="true" />
-            See all {tally.total} cards
+            {cards.length > 0 ? `See all ${tally.total} cards` : "See the pool"}
           </button>
         </>
       )}
+      {sheetMounted && (
       <SheetPortal>
-        <Sheet open={open} onClose={() => setOpen(false)} title="Pool preview" className="md:w-[560px] md:max-w-full">
+        <Sheet open={open} onClose={close} title="Pool preview" className="md:w-[560px] md:max-w-full">
           <div className={styles.poolSheet}>
             <CardPoolPanel
               variant="sheet"
@@ -72,6 +100,7 @@ export function PoolPreview({ cards, unknownIds, loading }: PoolPreviewProps) {
           </div>
         </Sheet>
       </SheetPortal>
+      )}
     </div>
   );
 }

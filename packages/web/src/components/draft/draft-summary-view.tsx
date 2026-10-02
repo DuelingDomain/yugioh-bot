@@ -22,6 +22,7 @@ import { buildLevelsModel } from "./summary/levels";
 import { groupPool, kindTally, type PoolGroup } from "./summary/groups";
 import { formatDuration, formatEnded, formatStamp, plural } from "./summary/format";
 import styles from "./summary/summary.module.css";
+import { useInlineConfirm } from "./use-inline-confirm";
 
 interface DraftSummaryViewProps {
   draft: {
@@ -74,12 +75,14 @@ function PoolGroupView({
   group,
   onHover,
   onLeave,
+  onTap,
   failed,
   onFail,
 }: {
   group: PoolGroup;
   onHover: (card: DraftCardDetail, rect: DOMRect) => void;
   onLeave: () => void;
+  onTap: (card: DraftCardDetail, rect: DOMRect) => void;
   failed: Set<number>;
   onFail: (id: number) => void;
 }) {
@@ -97,6 +100,7 @@ function PoolGroupView({
             <button
               type="button"
               aria-label={card.name}
+              onClick={(e) => onTap(card, e.currentTarget.getBoundingClientRect())}
               onMouseEnter={(e) => onHover(card, e.currentTarget.getBoundingClientRect())}
               onMouseLeave={onLeave}
               onFocus={(e) => onHover(card, e.currentTarget.getBoundingClientRect())}
@@ -140,9 +144,13 @@ export function DraftSummaryView({
 }: DraftSummaryViewProps) {
   const [exporting, setExporting] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
-  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const deleteConfirm = useInlineConfirm(deleting);
+  const confirmOpen = deleteConfirm.open;
+  const setConfirmOpen = deleteConfirm.setOpen;
   const [error, setError] = React.useState<string | null>(null);
   const [hoveredCard, setHoveredCard] = React.useState<DraftCardDetail | null>(null);
+  // A tapped card stays open until closed, so phones (no hover) can read it too.
+  const [tapped, setTapped] = React.useState<{ card: DraftCardDetail; position: { left: number; top: number } } | null>(null);
   const [popupPosition, setPopupPosition] = React.useState<{ left: number; top: number } | null>(null);
   const [imageErrors, setImageErrors] = React.useState<Set<number>>(new Set());
   const [tournamentFormat, setTournamentFormat] = React.useState<"round_robin" | "single_elim">("round_robin");
@@ -171,7 +179,7 @@ export function DraftSummaryView({
     }
   }, [poolOpen, fullPool, slug]);
 
-  const handleCardHover = React.useCallback((card: DraftCardDetail, rect: DOMRect) => {
+  const popupAt = React.useCallback((rect: DOMRect) => {
     const POPUP_WIDTH = 288;
     const POPUP_HEIGHT = 560;
     const MARGIN = 16;
@@ -181,13 +189,22 @@ export function DraftSummaryView({
     const leftLeft = rect.left - POPUP_WIDTH - MARGIN;
     const left =
       rightLeft + POPUP_WIDTH + MARGIN <= vw ? rightLeft : Math.max(MARGIN, leftLeft);
-    const top = Math.min(
-      vh - POPUP_HEIGHT - MARGIN,
-      Math.max(MARGIN, rect.top + rect.height / 2 - POPUP_HEIGHT / 2),
+    // Short screens: pin to the top; the popup scrolls inside its own max height.
+    const top = Math.max(
+      MARGIN,
+      Math.min(vh - POPUP_HEIGHT - MARGIN, rect.top + rect.height / 2 - POPUP_HEIGHT / 2),
     );
-    setHoveredCard(card);
-    setPopupPosition({ left, top });
+    return { left, top };
   }, []);
+
+  const handleCardHover = React.useCallback((card: DraftCardDetail, rect: DOMRect) => {
+    setHoveredCard(card);
+    setPopupPosition(popupAt(rect));
+  }, [popupAt]);
+
+  const handleCardTap = React.useCallback((card: DraftCardDetail, rect: DOMRect) => {
+    setTapped({ card, position: popupAt(rect) });
+  }, [popupAt]);
 
   const handleCardLeave = React.useCallback(() => {
     setHoveredCard(null);
@@ -202,6 +219,8 @@ export function DraftSummaryView({
   const isTheme = draft.config.mode === "theme";
   const participantPickCount = draft.participantPickCount ?? 0;
   const canExportYdk = isCompleted && isParticipant && participantPickCount >= 40;
+  // The export writes the first 40 picks as the main deck and nothing else.
+  const ydkCards = participantPickCount > 40 ? "your first 40 picks" : "your picks";
   const canBuildDeck = isCompleted && isParticipant && participantPickCount > 0;
   const hasDeck = draft.myDeckId != null;
 
@@ -386,8 +405,8 @@ export function DraftSummaryView({
                 <p className="small">
                   {canExportYdk
                     ? hasDeck
-                      ? `Keep tuning it, or export the ${participantPickCount} cards.`
-                      : "Build a deck from them on the web, or take them to another sim as a YDK file."
+                      ? `Keep tuning it, or export ${ydkCards} as a YDK file.`
+                      : `Build a deck from them on the web, or take ${ydkCards === "your picks" ? "them" : ydkCards} to another sim as a YDK file.`
                     : hasDeck
                       ? `Export needs at least 40 picks. You made ${participantPickCount}.`
                       : `Export needs at least 40 picks. You made ${participantPickCount}, so build your deck here instead.`}
@@ -412,7 +431,7 @@ export function DraftSummaryView({
             <section aria-labelledby="df-pool-t">
               <div className="sec-h">
                 <h2 className="sec-t" id="df-pool-t">Your pool</h2>
-                <span className="sec-aux">{plural(pool.length, "card")} · hover or focus a card to read it</span>
+                <span className="sec-aux">{plural(pool.length, "card")} · tap a card to read it</span>
               </div>
               <div className={styles.poolHead}>
                 <p className={styles.tally}>
@@ -458,17 +477,30 @@ export function DraftSummaryView({
                   group={group}
                   onHover={handleCardHover}
                   onLeave={handleCardLeave}
+                  onTap={handleCardTap}
                   failed={imageErrors}
                   onFail={markFailed}
                 />
               ))}
-              {hoveredCard && popupPosition && (
+              {hoveredCard && popupPosition && !tapped && (
                 <SheetPortal>
                   <CardHoverPopup
                     card={hoveredCard}
                     position={popupPosition}
                     imageError={imageErrors.has(hoveredCard.id)}
                     onImageError={() => markFailed(hoveredCard.id)}
+                  />
+                </SheetPortal>
+              )}
+              {tapped && (
+                <SheetPortal>
+                  <CardHoverPopup
+                    card={tapped.card}
+                    position={tapped.position}
+                    imageError={imageErrors.has(tapped.card.id)}
+                    onImageError={() => markFailed(tapped.card.id)}
+                    dismissible
+                    onDismiss={() => setTapped(null)}
                   />
                 </SheetPortal>
               )}
@@ -612,7 +644,7 @@ export function DraftSummaryView({
 
           <SheetPanel title="Setup" bodyClassName={styles.flush}>
             {setupRows.length > 0 && (
-              <dl className="rows">
+              <dl className={`rows ${styles.rowsPad}`}>
                 {setupRows.map(([k, v]) => (
                   <div key={k}>
                     <dt>{k}</dt>
@@ -636,6 +668,7 @@ export function DraftSummaryView({
           {isCreator && (
             <DangerZone title="Remove">
               {confirmOpen ? (
+                <div onKeyDown={deleteConfirm.onKeyDown}>
                 <ConfirmPanel
                   title={`Delete ${draft.name}?`}
                   confirmLabel="Yes, delete"
@@ -650,6 +683,7 @@ export function DraftSummaryView({
                       : "Every pick is removed. This can't be undone."}
                   </p>
                 </ConfirmPanel>
+                </div>
               ) : (
                 <DangerRow
                   title="Delete draft"
@@ -659,7 +693,7 @@ export function DraftSummaryView({
                       : "Removes it and every pick."
                   }
                   action={
-                    <button type="button" className="btn btn-danger btn-sm" onClick={() => setConfirmOpen(true)}>
+                    <button ref={deleteConfirm.triggerRef} type="button" className="btn btn-danger btn-sm" onClick={() => setConfirmOpen(true)}>
                       <Trash2 className="ic sm" aria-hidden="true" />
                       Delete
                     </button>

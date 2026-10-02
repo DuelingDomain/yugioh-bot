@@ -28,6 +28,7 @@ import {
   packsOf,
 } from "./lobby/lobby-model";
 import styles from "./lobby/lobby.module.css";
+import { useInlineConfirm } from "./use-inline-confirm";
 
 interface DraftManageViewProps {
   draft: {
@@ -111,7 +112,9 @@ export function DraftManageView({
   const [cancelling, setCancelling] = React.useState(false);
   const [joining, setJoining] = React.useState(false);
   const [addingBot, setAddingBot] = React.useState(false);
-  const [showCancelConfirm, setShowCancelConfirm] = React.useState(false);
+  const cancelConfirm = useInlineConfirm(cancelling);
+  const showCancelConfirm = cancelConfirm.open;
+  const setShowCancelConfirm = cancelConfirm.setOpen;
   const [error, setError] = React.useState<string | null>(null);
 
   // Theme drafts have no single shared card pool — each player drafts from their
@@ -532,8 +535,8 @@ export function DraftManageView({
             aside={
               isCreator && !isTheme && !isEditingConfig ? (
                 <button type="button" className="edit-cap" onClick={handleStartEditConfig}>Edit setup</button>
-              ) : isTheme ? (
-                "set when the draft was made"
+              ) : isCreator && isTheme ? (
+                "can't be changed here"
               ) : undefined
             }
           >
@@ -553,6 +556,7 @@ export function DraftManageView({
           {isCreator && (
             <DangerZone title="Ending early">
               {showCancelConfirm ? (
+                <div onKeyDown={cancelConfirm.onKeyDown}>
                 <ConfirmPanel
                   title="Cancel this draft?"
                   confirmLabel="Yes, cancel"
@@ -561,14 +565,15 @@ export function DraftManageView({
                   onCancel={() => setShowCancelConfirm(false)}
                   onConfirm={handleCancel}
                 >
-                  <p className="small">It is removed for the {plural(playerCount, "player")} who joined. Nothing has been dealt yet.</p>
+                  <p className="small">It ends for the {plural(playerCount, "player")} who joined. Nothing has been dealt yet.</p>
                 </ConfirmPanel>
+                </div>
               ) : (
                 <DangerRow
                   title="Cancel draft"
-                  description={`Removes it for the ${plural(playerCount, "player")} who joined. Nothing has been dealt yet.`}
+                  description={`Ends it for the ${plural(playerCount, "player")} who joined. Nothing has been dealt yet.`}
                   action={
-                    <button type="button" className="btn btn-danger btn-sm" aria-label="Cancel draft" onClick={() => setShowCancelConfirm(true)}>
+                    <button ref={cancelConfirm.triggerRef} type="button" className="btn btn-danger btn-sm" aria-label="Cancel draft" onClick={() => setShowCancelConfirm(true)}>
                       <X className="ic sm" aria-hidden="true" />Cancel
                     </button>
                   }

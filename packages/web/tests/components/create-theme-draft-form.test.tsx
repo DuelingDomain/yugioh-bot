@@ -45,6 +45,27 @@ describe("CreateThemeDraftForm", () => {
     expect(screen.getByLabelText(/draft name/i)).toHaveAttribute("aria-invalid", "true");
   });
 
+  it("blocks a pack size below 2 with the browser's own check, so no empty packs reach the server", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ channels: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateThemeDraftForm />);
+    fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Theme Night" } });
+    const pack = screen.getByLabelText(/choices per pick/i) as HTMLInputElement;
+    fireEvent.change(pack, { target: { value: "0" } });
+    expect(pack.checkValidity()).toBe(false);
+    expect(pack.closest("form")?.noValidate).toBe(false);
+  });
+
+  it("tells players they claim a theme only when players pick", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ channels: [] })));
+    render(<CreateThemeDraftForm />);
+    const steps = screen.getByRole("list", { name: "What happens next" });
+    expect(steps).toHaveTextContent("Players join and claim a theme.");
+    fireEvent.click(screen.getByRole("radio", { name: /random/i }));
+    expect(steps).not.toHaveTextContent("claim");
+    expect(steps).toHaveTextContent("Everyone gets a random theme");
+  });
+
   it.each(["player_pick", "random"])("creates a draft using %s", async (themeSelection) => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === "/api/discord/channels") return Response.json({ channels: [] });

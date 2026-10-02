@@ -216,7 +216,7 @@ export function CreateDraftForm() {
   const unnamed = !name.trim();
 
   return (
-    <form className="mk" onSubmit={handleSubmit} noValidate>
+    <form className="mk" onSubmit={handleSubmit}>
       <div className="min-w-0">
         {error && (
           <div className={`banner banner-bad ${styles.banner}`} role="alert">

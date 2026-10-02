@@ -47,7 +47,10 @@ export function CubeLobbyPanel({
   children,
 }: CubeLobbyPanelProps) {
   const [claiming, setClaiming] = React.useState<number | null>(null);
-  const [claimedName, setClaimedName] = React.useState<string | null>(null);
+  // Only this tab's own claim is known (the page never gets claims back). A theme the host
+  // removes takes its claim with it, so the line goes once the theme leaves the list.
+  const [claimedId, setClaimedId] = React.useState<number | null>(null);
+  const claimedName = allowedCubes.find((c) => c.id === claimedId)?.name ?? null;
   const [error, setError] = React.useState<string | null>(null);
   const [preflight, setPreflight] = React.useState<{ errors: string[]; warnings: string[] } | null>(null);
   const headingId = React.useId();
@@ -67,7 +70,7 @@ export function CubeLobbyPanel({
     };
   }, [slug, cubesKey]);
 
-  const claim = async (cubeId: number, name: string) => {
+  const claim = async (cubeId: number) => {
     setClaiming(cubeId);
     setError(null);
     try {
@@ -78,11 +81,11 @@ export function CubeLobbyPanel({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setClaimedName(null);
+        setClaimedId(null);
         setError(data.error ?? "Could not claim cube");
         return;
       }
-      setClaimedName(name);
+      setClaimedId(cubeId);
       onClaimed?.();
     } finally {
       setClaiming(null);
@@ -159,7 +162,7 @@ export function CubeLobbyPanel({
                       type="button"
                       className="btn btn-secondary btn-sm"
                       aria-label={`Claim ${cube.name}`}
-                      onClick={() => void claim(cube.id, cube.name)}
+                      onClick={() => void claim(cube.id)}
                       disabled={claiming !== null}
                     >
                       {claiming === cube.id ? "Claiming…" : "Claim"}
