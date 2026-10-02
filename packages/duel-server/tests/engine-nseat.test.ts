@@ -457,6 +457,7 @@ describe("journaled eliminations", () => {
       writeFileSync(file, JSON.stringify({
         format: "yugidraft-duel-journal/1", mode: "normal", tableFormat: "ffa3", masterRule: 5, bundleVersion: null,
         seed: ["11", "22", "33", "44"], settings: null,
+        setup: { firstTurnDraw: false },
         decks: [0, 1, 2].map(() => ({ main: vanillaMain(), extra: [], side: [] })),
         commands: [{ seq: 1, seat: 0, command: { promptId: "eliminate:0", revision: 0, answer: {} } }],
       }));
