@@ -7,11 +7,10 @@
 # SQLite file (read-only). Staging uses a unique sibling directory; cutover
 # keeps the previous bundle until the new tree validates.
 #
-# The multi-duelist core (ocgcore.multi.wasm, for Tag and 3 and 4 player tables) is optional in the bundle and is not
-# part of manifest.json. When the source holds it, it is checked against ocgcore.multi.sha256 and installed on its own
-# with one atomic rename per file, because an identical manifest.json skips the bundle install. The standard and domain
-# files, and so every 1v1 duel, are not touched by it. A changed multi core is refused while a Tag or free-for-all duel
-# is active. Domain at 3 and 4 seats has its own core (ocgcore.multi-domain.wasm). This script never installs it.
+# The Standard and Domain multi cores (ocgcore.multi.wasm and ocgcore.multi-domain.wasm, for Tag and
+# 3/4-seat tables) are optional in the bundle and independent of manifest.json. Each is checked against
+# its .sha256 sidecar and installed with atomic renames even when manifest.json is identical. A changed
+# multi core is refused while a Tag or free-for-all duel is active. All checks precede any writes.
 #
 # DUEL_PREFLIGHT=1 runs only the checks (bundle complete, multi core sidecar, active duels) and installs nothing.
 # The production deploy runs it before it resets the checkout and builds images, so a refusal changes nothing.
@@ -21,6 +20,7 @@ src="${DUEL_BUNDLE_SRC:-}"
 dst="${DUEL_DATA_DIR:-}"
 stage=
 backup=
+multi_cores="ocgcore.multi ocgcore.multi-domain"
 
 if [ -z "$dst" ]; then
   echo "DUEL_DATA_DIR is required" >&2
@@ -147,14 +147,15 @@ else:
 PY
 }
 
-# The multi core of a bundle directory is complete: the wasm and its ocgcore.multi.sha256 agree.
+# A multi core is complete: its wasm and checksum sidecar agree.
 multi_core_ok() {
   root="$1"
-  [ -s "$root/ocgcore.multi.wasm" ] || return 1
-  [ -f "$root/ocgcore.multi.sha256" ] || return 1
-  want=$(awk '{ print $1; exit }' "$root/ocgcore.multi.sha256")
+  core="$2"
+  [ -s "$root/$core.wasm" ] || return 1
+  [ -f "$root/$core.sha256" ] || return 1
+  want=$(awk '{ print $1; exit }' "$root/$core.sha256")
   [ -n "$want" ] || return 1
-  [ "$(sha256sum "$root/ocgcore.multi.wasm" | cut -d' ' -f1)" = "$want" ]
+  [ "$(sha256sum "$root/$core.wasm" | cut -d' ' -f1)" = "$want" ]
 }
 
 # Installs one file of the multi core with an atomic rename. Does nothing when the file is already identical.
@@ -196,8 +197,13 @@ refuse_when_active() {
 
 # True when the multi core of the source differs from the installed one (and one is installed).
 multi_core_differs() {
-  [ -n "$src" ] && [ -f "$src/ocgcore.multi.wasm" ] && [ -f "$dst/ocgcore.multi.wasm" ] \
-    && ! cmp -s "$src/ocgcore.multi.wasm" "$dst/ocgcore.multi.wasm"
+  for core in $multi_cores; do
+    if [ -n "$src" ] && [ -f "$src/$core.wasm" ] && [ -f "$dst/$core.wasm" ] \
+      && ! cmp -s "$src/$core.wasm" "$dst/$core.wasm"; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 if [ -n "$src" ]; then
@@ -210,9 +216,14 @@ if [ -n "$src" ]; then
     exit 1
   fi
   # Checked before anything is installed: a damaged multi core must not leave a half-installed deploy.
-  if [ -e "$src/ocgcore.multi.wasm" ] && ! multi_core_ok "$src"; then
-    echo "bundle source has a bad multi core: ocgcore.multi.wasm is empty, or ocgcore.multi.sha256 is missing or does not match: $src" >&2
-    exit 1
+  for core in $multi_cores; do
+    if [ -e "$src/$core.wasm" ] && ! multi_core_ok "$src" "$core"; then
+      echo "bundle source has a bad multi core: $core.wasm is empty, or $core.sha256 is missing or does not match: $src" >&2
+      exit 1
+    fi
+  done
+  if multi_core_differs; then
+    refuse_when_active multi-seat "the multi cores in $dst" "Tag or free-for-all duel(s)" "Drain those tables first."
   fi
   # DUEL_PREFLIGHT=1: only the checks. The deploy runs this before it changes anything on the VM, so a refusal leaves
   # the old containers, the old checkout and the old images as they were.
@@ -266,18 +277,17 @@ if ! required "$dst"; then
   exit 1
 fi
 
-# The multi core, on its own. It runs also when the bundle above was current (same manifest.json).
-if [ -n "$src" ] && [ -f "$src/ocgcore.multi.wasm" ]; then
-  if multi_core_differs; then
-    refuse_when_active multi-seat "the multi core in $dst" "Tag or free-for-all duel(s)" "Drain those tables first."
+# Both multi cores, independently of the base bundle manifest.
+for core in $multi_cores; do
+  if [ -n "$src" ] && [ -f "$src/$core.wasm" ]; then
+    install_multi_file "$core.wasm"
+    install_multi_file "$core.sha256"
+    install_multi_file "$core.SOURCE"
+    if ! multi_core_ok "$dst" "$core"; then
+      echo "the installed multi core $core in $dst does not match its checksum" >&2
+      exit 1
+    fi
   fi
-  install_multi_file ocgcore.multi.wasm
-  install_multi_file ocgcore.multi.sha256
-  install_multi_file ocgcore.multi.SOURCE
-  if ! multi_core_ok "$dst"; then
-    echo "the installed multi core in $dst does not match ocgcore.multi.sha256" >&2
-    exit 1
-  fi
-fi
+done
 
 trap - EXIT INT TERM HUP
