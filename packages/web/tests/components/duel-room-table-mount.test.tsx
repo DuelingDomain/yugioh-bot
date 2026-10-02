@@ -1,0 +1,123 @@
+// @vitest-environment jsdom
+import React from "react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DuelRoom } from "@yugidraft/shared/duels";
+
+const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("next/font/google", () => {
+  const font = () => ({ variable: "font-var", className: "font-class" });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace }), useSearchParams: () => new URLSearchParams(window.location.search) }));
+vi.mock("swr", () => ({ default: () => ({ data: state.room, error: state.error, isLoading: !state.room, mutate: state.mutate }) }));
+vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ connected: true, syncing: state.syncing, recovering: state.recovering, presence: null, resync: state.resync }) }));
+vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
+vi.mock("@/components/duel/prompt-reveal", async (original) => ({ ...await original<object>(), usePromptReveal: () => state.revealed, usePromptAnswerable: () => true }));
+vi.mock("@/components/duel/api", async (original) => ({ ...await original<object>(), sendDuelAction: state.send, surrenderDuel: state.surrender }));
+import { DuelRoomView } from "@/components/duel/room";
+import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
+import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
+import { TAG_FIXTURES } from "@/components/duel/tag/fixtures";
+
+beforeAll(() => {
+  class RO { constructor(private cb: () => void) {} observe() { this.cb(); } disconnect() {} }
+  vi.stubGlobal("ResizeObserver", RO);
+  HTMLElement.prototype.getAnimations = () => [];
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {} }));
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1100 });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 860 });
+});
+beforeEach(() => {
+  vi.clearAllMocks();
+  state.error = undefined; state.syncing = false; state.recovering = false; state.revealed = true;
+  window.history.replaceState(null, "", "/duels/live");
+});
+afterEach(cleanup);
+function room(source: DuelRoom) {
+  state.room = { ...source, session: { ...source.session, slug: "live" }, engine: { ...source.engine!, events: [] } };
+}
+function mount(windowed = true) { return render(<DuelRoomView slug="live" windowed={windowed} />); }
+
+describe("live room table mount", () => {
+  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("mounts $format with every engine seat", (fixtures) => {
+    room(fixtures.states.main.room);
+    const { container } = mount();
+    expect(container.querySelector("[data-table-shell]")).not.toBeNull();
+    expect(container.querySelector("[data-table-stage]")).toHaveAttribute("data-format", fixtures.format);
+    expect(container.querySelectorAll("[data-lp-seat]")).toHaveLength(state.room!.engine!.seats.length);
+    expect(screen.queryByTestId("multi-seat-stage")).toBeNull();
+    expect(screen.getByRole("button", { name: "Surrender" })).toBeTruthy();
+  });
+
+  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("keeps $format on MultiSeatStage with stage=legacy", (fixtures) => {
+    window.history.replaceState(null, "", "/duels/live?stage=legacy");
+    room(fixtures.states.main.room);
+    const { container } = mount();
+    expect(screen.getByTestId("multi-seat-stage")).toBeTruthy();
+    expect(container.querySelector("[data-table-shell]")).toBeNull();
+  });
+
+  it("keeps tag on MultiSeatStage", () => {
+    room(TAG_FIXTURES.states.main.room);
+    const { container } = mount();
+    expect(screen.getByTestId("multi-seat-stage")).toHaveAttribute("data-format", "tag");
+    expect(container.querySelector("[data-table-shell]")).toBeNull();
+  });
+
+  it("keeps the two-seat DuelField path", () => {
+    const source = FFA3_FIXTURES.states.main.room;
+    room({ ...source, session: { ...source.session, format: "1v1", seats: source.session.seats.slice(0, 2) }, engine: { ...source.engine!, format: "1v1", seats: source.engine!.seats.slice(0, 2) } });
+    const { container } = mount();
+    expect(container.querySelector("[data-table-shell]")).toBeNull();
+    expect(screen.queryByTestId("multi-seat-stage")).toBeNull();
+    expect(container.querySelector("[data-hand-seat='0']")).not.toBeNull();
+  });
+
+  it("keeps the own-window gate in the room", () => {
+    room(FFA3_FIXTURES.states.main.room);
+    const { container } = mount(false);
+    expect(screen.getByTestId("duel-window-gate")).toBeTruthy();
+    expect(container.querySelector("[data-table-shell]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open here instead" }));
+    expect(container.querySelector("[data-table-shell]")).not.toBeNull();
+  });
+
+  it("routes a table card action once through the room's prompt and revision", async () => {
+    room(FFA3_FIXTURES.states.main.room);
+    const { container } = mount();
+    const card = container.querySelector("[data-hand-seat='0'] [data-zones][data-legal='true']")!;
+    fireEvent.click(card.querySelector("button") ?? card);
+    const item = screen.getAllByRole("menuitem")[0];
+    await act(async () => { fireEvent.click(item); });
+    expect(state.send).toHaveBeenCalledTimes(1);
+    expect(state.send).toHaveBeenCalledWith("live", { promptId: state.room!.engine!.prompt!.id, revision: state.room!.engine!.revision, answer: { choice: expect.any(String) } });
+  });
+
+  it.each(["error", "syncing", "recovering"] as const)("blocks actions during %s", (gate) => {
+    room(FFA3_FIXTURES.states.main.room);
+    if (gate === "error") state.error = new Error("offline"); else state[gate] = true;
+    mount();
+    expect(screen.queryByRole("button", { name: "Battle Phase" })).toBeNull();
+    expect(state.send).not.toHaveBeenCalled();
+  });
+
+  it("passes surrender confirmation and exit actions to the shell", async () => {
+    room(FFA3_FIXTURES.states.main.room);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
+    const dialog = screen.getByRole("dialog", { name: "Surrender" });
+    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Surrender" })); });
+    expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
+  });
+
+  it("restores ordered placings from the live log on a completed room", () => {
+    room(FFA3_FIXTURES.states.result.room);
+    state.room!.engine!.log = [{ id: 10, text: "Player 3 is eliminated (surrender)" }, { id: 20, text: "Player 2 is eliminated (LP reached 0)" }];
+    mount(false);
+    expect(screen.getByTestId("duel-result").querySelectorAll("[data-place]")).toHaveLength(3);
+    expect([...screen.getByTestId("duel-result").querySelectorAll("[data-place]")].map((node) => node.textContent)).toEqual(["1st", "2nd", "3rd"]);
+    fireEvent.click(screen.getByTestId("duel-result").querySelector("button[data-kind=primary]")!);
+    expect(state.replace).toHaveBeenCalledWith("/duels");
+  });
+});

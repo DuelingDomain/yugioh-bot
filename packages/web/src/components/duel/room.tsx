@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
@@ -30,6 +30,9 @@ import {
 import { RoomLobby } from "./room-lobby";
 import { ReportButton } from "./report-button";
 import { DeckMasterRail, DuelField } from "./field";
+import { TableShell } from "./table/table-shell";
+import { useLiveTableController } from "./table/use-live-table-controller";
+import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { MultiSeatStage } from "./multi-seat-stage";
 import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, opponentPickOptions, seatNamer, type SeatPick } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
@@ -88,6 +91,7 @@ type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLEl
 
 export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: string; inviteCode?: string; windowed?: boolean }) {
   const router = useRouter();
+  const legacyStage = useSearchParams().get("stage") === "legacy";
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   const { data, error, isLoading, mutate } = useSWR(
     slug ? duelRoomKey(slug) : null,
@@ -127,6 +131,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   }, [roomStale, refreshRoom]);
   const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom);
   const catchingUp = realtime.syncing || realtime.recovering;
+  const liveFormat = engineFormat(data?.engine);
+  const liveTable = isMultiSeat(data?.engine) && (liveFormat === "ffa3" || liveFormat === "ffa4") && !legacyStage;
+  const playerName = seatNamer(data?.session.seats ?? []);
   useDuelLeaveGuard({
     slug,
     active: data?.session.status === "active" && !data.engine?.result,
@@ -253,7 +260,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
 
   // Hovering or focusing a legal target on the board aims the arrow at it.
   useEffect(() => {
-    if (!attackTargetActive) {
+    if (liveTable || !attackTargetActive) {
       setAimHoverKey(null);
       return;
     }
@@ -279,7 +286,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       document.removeEventListener("focusin", enter);
       document.removeEventListener("focusout", leave);
     };
-  }, [attackTargetActive, attackTargets]);
+  }, [liveTable, attackTargetActive, attackTargets]);
 
   useEffect(() => {
     setInspect(null);
@@ -426,6 +433,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   }
 
   function onFieldActivate(keys: string[], card: DuelCard | null, anchor: HTMLElement, preserveInspector = false) {
+    // TableShell owns card menus and field picks. Its adapter still routes every answer through onSubmitAnswer.
+    if (liveTable) return;
     setHover(null);
     if (card && !preserveInspector) showInspector({ type: "card", card });
     if (busy || error || catchingUp) return;
@@ -463,6 +472,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   function onInspectorActivate(card: DuelCard, anchor: HTMLElement) {
     onFieldActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor, true);
   }
+
+  const liveController = useLiveTableController({
+    room: data, nameOf: playerName, prompt, canAct: promptMine, busy, error, catchingUp, revealed,
+    draft, legalKeys, selectedKeys, aim: null, reducedMotion: preferences.reducedMotion,
+    onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onInspect: showInspector,
+  });
 
   if (isLoading && !data) return <div className="p-6 text-sm text-text-secondary">Loading table…</div>;
   if (error && !data) {
@@ -562,11 +577,46 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       </div>
     );
   }
+  if (liveTable && liveController) {
+    return <TableShell key={slug} controller={liveController} boardRef={boardRef}
+      fxActive={!error && !realtime.recovering} busy={busy || Boolean(error) || catchingUp}
+      initialOutOrder={eliminationOrder(liveController.engine)}
+      connection={{ ...realtime, stale: roomStale, error: Boolean(error) }}
+      actions={{ onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame,
+        onOpenSide: () => setSideOpen(true) }}
+      headerTools={<>
+        <ReportButton slug={slug} />
+        {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error)}
+          onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
+      </>}
+      settingsTools={canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
+        onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
+      notices={<>
+        {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
+          <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
+        {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
+        {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
+      </>}
+      modals={<>
+        <Modal open={confirmSurrender && !hasResult} onClose={() => setConfirmSurrender(false)} title="Surrender">
+          <p className="text-sm text-text-secondary">This ends the duel. Confirm surrender?</p>
+          <div className="mt-4 flex gap-2">
+            <Button type="button" variant="danger" loading={busy} onClick={() => {
+              setConfirmSurrender(false);
+              void run(() => surrenderDuel(slug));
+            }}>Surrender</Button>
+            <Button type="button" variant="ghost" onClick={() => setConfirmSurrender(false)}>Keep playing</Button>
+          </div>
+        </Modal>
+        {sidePanelOpen && series && myIndex != null && data.mySide ?
+          <SideDeckPanel slug={slug} series={series} myIndex={myIndex} side={data.mySide}
+            onClose={() => setSideOpen(false)} onChanged={() => void refreshRoom()} onNavigate={goToGame} /> : null}
+      </>} />;
+  }
   const connectionLabel = terminal ? "Finished" : realtime.syncing || roomStale ? "Catching up…" :
     error || realtime.recovering ? "Reconnecting" : realtime.connected ? "Live" : "Polling";
   const domain = data.session.mode === "domain";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
-  const playerName = seatNamer(data.session.seats);
   const spectator = data.mySeat == null;
   const battle = isBattlePhase(engine?.phase);
   // engine.battleStep is a round-4 contract field; read it defensively until every shared build carries it.

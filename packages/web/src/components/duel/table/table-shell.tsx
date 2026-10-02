@@ -1,5 +1,6 @@
 "use client";
 
+import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { useCallback, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { Circle, Diamond, Eye, Radio, Volume2, VolumeX } from "lucide-react";
@@ -42,7 +43,7 @@ import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
 import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
-import { attackLockAt, placeLabel, placings, seatStrip, toneBySeat, trackOutOrder } from "./seat-state";
+import { attackLockAt, placeLabel, placings, seatStrip, toneBySeat } from "./seat-state";
 import { TableSettings, type TableConnection } from "./table-settings";
 import { TablePhonePanes } from "./table-phone-panes";
 import { TableStage } from "./table-stage";
@@ -69,9 +70,8 @@ export interface TableShellProps {
   /** What the room does with the result screen and the series. A preview leaves them out. */
   actions?: TableShellActions;
   /**
-   * Who had left the duel before this shell mounted, as groups in the order they left (seats that left together share
-   * a group and a place). The engine sends no elimination event, so a shell that opens on a table with seats already out
-   * cannot rebuild the order: the room (or a fixture) gives it. Left out, all seats that are out at mount share one place.
+   * Losses before mount, earliest first. Engine groups and retained elimination logs update this history live.
+   * Seats whose older losses cannot be recovered share a place.
    */
   initialOutOrder?: readonly (readonly number[])[];
   /**
@@ -161,9 +161,9 @@ export function TableShell({
   const showResult = !hideResult && resultReady && hasResult;
 
   // Who left, in order (groups: seats that left in one update share a place): the placings of a table of 3 or 4 read it.
-  const [outOrder, setOutOrder] = useState<number[][]>(() => trackOutOrder(initialOutOrder ?? [], engine));
-  const nextOut = trackOutOrder(outOrder, engine);
-  if (nextOut !== outOrder) setOutOrder(nextOut);
+  const [outOrder, setOutOrder] = useState<number[][]>(() => eliminationOrder(engine, initialOutOrder));
+  const nextOut = eliminationOrder(engine, outOrder);
+  if (nextOut.length !== outOrder.length || nextOut.some((group, at) => group.length !== outOrder[at].length || group.some((seat, index) => seat !== outOrder[at][index]))) setOutOrder(nextOut);
   const standings = useMemo(() => placings(engine, outOrder), [engine, outOrder]);
 
   const tones = useMemo(() => toneBySeat(layout), [layout]);
