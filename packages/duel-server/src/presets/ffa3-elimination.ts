@@ -79,6 +79,7 @@ export const presets: Preset[] = [
     checklist: [
       "Pass to turn 4, then use Hinotama on seat 1.",
       survives ? "Seat 1 lives at 4500 LP: its Swords still prevents your Elf from attacking." : "Seat 1 is eliminated: attack seat 2 immediately in the same turn, with no intervening End Phase.",
+      "Check the Swords owner's field and independent LP displays before ending this turn.",
     ],
   })),
   {
