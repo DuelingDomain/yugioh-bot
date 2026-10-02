@@ -153,11 +153,21 @@ for (const table of ["1v1", "ffa3", "ffa4", "tag"] as const) {
       expect(() => validateDeck("domain", invalid, DATA, settings, { table })).toThrow(/does not use a Side Deck/);
     });
 
-    it("refuses duplicate Main and Extra cards, including alternate art and treated-as names", () => {
-      const extra = lightExtras()[0]!;
-      for (const invalid of [deck([POT_OF_GREED, POT_OF_GREED]), deck([DARK_MAGICIAN, 46986415]), deck([UMI, LEGENDARY_OCEAN]), deck([], [extra, extra])]) {
-        expect(inspectDeck("domain", invalid, DATA, settings, { table }).issues.some(issue => /Duplicate card/.test(issue.message))).toBe(true);
-      }
+    it.each([
+      ["Main code", "main", [POT_OF_GREED, POT_OF_GREED]],
+      ["Main alternate art", "main", [DARK_MAGICIAN, 46986415]],
+      ["Main treated-as names", "main", [UMI, LEGENDARY_OCEAN]],
+      ["Extra cards", "extra", []],
+    ] as const)("refuses duplicate %s with one exact issue and card reference", (_kind, section, entries) => {
+      const extra = section === "extra" ? lightExtras()[0]! : undefined;
+      const codes = extra === undefined ? [...entries] : [extra, extra];
+      const invalid = section === "main" ? deck(codes) : deck([], codes);
+      expect(inspectDeck("domain", invalid, DATA, settings, { table }).issues).toEqual([
+        {
+          message: expect.stringMatching(/^Duplicate card: /),
+          cards: [expect.objectContaining({ section, index: 1, code: codes[1] })],
+        },
+      ]);
     });
 
     it("uses no banlist by default and accepts a TCG forbidden Spell", () => {
