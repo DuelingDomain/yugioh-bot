@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
 import type { Scenario } from "../../support/dsl.js";
+import { expectPrompt, expectTurn, pass } from "../../support/dsl.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
@@ -20,7 +21,7 @@ import * as tagPartnerCost from "./tag-partner-cost.js";
 import { teamOneVariant } from "./team-variants.js";
 
 // Team 1 as the acting team, part 2 (gap list: team 1 was unproven as the acting team in most Tag scenarios). team-variants.test.ts lists 15 scenarios; these
-// are 104 more. Each one is a Tag scenario that team 0 plays alone (every step is of p0 or p2, one turn) and teamOneVariant swaps the teams, so
+// are 103 more plus the Ojama Trio case below. Each one is a Tag scenario that team 0 plays alone (every step is of p0 or p2, one turn) and teamOneVariant swaps the teams, so
 // p1 of team 1 acts in turn 2 and the picked or affected duelists are seats of team 0. Every variant keeps the assert of EVERY seat of its source. A Tag
 // scenario that needs a hand of exact cards, a turn of another seat or the draw of the first turn is not listed: it needs a hand-made team 1 scenario.
 // Same gate as the other live N-seat files: NSEAT_LIVE=1 and a multi core.
@@ -133,7 +134,6 @@ export const TEAM_ONE_MORE_IDS: string[] = [
   "tag-partner-cost-tribute-summon-with-an-own-monster-and-a-monster-of-the-partner",
   "tag-partner-cost-tribute-summon-with-only-a-monster-of-the-partner",
   "tag-partner-cost-xyz-material-with-a-monster-of-the-partner",
-  "w9-tag-opponent-pick-and-place-refuse-wrong-answers",
 ];
 
 const byId = new Map(POOL.map((s) => [s.id, s]));
@@ -142,6 +142,11 @@ const variants: Scenario[] = TEAM_ONE_MORE_IDS.map((id) => {
   if (!base) throw new Error(`Team 1 variant source scenario "${id}" does not exist`);
   return teamOneVariant(base);
 });
+// The Set Trap can answer before turn 2. Pass p1's windows in p0's Main and End Phases, then p1's Draw, Standby and Main Phases.
+const ojamaSwap = teamOneVariant(byId.get("w9-tag-opponent-pick-and-place-refuse-wrong-answers")!);
+const ojamaVariant: Scenario = { ...ojamaSwap, steps: [ojamaSwap.steps[0], ...Array.from({ length: 5 }, () => pass("p1")),
+  expectTurn("p1", 2), expectPrompt({ by: "p1", context: "action" }), ...ojamaSwap.steps.slice(1)] };
+variants.push(ojamaVariant);
 
 describeWithCores("live Tag scenarios played by team 1 (part 2)", liveNseat, () => {
   runScenarios("multiplayer/team-variants-more", variants);
@@ -179,5 +184,13 @@ describe("team 1 variant list (part 2)", () => {
         expect(step.op === "expectTurn" || (step.op === "phase" && (step as { to?: string }).to === "end"), `${id} ${step.op}`).toBe(false);
       }
     }
+  });
+
+  it("passes the Set Ojama Trio windows before the action prompt of turn 2 and includes p1's draw", () => {
+    expect(ojamaVariant.steps.slice(1, 6)).toEqual(Array.from({ length: 5 }, () => pass("p1")));
+    expect(ojamaVariant.steps[6]).toEqual(expectTurn("p1", 2));
+    expect(ojamaVariant.steps[8]).toMatchObject({ op: "activate", by: "p1" });
+    const end = [...ojamaVariant.steps].reverse().find((step) => step.op === "expectBoard");
+    expect(end).toMatchObject({ board: { p1: { hand: { count: 1 } } } });
   });
 });

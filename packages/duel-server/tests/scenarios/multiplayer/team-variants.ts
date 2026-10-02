@@ -34,6 +34,7 @@ function withDraw(steps: Step[], drawn: string): Step[] {
     if (step.op !== "expectBoard" || !step.board.p1) return step;
     const p1 = { ...step.board.p1 };
     if (Array.isArray(p1.hand)) p1.hand = [...p1.hand, drawn];
+    else if (p1.hand && typeof p1.hand.count === "number") p1.hand = { ...p1.hand, count: p1.hand.count + 1 };
     if (typeof p1.deckCount === "number") p1.deckCount -= 1;
     return { ...step, board: { ...step.board, p1 } };
   });
