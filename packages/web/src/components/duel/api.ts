@@ -26,6 +26,14 @@ export class DuelRequestError extends Error {
   }
 }
 
+/** The room left the lobby while a deck check was pending. Refresh the room; no report applies. */
+export class DeckValidationSkippedError extends Error {
+  constructor() {
+    super("Deck validation is no longer needed outside the lobby.");
+    this.name = "DeckValidationSkippedError";
+  }
+}
+
 function errorMessage(body: unknown, status: number): string {
   if (body && typeof body === "object" && "error" in body && typeof body.error === "string") {
     return body.error;
@@ -163,7 +171,7 @@ export async function validateDuelDeck(
   deck: DuelDeck,
   signal: AbortSignal,
 ): Promise<DuelDeckValidation> {
-  const report = await parseBody<DuelDeckValidation | { locked: true; error: string }>(
+  const report = await parseBody<DuelDeckValidation | { skipped: true }>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/deck/validate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -171,8 +179,8 @@ export async function validateDuelDeck(
       signal,
     }),
   );
-  if ("locked" in report && report.locked) throw new DuelRequestError(report.error, 409);
-  return report as DuelDeckValidation;
+  if ("skipped" in report) throw new DeckValidationSkippedError();
+  return report;
 }
 
 /** A seated player clicks Ready in a series game lobby (tournament games use the registered deck). */

@@ -1,14 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels, validateDuelDeck } from "../src/components/duel/api";
+import { DeckValidationSkippedError, duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels, validateDuelDeck } from "../src/components/duel/api";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("duel room authentication responses", () => {
-  it("turns an FFA locked-deck state into the existing room-refresh signal", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ locked: true, error: "Decks are locked after the duel starts" })));
-    await expect(validateDuelDeck("t", { main: [], extra: [], side: [] }, new AbortController().signal)).rejects.toMatchObject({
-      name: "DuelRequestError", status: 409, message: "Decks are locked after the duel starts",
-    });
+  it("reports a skipped lobby check as a typed room-refresh signal", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ skipped: true })));
+    await expect(validateDuelDeck("t", { main: [], extra: [], side: [] }, new AbortController().signal)).rejects.toBeInstanceOf(DeckValidationSkippedError);
   });
   it("rejects a followed login redirect instead of caching it as a room", async () => {
     const response = new Response("<html>Sign in</html>", { headers: { "content-type": "text/html" } });

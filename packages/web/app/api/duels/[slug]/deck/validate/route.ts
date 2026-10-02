@@ -9,9 +9,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!actor.ok) return actor.response;
   const { slug } = await params;
 
-  let format: string;
+  const inLobby = () => actor.duels.room(slug, actor.guildId, actor.playerId).session.status === "lobby";
+  const skipped = () => NextResponse.json({ skipped: true });
   try {
-    format = actor.duels.room(slug, actor.guildId, actor.playerId).session.format;
+    if (!inLobby()) return skipped();
   } catch (error) {
     return duelErrorResponse(error);
   }
@@ -23,6 +24,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  // Parsing the request yields to Start in another window. Recheck before asking the host.
+  try {
+    if (!inLobby()) return skipped();
+  } catch (error) {
+    return duelErrorResponse(error);
+  }
+
   const result = await callDuelHost({
     op: "validate-deck",
     slug,
@@ -30,16 +38,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     playerId: actor.playerId,
     deck,
   });
-  if (!result.ok) {
-    // A new table window can still show the lobby when Start locks the decks. This expected
-    // state change must refresh that window without creating a browser resource error.
-    if ((format === "ffa3" || format === "ffa4") && result.response.status === 409) {
-      const body = await result.response.clone().json().catch(() => null);
-      if (body?.error === "Decks are locked after the duel starts") {
-        return NextResponse.json({ locked: true, error: body.error });
-      }
-    }
-    return result.response;
+  // A check can finish after the room moves on. Its result is then obsolete in every format.
+  try {
+    if (!inLobby()) return skipped();
+  } catch (error) {
+    return duelErrorResponse(error);
   }
+  if (!result.ok) return result.response;
   return NextResponse.json(result.data);
 }

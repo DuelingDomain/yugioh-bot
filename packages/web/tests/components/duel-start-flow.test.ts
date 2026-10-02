@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDeckLockedError, ownWindowGateVisible, shouldCheckDeck, startButtonLabel } from "@/components/duel/start-flow";
+import { ownWindowGateVisible, shouldCheckDeck, startButtonLabel } from "@/components/duel/start-flow";
 
 const lockedError = Object.assign(new Error("Decks are locked after the duel starts"), { name: "DuelRequestError", status: 409 });
 
@@ -10,17 +10,7 @@ describe("deck check while the duel starts", () => {
     expect(shouldCheckDeck("completed")).toBe(false);
   });
 
-  it("treats the locked-deck answer as a state change, not an error", () => {
-    expect(isDeckLockedError(lockedError)).toBe(true);
-  });
 
-  it("keeps other failures as errors", () => {
-    expect(isDeckLockedError(Object.assign(new Error("Decks are locked after the duel starts"), { status: 500 }))).toBe(false);
-    expect(isDeckLockedError(Object.assign(new Error("Stale"), { status: 409 }))).toBe(false);
-    expect(isDeckLockedError(new Error("Decks are locked after the duel starts"))).toBe(false);
-    expect(isDeckLockedError("Decks are locked after the duel starts")).toBe(false);
-    expect(isDeckLockedError(null)).toBe(false);
-  });
 });
 
 describe("own-window screen", () => {
