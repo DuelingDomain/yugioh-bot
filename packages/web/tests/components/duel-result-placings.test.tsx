@@ -17,6 +17,19 @@ afterEach(cleanup);
 const room = FFA3_FIXTURES.states.result.room;
 
 describe("DuelResultScreen placings", () => {
+  it("identifies duplicate bot names by seat in the engine placing order", () => {
+    const bots = { ...room, session: { ...room.session, seats: room.session.seats.map((seat) => ({
+      ...seat, displayName: seat.seat === 0 ? "Alice" : "Practice Bot",
+    })) } };
+    const rows = placings(bots.engine!, [[1], [2]]).map((row) => ({ ...row, label: placeLabel(row.place) }));
+    render(<DuelResultScreen room={bots} slug="x" reducedMotion soundEnabled={false} onClose={vi.fn()} placings={rows} />);
+    const items = [...screen.getByRole("list", { name: "Final standings" }).querySelectorAll("li")];
+    expect(items.map((item) => item.dataset.seat)).toEqual(["0", "2", "1"]);
+    expect(items[0]).toHaveTextContent("Alice");
+    expect(items[1]).toHaveTextContent("Practice Bot (seat 3)");
+    expect(items[2]).toHaveTextContent("Practice Bot (seat 2)");
+  });
+
   it("lists every duelist in the order of the placings, each with its place", () => {
     const rows = placings(room.engine!, [[2], [1]]).map((row) => ({ seat: row.seat, place: row.place, label: placeLabel(row.place) }));
     render(<DuelResultScreen room={room} slug="x" reducedMotion soundEnabled={false} onClose={vi.fn()} placings={rows} />);

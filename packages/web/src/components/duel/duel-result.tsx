@@ -15,7 +15,7 @@ import Link from "next/link";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 import { cardArtUrl, formatLp } from "./constants";
 import { duelFontClasses } from "./fonts";
-import { isMultiSeat, winnerLabel, winnerSeats } from "./multi-seat";
+import { isMultiSeat, seatNamer, winnerLabel, winnerSeats } from "./multi-seat";
 import styles from "./duel-result.module.css";
 import seriesStyles from "./series.module.css";
 import { SeriesBadges } from "./series-banner";
@@ -95,6 +95,11 @@ export function classifyResultReason(raw: string | null | undefined): DuelResult
 }
 
 function seatName(room: DuelRoom, seat: number): string {
+  if (isMultiSeat(room.engine)) {
+    return seatNamer(room.session.seats.map((item) => ({
+      ...item, displayName: item.displayName?.trim() || `Seat ${item.seat + 1}`,
+    })))(seat);
+  }
   return room.session.seats.find((item) => item.seat === seat)?.displayName?.trim() || `Seat ${seat + 1}`;
 }
 
