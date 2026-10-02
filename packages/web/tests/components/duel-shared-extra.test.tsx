@@ -42,6 +42,21 @@ function stage(engine: DuelEngineView, mySeat: number | null = 0, focusSeat: num
 }
 
 describe("FFA4 shared Extra Monster Zones", () => {
+  it.each([5, 6])("keeps both cards visible when mirrored sequence %s is also occupied", (sequence) => {
+    const engine = fixture();
+    const first = monster(0, sequence);
+    const across = monster(2, 11 - sequence);
+    engine.seats[0]!.monsters[sequence] = first;
+    engine.seats[2]!.monsters[11 - sequence] = across;
+    expect(sharedExtraPairs(engine).map((pair) => pair.map((seat) => seat.seat))).toEqual([[1, 3]]);
+    render(stage(engine, null, null));
+    expect(screen.queryByTestId("shared-emz-pair-0-2")).toBeNull();
+    for (const card of [first, across]) {
+      expect(document.querySelectorAll(`img[src*="/${card.code}"]`)).toHaveLength(1);
+      expect(screen.getByTestId(`seat-emz-${card.controller}-${card.sequence - 4}`).getAttribute("data-occupied")).toBe("true");
+    }
+  });
+
   it("finds only reciprocal living across pairs, including seat zero", () => {
     const engine = fixture();
     expect(sharedExtraPairs(engine).map((pair) => pair.map((seat) => seat.seat))).toEqual([[0, 2], [1, 3]]);

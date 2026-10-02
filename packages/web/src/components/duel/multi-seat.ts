@@ -113,6 +113,8 @@ export function sharedExtraPairs(engine: Pick<DuelEngineView, "format" | "seats"
     const across = view.sharedExtraWith;
     if (across == null || across <= view.seat || across !== sharedExtraSeatOf("ffa4", view.seat) || isEliminated(view)) continue;
     const other = bySeat.get(across);
+    // Older cores can occupy both mirrored cells. Keep both rows so neither card is hidden.
+    if (other && ((view.monsters[5] && other.monsters[6]) || (view.monsters[6] && other.monsters[5]))) continue;
     if (other && !isEliminated(other) && other.sharedExtraWith === view.seat) pairs.push([view, other]);
   }
   return pairs.sort(([a], [b]) => a.seat - b.seat);
