@@ -27,6 +27,7 @@ const SIDE_DECK: DuelDeck = {
 function summary(spec: LabSeries): DuelSeriesSummary {
   const over = spec.screen === "won";
   const between = spec.screen === "ready" || spec.screen === "side";
+  const nextLive = spec.screen === "next-live";
   return {
     id: 7,
     bestOf: 3,
@@ -35,8 +36,8 @@ function summary(spec: LabSeries): DuelSeriesSummary {
     playerIds: [1, 2],
     displayNames: NAMES,
     wins: spec.wins,
-    gameNumber: spec.game,
-    currentDuelSlug: "fx-lab",
+    gameNumber: nextLive ? spec.game + 1 : spec.game,
+    currentDuelSlug: nextLive ? "fx-lab-next" : "fx-lab",
     winnerPlayerId: over ? (spec.wins[0] > spec.wins[1] ? 1 : 2) : null,
     tournamentId: null,
     tournamentSlug: null,
@@ -49,6 +50,7 @@ function summary(spec: LabSeries): DuelSeriesSummary {
 
 export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
   const finished = spec.screen !== "label";
+  const spectator = spec.viewer === "spectator";
   // Game 1 is the one you just won or lost: the leader of the score won it. Game 3 of the match was won by the match winner.
   const winnerSeat = spec.wins[0] > spec.wins[1] ? 0 : 1;
   const result = finished ? { winnerSeat, reason: "Life points reached 0" } : null;
@@ -77,8 +79,8 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       seriesId: 7,
       gameNumber: spec.game,
     },
-    role: "player",
-    mySeat: 0,
+    role: spectator ? "spectator" : "player",
+    mySeat: spectator ? null : 0,
     myDeck: null,
     clock: null,
     metadataOnly: false,
@@ -95,7 +97,7 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       result,
     },
     series: summary(spec),
-    mySide: { baseDeck: SIDE_DECK, currentDeck: SIDE_DECK },
+    mySide: spectator ? null : { baseDeck: SIDE_DECK, currentDeck: SIDE_DECK },
   };
 }
 

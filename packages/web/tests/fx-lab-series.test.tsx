@@ -32,6 +32,9 @@ describe("fx lab: Best of 3 scenarios", () => {
       "match-ready",
       "match-ready-opponent",
       "match-won",
+      "match-spectator-siding",
+      "match-spectator-next-live",
+      "match-spectator-won",
     ]);
     for (const id of ids) expect(findScenario(id)!.build().series).toBeDefined();
   });
@@ -65,6 +68,22 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByRole("dialog", { name: "Side deck" })).toBeTruthy();
     expect(screen.getByText("Game 2 of 3")).toBeTruthy();
     expect(screen.getByText("Side 3")).toBeTruthy();
+  });
+
+  it("shows a spectator the side decking state without Ready buttons", () => {
+    const { room, spec } = open("match-spectator-siding");
+    expect(room.mySeat).toBeNull();
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByText("Side decking in progress")).toBeTruthy();
+    expect(screen.getAllByTestId("series-ready-row")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /Ready/ })).toBeNull();
+  });
+
+  it("points a spectator at the live next game", () => {
+    const { room, spec } = open("match-spectator-next-live");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByText("Game 2 of 3 is live")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Watch game 2" })).toBeTruthy();
   });
 
   it("ends the match with a result and no next game", () => {

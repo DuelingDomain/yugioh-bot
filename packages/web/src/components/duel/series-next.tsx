@@ -6,7 +6,10 @@ import { cancelSeries, readySeries } from "./api";
 import { SheetButton } from "./sheet-ui";
 import resultStyles from "./duel-result.module.css";
 import styles from "./series.module.css";
-import { canCancelInterrupted, formatCountdown, opponentSideStatus, seriesPlayerIndex, secondsUntil } from "./series-model";
+import {
+  canCancelInterrupted, formatCountdown, opponentSideStatus, seriesPlayerIndex, secondsUntil, spectatorSeriesStatus,
+  type SeriesReadyRow,
+} from "./series-model";
 
 /** Whole seconds left until `iso`, ticking twice a second; null when there is no deadline. */
 export function useSecondsUntil(iso: string | null): number | null {
@@ -28,6 +31,20 @@ export function OpponentSideChip({ series, index }: { series: DuelSeriesSummary;
     <p className={styles.opp} data-ready={status.ready ? "true" : "false"} role="status" data-testid="opponent-side-status">
       <i aria-hidden />{status.text}
     </p>
+  );
+}
+
+/** Both players and their Ready state, for a spectator between games. */
+export function SeriesReadyRows({ players }: { players: SeriesReadyRow[] }) {
+  return (
+    <ul className={styles.readyRows} aria-label="Players">
+      {players.map((player, index) => (
+        <li key={index} className={styles.readyRow} data-ready={player.ready ? "true" : "false"} data-testid="series-ready-row">
+          <span className={styles.readyName}>{player.name}</span>
+          <span className={styles.readyState}><i aria-hidden />{player.text}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -109,16 +126,25 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
     onChanged();
   });
 
-  const status = index == null ? "Waiting for the players."
-    : imReady ? (theirReady ? "Both players are ready." : "You are ready.")
-      : interrupted ? "The last game did not finish. Both players must click Ready to play on."
-        : canSide ? "Swap cards from your Side Deck, then click Ready." : "Click Ready to start sooner.";
+  // A spectator sees what the players are doing and both Ready states; there is nothing to click.
+  const watching = index == null ? spectatorSeriesStatus(room, slug) : null;
+  const siding = watching?.kind === "siding" ? watching : null;
+  const status = siding
+    ? `${siding.detail}${siding.follow ? ` You will move to game ${series.gameNumber + 1} when it starts.` : ""}`
+    : index == null ? "Waiting for the players."
+      : imReady ? (theirReady ? "Both players are ready." : "You are ready.")
+        : interrupted ? "The last game did not finish. Both players must click Ready to play on."
+          : canSide ? "Swap cards from your Side Deck, then click Ready." : "Click Ready to start sooner.";
 
   return (
-    <section className={styles.next} data-tone={tone} aria-label="Next game">
-      <p className={styles.countdown} role="timer" data-waiting={seconds == null ? "true" : undefined}>
-        {seconds != null ? <>Game {series.gameNumber + 1} in <b>{formatCountdown(seconds)}</b></> : "Waiting for both players"}
-      </p>
+    <section className={styles.next} data-tone={tone} data-viewer={index == null ? "spectator" : "player"} aria-label="Next game">
+      {siding ? <p className={styles.watchHead}>{siding.headline}</p> : null}
+      {siding && seconds == null ? null : (
+        <p className={styles.countdown} role="timer" data-waiting={seconds == null ? "true" : undefined}>
+          {seconds != null ? <>Game {series.gameNumber + 1} in <b>{formatCountdown(seconds)}</b></> : "Waiting for both players"}
+        </p>
+      )}
+      {siding ? <SeriesReadyRows players={siding.players} /> : null}
       <p className={styles.status} role="status">{status}</p>
       <OpponentSideChip series={series} index={index} />
       {index != null ? (

@@ -19,7 +19,9 @@ import styles from "./duel-result.module.css";
 import seriesStyles from "./series.module.css";
 import { SeriesBadges } from "./series-banner";
 import { SeriesNextControls } from "./series-next";
-import { betweenGamesInfo, isBetweenGames, seriesOutcome, seriesPlayerIndex, seriesRecordLabel, seriesScoreForViewer } from "./series-model";
+import {
+  betweenGamesInfo, isBetweenGames, seriesOutcome, seriesPlayerIndex, seriesRecordLabel, seriesScoreForViewer, spectatorSeriesStatus,
+} from "./series-model";
 
 
 /** The longest animation ends near 1.55 s; the timer settles just after it. */
@@ -259,14 +261,28 @@ function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
   const record = seriesRecordLabel(series);
   const between = isBetweenGames(room, slug);
   const info = betweenGamesInfo(room, slug);
+  const watching = spectatorSeriesStatus(room, slug);
+  const live = watching?.kind === "next-live" ? watching : null;
   return (
-    <section className={styles.seriesBlock} aria-label="Series">
+    <section className={`${styles.card} ${styles.seriesBlock}`} aria-label="Series" data-state={outcome ? "decided" : between ? "between" : live ? "next-live" : "score"}>
       <SeriesBadges series={series} hideScore />
       {outcome ? (
-        <div className={seriesStyles.result}>
+        <div className={seriesStyles.result} data-final="true">
           <p className={seriesStyles.resultHead}>{outcome.headline}</p>
           <p className={seriesStyles.resultLine}>{outcome.detail}</p>
           {record ? <p className={seriesStyles.resultRecord}>{record}</p> : null}
+        </div>
+      ) : live ? (
+        <div className={seriesStyles.result} data-testid="next-game-live">
+          <p className={seriesStyles.resultHead}>{live.headline}</p>
+          <p className={seriesStyles.resultLine}>Series score <b>{seriesScoreForViewer(series, index)}</b></p>
+          {live.follow ? (
+            <button type="button" className={styles.btn} data-kind="secondary" onClick={() => (onNavigate ?? noop)(live.nextSlug)}>
+              Watch game {series.gameNumber}
+            </button>
+          ) : (
+            <p className={seriesStyles.resultRecord}>That game is invite-only. Ask a player for an invite to watch it.</p>
+          )}
         </div>
       ) : info ? (
         <div className={seriesStyles.result} data-testid="between-games-info">
@@ -383,6 +399,7 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
       data-phase={settled ? "settled" : "play"}
       data-reduced={reducedMotion ? "true" : "false"}
       data-spin={outcome === "win" || outcome === "spectator" ? "true" : "false"}
+      data-series={room.series ? "true" : undefined}
       onKeyDown={onKeyDown}
       onClick={() => {
         if (!settled) settle();
@@ -407,30 +424,31 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
             </div>
           ) : null}
 
-          <h1 id={titleId} className={styles.wordmark} data-tier={tier}>
-            <span className={styles.srOnly}>{model.headline}</span>
-            <span className={styles.face} aria-hidden="true">
-              {outcome === "lose"
-                ? (["a", "b", "c"] as const).map((shard) => (
-                    <span key={shard} className={styles.layer} data-shard={shard}>{model.headline}</span>
-                  ))
-                : <span className={styles.layer}>{model.headline}</span>}
-              {outcome === "lose" ? (
-                <svg className={styles.crack} viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
-                  <polyline points="41,-2 47,26 38,49 46,74 40,102" vectorEffect="non-scaling-stroke" />
-                  <polyline points="69,-2 63,30 72,58 64,82 70,102" vectorEffect="non-scaling-stroke" />
-                </svg>
-              ) : null}
-            </span>
-          </h1>
+          <div className={`${styles.card} ${styles.titleCard}`}>
+            <h1 id={titleId} className={styles.wordmark} data-tier={tier}>
+              <span className={styles.srOnly}>{model.headline}</span>
+              <span className={styles.face} aria-hidden="true">
+                {outcome === "lose"
+                  ? (["a", "b", "c"] as const).map((shard) => (
+                      <span key={shard} className={styles.layer} data-shard={shard}>{model.headline}</span>
+                    ))
+                  : <span className={styles.layer}>{model.headline}</span>}
+                {outcome === "lose" ? (
+                  <svg className={styles.crack} viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
+                    <polyline points="41,-2 47,26 38,49 46,74 40,102" vectorEffect="non-scaling-stroke" />
+                    <polyline points="69,-2 63,30 72,58 64,82 70,102" vectorEffect="non-scaling-stroke" />
+                  </svg>
+                ) : null}
+              </span>
+            </h1>
+            {model.reason ? <p id={reasonId} className={styles.reason}>{model.reason}</p> : null}
+          </div>
         </div>
-
-        {model.reason ? <p id={reasonId} className={styles.reason}>{model.reason}</p> : null}
 
         {model.scores.length > 0 ? (
           <ul className={styles.scoreboard} aria-label="Final Life Points">
             {model.scores.map((score) => (
-              <li key={score.seat} className={styles.score} data-winner={score.isWinner ? "true" : "false"} data-out={score.lp <= 0 ? "true" : "false"}>
+              <li key={score.seat} className={`${styles.card} ${styles.score}`} data-winner={score.isWinner ? "true" : "false"} data-out={score.lp <= 0 ? "true" : "false"}>
                 {score.deckMaster ? (
                   <img
                     className={styles.dmArt}
@@ -462,7 +480,7 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
           <SeriesResult room={room} slug={slug} onOpenSide={onOpenSide} onChanged={onSeriesChanged} onNavigate={onNavigate} />
         ) : null}
 
-        <div className={styles.actions}>
+        <div className={`${styles.card} ${styles.actions}`}>
           {onExit ? (
             <button type="button" className={styles.btn} data-kind="primary" onClick={onExit}>Exit duel</button>
           ) : (

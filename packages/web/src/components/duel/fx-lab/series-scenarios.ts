@@ -57,4 +57,25 @@ export const SERIES_SCENARIOS: LabScenario[] = [
     description: "The end of a Best of 3 after game 3, 2–1. The final result shows and no next game is offered.",
     build: () => seriesScript({ wins: [2, 1], game: 3, screen: "won" }),
   },
+  {
+    id: "match-spectator-siding",
+    category: "Match",
+    name: "Spectator: side decking",
+    description: "A spectator's screen after game 1 while the players side deck. Shows both players' Ready state and the countdown; the spectator moves to game 2 when it starts.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "ready", secondsLeft: 48, opponentReady: true, viewer: "spectator" }),
+  },
+  {
+    id: "match-spectator-next-live",
+    category: "Match",
+    name: "Spectator: next game live",
+    description: "A spectator who opens game 1 after game 2 has started: the screen points at the live game.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "next-live", viewer: "spectator" }),
+  },
+  {
+    id: "match-spectator-won",
+    category: "Match",
+    name: "Spectator: match decided",
+    description: "A spectator's screen at the end of a Best of 3, 2–1: the final series result.",
+    build: () => seriesScript({ wins: [2, 1], game: 3, screen: "won", viewer: "spectator" }),
+  },
 ];
