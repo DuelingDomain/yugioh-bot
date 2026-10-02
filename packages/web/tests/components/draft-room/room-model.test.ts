@@ -1,0 +1,147 @@
+import { describe, expect, it } from "vitest";
+import {
+  EMPTY_FILTER,
+  countKinds,
+  dealReducer,
+  INITIAL_DEAL,
+  filterWords,
+  isFiltering,
+  joinNames,
+  kindOf,
+  levelsModel,
+  matchesFilter,
+  orderSeats,
+  passDirection,
+  passLabel,
+  roomSizes,
+  seatPackSize,
+  tableCards,
+  themeProgress,
+  toggled,
+  type RoomCard,
+} from "../../../src/components/draft/room/room-model";
+
+const card = (id: number, over: Partial<RoomCard> = {}): RoomCard => ({
+  id,
+  name: `Card ${id}`,
+  type: "Effect Monster",
+  frameType: "effect",
+  attribute: "DARK",
+  level: 4,
+  effectText: "",
+  imageUrl: "",
+  imageUrlSmall: "",
+  ...over,
+});
+
+describe("kinds", () => {
+  it("sorts cards into monster, spell, trap and extra", () => {
+    expect(kindOf(card(1))).toBe("monster");
+    expect(kindOf(card(2, { type: "Normal Spell Card", frameType: "spell" }))).toBe("spell");
+    expect(kindOf(card(3, { type: "Normal Trap Card", frameType: "trap" }))).toBe("trap");
+    expect(kindOf(card(4, { type: "Synchro Monster", frameType: "synchro" }))).toBe("extra");
+    const c = countKinds([card(1), card(2, { frameType: "spell", type: "Spell Card" })]);
+    expect(c.monster).toBe(1);
+    expect(c.spell).toBe(1);
+  });
+});
+
+describe("pass direction", () => {
+  it("alternates by round and can be turned off", () => {
+    expect(passDirection(1, true)).toBe(1);
+    expect(passDirection(2, true)).toBe(-1);
+    expect(passDirection(2, false)).toBe(1);
+    expect(passDirection(2, undefined)).toBe(-1);
+    expect(passLabel(1)).toBe("Passing left");
+    expect(passLabel(-1)).toBe("Passing right");
+  });
+  it("counts what is left in a seat's pack", () => {
+    expect(seatPackSize({ packSize: 8, pickStep: 1, hasPicked: false })).toBe(8);
+    expect(seatPackSize({ packSize: 8, pickStep: 3, hasPicked: true })).toBe(5);
+  });
+});
+
+describe("filter", () => {
+  it("matches by kind, text, level and attribute", () => {
+    const m = card(1, { name: "Dark Magician", level: 7 });
+    expect(isFiltering(EMPTY_FILTER)).toBe(false);
+    expect(matchesFilter(m, EMPTY_FILTER)).toBe(true);
+    expect(matchesFilter(m, { ...EMPTY_FILTER, q: "magician" })).toBe(true);
+    expect(matchesFilter(m, { ...EMPTY_FILTER, q: "dragon" })).toBe(false);
+    expect(matchesFilter(m, { ...EMPTY_FILTER, kinds: new Set(["spell" as const]) })).toBe(false);
+    expect(matchesFilter(m, { ...EMPTY_FILTER, attr: new Set(["DARK"]) })).toBe(true);
+    expect(isFiltering({ ...EMPTY_FILTER, q: "x" })).toBe(true);
+    expect(filterWords({ ...EMPTY_FILTER, q: "x" })).toContain("x");
+  });
+  it("toggles set members without mutating", () => {
+    const a = new Set(["a"]);
+    const b = toggled(a, "b");
+    expect([...a]).toEqual(["a"]);
+    expect([...b].sort()).toEqual(["a", "b"]);
+    expect([...toggled(b, "a")]).toEqual(["b"]);
+  });
+  it("joins names", () => {
+    expect(joinNames(["A"])).toBe("A");
+    expect(joinNames(["A", "B"])).toBe("A and B");
+  });
+});
+
+describe("levels", () => {
+  it("builds a model for monsters", () => {
+    const m = levelsModel([card(1, { level: 3 }), card(2, { level: 8 })]);
+    expect(m).toBeTruthy();
+  });
+});
+
+describe("sizes and theme progress", () => {
+  it("defaults and derives phases", () => {
+    const s = roomSizes({ mode: "theme", cardsPerPlayer: 10, extraDeckSize: 3 });
+    expect(s.theme).toBe(true);
+    expect(s.total).toBe(13);
+    expect(themeProgress(4, s).inExtra).toBe(false);
+    expect(themeProgress(10, s).inExtra).toBe(true);
+    expect(roomSizes({}).total).toBe(40);
+  });
+});
+
+describe("seats", () => {
+  it("puts you first and rotates the rest by seat order", () => {
+    const out = orderSeats([
+      { seatIndex: 0, playerId: 1, displayName: "A", hasPicked: false, isCurrentPlayer: false },
+      { seatIndex: 1, playerId: 2, displayName: "B", hasPicked: false, isCurrentPlayer: true },
+      { seatIndex: 2, playerId: 3, displayName: "C", hasPicked: false, isCurrentPlayer: false },
+    ]);
+    expect(out[0].isMe).toBe(true);
+    expect(out.map((s) => s.seat?.displayName)).toEqual(["B", "C", "A"]);
+  });
+});
+
+describe("deal reducer", () => {
+  const server = (stepKey: string, pack: RoomCard[], isMyTurn = true) =>
+    ({ type: "server", stepKey, pack, isMyTurn, completed: false, theme: false }) as const;
+
+  it("deals a pack, then ignores a stale poll after your pick", () => {
+    let s = dealReducer(INITIAL_DEAL, server("1:1", [card(1), card(2)]));
+    expect(s.dealt.map((c) => c.id)).toEqual([1, 2]);
+    expect(s.reason).toBe("deal");
+    s = dealReducer(s, { type: "picked", cardId: 1 });
+    expect(tableCards(s).map((c) => c.id)).toEqual([2]);
+    // a poll that still carries the same cards, minus the pick, changes nothing
+    expect(dealReducer(s, server("1:1", [card(2)]))).toBe(s);
+  });
+
+  it("rolls the pick back when the server still offers the card", () => {
+    let s = dealReducer(INITIAL_DEAL, server("1:1", [card(1), card(2)]));
+    s = dealReducer(s, { type: "picked", cardId: 1 });
+    s = dealReducer(s, server("1:1", [card(1), card(2)]));
+    expect(s.pickedId).toBeNull();
+  });
+
+  it("passes a new pack on the next step", () => {
+    let s = dealReducer(INITIAL_DEAL, server("1:1", [card(1)]));
+    s = dealReducer(s, server("1:2", [card(5)]));
+    expect(s.reason).toBe("pass");
+    expect(s.seq).toBe(2);
+    expect(s.dealt.map((c) => c.id)).toEqual([5]);
+  });
+});
