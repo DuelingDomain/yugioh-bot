@@ -853,7 +853,8 @@ export function DuelField({
   // private opponent prompts and standalone previews.
   const priorityReady = useFieldPriorityReady({
     events: engine.events,
-    waiting: pending.prioritySeat != null && !(priorityLive != null && pending.prioritySeat === mySeat),
+    waiting: pending.prioritySeat != null,
+    revealed: priorityLive === true && pending.prioritySeat === mySeat,
     board: boardRef,
     reducedMotion,
   });

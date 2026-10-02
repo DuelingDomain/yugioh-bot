@@ -31,18 +31,25 @@ export function useFieldPriorityReady({
   waiting,
   board,
   reducedMotion,
+  revealed = false,
 }: {
   events: DuelEvent[];
   waiting: boolean;
   board: RefObject<HTMLElement | null>;
   reducedMotion: boolean;
+  /** The room has already revealed this event batch to its prompt owner. */
+  revealed?: boolean;
 }): boolean {
   const eventId = events.at(-1)?.id;
   const key = waiting && eventId != null ? String(eventId) : null;
   const [readyKey, setReadyKey] = useState<string | null>(null);
 
   useEffect(() => {
-    if (key == null) return;
+    if (key == null || readyKey === key) return;
+    if (revealed) {
+      setReadyKey(key);
+      return;
+    }
     const controller = new AbortController();
     const source = () => board.current;
     void waitForReveal({
@@ -59,7 +66,7 @@ export function useFieldPriorityReady({
     return () => controller.abort();
     // One wait per event batch, not per prompt/actor or a preference change mid-effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, revealed]);
 
-  return key == null || readyKey === key;
+  return revealed || key == null || readyKey === key;
 }

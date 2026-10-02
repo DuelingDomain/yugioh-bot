@@ -165,6 +165,14 @@ describe("field turn and priority", () => {
     expect(half(container, 0).getAttribute("data-priority")).toBe("true");
   });
 
+  it("retains the revealed batch when local priority transfers to the opponent without new events", () => {
+    const events: DuelEngineView["events"] = [{ id: 2, kind: "activate", seat: 0, text: "Activate" }];
+    const { container, rerender } = render(field(view({ prioritySeat: 0, events }), 0, 5, false, true));
+    expect(half(container, 0).getAttribute("data-priority")).toBe("true");
+    rerender(field(view({ revision: 2, prioritySeat: 1, events }), 0, 5, false, true));
+    expect(half(container, 1).getAttribute("data-priority")).toBe("true");
+  });
+
   it.each([0, 1])("clears priority %i immediately when the room pauses actions", (prioritySeat) => {
     const engine = view({ prioritySeat });
     const { container, rerender } = render(field(engine, 0, 5, false, true));
