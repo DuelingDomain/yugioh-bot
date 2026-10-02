@@ -1175,4 +1175,119 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "opponent-field-effects-ffa4-diamond-duston-goes-to-the-picked-opponent",
     "opponent-field-effects-tag-diamond-duston-goes-to-an-opposing-member",
   ], // Diamond Duston
+  561300: [
+    "opponent-field-effects-ffa3-poisonous-viper-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-poisonous-viper-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-poisonous-viper-goes-to-an-opposing-member",
+  ], // Poisonous Viper
+  7392745: [
+    "opponent-field-effects-ffa3-chewbone-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-chewbone-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-chewbone-goes-to-an-opposing-member",
+  ], // Chewbone
+  7623640: [
+    "opponent-field-effects-ffa3-ceruli-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-ceruli-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-ceruli-goes-to-an-opposing-member",
+  ], // Ceruli, Guru of Dark World
+  11677278: [
+    "opponent-field-effects-ffa3-mimighoul-armor-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-armor-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-armor-goes-to-an-opposing-member",
+  ], // Mimighoul Armor
+  22404675: [
+    "opponent-field-effects-ffa3-mithra-the-thunder-vassal-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mithra-the-thunder-vassal-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mithra-the-thunder-vassal-goes-to-an-opposing-member",
+  ], // Mithra the Thunder Vassal
+  22411609: [
+    "opponent-field-effects-ffa3-volcanic-trooper-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-volcanic-trooper-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-volcanic-trooper-goes-to-an-opposing-member",
+  ], // Volcanic Trooper
+  23920796: [
+    "opponent-field-effects-ffa3-mimighoul-cerberus-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-cerberus-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-cerberus-goes-to-an-opposing-member",
+  ], // Mimighoul Cerberus
+  25131968: [
+    "opponent-field-effects-ffa3-ken-the-warrior-dragon-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-ken-the-warrior-dragon-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-ken-the-warrior-dragon-goes-to-an-opposing-member",
+  ], // Ken the Warrior Dragon
+  26964762: [
+    "opponent-field-effects-ffa3-destiny-hero-dark-angel-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-destiny-hero-dark-angel-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-destiny-hero-dark-angel-goes-to-an-opposing-member",
+  ], // Destiny HERO - Dark Angel
+  30069398: [
+    "opponent-field-effects-ffa3-wall-of-ivy-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-wall-of-ivy-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-wall-of-ivy-goes-to-an-opposing-member",
+  ], // Wall of Ivy
+  37129797: [
+    "opponent-field-effects-ffa3-vampire-sucker-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-vampire-sucker-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-vampire-sucker-goes-to-an-opposing-member",
+  ], // Vampire Sucker
+  38041940: [
+    "opponent-field-effects-ffa3-seed-of-flame-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-seed-of-flame-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-seed-of-flame-goes-to-an-opposing-member",
+  ], // Seed of Flame
+  39829561: [
+    "opponent-field-effects-ffa3-destiny-hero-departed-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-destiny-hero-departed-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-destiny-hero-departed-goes-to-an-opposing-member",
+  ], // Destiny HERO - Departed
+  41141943: [
+    "opponent-field-effects-ffa3-superheavy-samurai-transporter-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-superheavy-samurai-transporter-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-superheavy-samurai-transporter-goes-to-an-opposing-member",
+  ], // Superheavy Samurai Transporter
+  43066927: [
+    "opponent-field-effects-ffa3-mimighoul-fairy-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-fairy-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-fairy-goes-to-an-opposing-member",
+  ], // Mimighoul Fairy
+  44689688: [
+    "opponent-field-effects-ffa3-jurrac-spinos-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-jurrac-spinos-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-jurrac-spinos-goes-to-an-opposing-member",
+  ], // Jurrac Spinos
+  48228390: [
+    "opponent-field-effects-ffa3-pyrite-knight-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-pyrite-knight-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-pyrite-knight-goes-to-an-opposing-member",
+  ], // Pyrite Knight
+  50415441: [
+    "opponent-field-effects-ffa3-mimighoul-archfiend-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-archfiend-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-archfiend-goes-to-an-opposing-member",
+  ], // Mimighoul Archfiend
+  52126602: [
+    "opponent-field-effects-ffa3-gen-the-diamond-tiger-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-gen-the-diamond-tiger-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-gen-the-diamond-tiger-goes-to-an-opposing-member",
+  ], // Gen the Diamond Tiger
+  54191698: [
+    "opponent-field-effects-ffa3-number-29-mannequin-cat-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-number-29-mannequin-cat-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-number-29-mannequin-cat-goes-to-an-opposing-member",
+  ], // Number 29: Mannequin Cat
+  74440055: [
+    "opponent-field-effects-ffa3-cactus-fighter-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-cactus-fighter-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-cactus-fighter-goes-to-an-opposing-member",
+  ], // Cactus Fighter
+  81522098: [
+    "opponent-field-effects-ffa3-mimighoul-dragon-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-dragon-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-dragon-goes-to-an-opposing-member",
+  ], // Mimighoul Dragon
+  82933935: [
+    "opponent-field-effects-ffa3-mimighoul-flower-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-flower-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-flower-goes-to-an-opposing-member",
+  ], // Mimighoul Flower
 };

@@ -344,6 +344,29 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   85698115: ["ffa3", "ffa4", "tag"], // Terrors of the Afterroot
   93983867: ["ffa3", "ffa4", "tag"], // Trick Box
   96857854: ["ffa3", "ffa4", "tag"], // Diamond Duston
+  561300: ["ffa3", "ffa4", "tag"], // Poisonous Viper
+  7392745: ["ffa3", "ffa4", "tag"], // Chewbone
+  7623640: ["ffa3", "ffa4", "tag"], // Ceruli, Guru of Dark World
+  11677278: ["ffa3", "ffa4", "tag"], // Mimighoul Armor
+  22404675: ["ffa3", "ffa4", "tag"], // Mithra the Thunder Vassal
+  22411609: ["ffa3", "ffa4", "tag"], // Volcanic Trooper
+  23920796: ["ffa3", "ffa4", "tag"], // Mimighoul Cerberus
+  25131968: ["ffa3", "ffa4", "tag"], // Ken the Warrior Dragon
+  26964762: ["ffa3", "ffa4", "tag"], // Destiny HERO - Dark Angel
+  30069398: ["ffa3", "ffa4", "tag"], // Wall of Ivy
+  37129797: ["ffa3", "ffa4", "tag"], // Vampire Sucker
+  38041940: ["ffa3", "ffa4", "tag"], // Seed of Flame
+  39829561: ["ffa3", "ffa4", "tag"], // Destiny HERO - Departed
+  41141943: ["ffa3", "ffa4", "tag"], // Superheavy Samurai Transporter
+  43066927: ["ffa3", "ffa4", "tag"], // Mimighoul Fairy
+  44689688: ["ffa3", "ffa4", "tag"], // Jurrac Spinos
+  48228390: ["ffa3", "ffa4", "tag"], // Pyrite Knight
+  50415441: ["ffa3", "ffa4", "tag"], // Mimighoul Archfiend
+  52126602: ["ffa3", "ffa4", "tag"], // Gen the Diamond Tiger
+  54191698: ["ffa3", "ffa4", "tag"], // Number 29: Mannequin Cat
+  74440055: ["ffa3", "ffa4", "tag"], // Cactus Fighter
+  81522098: ["ffa3", "ffa4", "tag"], // Mimighoul Dragon
+  82933935: ["ffa3", "ffa4", "tag"], // Mimighoul Flower
 };
 
 export const MULTIPLAYER_CARD_RULES: readonly MultiplayerCardRule[] = CARD_RULE_DRAFTS.map((draft) => {
