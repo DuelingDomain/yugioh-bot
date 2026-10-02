@@ -786,4 +786,111 @@ export const FFA_SCENARIOS: Scenario[] = [
       expectBoard({ p0: { lp: 8000 }, p1: { lp: 8000 }, p2: { lp: 8000 }, p3: { lp: 8000 } }),
     ],
   }),
+  defineScenario({
+    id: "nseat-ffa4-simultaneous-triggers-turn-player-first",
+    title: "FFA4: Dark Hole sends the Sangan of p0 (turn player) and the Witch of the Black Forest of p2 to the Graveyard together: the trigger of p0 goes on the chain first, so the Witch of p2 resolves first",
+    source: `${SOURCE} [R-FFA-TRIGGERS]`,
+    rules: ["R-FFA-TRIGGERS"],
+    tags: ["multiplayer", "triggers", "chain", "ffa4", "card:26202165", "card:78010363", "card:53129443"],
+    // Mandatory triggers of different duelists in one event: the turn player first, then clockwise. A chain resolves in reverse, so
+    // the LAST trigger on the chain resolves first. Under the wrong order (p2 before p0) Sangan would resolve first.
+    setup: {
+      format: "ffa4",
+      p0: { hand: ["Dark Hole"], monsters: ["Sangan"], deck: ["Giant Rat"] },
+      p2: { monsters: ["Witch of the Black Forest"], deck: ["Silver Fang"] },
+    },
+    steps: [
+      activate("Dark Hole", "p0"),
+      // The Witch finds one legal target only (Silver Fang, DEF 800: the filler Deck holds Mystical Elf, DEF 2000), so it asks for no pick.
+      select("Giant Rat"),
+      // Dark Hole resolves first. The triggers then form a new chain of their own.
+      expectResolved("Dark Hole", "Witch of the Black Forest", "Sangan"),
+      expectBoard({
+        p0: { lp: 8000, monsters: [], spells: [], banished: [], hand: ["Giant Rat"], grave: ["Dark Hole", "Sangan"] },
+        p1: { lp: 8000, monsters: [], spells: [], hand: [], banished: [], grave: [] },
+        p2: { lp: 8000, monsters: [], spells: [], banished: [], hand: ["Silver Fang"], grave: ["Witch of the Black Forest"] },
+        p3: { lp: 8000, monsters: [], spells: [], hand: [], banished: [], grave: [] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-ffa4-simultaneous-triggers-clockwise-from-turn-player",
+    title: "FFA4: in the turn of p1, Dark Hole sends the Sangan of p0 and the Witch of the Black Forest of p2 to the Graveyard together: the order is clockwise from the turn player (p2, then p0), so Sangan of p0 resolves first",
+    source: `${SOURCE} [R-FFA-TRIGGERS]`,
+    rules: ["R-FFA-TRIGGERS"],
+    tags: ["multiplayer", "triggers", "chain", "ffa4", "card:26202165", "card:78010363", "card:53129443"],
+    // The turn player is p1. Clockwise from p1 the seats are p2, p3, p0. So the Witch of p2 goes on the chain first and the Sangan of
+    // p0 second, and Sangan resolves first. A plain seat order from p0 would put Sangan first on the chain.
+    setup: {
+      format: "ffa4",
+      p0: { monsters: ["Sangan"], deck: ["Giant Rat"] },
+      p1: { hand: ["Dark Hole"] },
+      p2: { monsters: ["Witch of the Black Forest"], deck: ["Silver Fang"] },
+    },
+    steps: [
+      endTurn("p0"),
+      expectTurn("p1", 2),
+      activate("Dark Hole", "p1"),
+      select("Giant Rat"),
+      expectResolved("Dark Hole", "Sangan", "Witch of the Black Forest"),
+      expectBoard({
+        p0: { lp: 8000, monsters: [], spells: [], banished: [], hand: ["Giant Rat"], grave: ["Sangan"] },
+        p1: { lp: 8000, monsters: [], spells: [], hand: ["Mystical Elf"], banished: [], grave: ["Dark Hole"] },
+        p2: { lp: 8000, monsters: [], spells: [], banished: [], hand: ["Silver Fang"], grave: ["Witch of the Black Forest"] },
+        p3: { lp: 8000, monsters: [], spells: [], hand: [], banished: [], grave: [] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-ffa4-negate-spell-from-far-seat",
+    title: "FFA4: the set Solemn Judgment of p3 (the last seat in the chain order) negates the activation of Raigeki of p0: p1 and p2 keep their monsters, Raigeki goes to the Graveyard and p3 pays half of its LP",
+    source: `${SOURCE} [R-FFA-NEGATE]`,
+    rules: ["R-FFA-NEGATE"],
+    tags: ["multiplayer", "negate", "chain", "ffa4", "card:41420027", "card:12580477"],
+    setup: {
+      format: "ffa4",
+      p0: { hand: ["Raigeki"] },
+      p1: { monsters: ["Battle Ox"] },
+      p2: { monsters: ["Axe Raider"] },
+      p3: { monsters: ["Silver Fang"], spells: [{ card: "Solemn Judgment", pos: "set" }] },
+    },
+    steps: [
+      activate("Raigeki", "p0"),
+      expectPrompt({ by: "p3", context: "chain" }),
+      activate("Solemn Judgment", "p3"),
+      expectBoard({
+        p0: { lp: 8000, monsters: [], spells: [], hand: [], banished: [], grave: ["Raigeki"] },
+        p1: { lp: 8000, monsters: ["Battle Ox"], spells: [], hand: [], banished: [], grave: [] },
+        p2: { lp: 8000, monsters: ["Axe Raider"], spells: [], hand: [], banished: [], grave: [] },
+        p3: { lp: 4000, monsters: ["Silver Fang"], spells: [], hand: [], banished: [], grave: ["Solemn Judgment"] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-ffa4-negate-effect-from-far-seat",
+    title: "FFA4: Ash Blossom & Joyous Spring in the hand of p3 negates the search of Reinforcement of the Army that p1 activates (not its neighbour): p1 adds no card, p3 discards Ash Blossom",
+    source: `${SOURCE} [R-FFA-NEGATE]`,
+    rules: ["R-FFA-NEGATE"],
+    tags: ["multiplayer", "negate", "chain", "ffa4", "card:14558127", "card:32807846"],
+    // p0 passes the turn to p1. p1 searches. p2 has no card to answer with. p3, three seats from p0, holds Ash Blossom.
+    setup: {
+      format: "ffa4",
+      // p1 draws 1 card in its turn: the Deck holds 2 Axe Raider (a Warrior, the Ox is not), so one is drawn and one is left as the target of the search.
+      p1: { hand: ["Reinforcement of the Army"], deck: ["Axe Raider", "Axe Raider"] },
+      p3: { hand: ["Ash Blossom & Joyous Spring"] },
+    },
+    steps: [
+      endTurn("p0"),
+      expectTurn("p1", 2),
+      activate("Reinforcement of the Army", "p1"),
+      expectPrompt({ by: "p3", context: "chain" }),
+      activate("Ash Blossom & Joyous Spring", "p3"),
+      expectBoard({
+        p0: { lp: 8000, monsters: [], spells: [], hand: [], banished: [], grave: [] },
+        p1: { lp: 8000, monsters: [], spells: [], hand: ["Axe Raider"], banished: [], grave: ["Reinforcement of the Army"] },
+        p2: { lp: 8000, monsters: [], spells: [], hand: [], banished: [], grave: [] },
+        p3: { lp: 8000, monsters: [], spells: [], hand: [], banished: [], grave: ["Ash Blossom & Joyous Spring"] },
+      }),
+    ],
+  }),
 ];
