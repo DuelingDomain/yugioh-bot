@@ -1,7 +1,7 @@
 // Spell and Trap cards whose effect Special Summons a card or tokens to the field of an opponent (the table and the rule are in
 // opponent-field-effects.ts). Every card of this file is activated by p0, who then picks one opponent.
 
-import { activate, choose, select, yes } from "../../support/dsl.js";
+import { activate, choose, expectNoPrompt, normalSummon, select, yes } from "../../support/dsl.js";
 import { ELF } from "./nseat-scenarios.js";
 import { effectScenarios, type EffectSpec } from "./opponent-field-effects.js";
 
@@ -65,6 +65,125 @@ const SPECS: EffectSpec[] = [
     then: (roles) => (roles.partner ? [select(ELF)] : []),
     p0End: { monsters: [ELF], grave: ["Give and Take"] },
     gain: { monsters: [MAGICIAN] },
+  },
+  {
+    code: 93775296, name: "Reverse Reuse", slug: "reverse-reuse", does: "Special Summons the Flip monster of the Graveyard of p0",
+    p0: { spells: [set("Reverse Reuse")], grave: ["Man-Eater Bug"] },
+    steps: [activate("Reverse Reuse", "p0")],
+    p0End: { grave: ["Reverse Reuse"] },
+    gain: { monsters: ["Man-Eater Bug"] },
+  },
+  {
+    code: 93912845, name: "Revival Gift", slug: "revival-gift", does: "Special Summons a Tuner of p0 to the own field and 2 tokens",
+    p0: { spells: [set("Revival Gift")], grave: ["Water Spirit"] },
+    steps: [activate("Revival Gift", "p0")],
+    p0End: { monsters: ["Water Spirit"], grave: ["Revival Gift"] },
+    gain: { tokens: { count: 2 } },
+  },
+  {
+    code: 76384284, name: "Trojan Gladiator Beast", slug: "trojan-gladiator-beast", does: "Special Summons a Gladiator Beast from the hand of p0",
+    p0: { spells: [set("Trojan Gladiator Beast")], hand: ["Gladiator Beast Retiari"] },
+    steps: [activate("Trojan Gladiator Beast", "p0")],
+    p0End: { grave: ["Trojan Gladiator Beast"], hand: [ELF] },
+    gain: { monsters: ["Gladiator Beast Retiari"] },
+  },
+  {
+    // The target is every opponent's banished monster (R-COMMON-OPP-FIELD): p0 takes the Blue-Eyes of p1, the monster of p0 goes to the picked opponent only.
+    code: 73355951, name: "Alpha Summon", slug: "alpha-summon", does: "Special Summons the banished Dark Magician of p0 and takes a banished monster of an opponent to the own field",
+    p0: { spells: [set("Alpha Summon")], banished: [MAGICIAN] },
+    tgt: { monsters: [ELF], banished: [SKULL] },
+    seats: { p1: { monsters: [ELF], banished: ["Blue-Eyes White Dragon"] } },
+    steps: [activate("Alpha Summon", "p0")],
+    then: [select(MAGICIAN, { card: "Blue-Eyes White Dragon", owner: "p1" })],
+    p0End: { monsters: ["Blue-Eyes White Dragon"], grave: ["Alpha Summon"] },
+    tgtEnd: { monsters: [ELF, MAGICIAN], banished: [SKULL] },
+    seatEnd: { p1: { monsters: [ELF] } },
+  },
+  {
+    code: 6203182, name: "Two Toads with One Sting", slug: "two-toads-with-one-sting", does: "Special Summons the Dark Magician of the Graveyard of the opponent and equips itself to it",
+    p0: { hand: ["Two Toads with One Sting"] },
+    tgt: { monsters: [ELF], grave: [MAGICIAN] },
+    steps: [activate("Two Toads with One Sting", "p0")],
+    p0End: { spells: ["Two Toads with One Sting"] },
+    tgtEnd: { monsters: [ELF, MAGICIAN] },
+  },
+  {
+    code: 33970665, name: "Guts of Steel", slug: "guts-of-steel", does: "Special Summons the Scrap monster that the picked opponent chooses",
+    p0: { spells: [set("Guts of Steel")], grave: ["Scrap Chimera", "Scrap Hunter", "Scrap Breaker"] },
+    steps: [activate("Guts of Steel", "p0")],
+    // The picked opponent chooses the card (as in 1v1); p0 then chooses the field. The 2 other Scrap monsters are banished.
+    then: [select("Scrap Chimera"), choose("opponent's field", "p0")],
+    p0End: { grave: ["Guts of Steel"], banished: ["Scrap Hunter", "Scrap Breaker"] },
+    gain: { monsters: ["Scrap Chimera"] },
+  },
+  {
+    code: 17228908, name: "Lost World", slug: "lost-world", does: "Special Summons a Jurraegg Token after a Dinosaur is summoned",
+    p0: { field: "Lost World", hand: ["Uraby"] },
+    steps: [normalSummon("Uraby", "p0"), yes("p0")],
+    p0End: { monsters: ["Uraby"], spells: ["Lost World"] },
+    gain: { monsters: ["Jurraegg Token"] },
+  },
+  {
+    code: 78610936, name: "Xyz Encore", slug: "xyz-encore", does: "returns the Xyz monster to the Extra Deck and Special Summons its material",
+    p0: { hand: ["Xyz Encore"] },
+    tgt: { monsters: [{ card: "Daigusto Emeral", materials: [ELF] }] },
+    steps: [activate("Xyz Encore", "p0")],
+    p0End: { grave: ["Xyz Encore"] },
+    tgtEnd: { monsters: [ELF] },
+  },
+  {
+    code: 36890111, name: "Mansion of the Dreadful Dolls", slug: "mansion-of-the-dreadful-dolls", does: "detaches a material and Special Summons a Gimmick Puppet of p0",
+    p0: { field: "Mansion of the Dreadful Dolls", monsters: [{ card: "Daigusto Emeral", materials: [ELF] }], grave: ["Gimmick Puppet Cattle Scream"] },
+    steps: [activate("Mansion of the Dreadful Dolls", "p0")],
+    p0End: { monsters: ["Daigusto Emeral"], spells: ["Mansion of the Dreadful Dolls"], grave: [ELF] },
+    gain: { monsters: ["Gimmick Puppet Cattle Scream"] },
+  },
+  {
+    code: 62767644, name: "Inferno of the Ashened", slug: "inferno-of-the-ashened", does: "sends a card of an opponent to the Graveyard and Special Summons a Pyro monster of p0",
+    p0: { spells: [{ card: "Inferno of the Ashened", pos: "up" }], grave: ["King of the Ashened City"] },
+    steps: [activate("Inferno of the Ashened", "p0")],
+    // The card to send can be of any opponent (R-COMMON-OPP-FIELD): p0 sends the Mystical Elf of p1, the Pyro monster goes to the picked opponent only.
+    then: [select({ card: ELF, owner: "p1" })],
+    p0End: { spells: ["Inferno of the Ashened"] },
+    gain: { monsters: ["King of the Ashened City"] },
+    seatEnd: { p1: { grave: [ELF] } },
+  },
+  {
+    code: 80044027, name: "Mikanko Fire Dance", slug: "mikanko-fire-dance", does: "Special Summons a Mikanko to the own field and a monster of the Graveyard of an opponent",
+    p0: { hand: ["Mikanko Fire Dance", "Sanaki the Mikanko Devotee"] },
+    tgt: { monsters: [ELF], grave: [MAGICIAN] },
+    steps: [activate("Mikanko Fire Dance", "p0")],
+    then: [yes("p0")],
+    p0End: { monsters: ["Sanaki the Mikanko Devotee"], spells: ["Mikanko Fire Dance"] },
+    tgtEnd: { monsters: [ELF, MAGICIAN] },
+  },
+  {
+    code: 99330325, name: "Interrupted Kaiju Slumber", slug: "interrupted-kaiju-slumber", does: "destroys all monsters and Special Summons a Kaiju to the own field and a Kaiju",
+    p0: { hand: ["Interrupted Kaiju Slumber"], deck: ["Gameciel, the Sea Turtle Kaiju", "Dogoran, the Mad Flame Kaiju"] },
+    steps: [activate("Interrupted Kaiju Slumber", "p0")],
+    // All monsters are destroyed (every opponent and the Tag partner too, R-COMMON-ALL-BOTH). p0 chooses the Kaiju for the own field, the other goes to the picked opponent.
+    then: [select("Gameciel, the Sea Turtle Kaiju")],
+    p0End: { monsters: ["Gameciel, the Sea Turtle Kaiju"], grave: ["Interrupted Kaiju Slumber"] },
+    tgtEnd: { monsters: ["Dogoran, the Mad Flame Kaiju"], grave: [ELF] },
+    othersEnd: { grave: [ELF] },
+    partnerEnd: { grave: ["Battle Ox"] },
+  },
+  {
+    code: 52782439, name: "Exceptional Schedule", slug: "exceptional-schedule", does: "adds a Schedule card to the hand and Special Summons a Schedule Token",
+    p0: { hand: ["Exceptional Schedule"], deck: ["Special Schedule"] },
+    steps: [activate("Exceptional Schedule", "p0")],
+    then: [yes("p0")],
+    p0End: { grave: ["Exceptional Schedule"], hand: ["Special Schedule"] },
+    gain: { tokens: { count: 1 } },
+  },
+  {
+    code: 72554664, name: "Light of the Branded", slug: "light-of-the-branded", does: "returns a Fusion monster and Special Summons Fallen of Albaz to the own field and a monster of the Graveyard of an opponent",
+    p0: { hand: ["Light of the Branded"], monsters: ["Thousand-Eyes Restrict"], grave: ["Fallen of Albaz"] },
+    tgt: { monsters: [ELF], grave: [MAGICIAN] },
+    steps: [activate("Light of the Branded", "p0")],
+    then: [yes("p0")],
+    p0End: { grave: ["Light of the Branded"], monsters: ["Fallen of Albaz"] },
+    tgtEnd: { monsters: [ELF, MAGICIAN] },
   },
 ];
 

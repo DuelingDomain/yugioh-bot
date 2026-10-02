@@ -320,6 +320,20 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   28062325: ["ffa3", "ffa4", "tag"], // Bamboo Scrap
   42956963: ["ffa3", "ffa4", "tag"], // Nightmare Archfiends
   55465441: ["ffa3", "ffa4", "tag"], // Give and Take
+  6203182: ["ffa3", "ffa4", "tag"], // Two Toads with One Sting
+  17228908: ["ffa3", "ffa4", "tag"], // Lost World
+  33970665: ["ffa3", "ffa4", "tag"], // Guts of Steel
+  36890111: ["ffa3", "ffa4", "tag"], // Mansion of the Dreadful Dolls
+  52782439: ["ffa3", "ffa4", "tag"], // Exceptional Schedule
+  62767644: ["ffa3", "ffa4", "tag"], // Inferno of the Ashened
+  72554664: ["ffa3", "ffa4", "tag"], // Light of the Branded
+  73355951: ["ffa3", "ffa4", "tag"], // Alpha Summon
+  76384284: ["ffa3", "ffa4", "tag"], // Trojan Gladiator Beast
+  78610936: ["ffa3", "ffa4", "tag"], // Xyz Encore
+  80044027: ["ffa3", "ffa4", "tag"], // Mikanko Fire Dance
+  93775296: ["ffa3", "ffa4", "tag"], // Reverse Reuse
+  93912845: ["ffa3", "ffa4", "tag"], // Revival Gift
+  99330325: ["ffa3", "ffa4", "tag"], // Interrupted Kaiju Slumber
 };
 
 export const MULTIPLAYER_CARD_RULES: readonly MultiplayerCardRule[] = CARD_RULE_DRAFTS.map((draft) => {

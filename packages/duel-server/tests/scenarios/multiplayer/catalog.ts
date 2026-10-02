@@ -1055,4 +1055,74 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "opponent-field-effects-ffa4-give-and-take-goes-to-the-picked-opponent",
     "opponent-field-effects-tag-give-and-take-goes-to-an-opposing-member",
   ], // Give and Take
+  6203182: [
+    "opponent-field-effects-ffa3-two-toads-with-one-sting-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-two-toads-with-one-sting-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-two-toads-with-one-sting-goes-to-an-opposing-member",
+  ], // Two Toads with One Sting
+  17228908: [
+    "opponent-field-effects-ffa3-lost-world-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-lost-world-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-lost-world-goes-to-an-opposing-member",
+  ], // Lost World
+  33970665: [
+    "opponent-field-effects-ffa3-guts-of-steel-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-guts-of-steel-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-guts-of-steel-goes-to-an-opposing-member",
+  ], // Guts of Steel
+  36890111: [
+    "opponent-field-effects-ffa3-mansion-of-the-dreadful-dolls-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mansion-of-the-dreadful-dolls-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mansion-of-the-dreadful-dolls-goes-to-an-opposing-member",
+  ], // Mansion of the Dreadful Dolls
+  52782439: [
+    "opponent-field-effects-ffa3-exceptional-schedule-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-exceptional-schedule-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-exceptional-schedule-goes-to-an-opposing-member",
+  ], // Exceptional Schedule
+  62767644: [
+    "opponent-field-effects-ffa3-inferno-of-the-ashened-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-inferno-of-the-ashened-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-inferno-of-the-ashened-goes-to-an-opposing-member",
+  ], // Inferno of the Ashened
+  72554664: [
+    "opponent-field-effects-ffa3-light-of-the-branded-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-light-of-the-branded-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-light-of-the-branded-goes-to-an-opposing-member",
+  ], // Light of the Branded
+  73355951: [
+    "opponent-field-effects-ffa3-alpha-summon-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-alpha-summon-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-alpha-summon-goes-to-an-opposing-member",
+  ], // Alpha Summon
+  76384284: [
+    "opponent-field-effects-ffa3-trojan-gladiator-beast-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-trojan-gladiator-beast-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-trojan-gladiator-beast-goes-to-an-opposing-member",
+  ], // Trojan Gladiator Beast
+  78610936: [
+    "opponent-field-effects-ffa3-xyz-encore-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-xyz-encore-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-xyz-encore-goes-to-an-opposing-member",
+  ], // Xyz Encore
+  80044027: [
+    "opponent-field-effects-ffa3-mikanko-fire-dance-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mikanko-fire-dance-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mikanko-fire-dance-goes-to-an-opposing-member",
+  ], // Mikanko Fire Dance
+  93775296: [
+    "opponent-field-effects-ffa3-reverse-reuse-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-reverse-reuse-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-reverse-reuse-goes-to-an-opposing-member",
+  ], // Reverse Reuse
+  93912845: [
+    "opponent-field-effects-ffa3-revival-gift-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-revival-gift-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-revival-gift-goes-to-an-opposing-member",
+  ], // Revival Gift
+  99330325: [
+    "opponent-field-effects-ffa3-interrupted-kaiju-slumber-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-interrupted-kaiju-slumber-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-interrupted-kaiju-slumber-goes-to-an-opposing-member",
+  ], // Interrupted Kaiju Slumber
 };
