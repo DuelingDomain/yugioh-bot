@@ -1,4 +1,4 @@
-import { activate, expectNotOffered, expectOffered, select, setCard, specialSummon, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, expectNotOffered, expectOffered, expectPrompt, normalSummon, select, setCard, specialSummon, type Scenario } from "../../support/dsl.js";
 import { turnsBefore, type Format, type Seat } from "./seat-kit.js";
 import { stressBoard as board, stressScenario as scenario, stressSetup as setup, STRESS_MASTERS as MASTERS } from "./domain-nseat-stress.js";
 
@@ -12,11 +12,13 @@ for (const [format, seat] of ROLES) {
     scenario(format, `monster-set-by-${seat}`, {
       setup: setup(format),
       steps: [...before, expectOffered("set", { card: MASTERS[seat], from: "dmz" }, seat), setCard({ card: MASTERS[seat], from: "dmz" }, seat),
+        expectNotOffered("normalSummon", "Mystical Elf", seat),
         board(format, { [seat]: { monsters: [MASTERS[seat]], zones: { m0: { card: MASTERS[seat], pos: "facedown" } }, deckMaster: OUT } })],
     }),
     scenario(format, `fusion-master-by-${seat}`, {
-      setup: setup(format, { [seat]: { deckMaster: "Gaia the Dragon Champion", hand: ["Polymerization"], monsters: ["Gaia The Fierce Knight", "Curse of Dragon"] } }),
-      steps: [...before, activate("Polymerization", seat), select("Gaia The Fierce Knight", "Curse of Dragon"),
+      setup: setup(format, { [seat]: { deckMaster: "Gaia the Dragon Champion", hand: ["Polymerization", "Fusion Conscription"], monsters: ["Gaia The Fierce Knight", "Curse of Dragon"], deck: ["Mystical Elf", "Curse of Dragon"] } }),
+      // A type-only Extra Deck filter stays blind to the zone. The proper Fusion procedure can see it.
+      steps: [...before, expectNotOffered("activate", "Fusion Conscription", seat), activate("Polymerization", seat), select("Gaia The Fierce Knight", "Curse of Dragon"),
         board(format, { [seat]: { monsters: ["Gaia the Dragon Champion"], grave: ["Polymerization", "Gaia The Fierce Knight", "Curse of Dragon"], deckMaster: OUT } })],
     }),
     scenario(format, `synchro-master-by-${seat}`, {
@@ -44,6 +46,17 @@ for (const [format, seat] of ROLES) {
       steps: [...before, expectNotOffered("activate", { card: "Odd-Eyes Rebellion Dragon", from: "dmz" }, seat),
         specialSummon({ card: SCALES[0], from: "szone" }, seat), expectNotOffered("choice", "Odd-Eyes Rebellion Dragon", seat), select("Mystical Elf"),
         board(format, { [seat]: { monsters: ["Mystical Elf"], spells: [...SCALES] } })],
+    }),
+    scenario(format, `zone-master-cannot-be-fusion-material-by-${seat}`, {
+      setup: setup(format, { [seat]: { deckMaster: "Gaia The Fierce Knight", hand: ["Polymerization"], monsters: ["Curse of Dragon"], extra: ["Gaia the Dragon Champion"] } }),
+      steps: [...before, expectNotOffered("activate", "Polymerization", seat), endTurn(seat),
+        board(format, { [seat]: { monsters: ["Curse of Dragon"] } })],
+    }),
+    scenario(format, `field-master-as-xyz-material-blocks-recall-by-${seat}`, {
+      setup: setup(format, { [seat]: { deckMaster: "Axe Raider", monsters: ["Celtic Guardian"], extra: ["Number 39: Utopia"] } }),
+      steps: [...before, normalSummon({ card: "Axe Raider", from: "dmz" }, seat), specialSummon("Number 39: Utopia", seat), select("Celtic Guardian", "Axe Raider"),
+        expectPrompt({ by: seat, context: "action" }),
+        board(format, { [seat]: { monsters: ["Number 39: Utopia"], zones: { m0: { card: "Number 39: Utopia", materials: 2 } }, deckMaster: OUT } })],
     }),
   );
 }

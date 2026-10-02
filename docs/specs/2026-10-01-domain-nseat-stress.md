@@ -33,8 +33,16 @@ Sources: ADR-0002; `2026-09-30-multiplayer-core-design.md`, section 8;
 | Opponent field effects include all opponents; compare effects pick one in FFA | Master on field counts for its controller | Compare joined team fields; partner is not an opponent | New count and battle proof |
 | Domain does not change Standard or 1v1 rules | N-seat changes require n > 2 | Same | Guard review and live 1v1 controls if core changes |
 
-Deck construction and the Domain card restriction are outside this engine audit.
-The other agent owns the restriction and the host and lobby paths.
+Deck construction also uses these rules per seat in all three formats: one
+playable monster as Deck Master, exactly 60 Main Deck cards, at most 15 Extra
+Deck cards, no Side Deck, one copy per card identity across Main and Extra,
+and no copy of the Deck Master in those decks. Monster membership follows the
+master's Domain (Type, Attribute, archetype, or a named card; Divine cards are
+included). The Forbidden and Limited List applies per deck. These checks and
+the Domain card restriction are outside this engine audit. The other agent
+owns the restriction and the host and lobby paths. Fuzz deliberately uses
+60-card engine decks with Deck Masters and varied cards; it does not prove
+competitive deck legality.
 
 ## Work sequence
 
@@ -89,3 +97,10 @@ with the same board. It still fails if the engine does not advance. Replay
 and the two-seat answer policy stay unchanged. The live seed test failed at
 step 287 before the fix and reaches a final result after it. Seven live and
 checker tests pass. No engine or Lua patch is needed for this driver defect.
+
+Eight more material cases pass on P61. A master in its zone cannot be Fusion
+material. A master on the field can be Xyz material and remains attached,
+with no recall prompt. The Fusion cases also prove that Fusion Conscription,
+which uses an ordinary Extra Deck filter, cannot see the master in the zone,
+while Polymerization can use the proper Fusion procedure. Monster Set uses
+the normal summon limit at every tested late seat.
