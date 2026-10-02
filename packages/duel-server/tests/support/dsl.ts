@@ -138,6 +138,7 @@ export type Step =
   | { op: "expectNoPrompt" }
   | { op: "expectOffered"; action: ActionKind | "choice"; sel: CardSel; by?: DuelistId }
   | { op: "expectNotOffered"; action: ActionKind | "choice"; sel: CardSel; by?: DuelistId }
+  | { op: "expectSeatNotOffered"; action: ActionKind | "choice"; sel: CardSel; by: DuelistId }
   | { op: "expectResult"; winner?: DuelistId | null; team?: number | null; reason?: string }
   | { op: "expectEliminated"; seats: DuelistId[] }
   | { op: "expectLp"; who: { seat: DuelistId } | { team: number }; value: number }
@@ -222,6 +223,10 @@ export const expectOffered = (action: ActionKind | "choice", sel: CardSel, by?: 
 /** The open prompt does NOT offer this action on this card. Fails if it does. */
 export const expectNotOffered = (action: ActionKind | "choice", sel: CardSel, by?: DuelistId): Step => ({
   op: "expectNotOffered", action, sel, by,
+});
+/** This seat's private view has no offer for the card, including when another seat has the open prompt. */
+export const expectSeatNotOffered = (action: ActionKind | "choice", sel: CardSel, by: DuelistId): Step => ({
+  op: "expectSeatNotOffered", action, sel, by,
 });
 /** What the final result must be. `seat: null` or `team: null` means a draw. Omitted fields are not checked. */
 export interface ResultExpect {

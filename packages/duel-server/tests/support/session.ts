@@ -449,6 +449,12 @@ export class Session {
         if (open) this.fail(stepNo, step, "Expected no open prompt.");
         return;
       }
+      case "expectSeatNotOffered": {
+        const prompt = this.game.view(seatOf(step.by)).prompt;
+        const hits = prompt ? this.candidates(prompt, ACTION_PREFIX[step.action as ActionKind] ?? [""], step.sel) : [];
+        if (hits.length > 0) this.fail(stepNo, step, `Expected ${step.by} not to be offered ${step.action} ${describeSel(step.sel)}, but it is.`);
+        return;
+      }
       case "expectOffered":
       case "expectNotOffered": {
         const open = this.need(stepNo, step, step.by);
