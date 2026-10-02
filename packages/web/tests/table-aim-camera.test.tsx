@@ -39,6 +39,13 @@ const press = (key: string, init: KeyboardEventInit = {}) => act(() => void fire
 const stageOf = (container: HTMLElement) => container.querySelector("[data-table-stage]")!;
 
 describe("camera keys on the 3-way shell", () => {
+  it("opens a reloaded elimination view at home with the full centred turn ring", () => {
+    const { container } = render(<Shell id="elimination" />);
+    expect(stageOf(container).getAttribute("data-camera-mode")).toBe("home");
+    expect(container.querySelector("[data-camera-cue]")).toBeNull();
+    expect(container.querySelector("[data-turn-ring]")?.getAttribute("style")).toContain("translate(488px, 260px) scale(1)");
+  });
+
   it("steps focus with Tab and Shift+Tab, and sends Home back", () => {
     const { container } = render(<Shell id="main" />);
     const stage = stageOf(container);

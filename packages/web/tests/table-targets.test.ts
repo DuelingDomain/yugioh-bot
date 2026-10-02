@@ -120,9 +120,11 @@ describe("autoFollowSeat", () => {
     expect(autoFollowSeat(targetChoices(direct, THREE, 0, nameOf), THREE, 0)).toBeNull();
     expect(autoFollowSeat([], THREE, 0)).toBeNull();
   });
-  it("follows the last living rival", () => {
+  it("keeps the table stable after elimination until a prompt has a target to inspect", () => {
     const eng = engine([seatView(0), seatView(1), seatView(2, { eliminated: true })]);
-    expect(autoFollowSeat([], eng, 0)).toEqual({ seat: 1, reason: "Last rival" });
+    expect(autoFollowSeat([], eng, 0)).toBeNull();
+    const choices = targetChoices(attack([monsterOption("a", 1, 0)]), eng, 0, nameOf);
+    expect(autoFollowSeat(choices, eng, 0)).toEqual({ seat: 1, reason: "Pick a target" });
   });
   it("is null for a spectator", () => {
     expect(autoFollowSeat([], THREE, null)).toBeNull();

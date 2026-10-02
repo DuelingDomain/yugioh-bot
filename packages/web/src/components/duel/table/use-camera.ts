@@ -102,7 +102,7 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
     dispatch({ type: "aiming", on: aiming });
   }, [aiming]);
 
-  // Auto camera: the one rival with a target to pick, or the last rival.
+  // Auto camera follows a field with targets to pick; elimination alone never changes the view.
   const choices = useMemo(() => targetChoices(prompt, engine, viewerSeat, nameOf), [engine, nameOf, prompt, viewerSeat]);
   const follow = useMemo(() => autoFollowSeat(choices, engine, viewerSeat), [choices, engine, viewerSeat]);
   const followSeat = follow?.seat ?? null;

@@ -10,11 +10,11 @@
   height: 100dvh;
 }
 
-/* Who left the table: a small note over the top centre of the stage, between the two top LP panels. It never takes clicks. */
+/* Who left the table: a note in the footer space below the hands, clear of field titles. */
 .outNote {
   position: absolute;
   left: 50%;
-  top: 8px;
+  bottom: 10px;
   z-index: 40;
   display: grid;
   justify-items: center;

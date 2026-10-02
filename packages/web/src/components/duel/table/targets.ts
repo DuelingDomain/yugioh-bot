@@ -50,15 +50,14 @@ export function seatStatus(engine: Pick<DuelEngineView, "seats" | "turnSeat">, s
   return "active";
 }
 
-/** The rival the auto camera should show, and the reason it gives in the cue. Null when there is no clear one. */
+/** Follow a field only when a prompt needs its targets. Eliminations alone leave the table view stable. */
 export function autoFollowSeat(
   choices: readonly TargetChoice[],
   engine: Pick<DuelEngineView, "seats">,
   viewerSeat: number | null,
 ): { seat: number; reason: string } | null {
   if (viewerSeat == null) return null;
-  if (choices.length === 1 && choices[0].zones.length > 0) return { seat: choices[0].seat, reason: "Pick a target" };
-  if (choices.length > 0) return null;
-  const alive = engine.seats.filter((view) => view.seat !== viewerSeat && !isEliminated(view) && view.pendingElimination !== true);
-  return alive.length === 1 ? { seat: alive[0].seat, reason: "Last rival" } : null;
+  if (choices.length !== 1 || choices[0].zones.length === 0) return null;
+  const view = engine.seats.find((seat) => seat.seat === choices[0].seat);
+  return view && !isEliminated(view) && !view.pendingElimination ? { seat: view.seat, reason: "Pick a target" } : null;
 }
