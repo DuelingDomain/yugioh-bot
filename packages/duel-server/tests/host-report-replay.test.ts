@@ -55,7 +55,8 @@ describe("a manual report journal replays", () => {
       expect(reported.status).toBe(200);
       const journal = join(reported.data.path as string, "journal.jsonl");
       const header = JSON.parse(readFileSync(journal, "utf8").split("\n")[0]!);
-      expect(header).toMatchObject({ format: "yugidraft-duel-journal/1", tableFormat: "1v1", wasmFile: "ocgcore.standard.wasm" });
+      expect(header).toMatchObject({ format: "yugidraft-duel-journal/1", tableFormat: "1v1", wasmFile: "ocgcore.standard.wasm",
+        setup: { firstTurnDraw: false } });
       expect(header.wasmSha).toMatch(/^[0-9a-f]{64}$/);
       expect(header.startupScripts.length).toBeGreaterThan(0);
       const output = execFileSync("npx", ["tsx", "scripts/replay-journal.ts", journal, "--data", DATA], {

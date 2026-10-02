@@ -1,0 +1,7 @@
+{
+  "route": "B",
+  "sequential_apply": [
+    "law-normal.adr.patch"
+  ],
+  "all_checks_pass": true
+}

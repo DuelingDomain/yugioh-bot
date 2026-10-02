@@ -10,10 +10,12 @@
 // The Xyz Monster in the banished zone must have been properly summoned, so the actor attacks directly with Number 39: Utopia and the attacked
 // duelist (the next seat in the turn order) banishes it with a Set Dimensional Prison. In Main Phase 2 the actor Releases its Gagaga Cowboy
 // (the cost) and Special Summons the Utopia back. The hands before the turn are p0 1 card, p1 1 card, p2 2 cards, p3 3 cards (the Mystical Elf). A duelist that took its own turn before the End Phase of the actor
-// drew 1 card (the FFA first-draw fixture adds the draw of p0 in turn 1; Tag skips it), so the end hand of a seat is its setup hand + 1 when its turn came before or is the turn of the actor.
+// drew 1 card, except p0 on global turn 1 in Standard MR3-MR5. The end hand
+// is the setup hand plus each draw that occurred before the End Phase of the actor.
 
 import { activate, attack, auto, changePhase, endTurn, expectEliminated, faceDown, pass, pickOpponent, xyz, type Scenario } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
+import { domainVariant } from "./domain-variants.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, PARTNER, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -40,7 +42,7 @@ function emperors(format: Format, actor: Seat, p0Out = false): Scenario {
     };
   }
   const base = baseLp(format);
-  const damage = (seat: Seat): number => 300 * (format === "tag" ? handAtEnd(seat) + handAtEnd(PARTNER[seat]) : handAtEnd(seat) + (seat === "p0" && !p0Out ? 1 : 0));
+  const damage = (seat: Seat): number => 300 * (format === "tag" ? handAtEnd(seat) + handAtEnd(PARTNER[seat]) : handAtEnd(seat));
   const spec: Partial<Record<Seat, object>> = {};
   for (const seat of seats) {
     spec[seat] = {
@@ -80,3 +82,21 @@ export const REBIRTH_EMPERORS_SCENARIOS: Scenario[] = [
   emperors("tag", "p0"), emperors("tag", "p3"),
   emperors("ffa3", "p1", true), emperors("ffa4", "p1", true),
 ];
+
+/** Domain's opening draw adds one hand card to the End Phase damage of p0. */
+export function rebirthEmperorsDomainVariant(scenario: Scenario): Scenario {
+  const variant = domainVariant(scenario);
+  return {
+    ...variant,
+    steps: variant.steps.map((step) => {
+      if (step.op !== "expectBoard" || !step.board.p0?.lp) return step;
+      const board = { ...step.board };
+      const seats: Seat[] = scenario.setup.format === "tag" ? ["p0", "p2"] : ["p0"];
+      for (const seat of seats) {
+        const state = board[seat];
+        if (state?.lp !== undefined) board[seat] = { ...state, lp: state.lp - 300 };
+      }
+      return { ...step, board };
+    }),
+  };
+}

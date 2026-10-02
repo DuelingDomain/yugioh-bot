@@ -11,6 +11,7 @@
  * --name  scenario id (kebab-case). Default: derived from the file name and step.
  *
  * Needs the engine data of the run (DUEL_DATA_DIR, default data/duel-engine-next). See tests/scenarios/generated/README.md.
+ * FFA3 and FFA4 use generateDraft() (scripts/triage.ts) instead of this two-seat scenario writer.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -22,6 +23,7 @@ import { captureBoard, renderPresetDraft, renderScenario, type Capture, type Car
 import { loadSource, replaySource, type DuelSource } from "./lib/replay-source.js";
 import { createEngineGame, eliminationCodeOf } from "../src/engine.js";
 import { engineSeed } from "../tests/fuzz/rng.js";
+import { savedFuzzFirstTurnDraw } from "./lib/fuzz-draw-rule.js";
 import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, seatCountFor, type DuelDeck, type DuelEngineView, type DuelFormat } from "@yugidraft/shared/duels";
 
 const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -52,6 +54,9 @@ export function slugify(text: string): string {
 export async function generate(options: { file: string; step?: number; name?: string; dataDirectory?: string; wasmPath?: string }) {
   const dataDirectory = options.dataDirectory ?? engineDataDirectory();
   const source = loadSource(options.file);
+  if (source.format === "ffa3" || source.format === "ffa4") {
+    throw new Error("generate() supports 1v1 and Tag only. Use generateDraft() for FFA3 or FFA4.");
+  }
   const step = options.step ?? source.failureStep;
   if (step === undefined) throw new Error("Give --step N (the source has no failure step)");
   const views = await replaySource(source, dataDirectory, step, undefined, options.wasmPath ? { wasmPath: options.wasmPath } : {});
@@ -115,6 +120,7 @@ export function loadNSource(file: string): NSource {
       label: `fuzz-n ${format} seed ${scenario.seed} core ${raw.wasm?.tag ?? "?"}`,
       mode: scenario.mode,
       masterRule: scenario.masterRule,
+      firstTurnDraw: savedFuzzFirstTurnDraw(raw.engine?.firstTurnDraw, scenario.mode, scenario.masterRule),
       decks: raw.decks,
       seed: engineSeed(scenario.seed),
       commands,
@@ -210,6 +216,7 @@ export async function replaySeats(source: NSource, dataDirectory: string, step: 
     decks: source.decks as DuelDeck[],
     seed: source.seed,
     dataDirectory,
+    ...(source.firstTurnDraw !== undefined ? { firstTurnDraw: source.firstTurnDraw } : {}),
     settings: source.settings ?? (source.kind === "journal" ? legacyDuelSettings() : normalizeDuelSettings(source.mode, undefined)),
     ...(source.startupScripts ? { startupScripts: source.startupScripts } : {}),
     ...(source.format !== "1v1" ? { format: source.format } : {}),
@@ -222,7 +229,7 @@ export async function replaySeats(source: NSource, dataDirectory: string, step: 
       const elimination = eliminationCodeOf(command.promptId);
       if (view.revision !== command.revision || (elimination === null && view.prompt?.id !== command.promptId)) {
         throw new Error(
-          `answer ${done}: the journal has revision ${command.revision} prompt ${command.promptId}; the engine has revision ${view.revision} prompt ${view.prompt?.id ?? "none"}. The core differs from the recorded run.`,
+          `answer ${done}: the journal has revision ${command.revision} prompt ${command.promptId}; the engine has revision ${view.revision} prompt ${view.prompt?.id ?? "none"}. The replay does not match the recorded run. Check the saved options and engine resources.`,
         );
       }
       if (elimination === null) game.answer(command.seat, command.promptId, command.answer);

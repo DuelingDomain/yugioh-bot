@@ -18,8 +18,8 @@ function tai(format: Format, changed: boolean): Scenario {
   return defineScenario({
     id: `tai-battle-controller-${format}-${target}-${changed ? "given-monster" : "own-monster"}`,
     title: `${format}: TA.I. Strike ${changed ? "destroys the Defense Position defender owned by p0" : "destroys both battle monsters"}; actual defender ${target} takes 3000 effect damage`,
-    source: `${SOURCE} [R-COMMON-SEAT-STATE] damage follows the controller at the battle`,
-    rules: ["R-COMMON-SEAT-STATE"], tags: ["multiplayer", "battle", format, "card:86449372"],
+    source: `${SOURCE} [R-COMMON-SEP-FIELDS] damage follows the controller at the battle`,
+    rules: ["R-COMMON-SEP-FIELDS"], tags: ["multiplayer", "battle", format, "card:86449372"],
     setup: baseSetup(format, { p0: { monsters: [OX], hand: [TAI, ...(changed ? [ELF] : [])] },
       ...(changed ? { p0: { monsters: [OX], hand: [TAI, ELF], spells: [faceDown(GIVE)], grave: [BLUE] } } : { [target]: { monsters: [BLUE] } }) }),
     steps: [...(changed ? [normalSummon(ELF, "p0"), activate(GIVE, "p0"), pickOpponent(target, "p0"),

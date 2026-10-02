@@ -42,5 +42,15 @@ function partnerGrave(actor: "p0" | "p1"): Scenario {
 }
 const standard = (["p0", "p1"] as const).flatMap((actor) => [partnerField(actor), partnerGrave(actor)]);
 const ownHand = TAG_COPY_SCENARIOS.filter((scenario) => scenario.rules?.includes("R-TAG-SHARED-CARDS"))
-  .map((scenario) => domainVariant({ ...scenario, id: `rule-proof-${scenario.id}` }));
+  .map((scenario) => {
+    const source = { ...scenario, id: `rule-proof-${scenario.id}` };
+    if (scenario.id === "tag-copies-three-in-one-monster-of-the-partner-counts") {
+      // Offset p0's Domain first draw. The partner's monster must still break the otherwise equal counts.
+      source.title = "Tag: p1 holds 4 cards in its End Phase and the partner p3 controls a monster (the field is joined): the opposing team has 5 against 4 of p0 and Three in One is offered";
+      source.setup = { ...source.setup, p1: { ...source.setup.p1, hand: [...source.setup.p1!.hand!, "Mystical Elf"] } };
+      source.steps = source.steps.map((step) => step.op === "expectBoard" && Array.isArray(step.board.p1?.hand)
+        ? { ...step, board: { ...step.board, p1: { ...step.board.p1, hand: [...step.board.p1.hand, "Mystical Elf"] } } } : step);
+    }
+    return domainVariant(source);
+  });
 export const TAG_SHARED_CARD_PROOF_SCENARIOS = [...standard, ...standard.map(domainVariant), ...ownHand];

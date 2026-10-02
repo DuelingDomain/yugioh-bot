@@ -36,5 +36,5 @@ describeWithCores("live Law of the Normal Standard", liveNseat, () => {
   runScenarios("multiplayer/law-normal-empty-hands", LAW_NORMAL_EMPTY_HANDS_SCENARIOS, runLaw);
 });
 describeWithCores("live Law of the Normal Domain", [liveNseat, ...needs.domainMulti()], () => {
-  runScenarios("multiplayer/law-normal-empty-hands-domain", LAW_NORMAL_EMPTY_HANDS_SCENARIOS.map(domainVariant), runLaw);
+  runScenarios("multiplayer/law-normal-empty-hands-domain", LAW_NORMAL_EMPTY_HANDS_SCENARIOS.map(scenario => domainVariant({ ...scenario, tags: [...scenario.tags, "ffa-first-draw-included"] })), runLaw);
 });

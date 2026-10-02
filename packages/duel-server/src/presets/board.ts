@@ -71,6 +71,8 @@ export interface BoardSpec {
   masterRule?: DuelMasterRule;
   /** Whose Main Phase 1 the scenario starts in. Default "p0". */
   turn?: DuelistId;
+  /** Skip the opening Draw Phase when rebuilding a captured board. Later turns draw as usual. Default false. */
+  skipOpeningDraw?: boolean;
   /** Let the turn player attack on the very first turn of the duel. Default false. */
   attackFirstTurn?: boolean;
   /** Total Main Deck size, filler included. Default 20. */
@@ -191,14 +193,17 @@ export function compileBoard(board: BoardSpec, dir?: string): CompiledBoard {
     decks.push(deck);
   }
 
-  if (turn === "p1") {
-    // p0's turn 1 is skipped, so p1 plays turn 2. The first draw is skipped too: one persistent
-    // skip-draw effect removes itself at the first Main Phase 1 (a phase reset would be spent by
-    // the skipped turn).
+  if (turn === "p1" || board.skipOpeningDraw) {
+    // A captured board has already passed its Draw Phase. Keep the skip until the first Main Phase 1;
+    // a phase reset would be spent by the skipped p0 turn when p1 starts the scenario.
+    lua.push("do");
+    if (turn === "p1") {
+      lua.push(
+        "local skipTurn=Effect.GlobalEffect(); skipTurn:SetType(EFFECT_TYPE_FIELD); skipTurn:SetCode(EFFECT_SKIP_TURN)",
+        "skipTurn:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skipTurn:SetTargetRange(1,0); skipTurn:SetReset(RESET_PHASE+PHASE_END); Duel.RegisterEffect(skipTurn,0)",
+      );
+    }
     lua.push(
-      "do",
-      "local skipTurn=Effect.GlobalEffect(); skipTurn:SetType(EFFECT_TYPE_FIELD); skipTurn:SetCode(EFFECT_SKIP_TURN)",
-      "skipTurn:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skipTurn:SetTargetRange(1,0); skipTurn:SetReset(RESET_PHASE+PHASE_END); Duel.RegisterEffect(skipTurn,0)",
       "local skipDraw=Effect.GlobalEffect(); skipDraw:SetType(EFFECT_TYPE_FIELD); skipDraw:SetCode(EFFECT_SKIP_DP)",
       "skipDraw:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skipDraw:SetTargetRange(1,1); Duel.RegisterEffect(skipDraw,0)",
       "local undo=Effect.GlobalEffect(); undo:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS); undo:SetCode(EVENT_PHASE_START+PHASE_MAIN1)",

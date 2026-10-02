@@ -69,10 +69,11 @@ export const scenarios: Scenario[] = [
     },
     steps: [
       specialSummon("Eater of Millions"),
-      // The five other cards are the only legal choice (min 5), so the engine picks them.
+      // The Domain first-turn draw adds a filler. Select five cards for the cost.
+      select("Mystical Elf", "Celtic Guardian", "Dark Hole", "Raigeki", "Pot of Greed"),
       expectBoard({
         p0: {
-          hand: [],
+          hand: ["Mystical Elf"],
           monsters: ["Eater of Millions"],
           banished: ["Mystical Elf", "Celtic Guardian", "Dark Hole", "Raigeki", "Pot of Greed"],
           deckMaster: { inZone: true, returns: 0 },
@@ -93,7 +94,7 @@ export const scenarios: Scenario[] = [
       p0: {
         deckMaster: "Demise, King of Armageddon",
         hand: ["Advanced Ritual Art"],
-        deck: ["Blue-Eyes White Dragon"],
+        deck: ["Mystical Elf", "Blue-Eyes White Dragon"],
         monsters: [null, null, null, null, null, "Link Spider"],
       },
       p1: { deckMaster: "Celtic Guardian" },

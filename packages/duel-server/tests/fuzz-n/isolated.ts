@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import type { DuelPrompt } from "@yugidraft/shared/duels";
 import { readCore } from "./core.js";
 import { playDuel, setupScenario, type JournalItem, type NFailure, type NOutcome, type NScenario } from "./driver.js";
+import { firstTurnDrawFor } from "../../src/first-turn-draw.js";
 
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "../../scripts/fuzz-n.ts");
 const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -16,6 +17,7 @@ export interface ChildSpec {
   scenario: NScenario;
   dataDirectory: string;
   corePath: string;
+  firstTurnDraw?: boolean;
   /** The child appends one JSON line per pending call and per accepted action, so a hang leaves a trace. */
   journalFile: string;
   script?: { journal: JournalItem[]; pending?: JournalItem | undefined };
@@ -36,6 +38,7 @@ export async function childMain(specFile: string): Promise<void> {
   Date.now = () => Date.UTC(2026, 0, 1);
   const outcome = await playDuel(spec.scenario, {
     dataDirectory: spec.dataDirectory,
+    firstTurnDraw: spec.firstTurnDraw,
     multiWasmBinary: core.bytes,
     ...(spec.script ? { script: spec.script } : {}),
     hooks: {
@@ -64,6 +67,7 @@ export interface IsolatedOptions {
   dataDirectory: string;
   corePath: string;
   timeoutMs: number;
+  firstTurnDraw?: boolean;
   script?: ChildSpec["script"];
 }
 
@@ -72,10 +76,11 @@ export interface IsolatedOptions {
  * nothing in the same process can stop it, so the parent kills the child and classifies a `hang`.
  */
 export async function runIsolated(scenario: NScenario, options: IsolatedOptions): Promise<NOutcome> {
+  options = { ...options, firstTurnDraw: options.firstTurnDraw ?? firstTurnDrawFor(scenario.mode, scenario.masterRule) };
   const dir = mkdtempSync(join(tmpdir(), "fuzz-n-"));
   const specFile = join(dir, "spec.json");
   const journalFile = join(dir, "trace.jsonl");
-  const spec: ChildSpec = { scenario, dataDirectory: options.dataDirectory, corePath: options.corePath, journalFile, ...(options.script ? { script: options.script } : {}) };
+  const spec: ChildSpec = { scenario, dataDirectory: options.dataDirectory, corePath: options.corePath, firstTurnDraw: options.firstTurnDraw, journalFile, ...(options.script ? { script: options.script } : {}) };
   writeFileSync(specFile, JSON.stringify(spec));
   try {
     const run = await new Promise<{ stdout: string; stderr: string; code: number | null; timedOut: boolean }>((done) => {
@@ -137,6 +142,7 @@ function synthesize(
       };
   return {
     scenario,
+    firstTurnDraw: options.firstTurnDraw!,
     decks: setup.decks,
     deckNotes: setup.deckNotes,
     disjoint: setup.disjoint,

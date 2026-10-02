@@ -15,7 +15,7 @@ describeWithCores("live Worm Millidith table proof on P68", liveNseat, () => {
       return { ...step, board: Object.fromEntries(Object.entries(step.board).map(([seat, state]) => [seat, {
         ...state,
         extra: [],
-        deckCount: seat === "p1" || (seat === "p0" && scenario.setup.format !== "tag") ? 19 : 20,
+        deckCount: seat === "p1" ? 19 : 20,
       }])) };
     }),
   })));

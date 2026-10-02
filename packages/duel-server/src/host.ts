@@ -27,6 +27,7 @@ import { normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards } from "./card-search.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "./multi-scripts.js";
+import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
 import {
   freezeContinueClock,
@@ -285,6 +286,7 @@ export function createDuelHost(options: {
     format: DuelFormat = "1v1",
     startupScripts?: string[],
     engine?: DuelEngineChoice,
+    firstTurnDraw = firstTurnDrawFor(mode, masterRule),
   ): GameOptions {
     const created: GameOptions = {
       mode,
@@ -293,6 +295,7 @@ export function createDuelHost(options: {
       dataDirectory: options.dataDirectory,
       masterRule,
       settings,
+      firstTurnDraw,
     };
     // 1v1 keeps the exact old options. Other formats name the format; `decks` is one deck per seat in seat order.
     if (format !== "1v1") created.format = format;
@@ -318,6 +321,14 @@ export function createDuelHost(options: {
   function engineOfSavedTable(format: DuelFormat, setup: { engine?: DuelEngineChoice; startupScripts?: string[] } | undefined): DuelEngineChoice | undefined {
     if (format !== "1v1") return undefined;
     return setup?.engine ?? (setup?.startupScripts?.length ? "pinned" : "legacy");
+  }
+
+  function drawRuleOf(state: ReturnType<typeof service.privateState>): boolean {
+    try {
+      return savedFirstTurnDraw(state.setup?.firstTurnDraw, state.session.mode, state.session.masterRule, state.session.format);
+    } catch (error) {
+      throw new RequestError((error as Error).message, 409);
+    }
   }
 
   /** Seats the host answers for: practice bots, plus seats that surrendered (they only pass). */
@@ -924,6 +935,14 @@ export function createDuelHost(options: {
       await afterGameEnded(slug, guildId);
       throw new RequestError("Duel interrupted: engine resource version changed", 409);
     }
+    let firstTurnDraw: boolean;
+    try {
+      firstTurnDraw = drawRuleOf(state);
+    } catch (error) {
+      service.interrupt(slug, guildId, (error as Error).message);
+      await emitChange(slug, guildId);
+      throw error;
+    }
     const game = spawn();
     try {
       await game.create(workerCreateOptions(
@@ -935,6 +954,7 @@ export function createDuelHost(options: {
         state.session.format,
         state.setup?.startupScripts,
         engineOfSavedTable(state.session.format, state.setup),
+        firstTurnDraw,
       ));
     } catch (error) {
       await safeClose(game);
@@ -1147,6 +1167,7 @@ export function createDuelHost(options: {
         409,
       );
     }
+    const firstTurnDraw = drawRuleOf(state);
     const viewer = room.mySeat;
     const mismatch = () =>
       new RequestError("Replay could not reproduce this duel. The final board is still available.", 409);
@@ -1158,7 +1179,7 @@ export function createDuelHost(options: {
     let lastView: DuelEngineView;
     try {
       try {
-        await game.create(workerCreateOptions(session.mode, state.decks, state.seed, session.masterRule, session.settings, session.format, state.setup?.startupScripts, engineOfSavedTable(session.format, state.setup)));
+        await game.create(workerCreateOptions(session.mode, state.decks, state.seed, session.masterRule, session.settings, session.format, state.setup?.startupScripts, engineOfSavedTable(session.format, state.setup), firstTurnDraw));
       } catch (error) {
         throw transport(error);
       }
@@ -1295,6 +1316,7 @@ export function createDuelHost(options: {
       }
       const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
       service.activate(slug, guildId, actor, seed, pinnedVersionFor(preset.format), clock, {
+        firstTurnDraw: firstTurnDrawFor(state.session.mode, state.session.masterRule),
         scenarioId: preset.id,
         presetId: preset.id,
         startupScripts: scripts,
@@ -1724,7 +1746,9 @@ export function createDuelHost(options: {
       ));
       const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
       // The engine is saved with the duel, so a recover and a replay use it even after DUEL_1V1_ENGINE changes.
-      service.activate(slug, guildId, organizer, seed, pinnedVersionFor(state.session.format), clock, engine ? { engine } : undefined);
+      service.activate(slug, guildId, organizer, seed, pinnedVersionFor(state.session.format), clock, {
+        ...(state.setup ?? {}), firstTurnDraw: firstTurnDrawFor(state.session.mode, state.session.masterRule), ...(engine ? { engine } : {}),
+      });
       games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, game);

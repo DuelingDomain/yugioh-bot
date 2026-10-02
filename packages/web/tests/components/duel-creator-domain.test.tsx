@@ -20,6 +20,13 @@ afterEach(() => {
 });
 
 describe("DuelCreator Domain rule", () => {
+  it.each([5, 3])("explains the first-turn draw for Domain MR%s", (masterRule) => {
+    render(<DuelCreator multiplayerTables />);
+    fireEvent.click(screen.getByLabelText("Domain"));
+    fireEvent.change(screen.getByLabelText("Master Rules"), { target: { value: String(masterRule) } });
+    expect(screen.getByRole("status").textContent).toContain("In Domain, every duelist draws on their first turn.");
+  });
+
   it("offers Standard and Domain at a 1v1 table", () => {
     render(<DuelCreator multiplayerTables />);
     expect(screen.getByLabelText("Domain")).toBeTruthy();

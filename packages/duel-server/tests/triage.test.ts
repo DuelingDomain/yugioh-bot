@@ -72,7 +72,7 @@ describe("triage input detection", () => {
   });
 
   it("accepts a journal with more than two seats (the replay is the N-seat path)", async () => {
-    const file = write("duel-journal-ffa.json", { ...journalHeader, decks: [deck, deck, deck, deck] });
+    const file = write("duel-journal-ffa.json", { ...journalHeader, decks: [deck, deck, deck, deck], setup: { firstTurnDraw: false } });
     const result = await triage(file, { noScenario: true, noIssue: true });
     expect(result.code).toBe(0);
     expect(result.lines.join("\n")).toContain("4 seats (ffa4)");

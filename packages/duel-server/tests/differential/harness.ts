@@ -166,6 +166,7 @@ export async function replayOn(recorded: DuelOutcome, dataDirectory: string, was
   try {
     const game = await createEngineGame({
       mode: recorded.scenario.mode,
+      firstTurnDraw: recorded.firstTurnDraw,
       masterRule: recorded.scenario.masterRule,
       decks: setup.decks,
       seed: setup.engineSeed,

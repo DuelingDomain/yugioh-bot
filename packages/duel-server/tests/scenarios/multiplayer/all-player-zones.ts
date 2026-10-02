@@ -65,11 +65,6 @@ function allHands(kind: Kind, format: Format, lost = false): Scenario {
       board[SEATS[i]]!.grave = [];
     }
   }
-  if (format === "ffa3" || format === "ffa4") {
-    expected.deckCount!--;
-    if (kind === "sophia") (expected.banished as string[]).push("Mystical Elf");
-    else (expected.grave as string[]).push("Mystical Elf");
-  }
   if (lost) {
     board.p3 = { lp: 8000, hand: [], monsters: [], spells: [], grave: [], banished: [], deckCount: 0 };
     steps.push(expectEliminated("p3"));

@@ -1,0 +1,970 @@
+[
+  {
+    "route": "A",
+    "fork": "production",
+    "success": true,
+    "checked": [
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/fix2/dependencies/C6/ffa4-shared-zones-scenarios-old-to-new.patch",
+        "sha256": "91a630589a80ba1dc9812b4e9a15cdcf66fae857d4989703784fe5ebc1e4c51e",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/controller-turn-rule.patch",
+        "sha256": "4483a0bb5854d985e9f99d9ddb3025ed7fa7094ad4a3311880b2173ff7402efd",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/integration/law-normal-after-controller.adr.patch",
+        "sha256": "3acaa7b406c7a946568bb15dab3abc76bbf4722796e07f6a0bda9c9519ca15c0",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-10-owner-return-rule.patch",
+        "sha256": "4b210a8d7e0609a7f89664568cedfc62e9a7b87c65b2c1d0591865fb8fe2c1f9",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/helper-turn-order.patch",
+        "sha256": "ec1d55a0a4266d3acd40b9c2a562501a0761f8f88e92578fc7a573cff4189aca",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/clear-world.patch",
+        "sha256": "bc5b39e0331e66c2e8ee3c462842c72b212fdd50ab89d01331f1511279365bce",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/clear-world-hints.patch",
+        "sha256": "69b5492d69f7cc715916e76bad2ec94b08d86191881796fa6c27070b80da4e48",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/hama.patch",
+        "sha256": "42e07cabf767731eb067404272ea5ec4c44948dcabbb8d900b4a5694b6c0f434",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/battlefield.patch",
+        "sha256": "26c50700e82866e25070ca2a071990e9c1d419558a2c1fddc060db462d838ac5",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/underworld-circle.patch",
+        "sha256": "9f00b907d632d60621302183847026a99df8ce19074b84fba28e041de9f24613",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/c3-08-revival-eligibility-cleanup.patch",
+        "sha256": "664c3e0e815d954f4a5925256d00c3d77651dc922822a7dd392e33067d7b07b8",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/c3-05-resource-order.patch",
+        "sha256": "04dfb928323ff9ad4eba39164a144cd7b1546fa3bf20edfe0d30fde7fe59f9e0",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/controller-turn.overlays.patch",
+        "sha256": "59aae2c302e1350a6c640931a3110c584e771d75d9c24470ecd85454ffa2b511",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/controller-turn.scenarios.patch",
+        "sha256": "653275dce3abd58f2ec03f59a232609aaef5b4268cc609985befb5b98937896d",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.overlays.patch",
+        "sha256": "70227feb3a64df74bd1216435f359b5fbc1230c0f61b05f8548de37469602b02",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.scenarios.patch",
+        "sha256": "abd1dbb9cfbcad8f31bd4b482b9d94c1c058d09aaf2f05d34225bb430d5bd20a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.existing-proof.patch",
+        "sha256": "cbecac34676fb9790825e90c0fded89cc345494afed15a4a4c083d07b6f9d49a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-controller.patch",
+        "sha256": "899e589a9986d634a7b1e1045697e726c2aa9eea085ead1a72652e38fe91d809",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-owner-action-scenarios.patch",
+        "sha256": "39a63128732b3473c2d832be2fc2f042cfc4a7582b981c403ac2fdd7c0836835",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-draw-legality-scenarios.patch",
+        "sha256": "f69f10ddd0d990ca9a0eb16d0b278c84b89cc9d38678fa795ac813f593f1b737",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-controller-review-proofs.patch",
+        "sha256": "26471916a7518e2b25679d6d3d72e94b8c92c17421b44b70ad3c8336ecfc209f",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/engine-hint-logs.patch",
+        "sha256": "e8d817f600813c691123818e54fa1d3004b8375a3134729f4340f255ea074807",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/hint-log-call-review-proofs.patch",
+        "sha256": "8b3c1bb4bf57bd1c74d5cd688c9adfcbbe4b7e008f16d41f54afbb2d814a48ba",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/clear-world-hint-review-proofs.patch",
+        "sha256": "3803b4c77de3dd208f5a43e1f4844c7632631e4b22bfbe37db9c52f21037988b",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/native-hint-call-proof.patch",
+        "sha256": "20fa0a852a8b3f0334eb45fa17270b28cb3a38320507f08ea3368e4d55112646",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/seat-queries.native.patch",
+        "sha256": "ff0692e11634be4d585d033d3035e8560aaf99d959b3565c6d4fc0a89a3ddbd7",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/seat-queries.native-registration.patch",
+        "sha256": "11315d6046964bec81be2208beb4a351d0dbb3a533279e83d4ea41edc5e94203",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-02-book-astro-spec.patch",
+        "sha256": "34614a63e601b6ba2f56c7ecab57aa4c740de2833e42f01dc00f3173befad67f",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c1-04-stress-current-rules-reconciled.patch",
+        "sha256": "d4c4175fb75763982d719010a4faa28f0421e3ce71224645e396cb579d43a5a2",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-05-tag-loss-proof-scope.patch",
+        "sha256": "921cadf0016665e6fb2a33941b11ebfadf0856009a1e0bafac4b8a752156b55a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-06-soul-release-direct-scenario.patch",
+        "sha256": "c1eea6b132a8882a80ab09a173e5ce79a8fb7087f988d417d8e40579cf73ef66",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-09-duplicate-setups.patch",
+        "sha256": "1eb92d723a7d552b6224f2858bff16ce0a25ac35dbcd3679eab9c4eabb204756",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/integration/c1-10-host-gates-current.patch",
+        "sha256": "7b535507c4ebf857497eaad5b90283e0d528ffc5bb064318800234afd51f8338",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c2-04-legal-continuous-lock-validated.patch",
+        "sha256": "ff54def42df935eb5846747bf702c044e0549dfdfce2a1031ba905649d0f1bd5",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c2-08-fuzz-positive-return-validated.patch",
+        "sha256": "6a6228d2af6dc13eff56c22ad8c84916f27f03897cddc23f7b569be0cf63fe6e",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-01-02-geometry-scenario-scope.patch",
+        "sha256": "92eebcdedfce0e00784868af1a1424c226aa6f3306f60a624499fe4e8edbb503",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c3-07-chainer-response-window-validated.patch",
+        "sha256": "d71069cbddbd137d3c22f541678431d720b4e058744db011070cd63c0f965513",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-04-turn-n-first-battle.patch",
+        "sha256": "f8bea6096f704a1bc8ae972a8a4ef07d1860f5f83a602541535c5affb7e32a14",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-12-remove-ojama-tautology.patch",
+        "sha256": "86a7a4f99cf0d022f67a51cf30977c682b4ac8187d5ac8d6477e254907885ac9",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c5-opponent-field-markers.patch",
+        "sha256": "ac61bcc3bbc0ac0abf7c39f21adb2b070432f685d999fc28bb055765f6184a62",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c5-current-rule-audit.patch",
+        "sha256": "740a38e6e91dde5a0a26b31be8fe4f4d767b0f9e934783145fc7cdd847e8f9c6",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c5-living-partner-and-first-draw-spec.patch",
+        "sha256": "e8bc5c908a7009b8ed201738a1655d3700f3342cc25c572af6ab2279db95aa79",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c6-worm-unused-import.patch",
+        "sha256": "524b00de3e6f5d417f05c2d00c7f6940a203666f0ea39ebdca7cbf5737c905d1",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-local-controller-partner-control-validated.patch",
+        "sha256": "429c97cf51a20612d146dfddade9cceda98252b2d3dd3daafcb6fa0ed4806c77",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c7-arcana-damage-marker.patch",
+        "sha256": "54f6f8a55c03c64a00206f4d9dcee9c4cf006aaa2c25b21a48646b803a5fd3a8",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-register-original-runners.patch",
+        "sha256": "eca90a26efd11eaef69205dc25b9a4fc72b2ce206534304692f3530a43f83893",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-remove-duplicate-first-battle-export.patch",
+        "sha256": "223781534bc372b2583acfa13b5c7d0dfde61c92d35217e0e2310d25f3835d36",
+        "exit": 0
+      }
+    ]
+  },
+  {
+    "route": "A",
+    "fork": "owner-seat",
+    "success": true,
+    "checked": [
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase1/gap-overlay/out2/mp-owner-seat.scenarios.patch",
+        "sha256": "68943cfee506678a898d62c2662f922f94c691483c9c6a1b9743b8058cf1684b",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase1/gap-overlay/out2/mp-action-seat.pre-tag.scenarios.patch",
+        "sha256": "aa3be5c6826198fe1f0288fda66ad76cf290c926208a18908d141c5c79bbc278",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase1/gap-overlay/out2/mp-action-seat.tag-shared-cards.patch",
+        "sha256": "a9a3d94ca4c10ba6e2fa1e493af3b59c3f3b28730896d689d9ac0d1c204a1e91",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/integration/c6-after-owner.scenarios.patch",
+        "sha256": "8cc3239d6e0d98a321d6e55a8fde30a583725ff9d51b30b0688162278d3e628f",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/controller-turn-rule.patch",
+        "sha256": "4483a0bb5854d985e9f99d9ddb3025ed7fa7094ad4a3311880b2173ff7402efd",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/integration/law-normal-after-controller.adr.patch",
+        "sha256": "3acaa7b406c7a946568bb15dab3abc76bbf4722796e07f6a0bda9c9519ca15c0",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-10-owner-return-rule.patch",
+        "sha256": "4b210a8d7e0609a7f89664568cedfc62e9a7b87c65b2c1d0591865fb8fe2c1f9",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/helper-turn-order.patch",
+        "sha256": "ec1d55a0a4266d3acd40b9c2a562501a0761f8f88e92578fc7a573cff4189aca",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/clear-world.patch",
+        "sha256": "bc5b39e0331e66c2e8ee3c462842c72b212fdd50ab89d01331f1511279365bce",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/clear-world-hints.patch",
+        "sha256": "69b5492d69f7cc715916e76bad2ec94b08d86191881796fa6c27070b80da4e48",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/hama.patch",
+        "sha256": "42e07cabf767731eb067404272ea5ec4c44948dcabbb8d900b4a5694b6c0f434",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/battlefield.patch",
+        "sha256": "26c50700e82866e25070ca2a071990e9c1d419558a2c1fddc060db462d838ac5",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/underworld-circle.patch",
+        "sha256": "9f00b907d632d60621302183847026a99df8ce19074b84fba28e041de9f24613",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/c3-08-revival-eligibility-cleanup.patch",
+        "sha256": "664c3e0e815d954f4a5925256d00c3d77651dc922822a7dd392e33067d7b07b8",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/c3-05-resource-order.patch",
+        "sha256": "04dfb928323ff9ad4eba39164a144cd7b1546fa3bf20edfe0d30fde7fe59f9e0",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/controller-turn.overlays.patch",
+        "sha256": "59aae2c302e1350a6c640931a3110c584e771d75d9c24470ecd85454ffa2b511",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/controller-turn.scenarios.patch",
+        "sha256": "653275dce3abd58f2ec03f59a232609aaef5b4268cc609985befb5b98937896d",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.overlays.patch",
+        "sha256": "70227feb3a64df74bd1216435f359b5fbc1230c0f61b05f8548de37469602b02",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.scenarios.patch",
+        "sha256": "abd1dbb9cfbcad8f31bd4b482b9d94c1c058d09aaf2f05d34225bb430d5bd20a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.existing-proof.patch",
+        "sha256": "cbecac34676fb9790825e90c0fded89cc345494afed15a4a4c083d07b6f9d49a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-owner-route.patch",
+        "sha256": "fec39f51bedc4fc1cc67785137ec036d4203576d8dab917fa16a510d6f4029c6",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-owner-action-scenarios.patch",
+        "sha256": "39a63128732b3473c2d832be2fc2f042cfc4a7582b981c403ac2fdd7c0836835",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-draw-legality-scenarios.patch",
+        "sha256": "f69f10ddd0d990ca9a0eb16d0b278c84b89cc9d38678fa795ac813f593f1b737",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-controller-review-proofs.patch",
+        "sha256": "26471916a7518e2b25679d6d3d72e94b8c92c17421b44b70ad3c8336ecfc209f",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/engine-hint-logs.patch",
+        "sha256": "e8d817f600813c691123818e54fa1d3004b8375a3134729f4340f255ea074807",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/hint-log-call-review-proofs.patch",
+        "sha256": "8b3c1bb4bf57bd1c74d5cd688c9adfcbbe4b7e008f16d41f54afbb2d814a48ba",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/clear-world-hint-review-proofs.patch",
+        "sha256": "3803b4c77de3dd208f5a43e1f4844c7632631e4b22bfbe37db9c52f21037988b",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/native-hint-call-proof.patch",
+        "sha256": "20fa0a852a8b3f0334eb45fa17270b28cb3a38320507f08ea3368e4d55112646",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/seat-queries.native.patch",
+        "sha256": "ff0692e11634be4d585d033d3035e8560aaf99d959b3565c6d4fc0a89a3ddbd7",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/seat-queries.native-registration.patch",
+        "sha256": "11315d6046964bec81be2208beb4a351d0dbb3a533279e83d4ea41edc5e94203",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-02-book-astro-spec.patch",
+        "sha256": "34614a63e601b6ba2f56c7ecab57aa4c740de2833e42f01dc00f3173befad67f",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c1-04-stress-current-rules-reconciled.patch",
+        "sha256": "d4c4175fb75763982d719010a4faa28f0421e3ce71224645e396cb579d43a5a2",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-05-tag-loss-proof-scope.patch",
+        "sha256": "921cadf0016665e6fb2a33941b11ebfadf0856009a1e0bafac4b8a752156b55a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-06-soul-release-direct-scenario.patch",
+        "sha256": "c1eea6b132a8882a80ab09a173e5ce79a8fb7087f988d417d8e40579cf73ef66",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-09-duplicate-setups.patch",
+        "sha256": "1eb92d723a7d552b6224f2858bff16ce0a25ac35dbcd3679eab9c4eabb204756",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/integration/c1-10-host-gates-current.patch",
+        "sha256": "7b535507c4ebf857497eaad5b90283e0d528ffc5bb064318800234afd51f8338",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c2-04-legal-continuous-lock-validated.patch",
+        "sha256": "ff54def42df935eb5846747bf702c044e0549dfdfce2a1031ba905649d0f1bd5",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c2-08-fuzz-positive-return-validated.patch",
+        "sha256": "6a6228d2af6dc13eff56c22ad8c84916f27f03897cddc23f7b569be0cf63fe6e",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-01-02-geometry-scenario-scope.patch",
+        "sha256": "92eebcdedfce0e00784868af1a1424c226aa6f3306f60a624499fe4e8edbb503",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c3-07-chainer-response-window-validated.patch",
+        "sha256": "d71069cbddbd137d3c22f541678431d720b4e058744db011070cd63c0f965513",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-04-turn-n-first-battle.patch",
+        "sha256": "f8bea6096f704a1bc8ae972a8a4ef07d1860f5f83a602541535c5affb7e32a14",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-12-remove-ojama-tautology.patch",
+        "sha256": "86a7a4f99cf0d022f67a51cf30977c682b4ac8187d5ac8d6477e254907885ac9",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c5-opponent-field-markers.patch",
+        "sha256": "ac61bcc3bbc0ac0abf7c39f21adb2b070432f685d999fc28bb055765f6184a62",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c5-current-rule-audit.patch",
+        "sha256": "740a38e6e91dde5a0a26b31be8fe4f4d767b0f9e934783145fc7cdd847e8f9c6",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c5-living-partner-and-first-draw-spec.patch",
+        "sha256": "e8bc5c908a7009b8ed201738a1655d3700f3342cc25c572af6ab2279db95aa79",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c6-worm-unused-import.patch",
+        "sha256": "524b00de3e6f5d417f05c2d00c7f6940a203666f0ea39ebdca7cbf5737c905d1",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-local-controller-partner-control-validated.patch",
+        "sha256": "429c97cf51a20612d146dfddade9cceda98252b2d3dd3daafcb6fa0ed4806c77",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c7-arcana-damage-marker.patch",
+        "sha256": "54f6f8a55c03c64a00206f4d9dcee9c4cf006aaa2c25b21a48646b803a5fd3a8",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-register-original-runners.patch",
+        "sha256": "eca90a26efd11eaef69205dc25b9a4fc72b2ce206534304692f3530a43f83893",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-remove-duplicate-first-battle-export.patch",
+        "sha256": "223781534bc372b2583acfa13b5c7d0dfde61c92d35217e0e2310d25f3835d36",
+        "exit": 0
+      }
+    ]
+  },
+  {
+    "route": "B",
+    "fork": "production",
+    "success": true,
+    "checked": [
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/fix2/dependencies/C6/ffa4-shared-zones-scenarios-old-to-new.patch",
+        "sha256": "91a630589a80ba1dc9812b4e9a15cdcf66fae857d4989703784fe5ebc1e4c51e",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/law-normal.adr.patch",
+        "sha256": "6b07dec99eb97c38ae9f8d5180610b635d63fd575888c6ea8054d602d072e8bf",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-10-owner-return-rule.patch",
+        "sha256": "4b210a8d7e0609a7f89664568cedfc62e9a7b87c65b2c1d0591865fb8fe2c1f9",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/helper-turn-order.patch",
+        "sha256": "ec1d55a0a4266d3acd40b9c2a562501a0761f8f88e92578fc7a573cff4189aca",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/clear-world.patch",
+        "sha256": "bc5b39e0331e66c2e8ee3c462842c72b212fdd50ab89d01331f1511279365bce",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/clear-world-hints.patch",
+        "sha256": "69b5492d69f7cc715916e76bad2ec94b08d86191881796fa6c27070b80da4e48",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/hama.patch",
+        "sha256": "42e07cabf767731eb067404272ea5ec4c44948dcabbb8d900b4a5694b6c0f434",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/battlefield.patch",
+        "sha256": "26c50700e82866e25070ca2a071990e9c1d419558a2c1fddc060db462d838ac5",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/underworld-circle.patch",
+        "sha256": "9f00b907d632d60621302183847026a99df8ce19074b84fba28e041de9f24613",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/c3-08-revival-eligibility-cleanup.patch",
+        "sha256": "664c3e0e815d954f4a5925256d00c3d77651dc922822a7dd392e33067d7b07b8",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/c3-05-resource-order.patch",
+        "sha256": "04dfb928323ff9ad4eba39164a144cd7b1546fa3bf20edfe0d30fde7fe59f9e0",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.overlays.patch",
+        "sha256": "70227feb3a64df74bd1216435f359b5fbc1230c0f61b05f8548de37469602b02",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.scenarios.patch",
+        "sha256": "abd1dbb9cfbcad8f31bd4b482b9d94c1c058d09aaf2f05d34225bb430d5bd20a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.existing-proof.patch",
+        "sha256": "cbecac34676fb9790825e90c0fded89cc345494afed15a4a4c083d07b6f9d49a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-controller.patch",
+        "sha256": "899e589a9986d634a7b1e1045697e726c2aa9eea085ead1a72652e38fe91d809",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-owner-action-scenarios.patch",
+        "sha256": "39a63128732b3473c2d832be2fc2f042cfc4a7582b981c403ac2fdd7c0836835",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-draw-legality-scenarios.patch",
+        "sha256": "f69f10ddd0d990ca9a0eb16d0b278c84b89cc9d38678fa795ac813f593f1b737",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-controller-review-proofs.patch",
+        "sha256": "26471916a7518e2b25679d6d3d72e94b8c92c17421b44b70ad3c8336ecfc209f",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/engine-hint-logs.patch",
+        "sha256": "e8d817f600813c691123818e54fa1d3004b8375a3134729f4340f255ea074807",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/hint-log-call-review-proofs.patch",
+        "sha256": "8b3c1bb4bf57bd1c74d5cd688c9adfcbbe4b7e008f16d41f54afbb2d814a48ba",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/clear-world-hint-review-proofs.patch",
+        "sha256": "3803b4c77de3dd208f5a43e1f4844c7632631e4b22bfbe37db9c52f21037988b",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/native-hint-call-proof.patch",
+        "sha256": "20fa0a852a8b3f0334eb45fa17270b28cb3a38320507f08ea3368e4d55112646",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/seat-queries.native.patch",
+        "sha256": "ff0692e11634be4d585d033d3035e8560aaf99d959b3565c6d4fc0a89a3ddbd7",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/seat-queries.native-registration.patch",
+        "sha256": "11315d6046964bec81be2208beb4a351d0dbb3a533279e83d4ea41edc5e94203",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-02-book-astro-spec.patch",
+        "sha256": "34614a63e601b6ba2f56c7ecab57aa4c740de2833e42f01dc00f3173befad67f",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c1-04-stress-current-rules-reconciled.patch",
+        "sha256": "d4c4175fb75763982d719010a4faa28f0421e3ce71224645e396cb579d43a5a2",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-05-tag-loss-proof-scope.patch",
+        "sha256": "921cadf0016665e6fb2a33941b11ebfadf0856009a1e0bafac4b8a752156b55a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-06-soul-release-direct-scenario.patch",
+        "sha256": "c1eea6b132a8882a80ab09a173e5ce79a8fb7087f988d417d8e40579cf73ef66",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-09-duplicate-setups.patch",
+        "sha256": "1eb92d723a7d552b6224f2858bff16ce0a25ac35dbcd3679eab9c4eabb204756",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/integration/c1-10-host-gates-current.patch",
+        "sha256": "7b535507c4ebf857497eaad5b90283e0d528ffc5bb064318800234afd51f8338",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c2-04-legal-continuous-lock-validated.patch",
+        "sha256": "ff54def42df935eb5846747bf702c044e0549dfdfce2a1031ba905649d0f1bd5",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c2-08-fuzz-positive-return-validated.patch",
+        "sha256": "6a6228d2af6dc13eff56c22ad8c84916f27f03897cddc23f7b569be0cf63fe6e",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-01-02-geometry-scenario-scope.patch",
+        "sha256": "92eebcdedfce0e00784868af1a1424c226aa6f3306f60a624499fe4e8edbb503",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c3-07-chainer-response-window-validated.patch",
+        "sha256": "d71069cbddbd137d3c22f541678431d720b4e058744db011070cd63c0f965513",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-04-turn-n-first-battle.patch",
+        "sha256": "f8bea6096f704a1bc8ae972a8a4ef07d1860f5f83a602541535c5affb7e32a14",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-12-remove-ojama-tautology.patch",
+        "sha256": "86a7a4f99cf0d022f67a51cf30977c682b4ac8187d5ac8d6477e254907885ac9",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c5-opponent-field-markers.patch",
+        "sha256": "ac61bcc3bbc0ac0abf7c39f21adb2b070432f685d999fc28bb055765f6184a62",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c5-current-rule-audit.patch",
+        "sha256": "740a38e6e91dde5a0a26b31be8fe4f4d767b0f9e934783145fc7cdd847e8f9c6",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c5-living-partner-and-first-draw-spec.patch",
+        "sha256": "e8bc5c908a7009b8ed201738a1655d3700f3342cc25c572af6ab2279db95aa79",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c6-worm-unused-import.patch",
+        "sha256": "524b00de3e6f5d417f05c2d00c7f6940a203666f0ea39ebdca7cbf5737c905d1",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-local-controller-partner-control-validated.patch",
+        "sha256": "429c97cf51a20612d146dfddade9cceda98252b2d3dd3daafcb6fa0ed4806c77",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c7-arcana-damage-marker.patch",
+        "sha256": "54f6f8a55c03c64a00206f4d9dcee9c4cf006aaa2c25b21a48646b803a5fd3a8",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-register-original-runners.patch",
+        "sha256": "eca90a26efd11eaef69205dc25b9a4fc72b2ce206534304692f3530a43f83893",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-remove-duplicate-first-battle-export.patch",
+        "sha256": "223781534bc372b2583acfa13b5c7d0dfde61c92d35217e0e2310d25f3835d36",
+        "exit": 0
+      }
+    ]
+  },
+  {
+    "route": "B",
+    "fork": "owner-seat",
+    "success": true,
+    "checked": [
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase1/gap-overlay/out2/mp-owner-seat.scenarios.patch",
+        "sha256": "68943cfee506678a898d62c2662f922f94c691483c9c6a1b9743b8058cf1684b",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase1/gap-overlay/out2/mp-action-seat.pre-tag.scenarios.patch",
+        "sha256": "aa3be5c6826198fe1f0288fda66ad76cf290c926208a18908d141c5c79bbc278",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase1/gap-overlay/out2/mp-action-seat.tag-shared-cards.patch",
+        "sha256": "a9a3d94ca4c10ba6e2fa1e493af3b59c3f3b28730896d689d9ac0d1c204a1e91",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/integration/c6-after-owner.scenarios.patch",
+        "sha256": "8cc3239d6e0d98a321d6e55a8fde30a583725ff9d51b30b0688162278d3e628f",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/law-normal.adr.patch",
+        "sha256": "6b07dec99eb97c38ae9f8d5180610b635d63fd575888c6ea8054d602d072e8bf",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-10-owner-return-rule.patch",
+        "sha256": "4b210a8d7e0609a7f89664568cedfc62e9a7b87c65b2c1d0591865fb8fe2c1f9",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/helper-turn-order.patch",
+        "sha256": "ec1d55a0a4266d3acd40b9c2a562501a0761f8f88e92578fc7a573cff4189aca",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/clear-world.patch",
+        "sha256": "bc5b39e0331e66c2e8ee3c462842c72b212fdd50ab89d01331f1511279365bce",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/clear-world-hints.patch",
+        "sha256": "69b5492d69f7cc715916e76bad2ec94b08d86191881796fa6c27070b80da4e48",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/hama.patch",
+        "sha256": "42e07cabf767731eb067404272ea5ec4c44948dcabbb8d900b4a5694b6c0f434",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/battlefield.patch",
+        "sha256": "26c50700e82866e25070ca2a071990e9c1d419558a2c1fddc060db462d838ac5",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/underworld-circle.patch",
+        "sha256": "9f00b907d632d60621302183847026a99df8ce19074b84fba28e041de9f24613",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/c3-08-revival-eligibility-cleanup.patch",
+        "sha256": "664c3e0e815d954f4a5925256d00c3d77651dc922822a7dd392e33067d7b07b8",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/turn-resource/c3-05-resource-order.patch",
+        "sha256": "04dfb928323ff9ad4eba39164a144cd7b1546fa3bf20edfe0d30fde7fe59f9e0",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.overlays.patch",
+        "sha256": "70227feb3a64df74bd1216435f359b5fbc1230c0f61b05f8548de37469602b02",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.scenarios.patch",
+        "sha256": "abd1dbb9cfbcad8f31bd4b482b9d94c1c058d09aaf2f05d34225bb430d5bd20a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/pin-living.existing-proof.patch",
+        "sha256": "cbecac34676fb9790825e90c0fded89cc345494afed15a4a4c083d07b6f9d49a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-owner-route.patch",
+        "sha256": "fec39f51bedc4fc1cc67785137ec036d4203576d8dab917fa16a510d6f4029c6",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-owner-action-scenarios.patch",
+        "sha256": "39a63128732b3473c2d832be2fc2f042cfc4a7582b981c403ac2fdd7c0836835",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-draw-legality-scenarios.patch",
+        "sha256": "f69f10ddd0d990ca9a0eb16d0b278c84b89cc9d38678fa795ac813f593f1b737",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/fork-controller-review-proofs.patch",
+        "sha256": "26471916a7518e2b25679d6d3d72e94b8c92c17421b44b70ad3c8336ecfc209f",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/engine-hint-logs.patch",
+        "sha256": "e8d817f600813c691123818e54fa1d3004b8375a3134729f4340f255ea074807",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/hint-log-call-review-proofs.patch",
+        "sha256": "8b3c1bb4bf57bd1c74d5cd688c9adfcbbe4b7e008f16d41f54afbb2d814a48ba",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/clear-world-hint-review-proofs.patch",
+        "sha256": "3803b4c77de3dd208f5a43e1f4844c7632631e4b22bfbe37db9c52f21037988b",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/hints-fork/native-hint-call-proof.patch",
+        "sha256": "20fa0a852a8b3f0334eb45fa17270b28cb3a38320507f08ea3368e4d55112646",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/seat-queries.native.patch",
+        "sha256": "ff0692e11634be4d585d033d3035e8560aaf99d959b3565c6d4fc0a89a3ddbd7",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/seat-queries.native-registration.patch",
+        "sha256": "11315d6046964bec81be2208beb4a351d0dbb3a533279e83d4ea41edc5e94203",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-02-book-astro-spec.patch",
+        "sha256": "34614a63e601b6ba2f56c7ecab57aa4c740de2833e42f01dc00f3173befad67f",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c1-04-stress-current-rules-reconciled.patch",
+        "sha256": "d4c4175fb75763982d719010a4faa28f0421e3ce71224645e396cb579d43a5a2",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-05-tag-loss-proof-scope.patch",
+        "sha256": "921cadf0016665e6fb2a33941b11ebfadf0856009a1e0bafac4b8a752156b55a",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-06-soul-release-direct-scenario.patch",
+        "sha256": "c1eea6b132a8882a80ab09a173e5ce79a8fb7087f988d417d8e40579cf73ef66",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c1-09-duplicate-setups.patch",
+        "sha256": "1eb92d723a7d552b6224f2858bff16ce0a25ac35dbcd3679eab9c4eabb204756",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/integration/c1-10-host-gates-current.patch",
+        "sha256": "7b535507c4ebf857497eaad5b90283e0d528ffc5bb064318800234afd51f8338",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c2-04-legal-continuous-lock-validated.patch",
+        "sha256": "ff54def42df935eb5846747bf702c044e0549dfdfce2a1031ba905649d0f1bd5",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c2-08-fuzz-positive-return-validated.patch",
+        "sha256": "6a6228d2af6dc13eff56c22ad8c84916f27f03897cddc23f7b569be0cf63fe6e",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-01-02-geometry-scenario-scope.patch",
+        "sha256": "92eebcdedfce0e00784868af1a1424c226aa6f3306f60a624499fe4e8edbb503",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c3-07-chainer-response-window-validated.patch",
+        "sha256": "d71069cbddbd137d3c22f541678431d720b4e058744db011070cd63c0f965513",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-04-turn-n-first-battle.patch",
+        "sha256": "f8bea6096f704a1bc8ae972a8a4ef07d1860f5f83a602541535c5affb7e32a14",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c3-12-remove-ojama-tautology.patch",
+        "sha256": "86a7a4f99cf0d022f67a51cf30977c682b4ac8187d5ac8d6477e254907885ac9",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c5-opponent-field-markers.patch",
+        "sha256": "ac61bcc3bbc0ac0abf7c39f21adb2b070432f685d999fc28bb055765f6184a62",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c5-current-rule-audit.patch",
+        "sha256": "740a38e6e91dde5a0a26b31be8fe4f4d767b0f9e934783145fc7cdd847e8f9c6",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c5-living-partner-and-first-draw-spec.patch",
+        "sha256": "e8bc5c908a7009b8ed201738a1655d3700f3342cc25c572af6ab2279db95aa79",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c6-worm-unused-import.patch",
+        "sha256": "524b00de3e6f5d417f05c2d00c7f6940a203666f0ea39ebdca7cbf5737c905d1",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-local-controller-partner-control-validated.patch",
+        "sha256": "429c97cf51a20612d146dfddade9cceda98252b2d3dd3daafcb6fa0ed4806c77",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/protected/c7-arcana-damage-marker.patch",
+        "sha256": "54f6f8a55c03c64a00206f4d9dcee9c4cf006aaa2c25b21a48646b803a5fd3a8",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-register-original-runners.patch",
+        "sha256": "eca90a26efd11eaef69205dc25b9a4fc72b2ce206534304692f3530a43f83893",
+        "exit": 0
+      },
+      {
+        "patch": "packages/duel-server/domain-core/.build/phase2/leftover/validation/c7-remove-duplicate-first-battle-export.patch",
+        "sha256": "223781534bc372b2583acfa13b5c7d0dfde61c92d35217e0e2310d25f3835d36",
+        "exit": 0
+      }
+    ]
+  }
+]

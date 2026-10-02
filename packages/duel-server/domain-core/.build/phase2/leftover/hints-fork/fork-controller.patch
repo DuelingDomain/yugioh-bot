@@ -1,0 +1,30 @@
+# Integration: skip when the owner-seat export (phase1/gap-overlay/out2) is applied.
+diff --git a/packages/duel-server/domain-core/multi-scripts/c19338434.lua b/packages/duel-server/domain-core/multi-scripts/c19338434.lua
+--- a/packages/duel-server/domain-core/multi-scripts/c19338434.lua
++++ b/packages/duel-server/domain-core/multi-scripts/c19338434.lua
+@@ -16,16 +16,21 @@
+ function s.tgfilter(c)
+ 	return c:IsFacedown() and (c:IsCanChangePosition() or c:IsAbleToGrave() and mp_can_draw(c))
+ end
+--- The picked opponent chooses the effect. After the send, the card controller is its owner.
++-- Declare the opponent before selecting its card. The target controller chooses the effect.
++s.efftg=aux.MPTarget(s.efftg)
+ function s.effop(e,tp,eg,ep,ev,re,r,rp)
+ 	local tc=Duel.GetFirstTarget()
+ 	if not tc:IsRelateToEffect(e) then return end
+ 	local b1=tc:IsCanChangePosition()
+ 	local b2=tc:IsAbleToGrave() and mp_can_draw(tc)
+ 	if not (b1 or b2) then return end
+-	local op=Duel.SelectEffect(1-tp,
+-		{b1,aux.Stringid(id,2)},
+-		{b2,aux.Stringid(id,3)})
++	local op
++	aux.MPForEachController(Group.FromCards(tc),function(g,seat,p)
++		op=Duel.SelectEffect(p,
++			{b1,aux.Stringid(id,2)},
++			{b2,aux.Stringid(id,3)})
++	end)
++	if not op then return end
+ 	if op==1 then
+ 		local pos=(POS_FACEUP_ATTACK|POS_FACEUP_DEFENSE)&~tc:GetPosition()
+ 		pos=Duel.SelectPosition(tp,tc,pos)

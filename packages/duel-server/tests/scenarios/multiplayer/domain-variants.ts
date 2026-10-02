@@ -1,11 +1,12 @@
 import type { DuelistId, Scenario } from "../../support/dsl.js";
 import { seatCountFor } from "@yugidraft/shared/duels";
+import { defineScenarioWithFfaFirstDraw, firstDrawFixtureFor } from "./ffa-first-draw.js";
 
 /**
  * Domain variants of the multiplayer scenarios (review B, test proof quality: no overlay card was proven in a real Domain n-seat duel).
  *
  * `domainVariant(s)` is the same scenario in `mode: "domain"` on the Domain multi core, with one Deck Master for each seat. Every step and
- * every expected end state is the one of the Standard scenario, so a Domain run proves that the overlay card and the Domain layer for
+ * every expected end state follows the Standard scenario, with the extra Domain first draw, so a Domain run proves that the overlay card and the Domain layer for
  * 3 and 4 duelists (apply-domain-multi) work together. The Deck Master is a vanilla monster that the scenario does not name, so it is
  * never an option of a step of the scenario.
  */
@@ -20,11 +21,11 @@ export function domainVariant(scenario: Scenario): Scenario {
   seats.forEach((id, index) => {
     setup[id] = { ...(scenario.setup[id] ?? {}), deckMaster: free[index] };
   });
-  return {
+  return defineScenarioWithFfaFirstDraw({
     ...scenario,
     id: `${scenario.id}-domain`,
     title: `${scenario.title} (Domain, a Deck Master for each seat)`,
     tags: [...scenario.tags, "domain"],
     setup,
-  };
+  }, firstDrawFixtureFor(scenario));
 }

@@ -17,10 +17,6 @@ function pairBear(format: Format, effect: "reveal" | "return" | "decline", actor
   }
   setup[holder]!.spells = [{ card: CARD, pos: "set" }];
   const steps: Step[] = [];
-  if (format !== "tag") {
-    (board.p0!.hand as string[]).push("Mystical Elf");
-    board.p0!.deckCount = 3;
-  }
   if (actor === 1) {
     steps.push(endTurn("p0"));
     (board.p1!.hand as string[]).push("Mystical Elf");

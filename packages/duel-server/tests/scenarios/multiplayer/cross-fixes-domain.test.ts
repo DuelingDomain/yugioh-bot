@@ -12,7 +12,7 @@ import { FLAG_ATK_SCENARIOS } from "./flag-atk-cards.js";
 import { FOOLISH_TRAP_HOLE_SCENARIOS } from "./foolish-trap-hole.js";
 import { LP_PAIR_SCENARIOS } from "./lp-pair-cards.js";
 import { MEMENTO_FLAG_SCENARIOS } from "./memento-flags.js";
-import { REBIRTH_EMPERORS_SCENARIOS } from "./rebirth-emperors.js";
+import { REBIRTH_EMPERORS_SCENARIOS, rebirthEmperorsDomainVariant } from "./rebirth-emperors.js";
 import { TRUE_DRACO_SCENARIOS } from "./true-draco-heritage.js";
 import { UTOPIA_SCENARIOS } from "./utopia-envoy.js";
 
@@ -23,7 +23,9 @@ const SOURCES = [
   ...DEMISE_LORD_SCENARIOS, ...REBIRTH_EMPERORS_SCENARIOS, ...LP_PAIR_SCENARIOS, ...FOOLISH_TRAP_HOLE_SCENARIOS, ...FLAG_ATK_SCENARIOS, ...MEMENTO_FLAG_SCENARIOS,
   ...ATTACK_FLAG_SCENARIOS, ...TRUE_DRACO_SCENARIOS, ...UTOPIA_SCENARIOS, ...EVENT_BINDING_SCENARIOS,
 ];
-const variants = SOURCES.map(domainVariant);
+const variants = SOURCES.map((scenario) => REBIRTH_EMPERORS_SCENARIOS.includes(scenario)
+  ? rebirthEmperorsDomainVariant(scenario)
+  : domainVariant(scenario));
 
 describeWithCores("live Domain duel cross-seat card scenarios (a Deck Master for each seat)", [liveNseat, ...needs.domainMulti()], () => {
   runScenarios("multiplayer/cross-fixes-domain", variants);

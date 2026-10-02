@@ -47,7 +47,7 @@ async function runCountGateScenario(scenario: Scenario): Promise<void> {
 }
 describeWithCores("live opponent count gates", [liveNseat, ...needs.domainMulti()], () => {
   runScenarios("Standard count gates", OPPONENT_COUNT_GATES_SCENARIOS, runCountGateScenario);
-  runScenarios("Domain count gates", OPPONENT_COUNT_GATES_SCENARIOS.map(domainVariant), runCountGateScenario);
+  runScenarios("Domain count gates", OPPONENT_COUNT_GATES_SCENARIOS.map(scenario => domainVariant({ ...scenario, tags: [...scenario.tags, "ffa-first-draw-included"] })), runCountGateScenario);
   for (const domain of [false, true]) it(`rejects a card selection after the summon is complete${domain ? " (Domain)" : ""}`, async () => {
     const base = OPPONENT_COUNT_GATES_SCENARIOS.find((s) => s.id === "opponent-count-gates-linkerbell-ffa3-late-eligible-opponent")!;
     const scenario = domain ? domainVariant(base) : base;

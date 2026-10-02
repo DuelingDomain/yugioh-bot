@@ -1,0 +1,61 @@
+{
+  "controllerTurnDecision": "pending; select route only after the owner decision",
+  "routes": {
+    "A": {
+      "requires": "owner confirms R-COMMON-CONTROLLER-TURN",
+      "manifestPatches": [
+        "protected/c2-06-manifest-normalization.patch",
+        "integration/manifest-other-four-notes.patch",
+        "turn-resource/manifest-notes.patch",
+        "law-normal.manifest.patch",
+        "controller-turn.manifest.patch",
+        "pin-living.manifest.patch",
+        "protected/c7-cannons-manifest-note.patch",
+        "hints-fork/fork-manifest-note.patch"
+      ],
+      "orderFiles": {
+        "production": "integration/repo-order-A-production.json",
+        "owner-seat": "integration/repo-order-A-owner-seat.json"
+      }
+    },
+    "B": {
+      "requires": "proposal held; no controller-turn patches",
+      "manifestPatches": [
+        "protected/c2-06-manifest-normalization.patch",
+        "integration/manifest-other-four-notes.patch",
+        "turn-resource/manifest-notes.patch",
+        "law-normal.manifest.patch",
+        "pin-living.manifest.patch",
+        "protected/c7-cannons-manifest-note.patch",
+        "hints-fork/fork-manifest-note.patch"
+      ],
+      "orderFiles": {
+        "production": "integration/repo-order-B-production.json",
+        "owner-seat": "integration/repo-order-B-owner-seat.json"
+      }
+    }
+  },
+  "schemaVersion": 2,
+  "forkRoutes": {
+    "production": {
+      "requires": "owner-seat scenario export is not applied",
+      "predecessors": [
+        "../../phase1/df-c6/out/ffa4-shared-zones-scenarios-old-to-new.patch"
+      ],
+      "sourcePatch": "hints-fork/fork-controller.patch"
+    },
+    "owner-seat": {
+      "requires": "owner-seat export phase1/gap-overlay/out2 is applied",
+      "predecessors": [
+        "../../phase1/gap-overlay/out2/mp-owner-seat.scenarios.patch",
+        "../../phase1/gap-overlay/out2/mp-action-seat.pre-tag.scenarios.patch",
+        "../../phase1/gap-overlay/out2/mp-action-seat.tag-shared-cards.patch",
+        "integration/c6-after-owner.scenarios.patch"
+      ],
+      "skip": "hints-fork/fork-controller.patch: skip when the owner-seat export (phase1/gap-overlay/out2) is applied",
+      "sourcePatch": "hints-fork/fork-owner-route.patch"
+    }
+  },
+  "dependencyRecord": "fix2/c6-input.json",
+  "proofRecord": "fix2/integration-apply.json"
+}

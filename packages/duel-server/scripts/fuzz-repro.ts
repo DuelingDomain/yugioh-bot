@@ -26,6 +26,7 @@ import { createEngineGame, eliminationCodeOf, registerDomainCoreFactory } from "
 import { createDomainCore } from "../src/domain-core.js";
 import { readViews } from "../tests/fuzz/driver.js";
 import { viewsHash } from "../tests/fuzz/invariants.js";
+import { savedFuzzFirstTurnDraw } from "./lib/fuzz-draw-rule.js";
 
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -39,7 +40,7 @@ interface DifferentialFile {
   differential?: { firstDifference?: string; referenceWasm?: string; multiWasm?: string; found?: string };
 }
 
-/** Replay the journal of a differential failure file on one core. The tests freeze the clock the same way. */
+/** Replay a saved differential journal. The tests freeze the clock the same way. */
 async function replayDifferentialFile(saved: DifferentialFile, dataDirectory: string, wasmPath: string | undefined): Promise<void> {
   const d = saved.differential;
   if (d) {
@@ -54,7 +55,9 @@ async function replayDifferentialFile(saved: DifferentialFile, dataDirectory: st
   Date.now = () => Date.UTC(2026, 0, 1);
   try {
     if (wasm) registerDomainCoreFactory((ctx) => createDomainCore({ ...ctx, wasmBinary: new Uint8Array(wasm) }));
-    const game = await createEngineGame({ ...saved.engine!, dataDirectory, ...(wasm ? { standardWasmBinary: wasm } : {}) } as Parameters<typeof createEngineGame>[0]);
+    const engine = saved.engine!;
+    const firstTurnDraw = savedFuzzFirstTurnDraw(engine.firstTurnDraw, engine.mode, engine.masterRule);
+    const game = await createEngineGame({ ...engine, firstTurnDraw, dataDirectory, ...(wasm ? { standardWasmBinary: wasm } : {}) } as Parameters<typeof createEngineGame>[0]);
     try {
       for (const [i, command] of saved.journal.entries()) {
         const view = game.view(command.seat);
@@ -76,6 +79,7 @@ async function replayDifferentialFile(saved: DifferentialFile, dataDirectory: st
 }
 
 let scenario: Scenario;
+let firstTurnDraw: boolean | undefined;
 const file = arg("file");
 const wasmArg = arg("wasm");
 if (file) {
@@ -90,6 +94,7 @@ if (file) {
     process.exit(0);
   }
   scenario = saved.scenario;
+  firstTurnDraw = savedFuzzFirstTurnDraw(saved.engine?.firstTurnDraw, scenario.mode, scenario.masterRule);
 } else {
   const seed = Number(arg("seed"));
   if (!Number.isInteger(seed)) throw new Error("Give --seed N or --file path");
@@ -106,10 +111,10 @@ if (arg("max-steps")) scenario = { ...scenario, maxSteps: Number(arg("max-steps"
 const dataDirectory = engineDataDirectory();
 console.log(`scenario ${JSON.stringify(scenario)} data ${dataDirectory}`);
 const outcome = process.argv.includes("--no-replay")
-  ? await runDuel(scenario, dataDirectory)
-  : await runAndVerify(scenario, dataDirectory, 1);
+  ? await runDuel(scenario, dataDirectory, { firstTurnDraw })
+  : await runAndVerify(scenario, dataDirectory, 1, { firstTurnDraw });
 console.log(`decks: main ${outcome.decks.map((d) => d.main.length).join("/")}, extra ${outcome.decks.map((d) => d.extra.length).join("/")}, ${outcome.deckNotes.join(" | ")}, disjoint ${outcome.disjoint}`);
-console.log(`steps ${outcome.steps}, turns ${outcome.turns}, ended ${outcome.ended}, result ${JSON.stringify(outcome.result)}, soft rejections ${outcome.softRejections}`);
+console.log(`steps ${outcome.steps}, turns ${outcome.turns}, ended ${outcome.ended}, result ${JSON.stringify(outcome.result)}, soft rejections ${outcome.softRejections}, final views hash ${outcome.finalHash}`);
 if (process.argv.includes("--trace")) for (const [i, e] of outcome.journal.entries()) console.log(`  ${i}: seat ${e.seat} ${e.promptId} ${JSON.stringify(e.answer)}`);
 if (outcome.failure) {
   console.log(describeFailure(outcome, dataDirectory));

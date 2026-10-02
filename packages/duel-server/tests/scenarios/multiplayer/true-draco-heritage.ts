@@ -13,7 +13,7 @@ import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
 const HERITAGE = "True Draco Heritage";
-const RAIGEKI = "Dark Hole";
+const HOLE = "Dark Hole";
 const IGNIS = "Ignis Heat, the True Dracowarrior";
 const MAIDEN = "Majesty Maiden, the True Dracocaster";
 
@@ -24,19 +24,19 @@ function heritage(format: Format, holder: Seat, p0Out: boolean): Scenario {
   const foes = living.filter((seat) => (format === "tag" ? team(seat) !== team(holder) : seat !== holder));
   // The monsters of each opponent: 2 opponents have 1 each, a single living opponent has both.
   const monsters = (n: number): string[] => (foes.length === 1 ? [IGNIS, MAIDEN] : [n === 0 ? IGNIS : MAIDEN]);
-  const setup: Record<string, object> = { [holder]: { hand: [RAIGEKI], spells: [HERITAGE] } };
+  const setup: Record<string, object> = { [holder]: { hand: [HOLE], spells: [HERITAGE] } };
   foes.forEach((seat, i) => { setup[seat] = { monsters: monsters(i) }; });
   const first = p0Out ? "p1" : "p0";
   // A seat that had its turn (p0 never: the first player does not draw, and p0 gave up) drew 1 card; the holder drew 1 more with the Heritage.
   const hand = (seat: Seat): number => (seat !== "p0" && living.includes(seat) && Number(seat[1]) <= Number(holder[1]) ? 1 : 0) + (seat === holder ? 1 : 0);
   const spec: Record<string, object> = {};
   for (const seat of seats) spec[seat] = { hand: { count: hand(seat) } };
-  spec[holder] = { ...spec[holder], spells: [HERITAGE], grave: [RAIGEKI] };
+  spec[holder] = { ...spec[holder], spells: [HERITAGE], grave: [HOLE] };
   foes.forEach((seat, i) => { spec[seat] = { ...spec[seat], grave: monsters(i) }; });
   const steps: Step[] = [
     ...(p0Out ? [surrender("p0"), expectEliminated("p0")] : []),
     ...turnsBefore(format, holder, first),
-    activate(RAIGEKI, holder),
+    activate(HOLE, holder),
     activate({ card: HERITAGE, from: "szone" }, holder),
     expectPrompt({ by: holder, context: "action" }),
   ];
@@ -66,17 +66,17 @@ function heritageAtLpZero(format: "ffa3" | "ffa4"): Scenario {
     tags: ["multiplayer", "global-effect", "flag", format, "card:49430782"],
     setup: baseSetup(format, {
       p0: { lp: 100 },
-      p1: { monsters: ["Mystical Elf"], hand: [RAIGEKI], spells: [HERITAGE] },
+      p1: { monsters: ["Mystical Elf"], hand: [HOLE], spells: [HERITAGE] },
       p2: { monsters: [IGNIS, MAIDEN] },
       ...(format === "ffa4" ? { p3: { monsters: ["Blue-Eyes White Dragon"] } } : {}),
     }),
     steps: [
       endTurn("p0"), attack("Mystical Elf", "direct", "p1"), yes("p1"), changePhase("main2", "p1"), expectEliminated("p0"),
-      activate(RAIGEKI, "p1"), activate({ card: HERITAGE, from: "szone" }, "p1"),
+      activate(HOLE, "p1"), activate({ card: HERITAGE, from: "szone" }, "p1"),
       expectPrompt({ by: "p1", context: "action" }),
       everySeat(format, {
         p0: { lp: 0, hand: [] },
-        p1: { hand: { count: 2 }, monsters: [], spells: [HERITAGE], grave: [RAIGEKI, "Mystical Elf"] },
+        p1: { hand: { count: 2 }, monsters: [], spells: [HERITAGE], grave: [HOLE, "Mystical Elf"] },
         p2: { hand: [], grave: [IGNIS, MAIDEN] },
         ...(format === "ffa4" ? { p3: { hand: [], grave: ["Blue-Eyes White Dragon"] } } : {}),
       }),

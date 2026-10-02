@@ -6,6 +6,7 @@ import { loadCatalog } from "../fuzz/card-pool.js";
 import { Rng, engineSeed } from "../fuzz/rng.js";
 import { NChecker, nStateHash, nViewsHash, promptSeats, type DiagnosticEntry, type NViews } from "./invariants.js";
 import { buildSeatDecks } from "./decks.js";
+import { firstTurnDrawFor } from "../../src/first-turn-draw.js";
 
 export interface NScenario {
   format: DuelFormat;
@@ -34,6 +35,7 @@ export interface NFailure {
 
 export interface NOutcome {
   scenario: NScenario;
+  firstTurnDraw: boolean;
   decks: DuelDeck[];
   deckNotes: string[];
   disjoint: boolean;
@@ -121,6 +123,7 @@ export function eliminationSchedule(scenario: NScenario): Array<{ step: number; 
 
 export interface PlayOptions {
   dataDirectory: string;
+  firstTurnDraw?: boolean;
   /** The multi-duelist wasm for formats with more than two seats. Undefined: the engine reads it from the data directory. */
   multiWasmBinary?: ArrayBuffer;
   hooks?: DriverHooks;
@@ -137,6 +140,7 @@ export async function playDuel(scenario: NScenario, options: PlayOptions): Promi
   const schedule = options.script ? [] : eliminationSchedule(scenario);
   const outcome: NOutcome = {
     scenario,
+    firstTurnDraw: options.firstTurnDraw ?? firstTurnDrawFor(scenario.mode, scenario.masterRule),
     decks: setup.decks,
     deckNotes: setup.deckNotes,
     disjoint: setup.disjoint,
@@ -162,6 +166,7 @@ export async function playDuel(scenario: NScenario, options: PlayOptions): Promi
   try {
     game = await createEngineGame({
       mode: scenario.mode,
+      firstTurnDraw: outcome.firstTurnDraw,
       masterRule: scenario.masterRule,
       decks: setup.decks,
       seed: setup.engineSeed,

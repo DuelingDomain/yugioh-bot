@@ -36,7 +36,7 @@ export const NSEAT_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa3-every-first-draw",
-    title: "FFA3: every duelist draws on their first turn",
+    title: "Standard MR5 FFA3: only the turn-1 duelist skips the first draw",
     source: `${SOURCE} [R-FFA-ORDER] [R-FFA-FIRST-DRAW]`,
     rules: ["R-FFA-ORDER", "R-FFA-FIRST-DRAW"],
     tags: ["multiplayer", "draw", "ffa3"],
@@ -158,4 +158,3 @@ export const NSEAT_SCENARIOS: Scenario[] = [
     ],
   }),
 ];
-

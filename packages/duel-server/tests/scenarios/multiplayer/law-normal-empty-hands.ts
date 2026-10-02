@@ -1,5 +1,5 @@
 import {
-  activate, defineScenario, eliminate, expectBoard, expectEliminated, expectNotOffered, expectPrompt,
+  activate, changePosition, defineScenario, eliminate, expectBoard, expectEliminated, expectNotOffered, expectPrompt,
   type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
 
@@ -27,6 +27,11 @@ function law(format: Format, kind: Case): Scenario {
     };
   }
   const steps: Step[] = [];
+  if (!positive) {
+    // Keep five face-up Normal Monsters while testing the hand activation limit after a real action.
+    steps.push(changePosition({ card: "Mokey Mokey", nth: 0 }, "p0"));
+    board.p0!.zones = { m0: { card: "Mokey Mokey", pos: "def" } };
+  }
   if (kind === "lost-seat") {
     steps.push(eliminate("p3"));
     board.p3 = { lp: 8000, hand: [], monsters: [], spells: [], grave: [], banished: [], extra: [], deckCount: 0 };
@@ -36,7 +41,7 @@ function law(format: Format, kind: Case): Scenario {
   return defineScenario({
     id: `law-normal-${format}-${kind}`, title: `${format}: Law of the Normal ${kind}`,
     source: "docs/adr/0002-multiplayer-duel-rules.md [R-COMMON-EACH-PLAYER]; DECISIONS-2026-10-01.md, Owner answers 2026-10-02 (afternoon)",
-    rules: positive ? ["R-COMMON-EACH-PLAYER", "R-COMMON-ALL-BOTH", ...(kind === "lost-seat" ? ["R-FFA-ELIMINATION"] : [])] : [],
+    rules: ["R-COMMON-EACH-PLAYER", ...(positive ? ["R-COMMON-ALL-BOTH"] : []), ...(kind === "lost-seat" ? ["R-FFA-ELIMINATION"] : [])],
     tags: ["multiplayer", "law-normal", "card:66926224", format], setup, steps,
   });
 }

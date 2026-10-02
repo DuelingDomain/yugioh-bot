@@ -13,6 +13,7 @@ import { resolveCard } from "./support/card-catalog.js";
 import { runScenario } from "./support/session.js";
 import type { BoardSpec, CardEntry } from "./support/board.js";
 import { compileBoard } from "./support/board.js";
+import { endTurn, expectBoard } from "./support/dsl.js";
 
 const dataDirectory = engineDataDirectory();
 const codeOf = (entry: CardEntry | null | undefined): number | null => {
@@ -89,6 +90,48 @@ describe("failure-to-scenario on a fuzz failure file", () => {
     expect(loaded.scenarios).toHaveLength(1);
     await runScenario(loaded.scenarios[0]!);
     expect(readFileSync(out, "utf8")).toContain(result.name);
+  }, 20_000);
+});
+
+describe("generated snapshot draws", () => {
+  let directory = "";
+
+  beforeAll(() => {
+    directory = mkdtempSync(join(tmpdir(), "failure-to-scenario-draw-"));
+  });
+
+  afterAll(() => {
+    if (directory) rmSync(directory, { recursive: true, force: true });
+  });
+
+  it.each([
+    { mode: "domain", masterRule: 5, turn: "p0" },
+    { mode: "normal", masterRule: 2, turn: "p0" },
+    { mode: "domain", masterRule: 5, turn: "p1" },
+  ] as const)("$mode MR$masterRule $turn preserves the snapshot and draws on later turns", async ({ mode, masterRule, turn }) => {
+    const initial = compileBoard({
+      mode, masterRule, turn, deckSize: 4,
+      p0: { hand: ["Silver Fang"], deck: ["Beaver Warrior"], ...(mode === "domain" ? { deckMaster: "Blue-Eyes White Dragon" } : {}) },
+      p1: { hand: ["Giant Soldier of Stone"], deck: ["Battle Ox"], ...(mode === "domain" ? { deckMaster: "Blue-Eyes White Dragon" } : {}) },
+    }, dataDirectory);
+    const file = join(directory, `${mode}-${masterRule}-${turn}.json`);
+    writeFileSync(file, JSON.stringify({
+      scenario: { seed: 1, mode, masterRule }, decks: initial.options.decks, journal: [], failure: { step: 0 },
+      engine: { ...initial.options, seed: ["1", "2", "3", "4"] },
+    }));
+    const result = await generate({ file, step: 0, dataDirectory });
+    const out = join(directory, `${result.name}.mts`);
+    writeFileSync(out, result.text.replace(/"..\/..\/support\/dsl.js"/, `"${join(process.cwd(), "tests/support/dsl.ts")}"`));
+    const loaded = (await import(/* @vite-ignore */ out)) as { scenarios: Parameters<typeof runScenario>[0][] };
+    const scenario = loaded.scenarios[0]!;
+    const next = turn === "p0" ? "p1" : "p0";
+    const setup = scenario.setup[next]!;
+    // The generated board is already past its captured Draw Phase. Only the next turn draws a card.
+    scenario.steps.push(endTurn(turn), expectBoard({
+      [next]: { hand: [...(setup.hand ?? []).map((entry) => typeof entry === "object" ? entry.card : entry), setup.deck![0]!], deckCount: scenario.setup.deckSize! - 1 },
+      [turn]: { hand: (scenario.setup[turn]!.hand ?? []).map((entry) => typeof entry === "object" ? entry.card : entry), deckCount: scenario.setup.deckSize },
+    }));
+    await runScenario(scenario);
   }, 20_000);
 });
 

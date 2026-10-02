@@ -15,9 +15,9 @@ export interface VerifiedOutcome extends DuelOutcome {
 }
 
 /** Play one duel, check invariants at every step, then replay it and compare hashes. */
-export async function runAndVerify(scenario: Scenario, dataDirectory: string, replayRate: number): Promise<VerifiedOutcome> {
+export async function runAndVerify(scenario: Scenario, dataDirectory: string, replayRate: number, options: { firstTurnDraw?: boolean } = {}): Promise<VerifiedOutcome> {
   const replay = shouldReplay(scenario.seed, replayRate);
-  const outcome = (await runDuel(scenario, dataDirectory, { collectHashes: replay })) as VerifiedOutcome;
+  const outcome = (await runDuel(scenario, dataDirectory, { ...options, collectHashes: replay })) as VerifiedOutcome;
   outcome.replayed = false;
   outcome.replayMs = 0;
   if (replay && !outcome.failure && outcome.journal.length > 0) {

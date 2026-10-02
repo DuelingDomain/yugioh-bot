@@ -18,6 +18,7 @@ export async function replayDuel(outcome: DuelOutcome, dataDirectory: string): P
   const setup = setupScenario(outcome.scenario, dataDirectory);
   const game = await createEngineGame({
     mode: outcome.scenario.mode,
+    firstTurnDraw: outcome.firstTurnDraw,
     masterRule: outcome.scenario.masterRule,
     decks: setup.decks,
     seed: setup.engineSeed,

@@ -64,7 +64,7 @@ describe("N-seat triage", () => {
     expect(findWasmBySha(shaB.slice(0, 12), [a, b])).toBe(b);
     expect(findWasmBySha("deadbeef", [a, b])).toBeUndefined();
     expect(findWasmBySha("dead", [a, b])).toBeUndefined();
-    const source = loadNSource(write("j3.json", { format: "yugidraft-duel-journal/1", mode: "normal", masterRule: 5, seed: ["1", "2", "3", "4"], decks: [deck, deck, deck], commands: [] }));
+    const source = loadNSource(write("j3.json", { format: "yugidraft-duel-journal/1", mode: "normal", masterRule: 5, seed: ["1", "2", "3", "4"], decks: [deck, deck, deck], setup: { firstTurnDraw: false }, commands: [] }));
     const fallback = chooseCore(source, dir);
     expect(fallback.path).toBeUndefined();
     expect(fallback.warnings.join(" ")).toContain("no wasmSha");

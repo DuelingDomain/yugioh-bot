@@ -28,6 +28,7 @@ describe.each(["ffa3", "ffa4"] as const)("%s first-draw transform", (format) => 
   function ffa(overrides: Partial<Scenario> = {}): Scenario {
     const scenario = fixture(overrides);
     scenario.setup.format = format;
+    scenario.setup.mode = "domain";
     return scenario;
   }
 

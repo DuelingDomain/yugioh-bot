@@ -67,7 +67,7 @@ describeWithCores("differential: stock core vs replay", dataNeeds(dataDirectory)
         seed,
         recorded: {
           scenario: outcome.scenario,
-          engine: { mode: outcome.scenario.mode, masterRule: outcome.scenario.masterRule, decks: outcome.decks, seed: setup.engineSeed },
+          engine: { mode: outcome.scenario.mode, masterRule: outcome.scenario.masterRule, decks: outcome.decks, seed: setup.engineSeed, firstTurnDraw: outcome.firstTurnDraw },
           journal: outcome.journal,
           deckNotes: outcome.deckNotes,
           disjoint: outcome.disjoint,

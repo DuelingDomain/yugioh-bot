@@ -106,6 +106,46 @@ Open the address and sign in with Discord.
 
 ## Normal use
 
+New duels save `setup.firstTurnDraw`, the resolved `DUEL_1ST_TURN_DRAW` flag, when they start.
+Worker recovery and all journal replay paths use this saved flag. The engine resource pin still checks the
+bundle and Lua overlay. A rule change alone does not change an existing duel's draw flag.
+
+Old records have no saved flag. Production ran `main`; after migration, all its old duels are 1v1
+and need no action. Staging ran this branch before and after `0fb46df`, but never `d4338a2` or a later commit.
+Only FFA gained the new draw rule at `0fb46df`. Standard and Domain
+1v1 and Tag therefore used the stock Master Rule draw flag: MR1/MR2 drew on turn 1; MR3-MR5 did not.
+The server infers those old rules. No backfill is needed for Domain 1v1 or Tag records.
+
+Only Standard and Domain FFA records with no flag are ambiguous: before `0fb46df` they skipped the
+turn-1 draw; after it they drew. The resource pin did not change. A creation date does not prove which
+server version started a duel. Recovery interrupts an ambiguous active duel and emits the status change.
+Recovery and replay refuse these records with this message:
+"The first-turn draw rule was not saved for this duel. Its old rule cannot be determined safely; recovery
+and replay are unavailable." The saved final board remains available.
+
+Before a staging deploy, use the read-only query in [the runbook](vm-runbook.md#first-turn-draw-records-2026-10-02)
+to find ambiguous active FFA duels and let them finish. The FFA repair is for staging only.
+To restore an old replay, first establish the server
+rule used at its start from deployment records, then save the flag in its setup: `true` for Standard or
+Domain FFA under `0fb46df`, `false` for either FFA mode before that change. The per-row SQL statement is
+in [the production runbook](vm-runbook.md#first-turn-draw-records-2026-10-02). Do not set an old flag from
+the current mode or creation date alone. This change does not alter existing database rows.
+Rollback: an older server ignores the key and can drop it on its next setup write. Keep a backup of the
+saved flags; a later upgrade can again refuse an FFA record whose flag was lost.
+
+**Developers:** Local/test databases that ran `d4338a2..42e66c3` may hold Domain 1v1/Tag duels that drew on turn 1 with no saved flag; interrupt/delete those duels, or set the flag to `true` with this statement for each verified local/test row.
+
+```sql
+UPDATE duels
+SET setup_json = json_set(coalesce(setup_json, '{}'), '$.firstTurnDraw', json('true'))
+WHERE web_slug = '<verified-local-duel-slug>'
+  AND guild_id = '<verified-guild-id>'
+  AND mode = 'domain'
+  AND format IN ('1v1', 'tag')
+  AND seed_json IS NOT NULL
+  AND json_extract(setup_json, '$.firstTurnDraw') IS NULL;
+```
+
 - **Update staging to a newer commit.** Push the branch. Run the workflow again with `action` = `deploy`.
   The staging database is kept. Staging is stopped during a deploy, so a duel that is running in staging at that time
   is set to `interrupted` (the engine install refuses a new bundle while a duel is active).
@@ -192,8 +232,11 @@ Do the steps in this order. Write down the result of each step. Report every ste
 
 1. Make a 3-player free-for-all Standard table. First try a deck with Ring of Destruction or Swords of Revealing Light.
    Expect a refusal. Then use legal decks.
-2. Start the duel. Expect: the seat order is shown. Every duelist draws on their first turn, the first duelist too
-   (p0 has 6 cards on turn 1).
+2. Start the duel. Expect: the seat order is shown. Standard MR5 skips only the turn-1 draw (p0 has 5 cards).
+   Domain in every seat layout draws on turn 1 (p0 has 6 cards with default settings).
+   Standard MR1/MR2: the first duelist draws (where the core allows MR1/MR2).
+   Standard MR3/MR4/MR5 skip only the turn-1 draw.
+   Standard FFA uses MR5 only; the core rejects MR1-MR4 with more than 2 duelists.
 3. Turns 1 to 3: there is no attack option. Attacks start on turn 4.
 4. The turn passes in the order 0, 1, 2, 0. The "To play" and "Choosing" tags follow the turn.
 5. Attack when one opponent has monsters and one has none. Expect: the targets are right, a direct attack is possible only
@@ -210,7 +253,7 @@ Do the steps in this order. Write down the result of each step. Report every ste
 13. Reduce a player to 0 LP by battle in your own turn. Expect: your turn continues, and the next turn goes to the next
     living player.
 14. Finish the duel. Expect: all players see the right winner and the right reason, and the history shows it.
-15. Play a short 1v1 Standard duel and a short 1v1 Domain duel. Expect: 1v1 is unchanged.
+15. Play a short 1v1 Standard duel and a short 1v1 Domain duel. Expect: Domain p0 draws on turn 1. Standard MR3/MR4/MR5 p0 skips the draw; Standard MR1/MR2 p0 draws.
 
 ## Open risks
 

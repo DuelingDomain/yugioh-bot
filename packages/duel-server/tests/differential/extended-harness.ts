@@ -9,6 +9,7 @@ import type { CompiledBoard } from "../support/board.js";
 import type { EngineSpec, RecordedDuel } from "./failures.js";
 import { firstDiff, type Diff, type SeedResult } from "./harness.js";
 import { setWasmOverride, startRecording, stopRecording, type Trace } from "./trace.js";
+import { firstTurnDrawFor } from "../../src/first-turn-draw.js";
 
 /**
  * Generalised differential flow for the extended test: any duel mode (Standard or Domain) and any
@@ -36,7 +37,7 @@ export async function recordSeeded(
     const setup = setupScenario(scenario, dataDirectory);
     return {
       scenario,
-      engine: { mode: scenario.mode, masterRule: scenario.masterRule, decks: outcome.decks, seed: setup.engineSeed },
+      engine: { mode: scenario.mode, masterRule: scenario.masterRule, decks: outcome.decks, seed: setup.engineSeed, firstTurnDraw: outcome.firstTurnDraw },
       journal: outcome.journal,
       deckNotes: outcome.deckNotes,
       disjoint: outcome.disjoint,
@@ -60,6 +61,7 @@ export async function recordBoard(
 ): Promise<RecordedDuel> {
   const engine: EngineSpec = {
     mode: compiled.options.mode,
+    firstTurnDraw: firstTurnDrawFor(compiled.options.mode, compiled.options.masterRule),
     ...(compiled.options.masterRule ? { masterRule: compiled.options.masterRule } : {}),
     decks: compiled.options.decks,
     seed: engineSeed,

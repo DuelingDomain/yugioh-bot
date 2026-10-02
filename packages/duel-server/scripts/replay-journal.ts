@@ -28,6 +28,7 @@ import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, seatCountFor, 
 import { engineDataDirectory } from "../tests/fuzz/config.js";
 import { createEngineGame, eliminationCodeOf } from "../src/engine.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
+import { savedFirstTurnDraw } from "../src/first-turn-draw.js";
 
 interface JournalFile {
   format?: string;
@@ -44,7 +45,7 @@ interface JournalFile {
   decks: Array<DuelDeck | null>;
   /** Lua chunks that ran before the duel started (presets). A report writes them with names; an E2E journal keeps only the texts in `setup`. */
   startupScripts?: Array<{ name: string; content: string }>;
-  setup?: { startupScripts?: string[] } | null;
+  setup?: { startupScripts?: string[]; firstTurnDraw?: boolean } | null;
   wasmSha?: string | null;
   wasmFile?: string | null;
   commands: Array<{ seq?: number; seat: number; command: { promptId: string; revision: number; answer: DuelAnswer } }>;
@@ -91,6 +92,7 @@ if (journal.wasmSha) log(`journal core: ${journal.wasmFile ?? "(unnamed)"} sha25
 
 const stopAt = arg("stop-at") === undefined ? journal.commands.length : Math.min(Number(arg("stop-at")), journal.commands.length);
 const game = await createEngineGame({
+  firstTurnDraw: savedFirstTurnDraw(journal.setup?.firstTurnDraw, journal.mode, journal.masterRule, format),
   mode: journal.mode,
   masterRule: journal.masterRule,
   ...(format !== "1v1" ? { format } : {}),

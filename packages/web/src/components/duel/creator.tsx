@@ -315,6 +315,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                       <span>
                         <strong>{customDomain ? "Custom Domain" : "Domain preset"}</strong>
                         {customDomain ? " — these overrides differ from official Domain rules." : " — 60 singleton Main Deck cards, a separate Deck Master, up to 15 Extra Deck cards, no Side Deck."}
+                        {" In Domain, every duelist draws on their first turn."}
                       </span>
                     </p>
                   ) : (

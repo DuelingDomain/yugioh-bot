@@ -841,7 +841,7 @@ describe("the engine version a duel pins", () => {
 
   async function activated(format: DuelFormat, humans: number, version: string) {
     const t = await table(format, humans, []);
-    t.duels.activate(t.slug, "g1", t.players[0]!, ["seed"], version, null);
+    t.duels.activate(t.slug, "g1", t.players[0]!, ["seed"], version, null, { firstTurnDraw: false });
     return t;
   }
   const view = (t: Awaited<ReturnType<typeof table>>) => post(t.host, { op: "view", ...t.organizer });

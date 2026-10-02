@@ -142,6 +142,61 @@ empty server. See `duel-engine-switch.md` for the values, the engine saved for e
    `setup_json`), so the old code runs on the new database. Replays of duels from before the bundle change stop
    working, as after every bundle change.
 
+## First-turn draw records (2026-10-02)
+
+New duels save the resolved boolean flag as `setup.firstTurnDraw` in `duels.setup_json`.
+Recovery and replay use that flag. Domain draws on turn 1 in every seat layout.
+Standard MR1/MR2 draw on turn 1; Standard MR3/MR4/MR5 skip only the turn-1 draw.
+Standard FFA and Tag use MR5 only.
+
+Production ran `main`, which had no Tag or FFA duels and no `format` or `setup_json`
+columns. Migration adds `format` with the default `'1v1'`, so every old production
+row is 1v1 and the server infers its draw rule. Production needs no action.
+The FFA check and repair below are for the staging database only.
+
+Staging ran this branch before and after `0fb46df`, but never `d4338a2` or a later commit.
+Only FFA gained the new draw rule at `0fb46df`. Thus an old
+Domain 1v1 or Tag record with no flag uses the stock rule: no turn-1 draw at MR3-MR5,
+and a turn-1 draw at MR1/MR2. The server infers this rule in both modes. No database
+backfill is needed for these records. The engine bundle and overlay pin must still match.
+
+Only Standard and Domain FFA records with no flag are ambiguous: before `0fb46df`
+they skipped the turn-1 draw; after it they drew. Let those active duels finish before
+deployment. If recovery finds such an active duel, it sets the status to `interrupted`
+and emits the change. Replay refuses it with the missing-rule message. The saved
+final board remains available.
+
+Before a staging deploy, run this read-only query on the staging database. Let
+each active duel that it finds finish before deployment.
+
+```sql
+SELECT web_slug, guild_id, mode, format, status, created_at
+FROM duels
+WHERE format IN ('ffa3', 'ffa4')
+  AND status = 'active'
+  AND seed_json IS NOT NULL
+  AND json_extract(setup_json, '$.firstTurnDraw') IS NULL;
+```
+
+To restore one staging FFA replay, first prove its start rule from deployment records. On a
+database backup, check the selected row, then use the statement below on that row.
+Use `json('true')` for a run after `0fb46df` that enabled the FFA draw. Use `json('false')`
+for a run before that change. Do not infer this value from the creation date alone.
+
+```sql
+UPDATE duels
+SET setup_json = json_set(coalesce(setup_json, '{}'), '$.firstTurnDraw', json('true'))
+WHERE web_slug = '<verified-duel-slug>'
+  AND guild_id = '<verified-guild-id>'
+  AND format IN ('ffa3', 'ffa4')
+  AND seed_json IS NOT NULL
+  AND json_extract(setup_json, '$.firstTurnDraw') IS NULL;
+```
+
+Rollback: an older server ignores this key and can drop it on its next setup write.
+Keep a backup of the saved flags. A later upgrade can again refuse an FFA record
+whose flag was lost.
+
 ## VM Setup (Hetzner CAX11 or similar)
 
 ### Create the Server

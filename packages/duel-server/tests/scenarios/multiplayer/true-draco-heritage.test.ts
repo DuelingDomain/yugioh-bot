@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
-import { describeWithCores } from "../../support/cores.js";
+import { describeWithCores, needs } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { TRUE_DRACO_SCENARIOS } from "./true-draco-heritage.js";
@@ -21,4 +21,9 @@ describe("True Draco Heritage scenario list", () => {
       expect(s.tags.some((tag) => /^card:\d+$/.test(tag)), s.id).toBe(true);
     }
   });
+});
+
+import { domainVariant } from "./domain-variants.js";
+describeWithCores("live True Draco Heritage Domain scenarios", [liveNseat, ...needs.domainMulti()], () => {
+  runScenarios("multiplayer/true-draco-heritage-domain", TRUE_DRACO_SCENARIOS.map(domainVariant));
 });
