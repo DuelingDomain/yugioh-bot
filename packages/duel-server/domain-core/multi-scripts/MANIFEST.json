@@ -595,6 +595,24 @@
       "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
     },
     {
+      "code": 11110587,
+      "file": "c11110587.lua",
+      "name": "That Grass Looks Greener",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "0c7f31029b61982b4264e3523a49fb6fc3c6fb159e3f119101ff88da38cbaf78",
+      "note": "Check every eligible opposing Deck before activation. Bind one opponent for the mill count; Tag Decks remain individual.",
+      "wrap": {
+        "MPOne": [
+          "activate"
+        ]
+      },
+      "redefined": [
+        "condition",
+        "target"
+      ]
+    },
+    {
       "code": 12210097,
       "file": "c12210097.lua",
       "name": "Mitsurugi Sacred Boundary",
@@ -3706,7 +3724,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil★Twins Ki-sikil & Lil-la",
+      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"
