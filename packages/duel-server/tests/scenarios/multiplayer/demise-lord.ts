@@ -12,7 +12,7 @@
 //   - only an Elf was destroyed (the Lord is in the hand): the Lord has its printed 1300 ATK, loses the battle and the holder takes 1700 more;
 //   - a Lord was destroyed (the control, the Lord comes back from the Graveyard): the Lord has 3000 ATK and both monsters are destroyed.
 
-import { attack, defineScenario, endTurn, yes, type Scenario } from "../../support/dsl.js";
+import { attack, defineScenario, endTurn, no, yes, type Scenario } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -21,7 +21,7 @@ const LORD_CODE = 71108540;
 const BEWD = "Blue-Eyes White Dragon"; // 3000 ATK
 const ELF = "Mystical Elf"; // 800 ATK
 
-function lord(format: "ffa3" | "tag", holder: Seat, lordDied: boolean): Scenario {
+function lord(format: Format, holder: Seat, lordDied: boolean): Scenario {
   const base = baseLp(format);
   const victim = lordDied ? LORD : ELF;
   const first = base - (lordDied ? 1700 : 2200);
@@ -51,3 +51,20 @@ export const DEMISE_LORD_SCENARIOS: Scenario[] = [
   lord("ffa3", "p1", false), lord("ffa3", "p2", false), lord("tag", "p1", false), lord("tag", "p3", false),
   lord("ffa3", "p1", true), lord("ffa3", "p2", true), lord("tag", "p1", true), lord("tag", "p3", true),
 ];
+
+function crossSeatLord(): Scenario {
+  return defineScenario({
+    id: "demise-lord-ffa3-p2-lord-destroyed-p1-hand-lord-gets-3000-atk",
+    title: "FFA3: the Lord of p2 dies in battle and the Lord from the hand of p1 has 3000 ATK",
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] slot 1 reaches a holder at another seat`,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "global-effect", "flag", "ffa3", `card:${LORD_CODE}`],
+    setup: baseSetup("ffa3", { p0: { monsters: [BEWD] }, p1: { hand: [LORD] }, p2: { monsters: [LORD] } }),
+    steps: [
+      attack(BEWD, { card: LORD, owner: "p2" }, "p0"), endTurn("p0"), yes("p1"), no("p2"),
+      attack(LORD, BEWD, "p1"),
+      everySeat("ffa3", { p0: { grave: [BEWD], hand: [] }, p1: { grave: [LORD], hand: [ELF] }, p2: { lp: 6300, grave: [LORD], hand: [] } }),
+    ],
+  });
+}
+DEMISE_LORD_SCENARIOS.push(lord("ffa4", "p3", false), lord("ffa4", "p3", true), crossSeatLord());
