@@ -95,3 +95,7 @@ Gold Pride - Pin Baller (28497830) used folded players in a global protection ca
 ## Lucky Cloud state
 
 Lucky Cloud (82760689) mixed Cloudian summon names from different FFA seats. It now stores a separate group and repeat flag for each seat or Tag team. Live proof: `lucky-cloud-state.ts`. Three stock cross-seat cases draw wrongly; four own and Tag-partner controls pass. All seven fixed cases pass on both cores.
+
+## Pair Bear recovery
+
+Pair Bear Scare!! (21501961) recovered LP for only two folded players. It now recovers 2000 LP for each living duelist. One picked opponent still reveals a copy and decides the branch. Live proof: `each-player-lp-responses.ts`. All four stock recovery outcomes fail. The 28 response cases and 12 variable-amount cases pass on both cores. Each Tag pool gains 4000 LP under Q3.

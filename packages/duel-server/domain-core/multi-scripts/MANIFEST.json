@@ -1290,6 +1290,15 @@
       "stockSha256": "a5dbfc641aa05f38fae6d0c7452a58ac58901de925b2d9ef5a13f3ca8ee14a83"
     },
     {
+      "code": 21501961,
+      "file": "c21501961.lua",
+      "name": "Pair Bear Scare!!",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "57055edfc27f4d768fb2f0a1693fa25ee9b33d0ac2f5e68de2eeaf2699dcfad0",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 21623008,
       "file": "c21623008.lua",
       "name": "Sky Striker Maneuver - Vector Blast",
