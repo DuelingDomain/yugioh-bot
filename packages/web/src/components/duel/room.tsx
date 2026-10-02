@@ -297,13 +297,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const clearPickHint = useCallback(() => setPickHint(null), []);
   const [pile, setPile] = useState<PileView | null>(null);
   const preferences = useDuelPreferences();
+  // The server flips to active before it answers Start duel; the pop-up already has the duel then.
+  const ownWindowGate = data ? ownWindowGateVisible({
+    status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,
+    hasResult: Boolean(data.engine?.result), starting, windowOpened,
+  }) : false;
   // The turn-start phases (and the opening deal) play one beat at a time; nothing can be answered meanwhile.
   const startBeats = useStartBeats({
     engine: data?.engine ?? null,
     clock: data?.clock,
     duelKey: slug,
     reducedMotion: preferences.reducedMotion,
-    ready: !error && !realtime.recovering,
+    ready: Boolean(data?.engine) && data?.session.status !== "lobby" && !ownWindowGate && !error && !realtime.recovering,
   });
   const catchingUp = syncing || startBeats.active;
   // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
@@ -627,11 +632,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     );
   }
   if (!data) return null;
-  // The server flips to active before it answers Start duel; the pop-up already has the duel then.
-  const ownWindowGate = ownWindowGateVisible({
-    status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,
-    hasResult: Boolean(data.engine?.result), starting, windowOpened,
-  });
   // The next game of a Best of 3 is made in a lobby that starts by itself: no table settings between games.
   if (isStartingNextGame(data) && !showTable && !ownWindowGate) {
     return <NextGameStarting room={data} onShowTable={() => setShowTable(true)} />;
