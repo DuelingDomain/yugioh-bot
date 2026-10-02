@@ -1,7 +1,7 @@
 // Monster Rebirth (54564198): a battle destruction enables the Trap at every seat.
 // The holder sends its own Monster Reborn to the GY and revives the destroyed
 // monster on its own field. Check every seat, including both Tag LP entries.
-import { activate, attack, defineScenario, endTurn, expectTurn, faceDown, select, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, attack, defineScenario, endTurn, expectOffered, expectPrompt, expectTurn, faceDown, pass, select, type DuelistExpect, type Scenario } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, PARTNER, SEATS, type Format, type Seat } from "./seat-kit.js";
 
@@ -48,7 +48,26 @@ function noBattle(format: Format, holder: Seat): Scenario {
     rules: ["R-COMMON-SEAT-STATE"],
     tags: ["multiplayer", "global-effect", "flag", format, "card:54564198"],
     setup: baseSetup(format, { [holder]: { spells: [faceDown(CARD)], grave: [ELF], deck: [REBORN] } }),
-    steps: [endTurn("p0"), expectTurn("p1", 2), everySeat(format, spec)],
+    steps: [endTurn("p0"), expectTurn("p1", 2), expectPrompt({ by: "p1", context: "action" }), everySeat(format, spec)],
+  });
+}
+
+function reset(): Scenario {
+  const first = rebirth("ffa3", "p2");
+  return defineScenario({
+    ...first,
+    id: "monster-rebirth-ffa3-p2-battle-flag-clears-next-turn",
+    title: "FFA3: Monster Rebirth is offered after battle and cannot activate in the next turn",
+    steps: [
+      attack(DRAGON, { card: ELF, owner: "p1" }, "p0"), endTurn("p0"),
+      expectOffered("activate", CARD, "p2"), pass("p2"), pass("p2"), pass("p2"), pass("p2"),
+      expectPrompt({ by: "p1", context: "action" }),
+      everySeat("ffa3", {
+        p0: { hand: [], deckCount: 20, monsters: [DRAGON], grave: ["Battle Ox"] },
+        p1: { hand: [ELF], deckCount: 19, grave: [ELF], lp: 5800 },
+        p2: { hand: [], deckCount: 20, spells: [CARD] },
+      }),
+    ],
   });
 }
 
@@ -56,5 +75,5 @@ export const MONSTER_REBIRTH_SCENARIOS: Scenario[] = [
   rebirth("ffa3", "p1"), rebirth("ffa3", "p2"),
   rebirth("ffa4", "p2"), rebirth("ffa4", "p3"),
   rebirth("tag", "p2"), rebirth("tag", "p3"),
-  noBattle("ffa3", "p2"), noBattle("ffa4", "p3"), noBattle("tag", "p3"),
+  noBattle("ffa3", "p2"), noBattle("ffa4", "p3"), noBattle("tag", "p3"), reset(),
 ];
