@@ -99,3 +99,27 @@ export function buildCrosstable(tournament: Pick<TournamentDetail, "participants
     buildCell(row, opponent, pairs.get(pairKey(row.playerId, opponent.playerId)), currentUserPlayerId),
   ) }));
 }
+
+export interface PlayerFlags {
+  /** A duel of theirs is being played now. */
+  live: boolean;
+  /** A reported result is waiting for this player to approve or deny it. */
+  owesReply: boolean;
+}
+
+/** The phone standings list marks who is playing and who owes a reply. */
+export function buildPlayerFlags(tournament: Pick<TournamentDetail, "participants" | "matches">): Map<number, PlayerFlags> {
+  const flags = new Map<number, PlayerFlags>(tournament.participants.map((p) => [p.playerId, { live: false, owesReply: false }]));
+  for (const match of tournament.matches) {
+    if (isBye(match) || match.status === "completed") continue;
+    const ids = [match.playerOneId, match.playerTwoId!];
+    if (isSeriesOpen(match.series)) {
+      for (const id of ids) { const f = flags.get(id); if (f) f.live = true; }
+    } else if ((match.status === "pending_approval" || match.status === "pending") && match.reporterId != null) {
+      const debtor = ids.find((id) => id !== match.reporterId);
+      const f = debtor === undefined ? undefined : flags.get(debtor);
+      if (f) f.owesReply = true;
+    }
+  }
+  return flags;
+}
