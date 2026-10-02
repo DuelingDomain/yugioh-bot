@@ -4,6 +4,7 @@
   left: 50%;
   top: 10px;
   z-index: 62;
+  pointer-events: auto;
   display: flex;
   max-width: calc(100% - 32px);
   translate: -50% 0;
