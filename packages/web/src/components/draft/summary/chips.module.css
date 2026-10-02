@@ -1,0 +1,2 @@
+.list { display: flex; flex-wrap: wrap; gap: 6px; }
+.list b { color: var(--ink); font: 400 14px/1 var(--f-num); }
