@@ -1,5 +1,6 @@
 import type { DuelEngineView } from "@yugidraft/shared/duels";
 import { isEliminated } from "../multi-seat";
+import { nextSeatAfter } from "../multi-seat";
 import type { SeatStatus, SeatTone, TableLayout } from "./types";
 
 /**
@@ -106,19 +107,23 @@ export interface SeatStripEntry {
   status: SeatStatus;
 }
 
-/** The seats in turn order, each with its tone and standing, for the strip in the station track. */
+/**
+ * The seats in turn order, each with its tone and standing, for the strip in the station track. The seat that plays
+ * after the turn seat reads "next" (a live seat that is not choosing).
+ */
 export function seatStrip(
   layout: TableLayout,
   engine: Pick<DuelEngineView, "turnSeat" | "seats">,
   promptSeat: number | null,
   nameOf: (seat: number) => string,
 ): SeatStripEntry[] {
+  const next = nextSeatAfter(engine.seats, engine.turnSeat);
   return [...layout.slots]
     .sort((a, b) => a.turnOrder - b.turnOrder)
     .map((slot) => {
       const view = engine.seats.find((entry) => entry.seat === slot.seat);
       const status: SeatStatus = view?.eliminated ? "eliminated" : view?.pendingElimination ? "leaving"
-        : promptSeat === slot.seat ? "choosing" : engine.turnSeat === slot.seat ? "turn" : "active";
+        : promptSeat === slot.seat ? "choosing" : engine.turnSeat === slot.seat ? "turn" : next === slot.seat ? "next" : "active";
       return { seat: slot.seat, name: nameOf(slot.seat), tone: slot.tone, you: slot.seat === layout.viewerSeat, status };
     });
 }

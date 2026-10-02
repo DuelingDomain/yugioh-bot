@@ -70,6 +70,16 @@ export function battleStepLabel(step: BattleStep | null | undefined): string | n
 
 /* ---------- Station track ---------- */
 
+/** The word under a seat chip in the strip. */
+export const SEAT_CHIP_WORD: Record<StationSeatChip["status"], string> = {
+  turn: "turn",
+  choosing: "choosing",
+  next: "next",
+  active: "waits",
+  leaving: "leaving",
+  eliminated: "out",
+};
+
 /** One seat of a table of 3 or more duelists, as the strip next to the buttons shows it. */
 export type StationSeatChip = {
   seat: number;
@@ -360,7 +370,10 @@ export function StationTrack({
                 aria-current={chip.status === "turn" || chip.status === "choosing" ? "true" : undefined}
               >
                 <i className={styles.chipDot} aria-hidden="true" />
-                <span className={styles.chipName}>{chip.you ? "You" : chip.name.split(" ")[0]}</span>
+                <span className={styles.chipText}>
+                  <span className={styles.chipName}>{chip.you ? "You" : chip.name.split(" ")[0]}</span>
+                  <small className={styles.chipWord} data-testid="chip-word" aria-hidden="true">{SEAT_CHIP_WORD[chip.status]}</small>
+                </span>
                 <span className={styles.srOnly}>{chip.you ? `${chip.name} (you)` : chip.name}{chip.status === "turn" ? ", turn" : chip.status === "eliminated" ? ", out" : ""}</span>
               </li>
             ))}

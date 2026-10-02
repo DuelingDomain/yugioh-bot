@@ -71,6 +71,15 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("[aria-label='Deck Masters']")).not.toBeNull();
   });
 
+  it("writes a status word under each seat chip: choosing, next, waits", () => {
+    const { container } = render(<Shell id="main" />);
+    const words = [...container.querySelectorAll("[aria-label='Turn order'] [data-testid='chip-word']")].map((node) => node.textContent);
+    expect(words).toHaveLength(3);
+    expect(words).toContain("next");
+    expect(words).toContain("waits");
+    expect(words.some((word) => word === "choosing" || word === "turn")).toBe(true);
+  });
+
   it("puts rival Deck Masters on the holo panels, and only your own master and the camera panel in the right column", () => {
     const { container } = render(<Shell id="main" />);
     const aside = container.querySelector("[aria-label='Deck Masters']") as HTMLElement;

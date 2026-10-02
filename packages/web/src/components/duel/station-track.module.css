@@ -614,8 +614,8 @@ button.plate[data-next="true"]:hover {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  height: 26px;
-  padding: 0 10px 0 8px;
+  height: 34px;
+  padding: 0 12px 0 9px;
   border: 1px solid var(--rule);
   border-radius: 999px;
   background: rgb(14 23 41 / 0.7);
@@ -630,12 +630,33 @@ button.plate[data-next="true"]:hover {
   border-radius: 50%;
   background: var(--seat-main);
 }
+.chipText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .chipName {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The status word under the name: choosing, turn, next, waits, leaving, out. */
+.chipWord {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  white-space: nowrap;
+  text-transform: uppercase;
+  color: var(--ink-4, #6e6a62);
+}
+.chip[data-status="turn"] .chipWord,
+.chip[data-status="choosing"] .chipWord { color: var(--seat-ink); }
+.chip[data-status="next"] .chipWord { color: var(--ink-2, #c3bba8); }
+.chip[data-status="next"] { border-color: color-mix(in srgb, var(--seat-main) 38%, var(--rule)); }
+.chip[data-status="eliminated"] .chipWord { text-decoration: none; }
 .chip[data-status="turn"],
 .chip[data-status="choosing"] {
   border-color: color-mix(in srgb, var(--seat-main) 75%, transparent);
@@ -658,13 +679,22 @@ button.plate[data-next="true"]:hover {
 /* ---------- table of 3 or 4: the seat strip needs room, and each seat's clock sits on its LP panel ---------- */
 
 .root[data-seats="true"] {
-  grid-template-columns: minmax(200px, 1fr) minmax(0, 40rem) minmax(340px, 1fr);
+  grid-template-columns: minmax(150px, 1fr) minmax(0, 36rem) minmax(380px, 1.2fr);
 }
 .root[data-seats="true"] .clockSlot span[data-active="false"] {
   display: none;
 }
 .root[data-seats="true"] .chip {
   flex: none;
+  gap: 5px;
+  padding: 0 9px 0 7px;
+}
+.root[data-seats="true"] .strip { gap: 3px; }
+.root[data-seats="true"] .actions { gap: 6px; padding: 0 10px 0 4px; }
+/* Under 1400px the strip, End and the primary button share about 340px: End is short. */
+@media (max-width: 1400px) {
+  .root[data-seats="true"] .onlyWide { display: none; }
+  .root[data-seats="true"] .onlyNarrow { display: inline; }
 }
 .root[data-seats="true"] .primary {
   padding: 0 12px 0 14px;

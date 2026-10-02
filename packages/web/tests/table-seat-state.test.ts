@@ -82,4 +82,22 @@ describe("seat-state", () => {
     expect(strip.find((entry) => entry.seat === 2)?.status).toBe("eliminated");
     expect(strip.find((entry) => entry.seat === 0)?.status).toBe("turn");
   });
+
+  it("marks the seat after the turn seat as next, and skips a seat that is out", () => {
+    const main = engineOf("main");
+    const layout = tableLayout("ffa3", main, 0);
+    const strip = seatStrip(layout, main, null, (seat) => `S${seat}`);
+    expect(strip.find((entry) => entry.seat === main.turnSeat)?.status).toBe("turn");
+    expect(strip.filter((entry) => entry.status === "next")).toHaveLength(1);
+    expect(strip.filter((entry) => entry.status === "active")).toHaveLength(1);
+    // The seat that is choosing keeps "choosing" even if it is next.
+    const next = strip.find((entry) => entry.status === "next")!.seat;
+    expect(seatStrip(layout, main, next, (seat) => `S${seat}`).find((entry) => entry.seat === next)?.status).toBe("choosing");
+    // With the next seat out, "next" moves on to the live seat after it.
+    const out = engineOf("elimination");
+    const outStrip = seatStrip(tableLayout("ffa3", out, 0), out, null, (seat) => `S${seat}`);
+    const nextOut = outStrip.find((entry) => entry.status === "next");
+    expect(nextOut).toBeDefined();
+    expect(nextOut!.seat).not.toBe(2);
+  });
 });
