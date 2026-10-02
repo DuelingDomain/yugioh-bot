@@ -133,7 +133,7 @@ describe("createChallenge", () => {
     const row = app.db.prepare("select invite_code from duels where id = ?").get(duel.id) as { invite_code: string | null };
     expect(row.invite_code).toBeTruthy();
     // The named opponent already has a seat; entry preserves it.
-    expect(app.duels.join(duel.slug, "g1", app.p2).seats).toHaveLength(2);
+    expect(app.duels.room(duel.slug, "g1", app.p2).session.seats).toHaveLength(2);
     expect(app.series.forDuel(duel.id)?.id).toBe(series.id);
   });
 

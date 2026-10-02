@@ -114,8 +114,6 @@ export interface DuelService {
     options?: { archived?: boolean; scope?: DuelHistoryScope; idleAfterMs?: number },
   ): DuelListItem[];
   get(slug: string, guildId: string): DuelSession;
-  /** Enters as a spectator; an existing player's seat is preserved. */
-  join(slug: string, guildId: string, playerId: number): DuelSession;
   /** Claims an open human seat before any opening or series has started. Defaults to the first open seat. */
   takeSeat(slug: string, guildId: string, playerId: number, seat?: number): DuelSession;
   leave(slug: string, guildId: string, playerId: number): DuelSession;
@@ -1032,13 +1030,6 @@ export function createDuelService(db: Database.Database): DuelService {
 
     get(slug, guildId) {
       return mapSession(loadDuelRow(slug, guildId));
-    },
-
-    join(slug, guildId, playerId) {
-      const row = loadDuelRow(slug, guildId);
-      assertPlayerGuild(playerId, guildId);
-      assertRoomAccess(row, playerId);
-      return mapSession(row);
     },
 
     takeSeat(slug, guildId, playerId, seat) {

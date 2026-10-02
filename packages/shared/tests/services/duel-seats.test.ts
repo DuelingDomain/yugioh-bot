@@ -47,11 +47,11 @@ function expectStatus(work: () => unknown, status: number, message?: RegExp) {
 }
 
 describe("explicit lobby seats", () => {
-  it.each(["normal", "domain"] as const)("opens and joins a %s table as a spectator until a seat is chosen", (mode) => {
+  it.each(["normal", "domain"] as const)("opens a %s table as a spectator until a seat is chosen", (mode) => {
     const app = setup();
     const table = app.duels.create({ guildId: "g", organizerPlayerId: app.host, name: "Table", mode });
     expect(app.duels.room(table.slug, "g", app.guest)).toMatchObject({ role: "spectator", mySeat: null, myDeck: null });
-    expect(app.duels.join(table.slug, "g", app.guest).seats).toHaveLength(1);
+    expect(app.duels.room(table.slug, "g", app.guest).session.seats).toHaveLength(1);
     expect(app.duels.room(table.slug, "g", app.host).mySeat).toBe(0);
     app.duels.takeSeat(table.slug, "g", app.guest, 1);
     expect(app.duels.room(table.slug, "g", app.guest)).toMatchObject({ role: "player", mySeat: 1, myDeck: null });
@@ -64,7 +64,7 @@ describe("explicit lobby seats", () => {
     const app = setup();
     const table = app.duels.create({ guildId: "g", organizerPlayerId: app.host, name: "Full", mode: "normal" });
     app.duels.takeSeat(table.slug, "g", app.guest, 1);
-    expect(app.duels.join(table.slug, "g", app.viewer).seats).toHaveLength(2);
+    expect(app.duels.room(table.slug, "g", app.viewer).session.seats).toHaveLength(2);
     expect(app.duels.room(table.slug, "g", app.viewer).role).toBe("spectator");
     expectStatus(() => app.duels.takeSeat(table.slug, "g", app.viewer, 1), 409, /seat.*taken/i);
     expectStatus(() => app.duels.takeSeat(table.slug, "g", app.viewer, 0), 409, /seat.*taken/i);
@@ -102,13 +102,13 @@ describe("explicit lobby seats", () => {
   it("enforces guild membership and private invites for watching and taking seats", () => {
     const app = setup();
     const table = app.duels.create({ guildId: "g", organizerPlayerId: app.host, name: "Private", mode: "normal", settings: { visibility: "private" } });
-    expectStatus(() => app.duels.join(table.slug, "g", app.guest), 403);
+    expectStatus(() => app.duels.room(table.slug, "g", app.guest), 403);
     expectStatus(() => app.duels.takeSeat(table.slug, "g", app.guest, 1), 403);
     expectStatus(() => app.duels.takeSeat(table.slug, "g", app.outsider, 1), 400);
-    expectStatus(() => app.duels.join(table.slug, "g", app.outsider), 400);
+    expectStatus(() => app.duels.room(table.slug, "g", app.outsider), 400);
     expect(app.duels.list("g", app.guest)).toEqual([]);
     app.duels.admit(table.slug, "g", app.guest, app.duels.room(table.slug, "g", app.host).inviteCode!);
-    expect(app.duels.join(table.slug, "g", app.guest).seats).toHaveLength(1);
+    expect(app.duels.room(table.slug, "g", app.guest).session.seats).toHaveLength(1);
     expect(app.duels.list("g", app.guest).map((item) => item.slug)).toContain(table.slug);
     app.duels.takeSeat(table.slug, "g", app.guest, 1);
     app.duels.leave(table.slug, "g", app.guest);
@@ -119,7 +119,7 @@ describe("explicit lobby seats", () => {
     const app = setup();
     const table = app.duels.create({ guildId: "g", organizerPlayerId: app.host, name: "Bot", mode: "normal" });
     app.duels.addPracticeBot(table.slug, "g", app.host, deck);
-    expect(app.duels.join(table.slug, "g", app.guest).seats[1].isBot).toBe(true);
+    expect(app.duels.room(table.slug, "g", app.guest).session.seats[1].isBot).toBe(true);
     expectStatus(() => app.duels.takeSeat(table.slug, "g", app.guest, 1), 409);
     app.duels.removePracticeBot(table.slug, "g", app.host);
     expect(app.duels.takeSeat(table.slug, "g", app.guest, 1).seats[1].isBot).toBe(false);
@@ -134,7 +134,7 @@ describe("explicit lobby seats", () => {
     app.duels.startOpening(table.slug, "g", app.host, Date.now());
     expectStatus(() => app.duels.takeSeat(table.slug, "g", app.viewer, 1), 409, /about to start/i);
     expectStatus(() => app.duels.leave(table.slug, "g", app.guest), 409);
-    expect(app.duels.join(table.slug, "g", app.viewer).status).toBe("lobby");
+    expect(app.duels.room(table.slug, "g", app.viewer).session.status).toBe("lobby");
   });
 
   it.each(["active", "completed", "interrupted", "cancelled"] as const)("blocks seat changes on %s tables while permitting spectators to enter", (status) => {
@@ -151,7 +151,7 @@ describe("explicit lobby seats", () => {
     }
     expectStatus(() => app.duels.takeSeat(table.slug, "g", app.viewer, 1), 409);
     expectStatus(() => app.duels.leave(table.slug, "g", app.guest), 409);
-    expect(app.duels.join(table.slug, "g", app.viewer).status).toBe(status);
+    expect(app.duels.room(table.slug, "g", app.viewer).session.status).toBe(status);
   });
 
   it("keeps best-of-3 seats locked between games and in the next game's lobby", () => {
@@ -168,7 +168,7 @@ describe("explicit lobby seats", () => {
     expect(next.status).toBe("lobby");
     expectStatus(() => app.duels.leave(next.slug, "g", app.guest), 409, /fixed/i);
     expectStatus(() => app.duels.takeSeat(next.slug, "g", app.viewer, 1), 409, /fixed/i);
-    expect(app.duels.join(next.slug, "g", app.viewer).seats).toHaveLength(2);
+    expect(app.duels.room(next.slug, "g", app.viewer).session.seats).toHaveLength(2);
     expect(app.duels.room(next.slug, "g", app.viewer).role).toBe("spectator");
   });
 

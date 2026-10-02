@@ -264,7 +264,7 @@ describe("duel persistence invariants", () => {
       expect((error as DuelServiceError).status).toBe(400);
     }
 
-    const reentered = app.duels.join(session.slug, "g1", app.p1);
+    const reentered = app.duels.room(session.slug, "g1", app.p1).session;
     expect(reentered.status).toBe("active");
     expect(reentered.seats.map((seat) => seat.playerId)).toEqual([app.p1, app.p2]);
 
@@ -604,7 +604,7 @@ describe("duel snapshots archive and cancel", () => {
     expect(cancelled.endedAt).toBeTruthy();
     expect(app.duels.cancel(lobby.slug, "g1", app.p1).status).toBe("cancelled");
 
-    const seated = app.duels.join(lobby.slug, "g1", app.p1);
+    const seated = app.duels.room(lobby.slug, "g1", app.p1).session;
     expect(seated.status).toBe("cancelled");
     try {
       app.duels.takeSeat(lobby.slug, "g1", app.p2);
@@ -705,7 +705,7 @@ describe("creator settings persistence", () => {
     app.duels.takeSeat(session.slug, "g1", app.p2);
     app.duels.setDeck(session.slug, "g1", app.p2, { main: [11], extra: [], side: [] });
     start(app, session.slug);
-    expect(app.duels.join(session.slug, "g1", app.p1).settings.startingLP).toBe(4000);
+    expect(app.duels.room(session.slug, "g1", app.p1).session.settings.startingLP).toBe(4000);
 
     app.duels.complete(session.slug, "g1", 0, "life points");
     const archived = app.duels.archive(session.slug, "g1", app.p1);

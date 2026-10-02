@@ -119,12 +119,6 @@ export async function acceptDuelInvite(slug: string, inviteCode: string): Promis
   }));
 }
 
-export async function joinDuel(slug: string): Promise<{ session: DuelSession }> {
-  return parseBody(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/join`, { method: "POST" }),
-  );
-}
-
 export async function takeDuelSeat(slug: string, seat: number): Promise<{ session: DuelSession }> {
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/seat`, {
     method: "POST",

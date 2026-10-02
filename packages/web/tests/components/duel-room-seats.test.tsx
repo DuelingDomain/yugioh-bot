@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultDuelSettings, type DuelRoom } from "@yugidraft/shared/duels";
 import { makeSeriesRoom } from "../helpers/duel-series";
 
-const { server, getDuelRoom, takeDuelSeat, leaveDuel, joinDuel, replace, socket } = vi.hoisted(() => ({
+const { server, getDuelRoom, takeDuelSeat, leaveDuel, replace, socket } = vi.hoisted(() => ({
   server: { room: null as DuelRoom | null },
-  getDuelRoom: vi.fn(), takeDuelSeat: vi.fn(), leaveDuel: vi.fn(), joinDuel: vi.fn(), replace: vi.fn(),
+  getDuelRoom: vi.fn(), takeDuelSeat: vi.fn(), leaveDuel: vi.fn(), replace: vi.fn(),
   socket: { onChange: null as (() => Promise<unknown>) | null, seats: [] as Array<number | null | undefined> },
 }));
 vi.mock("next/font/google", () => {
@@ -37,7 +37,7 @@ vi.mock("@/components/duel/destroy-fx", () => ({ DestroyFx: () => null }));
 vi.mock("@/components/decks/api", () => ({ listSavedDecks: vi.fn(async () => []) }));
 vi.mock("@/components/duel/api", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/components/duel/api")>(),
-  getDuelRoom, takeDuelSeat, leaveDuel, joinDuel,
+  getDuelRoom, takeDuelSeat, leaveDuel,
 }));
 
 import { DuelRoomView } from "@/components/duel/room";
@@ -71,7 +71,6 @@ describe("room seat transitions", () => {
     open();
     const take = await screen.findByRole("button", { name: "Take seat 2" });
     expect(takeDuelSeat).not.toHaveBeenCalled();
-    expect(joinDuel).not.toHaveBeenCalled();
     fireEvent.click(take);
     const watch = await screen.findByRole("button", { name: "Watch instead" });
     expect(takeDuelSeat).toHaveBeenCalledWith("game-1", 1);

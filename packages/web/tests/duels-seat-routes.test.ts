@@ -50,12 +50,16 @@ beforeEach(() => {
 afterEach(() => db.close());
 
 describe("spectator entry", () => {
-  it("joins an open table without claiming a seat", async () => {
-    const { POST } = await import("../app/api/duels/[slug]/join/route");
-    const response = await POST(...post("join"));
-    expect(response.status).toBe(200);
-    expect((await response.json()).session.seats).toHaveLength(1);
+  it("reads an open table as a spectator without claiming a seat or notifying viewers", async () => {
+    const { GET } = await import("../app/api/duels/[slug]/route");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await GET(new NextRequest(`http://localhost/api/duels/${slug}`), { params: Promise.resolve({ slug }) });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ role: "spectator", mySeat: null, session: { seats: expect.any(Array) } });
+    }
+    expect(duels.get(slug, "g").seats).toHaveLength(1);
     expect(duels.room(slug, "g", guest).mySeat).toBeNull();
+    expect(notifyDuelChange).not.toHaveBeenCalled();
   });
 
   it("accepts a private invite as a spectator and retains permission after leaving a seat", async () => {
