@@ -139,7 +139,7 @@ export function CreateTournamentForm() {
                     </label>
                   ))}
                 </div>
-                <table className={styles.ladder}>
+                <table className="size-ladder">
                   <caption>{table.caption}</caption>
                   <thead>
                     <tr>

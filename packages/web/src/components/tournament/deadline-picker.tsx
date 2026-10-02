@@ -76,12 +76,12 @@ export function DeadlinePicker({
         Deadline <span style={{ color: "var(--ink-3)" }}>optional</span>
       </span>
       {value ? (
-        <div className={styles.group} role="group" aria-labelledby={labelId}>
+        <div className="dtf" role="group" aria-labelledby={labelId}>
           <button
             ref={dateBtnRef}
             id={`${idPrefix}-date`}
             type="button"
-            className={`input ${styles.btn}`}
+            className="input dtf-b"
             aria-haspopup="dialog"
             aria-expanded={open === "date"}
             onClick={() => setOpen(open === "date" ? null : "date")}
@@ -93,7 +93,7 @@ export function DeadlinePicker({
             ref={timeBtnRef}
             id={`${idPrefix}-time`}
             type="button"
-            className={`input ${styles.btn}`}
+            className="input dtf-b"
             aria-haspopup="listbox"
             aria-expanded={open === "time"}
             onClick={() => setOpen(open === "time" ? null : "time")}
@@ -103,7 +103,7 @@ export function DeadlinePicker({
           </button>
           <button
             type="button"
-            className={styles.clear}
+            className={`dtf-x ${styles.focus}`}
             aria-label="Clear the deadline"
             onClick={() => {
               onChange(null);
@@ -114,12 +114,12 @@ export function DeadlinePicker({
           </button>
         </div>
       ) : (
-        <div className={styles.group} role="group" aria-labelledby={labelId}>
+        <div className="dtf" role="group" aria-labelledby={labelId}>
           <button
             ref={dateBtnRef}
             id={`${idPrefix}-date`}
             type="button"
-            className={`input ${styles.btn} ${styles.empty}`}
+            className="input dtf-b dtf-e"
             aria-haspopup="dialog"
             aria-expanded={open === "date"}
             onClick={() => setOpen(open === "date" ? null : "date")}
@@ -250,22 +250,22 @@ function DatePopover({
   const atCurrentMonth = view.y === today.getFullYear() && view.m === today.getMonth();
 
   return (
-    <div className={styles.pop} role="dialog" aria-label="Choose a date" ref={ref} onKeyDown={onKeyDown}>
-      <div className={styles.head}>
-        <button type="button" className={styles.nav} aria-label="Previous month" disabled={atCurrentMonth} onClick={() => shiftMonth(-1)}>
+    <div className={`dtp ${styles.pop}`} role="dialog" aria-label="Choose a date" ref={ref} onKeyDown={onKeyDown}>
+      <div className="dtp-h">
+        <button type="button" className={`dtf-x ${styles.focus}`} aria-label="Previous month" disabled={atCurrentMonth} onClick={() => shiftMonth(-1)}>
           <ChevronLeft className="ic sm" aria-hidden="true" />
         </button>
         <b aria-live="polite">{monthTitle(view.y, view.m)}</b>
-        <button type="button" className={styles.nav} aria-label="Next month" onClick={() => shiftMonth(1)}>
+        <button type="button" className={`dtf-x ${styles.focus}`} aria-label="Next month" onClick={() => shiftMonth(1)}>
           <ChevronRight className="ic sm" aria-hidden="true" />
         </button>
       </div>
-      <div className={styles.grid} aria-hidden="true">
+      <div className="dtp-g" aria-hidden="true">
         {WEEKDAYS.map((d) => (
           <i key={d}>{d}</i>
         ))}
       </div>
-      <div className={styles.grid}>
+      <div className="dtp-g">
         {cells.map((cell, i) => {
           if (!cell.date) return <span key={`b${i}`} />;
           const day = cell.date;
@@ -278,7 +278,7 @@ function DatePopover({
               key={day.getTime()}
               type="button"
               data-day={day.getTime()}
-              className={[styles.day, isToday ? styles.today : "", selected ? styles.sel : ""].join(" ").trim()}
+              className={[styles.focus, styles.day, isToday ? "today" : "", selected ? "sel" : ""].join(" ").trim()}
               disabled={past}
               tabIndex={isFocus ? 0 : -1}
               aria-current={isToday ? "date" : undefined}
@@ -291,8 +291,8 @@ function DatePopover({
           );
         })}
       </div>
-      <div className={styles.foot}>
-        <button type="button" className={`btn btn-quiet btn-sm ${styles.none}`} onClick={onClear}>
+      <div className="dtp-f">
+        <button type="button" className={`btn btn-quiet btn-sm ${styles.focus}`} onClick={onClear}>
           No deadline
         </button>
         <span>{value ? `${formatDateShort(value)} · ${daysAwayLabel(new Date(), value)}` : ""}</span>
@@ -350,7 +350,7 @@ function TimePopover({
   return (
     <div
       ref={ref}
-      className={`${styles.pop} ${styles.times}`}
+      className={`dtp dtp-t ${styles.pop} ${styles.times}`}
       role="listbox"
       aria-label="Choose a time"
       tabIndex={0}
