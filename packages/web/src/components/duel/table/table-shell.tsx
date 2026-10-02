@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type CSSProperties } from "react";
+import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import { Circle, Diamond, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import type { DuelCard } from "@yugidraft/shared/duels";
@@ -68,6 +68,18 @@ export interface TableShellProps {
    * cannot rebuild the order: the room (or a fixture) gives it. Left out, all seats that are out at mount share one place.
    */
   initialOutOrder?: readonly (readonly number[])[];
+  /**
+   * Seams for the room that mounts this shell on a live duel (plan section 1). Each one is optional and a preview leaves
+   * them out.
+   * `fxActive`: false while the connection is down or recovering, so no FX replays old events (room: `!error && !recovering`).
+   * `busy`: the room is working or catching up; it blocks answers like the controller's own `busy` does.
+   * `headerTools`: extra header controls, such as the Surrender button.
+   * `modals`: dialogs the room owns, such as the surrender confirm and the side deck.
+   */
+  fxActive?: boolean;
+  busy?: boolean;
+  headerTools?: ReactNode;
+  modals?: ReactNode;
 }
 
 /**
@@ -75,7 +87,19 @@ export interface TableShellProps {
  * track, menus, the result screen and the FX. It uses the exported duel components of the 1v1 room and keeps the room's
  * look (room.module.css). The room itself stays the owner of the live engine: it passes a controller.
  */
-export function TableShell({ controller: given, initialCamera, initialLock = null, actions, initialOutOrder }: TableShellProps) {
+export function TableShell({
+  controller: supplied,
+  initialCamera,
+  initialLock = null,
+  actions,
+  initialOutOrder,
+  fxActive = true,
+  busy: roomBusy = false,
+  headerTools,
+  modals,
+}: TableShellProps) {
+  // The room's own busy state joins the controller's: no answer goes out while either is set.
+  const given = useMemo(() => (roomBusy && !supplied.busy ? { ...supplied, busy: true, canAct: false } : supplied), [roomBusy, supplied]);
   const ui = useTableUi(given);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
@@ -238,6 +262,7 @@ export function TableShell({ controller: given, initialCamera, initialLock = nul
           </span>
         </div>
         <div className={roomStyles.status}>
+          {headerTools}
           <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={!terminal}>
             {terminal ? <Radio size={15} strokeWidth={1.75} aria-hidden /> : <i className={roomStyles.liveDot} aria-hidden />}
             {terminal ? "Finished" : spectator ? "Live duel · watching" : "Live duel"}
@@ -311,14 +336,14 @@ export function TableShell({ controller: given, initialCamera, initialLock = nul
               renderSeatField={(props) => <SeatField {...props} />}
               fx={
                 <FxBoundary>
-                  <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} />
-                  <SummonFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} />
-                  <MoveFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} />
-                  <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} />
-                  <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} />
-                  <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} />
-                  <BattleFx events={engine.events} seats={engine.seats} reducedMotion={controller.reducedMotion} aim={null} />
-                  <DestroyFx events={engine.events} reducedMotion={controller.reducedMotion} mySeat={viewerSeat ?? 0} />
+                  {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
+                  {fxActive ? <SummonFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
+                  {fxActive ? <MoveFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
+                  {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
+                  {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} /> : null}
+                  {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
+                  <BattleFx events={engine.events} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
+                  <DestroyFx events={engine.events} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
                 </FxBoundary>
               }
               promptCenter={
@@ -459,6 +484,7 @@ export function TableShell({ controller: given, initialCamera, initialLock = nul
           placings={standings.map((entry) => ({ seat: entry.seat, place: entry.place, label: placeLabel(entry.place) }))}
         />
       ) : null}
+      {modals}
     </div>
   );
 }

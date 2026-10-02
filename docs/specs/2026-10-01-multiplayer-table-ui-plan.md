@@ -63,6 +63,18 @@ Layering. `TableStage` replaces `MultiSeatStage` later (one line in `room.tsx`, 
 inside the `.board` box, like `MultiSeatStage` does now, and takes FX and `PromptCenter` as slot children, so
 the room keeps its shell (header, inspector, history, station track, masters rail, menus, result).
 `TableShell` copies no logic: it only lays out the same exported components for the preview.
+
+Update 2026-10-01 (review of the 3-way build): the room mounts `TableShell` itself for 3+ seats (it does not keep its own
+shell and swap in `TableStage`). The shell is the table's whole layout, built from the same exported components as the room.
+`room.tsx` stays the owner of the live engine and passes a `TableController` plus these seams: `fxActive` (the room's
+`!error && !recovering`), `busy` (merged into `canAct`; the room's `busy || error || catchingUp`), `headerTools` (the
+Surrender button), `modals` (surrender confirm, side deck), `initialOutOrder` (who left before the page opened), and
+`actions` (exit, series, side deck). The pure helpers the room and the shell both need live in shared modules and both
+import them: `livePileCards`/`PileView` in `pile-focus.ts`, `targetName`/`zoneAnchor`/`confirmSide`/`CardMenuState` in
+`card-interactions.tsx`, `hasNoLegalMoves` in `station-track.tsx`, `phaseTitle` in `constants.ts`, the log lines and
+`MatchSheetLog` in `text-log.tsx`, `DUEL_SHAKE_LABEL` in `preferences.ts`. Still only in the room, to bring over when the
+engine is connected: `pick.waiting` (the PromptCenter keeps the last bar between answer and next prompt), the phone panes,
+the own-window gate, and the Connection block of the Settings tab.
 `multi-seat.ts`, `table-format.ts`, `seat-strip.tsx`, `opponent-board.tsx`, `multi-seat-stage.tsx` stay. New code
 calls `multi-seat.ts` helpers (`seatRelation`, `placementOrder`, `isEliminated`, `nextSeatAfter`,
 `opponentPickOptions`, `focusOpponentSeat`, `winnerSeats`, `disabledZones`, `withoutSeatExtraKeys`) and
