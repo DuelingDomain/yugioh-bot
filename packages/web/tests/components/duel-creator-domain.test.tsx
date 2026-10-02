@@ -17,6 +17,7 @@ afterEach(() => {
   cleanup();
   push.mockReset();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("DuelCreator Domain rule", () => {
@@ -28,12 +29,17 @@ describe("DuelCreator Domain rule", () => {
     expect(note.textContent).toContain("First-turn draws follow the selected Master Rule.");
   });
 
-  it.each([5, 3])("does not promise a first-turn draw for an unpinned 1v1 Domain MR%s table", (masterRule) => {
+  it.each((["legacy", "pinned"] as const).flatMap((engine) =>
+    ([1, 2, 3, 4, 5] as const).map((masterRule) => ({ engine, masterRule })),
+  ))("uses the server draw rules for 1v1 Domain MR$masterRule with $engine", ({ engine, masterRule }) => {
+    vi.stubEnv("DUEL_1V1_ENGINE", engine);
     render(<DuelCreator multiplayerTables />);
     fireEvent.click(screen.getByLabelText("Domain"));
     fireEvent.change(screen.getByLabelText("Master Rules"), { target: { value: String(masterRule) } });
     expect(screen.getByRole("status").textContent).not.toContain("every duelist draws");
-    expect(screen.getByRole("status").textContent).toContain("First-turn draws follow the selected Master Rule.");
+    expect(screen.getByRole("status").textContent).not.toContain("First-turn draws follow the selected Master Rule.");
+    expect(screen.getByRole("status").textContent).toContain("In 1v1 Domain, the server rules control the draw on turn 1.");
+    expect(screen.getByRole("status").textContent).toContain("All other duelists draw on their first turn.");
   });
 
   it("offers Standard and Domain at a 1v1 table", () => {
