@@ -1,0 +1,155 @@
+// Dark Bribe (77538567), Don Zaloog (76922029), Soul Taker (81510157) and Maxx "C" (23434538): cards that name "the opponent" as 1-tp inside their
+// own effect. In a duel with more than 2 duelists the opponent is the duelist of the event (the one who activated, took the damage or summoned) or the
+// controller of the target. Each scenario asserts the final state of every seat: the duelist of the event is the only one that is affected.
+
+import { activate, attack, auto, pass, choose, select, defineScenario, expectOffered, faceDown, yes, pickOpponent, type Scenario, type Step } from "../../support/dsl.js";
+import { SOURCE } from "./nseat-scenarios.js";
+import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
+
+const POT = "Pot of Greed";
+const BRIBE = "Dark Bribe";
+const team = (seat: Seat): number => Number(seat[1]) % 2;
+/** Cards a seat drew until the turn of `turn` (the first player does not draw). */
+const drawn = (seat: Seat, turn: Seat): number => (seat !== "p0" && Number(seat[1]) <= Number(turn[1]) ? 1 : 0);
+
+/** The turn player `activator` activates Pot of Greed; `holder` (a Set Dark Bribe) negates it: only the activator draws (1 card from the Bribe, 0 from the Pot). */
+function bribe(format: Format, activator: Seat, holder: Seat): Scenario {
+  const spec: Record<string, object> = {};
+  for (const seat of SEATS[format]) spec[seat] = { hand: { count: drawn(seat, activator) } };
+  spec[activator] = { ...spec[activator], hand: { count: drawn(activator, activator) + 1 }, grave: [POT] };
+  spec[holder] = { ...spec[holder], grave: [BRIBE] };
+  const steps: Step[] = [
+    ...turnsBefore(format, activator),
+    activate(POT, activator),
+    expectOffered("activate", BRIBE, holder),
+    activate(BRIBE, holder),
+  ];
+  return defineScenario({
+    id: `dark-bribe-${format}-${activator}-pot-negated-by-${holder}-only-${activator}-draws`,
+    title: `${label(format)}: ${activator} activates Pot of Greed and ${holder} negates it with Dark Bribe: the Pot is destroyed and ${activator} (not another seat) draws 1 card`,
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] the opponent named by 1-tp is the duelist of the event`,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "event-opponent", format, "card:77538567"],
+    setup: baseSetup(format, { [activator]: { hand: [POT] }, [holder]: { spells: [faceDown(BRIBE)] } }),
+    steps: [...steps, everySeat(format, spec as never)],
+  });
+}
+
+const ZALOOG = "Don Zaloog";
+const ELF = "Mystical Elf";
+
+/**
+ * `attacker` attacks `target` directly with Don Zaloog (the target holds 1 known card in hand) and chooses an effect: the discard takes the random card of
+ * the hand of the target, the Deck effect sends the top 2 cards of the Deck of the target to the Graveyard. No other seat loses a card.
+ */
+function zaloog(format: Format, attacker: Seat, target: Seat, effect: "hand" | "deck"): Scenario {
+  const base = baseLp(format);
+  const foes = SEATS[format].filter((seat) => (format === "tag" ? team(seat) !== team(attacker) : seat !== attacker));
+  const spec: Record<string, object> = {};
+  for (const seat of SEATS[format]) {
+    const own = drawn(seat, attacker) + (seat === target ? 1 : 0);
+    const hit = seat === target;
+    spec[seat] = {
+      hand: { count: hit && effect === "hand" ? own - 1 : own },
+      grave: { count: hit ? (effect === "hand" ? 1 : 2) : 0 },
+    };
+  }
+  for (const seat of foes) if (seat === target || (format === "tag" && team(seat) === team(target))) spec[seat] = { ...spec[seat], lp: base - 1400 };
+  spec[attacker] = { ...spec[attacker], monsters: [ZALOOG] };
+  const steps: Step[] = [
+    ...turnsBefore(format, attacker),
+    attack(ZALOOG, "direct", attacker),
+    ...(foes.length > 1 ? [pickOpponent(target, attacker)] : []),
+    yes(attacker),
+    choose(effect === "hand" ? "Discard 1 random card" : "Send the top 2 cards", attacker),
+  ];
+  const setup: Record<string, object> = { [target]: { hand: [ELF], deck: [ELF, ELF, ELF, ELF, ELF, ELF] } };
+  for (const seat of SEATS[format]) if (seat !== target) setup[seat] = { ...(seat === attacker ? { monsters: [ZALOOG] } : {}), deck: [ELF, ELF, ELF, ELF, ELF, ELF] };
+  setup[attacker] = { monsters: [ZALOOG], deck: [ELF, ELF, ELF, ELF, ELF, ELF] };
+  return defineScenario({
+    id: `don-zaloog-${format}-${attacker}-damages-${target}-${effect}-effect-hits-only-${target}`,
+    title: `${label(format)}: ${attacker} attacks ${target} directly with Don Zaloog and the ${effect === "hand" ? "random discard" : "Deck effect"} hits ${target} only (no other seat loses a card)`,
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] the opponent named by 1-tp is the duelist of the event`,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "event-opponent", format, "card:76922029"],
+    setup: baseSetup(format, setup as never),
+    steps: [...steps, everySeat(format, spec as never)],
+  });
+}
+
+/**
+ * Maxx "C" is a Quick Effect that opens a chain window for its holder in every phase, so the holder passes each window until the activator has the
+ * turn: the first turn has 2 windows (Main Phase 1, End Phase), each full turn after it has 4 (Draw, Standby, Main 1, End) and the turn of the activator 3.
+ */
+function windows(format: Format, activator: Seat, holder: Seat): Step[] {
+  const n = Number(process.env.WN ?? 5);
+  const own = Number(process.env.WO ?? 4);
+  return turnsBefore(format, activator).flatMap((step) => [step, ...Array.from({ length: (step as { by: Seat }).by === holder ? own : n }, () => pass(holder))]);
+}
+
+const TAKER = "Soul Taker";
+const MAXX = "Maxx \"C\"";
+const REBORN = "Monster Reborn";
+const sameSide = (format: Format, a: Seat, b: Seat): boolean => (format === "tag" ? team(a) === team(b) : a === b);
+
+/** `user` activates Soul Taker on the monster of `target`: the monster of `target` is destroyed and the controller of that monster (only that duelist side) gains 1000 LP. */
+function taker(format: Format, user: Seat, target: Seat): Scenario {
+  const base = baseLp(format);
+  const spec: Record<string, object> = {};
+  for (const seat of SEATS[format]) {
+    spec[seat] = { monsters: seat === target ? [] : [ELF], grave: seat === target ? [ELF] : [], spells: [] };
+    // A Tag team shares one LP pool: the whole team of the controller gains 1000.
+    if (sameSide(format, seat, target)) spec[seat] = { ...spec[seat], lp: base + 1000 };
+  }
+  spec[user] = { ...spec[user], grave: [TAKER] };
+  const setup: Record<string, object> = {};
+  for (const seat of SEATS[format]) setup[seat] = seat === target ? { monsters: [ELF] } : { monsters: [ELF] };
+  setup[user] = { monsters: [ELF], hand: [TAKER] };
+  return defineScenario({
+    id: `soul-taker-${format}-${user}-destroys-monster-of-${target}-${target}-gains-1000`,
+    title: `${label(format)}: ${user} activates Soul Taker on the monster of ${target}: ${target} (the controller, not another seat) gains 1000 LP`,
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] the opponent named by 1-tp is the controller of the target`,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "event-opponent", format, "card:81510157"],
+    setup: baseSetup(format, setup as never),
+    steps: [...turnsBefore(format, user), activate(TAKER, user), select({ card: ELF, owner: target }), everySeat(format, spec as never)],
+  });
+}
+
+/** `activator` Special Summons with Monster Reborn; `holder` answers with Maxx "C" from the hand and draws 1 card (a duelist of another side) or none (the same side as the summoner). */
+function maxx(format: Format, activator: Seat, holder: Seat): Scenario {
+  const spec: Record<string, object> = {};
+  for (const seat of SEATS[format]) spec[seat] = { hand: { count: drawn(seat, activator) }, monsters: [], grave: [] };
+  const draws = sameSide(format, holder, activator) ? 0 : 1;
+  spec[holder] = { ...spec[holder], hand: { count: drawn(holder, activator) + draws }, grave: [MAXX] };
+  spec[activator] = { ...spec[activator], monsters: [ELF], grave: [REBORN] };
+  if (holder === activator) spec[activator] = { ...spec[activator], grave: [REBORN, MAXX] };
+  return defineScenario({
+    id: `maxx-c-${format}-${activator}-special-summons-${holder}-${draws ? "draws" : "no-draw"}`,
+    title: `${label(format)}: ${activator} Special Summons a monster and ${holder} activates Maxx "C": ${draws ? `${holder} draws 1 card` : `${holder} is on the side of the summoner and draws nothing`}, no other seat draws`,
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] the opponent named by 1-tp is the duelist of the event`,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "event-opponent", format, "card:23434538"],
+    setup: baseSetup(format, { [activator]: { hand: [REBORN], grave: [ELF] }, [holder]: { hand: [MAXX] } } as never),
+    steps: [
+      ...windows(format, activator, holder),
+      activate(REBORN, activator),
+      auto(activator),
+      expectOffered("activate", { card: MAXX, from: "hand" }, holder),
+      activate({ card: MAXX, from: "hand" }, holder),
+      choose("Monster Zone 5", activator),
+      everySeat(format, spec as never),
+    ],
+  });
+}
+
+export const EVENT_BINDING_SCENARIOS: Scenario[] = [
+  bribe("ffa3", "p1", "p2"), bribe("ffa3", "p1", "p0"), bribe("ffa4", "p2", "p0"), bribe("ffa4", "p2", "p3"),
+  bribe("tag", "p1", "p0"), bribe("tag", "p1", "p2"), bribe("tag", "p0", "p3"), bribe("tag", "p0", "p1"),
+  zaloog("ffa3", "p1", "p2", "deck"), zaloog("ffa3", "p1", "p0", "hand"), zaloog("ffa4", "p3", "p1", "deck"), zaloog("ffa4", "p2", "p0", "hand"),
+  taker("ffa3", "p1", "p2"), taker("ffa3", "p1", "p0"), taker("ffa4", "p2", "p3"), taker("ffa4", "p3", "p1"),
+  taker("tag", "p1", "p0"), taker("tag", "p1", "p2"), taker("tag", "p0", "p3"),
+  maxx("ffa3", "p1", "p2"), maxx("ffa3", "p1", "p0"), maxx("ffa4", "p2", "p0"), maxx("ffa4", "p2", "p3"),
+  maxx("tag", "p1", "p0"), maxx("tag", "p1", "p2"), maxx("tag", "p1", "p3"), maxx("tag", "p0", "p2"),
+  zaloog("tag", "p1", "p2", "deck"), zaloog("tag", "p0", "p3", "hand"), zaloog("tag", "p2", "p1", "hand"), zaloog("tag", "p3", "p0", "deck"),
+];

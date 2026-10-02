@@ -4217,16 +4217,6 @@
       "stockSha256": "dea8a60a706e831ccaffe30792747c56d2127867cbec3ccae2eeb23131ea8b12"
     },
     {
-      "code": 78679226,
-      "file": "c78679226.lua",
-      "name": "Future Silence",
-      "kind": "hand",
-      "classes": [
-        "R1"
-      ],
-      "stockSha256": "5b85c1dd408241a719667c65f5c97548e73ca6b6b326bb16654515319b5adacb"
-    },
-    {
       "code": 78161960,
       "file": "c78161960.lua",
       "name": "Reject Reborn",
@@ -4243,6 +4233,16 @@
       "compareIn": [
         "condition"
       ]
+    },
+    {
+      "code": 78679226,
+      "file": "c78679226.lua",
+      "name": "Future Silence",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "5b85c1dd408241a719667c65f5c97548e73ca6b6b326bb16654515319b5adacb"
     },
     {
       "code": 78706415,
@@ -4337,6 +4337,20 @@
       "seatTables": [
         "s"
       ]
+    },
+    {
+      "code": 81510157,
+      "file": "c81510157.lua",
+      "name": "Soul Taker",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "redefined": [
+        "target",
+        "activate"
+      ],
+      "stockSha256": "9a8c4da3ced9fb531714ecad1a9fc256fd58cd4c3fcaffcf7dde44865341806a",
+      "note": "Script fix (R1 target controller, R-COMMON-SEAT-STATE, lead decision 2026-10-01): \"your opponent gains 1000 LP\" reads the Lua value 1-tp, which at 3 or more seats is ONE opponent that the user chooses in a window (Choose an opponent), not the controller of the destroyed monster, so the user could give the 1000 LP to any opponent. The target and the operation now bind the value 1 to the controller of the target (aux.MPForEachController): the controller of the destroyed monster gains the LP, in Tag the team of that controller. Not part of R1 or R2 (a script fix)."
     },
     {
       "code": 82052602,
