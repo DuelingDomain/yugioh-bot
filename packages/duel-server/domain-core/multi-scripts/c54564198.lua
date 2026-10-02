@@ -39,4 +39,9 @@ function s.initial_effect(c)
 	local ok,err=pcall(mp_initial,c)
 	Duel.RegisterEffect=reg
 	if not ok then error(err,0) end
+	-- The stock literal 0 is the opposing team for a Tag holder on team 1.
+	-- Read the battle flag of the holder; it is not an opponent choice.
+	c:GetActivateEffect():SetCondition(function(e,tp)
+		return Duel.GetFlagEffect(tp,id)>0
+	end)
 end
