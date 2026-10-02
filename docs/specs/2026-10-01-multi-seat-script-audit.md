@@ -41,3 +41,7 @@ Live proof: `clear-world-seats.ts` and `hama-damage-state.ts`. The original scri
 ## Damage to each side
 
 Mecha-Dog Marron (94667532) damaged only folded players 0 and 1 after battle destruction. It now damages each living FFA seat once. In Tag, each team loses LP once. Live proof: `mecha-dog-marron.ts`. Both stock FFA outcomes fail and both Tag controls pass. All four fixed cases pass on each core.
+
+## Returned owners discard
+
+Criosphinx (18654201) represented returned monster owners with two bits. It now uses one bit per real seat. Each owner in the return event discards once, including a Tag partner. Live proof: `criosphinx.ts`. All six stock outcomes fail; all six fixed outcomes pass on each core.

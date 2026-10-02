@@ -976,6 +976,15 @@
       "note": "the global battle check asks Duel.GetBattleMonster(0), which gives the monsters only when the seat 0 duelist is in the battle; it asks for every real seat and writes the flag of the seat of each battle monster (flag keyed by seat in FFA, team in Tag)."
     },
     {
+      "code": 18654201,
+      "file": "c18654201.lua",
+      "name": "Criosphinx",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "b7d4d47ac319cfdc051ff3c16ad14b78127f06cf05cbf85ba99f7213ce0919d8",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 18752707,
       "file": "c18752707.lua",
       "name": "Magical Star Illusion",
