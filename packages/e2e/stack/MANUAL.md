@@ -1,19 +1,96 @@
 # Manual FFA stack
 
-Run these commands only in `/home/sulman633/orca/workspaces/yugioh-bot/n-player-ui`.
+Run these commands from your own isolated worktree.
 This starts a local web, websocket server, and real duel host, with no Playwright test run.
+
+## Concurrent slots (manual or Playwright)
+
+Set `E2E_SLOT=N`, where N is one digit from 0 through 9. Each concurrent run needs
+a different slot, including manual stacks. Slot 0 is isolated too. Unset preserves
+the existing ordinary ports (`3300`, `3302`, `4302`, `4303`) and manual ports
+(`3400`, `3402`, `4402`, `4403`), with `.stack` and `.next`.
+
+| Service | Slot N default | Slot 1 | Slot 2 | Slot 3 |
+| --- | --- | --- | --- | --- |
+| Web | `3301 + 10*N` | 3311 | 3321 | 3331 |
+| Public websocket | `3303 + 10*N` | 3313 | 3323 | 3333 |
+| Internal websocket | `4304 + 10*N` | 4314 | 4324 | 4334 |
+| Duel host | `4305 + 10*N` | 4315 | 4325 | 4335 |
+
+All ten default families are disjoint and avoid ordinary, manual, and live ports.
+Explicit `E2E_WEB_PORT`, `E2E_WS_PORT`, `E2E_WS_INTERNAL_PORT`, and `E2E_DUEL_PORT`
+still win; callers choosing overrides must keep them disjoint. Occupied and live
+ports are refused. Empty, fractional, padded, and out-of-range slots are rejected.
+
+Each slot owns `packages/e2e/.stack-N/`, containing `e2e.sqlite`, `logs/`,
+`reports/`, card images, manual runtime data, `manual.json`, `browsers/`, `.auth/`,
+`test-results/` (including traces, videos, screenshots, and the failure index),
+`playwright-report/`, `.status/e2e-results.json`, and `.status/e2e-multi/` evidence.
+The ws and duel children use private `.stack-N/ws` and `.stack-N/duel` working
+directories; temporary files go to `.stack-N/tmp`.
+
+The web build lives in `packages/web/.next-e2e-N/`. Its standalone entry point is
+`.next-e2e-N/standalone/packages/web/server.js`; the `.e2e-build.json` stamp sits
+beside that server. Prepare passes `E2E_NEXT_DIST_DIR` to Next and the standalone
+asset packager. With that variable unset, production and Docker still use `.next`.
+Each slot bakes its own `NEXT_PUBLIC_WS_URL`. `E2E_STANDALONE_DIR` remains an
+explicit override for a copied, already matching standalone build.
+
+**Before launching parallel workers, build shared services once in the foreground:**
+
+```bash
+npm run build --workspace=packages/shared
+npm run build --workspace=packages/duel-server
+npm run build --workspace=packages/ws
+export E2E_DUEL_DATA_DIR=/home/sulman633/orca/workspaces/yugioh-bot/n-player-ui/data/duel-engine-snap
+
+# Optional: prebuild each slot's web once before the test batch.
+E2E_SLOT=1 npm run stack:build --workspace=packages/e2e
+E2E_SLOT=2 npm run stack:build --workspace=packages/e2e
+E2E_SLOT=3 npm run stack:build --workspace=packages/e2e
+
+# Separate terminals/workers, all from the same worktree:
+E2E_SLOT=1 npm run e2e --workspace=packages/e2e -- <spec>
+E2E_SLOT=2 npm run e2e --workspace=packages/e2e -- <spec>
+E2E_SLOT=3 npm run e2e --workspace=packages/e2e -- <spec>
+```
+
+General invocation: `E2E_SLOT=N npm run e2e --workspace=packages/e2e -- <spec>`.
+Prepare skips fresh shared/service/web output. Shared freshness requires a build
+after changes to its source or config; service freshness also checks shared dist.
+Do not edit source/config or rebuild shared/service dist during a parallel batch.
+`E2E_FORCE_BUILD=1` is for a serial rebuild, never a parallel batch.
+
+Web builds are serialized with `packages/e2e/.stack-build-lock` because Next also
+writes `next-env.d.ts` and `tsconfig.json`. Slot builds restore those files and
+their mtimes before stamping success. This serialization affects preparation;
+the resulting stacks and tests run concurrently. Do not run a separate web build
+or web typecheck during preparation. If a build is killed without cleanup, inspect
+the lock's `pid` and remove the lock only after confirming no build is running.
+Slot builds with symlinked dependencies use Webpack, since Turbopack refuses
+dependencies outside its filesystem root. Ordinary production commands are unchanged.
+
+Select the same slot for manual start, login, report, and failure-index commands:
+
+```bash
+E2E_SLOT=2 npm run stack:manual --workspace=packages/e2e
+E2E_SLOT=2 npm run stack:login --workspace=packages/e2e -- p1
+E2E_SLOT=2 npm run e2e:report --workspace=packages/e2e
+E2E_SLOT=2 npm run e2e:index --workspace=packages/e2e
+```
+
+Ordinary E2E retains its strict bundle checks. If a read-only snapshot pins a
+different wrapper, use the existing `E2E_MANUAL=1` mode for its verified local
+runtime manifest (and real-image behavior), or supply an already matching bundle.
+Manual wrapper verification checks a temporary copy of the installed bytes against
+the checked-in patch, so borrowed dependency symlinks remain read only.
 
 ## Start
 
-Keep the engine worktree read only. Reuse an existing snapshot; copy only when missing:
+Keep the engine snapshot read only. Select it explicitly when it lives in another worktree:
 
 ```bash
-cd /home/sulman633/orca/workspaces/yugioh-bot/n-player-ui
-if [ ! -e data/duel-engine-snap ]; then
-  mkdir -p data
-  cp -a /home/sulman633/repos/yugioh-bot/.worktrees/domain-multiplayer/data/duel-engine-next data/duel-engine-snap
-fi
-git check-ignore data/duel-engine-snap
+export E2E_DUEL_DATA_DIR=/home/sulman633/orca/workspaces/yugioh-bot/n-player-ui/data/duel-engine-snap
 npm run build --workspace=packages/shared
 npm run stack:manual --workspace=packages/e2e
 ```
@@ -53,7 +130,8 @@ When neither is set, startup warns that card art will download from YGOPRODeck. 
 Downloaded art is written only into `packages/e2e/.stack/manual-card-images`.
 Normal e2e runs keep tiny stub images in their separate `.stack/card-images` cache.
 
-The manual and ordinary e2e supervisors share `.stack/e2e.sqlite`; run them one at a time.
+With `E2E_SLOT` unset, manual and ordinary e2e supervisors share `.stack/e2e.sqlite`;
+run them one at a time. A chosen slot likewise permits only one supervisor at a time.
 Each startup resets this isolated database. It seeds p1–p4, each with:
 
 - `Manual Standard · EARTH normals`: 40 unique low-level EARTH Normal Monsters.
@@ -67,7 +145,6 @@ Chromium must be installed for Playwright (`npx playwright install chromium` onc
 Run each player in a separate terminal on a machine with a graphical display:
 
 ```bash
-cd /home/sulman633/orca/workspaces/yugioh-bot/n-player-ui
 npm run stack:login --workspace=packages/e2e -- p1
 # Other terminals, if needed:
 npm run stack:login --workspace=packages/e2e -- p2
@@ -111,14 +188,72 @@ the supervisor sends SIGTERM to all three children and waits, with a bounded SIG
 Then remove the generated build, database, downloaded images, profiles, and logs:
 
 ```bash
-cd /home/sulman633/orca/workspaces/yugioh-bot/n-player-ui
 rm -rf packages/web/.next packages/e2e/.stack
 ```
+
+For a slot, stop its run first and delete only its output, for example
+`rm -rf packages/web/.next-e2e-2 packages/e2e/.stack-2`. Leave other workers' slots
+and the read-only snapshot alone. Remove shared dist only after all slots stop.
 
 Delete any Playwright traces or screenshots you created. Keep `data/duel-engine-snap` for the later test stage;
 only the final owner cleanup deletes it. All runtime directories and `data/` are git-ignored.
 
-## Verification on 2026-10-02
+## Concurrent-slot proof on 2026-10-02
+
+Shared, duel-server, and ws were each built once, then web slots 1–3 were built
+once. All three runs were launched together and awaited in the foreground. Each
+ran the same real-core test: `tests/duel-3p-ffa-table.spec.ts --grep 'mounts three own-EMZ'`.
+
+The environment for each was:
+
+```bash
+E2E_SLOT=N E2E_WORKERS=1 E2E_MANUAL=1 E2E_BOT_STEP_MS=900 \
+E2E_DUEL_DATA_DIR=/home/sulman633/orca/workspaces/yugioh-bot/n-player-ui/data/duel-engine-snap \
+E2E_CARD_IMAGE_SOURCE_DIR=/home/sulman633/orca/workspaces/yugioh-bot/n-player-ui/packages/e2e/.stack/manual-card-images \
+npm run e2e --workspace=packages/e2e -- tests/duel-3p-ffa-table.spec.ts --grep 'mounts three own-EMZ'
+```
+
+Manual mode was needed because the source snapshot pins a different wrapper;
+each slot derived its verified manifest locally and read the existing art cache.
+Both sources stayed read only. No production engine data or services were used.
+
+Captured Playwright output:
+
+```text
+slot 1: 5 passed (28.6s)
+slot 2: 5 passed (27.9s)
+slot 3: 5 passed (29.3s)
+```
+
+Each count is four credentials-provider setup tests plus one real FFA3 browser
+test (three fields, own EMZs, Standard first draw, first-round turn/Battle Phase
+rules). There were zero failures, skips, or retries in this successful batch.
+The batch ran from `22:57:51.088Z` to `22:58:20.919Z`; at `22:57:54.159Z` all
+12 service ports were listening simultaneously. Every prepare log said shared,
+ws, duel-server, and its own web build were up to date.
+
+Before/after fingerprints confirmed shared dist contents/mtimes and all three
+web build stamps unchanged. A recursive content fingerprint of the entire source
+snapshot also stayed unchanged. Database inodes were distinct (1220507, 1220567,
+1220570). Each slot held its own four auth files, test results/index, HTML report,
+and JSON report. All 12 slot ports were free afterward; each manual login handoff
+was removed. The existing 3300 stack and live ports were left alone.
+
+`npm run test:unit --workspace=packages/e2e`: **42 passed, 0 failed**.
+`npm run typecheck --workspace=packages/e2e`: passed. All three production web
+builds typechecked successfully. The helper test checks every slot 0–9 and confirms
+unset still resolves to web 3300, `.stack`, `.next`, and all legacy output paths.
+
+An earlier simultaneous attempt with `E2E_BOT_STEP_MS=120` passed all credentials
+setups but failed this spec's browser turn-3 observation in every slot. The real
+engine reached turn 4; no port/database clash or build mutation occurred. The same
+spec passed in all slots with the readable 900 ms pace. The full E2E suite, all ten
+slots as live stacks, and headed manual login in each slot were not run.
+
+Generated builds, slot stacks/results, proof logs, shared service dist, and the four
+borrowed dependency symlinks are removed at completion; the worktree is retained.
+
+## Earlier manual-stack verification on 2026-10-02
 
 - `npm run test:unit --workspace=packages/e2e`: 27 tests passed, including manual defaults/port exclusions,
   image passthrough versus normal e2e stubs, player-owned saved decks, credentials login, and immutable snapshot handling.

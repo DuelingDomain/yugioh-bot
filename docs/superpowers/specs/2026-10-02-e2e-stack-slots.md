@@ -18,6 +18,11 @@ Each slot builds into `packages/web/.next-e2e-N` via `E2E_NEXT_DIST_DIR`.
 Next config and standalone asset packaging honor that variable only when set.
 Prepare and start share the derived standalone and build-stamp paths. Production
 and Docker defaults remain `.next`.
+Next web builds use a shared preparation lock because Next also rewrites config
+and type declarations. Slot builds restore tracked config bytes and mtimes before
+stamping success. Borrowed dependency symlinks use Webpack for slot builds, avoiding
+Turbopack's filesystem-root restriction. Manual wrapper checks verify a local copy
+of the installed bytes so Git need not traverse borrowed dependency symlinks.
 
 Shared/duel-server/ws dist remains shared. Prepare checks freshness including
 source, package, and TypeScript config changes and avoids fresh builds. Workers
