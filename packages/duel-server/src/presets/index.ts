@@ -8,6 +8,8 @@ import { preset as ffa4ChainOrder } from "./ffa4-chain-order-heavy-storm.js";
 import { preset as ffa4Surrender } from "./ffa4-surrender-in-chain.js";
 import { presets as ffa3Elimination } from "./ffa3-elimination.js";
 import { presets as ffa3Table } from "./ffa3-table.js";
+import { presets as ffa3Rules } from "./ffa3-rules.js";
+import { preset as ffa4RulesExtraZones } from "./ffa4-rules-extra-zones.js";
 import { preset as ffa3Direct } from "./ffa3-table-direct.js";
 import { preset as turnPlayerLast } from "./ffa3-turn-player-last.js";
 import { preset as thirdResponse } from "./ffa3-third-response.js";
@@ -36,6 +38,8 @@ export const PRESETS: readonly Preset[] = [
   ffa4ChainOrder,
   ffa4Surrender,
   ...ffa3Table,
+  ...ffa3Rules,
+  ffa4RulesExtraZones,
   ...ffa3Elimination,
   ffa3Direct,
   turnPlayerLast,

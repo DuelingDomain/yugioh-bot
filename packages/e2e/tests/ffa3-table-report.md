@@ -406,7 +406,8 @@ blocked matching zone. None is accepted because of a UI timeout.
 Additional checks: E2E and duel-server typechecks passed; all 37 then-registered
 preset boards compiled in the focused unit run (39 unselected tests skipped);
 all ten new presets passed registration, uniqueness, bot-seat and checklist
-validation. Shared, websocket, duel-server and production web builds passed.
+validation. Shared and production web builds plus diagnostic duel-server
+rebuilds passed. The WebSocket service reused its existing compiled output.
 The web build emitted its existing dynamic file-tracing warnings. Read-only
 code review found no important issues after the prompt-transition corrections.
 
