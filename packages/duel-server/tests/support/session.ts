@@ -388,6 +388,21 @@ export class Session {
         if (hit) this.fail(stepNo, step, `Unexpected event: #${hit.id} ${hit.kind} "${hit.text}".`, false);
         return;
       }
+      case "expectLog": {
+        const log = this.game.view(0).log;
+        let cursor = 0;
+        for (const [index, line] of step.lines.entries()) {
+          const at = log.findIndex((entry, i) => i >= cursor && entry.text.includes(line));
+          if (at < 0) this.fail(stepNo, step, `Log line ${index + 1} of ${step.lines.length} not found in order: "${line}".\nLog:\n${log.slice(-15).map((e) => `  #${e.id} ${e.text}`).join("\n")}`, false);
+          cursor = at + 1;
+        }
+        return;
+      }
+      case "expectNoLog": {
+        const hit = this.game.view(0).log.find((entry) => entry.text.includes(step.text));
+        if (hit) this.fail(stepNo, step, `Unexpected log line: #${hit.id} "${hit.text}".`, false);
+        return;
+      }
       case "expectResolved": {
         const got = this.events().filter((e) => e.kind === "chain-resolving").map((e) => e.card?.code);
         const want = step.order.map(codeOf);

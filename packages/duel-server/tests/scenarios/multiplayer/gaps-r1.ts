@@ -4,7 +4,7 @@
 // the real card scripts plus the overlay, and ends with the state of EVERY seat (LP, field, hand, GY, banished zone).
 
 import {
-  activate, choose, defineScenario, endTurn, expectBoard, expectPickSeats, no, pickOpponent, select, specialSummon, xyz, yes, zone,
+  activate, choose, defineScenario, endTurn, expectBoard, expectLog, expectNoLog, expectPickSeats, no, pickOpponent, select, specialSummon, xyz, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -96,6 +96,7 @@ function dangerousMachine(format: "ffa3" | "tag", die: 2 | 4 | 5): Scenario {
     };
     spec[seat] = { hand: [MACHINE_HAND[seat]], monsters: [MACHINE_FIELD[seat]], ...(seat === "p0" ? { spells: [MACHINE] } : {}) };
   }
+  const start = structuredClone(spec);
   const what =
     die === 2 ? `the hand card of ${picked} is discarded` : die === 4 ? `${picked} draws 1 card` : `p0 selects the monster of p1 (a field is not bound to the pick, any opponent) and it is destroyed`;
   if (die === 2) spec[picked] = { ...spec[picked], hand: [], grave: [MACHINE_HAND[picked]] };
@@ -109,7 +110,12 @@ function dangerousMachine(format: "ffa3" | "tag", die: 2 | 4 | 5): Scenario {
     tags: ["multiplayer", "gaps-r1", "r1", "dice", "opp-pick", format, "card:76895648"],
     seed: ["1", MACHINE_SEEDS[die], "3", "4"],
     setup,
-    steps: [expectPickSeats(MACHINE_PICKS[format], "p0"), pickOpponent(picked, "p0"), ...(die === 5 ? [select({ card: MACHINE_FIELD.p1, owner: "p1" })] : []), everySeat(format, spec)],
+    // The pick comes BEFORE the die: while the pick is open no die was rolled and no seat has changed; the die is logged only after the pick.
+    steps: [
+      expectPickSeats(MACHINE_PICKS[format], "p0"), expectNoLog("Dice roll"), everySeat(format, start),
+      pickOpponent(picked, "p0"), expectLog(`Dice roll: ${die}`),
+      ...(die === 5 ? [select({ card: MACHINE_FIELD.p1, owner: "p1" })] : []), everySeat(format, spec),
+    ],
   });
 }
 

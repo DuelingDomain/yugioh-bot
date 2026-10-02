@@ -127,6 +127,8 @@ export type Step =
   | { op: "expectBoard"; board: BoardExpect }
   | { op: "expectEvents"; events: EventMatch[] }
   | { op: "expectNoEvent"; event: EventMatch }
+  | { op: "expectLog"; lines: string[] }
+  | { op: "expectNoLog"; text: string }
   | { op: "expectResolved"; order: CardRef[] }
   | { op: "expectChain"; links: CardRef[] }
   | { op: "expectPrompt"; prompt: PromptExpect }
@@ -198,6 +200,10 @@ export const expectBoard = (board: BoardExpect): Step => ({ op: "expectBoard", b
 /** These events happened in this order (other events may sit between them). */
 export const expectEvents = (...events: EventMatch[]): Step => ({ op: "expectEvents", events });
 export const expectNoEvent = (event: EventMatch): Step => ({ op: "expectNoEvent", event });
+/** The duel log (view.log: dice rolls, coin tosses and other lines that are no event) has these lines, each as a substring, in this order. */
+export const expectLog = (...lines: string[]): Step => ({ op: "expectLog", lines });
+/** No line of the duel log contains this text. */
+export const expectNoLog = (text: string): Step => ({ op: "expectNoLog", text });
 /** The chain links resolved in exactly this order (every chain-resolving event so far). */
 export const expectResolved = (...order: CardRef[]): Step => ({ op: "expectResolved", order });
 /** The chain stack now, from link 1 up. */
