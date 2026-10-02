@@ -182,7 +182,23 @@
   max-height: calc(30% - 24px);
   overflow-y: auto;
 }
+/* Expanded responses fit between the side panels and below the far seat's LP. */
+.board[data-format="ffa4"] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
+  inset: 39% auto auto 50%;
+  translate: -50% 0;
+  margin: 0;
+  width: 42%;
+  min-width: 0;
+  max-width: 400px;
+  max-height: 57%;
+}
+.board[data-format="ffa4"] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) > * {
+  flex-shrink: 0;
+}
 .slot[data-slot="fx"] :global([data-chain-panel] [data-testid="priority-chips"]) {
+  flex-wrap: wrap;
+}
+.slot[data-slot="prompt"] :global([data-prompt-panel] [data-testid="priority-chips"]) {
   flex-wrap: wrap;
 }
 
