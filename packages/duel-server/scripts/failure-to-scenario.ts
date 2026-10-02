@@ -210,6 +210,7 @@ export async function replaySeats(source: NSource, dataDirectory: string, step: 
     decks: source.decks as DuelDeck[],
     seed: source.seed,
     dataDirectory,
+    ...(source.firstTurnDraw !== undefined ? { firstTurnDraw: source.firstTurnDraw } : {}),
     settings: source.settings ?? (source.kind === "journal" ? legacyDuelSettings() : normalizeDuelSettings(source.mode, undefined)),
     ...(source.startupScripts ? { startupScripts: source.startupScripts } : {}),
     ...(source.format !== "1v1" ? { format: source.format } : {}),
@@ -222,7 +223,7 @@ export async function replaySeats(source: NSource, dataDirectory: string, step: 
       const elimination = eliminationCodeOf(command.promptId);
       if (view.revision !== command.revision || (elimination === null && view.prompt?.id !== command.promptId)) {
         throw new Error(
-          `answer ${done}: the journal has revision ${command.revision} prompt ${command.promptId}; the engine has revision ${view.revision} prompt ${view.prompt?.id ?? "none"}. The core differs from the recorded run.`,
+          `answer ${done}: the journal has revision ${command.revision} prompt ${command.promptId}; the engine has revision ${view.revision} prompt ${view.prompt?.id ?? "none"}. The replay does not match the recorded run. Check the saved options and engine resources.`,
         );
       }
       if (elimination === null) game.answer(command.seat, command.promptId, command.answer);
