@@ -1,16 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ownWindowGateVisible, shouldCheckDeck, startButtonLabel } from "@/components/duel/start-flow";
 
-const lockedError = Object.assign(new Error("Decks are locked after the duel starts"), { name: "DuelRequestError", status: 409 });
-
 describe("deck check while the duel starts", () => {
   it("checks the deck only while the table is in the lobby", () => {
     expect(shouldCheckDeck("lobby")).toBe(true);
     expect(shouldCheckDeck("active")).toBe(false);
     expect(shouldCheckDeck("completed")).toBe(false);
   });
-
-
 });
 
 describe("own-window screen", () => {
