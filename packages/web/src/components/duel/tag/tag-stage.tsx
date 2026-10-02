@@ -235,6 +235,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         key={seat}
         className={styles.fieldHold}
         data-field-hold={seat}
+        data-relation={relation}
         data-out={view.eliminated || loss.lostTeam === teamOfSeat(TAG, seat) ? "true" : undefined}
         style={{ width: ROOF_FIELD.width, height: ROOF_FIELD.height, transform }}
       >

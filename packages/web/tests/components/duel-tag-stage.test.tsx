@@ -73,6 +73,19 @@ describe("TagStage FX hooks", () => {
   });
 });
 
+describe("TagStage field relations", () => {
+  const relations = (root: HTMLElement) =>
+    [0, 1, 2, 3].map((seat) => root.querySelector(`[data-field-hold="${seat}"]`)?.getAttribute("data-relation"));
+
+  it("tags every field with its relation so the Partner nib stays on the partner", () => {
+    expect(relations(mount("target-pick"))).toEqual(["self", "opponent", "partner", "opponent"]);
+  });
+
+  it("calls every field other for a spectator", () => {
+    expect(relations(mount("spectator"))).toEqual(["other", "other", "other", "other"]);
+  });
+});
+
 describe("TagStage hands", () => {
   it("shows the partner hand with its caption", () => {
     const root = mount("main");

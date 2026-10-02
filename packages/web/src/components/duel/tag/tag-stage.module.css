@@ -496,12 +496,12 @@
 
 /* Partner cards: legal ring and a Partner nib, never the USE glow. The field draws its normal marks for a
    legal card; this turns them into the partner look by attribute only. */
-.fieldHold [data-usable="false"] [data-state="usable"] {
+.fieldHold[data-relation="partner"] [data-state="usable"] {
   animation: none;
   box-shadow: 0 0 0 1.5px rgb(92 184 245 / 0.85), 0 0 10px rgb(92 184 245 / 0.3);
 }
 
-.fieldHold [data-usable="false"] [data-state="usable"] + span {
+.fieldHold[data-relation="partner"] [data-state="usable"] + span {
   width: auto;
   padding: 0 6px;
   border-color: rgb(92 184 245);
@@ -510,9 +510,9 @@
   box-shadow: 0 0 6px rgb(92 184 245 / 0.4);
 }
 
-.fieldHold [data-usable="false"] [data-state="usable"] + span svg { display: none; }
+.fieldHold[data-relation="partner"] [data-state="usable"] + span svg { display: none; }
 
-.fieldHold [data-usable="false"] [data-state="usable"] + span::after {
+.fieldHold[data-relation="partner"] [data-state="usable"] + span::after {
   content: "Partner";
   font: 600 9.5px / 13px var(--ui);
   letter-spacing: 0.1em;
