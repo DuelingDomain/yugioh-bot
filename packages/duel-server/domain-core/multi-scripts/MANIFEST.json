@@ -3334,6 +3334,15 @@
       "note": "The target stores the operation info for the activator when the group is not 2 cards (the core demands 2 for PLAYER_ALL); the operation Special Summons each target for the duelist whose Graveyard holds it (windows)."
     },
     {
+      "code": 59011257,
+      "file": "c59011257.lua",
+      "name": "Fallin' Cheatah",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "4d1f044c977bb1cd807188a8234a9f68275d49919cfef2c1f45d0e6a0ff38367",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 59054773,
       "file": "c59054773.lua",
       "name": "Ignister A.I.Land",

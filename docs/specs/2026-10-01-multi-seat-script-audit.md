@@ -107,3 +107,7 @@ Chaos Emperor Dragon (82301904) left the Tag partner's hand unchanged. The Tag-o
 ## Equip target damage
 
 DoomZ Command (68831625) and Worm Millidith (71315423) used the equip target's folded controller during a phase event. A picked opponent could take the damage while the actual target controller took none. The overlays bind that controller for target information and damage. Live proof: `doomz-controller.ts` and `worm-controller.ts`. Four stock FFA outcomes fail; two Tag shared-LP controls pass. All six fixed cases pass on both cores.
+
+## Cheatah control return
+
+Fallin' Cheatah (59011257) changed control to a picked opponent after its custom summon event, even when another opponent summoned the target. Its check and operation now bind the summoned target's real controller. Live proof: `cheatah-controller.ts`. All three stock outcomes show the wrong field. All three fixed outcomes pass on both cores.
