@@ -85,7 +85,7 @@ export function MultiSeatStage({
       ) : null}
       {extraPairs.length > 0 ? (
         <div className={styles.sharedExtras}>
-          {extraPairs.map((pair) => <SharedExtraZones key={pair[0].seat} pair={pair} nameOf={nameOf} callbacks={callbacks} />)}
+          {extraPairs.map((pair) => <SharedExtraZones key={pair[0].seat} pair={pair} viewerSeat={mySeat} nameOf={nameOf} callbacks={callbacks} />)}
         </div>
       ) : null}
       {focusView ? <FocusedSeatPick view={focusView} name={nameOf(focusView.seat)} pick={seatPick} /> : null}

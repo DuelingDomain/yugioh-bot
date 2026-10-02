@@ -209,19 +209,21 @@ function spellKeys(seat: number, sequence: number, masterRule: DuelMasterRule): 
 }
 
 /** One physical EMZ pair. Each cell keeps both seat references and the actual card controller. */
-export function SharedExtraZones({ pair, nameOf, callbacks }: {
+export function SharedExtraZones({ pair, viewerSeat, nameOf, callbacks }: {
   pair: [DuelSeatView, DuelSeatView];
+  viewerSeat: number | null;
   nameOf: (seat: number) => string;
   callbacks: SeatBoardCallbacks;
 }) {
-  const [first, across] = pair;
+  const reversed = viewerSeat === pair[1].seat;
+  const [first, across] = reversed ? [pair[1], pair[0]] : pair;
   const firstName = nameOf(first.seat);
   const acrossName = nameOf(across.seat);
   const firstDisabled = disabledZones(first);
   const acrossDisabled = disabledZones(across);
   return (
-    <div className={`${styles.extras} ${styles.sharedPair}`} data-testid={`shared-emz-pair-${first.seat}-${across.seat}`}
-      data-seats={`${first.seat} ${across.seat}`} role="group" aria-label={`${firstName} / ${acrossName} shared extra monster zones`}>
+    <div className={`${styles.extras} ${styles.sharedPair}`} data-testid={`shared-emz-pair-${pair[0].seat}-${pair[1].seat}`}
+      data-seats={`${pair[0].seat} ${pair[1].seat}`} role="group" aria-label={`${firstName} / ${acrossName} shared extra monster zones`}>
       <span className={styles.extraLabel}>{firstName} / {acrossName} shared extra monster zones</span>
       {[5, 6].map((sequence) => {
         const mirror = 11 - sequence;
@@ -232,7 +234,7 @@ export function SharedExtraZones({ pair, nameOf, callbacks }: {
           + (firstOff ? `, ${firstName} zone disabled` : "") + (acrossOff ? `, ${acrossName} zone disabled` : "");
         return <CardCell key={sequence} card={card} kind="emz" label={label}
           keys={withExact(card, [zoneKey(first.seat, LOCATION_MZONE, sequence), zoneKey(across.seat, LOCATION_MZONE, mirror)])}
-          callbacks={callbacks} disabled={firstOff || acrossOff} testId={`shared-emz-${first.seat}-${across.seat}-${sequence - 4}`} />;
+          callbacks={callbacks} disabled={firstOff || acrossOff} testId={`shared-emz-${pair[0].seat}-${pair[1].seat}-${(reversed ? mirror : sequence) - 4}`} />;
       })}
     </div>
   );

@@ -42,6 +42,25 @@ function stage(engine: DuelEngineView, mySeat: number | null = 0, focusSeat: num
 }
 
 describe("FFA4 shared Extra Monster Zones", () => {
+  it.each([2, 3])("draws viewer %s's sequence 5 on the left and keeps physical cell ids", (viewer) => {
+    const lower = viewer - 2;
+    const ownKey = zoneKey(viewer, LOCATION_MZONE, 5);
+    const onActivate = vi.fn();
+    render(stage(fixture(), viewer, lower, { legal: new Set([ownKey]), onActivate }));
+    const pair = screen.getByTestId(`shared-emz-pair-${lower}-${viewer}`);
+    expect(pair.getAttribute("aria-label")).toBe(`${NAMES[viewer]} / ${NAMES[lower]} shared extra monster zones`);
+    const cells = within(pair).getAllByTestId(/^shared-emz-\d-\d-\d$/);
+    expect(cells.map((cell) => cell.getAttribute("data-testid")))
+      .toEqual([`shared-emz-${lower}-${viewer}-2`, `shared-emz-${lower}-${viewer}-1`]);
+    expect(cells[0]!.getAttribute("data-zones")).toBe(`${ownKey} ${zoneKey(lower, LOCATION_MZONE, 6)}`);
+    expect(cells[1]!.getAttribute("data-zones"))
+      .toBe(`${zoneKey(viewer, LOCATION_MZONE, 6)} ${zoneKey(lower, LOCATION_MZONE, 5)}`);
+    const button = within(cells[0]!).getByRole("button");
+    expect(button.getAttribute("aria-label")).toContain(`${NAMES[viewer]} extra monster zone 1 / ${NAMES[lower]} extra monster zone 2`);
+    fireEvent.click(button);
+    expect(onActivate).toHaveBeenCalledWith([ownKey, zoneKey(lower, LOCATION_MZONE, 6)], null, button);
+  });
+
   it.each([5, 6])("keeps both cards visible when mirrored sequence %s is also occupied", (sequence) => {
     const engine = fixture();
     const first = monster(0, sequence);
@@ -77,7 +96,8 @@ describe("FFA4 shared Extra Monster Zones", () => {
     expect(screen.getAllByTestId(/^shared-emz-pair-/)).toHaveLength(2);
     expect(document.querySelectorAll('[data-kind="emz"]')).toHaveLength(4);
     expect(screen.queryByTestId("seat-emz-2-1")).toBeNull();
-    expect(screen.getByTestId("shared-emz-pair-0-2").textContent).toContain("Ada / Cy shared extra monster zones");
+    expect(screen.getByTestId("shared-emz-pair-0-2").textContent)
+      .toContain(`${viewer === 2 ? "Cy / Ada" : "Ada / Cy"} shared extra monster zones`);
     for (const card of [engine.seats[0]!.monsters[5]!, engine.seats[2]!.monsters[5]!, engine.seats[3]!.monsters[5]!]) {
       expect(document.querySelectorAll(`img[src*="/${card.code}"]`)).toHaveLength(1);
     }
@@ -112,7 +132,7 @@ describe("FFA4 shared Extra Monster Zones", () => {
     const button = within(cell).getByRole("button");
     expect(cell.getAttribute("data-legal")).toBe("true");
     fireEvent.click(button);
-    expect(onActivate).toHaveBeenCalledWith([zoneKey(1, LOCATION_MZONE, 5), key], null, button);
+    expect(onActivate).toHaveBeenCalledWith([key, zoneKey(1, LOCATION_MZONE, 5)], null, button);
   });
 
   it.each(["cards", "places"] as const)("submits a %s prompt for the across seat from the shared cell", (kind) => {
