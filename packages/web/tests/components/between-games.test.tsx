@@ -135,6 +135,21 @@ describe("BetweenGamesScreen: what it shows", () => {
 });
 
 describe("BetweenGamesScreen: the swap rule", () => {
+  it("blocks an even total swap that changes Main and Extra counts", async () => {
+    screenFor();
+    fireEvent.click(await card("Card 100, Extra Deck"));
+    fireEvent.click(await card("Card 10, Side Deck"));
+    expect(counter()).toContain("1 out · 1 in");
+    expect(counter()).toContain("Not even");
+    expect(readyButton().disabled).toBe(true);
+    expect(screen.getByTestId("ready-reason").textContent).toBe("Keep the Main Deck at 3 cards (last game).");
+    expect(screen.getByTestId("count-main").getAttribute("data-tone")).toBe("bad");
+    expect(screen.getByTestId("count-extra").getAttribute("data-tone")).toBe("bad");
+    fireEvent.click(readyButton());
+    expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
+    expect(api.readySeries).not.toHaveBeenCalled();
+  });
+
   it("starts with nothing out and nothing in, and Ready is on", async () => {
     screenFor();
     await card("Card 1, Main Deck");
@@ -180,14 +195,14 @@ describe("BetweenGamesScreen: the swap rule", () => {
     expect(screen.getByTestId("count-main").textContent).toBe("3");
   });
 
-  it("keeps the Main Deck at its base size or more", async () => {
+  it("keeps the Main Deck at its last-game size", async () => {
     screenFor();
     // Take Card 1 out of Main and bring the Extra monster in: Main would drop to 2 and Extra grow to 3.
     fireEvent.click(await card("Card 1, Main Deck"));
     fireEvent.click(await card("Card 11, Side Deck, goes to the Extra Deck"));
     expect(counter()).toContain("1 out · 1 in");
     expect(readyButton().disabled).toBe(true);
-    expect(screen.getByTestId("ready-reason").textContent).toMatch(/Main Deck needs at least 3 cards/);
+    expect(screen.getByTestId("ready-reason").textContent).toMatch(/Keep the Main Deck at 3 cards/);
   });
 
   it("takes a mark back when the card is clicked again", async () => {
@@ -269,6 +284,25 @@ describe("BetweenGamesScreen: Ready", () => {
     await card("Card 1, Main Deck");
     fireEvent.click(readyButton());
     expect((await screen.findByRole("alert")).textContent).toBe("The series moved on.");
+  });
+
+  it("shows a rejected side-deck submission and does not mark the player ready", async () => {
+    api.saveSeriesSideDeck.mockRejectedValue(new Error("The main deck must keep the same number of cards"));
+    screenFor();
+    fireEvent.click(await card("Card 2, Main Deck"));
+    fireEvent.click(await card("Card 10, Side Deck"));
+    fireEvent.click(readyButton());
+    expect((await screen.findByRole("alert")).textContent).toBe("The main deck must keep the same number of cards");
+    expect(api.readySeries).not.toHaveBeenCalled();
+  });
+
+  it("does not submit unbalanced local marks when the timer expires", async () => {
+    screenFor({ series: { nextGameAt: new Date(Date.now() - 1000).toISOString() } });
+    fireEvent.click(await card("Card 2, Main Deck"));
+    expect(screen.getByTestId("between-timer").textContent).toBe("Starts in 0:00");
+    expect(readyButton().disabled).toBe(true);
+    expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
+    expect(api.readySeries).not.toHaveBeenCalled();
   });
 
   it("with no Side Deck there is nothing to swap, and Ready sends no deck", async () => {

@@ -878,6 +878,24 @@ describe("side decking", () => {
     return series;
   }
 
+  it.each(["grow", "shrink"])("rejects a %s in Main count with the same Side count and card multiset", (direction) => {
+    const app = setup();
+    const started = app.series.createChallenge({ guildId: "g1", challengerPlayerId: app.p1, opponentPlayerId: app.p2, bestOf: 3, ranked: false, mode: "normal" });
+    const deck = { ...validDeck(1), main: [...validDeck(1).main, 500] };
+    app.duels.setDeck(started.duel.slug, "g1", app.p1, deck);
+    app.duels.setDeck(started.duel.slug, "g1", app.p2, validDeck(1000));
+    playGame(app, started.duel.slug, app.p1);
+    const unbalanced = direction === "grow"
+      ? { ...deck, main: [...deck.main, deck.extra[0]!], extra: deck.extra.slice(1) }
+      : { ...deck, main: deck.main.slice(1), extra: [...deck.extra, deck.main[0]!] };
+    expect(() => app.series.setSideDeck(started.series.id, "g1", app.p1, unbalanced))
+      .toThrow("The main deck must keep the same number of cards");
+    expect(app.series.sideState(started.series.id, "g1", app.p1).currentDeck).toEqual(deck);
+    // Expiry advances with the last game's stored deck, including after a rejected submission.
+    const next = app.series.createNextGame(started.series.id, "g1");
+    expect(app.duels.privateState(next.slug, "g1").decks[seatOf(next, app.p1)]).toEqual(deck);
+  });
+
   it("needs the between_games window", () => {
     const app = setup();
     const { series } = challenge(app, 3);
@@ -931,10 +949,10 @@ describe("side decking", () => {
       () => app.series.setSideDeck(series.id, "g1", app.p1, { ...deck, main: deck.main.slice(2), side: [...deck.side, deck.main[0] as number, deck.main[1] as number] }),
       400,
     );
-    // Same side count, but a card moved from extra to main changes the cards' placement: still the same multiset.
+    // The same multiset and Side count do not permit Main or Extra to change size.
     expect(() =>
       app.series.setSideDeck(series.id, "g1", app.p1, { ...deck, main: [...deck.main, deck.extra[0] as number], extra: [deck.extra[1] as number] }),
-    ).not.toThrow();
+    ).toThrow("The main deck must keep the same number of cards");
   });
 
   it("checks the main deck size against the base deck", () => {

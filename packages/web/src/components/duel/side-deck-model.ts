@@ -4,8 +4,8 @@ import { TYPE_FUSION, TYPE_LINK, TYPE_SYNCHRO, TYPE_XYZ } from "./constants";
 /**
  * Side decking between games of a Best of 3. Pure: the screen keeps a set of marks (cards taken out of
  * the Main or Extra Deck, cards brought in from the Side Deck) and `planSideDeck` turns them into the
- * deck for the next game. The count taken out must equal the count brought in, so the Side Deck never
- * changes size (the server checks the same rules again).
+ * deck for the next game. Main, Extra and Side must each keep their last-game size
+ * (the server checks the same rules again).
  */
 
 export type SwapSection = "main" | "extra";
@@ -76,7 +76,7 @@ export interface SidePlan {
   /** Cards marked out and cards marked in. */
   out: number;
   inn: number;
-  /** Out equals in: the Side Deck keeps its size. */
+  /** Out equals in and Main and Extra each keep their size. */
   balanced: boolean;
   /** Section sizes after the marks. */
   counts: DeckCounts;
@@ -123,11 +123,13 @@ export function planSideDeck(
 
   const out = marks.out.length;
   const inn = marks.inn.length;
-  const balanced = out === inn;
+  const balanced = out === inn && main.length === deck.main.length && extra.length === deck.extra.length;
   const minMain = Math.min(SIDE_MAIN_MIN, base.main.length);
   let reason: string | null = null;
   if (out > inn) reason = `Bring in ${plural(out - inn)} from the Side Deck, or put ${plural(out - inn)} back.`;
   else if (inn > out) reason = `Take out ${plural(inn - out)} from the Main or Extra Deck, or put ${plural(inn - out)} back.`;
+  else if (main.length !== deck.main.length) reason = `Keep the Main Deck at ${deck.main.length} cards (last game).`;
+  else if (extra.length !== deck.extra.length) reason = `Keep the Extra Deck at ${deck.extra.length} cards (last game).`;
   else if (main.length < minMain) reason = `The Main Deck needs at least ${minMain} cards. It would have ${main.length}.`;
   else if (main.length > SIDE_MAIN_MAX) reason = `The Main Deck holds at most ${SIDE_MAIN_MAX} cards. It would have ${main.length}.`;
   else if (extra.length > SIDE_EXTRA_MAX) reason = `The Extra Deck holds at most ${SIDE_EXTRA_MAX} cards. It would have ${extra.length}.`;
@@ -153,9 +155,10 @@ export function sameMultiset(a: DuelDeck, b: DuelDeck): boolean {
   return true;
 }
 
-/** A legal side change: the same cards overall and the same Side Deck size. */
+/** A legal side change: the same cards overall and the same size in every section. */
 export function isValidSideChange(before: DuelDeck, after: DuelDeck): boolean {
-  return before.side.length === after.side.length && sameMultiset(before, after);
+  return before.main.length === after.main.length && before.extra.length === after.extra.length
+    && before.side.length === after.side.length && sameMultiset(before, after);
 }
 
 function sameList(a: readonly number[], b: readonly number[]): boolean {

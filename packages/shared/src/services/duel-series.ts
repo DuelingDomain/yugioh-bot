@@ -85,8 +85,8 @@ export interface DuelSeriesService {
    * Stores the player's sided deck for the next game. The duel host has
    * already checked card types. The service checks: status between_games, the
    * same cards as the current deck (as a multiset over main+extra+side), the
-   * side deck count unchanged, main >= min(40, base main count) and <= 60,
-   * extra <= 15.
+   * Main, Extra and Side counts unchanged, main >= min(40, base main count)
+   * and <= 60, extra <= 15.
    */
   setSideDeck(seriesId: number, guildId: string, playerId: number, deck: DuelDeck): DuelSeriesSummary;
   /**
@@ -1019,6 +1019,12 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
       }
       if (next.side.length !== state.currentDeck.side.length) {
         throw new DuelServiceError("The side deck must keep the same number of cards", 400);
+      }
+      if (next.main.length !== state.currentDeck.main.length) {
+        throw new DuelServiceError("The main deck must keep the same number of cards", 400);
+      }
+      if (next.extra.length !== state.currentDeck.extra.length) {
+        throw new DuelServiceError("The extra deck must keep the same number of cards", 400);
       }
       const minMain = Math.min(SIDE_DECK_MIN_MAIN, state.baseDeck.main.length);
       if (next.main.length < minMain || next.main.length > SIDE_DECK_MAX_MAIN) {

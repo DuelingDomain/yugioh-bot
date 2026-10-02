@@ -40,6 +40,25 @@ describe("toggleOut and toggleIn", () => {
 });
 
 describe("planSideDeck", () => {
+  it.each([40, 41, 60])("rejects an even swap that grows a %i-card Main Deck and shrinks Extra", (size) => {
+    const deck = makeDeck({ main: Array.from({ length: size }, (_, i) => i + 1000) });
+    const plan = planSideDeck(deck, marks([["extra", 0]], [0]), types);
+    expect(plan.out).toBe(plan.inn);
+    expect(plan.balanced).toBe(false);
+    expect(plan.reason).toBe(`Keep the Main Deck at ${size} cards (last game).`);
+    expect(isValidSideChange(deck, plan.deck)).toBe(false);
+  });
+
+  it("rejects a Main count decrease even when it remains above 40 and matches the registered deck", () => {
+    const deck = makeDeck({ main: Array.from({ length: 41 }, (_, i) => i + 1000) });
+    const base = { ...deck, main: deck.main.slice(1) };
+    const plan = planSideDeck(deck, marks([["main", 0]], [1]), types, base);
+    expect(plan.counts).toEqual({ main: 40, extra: 3, side: 2 });
+    expect(plan.balanced).toBe(false);
+    expect(plan.reason).toBe("Keep the Main Deck at 41 cards (last game).");
+    expect(isValidSideChange(deck, plan.deck)).toBe(false);
+  });
+
   it("is the deck as it was with no marks", () => {
     const deck = makeDeck();
     const plan = planSideDeck(deck, NO_MARKS, types);
@@ -70,14 +89,14 @@ describe("planSideDeck", () => {
     expect(plan.reason).toBeNull();
   });
 
-  it("lets a Main card swap with an Extra monster across sections: the monster goes to Extra, the Main card leaves", () => {
+  it("routes a Side Extra monster to Extra but rejects a changed Main count", () => {
     const deck = makeDeck();
     const plan = planSideDeck(deck, marks([["main", 0]], [1]), types);
     expect(plan.deck.main).toEqual([2, 3]);
     expect(plan.deck.extra).toEqual([100, 101, 11]);
     expect(plan.counts).toEqual({ main: 2, extra: 3, side: 2 });
-    // Main 3 -> 2 is below the base Main size, so the deck is not allowed.
-    expect(plan.reason).toMatch(/Main Deck needs at least 3/);
+    // Main and Extra must retain their last-game sizes.
+    expect(plan.reason).toMatch(/Keep the Main Deck at 3 cards/);
   });
 
   it("says how many more cards must come in when fewer come in than go out", () => {
@@ -91,7 +110,7 @@ describe("planSideDeck", () => {
     expect(plan.reason).toBe("Take out 1 card from the Main or Extra Deck, or put 1 card back.");
   });
 
-  it("keeps the Main Deck between 40 and 60 cards", () => {
+  it("keeps a 40-card Main Deck at exactly 40 cards", () => {
     const main = Array.from({ length: 40 }, (_, i) => 1000 + i);
     const deck = { main, extra: [], side: [10, 11] };
     // One out and one in keeps 40: fine.
@@ -99,14 +118,14 @@ describe("planSideDeck", () => {
     // Two out of Main and two in, one of them an Extra monster: Main drops to 39.
     const plan = planSideDeck(deck, marks([["main", 0], ["main", 1]], [0, 1]), types, deck);
     expect(plan.counts.main).toBe(39);
-    expect(plan.reason).toMatch(/at least 40/);
+    expect(plan.reason).toMatch(/Keep the Main Deck at 40 cards/);
   });
 
   it("holds the Main Deck to 60 cards when the marks are even", () => {
     const deck = { main: Array.from({ length: 60 }, (_, i) => 1000 + i), extra: [100], side: [10, 12] };
     const plan = planSideDeck(deck, marks([["extra", 0]], [0]), types, deck);
     expect(plan.counts.main).toBe(61);
-    expect(plan.reason).toMatch(/at most 60/);
+    expect(plan.reason).toMatch(/Keep the Main Deck at 60 cards/);
   });
 
   it("holds the Extra Deck to 15 cards", () => {
@@ -114,7 +133,7 @@ describe("planSideDeck", () => {
     const deck = { main: Array.from({ length: 41 }, (_, i) => 1000 + i), extra, side: [11, 5] };
     const plan = planSideDeck(deck, marks([["main", 0]], [0]), types, deck);
     expect(plan.counts.extra).toBe(16);
-    expect(plan.reason).toMatch(/Extra Deck holds at most 15/);
+    expect(plan.reason).toMatch(/Keep the Main Deck at 41 cards/);
   });
 
   it("uses the base Main size as the floor when the registered deck is small", () => {

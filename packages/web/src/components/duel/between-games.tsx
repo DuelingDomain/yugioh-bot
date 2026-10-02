@@ -19,9 +19,6 @@ import {
   isMarkedOut,
   NO_MARKS,
   planSideDeck,
-  SIDE_EXTRA_MAX,
-  SIDE_MAIN_MAX,
-  SIDE_MAIN_MIN,
   toggleIn,
   toggleOut,
   type SideMarks,
@@ -154,7 +151,6 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const nameOf = (code: number) => meta.get(code)?.name ?? String(code);
   const changed = hasMarks(marks);
   const sideShown = plan.counts.side;
-  const minMain = Math.min(SIDE_MAIN_MIN, base.main.length);
 
   const flag = (code: number, section: string, tag?: Tag, extra?: boolean) =>
     `${nameOf(code)}, ${section} Deck${tag === "out" ? ", going out" : tag === "in" ? ", coming in" : ""}${extra ? ", goes to the Extra Deck" : ""}`;
@@ -234,8 +230,8 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     );
   });
 
-  const mainOk = plan.counts.main >= minMain && plan.counts.main <= SIDE_MAIN_MAX;
-  const extraOk = plan.counts.extra <= SIDE_EXTRA_MAX;
+  const mainOk = plan.counts.main === current.main.length;
+  const extraOk = plan.counts.extra === current.extra.length;
   const sideOk = plan.counts.side === current.side.length;
   const kind = seriesKindLabel(series);
 
@@ -260,11 +256,11 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
 
       <div className={styles.body}>
         <div className={styles.deck}>
-          <Section title="Main" count={plan.counts.main} target={plan.counts.main !== current.main.length ? `was ${current.main.length}` : `${minMain}–${SIDE_MAIN_MAX} cards`}
+          <Section title="Main" count={plan.counts.main} target={`keep ${current.main.length} cards`}
             tone={mainOk ? undefined : "bad"} empty="No Main Deck cards.">
             {[...mainCards, ...incoming("main")]}
           </Section>
-          <Section title="Extra" count={plan.counts.extra} target={plan.counts.extra !== current.extra.length ? `was ${current.extra.length}` : `0–${SIDE_EXTRA_MAX} cards`}
+          <Section title="Extra" count={plan.counts.extra} target={`keep ${current.extra.length} cards`}
             tone={extraOk ? undefined : "bad"} hint="Only Extra Deck monsters come into the Extra Deck." empty="No Extra Deck cards.">
             {[...extraCards, ...incoming("extra")]}
           </Section>
