@@ -208,6 +208,15 @@
       "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag)."
     },
     {
+      "code": 4145915,
+      "file": "c4145915.lua",
+      "name": "Gimmick Puppet Fiendish Knight",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "f79e9ded3096f3062d6c1407f5aa11d07760b5be7c054c6edca8a91d9ab71a16",
+      "note": "The target is summoned to its real owner field. The own summon stays on the activator field."
+    },
+    {
       "code": 4807253,
       "file": "c4807253.lua",
       "name": "Performage Flame Eater",
@@ -2226,6 +2235,15 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "a647c24660bf8aa6baef63356cdde6717ff53135eac3a481b8228dd9326f3b0e"
+    },
+    {
+      "code": 40155014,
+      "file": "c40155014.lua",
+      "name": "Centur-Ion Phalanx",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "a6afd40c3c9b9003c630ac79a445cdf79db75f935a898b5acb04577893cb8788",
+      "note": "The delayed summon binds the real owner of the banished target, including a Tag partner."
     },
     {
       "code": 40267580,
