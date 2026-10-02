@@ -59,4 +59,12 @@ describe("tag fixtures", () => {
     const options = TAG_FIXTURES.states["choose-opponent"].room.engine!.prompt!.options;
     expect(options.map((option) => option.controller)).toEqual([1, 3]);
   });
+
+  it("the main phase action prompt lists the phase moves for the station track", () => {
+    const prompt = TAG_FIXTURES.states.main.room.engine!.prompt!;
+    expect(prompt.context).toMatchObject({ type: "action" });
+    const ids = prompt.options.map((option) => option.id);
+    expect(ids).toContain("to_bp");
+    expect(ids).toContain("to_ep");
+  });
 });

@@ -134,7 +134,14 @@ const states = {
       kind: "choice",
       title: "Main Phase 1",
       context: { type: "action", phase: "main" },
-      options: [handOption(0, C.darkHole.name), handOption(1, C.featherDuster.name), handOption(4, C.potOfGreed.name)],
+      // The engine lists the phase moves in the same action prompt; the station track turns them into its buttons.
+      options: [
+        handOption(0, C.darkHole.name),
+        handOption(1, C.featherDuster.name),
+        handOption(4, C.potOfGreed.name),
+        { id: "to_bp", label: "Go to the Battle Phase" },
+        { id: "to_ep", label: "End the turn" },
+      ],
     }),
   }),
   "battle-aim": make("battle-aim", "Battle: aim an attack", {
