@@ -17,15 +17,19 @@ function s.mp_drawcheck(e,tp,eg,ep,ev,re,r,rp)
 	if (r&REASON_EFFECT)==0 then return end
 	local k=aux.MPKeyOfSeat(ep)
 	if not Duel.MPSeat or k<0 or ep<0 or ep>3 then return end
+	local seen={}
 	for seat=0,3 do
 		local g=Duel.GetMatchingGroup(function(c) return c:IsCode(id) and c:IsFaceup() and not c:IsDisabled() end,seat,LOCATION_SZONE,0,nil)
 		for c in g:Iter() do
-			local flag=id+k
-			local ct=c:GetFlagEffectLabel(flag)
-			if ct then
-				c:SetFlagEffectLabel(flag,ct+ev)
-			else
-				c:RegisterFlagEffect(flag,RESETS_STANDARD_PHASE_END,0,1,ev)
+			if not seen[c] then
+				seen[c]=true
+				local flag=id+k
+				local ct=c:GetFlagEffectLabel(flag)
+				if ct then
+					c:SetFlagEffectLabel(flag,ct+ev)
+				else
+					c:RegisterFlagEffect(flag,RESETS_STANDARD_PHASE_END,0,1,ev)
+				end
 			end
 		end
 	end

@@ -125,3 +125,7 @@ TA.I. Strike (86449372) and Arcana Force XV - The Fiend (59712426) used a folded
 Pestilence (62472614), Mask of Dispel (20765952), Mask of the Accursed (56948373), Darkworld Shackles (83584898) and Axe of Fools (19578592) damaged the wrong folded player and also triggered on the Tag partner's Standby Phase. Stamping Destruction (81385346) and Turbo Cannon (13574687) used the wrong folded target controller at resolution. Their overlays bind the actual controller. The five Standby effects also use MPTurnOwns.
 
 Live proof: `local-controller-lp.ts`. The original scripts fail 24 cases. Twelve controls pass, including Ghost Mourner and Blazing Mirror Force. All 36 fixed cases pass on both cores.
+
+## Greed shared field view
+
+Greed (89405199) counted the same face-up Trap twice when it checked both Tag members' joined Spell and Trap zones. The draw callback now visits each observer card once. Live proof: `player-all-overlay-lp.ts`. Both original Tag outcomes fail, with 2000 damage instead of 1000. Both FFA controls pass. All 20 checks for five overlay LP cards pass on both cores.

@@ -5235,7 +5235,7 @@
       ],
       "r2Class": "EACH-CONTROLLER",
       "stockSha256": "2defb28adbd40be8df275ed47d9b58594a6d3bcf3ee2c7d0755a5ed5f9420fe5",
-      "note": "the draw counter is kept per card by the literal pair ep==0 / 1 (every opponent shares one counter); the counter is kept per key (seat in FFA, team in Tag) by a global draw check that sees the real drawing seat, and the damage goes to every side with a counter."
+      "note": "A Tag shared S/T view must count each Greed once per draw event."
     },
     {
       "code": 89462956,
