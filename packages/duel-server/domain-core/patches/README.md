@@ -83,6 +83,8 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 
 | `0066-tag-self-attack.patch` | EFFECT_SELF_ATTACK includes partner monsters. The attacker remains excluded and EFFECT_ATTACK_ALL keeps its gate. | None with 2 duelists. Each changed path keeps the stock branch at `n_duelists == 2`. 8 P61 live failures; 23 fixed checks in the supplied Standard and Domain proof. |
 
+| `0067-hints-without-opponent-picks.patch` | `Duel.Hint` gives information without an opponent pick, binding or activation-probe change. Opponent hints go to every living opponent, with no Tag partner. | None with 2 duelists. The complete stock path stays below the `n_duelists > 2` branch. The native proof checks 12 cases; P61 has 15 failed assertions. |
+
 ## Commands
 
 Run all commands in the repository root.

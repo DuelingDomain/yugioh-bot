@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Thu, 16 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: send hints without an opponent pick
+
+Duel.Hint sends information. At more than two duelists, an opponent hint goes to every living opponent. It does not bind an opponent or mark the activation probe. The Tag partner gets no opponent hint. Two duelists keep the complete stock path.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ libduel.cpp | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/libduel.cpp b/libduel.cpp
+index d40f9c1..4997c0f 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -3470,6 +3470,40 @@ LUA_STATIC_FUNCTION(RemoveOverlayCard) {
+ }
+ LUA_STATIC_FUNCTION(Hint) {
+ 	check_param_count(L, 3);
++	// Hints do not act on an opponent's private cards or LP. Never ask for a bind.
++	// Keep the complete two-duelist path below unchanged.
++	const auto& gf=*pduel->game_field;
++	if(gf.n_duelists>2) {
++		const auto htype=lua_get<uint8_t>(L,1);
++		const auto value=lua_get<uint8_t>(L,2);
++		const auto desc=lua_get<uint64_t>(L,3);
++		const auto* scope=fold::active(pduel);
++		auto send=[&](uint8_t seat) {
++			if(!gf.is_alive(seat)) return;
++			auto message=pduel->new_message(MSG_HINT);
++			message->write<uint8_t>(htype);
++			message->write<uint8_t>(seat);
++			message->write<uint64_t>(desc);
++		};
++		auto opponents=[&](uint8_t actor) {
++			if(!gf.is_duelist(actor)) return;
++			for(uint8_t seat=0;seat<gf.n_duelists;++seat)
++				if(!gf.same_team(actor,seat)) send(seat);
++		};
++		if(htype==HINT_OPSELECTED) {
++			// In a card effect, its controller selected the operation. Outside a
++			// scope the argument is the real caller seat, as in the existing API.
++			opponents(scope ? scope->P : value);
++		} else if(scope) {
++			if(value<=1) {
++				if(fold::is_own(gf,scope->P,value)) send(scope->P);
++				else opponents(scope->P);
++			}
++		} else if(gf.is_duelist(value)) {
++			send(value);
++		}
++		return 0;
++	}
+ 	auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "Hint");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
