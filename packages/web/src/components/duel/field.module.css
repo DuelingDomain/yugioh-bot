@@ -2027,3 +2027,23 @@
   border-color: var(--pen);
   box-shadow: 0 0 0 1px var(--pen);
 }
+
+/* Deck Masters of a 3 or 4 seat table: one small read-only dock per rival above your own. */
+.masterRail[data-docks="3"] .masterDock:not([data-local="true"]) {
+  flex: 0.8 1 0;
+  padding: calc(8 * var(--k));
+  gap: calc(6 * var(--k));
+}
+.masterRail[data-docks="3"] .masterDock:not([data-local="true"]) .masterHit {
+  --dm-w: calc(54 * var(--k));
+  gap: calc(9 * var(--k));
+}
+.masterRail[data-docks="3"] .masterDock:not([data-local="true"]) .masterTitle {
+  font-size: calc(13.5 * var(--k));
+}
+.masterRail[data-docks="3"] .masterDock:not([data-local="true"]) .masterDetails {
+  display: none;
+}
+.masterRail[data-docks="3"] .masterDock:not([data-local="true"]) .masterMeta > div:nth-child(n + 2) {
+  display: none;
+}

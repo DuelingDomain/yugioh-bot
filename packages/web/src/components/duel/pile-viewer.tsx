@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,8 @@ export type PileViewerProps = {
   /** Pile contents in engine order (index 0 is the bottom, the last card is the top). Shown newest first. */
   cards: DuelCard[];
   owner: "you" | "opp";
+  /** 3 and 4 seat tables: whose pile this is. The header shows the name and the panel edge takes the seat colour. */
+  ownerTag?: { name: string; tone: { main: string; ink: string } } | null;
   open: boolean;
   onClose: () => void;
   /** A click on a card that is not legal right now: show it in the inspector. */
@@ -93,6 +95,7 @@ export function PileViewer({
   title,
   cards,
   owner,
+  ownerTag,
   open,
   onClose,
   onInspectCard,
@@ -210,7 +213,9 @@ export function PileViewer({
   const text = previewCard && !previewHidden ? previewCard.description?.trim() ?? "" : "";
 
   return (
-    <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}>
+    <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}
+      data-toned={ownerTag ? "true" : undefined}
+      style={ownerTag ? ({ "--seat-main": ownerTag.tone.main, "--seat-ink": ownerTag.tone.ink } as CSSProperties) : undefined}>
       <div className={styles.scrim} onClick={onClose} aria-hidden="true" />
       <aside
         ref={panelRef}
@@ -224,6 +229,9 @@ export function PileViewer({
         <header className={styles.head}>
           <div className={styles.headText}>
             <h2 id={headingId} className={styles.title}>{title}</h2>
+            {ownerTag ? (
+              <span className={styles.ownerTag} data-testid="pile-owner"><i aria-hidden="true" />{ownerTag.name}</span>
+            ) : null}
             <span className={styles.count}>
               <b>{total}</b> {total === 1 ? "card" : "cards"}
               {total > 1 ? <span className={styles.order}> · newest first</span> : null}

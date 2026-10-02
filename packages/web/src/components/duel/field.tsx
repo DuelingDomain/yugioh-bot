@@ -1266,6 +1266,7 @@ export function DeckMasterRail({
   onInspect,
   onHoverCard,
   topSeat,
+  rivals,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -1279,26 +1280,38 @@ export function DeckMasterRail({
   onHoverCard?: DuelHoverHandler;
   /** 3 and 4 seat tables: the opponent whose master shows in the top dock. */
   topSeat?: number | null;
+  /**
+   * 3 and 4 seat tables: one dock per rival seat (small, read-only), in this order, above your own. Replaces the single
+   * top dock. `title` is the dock heading, for example "Ryo's Master".
+   */
+  rivals?: ReadonlyArray<{ seat: number; title: string }>;
 }) {
   const bottomIndex = mySeat ?? 0;
   const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
   const bottom = engine.seats.find((seat) => seat.seat === bottomIndex);
   const top = engine.seats.find((seat) => seat.seat === topIndex);
   return (
-    <div className={cn(duelFontClasses, styles.masterRail)} data-battle={isBattlePhase(engine.phase) ? "true" : "false"}>
-      <MasterDock
-        title={mySeat == null ? "Seat 2 Master" : "Opponent Master"}
-        view={top}
-        local={false}
-        legalKeys={legalKeys}
-        selectedKeys={selectedKeys}
-        canAct={false}
-        legalActionsFor={legalActionsFor}
-        onActivate={onActivate}
-        onChooseAction={onChooseAction}
-        onInspect={onInspect}
-        onHoverCard={onHoverCard}
-      />
+    <div
+      className={cn(duelFontClasses, styles.masterRail)}
+      data-battle={isBattlePhase(engine.phase) ? "true" : "false"}
+      data-docks={rivals ? rivals.length + 1 : 2}
+    >
+      {(rivals ?? [{ seat: topIndex, title: mySeat == null ? "Seat 2 Master" : "Opponent Master" }]).map((rival) => (
+        <MasterDock
+          key={rival.seat}
+          title={rival.title}
+          view={rivals ? engine.seats.find((seat) => seat.seat === rival.seat) : top}
+          local={false}
+          legalKeys={legalKeys}
+          selectedKeys={selectedKeys}
+          canAct={false}
+          legalActionsFor={legalActionsFor}
+          onActivate={onActivate}
+          onChooseAction={onChooseAction}
+          onInspect={onInspect}
+          onHoverCard={onHoverCard}
+        />
+      ))}
       <MasterDock
         title={mySeat == null ? "Seat 1 Master" : "Your Master"}
         view={bottom}

@@ -182,3 +182,26 @@
   .art { width: min(100%, 11rem); }
   .pileGrid { grid-template-columns: repeat(auto-fill, minmax(3.1rem, 1fr)); }
 }
+
+/* Owner line (tables of 3 or more seats): a dot in the seat colour, then the name. */
+.owner {
+  display: flex;
+  align-items: center;
+  gap: calc(7 * var(--duel-unit, 1px));
+  margin: 0;
+  padding: 0 calc(16 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px));
+  color: var(--duel-ink-3, #958f81);
+  font-family: var(--duel-f-ui, var(--font-body));
+  font-size: var(--duel-t-sm, 12px);
+}
+.owner i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--seat-main, #9b7eff);
+}
+.owner b {
+  color: var(--seat-ink, #c6b6ff);
+  font-weight: 500;
+}
