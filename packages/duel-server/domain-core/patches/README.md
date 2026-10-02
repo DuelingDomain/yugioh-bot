@@ -81,6 +81,8 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 
 | `0065-tag-grave-material.patch` | Extra Ritual and Fusion material lists include the Graveyards of living team members. | None with 2 duelists. Each changed path keeps the stock branch at `n_duelists == 2`. 8 P61 live failures; 33 fixed checks in the supplied Standard and Domain proof. |
 
+| `0066-tag-self-attack.patch` | EFFECT_SELF_ATTACK includes partner monsters. The attacker remains excluded and EFFECT_ATTACK_ALL keeps its gate. | None with 2 duelists. Each changed path keeps the stock branch at `n_duelists == 2`. 8 P61 live failures; 23 fixed checks in the supplied Standard and Domain proof. |
+
 ## Commands
 
 Run all commands in the repository root.
