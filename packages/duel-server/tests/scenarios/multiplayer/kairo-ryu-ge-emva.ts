@@ -1,6 +1,6 @@
 // Kairo Ryu-Ge Emva (20904475): two monsters sent from hand or Deck to the
 // GY enable its GY summon. The global counter must work at later seats too.
-import { activate, defineScenario, expectNotOffered, expectPrompt, select, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, defineScenario, endTurn, expectNotOffered, expectOffered, expectPrompt, select, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -37,9 +37,28 @@ function summon(format: Format, actor: Seat, count: 1 | 2): Scenario {
   });
 }
 
+function reset(): Scenario {
+  const first = summon("ffa3", "p2", 2);
+  return defineScenario({
+    ...first,
+    id: "kairo-ryu-ge-emva-ffa3-p2-counter-clears-before-next-own-turn",
+    title: "FFA3: Emva is offered after two sends and stays in the GY on its next turn",
+    steps: [
+      ...first.steps.slice(0, -3), expectOffered("activate", { card: CARD, from: "grave" }, "p2"),
+      endTurn("p2"), expectPrompt({ by: "p0", context: "action" }), endTurn("p0"), endTurn("p1"),
+      expectPrompt({ by: "p2", context: "action" }), expectNotOffered("activate", { card: CARD, from: "grave" }, "p2"),
+      everySeat("ffa3", {
+        p0: { hand: [ELF], deckCount: 19 },
+        p1: { hand: [ELF, ELF], deckCount: 18 },
+        p2: { hand: [ELF, ELF], deckCount: 16, grave: [CARD, BURIAL, BURIAL, ...MILLED] },
+      }),
+    ],
+  });
+}
+
 export const KAIRO_RYU_GE_EMVA_SCENARIOS: Scenario[] = [
   summon("ffa3", "p1", 2), summon("ffa3", "p2", 2),
   summon("ffa4", "p2", 2), summon("ffa4", "p3", 2),
   summon("tag", "p1", 2), summon("tag", "p3", 2),
-  summon("ffa3", "p2", 1), summon("ffa4", "p3", 1), summon("tag", "p3", 1),
+  summon("ffa3", "p2", 1), summon("ffa4", "p3", 1), summon("tag", "p3", 1), reset(),
 ];
