@@ -109,6 +109,20 @@ describe("DOM battle synchronization", () => {
 });
 
 describe("decoded card textures", () => {
+  it("keeps loaded art when explicit decoding rejects", async () => {
+    const images: Array<{ onload: () => Promise<void> }> = [];
+    vi.stubGlobal("Image", class {
+      onload = async () => {}; onerror = () => {}; decoding = ""; src = "";
+      decode = () => Promise.reject(new DOMException("Image too large", "EncodingError"));
+      constructor() { images.push(this); }
+    });
+    const art = new ArtStore();
+    art.prefetch(1234);
+    await images[0]!.onload();
+    expect(art.peek(1234)).toBeInstanceOf(THREE.Texture);
+    art.dispose();
+  });
+
   it("decodes art and prepares its GPU upload before publishing it to the break animation", async () => {
     let finish!: () => void;
     const decoded = new Promise<void>((resolve) => { finish = resolve; });

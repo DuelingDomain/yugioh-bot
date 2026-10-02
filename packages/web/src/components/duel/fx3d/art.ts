@@ -52,7 +52,8 @@ export class ArtStore {
     const image = new Image();
     image.decoding = "async";
     image.onload = async () => {
-      try { await image.decode(); } catch { return; }
+      // onload already succeeded; some browsers reject an explicit decode of large art.
+      try { await image.decode(); } catch { /* Keep the loaded image. */ }
       if (this.disposed) return;
       const texture = new THREE.Texture(image);
       // Colours pass through untouched: the shaders work in display space.
