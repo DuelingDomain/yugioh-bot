@@ -5,12 +5,14 @@
 // (`Duel.GetLocationCount(1-tp,LOCATION_MZONE)>0`) then failed with "attempt to compare nil with number". Now the function
 // gives the empty VALUE of its type: 0 (a count, a zone mask, a zone list), false (a check, an action that failed),
 // nil (a label) or an empty group, with the same number of values as the live answer.
+// Patch 0060 adds the second group of calls (choosing calls, "send to a player", dice, tribute-to player). DBO_VERBOSE=1 prints every probe line.
 // The probe is one continuous Standby Phase effect of seat 0. It binds the Lua value 1 and calls every changed function
 // with the player value P inside pcall, then logs "CHK <name> n=<values> <type:value>...":
 //   A  FFA3, seat 2 eliminated by the host, bound with MPBindSeat(2): every function gives its empty value, no error
 //   B  FFA4, the same with seat 2 of four
 //   C  FFA3, seat 1 alive and bound: the live answer (control: a live bound seat is not turned into an empty answer)
-//   D  FFA3, PLAYER_NONE (7) as the player value: the stock result, no value at all (n=0), as before
+//   D  FFA3, PLAYER_NONE (7) as the player value: the stock result, no value at all (n=0), as before (the "send to a player"
+//      calls take PLAYER_NONE as "the owner of the card" and give a count)
 //   E  2 duelists, PLAYER_NONE: no value at all, as before (queries only: an action with PLAYER_NONE as the target of a
 //      2 duelist duel is not guarded in the stock core). The hash of the log of E and of the live query calls
 //      with the player value 1 is printed ("N2 HASH"); it must be the same on the core before and after the change.
@@ -18,7 +20,7 @@
 
 static const uint32_t kFiller = 5000;
 
-// kind: I = one 0, II = two 0, B = false, N = nil, G = empty group. q = a query (also run for the live control and
+// kind: I = one 0, II = two 0, III = three 0, B = false, N = nil, G = empty group. q = a query (also run for the live control and
 // the 2 duelist hash), a = an action (run only when the answer is empty, it must not do anything).
 struct Entry { const char* name; const char* call; const char* kind; bool query; };
 
@@ -67,11 +69,42 @@ static const Entry kEntries[] = {
 	{ "Card.CheckRemoveOverlayCard", "tc:CheckRemoveOverlayCard(P,1,REASON_COST)", "B", true },
 	{ "Card.RemoveOverlayCard", "tc:RemoveOverlayCard(P,1,1,REASON_COST)", "I", false },
 	{ "Card.IsCanRemoveCounter", "tc:IsCanRemoveCounter(P,0x1,1,REASON_COST)", "B", true },
+	// Second group (core patch 0060): the choosing calls, the "send to a player" calls, the dice and the tribute-to player
+	// (GetOverlayGroup, GetOverlayCount and CheckRemoveOverlayCard already gave the empty value before 0060: a dead seat is
+	// still a seat there). They are `query = false` on purpose, also the ones that only read: the "N2 HASH" below covers the
+	// first group only, so it stays the value that the check printed for patch 0059.
+	{ "SendtoHand", "Duel.SendtoHand(tc,P,REASON_EFFECT)", "I", false },
+	{ "SendtoDeck", "Duel.SendtoDeck(tc,P,SEQ_DECKTOP,REASON_EFFECT)", "I", false },
+	{ "SendtoExtraP", "Duel.SendtoExtraP(tc,P,REASON_EFFECT)", "I", false },
+	{ "Sendto", "Duel.Sendto(tc,LOCATION_HAND,REASON_EFFECT,POS_FACEUP,P)", "I", false },
+	{ "SSet", "Duel.SSet(P,tc)", "I", false },
+	{ "SelectMatchingCard", "Duel.SelectMatchingCard(P,nil,0,LOCATION_DECK,0,1,1,nil)", "G", false },
+	{ "SelectTarget", "Duel.SelectTarget(P,nil,0,LOCATION_DECK,0,1,1,nil)", "G", false },
+	{ "SelectCardsFromCodes", "Duel.SelectCardsFromCodes(P,1,1,false,false,5000)", "N", false },
+	{ "SelectTribute", "Duel.SelectTribute(P,tc,1,1)", "G", false },
+	{ "SelectTribute(toplayer)", "Duel.SelectTribute(0,tc,1,1,nil,P)", "G", false },
+	{ "SelectOption", "Duel.SelectOption(P,1,2)", "I", false },
+	{ "SelectYesNo", "Duel.SelectYesNo(P,0)", "B", false },
+	{ "SelectEffectYesNo", "Duel.SelectEffectYesNo(P,tc)", "B", false },
+	{ "SelectDisableField", "Duel.SelectDisableField(P,1,LOCATION_MZONE,0,0)", "I", false },
+	{ "SelectFieldZone", "Duel.SelectFieldZone(P,1,LOCATION_MZONE,0,0)", "I", false },
+	{ "SelectFusionMaterial", "Duel.SelectFusionMaterial(P,tc,Group.CreateGroup())", "G", false },
+	{ "TossCoin", "Duel.TossCoin(P,2)", "II", false },
+	{ "TossDice", "Duel.TossDice(P,2)", "II", false },
+	{ "TossDice(rollers)", "Duel.TossDice(P,1,2)", "III", false },
+	{ "RemoveOverlayCard", "Duel.RemoveOverlayCard(P,0,0,1,1,REASON_COST)", "I", false },
+	{ "GetChainMaterial", "Duel.GetChainMaterial(P)", "N", false },
+	{ "GetOverlayGroup", "Duel.GetOverlayGroup(P,1,0)", "G", false },
+	{ "GetOverlayCount", "Duel.GetOverlayCount(P,1,0)", "I", false },
+	{ "CheckRemoveOverlayCard", "Duel.CheckRemoveOverlayCard(P,1,0,1,REASON_COST)", "B", false },
+	{ "CheckReleaseGroup(toplayer)", "Duel.CheckReleaseGroup(0,nil,1,false,1,false,nil,P)", "B", false },
+	{ "SelectReleaseGroup(toplayer)", "Duel.SelectReleaseGroup(0,nil,1,1,false,false,false,nil,P)", "G", false },
 };
 
 static std::string expected(const std::string& kind) {
 	if(kind == "I") return "n=1 number:0";
 	if(kind == "II") return "n=2 number:0 number:0";
+	if(kind == "III") return "n=3 number:0 number:0 number:0";
 	if(kind == "B") return "n=1 boolean:false";
 	if(kind == "N") return "n=1 nil:nil";
 	return "n=1 group:0";   // G
@@ -180,6 +213,8 @@ static Run play(const std::string& setup, int n, const std::string& bind_expr, c
 		sd::answer32(d, 7);  // end the turn
 	}
 	OCG_DestroyDuel(d);
+	if(std::getenv("DBO_VERBOSE"))
+		for(const auto& l : run.lines) std::printf("  %s\n", l.c_str());
 	return run;
 }
 
@@ -223,6 +258,14 @@ static void expect_no_value(const char* label, const Run& r, bool queries_only) 
 		// function that turns "no value" into nil (the same before the fix)
 		const std::string name = en.name;
 		const bool wrapped = name.compare(0, 11, "MoveToField") == 0 || name == "GetReleaseGroup" || name == "GetFusionMaterial";
+		// PLAYER_NONE is a valid target of the "send to a player" calls: the card goes to its owner and the call gives the count
+		if(name.compare(0, 6, "Sendto") == 0) {
+			if(got.compare(0, 11, "n=1 number:") != 0) {
+				++bad;
+				EXPECT(false, "%s: %s gave \"%s\", want a count (PLAYER_NONE = the owner of the card)", label, en.name, got.c_str());
+			}
+			continue;
+		}
 		if(got != (wrapped ? "n=1 nil:nil" : "n=0")) {
 			++bad;
 			EXPECT(false, "%s: %s gave \"%s\", want \"n=0\" (or the nil of the Lua wrapper)", label, en.name, got.c_str());
