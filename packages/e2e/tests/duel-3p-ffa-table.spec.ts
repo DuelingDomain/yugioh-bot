@@ -308,11 +308,10 @@ test.describe("FFA3 real-engine table rules", () => {
     await expect(alice.page.getByTestId("seat-out")).toContainText("3rd");
     await expect(alice.page.locator("[data-ring-seat='1']")).toHaveAttribute("data-status", "eliminated");
     await tableShot(alice.page, slug, info, "reload-after-elimination");
-    await observeTable(alice.page);
     await endTurn(alice.page, 6);
-    const turns = await tableTurns(alice.page);
-    expect(turns.some((turn) => turn.turn === 5 && turn.seat === 2)).toBe(true);
-    expect(turns.some((turn) => turn.turn > 4 && turn.seat === 1)).toBe(false);
+    const log = (await readTableTrace(alice.page, slug)).promptLog;
+    expect(log.some((entry) => entry.turn === 5 && entry.turnSeat === 2)).toBe(true);
+    expect(log.some((entry) => entry.turn > 4 && entry.turnSeat === 1)).toBe(false);
     await attackWithFirstMonster(alice.page);
     // Only one rival remains: the core attacks it directly without a seat-choice prompt.
     await expect(tableLpValue(alice.page, 2)).toHaveText("3,000");
