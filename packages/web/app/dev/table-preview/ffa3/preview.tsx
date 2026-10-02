@@ -18,6 +18,7 @@ export function Ffa3Preview({ stateId, cam, lock }: { stateId: string | null; ca
           controller={controller}
           initialCamera={{ mode: preview.cam.mode, focusSeat: preview.cam.focusSeat, lookSeat: preview.cam.lookSeat, ...state.ui?.camera }}
           initialLock={preview.lock}
+          initialOutOrder={state.ui?.initialOutOrder}
         />
       )}
     />

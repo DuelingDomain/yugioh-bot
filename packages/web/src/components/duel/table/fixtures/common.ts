@@ -69,7 +69,7 @@ export interface TableFixtureState {
   id: TableStateId;
   label: string;
   room: DuelRoom;
-  ui?: { aim?: BattleAim | null; camera?: Partial<CameraState> };
+  ui?: { aim?: BattleAim | null; camera?: Partial<CameraState>; initialOutOrder?: readonly (readonly number[])[] };
 }
 export interface TableFixtureSet {
   format: TableFormat;

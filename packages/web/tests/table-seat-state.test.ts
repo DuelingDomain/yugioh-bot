@@ -19,16 +19,24 @@ describe("seat-state", () => {
     expect(seatsOut(engineOf("elimination"))).toEqual([2]);
   });
 
-  it("keeps the order in which seats left", () => {
+  it("keeps the order in which seats left, as groups", () => {
     const first = trackOutOrder([], engineOf("elimination"));
-    expect(first).toEqual([2]);
+    expect(first).toEqual([[2]]);
     expect(trackOutOrder(first, engineOf("elimination"))).toBe(first);
-    expect(trackOutOrder(first, engineOf("result"))).toEqual([2, 1]);
-    expect(trackOutOrder([2, 1], engineOf("main"))).toEqual([]);
+    expect(trackOutOrder(first, engineOf("result"))).toEqual([[2], [1]]);
+    expect(trackOutOrder([[2], [1]], engineOf("main"))).toEqual([]);
   });
 
-  it("puts the winner first and the last seat out second", () => {
-    const rows = placings(engineOf("result"), [2, 1]);
+  it("puts seats that are already out when the shell opens into one group", () => {
+    expect(trackOutOrder([], engineOf("result"))).toEqual([[1, 2]]);
+  });
+
+  it("starts from the order a room knows", () => {
+    expect(trackOutOrder([[2], [1]], engineOf("result"))).toEqual([[2], [1]]);
+  });
+
+  it("puts the winner first and the last group out second", () => {
+    const rows = placings(engineOf("result"), [[2], [1]]);
     expect(rows.map((row) => [row.seat, row.place, row.winner])).toEqual([
       [0, 1, true],
       [1, 2, false],
@@ -36,7 +44,11 @@ describe("seat-state", () => {
     ]);
   });
 
-  it("gives seats that left together the same place", () => {
+  it("gives seats that left in one update the same place", () => {
+    expect(placings(engineOf("result"), [[1, 2]]).map((row) => row.place)).toEqual([1, 2, 2]);
+  });
+
+  it("gives seats with no known order of leaving the same place", () => {
     const rows = placings(engineOf("result"));
     expect(rows.map((row) => row.place)).toEqual([1, 2, 2]);
   });

@@ -61,6 +61,12 @@ export interface TableShellProps {
   initialLock?: CameraLockReason | null;
   /** What the room does with the result screen and the series. A preview leaves them out. */
   actions?: TableShellActions;
+  /**
+   * Who had left the duel before this shell mounted, as groups in the order they left (seats that left together share
+   * a group and a place). The engine sends no elimination event, so a shell that opens on a table with seats already out
+   * cannot rebuild the order: the room (or a fixture) gives it. Left out, all seats that are out at mount share one place.
+   */
+  initialOutOrder?: readonly (readonly number[])[];
 }
 
 const PASSIVE_ACTION_IDS: ReadonlySet<string> = new Set(["to_bp", "to_m2", "to_ep", "shuffle"]);
@@ -71,7 +77,7 @@ const hasNoLegalMoves = (options: readonly DuelPromptOption[]) => options.length
  * track, menus, the result screen and the FX. It uses the exported duel components of the 1v1 room and keeps the room's
  * look (room.module.css). The room itself stays the owner of the live engine: it passes a controller.
  */
-export function TableShell({ controller: given, initialCamera, initialLock = null, actions }: TableShellProps) {
+export function TableShell({ controller: given, initialCamera, initialLock = null, actions, initialOutOrder }: TableShellProps) {
   const ui = useTableUi(given);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
@@ -106,8 +112,8 @@ export function TableShell({ controller: given, initialCamera, initialLock = nul
   });
   const showResult = !hideResult && resultReady && hasResult;
 
-  // Who left, in order: the placings of a table of 3 or 4 read it.
-  const [outOrder, setOutOrder] = useState<number[]>(() => trackOutOrder([], engine));
+  // Who left, in order (groups: seats that left in one update share a place): the placings of a table of 3 or 4 read it.
+  const [outOrder, setOutOrder] = useState<number[][]>(() => trackOutOrder(initialOutOrder ?? [], engine));
   const nextOut = trackOutOrder(outOrder, engine);
   if (nextOut !== outOrder) setOutOrder(nextOut);
   const standings = useMemo(() => placings(engine, outOrder), [engine, outOrder]);
@@ -452,7 +458,7 @@ export function TableShell({ controller: given, initialCamera, initialLock = nul
           onOpenSide={() => { setHideResult(true); actions?.onOpenSide?.(); }}
           onSeriesChanged={() => actions?.onSeriesChanged?.()}
           onNavigate={(next) => actions?.onNavigate?.(next)}
-          placings={standings.map((entry) => ({ seat: entry.seat, place: entry.place, label: nameOf(entry.seat) }))}
+          placings={standings.map((entry) => ({ seat: entry.seat, place: entry.place, label: placeLabel(entry.place) }))}
         />
       ) : null}
     </div>

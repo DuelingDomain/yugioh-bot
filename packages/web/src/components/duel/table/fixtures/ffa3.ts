@@ -231,6 +231,8 @@ const states = {
       }
     },
     result: { winnerSeat: REN, winnerTeam: null, reason: "Last duelist standing" },
+    // Mika left first (3rd), then Ryo (2nd).
+    ui: { initialOutOrder: [[MIKA], [RYO]] },
   }),
 } satisfies Record<TableStateId, TableFixtureState>;
 

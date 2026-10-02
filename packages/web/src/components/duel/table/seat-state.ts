@@ -19,12 +19,19 @@ export function seatsOut(engine: Pick<DuelEngineView, "seats">): number[] {
   return engine.seats.filter((view) => isOut(view)).map((view) => view.seat);
 }
 
-/** The seats that have left the duel, in the order they left. `before` is what was known; new seats go on the end. */
-export function trackOutOrder(before: readonly number[], engine: Pick<DuelEngineView, "seats">): number[] {
+/**
+ * The seats that have left the duel, as groups in the order they left. Seats that go out in the same update are one
+ * group and share a place. `before` is what was known; seats that are new since then form one group on the end. The engine
+ * sends no elimination event, so a shell that opens on a table with seats already out cannot know their order: it
+ * gets them as one group, unless the caller knows better (`initialOutOrder`).
+ */
+export function trackOutOrder(before: readonly (readonly number[])[], engine: Pick<DuelEngineView, "seats">): number[][] {
   const out = engine.seats.filter((view) => isEliminated(view)).map((view) => view.seat);
-  const kept = before.filter((seat) => out.includes(seat));
-  const added = out.filter((seat) => !kept.includes(seat));
-  return added.length === 0 && kept.length === before.length ? (before as number[]) : [...kept, ...added];
+  const kept = before.map((group) => group.filter((seat) => out.includes(seat))).filter((group) => group.length > 0);
+  const known = new Set(kept.flat());
+  const added = out.filter((seat) => !known.has(seat));
+  const unchanged = added.length === 0 && kept.length === before.length && kept.every((group, at) => group.length === before[at].length);
+  return unchanged ? (before as number[][]) : added.length > 0 ? [...kept, added] : kept;
 }
 
 export interface Placing {
@@ -37,9 +44,9 @@ export interface Placing {
 
 /**
  * The final standing of every seat. Winners share place 1. Seats still in the duel come next (more LP first), then
- * the seats that left, the last one out first. Seats with no known order of leaving share a place.
+ * the seats that left, the last group out first. Seats that left together, or whose order is unknown, share a place.
  */
-export function placings(engine: Pick<DuelEngineView, "seats" | "result">, outOrder: readonly number[] = []): Placing[] {
+export function placings(engine: Pick<DuelEngineView, "seats" | "result">, outOrder: readonly (readonly number[])[] = []): Placing[] {
   const winners = new Set<number>();
   const result = engine.result;
   if (result) {
@@ -50,7 +57,7 @@ export function placings(engine: Pick<DuelEngineView, "seats" | "result">, outOr
     if (winners.has(seat)) return 0;
     const view = engine.seats.find((entry) => entry.seat === seat);
     if (view?.eliminated !== true) return 1;
-    const at = outOrder.indexOf(seat);
+    const at = outOrder.findIndex((group) => group.includes(seat));
     return at < 0 ? 2 : 3 + (outOrder.length - at);
   };
   const sorted = [...engine.seats].sort((a, b) => {

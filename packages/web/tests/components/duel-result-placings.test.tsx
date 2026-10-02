@@ -18,7 +18,7 @@ const room = FFA3_FIXTURES.states.result.room;
 
 describe("DuelResultScreen placings", () => {
   it("lists every duelist in the order of the placings, each with its place", () => {
-    const rows = placings(room.engine!, [2, 1]).map((row) => ({ seat: row.seat, place: row.place, label: placeLabel(row.place) }));
+    const rows = placings(room.engine!, [[2], [1]]).map((row) => ({ seat: row.seat, place: row.place, label: placeLabel(row.place) }));
     render(<DuelResultScreen room={room} slug="x" reducedMotion soundEnabled={false} onClose={vi.fn()} placings={rows} />);
     const board = screen.getByRole("list", { name: "Final standings" });
     const items = [...board.querySelectorAll("li")];
