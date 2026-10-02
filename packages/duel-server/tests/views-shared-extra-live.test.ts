@@ -135,8 +135,9 @@ for (const mode of ["normal", "domain"] as const) {
       try {
         for (const viewer of viewers(format)) {
           const view = game.view(viewer);
-          expect(view.seats.map((seat) => seat.sharedExtraWith ?? null)).toEqual(Array(seatCountFor(format)).fill(null));
           for (const seat of view.seats) {
+            if (format === "1v1") expect(seat).not.toHaveProperty("sharedExtraWith");
+            else expect(seat.sharedExtraWith).toBeNull();
             expect(seat.lp).toBe(format === "tag" ? 16000 : 8000);
             expect(seat.deckCount).toBe(20);
             expect([seat.hand, seat.extra, seat.graveyard, seat.banished]).toEqual([[], [], [], []]);
