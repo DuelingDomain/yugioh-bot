@@ -1146,6 +1146,7 @@ export function projectView(args: {
     battleStep: args.battleStep ?? null,
     seats,
     prompt: projectPrompt(args.prompt, args.viewer, args.promptSeat, seats, args.reveals),
+    prioritySeat: args.prompt && !args.result ? args.promptSeat : null,
     chain,
     events: args.events.map((event) => projectStoredEvent(event, args.viewer)),
     log: args.log
