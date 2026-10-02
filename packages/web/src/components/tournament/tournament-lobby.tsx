@@ -158,7 +158,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
           </section>
         )}
 
-        <section aria-labelledby="seats-t">
+        <section aria-labelledby="seats-t" className={styles.seatsSec}>
           <div className="sec-h">
             <h2 className="sec-t" id="seats-t">Players</h2>
             <span className="sec-aux">{count} joined · at least 2 to start · no seat limit</span>
@@ -203,7 +203,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
               <li key={`open-${i}`} className="seat open"><UserPlus className="ic" aria-hidden="true" /><span>Open seat · needed to start</span></li>
             ))}
           </ul>
-          {single && count > 1 && <p className="small">{firstRoundNote(count)}</p>}
+          {single && count > 1 && <p className={`small ${styles.pairNote}`}>{firstRoundNote(count)}</p>}
           {isParticipant && isCreator && (
             <div className="inline-note">
               <p>Hosting and playing in this tournament.</p>
