@@ -1,6 +1,6 @@
 // One icon per log category, for lines that have no icon of their own (the Text log).
 // The colour comes from the line's data-cat in CSS; the icon is the cue that does not depend on colour.
-import { Ban, CircleDot, Download, Skull, Sparkles, SquareDashed, Swords, Zap, type LucideIcon } from "lucide-react";
+import { Ban, CircleDot, Combine, Download, Skull, Sparkles, SquareDashed, Swords, Zap, type LucideIcon } from "lucide-react";
 import type { LogCategory } from "./log-category";
 
 const GLYPH: Record<LogCategory, LucideIcon> = {
@@ -8,6 +8,7 @@ const GLYPH: Record<LogCategory, LucideIcon> = {
   chain: Zap,
   battle: Swords,
   destroy: Skull,
+  material: Combine,
   banish: Ban,
   set: SquareDashed,
   hand: Download,

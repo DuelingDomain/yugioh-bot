@@ -1,32 +1,36 @@
 // Colour categories for the duel log. Pure, no React, no DOM.
 //
 // Both log surfaces colour an entry by what kind of action it was, so the log can be scanned at a glance:
-//   summon   Normal, Tribute, Flip and Special Summons. The badge fill names the method (see summonMethodForIcon).
-//   chain    activations and chain links (gold, the chain colour everywhere in the duel).
-//   battle   attacks, direct attacks, damage and LP paid.
-//   destroy  destroyed, sent to the Graveyard, discarded, Tributed or used as material.
-//   banish   banished.
-//   set      Set face-down.
-//   hand     drawn, added to hand, or returned to the hand, Deck or Extra Deck.
-//   system   LP gained, position changes, flips face-up, reveals and confirms, coin tosses, shuffles.
+//   summon    Normal, Tribute, Flip, Special and every Extra Deck summon. The method (Fusion, Synchro, Xyz, Link,
+//             Ritual, Pendulum, or "monster" for the rest) picks the badge fill and the label colour.
+//   chain     activations and chain links (gold, the chain colour everywhere in the duel).
+//   battle    attacks, direct attacks, damage and LP paid.
+//   destroy   destroyed, sent to the Graveyard, discarded.
+//   material  Tributed or used as material: muted, so a combo turn does not read as a board wipe. In the Text log,
+//             the Graveyard sends directly above a summon that takes materials (categoriesForLog).
+//   banish    banished.
+//   set       Set face-down.
+//   hand      drawn, added to hand, or returned to the hand, Deck or Extra Deck.
+//   system    LP gained, position changes, flips face-up, reveals and confirms, coin tosses, shuffles.
 //
 // Colour is never the only cue: every category comes with its own icon and the entry keeps its text label.
-// The category is read only from what the entry already shows (its icon kind, or the log text the viewer
-// was sent), never from the card, so colour can never say more about a hidden card than the text does.
-import type { HistoryIconKind } from "./history-entries";
+// The category is read only from what the entry already shows (its icon kind and action label, or the log text
+// the viewer was sent), never from the card, so colour can never say more about a hidden card than the text does.
+import type { HistoryEntry, HistoryIconKind } from "./history-entries";
 
-export type LogCategory = "summon" | "chain" | "battle" | "destroy" | "banish" | "set" | "hand" | "system";
+export type LogCategory = "summon" | "chain" | "battle" | "destroy" | "material" | "banish" | "set" | "hand" | "system";
 
-/** Which card frame the summon badge echoes. "monster" covers Normal, Tribute, Flip and plain Special Summons. */
+/** Which card frame a summon echoes. "monster" covers Normal, Tribute, Flip and plain Special Summons. */
 export type SummonMethod = "monster" | "fusion" | "synchro" | "xyz" | "link" | "ritual" | "pendulum";
 
-export const LOG_CATEGORIES: readonly LogCategory[] = ["summon", "chain", "battle", "destroy", "banish", "set", "hand", "system"];
+export const LOG_CATEGORIES: readonly LogCategory[] = ["summon", "chain", "battle", "destroy", "material", "banish", "set", "hand", "system"];
 
 export const LOG_CATEGORY_LABEL: Record<LogCategory, string> = {
   summon: "Summon",
   chain: "Activation and chain",
   battle: "Battle and damage",
   destroy: "Destroyed or sent to the Graveyard",
+  material: "Tributed or used as material",
   banish: "Banished",
   set: "Set face-down",
   hand: "Draw, add to hand or return",
@@ -34,7 +38,7 @@ export const LOG_CATEGORY_LABEL: Record<LogCategory, string> = {
 };
 
 /**
- * The category of a history-list entry, from its icon kind.
+ * The category of a history-list icon kind.
  *
  * The switch is exhaustive: a new icon kind (an "add to hand" search or a reveal/confirm event, say) fails
  * typecheck here until it is given a category. Add to hand belongs in "hand"; a reveal or confirm in "system".
@@ -82,7 +86,16 @@ export function categoryForIcon(icon: HistoryIconKind): LogCategory {
   }
 }
 
-/** The card frame a summon badge echoes, or null when the entry is not a summon. */
+/** Action labels history-entries.ts gives a card sent away for a summon (destVerb), whatever its icon. */
+const MATERIAL_VERBS: ReadonlySet<string> = new Set(["Tributed", "Used as material"]);
+
+/** The category of a history-list entry: its icon kind, except that Tributes and materials are "material". */
+export function categoryForEntry(entry: Pick<HistoryEntry, "icon" | "verb">): LogCategory {
+  if (MATERIAL_VERBS.has(entry.verb)) return "material";
+  return categoryForIcon(entry.icon);
+}
+
+/** The card frame a summon echoes, or null when the entry is not a summon. */
 export function summonMethodForIcon(icon: HistoryIconKind): SummonMethod | null {
   switch (icon) {
     case "fusion":
@@ -102,22 +115,32 @@ export function summonMethodForIcon(icon: HistoryIconKind): SummonMethod | null 
   }
 }
 
-// Text log lines come from the engine's fixed sentence templates (duel-server engine.ts appendLog). Match them on
-// the raw text, before "Player N" becomes a display name, and anchor each pattern so a card name or an effect
-// hint cannot pass for another template.
+// Text log lines come from the engine's fixed sentence templates (duel-server engine.ts and log-lines.ts). Match
+// them on the raw text, before "Player N" becomes a display name, and anchor each pattern so a card name or an
+// effect hint cannot pass for another template. Older lines ("<card> moved", stored replays) still classify.
+const SUMMON_LINE = /^Player \d+ (Normal|Tribute|Special|Flip|Fusion|Synchro|Xyz|Link|Ritual|Pendulum) Summons /;
+
 const TEXT_RULES: ReadonlyArray<readonly [RegExp, LogCategory]> = [
-  [/^Player \d+ (Normal|Special|Flip) Summons /, "summon"],
+  [SUMMON_LINE, "summon"],
   [/^Player \d+ Sets a card$/, "set"],
   [/^Player \d+ drew \d+ card\(s\)$/, "hand"],
   [/^You drew /, "hand"],
+  [/^Player \d+ added a card to their hand$/, "hand"],
+  [/^You added .+ to your hand$/, "hand"],
+  [/ was added to Player \d+'s hand$/, "hand"],
+  [/ returned to (Player \d+'s|your) hand$/, "hand"],
+  [/ returned to the (Deck|Extra Deck)$/, "hand"],
   [/ is activating$/, "chain"],
   [/^A chain link was negated$/, "chain"],
   [/^Chain ended$/, "chain"],
   [/^A monster declares (an|a direct) attack$/, "battle"],
   [/^Player \d+ takes \d+ damage$/, "battle"],
   [/^Player \d+ pays \d+ LP$/, "battle"],
+  [/ was destroyed$/, "destroy"],
+  [/ was sent to the Graveyard$/, "destroy"],
+  [/ was banished$/, "banish"],
   [/^Player \d+ gains \d+ LP$/, "system"],
-  // "<card> moved" is logged for both the Graveyard and a face-up banish, so it cannot say which: neutral.
+  // Older engine text: "<card> moved" was logged for both the Graveyard and a face-up banish, so it is neutral.
   [/ moved$/, "system"],
   [/^Player \d+ shuffled their (deck|hand)$/, "system"],
   [/^(Confirmed|Excavated) /, "system"],
@@ -133,4 +156,43 @@ export function categoryForLogText(text: string): LogCategory | null {
     if (pattern.test(text)) return category;
   }
   return null;
+}
+
+// Summons whose materials go to the Graveyard. Xyz materials are attached, not sent; Pendulum, Normal, Special and
+// Flip Summons take none.
+const MATERIAL_SUMMON = /^Player \d+ (Tribute|Fusion|Synchro|Link|Ritual) Summons /;
+const GRAVEYARD_LINE = / was sent to the Graveyard$/;
+
+/**
+ * The category of every line of a Text log, in order. Like categoryForLogText, except that the Graveyard sends
+ * directly above a Tribute, Fusion, Synchro, Link or Ritual Summon line are "material": the engine logs a summon's
+ * materials right before the summon itself. Any other line in between ends the run, so an earlier cost or a card
+ * sent by an effect stays a plain Graveyard send (the history list's rule for "Tributed" and "Used as material").
+ */
+export function categoriesForLog(texts: readonly string[]): Array<LogCategory | null> {
+  const categories = texts.map(categoryForLogText);
+  texts.forEach((text, index) => {
+    if (!MATERIAL_SUMMON.test(text)) return;
+    for (let above = index - 1; above >= 0 && GRAVEYARD_LINE.test(texts[above]!); above -= 1) categories[above] = "material";
+  });
+  return categories;
+}
+
+const SUMMON_WORD: Record<string, SummonMethod> = {
+  Normal: "monster",
+  Tribute: "monster",
+  Special: "monster",
+  Flip: "monster",
+  Fusion: "fusion",
+  Synchro: "synchro",
+  Xyz: "xyz",
+  Link: "link",
+  Ritual: "ritual",
+  Pendulum: "pendulum",
+};
+
+/** The card frame a summon line names, or null when the line is not a summon. */
+export function summonMethodForLogText(text: string): SummonMethod | null {
+  const match = SUMMON_LINE.exec(text);
+  return match ? (SUMMON_WORD[match[1]!] ?? null) : null;
 }

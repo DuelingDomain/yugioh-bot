@@ -140,6 +140,12 @@ describe("richer engine events", () => {
       expect(destroy!.card?.code).toBe(weak[0]);
       expect(destroy!.text).toBe(`${destroy!.card!.name} was destroyed`);
       expect(destroy).toMatchObject({ cause: "battle" });
+      // The Text log says how each monster arrived and that the one lost in battle was destroyed.
+      const log = game.view(null).log.map((entry) => entry.text);
+      expect(log).toContain(`Player 1 Normal Summons ${summons[0]!.card!.name}`);
+      expect(log).toContain(`Player 2 Normal Summons ${summons[1]!.card!.name}`);
+      expect(log).toContain(`${destroy!.card!.name} was destroyed`);
+      expect(log).not.toContain(`${destroy!.card!.name} was sent to the Graveyard`);
       expect(game.view(0).seats[0].lp).toBe(8000 - damage!.amount!);
       const ids = events.map((event) => event.id);
       expect(ids.indexOf(attack!.id)).toBeLessThan(ids.indexOf(damage!.id));
@@ -206,6 +212,12 @@ describe("richer engine events", () => {
       const destroyed = all.filter((event) => event.kind === "destroy");
       expect(destroyed.map((event) => event.seat)).toEqual([1]);
       expect(destroyed[0]).toMatchObject({ zone: { controller: 1, location: OcgLocation.MZONE, sequence: 0 }, card: { code: strong[0] } });
+      // Destroyed by Raigeki vs. sent to the Graveyard after resolving.
+      const log = game.view(1).log.map((entry) => entry.text);
+      expect(log).toContain(`${destroyed[0]!.card!.name} was destroyed`);
+      expect(log).toContain(`${activations[0]!.card!.name} was sent to the Graveyard`);
+      const raigeki = all.find((event) => event.kind === "activate" && event.card?.code === RAIGEKI);
+      expect(log).toContain(`${raigeki!.card!.name} was sent to the Graveyard`);
     } finally {
       game.close();
     }
@@ -244,6 +256,17 @@ describe("richer engine events", () => {
       const last = summons[summons.length - 1]!;
       expect(last.card?.code).toBe(high[0]);
       expect(last.summonKind).toBe("tribute");
+      // The Text log: the Tribute Summon is named; the Set monster's name reaches its opponent only once it is
+      // in the Graveyard (public), never from the Set itself.
+      const setName = eventsOf(game, 1).find((event) => event.kind === "set")!.card!.name;
+      for (const viewer of [0, null]) {
+        const log = game.view(viewer).log.map((entry) => entry.text);
+        expect(log).toContain(`Player 2 Tribute Summons ${last.card!.name}`);
+        expect(log).toContain("Player 2 Sets a card");
+        expect(log.filter((text) => text.includes(setName))).toEqual([`${setName} was sent to the Graveyard`]);
+        // The Tribute's line sits directly above the summon line: the web Text log relies on that to colour it.
+        expect(log[log.indexOf(`Player 2 Tribute Summons ${last.card!.name}`) - 1]).toBe(`${setName} was sent to the Graveyard`);
+      }
       expect(last.zone).toMatchObject({ controller: 1, location: OcgLocation.MZONE });
     } finally {
       game.close();

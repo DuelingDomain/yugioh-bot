@@ -5,9 +5,12 @@ import { buildHistoryView, type HistoryEntry, type HistoryIconKind } from "../..
 import {
   LOG_CATEGORIES,
   LOG_CATEGORY_LABEL,
+  categoriesForLog,
+  categoryForEntry,
   categoryForIcon,
   categoryForLogText,
   summonMethodForIcon,
+  summonMethodForLogText,
   type LogCategory,
 } from "../../src/components/duel/log-category";
 
@@ -47,7 +50,8 @@ describe("log categories: history icons", () => {
   });
 
   it("uses each category and labels every one", () => {
-    expect(new Set(Object.values(EXPECTED))).toEqual(new Set(LOG_CATEGORIES));
+    // "material" has no icon of its own: it comes from the action label (categoryForEntry).
+    expect(new Set([...Object.values(EXPECTED), "material"])).toEqual(new Set(LOG_CATEGORIES));
     for (const category of LOG_CATEGORIES) expect(LOG_CATEGORY_LABEL[category]).toBeTruthy();
   });
 
@@ -97,14 +101,59 @@ describe("log categories: built entries", () => {
     expect(list.map((entry) => summonMethodForIcon(entry.icon)).reverse()).toEqual([...kinds]);
     expect(new Set(list.map((entry) => categoryForIcon(entry.icon)))).toEqual(new Set(["summon"]));
   });
+
+  it("splits Tributes and materials out of the Graveyard sends", () => {
+    const tribute = entries([
+      { id: 1, kind: "move", seat: 0, reason: "send", card: info(9, "Fodder"), zone: { controller: 0, location: 0x10, sequence: 0 }, from: { controller: 0, location: 0x04, sequence: 0 }, text: "" },
+      { id: 2, kind: "move", seat: 0, reason: "summon", card: info(10, "Big"), zone: { controller: 0, location: 0x04, sequence: 1 }, text: "" },
+      { id: 3, kind: "summon", seat: 0, card: info(10, "Big"), summonKind: "tribute", text: "" },
+    ]);
+    expect(tribute.map((entry) => [entry.verb, categoryForEntry(entry)])).toEqual([
+      ["Tribute Summon", "summon"],
+      ["Tributed", "material"],
+    ]);
+    const synchro = entries([
+      { id: 1, kind: "move", seat: 0, reason: "send", card: info(21, "Tuner"), zone: { controller: 0, location: 0x10, sequence: 0 }, text: "" },
+      { id: 2, kind: "move", seat: 0, reason: "summon", card: info(23, "Boss"), zone: { controller: 0, location: 0x04, sequence: 0 }, text: "" },
+      { id: 3, kind: "summon", seat: 0, card: info(23, "Boss"), summonKind: "synchro", text: "" },
+    ]);
+    expect(synchro.map((entry) => [entry.verb, categoryForEntry(entry)])).toEqual([
+      ["Synchro Summon", "summon"],
+      ["Used as material", "material"],
+    ]);
+    // A plain send stays a Graveyard send, and other entries keep their icon's category.
+    const [sent] = entries([{ id: 1, kind: "move", seat: 1, reason: "send", card: info(3, "Sent"), zone: { controller: 1, location: 0x10, sequence: 0 }, text: "" }]);
+    expect(categoryForEntry(sent!)).toBe("destroy");
+    expect(categoryForEntry({ icon: "banish", verb: "Used as material" })).toBe("material");
+    expect(categoryForEntry({ icon: "synchro", verb: "Synchro Summon" })).toBe("summon");
+  });
 });
 
 describe("log categories: text log lines", () => {
-  // Lines exactly as duel-server engine.ts writes them.
+  // Lines exactly as duel-server engine.ts and log-lines.ts write them.
   it.each<[string, LogCategory | null]>([
     ["Player 1 Normal Summons Junk Synchron", "summon"],
+    ["Player 1 Tribute Summons Summoned Skull", "summon"],
     ["Player 2 Special Summons Stardust Dragon", "summon"],
-    ["Player 1 Flip Summons a face-down monster", "summon"],
+    ["Player 2 Special Summons a face-down monster", "summon"],
+    ["Player 1 Flip Summons Man-Eater Bug", "summon"],
+    ["Player 1 Fusion Summons Flame Swordsman", "summon"],
+    ["Player 2 Synchro Summons Stardust Dragon", "summon"],
+    ["Player 1 Xyz Summons Number 39: Utopia", "summon"],
+    ["Player 1 Link Summons Decode Talker", "summon"],
+    ["Player 2 Ritual Summons Paladin of White Dragon", "summon"],
+    ["Player 1 Pendulum Summons Odd-Eyes Pendulum Dragon", "summon"],
+    ["Stardust Dragon was destroyed", "destroy"],
+    ["Raigeki was sent to the Graveyard", "destroy"],
+    ["Decode Talker was banished", "banish"],
+    ["Pot of Greed was added to Player 1's hand", "hand"],
+    ["Player 2 added a card to their hand", "hand"],
+    ["You added Pot of Greed to your hand", "hand"],
+    ["Man-Eater Bug returned to Player 2's hand", "hand"],
+    ["A face-down card returned to Player 1's hand", "hand"],
+    ["Mystical Space Typhoon returned to your hand", "hand"],
+    ["Stardust Dragon returned to the Extra Deck", "hand"],
+    ["Pot of Greed returned to the Deck", "hand"],
     ["Player 2 Sets a card", "set"],
     ["Player 1 drew 2 card(s)", "hand"],
     ["You drew Pot of Greed, Raigeki", "hand"],
@@ -116,7 +165,9 @@ describe("log categories: text log lines", () => {
     ["Player 2 takes 2500 damage", "battle"],
     ["Player 1 pays 1000 LP", "battle"],
     ["Player 1 gains 500 LP", "system"],
+    // Older engine text, still in stored replays.
     ["Decode Talker moved", "system"],
+    ["Player 1 Flip Summons a face-down monster", "summon"],
     ["Player 2 shuffled their deck", "system"],
     ["Player 1 shuffled their hand", "system"],
     ["Confirmed Man-Eater Bug", "system"],
@@ -138,5 +189,59 @@ describe("log categories: text log lines", () => {
     // After name substitution this would read "Sets a card"-like; the raw engine text is what is matched.
     expect(categoryForLogText("Kaiba Sets a card")).toBeNull();
     expect(categoryForLogText("Player 1 Sets a card")).toBe("set");
+  });
+
+  it("does not let a card name pose as a template", () => {
+    expect(categoryForLogText("Stardust Dragon was destroyed by Mirror Force")).toBeNull();
+    expect(categoryForLogText("Player 1 Summons Destroyer")).toBeNull();
+  });
+
+  it("names the card frame of a summon line", () => {
+    expect(summonMethodForLogText("Player 2 Synchro Summons Stardust Dragon")).toBe("synchro");
+    expect(summonMethodForLogText("Player 1 Xyz Summons Number 39: Utopia")).toBe("xyz");
+    expect(summonMethodForLogText("Player 1 Fusion Summons Flame Swordsman")).toBe("fusion");
+    expect(summonMethodForLogText("Player 1 Link Summons Decode Talker")).toBe("link");
+    expect(summonMethodForLogText("Player 1 Ritual Summons Paladin of White Dragon")).toBe("ritual");
+    expect(summonMethodForLogText("Player 1 Pendulum Summons Odd-Eyes Pendulum Dragon")).toBe("pendulum");
+    for (const verb of ["Normal", "Tribute", "Special", "Flip"]) expect(summonMethodForLogText(`Player 1 ${verb} Summons Junk Synchron`)).toBe("monster");
+    expect(summonMethodForLogText("Player 2 Sets a card")).toBeNull();
+    expect(summonMethodForLogText("Kaiba Synchro Summons Stardust Dragon")).toBeNull();
+  });
+});
+
+describe("log categories: a whole Text log", () => {
+  it("mutes the Graveyard sends directly above a summon that takes materials", () => {
+    expect(categoriesForLog([
+      "Fodder was sent to the Graveyard",
+      "Player 2 Tribute Summons Dark Magician",
+    ])).toEqual(["material", "summon"]);
+    expect(categoriesForLog([
+      "Raigeki was sent to the Graveyard",
+      "Junk Synchron is activating",
+      "Junk Synchron was sent to the Graveyard",
+      "Cyber Dragon was sent to the Graveyard",
+      "Player 1 Synchro Summons Stardust Dragon",
+    ])).toEqual(["destroy", "chain", "material", "material", "summon"]);
+    for (const method of ["Fusion", "Link", "Ritual"]) {
+      expect(categoriesForLog(["A was sent to the Graveyard", `Player 1 ${method} Summons B`])[0]).toBe("material");
+    }
+  });
+
+  it("leaves a send that another line separates from the summon, and summons that take no Graveyard materials", () => {
+    // A cost paid for an activation, then the summon it leads to.
+    expect(categoriesForLog([
+      "Cost was sent to the Graveyard",
+      "Monster Reborn is activating",
+      "Player 1 Special Summons Stardust Dragon",
+    ])).toEqual(["destroy", "chain", "summon"]);
+    for (const verb of ["Normal", "Special", "Flip", "Xyz", "Pendulum"]) {
+      expect(categoriesForLog(["A was sent to the Graveyard", `Player 1 ${verb} Summons B`])[0]).toBe("destroy");
+    }
+    // A destroyed card is never material, and a send below the summon is not either.
+    expect(categoriesForLog([
+      "A was destroyed",
+      "Player 1 Synchro Summons B",
+      "C was sent to the Graveyard",
+    ])).toEqual(["destroy", "summon", "destroy"]);
   });
 });

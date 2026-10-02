@@ -26,16 +26,26 @@
   --h-gain: #4fbf7f;
   --h-gain-ink: #8fe3b0;
   --h-ember: rgb(217 141 82);
-  /* Log categories: text colours, all at least 7:1 on the panel (WCAG AA needs 4.5:1). */
+  /* Log categories: text colours, all at least 6:1 on the panel and on the chain and latest-row tints
+     (WCAG AA needs 4.5:1). Summon labels take the method ink below instead of --h-cat-summon. */
   --h-cat-summon: #fbf7ee;
   --h-cat-chain: var(--h-chain-ink);
-  --h-cat-battle: #f2a46c;
-  --h-cat-destroy: var(--h-loss-ink);
+  --h-cat-battle: #f0905a;
+  --h-cat-destroy: #ff8f9c;
+  --h-cat-material: #b9a3cf;
   --h-cat-banish: #8fd3e2;
   --h-cat-set: #c9b38a;
   --h-cat-hand: var(--h-gain-ink);
-  --h-cat-system: #aab3c2;
-  /* Summon badges: fill, glyph and rim, after the card frames. */
+  --h-cat-system: #9399a3;
+  /* Summon label inks: the card frame colour, lifted so it reads on the dark panel. */
+  --h-ink-monster: #ffb37a;
+  --h-ink-fusion: #dc95f5;
+  --h-ink-synchro: #f6f7fb;
+  --h-ink-xyz: #b4bccb;
+  --h-ink-link: #6fa4ff;
+  --h-ink-ritual: #b9dcff;
+  --h-ink-pendulum: #3fd0c8;
+  /* Summon badge fills (the card frame itself). */
   --h-sum-monster: #e39a55;
   --h-sum-fusion: #b45fd0;
   --h-sum-synchro: linear-gradient(160deg, #ffffff 0%, #b5c0ce 100%);
@@ -311,10 +321,19 @@ button.thumb:focus-visible { outline: 2px solid var(--h-pen); outline-offset: 2p
 .row[data-cat="chain"] { --h-cat: var(--h-cat-chain); }
 .row[data-cat="battle"] { --h-cat: var(--h-cat-battle); }
 .row[data-cat="destroy"] { --h-cat: var(--h-cat-destroy); }
+.row[data-cat="material"] { --h-cat: var(--h-cat-material); }
 .row[data-cat="banish"] { --h-cat: var(--h-cat-banish); }
 .row[data-cat="set"] { --h-cat: var(--h-cat-set); }
 .row[data-cat="hand"] { --h-cat: var(--h-cat-hand); }
 .row[data-cat="system"] { --h-cat: var(--h-cat-system); }
+/* A summon's label takes its method's ink: the badge already shows the frame, the label repeats it in text colour. */
+.row[data-summon="monster"] { --h-cat: var(--h-ink-monster); }
+.row[data-summon="fusion"] { --h-cat: var(--h-ink-fusion); }
+.row[data-summon="synchro"] { --h-cat: var(--h-ink-synchro); }
+.row[data-summon="xyz"] { --h-cat: var(--h-ink-xyz); }
+.row[data-summon="link"] { --h-cat: var(--h-ink-link); }
+.row[data-summon="ritual"] { --h-cat: var(--h-ink-ritual); }
+.row[data-summon="pendulum"] { --h-cat: var(--h-ink-pendulum); }
 /* Card names wrap to two lines before they are cut. The full text is in the row's tooltip and read aloud. */
 .title {
   display: -webkit-box;

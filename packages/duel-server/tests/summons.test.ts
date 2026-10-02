@@ -77,6 +77,16 @@ describe("proper effect summons", () => {
       if (mode === "domain") expect(seat.deckMaster?.inZone).toBe(false);
       const summons = game.view(0).events.filter((event) => event.kind === "summon" && event.card?.code === master);
       expect(summons.at(-1)?.summonKind).toBe(scenario.spell === "Polymerization" ? "fusion" : "ritual");
+      // The Text log names the method of a face-up summon, for every viewer, and the materials' trip to the Graveyard.
+      const method = scenario.spell === "Polymerization" ? "Fusion" : "Ritual";
+      for (const viewer of [0, 1, null]) {
+        const lines = game.view(viewer).log.map((entry) => entry.text);
+        expect(lines).toContain(`Player 1 ${method} Summons ${scenario.master}`);
+        for (const material of scenario.materials) expect(lines).toContain(`${material} was sent to the Graveyard`);
+        // The material lines sit directly above the summon line: the web Text log relies on that to colour them.
+        const at = lines.indexOf(`Player 1 ${method} Summons ${scenario.master}`);
+        expect(lines.slice(at - scenario.materials.length, at).sort()).toEqual(scenario.materials.map((material) => `${material} was sent to the Graveyard`).sort());
+      }
     } finally {
       game.close();
     }

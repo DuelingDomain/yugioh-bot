@@ -65,7 +65,7 @@ import {
   type HistoryContext,
   type HistoryState,
 } from "./history-model";
-import { categoryForIcon, summonMethodForIcon } from "./log-category";
+import { categoryForEntry, summonMethodForIcon } from "./log-category";
 import styles from "./history-rail.module.css";
 
 export type DuelHistoryRailProps = {
@@ -222,7 +222,8 @@ const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers }: Ro
       className={styles.row}
       data-side={entry.side}
       data-icon={entry.icon}
-      data-cat={categoryForIcon(entry.icon)}
+      data-cat={categoryForEntry(entry)}
+      data-summon={summonMethodForIcon(entry.icon) ?? undefined}
       data-latest={latest || undefined}
       data-enter={animate || undefined}
       aria-current={latest ? "true" : undefined}

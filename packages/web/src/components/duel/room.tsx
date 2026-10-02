@@ -52,7 +52,7 @@ import {
   usePromptDraft,
   type PromptAim,
 } from "./prompts";
-import { isBattlePhase, phaseLabel, zoneKey } from "./constants";
+import { isBattlePhase, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { duelWindowPath, exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
 import { ownWindowGateVisible } from "./start-flow";
@@ -69,8 +69,7 @@ import { PositionFx } from "./position-fx";
 import { ChainFx } from "./chain-fx";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
-import { categoryForLogText } from "./log-category";
-import { LogCategoryGlyph } from "./log-category-glyph";
+import { MatchSheetLog, phaseTitle } from "./log-line";
 import { centerKind, PromptCenter } from "./prompt-center";
 import { usePickContinuation } from "./pick-continuation";
 import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
@@ -136,91 +135,6 @@ const PASSIVE_ACTION_IDS: ReadonlySet<string> = new Set(["to_bp", "to_m2", "to_e
 
 function hasNoLegalMoves(options: readonly DuelPromptOption[]): boolean {
   return options.length > 0 && options.every((option) => PASSIVE_ACTION_IDS.has(option.id));
-}
-
-function phaseTitle(phase: string | null | undefined): string {
-  const label = phaseLabel(phase);
-  switch (label) {
-    case "Draw":
-    case "Standby":
-    case "Battle":
-    case "End":
-      return `${label} Phase`;
-    case "Main 1":
-      return "Main Phase 1";
-    case "Main 2":
-      return "Main Phase 2";
-    case "Damage":
-      return "Damage Step";
-    case "Damage calculation":
-      return "Damage Calculation";
-    default:
-      return label;
-  }
-}
-
-
-const LOG_PHASE_KEYS: ReadonlySet<string> = new Set([
-  "draw", "standby", "main1", "battle_start", "battle_step", "damage", "damage_cal", "battle", "main2", "end",
-]);
-
-type LogKind = "turn" | "phase" | "loss" | "gain" | "chain" | "result" | "line";
-
-function logKind(text: string): LogKind {
-  if (/^Turn \d+/.test(text)) return "turn";
-  if (LOG_PHASE_KEYS.has(text)) return "phase";
-  if (/ wins \(|^Draw \(/.test(text)) return "result";
-  if (/ takes \d+ damage| pays \d+ LP/.test(text)) return "loss";
-  if (/ gains \d+ LP/.test(text)) return "gain";
-  if (/ is activating$|^A chain link was negated$|^Chain ended$/.test(text)) return "chain";
-  return "line";
-}
-
-/** The engine log names seats "Player N"; show the table's display names instead. */
-function logText(text: string, kind: LogKind, playerName: (seat: number) => string): string {
-  if (kind === "phase") return phaseTitle(text);
-  return text.replace(/\bPlayer ([12])\b/g, (_match, seat: string) => playerName(Number(seat) - 1));
-}
-
-function MatchSheetLog({
-  entries,
-  playerName,
-  players,
-}: {
-  entries: ReadonlyArray<{ id: number; text: string }>;
-  playerName: (seat: number) => string;
-  players: string;
-}) {
-  const listRef = useRef<HTMLOListElement>(null);
-  const count = entries.length;
-  // Follow the newest entry id: the engine caps the log at 400 lines, so the length stops changing.
-  const lastId = entries[count - 1]?.id;
-  useEffect(() => {
-    // Scroll only the sheet's own list; scrollIntoView would also scroll the side pane
-    // and push the history rail above it out of view.
-    const list = listRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
-  }, [lastId, count]);
-  return (
-    <div className={styles.sheet}>
-      <div className={styles.sheetHead}>
-        <h2>Match sheet</h2>
-        <span>{players}</span>
-      </div>
-      <ol ref={listRef} className={styles.log} aria-label="Duel log">
-        {entries.map((entry) => {
-          const kind = logKind(entry.text);
-          const category = categoryForLogText(entry.text);
-          return (
-            <li key={entry.id} data-kind={kind} data-cat={category ?? undefined}>
-              {category ? <LogCategoryGlyph category={category} className={styles.logGlyph} /> : null}
-              {logText(entry.text, kind, playerName)}
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
 }
 
 export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: string; inviteCode?: string; windowed?: boolean }) {
