@@ -250,6 +250,32 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(errors).toEqual([]);
   });
 
+  for (const adr of [false, true]) {
+    test(adr
+      ? "R-FFA-OPP-RESPONSE: third duelist's Mirror Force affects only the attacker"
+      : "current engine: third duelist can use Mirror Force but it destroys both rivals' monsters", async ({ player }, info) => {
+      const alice = await player("p1");
+      const errors = collectTableErrors(alice.page);
+      const slug = await startTablePreset(alice.page, "ffa3-third-response");
+      await expectRealCore(alice.page, slug, "scripted", info);
+      await endTurn(alice.page, 4);
+      for (const seat of [0, 1, 2]) await expect(occupied(alice.page, seat)).toHaveCount(1);
+      await attackWithFirstMonster(alice.page);
+      await tableField(alice.page, 1).locator("[data-kind='mz'][data-legal='true'] button").click();
+      await alice.page.locator("[data-attack-confirm] [data-go]").click();
+      await expect.poll(async () => (await readTable(alice.page, slug)).engine!.seats[2]!.graveyard.map((card) => card.name)).toContain("Mirror Force");
+      const trace = await readTableTrace(alice.page, slug);
+      const offered = trace.promptLog.find((entry) => entry.promptSeat === 2 && entry.options.some((option) => option.card?.name === "Mirror Force"));
+      expect(offered, "C receives a real response prompt when A attacks B").toBeDefined();
+      await expect(occupied(alice.page, 0)).toHaveCount(0);
+      await expect(occupied(alice.page, 2)).toHaveCount(1);
+      if (adr) test.fail(true, "R-FFA-OPP-RESPONSE pending engine change: If A attacks B, C may activate Mirror Force, but it affects only A's monsters.");
+      await expect(occupied(alice.page, 1)).toHaveCount(adr ? 1 : 0, { timeout: 1000 });
+      expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.monsters.filter(Boolean).length)).toEqual(adr ? [0, 1, 1] : [0, 0, 1]);
+      expect(errors).toEqual([]);
+    });
+  }
+
   test("LP elimination clears cards, survives reload, skips the out seat, and restores all three placings", async ({ player }, info) => {
     const alice = await player("p1");
     const errors = collectTableErrors(alice.page);

@@ -24,7 +24,8 @@ if (only.length > 0 && multi.length === 0) throw new Error(`E2E_PRESET matches n
 test.describe("multi-seat presets", () => {
   test.setTimeout(240_000);
   for (const preset of multi) {
-    test(`preset ${preset.id} (${preset.format})`, async ({ browser }, testInfo) => {
+    const current = ["raigeki-dark-hole-ffa4", "ffa3-table-battle", "ffa4-surrender-in-chain", "ffa3-third-response"].includes(preset.id);
+    test(`${current ? "current engine: " : ""}preset ${preset.id} (${preset.format})`, async ({ browser }, testInfo) => {
       test.skip(preset.format === "tag" && only.length === 0, "Tag engine rules are outside the FFA table proof; select E2E_PRESET explicitly to run them");
       const run = new PresetRun(browser, testInfo, preset.id, preset.format);
       await run.execute();

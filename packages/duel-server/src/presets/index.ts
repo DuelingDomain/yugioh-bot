@@ -9,6 +9,7 @@ import { preset as ffa4Surrender } from "./ffa4-surrender-in-chain.js";
 import { presets as ffa3Table } from "./ffa3-table.js";
 import { preset as ffa3Direct } from "./ffa3-table-direct.js";
 import { preset as turnPlayerLast } from "./ffa3-turn-player-last.js";
+import { preset as thirdResponse } from "./ffa3-third-response.js";
 import { preset as jinzo } from "./jinzo-stops-trap.js";
 import { preset as mindCrush } from "./mind-crush-ffa4-pick.js";
 import { preset as mindCrush3 } from "./ffa3-mind-crush-pick.js";
@@ -36,6 +37,7 @@ export const PRESETS: readonly Preset[] = [
   ...ffa3Table,
   ffa3Direct,
   turnPlayerLast,
+  thirdResponse,
 ];
 
 export function getPreset(id: string): Preset | undefined {
