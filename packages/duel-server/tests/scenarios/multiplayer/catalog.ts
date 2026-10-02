@@ -1430,21 +1430,21 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "soul-taker-tag-p0-destroys-monster-of-p3-p3-gains-1000",
   ], // Soul Taker
   10045474: [
-    "infinite-impermanence-ffa3-p1-turn-p2-negates-homunculus-of-p1",
-    "infinite-impermanence-ffa4-p2-turn-p0-negates-homunculus-of-p2",
-    "infinite-impermanence-tag-p0-turn-p1-negates-homunculus-of-p0",
-    "infinite-impermanence-tag-p0-turn-p3-negates-homunculus-of-p2",
-    "infinite-impermanence-tag-p1-turn-p2-negates-homunculus-of-p3",
+    "infinite-impermanence-ffa3-p1-turn-p2-negates-calculator-of-p1",
+    "infinite-impermanence-ffa4-p2-turn-p0-negates-calculator-of-p2",
+    "infinite-impermanence-tag-p0-turn-p1-negates-calculator-of-p0",
+    "infinite-impermanence-tag-p0-turn-p3-negates-calculator-of-p2",
+    "infinite-impermanence-tag-p1-turn-p2-negates-calculator-of-p3",
   ], // Infinite Impermanence
   97268402: [
-    "effect-veiler-ffa3-p1-turn-p2-negates-homunculus-of-p1",
-    "effect-veiler-ffa3-p1-turn-p0-negates-homunculus-of-p1",
-    "effect-veiler-ffa4-p2-turn-p3-negates-homunculus-of-p2",
-    "effect-veiler-ffa4-p1-turn-p0-negates-homunculus-of-p1",
-    "effect-veiler-tag-p0-turn-p1-negates-homunculus-of-p0",
-    "effect-veiler-tag-p0-turn-p1-negates-homunculus-of-p2",
-    "effect-veiler-tag-p1-turn-p0-negates-homunculus-of-p1",
-    "effect-veiler-tag-p1-turn-p2-negates-homunculus-of-p3",
+    "effect-veiler-ffa3-p1-turn-p2-negates-calculator-of-p1",
+    "effect-veiler-ffa3-p1-turn-p0-negates-calculator-of-p1",
+    "effect-veiler-ffa4-p2-turn-p3-negates-calculator-of-p2",
+    "effect-veiler-ffa4-p1-turn-p0-negates-calculator-of-p1",
+    "effect-veiler-tag-p0-turn-p1-negates-calculator-of-p0",
+    "effect-veiler-tag-p0-turn-p1-negates-calculator-of-p2",
+    "effect-veiler-tag-p1-turn-p0-negates-calculator-of-p1",
+    "effect-veiler-tag-p1-turn-p2-negates-calculator-of-p3",
     "effect-veiler-tag-p0-turn-partner-p2-is-never-offered",
   ], // Effect Veiler
   23434538: [
