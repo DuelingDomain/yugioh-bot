@@ -515,7 +515,7 @@ export function TableShell({
           canAct={canAct}
           noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
           onChoose={(id) => controller.onAnswer({ choice: id })}
-          clock={room.clock ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} /> : null}
+          clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} compact /> : null}
           caption={trackCaption}
           reducedMotion={controller.reducedMotion}
           attackLock={attackLockAt(format, engine.seats.length, engine.turn)}

@@ -32,6 +32,15 @@ function Shell({ id }: { id: keyof typeof FFA3_FIXTURES.states }) {
 }
 
 describe("TableShell on the 3-way fixtures", () => {
+  it("keeps decision clocks on the LP panels and clear of the dock name and turn label", () => {
+    const { container } = render(<Shell id="main" />);
+    const clock = container.querySelector('nav[aria-label="Duel phases"] [role="timer"]')!;
+    expect(clock.textContent?.trim()).toBe("3:12");
+    expect(clock.querySelector("small")).toBeNull();
+    expect(container.querySelector('[data-holo="1"]')).toHaveTextContent("04:00");
+    expect(container.querySelector('nav[aria-label="Duel phases"]')).toHaveTextContent("Turn 5");
+  });
+
   it("draws one LP panel per seat and one seat field per seat", () => {
     const { container } = render(<Shell id="main" />);
     const lp = [...container.querySelectorAll("[data-lp-seat]")].map((node) => node.getAttribute("data-lp-seat"));
