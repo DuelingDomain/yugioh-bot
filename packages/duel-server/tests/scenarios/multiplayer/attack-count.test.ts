@@ -8,7 +8,7 @@ import { ATTACK_COUNT_SCENARIOS } from "./attack-count.js";
 
 // Live scenarios of the cards that count the direct attacks per attacked duelist (Confusion Chaff, Ogre of the Scarlet Sorrow).
 // Same gate as the other live N-seat files: NSEAT_LIVE=1 and a multi core. Run it on the Standard multi core and again on the Domain multi core
-// (NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-P59.sync.wasm).
+// (NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-P60.sync.wasm).
 describeWithCores("live attack count scenarios", liveNseat, () => {
   runScenarios("multiplayer/attack-count", ATTACK_COUNT_SCENARIOS);
 });

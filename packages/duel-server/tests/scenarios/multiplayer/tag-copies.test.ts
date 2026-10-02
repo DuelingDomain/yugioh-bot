@@ -7,7 +7,7 @@ import { runScenarios } from "../../support/runner.js";
 import { TAG_COPY_SCENARIOS } from "./tag-copies.js";
 
 // Tag copies of the compare cards that were proven at FFA3 only. Same gate as the other live N-seat files: NSEAT_LIVE=1 and a multi core.
-// Run it on the Standard multi core and again on the Domain multi core (NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-P59.sync.wasm).
+// Run it on the Standard multi core and again on the Domain multi core (NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-P60.sync.wasm).
 describeWithCores("live Tag copy scenarios", liveNseat, () => {
   runScenarios("multiplayer/tag-copies", TAG_COPY_SCENARIOS);
 });

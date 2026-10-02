@@ -8,7 +8,7 @@ import { SUMMON_GATE_SCENARIOS } from "./summon-gate.js";
 
 // Live scenarios of Summon Gate: the limit of 3 Extra Deck summons is counted per summoning seat (FFA) or team (Tag).
 // Same gate as the other live N-seat files: NSEAT_LIVE=1 and a multi core. Run it on the Standard multi core and again on the Domain multi core
-// (NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-P59.sync.wasm).
+// (NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-P60.sync.wasm).
 describeWithCores("live Summon Gate scenarios", liveNseat, () => {
   runScenarios("multiplayer/summon-gate", SUMMON_GATE_SCENARIOS);
 });
