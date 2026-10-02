@@ -186,7 +186,7 @@ docker compose -f docker-compose.yml logs -f
 
 After deploy, run `scripts/smoke-test-site.sh <SITE_DOMAIN> <VM IP>` from the repo on your workstation to check certificates, redirects, Socket.IO, and the Discord callback URL.
 
-Open `https://<SITE_DOMAIN>` in a browser.
+Manually open `https://<SITE_DOMAIN>` in a browser, sign in with Discord, and confirm the dashboard loads and a draft updates live; the smoke script cannot verify these checks.
 
 ### Discord OAuth Redirect
 
