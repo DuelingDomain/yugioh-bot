@@ -65,6 +65,7 @@ import {
   type HistoryContext,
   type HistoryState,
 } from "./history-model";
+import { categoryForIcon, summonMethodForIcon } from "./log-category";
 import styles from "./history-rail.module.css";
 
 export type DuelHistoryRailProps = {
@@ -99,6 +100,7 @@ function contextFor(engine: DuelEngineView): HistoryContext {
 }
 
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>;
+// The badge colour comes from log-category.ts (data-cat / data-summon); tone is no longer drawn.
 type IconTone = "plain" | "attack" | "loss" | "gain" | "chain" | "quiet";
 
 const ICONS: Record<HistoryIconKind, { Icon: IconComponent; tone: IconTone; label: string }> = {
@@ -196,9 +198,10 @@ function CrackMark() {
 }
 
 function IconBadge({ kind, corner = false }: { kind: HistoryIconKind; corner?: boolean }) {
-  const { Icon, tone, label } = ICONS[kind];
+  const { Icon, label } = ICONS[kind];
   return (
-    <span className={styles.badge} data-tone={tone} data-corner={corner || undefined} title={label} aria-hidden="true">
+    <span className={styles.badge} data-summon={summonMethodForIcon(kind) ?? undefined} data-corner={corner || undefined}
+      title={label} aria-hidden="true">
       <Icon size={13} strokeWidth={2} aria-hidden />
     </span>
   );
@@ -219,6 +222,7 @@ const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers }: Ro
       className={styles.row}
       data-side={entry.side}
       data-icon={entry.icon}
+      data-cat={categoryForIcon(entry.icon)}
       data-latest={latest || undefined}
       data-enter={animate || undefined}
       aria-current={latest ? "true" : undefined}

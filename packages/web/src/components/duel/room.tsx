@@ -69,6 +69,8 @@ import { PositionFx } from "./position-fx";
 import { ChainFx } from "./chain-fx";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
+import { categoryForLogText } from "./log-category";
+import { LogCategoryGlyph } from "./log-category-glyph";
 import { centerKind, PromptCenter } from "./prompt-center";
 import { usePickContinuation } from "./pick-continuation";
 import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
@@ -208,8 +210,10 @@ function MatchSheetLog({
       <ol ref={listRef} className={styles.log} aria-label="Duel log">
         {entries.map((entry) => {
           const kind = logKind(entry.text);
+          const category = categoryForLogText(entry.text);
           return (
-            <li key={entry.id} data-kind={kind}>
+            <li key={entry.id} data-kind={kind} data-cat={category ?? undefined}>
+              {category ? <LogCategoryGlyph category={category} className={styles.logGlyph} /> : null}
               {logText(entry.text, kind, playerName)}
             </li>
           );
