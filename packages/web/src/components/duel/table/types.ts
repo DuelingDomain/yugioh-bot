@@ -45,6 +45,7 @@ export interface SeatPose {
   y: number; // field centre in stage px
   scale: number;
   rotateDeg: number; // effective rotation (text counter-rotates when upright)
+  tiltDeg?: number; // perspective tilt of a far field (rotateX), default 0
   z: number;
   docked: boolean;
   compact: boolean;
