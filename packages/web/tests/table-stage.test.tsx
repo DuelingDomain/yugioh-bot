@@ -20,6 +20,7 @@ beforeAll(() => {
     unobserve() {}
   }
   vi.stubGlobal("ResizeObserver", RO);
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1100 });
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 860 });
 });

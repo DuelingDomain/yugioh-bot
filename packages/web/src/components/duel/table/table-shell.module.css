@@ -1,32 +1,55 @@
-.shell {
-  position: relative;
-  width: 100%;
+/* The shell reuses the room's look (room.module.css). Only what the table adds sits here. */
+.shell.shell {
   height: 100%;
   min-height: 0;
 }
 
-.hint {
+/* Who left the table: a small note over the top centre of the stage, between the two top LP panels. It never takes clicks. */
+.outNote {
   position: absolute;
-  left: 12px;
-  bottom: 10px;
-  z-index: 60;
+  left: 50%;
+  top: 8px;
+  z-index: 40;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
   margin: 0;
-  padding: 4px 8px;
-  border: 1px solid rgb(181 153 99 / 0.3);
-  border-radius: 4px;
-  background: rgb(10 17 34 / 0.8);
-  color: #958f81;
-  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
-  font-size: 11px;
-  line-height: 1;
+  padding: 0;
+  list-style: none;
   pointer-events: none;
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
 }
 
-.hint kbd {
-  padding: 1px 4px;
-  border: 1px solid rgb(181 153 99 / 0.45);
-  border-radius: 3px;
+.outNote li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--seat-main) 55%, transparent);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: rgb(10 17 34 / 0.86);
   color: #efe7d5;
-  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.outNote li i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--seat-main);
+  box-shadow: 0 0 8px 0 var(--seat-main);
+}
+
+.outNote li b {
+  color: var(--seat-ink);
   font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.outNote li em {
+  color: #958f81;
+  font-style: normal;
 }

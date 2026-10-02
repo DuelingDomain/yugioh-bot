@@ -25,6 +25,7 @@ beforeAll(() => {
     unobserve() {}
   }
   vi.stubGlobal("ResizeObserver", RO);
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1100 });
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 860 });
 });
@@ -102,9 +103,12 @@ describe("attack aim on the 3-way shell", () => {
     expect(container.querySelector("[data-attack-line]")?.getAttribute("data-attack-line")).toBe("aim");
     act(() => void fireEvent.click(target.matches("button") ? target : (target.querySelector("button") ?? target)));
     expect(container.querySelector("[data-attack-line]")?.getAttribute("data-attack-line")).toBe("locked");
-    expect(container.querySelector("[data-opponent-bar='confirm']")).not.toBeNull();
+    // The confirm sits on the locked card (a popover on the body), not in the opponent bar.
+    expect(document.querySelector("[data-attack-confirm]")).not.toBeNull();
+    expect(container.querySelector("[data-opponent-bar='confirm']")).toBeNull();
     press("Escape");
-    expect(container.querySelector("[data-opponent-bar]")).toBeNull();
+    expect(document.querySelector("[data-attack-confirm]")).toBeNull();
+    expect(container.querySelector("[data-attack-line]")?.getAttribute("data-attack-line")).not.toBe("locked");
   });
 
   it("keeps the camera keys working while aiming", () => {
