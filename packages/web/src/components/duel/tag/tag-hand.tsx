@@ -79,7 +79,7 @@ export function OwnHand({ seat, cards, legalKeys, selectedKeys, onActivate, onIn
  * The partner's hand, face up, only for the viewer's team. Cards are never usable from here: the partner acts on their
  * own turn, so there is no glow, only the caption and the Ice accent.
  */
-export function PartnerHand({ seat, cards, legalKeys, onInspect, onHoverCard, label, partnerName }: Omit<HandProps, "deckCount" | "selectedKeys" | "onActivate" | "reducedMotion"> & { partnerName: string }) {
+export function PartnerHand({ seat, cards, legalKeys, onInspect, onHoverCard, label, partnerName }: Omit<HandProps, "selectedKeys" | "onActivate" | "reducedMotion"> & { partnerName: string }) {
   return (
     <div className={`${styles.hud} ${styles.phand}`} data-partner-hand data-hand-seat={seat} data-side="you" role="group" aria-label={label}>
       <div className={styles.pl}>
