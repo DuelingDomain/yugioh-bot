@@ -1079,6 +1079,7 @@ export function SeatField({
         data-density={density}
         data-upright={upright ? "true" : "false"}
         data-straight={straight ? "true" : "false"}
+        data-quarter={Math.abs(Math.abs(labelTurnDeg(angle, upright)) - 90) < 15 ? "true" : undefined}
         data-turn={turn ? "true" : undefined}
         data-elim={eliminated ? "true" : undefined}
         data-usable={usable ? "true" : "false"}

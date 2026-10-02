@@ -1943,6 +1943,27 @@
   font-size: calc(var(--z) * 0.116 * var(--ts));
 }
 
+/* A field turned a quarter: the level plate has only a card's width to sit in, so it shows one stat (ATK, or DEF in defense) and sizes to it. */
+.seatField[data-quarter="true"] .plate {
+  right: auto;
+  left: 50%;
+  width: max-content;
+  translate: -50% 0;
+}
+
+.seatField[data-quarter="true"] .plate .plateSep,
+.seatField[data-quarter="true"] .plate .plateDef {
+  display: none;
+}
+
+.seatField[data-quarter="true"] .zone[data-defense="true"] .plate b {
+  display: none;
+}
+
+.seatField[data-quarter="true"] .zone[data-defense="true"] .plate .plateDef {
+  display: inline;
+}
+
 .sfName {
   position: absolute;
   bottom: -2px;
