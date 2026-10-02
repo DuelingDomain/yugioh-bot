@@ -1,6 +1,6 @@
 # P68 review of the saved overlay work
 
-Review date: 2026-10-02. The base is the installed P68 Standard and Domain cores, patches 0001 through 0068. The final owner decisions of 2026-10-02 apply. The adjacent PLAYER_ALL and zone hit lists are historical P61 evidence. Their old counts and opponent-field rules are not current P68 results.
+Review date: 2026-10-02. The base is the installed P68 Standard and Domain cores, patches 0001 through 0068. The final owner decisions of 2026-10-02 apply. The archived PLAYER_ALL and zone hit lists are historical P61 evidence. Their old counts and opponent-field rules are not current P68 results.
 
 This review covers the 17 saved, untracked suffixes, the two modified delayed-effect suffixes, the three modified native checks, the pending-rule edit, the audit runners and the five historical evidence documents. It also fixes the Pair Bear defect found by the required table checks. No installed engine file or core source was changed.
 
@@ -21,9 +21,9 @@ Each fix has a separate commit with its suffix, generated manifest entry and rea
 | 51612489 | Riot's Reason | Remove the owner hint pick; return a stolen monster to its owner and let that owner summon. | 6 | 4 fail, 2 Tag controls pass on the prior suffix |
 | 21501961 | Pair Bear Scare!! | Bind both target steps and offer only the declining duelist's monsters. | 18 | 2 Tag decline cases fail on the prior suffix; 16 pass. |
 
-The first nine rows account for nine of the 17 saved suffixes. Pair Bear already had a committed suffix. Its new proof covers both branches with holders p0 and p1 in FFA3, FFA4 and Tag. The old suffix produced a forbidden bind in FFA and a nil reveal card in Tag.
+The first nine rows account for nine of the 17 saved suffixes. Pair Bear already had a committed suffix. Its proofs cover reveal, return and decline with holders p0 and p1 in FFA3, FFA4 and Tag. The old suffix produced a forbidden bind in FFA and a nil reveal card in Tag.
 
-The final production proof set passes **239 of 239 cases on each installed core**, in 16 files: the card fixes and unchanged LP controls (109), PLAYER_ALL API boundary (27), hidden-zone pairs (50), zone triggers (44), existing controller summons (6), and the independent P68 Worm proof (3). These are distinct cases. The 54 related table-outcome cases overlap this set at Cooling Embers and Worm; do not add the totals as if every case were unique.
+The original completion run, before the review corrections below, passed **239 of 239 cases on each installed core**, in 16 files: the card fixes and unchanged LP controls (109), PLAYER_ALL API boundary (27), hidden-zone pairs (50), zone triggers (44), existing controller summons (6), and the independent P68 Worm proof (3). These are distinct cases. The 54 related table-outcome cases overlap this set at Cooling Embers and Worm; do not add the totals as if every case were unique.
 
 The PLAYER_ALL API proof retains the exact-category and actual-group-size checks, including rejected calls. Accepted calls complete the real card action. The new hidden-zone pair and zone-trigger tests prove card outcomes. Their ordinary runs do not prove activation-time opponent binding for every stock card.
 
@@ -96,7 +96,7 @@ The 32 top-level audit files are preserved byte for byte under `phase1/overlay-w
 | audit-root-raw-filter.ts | Static recipient scan and printed results; archive the scanner. |
 | audit-root-skip-draw.ts | Temporary mocked helper. Permanent LP proofs use an explicit real-engine Draw Phase fixture. |
 
-The hit-list Markdown files, ranked PLAYER_ALL CSV, raw scan CSV and timing JSON are historical documentation and evidence. They are kept together with a P61 notice and this P68 review. Their static findings do not prove every card branch or pending rule.
+The two historical hit-list Markdown files, ranked PLAYER_ALL CSV, raw scan CSV and timing JSON are kept byte for byte in `packages/duel-server/domain-core/.build/phase1/overlay-wip/archive/`. They are ignored local evidence. Only this disposition document stays in docs. The static findings do not prove every card branch or pending rule.
 
 ## Remaining integration work
 
@@ -117,3 +117,5 @@ The final task report lists current TypeScript errors in other owners' files. No
 - Finding 5: Gumblar checks both hand options in every case. Grass checks the exact eligible seats when two opponents qualify; a sole eligible opponent is bound silently and must leave an action prompt. Banquet uses explicit steps to check every opponent option, every unchanged seat and no resolution before the pick. No harness auto-picks an unexpected Grass or Banquet prompt. The three suites pass 21 cases per core. Negative suffixes fail 16 cases per core: Gumblar 6, Grass 7, Banquet 3.
 
 - Finding 6: the owner answer already records one declared opposing Deck in Tag. Two new cases use own Deck 8, opposing Decks 5 and 3, and partner Deck 12. Choosing seat 1 mills 3; choosing seat 3 mills 5. Every other Deck and every LP total stays unchanged. The 12-case Grass suite passes per core. A joined-Deck comparison fails all four positive Tag cases, including both new cases. An automatic smallest-Deck operation fails the new seat-1 case per core.
+
+- Finding 7: a new commit removes the three raw CSV/JSON dumps and the two historical hit lists from docs. All five archived files match the bytes in b16f5dd and their original SHA-256 values. The archive inventory is `phase1/overlay-wip-fix/archive-inventory.json`. b16f5dd remains in history.
