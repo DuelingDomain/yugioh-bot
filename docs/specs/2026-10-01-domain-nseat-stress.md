@@ -39,7 +39,9 @@ a result ends the duel; continuing FFA elimination removes real cards.
 | Domain does not change Standard or 1v1 rules | N-seat changes require n > 2 | Same | PASS: guarded patches, Standard raw regressions, seven two-seat Domain controls, five driver comparisons |
 
 The owner decision of 2026-10-02 replaces the first-draw rule in the table above.
-Domain on the pinned engine in every seat layout (1v1, Tag, FFA3, FFA4): every duelist draws on their first turn, including the turn-1 duelist. Standard MR1/MR2: the turn-1 duelist also draws. Standard MR3/MR4/MR5: only the turn-1 duelist skips the draw. The legacy 1v1 engine uses the same stock Master Rule draw rule in Standard and Domain. MR3 removed that draw on 21 March 2014. The table records the earlier P61 proof.
+Domain in every seat layout (1v1, Tag, FFA3, FFA4): every duelist draws on their first turn, including the turn-1 duelist. Standard MR1/MR2: the turn-1 duelist also draws. Standard MR3/MR4/MR5: only the turn-1 duelist skips the draw. MR3 removed that draw on 21 March 2014. The table records the earlier P61 proof.
+
+**Known deviation, accepted by the owner on 2026-10-02:** The default legacy 1v1 engine keeps the stock Master Rule draw rule in Standard and Domain. In Domain MR3, MR4 and MR5, the turn-1 duelist does not draw. This is an accepted exception to the Domain draw rule. The pinned engine follows the Domain draw rule. The saved `firstTurnDraw` flag records the actual engine behavior; it is `false` for legacy Domain MR3 through MR5.
 
 Deck construction also uses these rules per seat in all three formats: one
 playable monster as Deck Master, exactly 60 Main Deck cards, at most 15 Extra
