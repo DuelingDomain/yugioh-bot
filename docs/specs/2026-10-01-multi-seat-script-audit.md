@@ -19,3 +19,9 @@ Seeds 1 to 50, Domain, default 1000 steps: FFA3 50/50, FFA4 50/50, Tag 50/50. No
 The Shallow Grave (43434803), The Grave of Enkindling (84136000) and Different Dimension Encounter (39900763) skipped the Tag partner. An own-side Graveyard query also allowed the activator to select a partner card as its own choice. Each living duelist now selects and summons in its own scope. The query checks the real seat of the card. The summon completes once after all seats act. The PLAYER_ALL group-size guards stay in place.
 
 Live proof: `tests/scenarios/multiplayer/each-duelist-revival.ts`. The 12 new cases cover FFA3, FFA4 and both Tag teams. Each case checks the prompts and every seat. The original overlays fail all six Tag cases. The fixed cases and six existing cases pass on each core.
+
+## All hands
+
+Neo-Daedalus (10485110) and The Law of the Normal (66926224) left the hands of unpicked opponents unchanged. Norleras (48453776) and Sophia (4335427) included all FFA hands while unbound, but missed the Tag partner hand. Each overlay collects the cards of every living duelist before one simultaneous send or banish action. The target information uses that exact group.
+
+Live proof: `tests/scenarios/multiplayer/all-player-zones.ts`. The 20 cases check every seat, include 1v1 controls and skip an eliminated FFA4 seat. The stock three-format probe fails eight of 12 outcomes; the fixed 20 cases pass on each core.

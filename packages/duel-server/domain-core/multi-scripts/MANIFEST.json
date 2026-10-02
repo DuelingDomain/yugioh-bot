@@ -217,6 +217,15 @@
       "note": "The target is summoned to its real owner field. The own summon stays on the activator field."
     },
     {
+      "code": 4335427,
+      "name": "Sophia, Goddess of Rebirth",
+      "kind": "fix",
+      "classes": [],
+      "note": "Every living duelist is included. Collect each duelist's own zones before one simultaneous action. Tag partner included; no opponent pick.",
+      "file": "c4335427.lua",
+      "stockSha256": "5d8d67b910411c3940d9625edf3ee67e67b448ba19aa1a3cfdb1cde7a7724c67"
+    },
+    {
       "code": 4807253,
       "file": "c4807253.lua",
       "name": "Performage Flame Eater",
@@ -524,6 +533,15 @@
       "r2Class": "LITERAL",
       "stockSha256": "e972287012a5645af654a753da7f3b7bdf3b2a133a30239a92d7895ad414470b",
       "note": "the global check compares the damaged player with 1-controller of the attacker; it compares the keys (seat in FFA, team in Tag) and writes the flag for the real controller."
+    },
+    {
+      "code": 10485110,
+      "name": "Ocean Dragon Lord - Neo-Daedalus",
+      "kind": "fix",
+      "classes": [],
+      "note": "Every living duelist is included. Collect each duelist's own zones before one simultaneous action. Tag partner included; no opponent pick.",
+      "file": "c10485110.lua",
+      "stockSha256": "99a898304be81a89a125bd2226fbeb5818951bb358a7821abbcea0431474c91f"
     },
     {
       "code": 10497636,
@@ -2659,6 +2677,15 @@
       "stockSha256": "0e7a1cc65160b7c77cb625bc9d78c835b7e9b163f483a674960b75c087896cec"
     },
     {
+      "code": 48453776,
+      "name": "Sky Scourge Norleras",
+      "kind": "fix",
+      "classes": [],
+      "note": "Every living duelist is included. Collect each duelist's own zones before one simultaneous action. Tag partner included; no opponent pick.",
+      "file": "c48453776.lua",
+      "stockSha256": "540f994e713b640fae3b27fb32feeb3c914d6bd5ec284c45fb639732ef0c2b08"
+    },
+    {
       "code": 49027020,
       "file": "c49027020.lua",
       "name": "Traptrix Pudica",
@@ -3568,6 +3595,15 @@
         "R1"
       ],
       "stockSha256": "f6093deeed3880b6aa17251e5ddbdcfccbf590b96d2c4760cbd2685d65885929"
+    },
+    {
+      "code": 66926224,
+      "name": "The Law of the Normal",
+      "kind": "fix",
+      "classes": [],
+      "note": "Every living duelist is included. Collect each duelist's own zones before one simultaneous action. Tag partner included; no opponent pick.",
+      "file": "c66926224.lua",
+      "stockSha256": "412abbd641756201e19f0f0bdd06d0b6c8772a5dc803a5f2e1658fbc548ee8b0"
     },
     {
       "code": 67231737,
