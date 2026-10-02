@@ -88,6 +88,16 @@ export interface DuelSeriesService {
    * Ready, so the next game never starts on a deck they did not confirm.
    */
   setSideDeck(seriesId: number, guildId: string, playerId: number, deck: DuelDeck): DuelSeriesSummary;
+  /**
+   * setSideDeck that also reports whether this save cleared the player's Ready, read inside the same
+   * transaction (a snapshot taken before the call can miss a Ready that landed in between).
+   */
+  saveSideDeck(
+    seriesId: number,
+    guildId: string,
+    playerId: number,
+    deck: DuelDeck,
+  ): { series: DuelSeriesSummary; readyCleared: boolean };
   setSideReady(seriesId: number, guildId: string, playerId: number): DuelSeriesSummary;
   /** between_games series whose deadline passed or whose players are both ready. */
   dueNextGames(nowMs: number, limit: number): Array<{ seriesId: number; guildId: string }>;
@@ -955,7 +965,7 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
   );
 
   const setSideDeckTx = db.transaction(
-    (seriesId: number, guildId: string, playerId: number, deck: DuelDeck): DuelSeriesSummary => {
+    (seriesId: number, guildId: string, playerId: number, deck: DuelDeck): { series: DuelSeriesSummary; readyCleared: boolean } => {
       const row = store.requireSeries(seriesId, guildId);
       const index = store.requirePlayerIndex(row, playerId);
       if (row.status !== "between_games") {
@@ -975,12 +985,14 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
         throw new DuelServiceError(`Main deck must have between ${minMain} and ${SIDE_DECK_MAX_MAIN} cards`, 400);
       }
       (index === 0 ? updateDeck0 : updateDeck1).run(JSON.stringify(next), row.id);
-      if (!sameDeckLayout(next, state.currentDeck)) {
+      const wasReady = (index === 0 ? row.side_ready0 : row.side_ready1) === 1;
+      const changed = !sameDeckLayout(next, state.currentDeck);
+      if (changed) {
         // Ready confirmed the old deck. Cleared in the same transaction as the deck write, so no advance
         // (the ready path or the tick sweep) can see the new deck together with the old Ready.
         (index === 0 ? clearSideReady0 : clearSideReady1).run(row.id);
       }
-      return store.summarize(store.requireSeries(row.id));
+      return { series: store.summarize(store.requireSeries(row.id)), readyCleared: wasReady && changed };
     },
   );
 
@@ -1075,6 +1087,9 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
       return state;
     },
     setSideDeck(seriesId, guildId, playerId, deck) {
+      return setSideDeckTx(seriesId, guildId, playerId, deck).series;
+    },
+    saveSideDeck(seriesId, guildId, playerId, deck) {
       return setSideDeckTx(seriesId, guildId, playerId, deck);
     },
     setSideReady(seriesId, guildId, playerId) {

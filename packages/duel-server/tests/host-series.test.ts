@@ -438,6 +438,49 @@ describe("series advance", () => {
     expect(app.duels.privateState(next.slug, GUILD).decks[seat]).toEqual(sided);
   });
 
+  it("refreshes the room when a side save clears a Ready sent through another game slug meanwhile", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const changes: string[] = [];
+    const { host, workers } = openHost(app, { onChange: (slug) => void changes.push(slug) });
+    const { duel, series } = await startChallenge(app, host, 3);
+    const seatOf = (slug: string, playerId: number) => app.duels.get(slug, GUILD).seats.find((entry) => entry.playerId === playerId)!.seat;
+    await endGame(host, workers[0]!, duel.slug, app.p1, seatOf(duel.slug, app.p1));
+    await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    const advanced = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
+    const game2 = advanced.data.nextSlug as string;
+    expect(typeof game2).toBe("string");
+    // Player 2 takes game 2, so the series goes to a game 3 with two game slugs to send requests through.
+    await endGame(host, workers[1]!, game2, app.p1, seatOf(game2, app.p2));
+    expect(app.series.get(series.id, GUILD)).toMatchObject({ status: "between_games", currentDuelSlug: game2 });
+    const p1Index = app.series.get(series.id, GUILD).playerIds.indexOf(app.p1);
+    const before = app.series.sideState(series.id, GUILD, app.p1).currentDeck;
+    const sided: DuelDeck = { ...before, main: [before.side[1]!, ...before.main.slice(1)], side: [before.side[0]!, before.main[0]!] };
+
+    // Hold the side save inside deck normalization, after the host read the series (p1 not ready yet).
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const real = vi.mocked(normalizeImportedDeck).getMockImplementation()!;
+    vi.mocked(normalizeImportedDeck).mockImplementationOnce(async (...args) => {
+      await gate;
+      return real(...args);
+    });
+    const side = post(host, { op: "series-side", slug: game2, playerId: app.p1, deck: sided });
+    await vi.advanceTimersByTimeAsync(1);
+
+    // Requests queue per slug, so a Ready through game 1's slug runs while the save waits.
+    const ready = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    expect(ready.status).toBe(200);
+    expect(ready.data.series.sideReady[p1Index]).toBe(true);
+
+    changes.length = 0;
+    release();
+    const saved = await side;
+    expect(saved.status).toBe(200);
+    expect(saved.data.series.sideReady[p1Index]).toBe(false);
+    expect(changes).toContain(game2);
+  });
+
   it("stores a sided deck between games and rejects it at other times", async () => {
     vi.useFakeTimers();
     const app = setup();

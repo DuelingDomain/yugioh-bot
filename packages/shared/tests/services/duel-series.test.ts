@@ -684,6 +684,26 @@ describe("side decking", () => {
     expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
   });
 
+  it("reports whether a save cleared Ready, read inside the save", () => {
+    const app = setup();
+    const series = betweenGames(app);
+    const deck = validDeck(1);
+    const swapped: DuelDeck = {
+      ...deck,
+      main: [...deck.main.slice(1), deck.side[0] as number],
+      side: [deck.main[0] as number, deck.side[1] as number],
+    };
+    // Not ready: a change clears nothing.
+    expect(app.series.saveSideDeck(series.id, "g1", app.p1, swapped).readyCleared).toBe(false);
+    // Ready lands after any snapshot the caller took: the save still sees it.
+    app.series.setSideReady(series.id, "g1", app.p1);
+    expect(app.series.saveSideDeck(series.id, "g1", app.p1, swapped).readyCleared).toBe(false);
+    const saved = app.series.saveSideDeck(series.id, "g1", app.p1, deck);
+    expect(saved.readyCleared).toBe(true);
+    expect(saved.series.sideReady[series.playerIds.indexOf(app.p1)]).toBe(false);
+    expect(saved.series).toEqual(app.series.get(series.id, "g1"));
+  });
+
   it("rejects different cards, a changed side count and a small main deck", () => {
     const app = setup();
     const series = betweenGames(app);
