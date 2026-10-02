@@ -191,7 +191,9 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   });
 
   const readyReason = imReady ? null : plan.reason;
-  const counterState = !changed ? "none" : plan.balanced ? "even" : "uneven";
+  const counterState = !changed ? "none" : !plan.typesReady ? "loading" : plan.balanced ? "even" : "uneven";
+  const counterNote = !changed ? "No changes" : !plan.typesReady ? "Loading card types…"
+    : plan.balanced ? "Even" : plan.out === plan.inn ? "Section sizes changed" : "Not even";
   const status = imReady
     ? (theirReady ? "Both players are ready." : !hasSide ? "Your deck has no Side Deck, so you are ready. Waiting for your opponent." : "You are ready. Waiting for your opponent.")
     : interrupted ? "The last game did not finish. Both players must click Ready to play on."
@@ -277,7 +279,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
 
           <div className={styles.counter} data-state={counterState} role="status" aria-live="polite" data-testid="swap-counter">
             <span className={ui.num}>{plan.out} out · {plan.inn} in</span>
-            <span className={styles.counterNote}>{!changed ? "No changes" : plan.balanced ? "Even" : "Not even"}</span>
+            <span className={styles.counterNote}>{counterNote}</span>
           </div>
           <p className={styles.help}>
             Take cards out, then bring in Side cards. Main and Extra must each keep their count.

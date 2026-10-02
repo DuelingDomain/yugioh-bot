@@ -151,14 +151,49 @@ describe("BetweenGamesScreen: the swap rule", () => {
     fireEvent.click(await card("Card 100, Extra Deck"));
     fireEvent.click(await card("Card 10, Side Deck"));
     expect(counter()).toContain("1 out · 1 in");
-    expect(counter()).toContain("Not even");
+    expect(counter()).toContain("Section sizes changed");
     expect(readyButton().disabled).toBe(true);
-    expect(screen.getByTestId("ready-reason").textContent).toBe("Keep the Main Deck at 3 cards (last game).");
+    expect(screen.getByTestId("ready-reason").textContent).toBe("Keep the Main Deck at 3 cards and the Extra Deck at 2 cards (last game).");
     expect(screen.getByTestId("count-main").getAttribute("data-tone")).toBe("bad");
     expect(screen.getByTestId("count-extra").getAttribute("data-tone")).toBe("bad");
     fireEvent.click(readyButton());
     expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
     expect(api.readySeries).not.toHaveBeenCalled();
+  });
+
+  it("disables Ready while Side types load and resolves an Extra-for-Extra swap correctly", async () => {
+    let resolve!: (value: { cards: Array<{ code: number; name: string; type: number }>; missing: number[] }) => void;
+    api.getDuelCards.mockReturnValue(new Promise((done) => { resolve = done; }));
+    screenFor();
+    expect(readyButton().disabled).toBe(true);
+    expect(screen.getByTestId("ready-reason").textContent).toBe("Loading card types…");
+    fireEvent.click(screen.getByRole("button", { name: "100, Extra Deck" }));
+    fireEvent.click(screen.getByRole("button", { name: "11, Side Deck" }));
+    expect(counter()).toContain("1 out · 1 in");
+    expect(counter()).not.toContain("Not even");
+    expect(readyButton().disabled).toBe(true);
+    expect(screen.getByTestId("ready-reason").textContent).toBe("Loading card types…");
+    fireEvent.click(readyButton());
+    expect(api.readySeries).not.toHaveBeenCalled();
+    await act(async () => resolve({ cards: [{ code: 10, name: "Card 10", type: 1 }, { code: 11, name: "Card 11", type: TYPE_FUSION }], missing: [] }));
+    expect(screen.getByRole("button", { name: "Card 11, Extra Deck, coming in" })).toBeTruthy();
+    expect(screen.getByTestId("count-extra").textContent).toBe("2");
+    expect(counter()).toContain("Even");
+    expect(readyButton().disabled).toBe(false);
+  });
+
+  it("keeps Ready disabled when the lookup fails or leaves a Side type missing", async () => {
+    api.getDuelCards.mockResolvedValue({ cards: [{ code: 10, name: "Card 10", type: 1 }], missing: [11] });
+    screenFor();
+    await card("Card 10, Side Deck");
+    expect(readyButton().disabled).toBe(true);
+    expect(screen.getByTestId("ready-reason").textContent).toBe("Loading card types…");
+    cleanup();
+    api.getDuelCards.mockRejectedValue(new Error("Offline"));
+    screenFor();
+    await act(async () => { await Promise.resolve(); });
+    expect(readyButton().disabled).toBe(true);
+    expect(screen.getByTestId("ready-reason").textContent).toBe("Loading card types…");
   });
 
   it("starts with nothing out and nothing in, and Ready is on", async () => {
@@ -315,6 +350,7 @@ describe("BetweenGamesScreen: Ready", () => {
       const room = makeSeriesRoom({ series, mySide: { baseDeck: deck, currentDeck: deck } });
       render(<BetweenGamesScreen room={room} slug="game-1" onChanged={vi.fn()} onNavigate={vi.fn()}
         initialMarks={{ out: [{ section: "main", index: 1 }], inn: balanced ? [0] : [] }} />);
+      await act(async () => { await Promise.resolve(); });
       expect(readyButton().disabled).toBe(!balanced);
       await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
       expect(screen.getByTestId("between-timer").textContent).toBe("Starts in 0:00");

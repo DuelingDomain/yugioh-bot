@@ -16,7 +16,7 @@ import {
 import { makeDeck } from "./helpers/duel-series";
 
 // Card 11 and the 100s are Extra Deck monsters; 10 and the rest are Main Deck cards.
-const types = new Map<number, number>([[10, 0x1], [11, TYPE_FUSION], [100, TYPE_SYNCHRO], [101, TYPE_XYZ]]);
+const types = new Map<number, number>([[5, 0x1], [10, 0x1], [11, TYPE_FUSION], [12, 0x1], [100, TYPE_SYNCHRO], [101, TYPE_XYZ]]);
 
 function marks(out: Array<["main" | "extra", number]>, inn: number[]): SideMarks {
   return { out: out.map(([section, index]) => ({ section, index })), inn };
@@ -45,7 +45,7 @@ describe("planSideDeck", () => {
     const plan = planSideDeck(deck, marks([["extra", 0]], [0]), types);
     expect(plan.out).toBe(plan.inn);
     expect(plan.balanced).toBe(false);
-    expect(plan.reason).toBe(`Keep the Main Deck at ${size} cards (last game).`);
+    expect(plan.reason).toBe(`Keep the Main Deck at ${size} cards and the Extra Deck at 2 cards (last game).`);
     expect(isValidSideChange(deck, plan.deck)).toBe(false);
   });
 
@@ -55,7 +55,7 @@ describe("planSideDeck", () => {
     const plan = planSideDeck(deck, marks([["main", 0]], [1]), types, base);
     expect(plan.counts).toEqual({ main: 40, extra: 3, side: 2 });
     expect(plan.balanced).toBe(false);
-    expect(plan.reason).toBe("Keep the Main Deck at 41 cards (last game).");
+    expect(plan.reason).toBe("Keep the Main Deck at 41 cards and the Extra Deck at 2 cards (last game).");
     expect(isValidSideChange(deck, plan.deck)).toBe(false);
   });
 
@@ -154,9 +154,24 @@ describe("planSideDeck", () => {
     expect(deck).toEqual(makeDeck());
   });
 
-  it("sends a Side card of unknown type to the Main Deck (the server checks it)", () => {
-    const plan = planSideDeck(makeDeck(), marks([["main", 0]], [0]), new Map());
-    expect(plan.destination.get(0)).toBe("main");
+  it("waits for Side card types instead of guessing Main for an Extra monster", () => {
+    const deck = makeDeck();
+    const plan = planSideDeck(deck, marks([["extra", 0]], [1]), new Map());
+    expect(plan.typesReady).toBe(false);
+    expect(plan.reason).toBe("Loading card types…");
+    expect(plan.destination.has(1)).toBe(false);
+    expect(cardMultiset(plan.deck)).toEqual(cardMultiset(deck));
+    const loaded = planSideDeck(deck, marks([["extra", 0]], [1]), types);
+    expect(loaded.typesReady).toBe(true);
+    expect(loaded.destination.get(1)).toBe("extra");
+    expect(loaded.balanced).toBe(true);
+    expect(loaded.reason).toBeNull();
+  });
+
+  it("waits for every Side type even when no cards are marked", () => {
+    const deck = makeDeck();
+    expect(planSideDeck(deck, NO_MARKS, new Map([[10, 1]])).reason).toBe("Loading card types…");
+    expect(planSideDeck({ ...deck, side: [] }, NO_MARKS, new Map()).reason).toBeNull();
   });
 });
 
