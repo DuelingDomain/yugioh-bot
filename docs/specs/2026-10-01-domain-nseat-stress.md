@@ -193,7 +193,11 @@ audit files because of `.ts` import extensions and missing scenario tags.
 There is no type error in this task's files. The latest concurrent overlay
 changes are outside this frozen proof. Assigned ability, Link, recall, tax,
 restriction, Tag PayLPCost, and host/lobby work are also outside this audit.
-The installed P61 core still needs the exported fixes.
+The initial P61 reference needs the exported fixes. During cleanup, the
+installed Domain wasm changed outside this task. Its final SHA256 is
+`9c2257e99767a637a1d3c60542ccc0e80b6c2ab4783efe91ffae183f7c6731d3`.
+This task did not install a core. This later installed binary is outside the
+private proof.
 
 Commit `37f6923` also contains three files that another agent had staged in
 the shared index. This task did not edit them. The history is preserved.
@@ -202,4 +206,5 @@ All later commits use explicit path-only commits.
 The private build, binaries, frozen overlay, debug replay, and scratch logs
 are removed. The unnumbered patches, commit messages, build details, compact
 proof record, and selected proof logs remain in `gap-domain/out`. Tracked
-proposal copies also remain. Installed cores and external services are unchanged.
+proposal copies also remain. This task did not change installed cores or
+external services.
