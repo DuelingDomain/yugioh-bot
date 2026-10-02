@@ -35,6 +35,7 @@ const NEEDS_ENGINE = [
   "tests/failure-to-scenario.test.ts",
   "tests/host-bot-pacing.test.ts",
   "tests/host-eliminate.test.ts",
+  "tests/host-domain-multi-real.test.ts",
   "tests/host-nseat.test.ts",
   "tests/host-report-replay.test.ts",
   "tests/host-table-legality.test.ts",

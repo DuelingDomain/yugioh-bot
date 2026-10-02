@@ -7,7 +7,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "list-presets" | "start-preset" | "report" | "debug-trace";
+export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "list-presets" | "start-preset" | "report" | "debug-trace";
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {

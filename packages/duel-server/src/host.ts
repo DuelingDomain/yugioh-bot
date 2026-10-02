@@ -17,7 +17,7 @@ import type {
   DuelSession,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { opponentSeatsOf, seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
+import { multiplayerTableBlockReason, opponentSeatsOf, seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf } from "./engine.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { inspectDeck, validateDeck } from "./deck-legality.js";
@@ -39,7 +39,7 @@ import {
 import { chooseScripted, ScriptedBotError, type Rule, type RuleTraceEntry } from "./scripted-bot.js";
 import { compileBoard } from "./presets/board.js";
 import { setCatalogDirectory } from "./presets/catalog.js";
-import { multiDomainStartProblem } from "./multi-domain-guard.js";
+import { multiDomainCoreAvailable, multiDomainStartProblem } from "./multi-domain-guard.js";
 import { getPreset, multiCoreAvailable, multiCoreInfo, PRESETS, SCRIPTED_POLICY, summarizePreset, type PresetIssue } from "./presets/index.js";
 
 /**
@@ -1114,6 +1114,8 @@ export function createDuelHost(options: {
   async function startPreset(body: Record<string, unknown>, guildId: string, actor: number): Promise<unknown> {
     const preset = typeof body.presetId === "string" ? getPreset(body.presetId) : undefined;
     if (!preset) throw new RequestError("Unknown preset", 404);
+    const blocked = multiplayerTableBlockReason(preset.format, process.env.MULTIPLAYER_TABLES === "1");
+    if (blocked) throw new RequestError(blocked, 409);
     if (preset.needs === "multi-core" && !multiCoreAvailable(options.dataDirectory)) {
       throw new RequestError("This scenario needs the multi-duelist engine core, which is not installed on this server yet.", 409);
     }
@@ -1556,6 +1558,9 @@ export function createDuelHost(options: {
       throw new RequestError("Authenticated guild and player are required", 400);
     }
     const actor = playerId as number;
+    if (op === "capabilities") {
+      return { multiplayerTables: process.env.MULTIPLAYER_TABLES === "1", multiDomainCoreReady: multiDomainCoreAvailable(options.dataDirectory) };
+    }
     if (op === "list-presets") {
       requireScenarios();
       return {
@@ -1613,6 +1618,8 @@ export function createDuelHost(options: {
     if (op === "add-bot") {
       if (actor !== room.session.organizerPlayerId) throw new RequestError("Only the organizer can add a practice bot", 403);
       if (room.session.status !== "lobby") throw new RequestError("A practice bot can only be added before the duel starts", 409);
+      const blocked = multiplayerTableBlockReason(room.session.format, process.env.MULTIPLAYER_TABLES === "1");
+      if (blocked) throw new RequestError(blocked, 409);
       const settings = room.session.settings;
       const deck = buildPracticeBotDeck(room.session.mode, options.dataDirectory);
       validateSessionDeck(room.session.mode, deck, settings, room.session.format);
@@ -1659,6 +1666,8 @@ export function createDuelHost(options: {
       if (actor !== room.session.organizerPlayerId) throw new RequestError("Only the organizer can start", 403);
       if (room.session.status !== "lobby") throw new RequestError("Duel already started", 409);
       const seatCount = seatCountFor(room.session.format);
+      const blocked = multiplayerTableBlockReason(room.session.format, process.env.MULTIPLAYER_TABLES === "1");
+      if (blocked) throw new RequestError(blocked, 409);
       const domainProblem = multiDomainStartProblem(room.session.mode, room.session.format, options.dataDirectory);
       if (domainProblem) throw new RequestError(domainProblem, 409);
       if (room.session.seats.length !== seatCount || room.session.seats.some((entry) => !entry.ready)) {
