@@ -15,7 +15,7 @@ function summon(format: Format, actor: Seat, recall: boolean): Scenario {
     id: `domain-${format}-link-master-from-zone-${actor}-${recall ? "recall" : "refuse"}`,
     title: `Domain ${label(format)}: ${actor} Link Summons its Deck Master from its zone, then ${recall ? "recalls it" : "refuses recall"} after Dark Hole`,
     source: `${SOURCE} [R-COMMON-SEP-FIELDS]: a Link Deck Master uses its proper summon and its owner receives the recall`,
-    rules: ["R-COMMON-SEP-FIELDS", "R-COMMON-EMZ"],
+    rules: ["R-COMMON-SEP-FIELDS"],
     tags: ["multiplayer", "domain", "deck-master", "link", format, "card:98978921"],
     setup,
     steps: [
