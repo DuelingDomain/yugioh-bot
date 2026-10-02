@@ -3803,7 +3803,7 @@
       ],
       "r2Class": "FLAG-L0",
       "stockSha256": "c48cf7e761fc1d7cd4b952d04358291de1cef4f93802ac1d7e16cd9b4a5cb072",
-      "note": "global flags registered for the literal seats 0 and 1 (both are global): the initial_effect wrapper fans each of them out to every living duelist (seat in FFA, team in Tag)."
+      "note": "global flags registered for the literal seats 0 and 1 (both are global): the initial_effect wrapper fans each of them out to every living duelist (seat in FFA, team in Tag). Slot 1 (a Demise Lord destroyed by battle) is a key of its own (id+100) and s.spop reads it with the own seat, so the 3000 ATK bonus does not come after any battle kill."
     },
     {
       "code": 71166481,
