@@ -28,6 +28,7 @@ import {
   wrapSettingsError,
 } from "./duels.js";
 import { createMatchService } from "./matches.js";
+import type { Match } from "./matches.js";
 import { resolveTournamentDuelRules } from "./tournament-duels.js";
 
 /** Seconds players have to side deck between games of a Best of 3. */
@@ -53,6 +54,12 @@ export interface SeriesGameStart {
   /** False when an open series already existed and was returned as-is. */
   created: boolean;
 }
+
+export type SeriesResultRetry =
+  | { ok: true; match: Match }
+  | { ok: false; error: "superseded"; code: "superseded" }
+  | { ok: false; error: "needs_reconciliation"; code: "needs_reconciliation" }
+  | { ok: false; error: string; code?: undefined };
 
 /**
  * Matches of 1 or 3 games. CONTRACT (see
@@ -112,6 +119,43 @@ export interface DuelSeriesService {
 const SIDE_DECK_MIN_MAIN = 40;
 const SIDE_DECK_MAX_MAIN = 60;
 const DUE_CAP = 100;
+// Reports remain identifiable by tournament and pairing after a reopen clears
+// tm.match_id. Legacy match history cannot establish ordering without a watermark.
+const SUPERSEDED_RESULT_FILTER = `
+  tournament_match_id is not null and (
+    exists (
+      select 1 from duel_series newer
+      where newer.tournament_match_id = duel_series.tournament_match_id and newer.id > duel_series.id
+    ) or exists (
+      select 1 from tournament_matches tm join matches m on m.tournament_id = tm.tournament_id
+      where tm.id = duel_series.tournament_match_id
+        and ((m.player_one_id = duel_series.player0_id and m.player_two_id = duel_series.player1_id)
+          or (m.player_one_id = duel_series.player1_id and m.player_two_id = duel_series.player0_id))
+        and (
+          m.id = tm.match_id
+          or m.id > json_extract(duel_series.settings_json, '$.resultMatchIdWatermark')
+        )
+    )
+  )
+`;
+const NEEDS_RECONCILIATION_FILTER = `
+  tournament_match_id is not null
+  and json_extract(duel_series.settings_json, '$.resultMatchIdWatermark') is null
+  and exists (
+    select 1 from tournament_matches tm join matches m
+      on m.id = tm.match_id or (
+        m.tournament_id = tm.tournament_id
+        and ((m.player_one_id = duel_series.player0_id and m.player_two_id = duel_series.player1_id)
+          or (m.player_one_id = duel_series.player1_id and m.player_two_id = duel_series.player0_id))
+      )
+    where tm.id = duel_series.tournament_match_id
+  )
+`;
+const UNRECORDED_RESULT_FILTER = `
+  status = 'completed' and winner_player_id is not null and match_id is null
+  and (ranked = 1 or tournament_match_id is not null)
+  and not (${SUPERSEDED_RESULT_FILTER})
+`;
 
 export type SeriesRow = {
   id: number;
@@ -207,6 +251,22 @@ export function createSeriesStore(db: Database.Database) {
   const matches = createMatchService(db);
 
   const selectSeries = db.prepare<[number], SeriesRow>("select * from duel_series where id = ?");
+  const selectUnrecordedResults = db.prepare<[string], SeriesRow & { needsReconciliation: number }>(
+    `select *, (${NEEDS_RECONCILIATION_FILTER}) as needsReconciliation
+      from duel_series where guild_id = ? and ${UNRECORDED_RESULT_FILTER} order by id`,
+  );
+  const selectSupersededResult = db.prepare<[number], { id: number }>(
+    `select id from duel_series where id = ? and ${SUPERSEDED_RESULT_FILTER}`,
+  );
+  const selectNeedsReconciliation = db.prepare<[number], { id: number }>(
+    `select id from duel_series where id = ? and ${NEEDS_RECONCILIATION_FILTER}`,
+  );
+  const selectRecordedMatch = db.prepare<[number, string], Match>(`
+    select id, guild_id as guildId, player_one_id as playerOneId, player_two_id as playerTwoId,
+      winner_id as winnerId, reporter_id as reporterId, approver_id as approverId,
+      status, source, tournament_id as tournamentId
+    from matches where id = ? and guild_id = ?
+  `);
   const selectPlayerName = db.prepare<[number], { display_name: string }>("select display_name from players where id = ?");
   const selectLatestGame = db.prepare<[number], GameRow>(
     `
@@ -459,6 +519,43 @@ export function createSeriesStore(db: Database.Database) {
     }
   };
 
+  // Inside finalization or retry, this savepoint isolates all recording writes,
+  // including bracket progression, scoring and the series link.
+  const recordResultTx = db.transaction((series: SeriesRow, winnerPlayerId: number): Match => {
+    const match = matches.recordConfirmedResult({
+      guildId: series.guild_id,
+      playerOneId: series.player0_id,
+      playerTwoId: series.player1_id,
+      winnerId: winnerPlayerId,
+      source: series.tournament_match_id !== null ? "tournament" : "casual",
+      tournamentMatchId: series.tournament_match_id,
+    }, { strictScoring: true });
+    db.prepare<[number, number]>("update duel_series set match_id = ? where id = ?").run(match.id, series.id);
+    return match;
+  });
+
+  const retryResultTx = db.transaction((seriesId: number, guildId: string): SeriesResultRetry => {
+    const series = requireSeries(seriesId, guildId);
+    if (series.match_id !== null) {
+      const match = selectRecordedMatch.get(series.match_id, guildId);
+      if (!match) throw new DuelServiceError("Recorded match not found", 404);
+      return { ok: true, match };
+    }
+    if (
+      series.status !== "completed" || series.winner_player_id === null || series.vs_bot === 1 ||
+      (series.ranked !== 1 && series.tournament_match_id === null)
+    ) {
+      throw new DuelServiceError("This series has no result awaiting recording", 409);
+    }
+    if (selectSupersededResult.get(series.id)) {
+      return { ok: false, error: "superseded", code: "superseded" };
+    }
+    if (selectNeedsReconciliation.get(series.id)) {
+      return { ok: false, error: "needs_reconciliation", code: "needs_reconciliation" };
+    }
+    return { ok: true, match: recordResultTx(series, series.winner_player_id) };
+  });
+
   /** A game ended. Runs in the same transaction as the duel update. */
   const onGameFinished = (
     duel: { id: number; series_id: number | null; game_number: number | null },
@@ -547,26 +644,21 @@ export function createSeriesStore(db: Database.Database) {
       return;
     }
 
+    // Remember insertion order before recording: timestamps have only second
+    // precision, and a denied result survives organizer reopening of the slot.
     db.prepare<[number, number, number | null, number]>(
       `
         update duel_series
-        set status = 'completed', wins0 = ?, wins1 = ?, winner_player_id = ?, next_game_at = null, ended_at = datetime('now')
+        set status = 'completed', wins0 = ?, wins1 = ?, winner_player_id = ?, next_game_at = null, ended_at = datetime('now'),
+          settings_json = case when tournament_match_id is null then settings_json
+            else json_set(settings_json, '$.resultMatchIdWatermark', (select coalesce(max(id), 0) from matches)) end
         where id = ?
       `,
     ).run(wins0, wins1, winnerIsBot ? null : (winnerPlayerId as number), series.id);
     // A series against the practice bot never counts.
     if (vsBot || (!tournament && series.ranked !== 1)) return;
     try {
-      // db.transaction nests as a savepoint: a failure here undoes only the match write.
-      const match = matches.recordConfirmedResult({
-        guildId: series.guild_id,
-        playerOneId: series.player0_id,
-        playerTwoId: series.player1_id,
-        winnerId: winnerPlayerId as number,
-        source: tournament ? "tournament" : "casual",
-        tournamentMatchId: series.tournament_match_id,
-      });
-      db.prepare<[number, number]>("update duel_series set match_id = ? where id = ?").run(match.id, series.id);
+      recordResultTx(series, winnerPlayerId as number);
     } catch (error) {
       console.error("[duel-series] recording the series result failed", {
         seriesId: series.id,
@@ -581,6 +673,20 @@ export function createSeriesStore(db: Database.Database) {
     byId,
     requireSeries,
     summarize,
+    /** Completed wins that should have a match but have not been recorded yet. */
+    listUnrecordedResults(guildId: string): Array<SeriesRow & { needsReconciliation?: boolean }> {
+      return selectUnrecordedResults.all(guildId).map(({ needsReconciliation, ...row }) =>
+        needsReconciliation ? { ...row, needsReconciliation: true } : row,
+      );
+    },
+    /** Repairs only recording; an existing match is returned without any writes. */
+    retryResult(seriesId: number, guildId: string): SeriesResultRetry {
+      try {
+        return retryResultTx(seriesId, guildId);
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
     summaryById(seriesId: number): DuelSeriesSummary | null {
       const row = selectSeries.get(seriesId);
       return row ? summarize(row) : null;
@@ -678,6 +784,9 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
   );
   const selectOpenForSlot = db.prepare<[number], { id: number }>(
     "select id from duel_series where tournament_match_id = ? and status in ('active', 'between_games') limit 1",
+  );
+  const selectUnrecordedForSlot = db.prepare<[number], { id: number }>(
+    `select id from duel_series where tournament_match_id = ? and ${UNRECORDED_RESULT_FILTER} limit 1`,
   );
   const updateDeck0 = db.prepare<[string, number]>("update duel_series set deck0_json = ? where id = ?");
   const updateDeck1 = db.prepare<[string, number]>("update duel_series set deck1_json = ? where id = ?");
@@ -838,6 +947,9 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
 
       const existing = selectOpenForSlot.get(slot.id);
       if (existing) return resumeOpenSeries(existing.id);
+      if (selectUnrecordedForSlot.get(slot.id)) {
+        throw new DuelServiceError("A completed series for this match is awaiting result recording", 409);
+      }
       if (slot.status === "pending_approval" || slot.match_id !== null) {
         throw new DuelServiceError("A manual result for this match is waiting for approval", 409);
       }

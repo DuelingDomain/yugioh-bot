@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createMatchService } from "../../src/services/matches.js";
 import { createTournamentService } from "../../src/services/tournaments.js";
@@ -219,5 +219,37 @@ describe("matches.recordConfirmedResult", () => {
     expect(run).toThrow("abort");
     expect((app.db.prepare("select count(*) as c from matches").get() as { c: number }).c).toBe(0);
     expect((app.db.prepare("select status from tournament_matches where id = ?").get(slot.id) as any).status).toBe("open");
+  });
+
+  it.each([
+    ["confirmed", "match_win"], ["confirmed", "placement"],
+    ["approve", "match_win"], ["approve", "placement"],
+    ["autoApprove", "match_win"], ["autoApprove", "placement"],
+  ] as const)("keeps %s scoring best-effort when %s awards fail", (caller, kind) => {
+    const app = setup();
+    const { t, slot } = tournamentSlot(app);
+    const pending = caller === "confirmed" ? null : app.tournaments.reportTournamentMatch(slot.id, app.p1, app.p1);
+    app.db.exec(`
+      create temp trigger fail_scoring before insert on point_awards
+      when new.kind = '${kind}'
+      begin select raise(abort, 'forced scoring failure'); end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const match = caller === "confirmed"
+        ? app.matches.recordConfirmedResult({
+          guildId: "g1", playerOneId: app.p1, playerTwoId: app.p2, winnerId: app.p1,
+          source: "tournament", tournamentMatchId: slot.id,
+        })
+        : caller === "approve" ? app.matches.approve(pending!.id, app.p2) : app.matches.autoApprove(pending!.id);
+      expect(match.status).toBe("approved");
+      expect(app.tournaments.findById(t.id).status).toBe("completed");
+      expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id))
+        .toEqual({ status: "completed", match_id: match.id });
+      expect(app.db.prepare("select * from point_awards where kind = ?").all(kind)).toEqual([]);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

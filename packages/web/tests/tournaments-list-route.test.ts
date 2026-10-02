@@ -11,6 +11,7 @@ async function setupDb() {
   const dbPath = join(tempDir, "test.sqlite");
   tempDirs.push(tempDir);
   process.env.DATABASE_PATH = dbPath;
+  process.env.DISCORD_GUILD_ID = "guild-1";
   const Database = (await import("better-sqlite3")).default;
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
@@ -30,6 +31,7 @@ describe("GET /api/tournaments includes completed", () => {
   beforeEach(() => vi.resetModules());
   afterEach(() => {
     delete process.env.DATABASE_PATH;
+    delete process.env.DISCORD_GUILD_ID;
     while (tempDirs.length) {
       const d = tempDirs.pop();
       if (d) rmSync(d, { recursive: true, force: true });

@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import type { Tournament as BaseTournament, TournamentMatch, TournamentPlayer } from "../types/index.js";
 import type { DuelBestOf } from "../duels/index.js";
 import type { Match } from "./matches.js";
+import { createScoringService } from "./scoring.js";
 import {
   generateRoundRobin,
   generateSingleElimFirstRound,
@@ -782,17 +783,24 @@ export function createTournamentService(db: Database.Database) {
         throw new Error("Match is not completed");
       }
 
-      db.prepare(
-        "update matches set status = 'denied', resolved_at = current_timestamp where id = ?",
-      ).run(tm.match_id);
+      db.transaction(() => {
+        const result = db.prepare("select status from matches where id=?").get(tm.match_id) as { status: string };
+        const scored = db.prepare("select 1 from point_awards where match_id=? and kind='match_win'").get(tm.match_id);
+        db.prepare(
+          "update matches set status = 'denied', resolved_at = current_timestamp where id = ?",
+        ).run(tm.match_id);
 
-      db.prepare(
-        "update tournament_matches set status = 'open', match_id = null where id = ?",
-      ).run(tm.id);
+        db.prepare(
+          "update tournament_matches set status = 'open', match_id = null where id = ?",
+        ).run(tm.id);
 
-      db.prepare(
-        "update tournaments set status = 'active', ended_at = null where id = ? and status = 'completed'",
-      ).run(tm.tournament_id);
+        db.prepare(
+          "update tournaments set status = 'active', ended_at = null where id = ? and status = 'completed'",
+        ).run(tm.tournament_id);
+        if (result.status === "approved" || scored) {
+          createScoringService(db).rebuildStandings(tournament.guildId, { reopenedTournamentId: tm.tournament_id });
+        }
+      })();
     },
 
     cancel(tournamentId: number): Tournament {

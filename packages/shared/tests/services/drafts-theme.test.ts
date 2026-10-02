@@ -50,6 +50,7 @@ function seedThemeCards(
 /** Build a started-ready theme draft: creates themes, players, the draft, joins everyone. */
 function makeThemeDraft(opts: {
   players?: number;
+  random?: () => number;
   config: Partial<DraftConfig>;
   themes: Array<{ main: number; extra: number }>;
   /** Theme index assigned to each player (forces host_assigned selection). */
@@ -57,7 +58,7 @@ function makeThemeDraft(opts: {
 }) {
   const db = new Database(":memory:");
   migrate(db);
-  const drafts = createDraftService(db);
+  const drafts = createDraftService(db, { random: opts.random });
   const themesService = createCubeService(db, emptyCatalog(db));
   const guildId = "g";
 
@@ -122,6 +123,120 @@ describe("theme draft — config normalization", () => {
 });
 
 describe("theme draft — start & assignment", () => {
+  it.each(["detached", "deleted", "duplicate"])("ignores an unjoined player's %s host assignment at start", (staleAssignment) => {
+    const { db, drafts, draftId, playerIds, themeIds } = makeThemeDraft({
+      config: { extraDeckEnabled: false },
+      themes: [{ main: 42, extra: 0 }, { main: 42, extra: 0 }, { main: 0, extra: 0 }],
+      assign: [0, 1],
+    });
+    const unjoinedPlayerId = insertPlayer(db, "g", "u2", "P2");
+    const config = drafts.findById(draftId).config;
+    config.themeAssignments![String(unjoinedPlayerId)] = staleAssignment === "duplicate" ? themeIds[0] : themeIds[2];
+    if (staleAssignment === "detached") config.allowedCubeIds = themeIds.slice(0, 2);
+    if (staleAssignment === "deleted") db.prepare("delete from cubes where id = ?").run(themeIds[2]);
+    db.prepare("update drafts set config_json = ? where id = ?").run(JSON.stringify(config), draftId);
+
+    expect(drafts.start(draftId).status).toBe("active");
+    expect(db.prepare("select player_id, cube_id from draft_player_cube where draft_id = ? order by player_id").all(draftId))
+      .toEqual([{ player_id: playerIds[0], cube_id: themeIds[0] }, { player_id: playerIds[1], cube_id: themeIds[1] }]);
+    for (const playerId of playerIds) expect(drafts.currentPackOptions(draftId, playerId)).toHaveLength(3);
+  });
+
+  it.each(["foreign-guild", "deleted"])("rejects a %s host-assigned cube without activating the draft", (invalidCube) => {
+    const { db, drafts, draftId, themeIds } = makeThemeDraft({
+      config: { extraDeckEnabled: false },
+      themes: [{ main: 42, extra: 0 }, { main: 42, extra: 0 }, { main: 42, extra: 0 }],
+      assign: [0, 1],
+    });
+    if (invalidCube === "foreign-guild") db.prepare("update cubes set guild_id = 'other-guild' where id = ?").run(themeIds[1]);
+    else db.prepare("delete from cubes where id = ?").run(themeIds[1]);
+
+    expect(() => drafts.start(draftId)).toThrow(/exist.*draft.*guild/i);
+    expect(drafts.findById(draftId)).toMatchObject({ status: "pending", currentPackRound: 0, currentPickStep: 0, pickDeadlineAt: null });
+    expect(db.prepare("select started_at from drafts where id = ?").get(draftId)).toEqual({ started_at: null });
+    expect(db.prepare("select seat_index from draft_players where draft_id = ?").all(draftId))
+      .toEqual([{ seat_index: null }, { seat_index: null }]);
+    expect(db.prepare("select * from draft_player_cube where draft_id = ?").all(draftId)).toEqual([]);
+    expect(db.prepare("select * from draft_packs where draft_id = ?").all(draftId)).toEqual([]);
+  });
+
+  it.each([{ assign: [] }, { assign: [0] }])("requires a host assignment for every player (%j)", ({ assign }) => {
+    const { db, drafts, draftId } = makeThemeDraft({
+      config: { extraDeckEnabled: false },
+      themes: [{ main: 42, extra: 0 }, { main: 42, extra: 0 }],
+      assign,
+    });
+
+    expect(() => drafts.start(draftId)).toThrow(/assignment for every player/i);
+    expect(drafts.findById(draftId).status).toBe("pending");
+    expect(db.prepare("select * from draft_player_cube where draft_id = ?").all(draftId)).toEqual([]);
+  });
+
+  it.each([true, false])("enforces uniqueThemes=%s for host assignments", (uniqueThemes) => {
+    const { db, drafts, draftId, playerIds, themeIds } = makeThemeDraft({
+      config: { uniqueThemes, extraDeckEnabled: false },
+      themes: [{ main: 42, extra: 0 }, { main: 42, extra: 0 }],
+      assign: [0, 0],
+    });
+
+    if (uniqueThemes) {
+      expect(() => drafts.start(draftId)).toThrow(/distinct.*uniqueThemes/i);
+      expect(drafts.findById(draftId).status).toBe("pending");
+      expect(db.prepare("select * from draft_player_cube where draft_id = ?").all(draftId)).toEqual([]);
+    } else {
+      expect(drafts.start(draftId).status).toBe("active");
+      expect(db.prepare("select player_id, cube_id from draft_player_cube where draft_id = ? order by player_id").all(draftId))
+        .toEqual(playerIds.map((playerId) => ({ player_id: playerId, cube_id: themeIds[0] })));
+      for (const playerId of playerIds) expect(drafts.currentPackOptions(draftId, playerId)).toHaveLength(3);
+    }
+  });
+
+  it.each(["random", "player_pick"] as const)("keeps %s selection working with stale host assignments and a deleted allowed cube", (themeSelection) => {
+    const { db, drafts, draftId, themeIds } = makeThemeDraft({
+      config: { themeSelection, themeAssignments: { "1": 999, "2": 999 }, extraDeckEnabled: false },
+      themes: [{ main: 42, extra: 0 }, { main: 42, extra: 0 }, { main: 42, extra: 0 }],
+    });
+    db.prepare("delete from cubes where id = ?").run(themeIds[2]);
+
+    expect(drafts.start(draftId).status).toBe("active");
+    expect(db.prepare("select cube_id from draft_player_cube where draft_id = ? order by cube_id").all(draftId))
+      .toEqual([{ cube_id: themeIds[0] }, { cube_id: themeIds[1] }]);
+  });
+
+  it("starts with the host's complete assignment map", () => {
+    const { db, drafts, draftId, playerIds, themeIds } = makeThemeDraft({
+      config: { extraDeckEnabled: false },
+      themes: [{ main: 60, extra: 0 }, { main: 60, extra: 0 }],
+      assign: [1, 0],
+    });
+    expect(drafts.start(draftId).status).toBe("active");
+    for (const [index, playerId] of playerIds.entries()) {
+      expect(db.prepare("select cube_id from draft_player_cube where draft_id = ? and player_id = ?").get(draftId, playerId))
+        .toEqual({ cube_id: themeIds[1 - index] });
+      expect(drafts.currentPackOptions(draftId, playerId)).toHaveLength(3);
+    }
+  });
+
+  it.each([true, false, undefined])("respects randomizeSeats = %s when assigning theme draft seats", (randomizeSeats) => {
+    const randomValues = [0.5, 0, 0.5];
+    const { db, drafts, draftId, playerIds } = makeThemeDraft({
+      players: 4,
+      random: () => randomValues.shift()!,
+      config: { randomizeSeats, themeSelection: "random", uniqueThemes: false, extraDeckEnabled: false, cardsPerPlayer: 2, themePackSize: 2 },
+      themes: [{ main: 4, extra: 0 }],
+    });
+
+    drafts.start(draftId);
+
+    const [yugi, kaiba, joey, mai] = playerIds;
+    const expectedOrder = randomizeSeats ? [mai, kaiba, yugi, joey] : [yugi, kaiba, joey, mai];
+    expect(db.prepare("select player_id from draft_players where draft_id = ? order by seat_index").all(draftId)).toEqual(
+      expectedOrder.map((player_id) => ({ player_id })),
+    );
+    expect(drafts.players(draftId).map((player) => player.playerId)).toEqual(expectedOrder);
+    for (const playerId of playerIds) expect(drafts.currentPackOptions(draftId, playerId)).toHaveLength(2);
+  });
+
   it("starts a theme draft, assigns distinct themes (random), and opens round 1", () => {
     const { db, drafts, draftId, playerIds } = makeThemeDraft({
       config: { themeSelection: "random", extraDeckEnabled: false },

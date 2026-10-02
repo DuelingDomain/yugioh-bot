@@ -6,6 +6,44 @@ import { evaluateAchievements } from "../scoring/achievements.js";
 import { rankForRating } from "../scoring/rank.js";
 import { createSeasonService } from "./seasons.js";
 
+type PointAward = {
+  id: number | null;
+  guild_id: string;
+  season_id: number;
+  player_id: number;
+  kind: string;
+  placement: "champion" | "runnerUp" | "top4" | null;
+  match_id: number | null;
+  tournament_id: number | null;
+  points: number;
+  opponent_elo: number | null;
+  size_multiplier: number | null;
+  created_at: string;
+};
+
+export type RebuildOptions = {
+  recoverMissing?: boolean;
+  /** A just-reopened approved result invalidates its completion bonuses too. */
+  reopenedTournamentId?: number;
+};
+
+type ReplayMatch = {
+  id: number;
+  player_one_id: number;
+  player_two_id: number;
+  winner_id: number | null;
+  tournament_id: number | null;
+  status: string;
+  scored_at: string;
+};
+
+type ReplaySlot = {
+  tournament_id: number;
+  match_id: number | null;
+  player_two_id: number | null;
+  status: string;
+};
+
 function ratingOf(db: Database.Database, guildId: string, playerId: number): number {
   const row = db
     .prepare("select elo from player_ratings where guild_id = ? and player_id = ?")
@@ -172,7 +210,7 @@ export function createScoringService(db: Database.Database) {
     const rows = db.prepare(
       `select m.winner_id as pid, count(*) as wins
        from tournament_matches tm join matches m on m.id = tm.match_id
-       where tm.tournament_id = ? and tm.status='completed' and m.winner_id is not null
+       where tm.tournament_id = ? and tm.status='completed' and m.status='approved' and m.winner_id is not null
        group by m.winner_id order by wins desc`,
     ).all(tournamentId) as Array<{ pid: number; wins: number }>;
     return {
@@ -286,23 +324,245 @@ export function createScoringService(db: Database.Database) {
     };
   };
 
-  const rebuildStandings = (guildId: string): void => {
-    const season = seasons.getActive(guildId);
-    if (!season) return;
-    db.prepare("delete from season_standings where season_id = ?").run(season.id);
-    // recompute winnings from the ledger
-    const winRows = db.prepare(
-      "select player_id, sum(points) as pts from point_awards where season_id=? group by player_id",
-    ).all(season.id) as Array<{ player_id: number; pts: number }>;
-    for (const w of winRows) {
-      db.prepare(
-        `insert into season_standings (guild_id, season_id, player_id, winnings) values (?, ?, ?, ?)
-         on conflict(season_id, player_id) do update set winnings = excluded.winnings`,
-      ).run(guildId, season.id, w.player_id, w.pts);
+  // Existing ledger IDs capture scoring order, including delayed approvals and
+  // clock corrections. Recovery is an explicit maintenance choice only.
+  const rebuildStandingsTx = db.transaction((guildId: string, options: RebuildOptions): void => {
+    const ledger = db.prepare("select * from point_awards where guild_id=? order by id")
+      .all(guildId) as PointAward[];
+    const history = db.prepare(
+      "select *, datetime(coalesce(resolved_at, created_at)) as scored_at from matches where guild_id=? order by id",
+    ).all(guildId) as ReplayMatch[];
+    const matches = new Map(history.map((m) => [m.id, m]));
+    const approved = history.filter((m) => m.status === "approved" && m.winner_id !== null);
+    const slots = db.prepare(
+      `select tm.* from tournament_matches tm join tournaments t on t.id=tm.tournament_id
+       where t.guild_id=? order by tm.id`,
+    ).all(guildId) as ReplaySlot[];
+    const tournamentForMatch = new Map<number, number>();
+    const slotsByTournament = new Map<number, ReplaySlot[]>();
+    for (const slot of slots) {
+      if (slot.match_id !== null) tournamentForMatch.set(slot.match_id, slot.tournament_id);
+      const group = slotsByTournament.get(slot.tournament_id) ?? [];
+      group.push(slot);
+      slotsByTournament.set(slot.tournament_id, group);
     }
-    // recompute W/L/streak from approved matches in season window
-    // (kept simple: recompute wins/losses; streak left at 0 on rebuild)
-  };
+    const tournaments = db.prepare(
+      "select id, format, status, datetime(coalesce(ended_at, created_at)) as completed_at from tournaments where guild_id=?",
+    ).all(guildId) as Array<{ id: number; format: string; status: string; completed_at: string }>;
+    const counts = db.prepare(
+      `select tp.tournament_id, count(*) as n from tournament_participants tp
+       join tournaments t on t.id=tp.tournament_id where t.guild_id=? group by tp.tournament_id`,
+    ).all(guildId) as Array<{ tournament_id: number; n: number }>;
+    const participantCounts = new Map(counts.map((r) => [r.tournament_id, r.n]));
+    const oldAchievements = db.prepare("select player_id, achievement_key, unlocked_at from player_achievements where guild_id=?")
+      .all(guildId) as Array<{ player_id: number; achievement_key: string; unlocked_at: string }>;
+    const unlockTimes = new Map(oldAchievements.map((a) => [`${a.player_id}:${a.achievement_key}`, a.unlocked_at]));
+    const seasonHistory = db.prepare("select id, datetime(started_at) as started_at from seasons where guild_id=? order by datetime(started_at) desc, id desc")
+      .all(guildId) as Array<{ id: number; started_at: string }>;
+    const seasonAt = (time: string): number => {
+      const season = seasonHistory.find((s) => s.started_at <= time) ?? seasonHistory.at(-1);
+      if (season) return season.id;
+      const created = seasons.ensureActive(guildId);
+      seasonHistory.push({ id: created.id, started_at: created.startedAt });
+      return created.id;
+    };
+
+    const invalidated = new Set<number>();
+    if (options.reopenedTournamentId !== undefined) invalidated.add(options.reopenedTournamentId);
+    const placementsByTournament = new Map<number, PointAward[]>();
+    let events: PointAward[] = [];
+    for (const award of ledger) {
+      if (award.kind === "placement" && award.tournament_id !== null) {
+        const group = placementsByTournament.get(award.tournament_id) ?? [];
+        group.push(award);
+        placementsByTournament.set(award.tournament_id, group);
+      }
+      if (award.kind === "match_win") {
+        const match = award.match_id === null ? undefined : matches.get(award.match_id);
+        if (!match || match.status !== "approved" || match.winner_id === null) {
+          // A denied pending report has no award and never enters this branch.
+          const tournamentId = award.tournament_id ?? match?.tournament_id;
+          if (tournamentId != null) invalidated.add(tournamentId);
+          continue;
+        }
+      }
+      events.push(award);
+    }
+
+    // Explicit recovery reconciles completion bonuses even when final-match
+    // scoring failed and a legacy reopen left no denied match award to find.
+    const invalidatedRoundRobins = new Set(tournaments
+      .filter((t) => t.format === "round_robin" && (options.recoverMissing || invalidated.has(t.id))).map((t) => t.id));
+    events = events.filter((a) => a.kind !== "placement" || !invalidatedRoundRobins.has(a.tournament_id!));
+    for (const tournament of tournaments) {
+      if (tournament.format !== "round_robin" && tournament.format !== "single_elim") continue;
+      const regenerate = invalidatedRoundRobins.has(tournament.id);
+      if (!regenerate && !options.recoverMissing) continue;
+      const previous = placementsByTournament.get(tournament.id) ?? [];
+      if (tournament.status !== "completed") continue;
+      if (previous.length === 0 && !options.recoverMissing) continue;
+      const tournamentSlots = slotsByTournament.get(tournament.id) ?? [];
+      // Recovery requires complete recorded history; byes never earn match points.
+      if (tournamentSlots.length === 0 || tournamentSlots.some((s) => s.status !== "completed" ||
+        (s.player_two_id !== null && (s.match_id === null || matches.get(s.match_id)?.status !== "approved")))) continue;
+      const wins = new Map<number, number>();
+      for (const slot of tournamentSlots) {
+        const winner = slot.match_id === null ? null : matches.get(slot.match_id)?.winner_id;
+        if (winner != null) wins.set(winner, (wins.get(winner) ?? 0) + 1);
+      }
+      // Same win-count placement rule as live tournament scoring, including ties.
+      const ranked = [...wins].sort((a, b) => b[1] - a[1] || a[0] - b[0]).map(([p]) => p);
+      const desired: Array<[number, NonNullable<PointAward["placement"]>]> = ranked.slice(0, 4)
+        .map((p, i) => [p, i === 0 ? "champion" : i === 1 ? "runnerUp" : "top4"]);
+      const available = [...previous];
+      const n = participantCounts.get(tournament.id) ?? 0;
+      for (const [playerId, tier] of desired) {
+        if (!regenerate && previous.some((a) => a.player_id === playerId)) continue;
+        const index = available.findIndex((a) => a.player_id === playerId && a.placement === tier);
+        const tierIndex = index >= 0 ? index : available.findIndex((a) => a.placement === tier);
+        const original = regenerate ? available.splice(tierIndex < 0 ? 0 : tierIndex, 1)[0] : undefined;
+        if (regenerate && !original && !options.recoverMissing) continue;
+        const template = original ?? previous[0];
+        // Placement seasons are authoritative, never inferred from match awards.
+        events.push({ id: original?.id ?? null, guild_id: guildId,
+          season_id: template?.season_id ?? seasonAt(tournament.completed_at), player_id: playerId,
+          kind: "placement", placement: tier, match_id: null, tournament_id: tournament.id,
+          points: placementPoints(tier, n), opponent_elo: null, size_multiplier: sizeMultiplier(n),
+          created_at: template?.created_at ?? tournament.completed_at });
+      }
+    }
+
+    if (options.recoverMissing) {
+      const scoredIds = new Set(events.filter((a) => a.kind === "match_win").map((a) => a.match_id));
+      for (const match of approved) {
+        if (scoredIds.has(match.id)) continue;
+        events.push({ id: null, guild_id: guildId, season_id: seasonAt(match.scored_at),
+          player_id: match.winner_id!, kind: "match_win", placement: null, match_id: match.id,
+          tournament_id: tournamentForMatch.get(match.id) ?? null, points: 0,
+          opponent_elo: null, size_multiplier: null, created_at: match.scored_at });
+      }
+    }
+    const recorded = events.filter((a) => a.id !== null).sort((a, b) => a.id! - b.id!);
+    const recovered = events.filter((a) => a.id === null);
+    if (recovered.length > 0) {
+      const completionMatches = new Map<number, ReplayMatch>();
+      for (const match of approved) {
+        const tournamentId = tournamentForMatch.get(match.id);
+        if (tournamentId === undefined) continue;
+        const last = completionMatches.get(tournamentId);
+        if (!last || match.scored_at > last.scored_at || (match.scored_at === last.scored_at && match.id > last.id)) {
+          completionMatches.set(tournamentId, match);
+        }
+      }
+      const order = (a: PointAward): [string, number] => {
+        const match = a.match_id === null ? undefined : matches.get(a.match_id);
+        const final = a.tournament_id === null ? undefined : completionMatches.get(a.tournament_id);
+        return [match?.scored_at ?? a.created_at, match?.id ?? final?.id ?? 0];
+      };
+      const compare = (a: PointAward, b: PointAward) => {
+        const [at, ai] = order(a);
+        const [bt, bi] = order(b);
+        return at.localeCompare(bt) || ai - bi ||
+          Number(a.kind === "match_win") - Number(b.kind === "match_win");
+      };
+      recovered.sort(compare);
+      events = [];
+      let next = 0;
+      for (const event of recorded) {
+        while (next < recovered.length && compare(recovered[next], event) <= 0) events.push(recovered[next++]);
+        events.push(event);
+      }
+      events.push(...recovered.slice(next));
+      // Encode the recovered order in the ledger so ordinary replays and a
+      // second repair reproduce it. Unchanged replays preserve award IDs.
+      events = events.map((a) => ({ ...a, id: null }));
+    } else {
+      events = recorded;
+    }
+
+    const ratings = new Map<number, { elo: number; winnings: number; bestStreak: number; titles: number }>();
+    const standings = new Map<string, { seasonId: number; playerId: number; winnings: number; wins: number; losses: number; currentStreak: number; bestStreak: number }>();
+    const achievements = new Map<string, { playerId: number; key: string; unlockedAt: string }>();
+    const rating = (playerId: number) => {
+      let r = ratings.get(playerId);
+      if (!r) { r = { elo: ELO_DEFAULT, winnings: 0, bestStreak: 0, titles: 0 }; ratings.set(playerId, r); }
+      return r;
+    };
+    const standing = (seasonId: number, playerId: number) => {
+      const key = `${seasonId}:${playerId}`;
+      let s = standings.get(key);
+      if (!s) {
+        s = { seasonId, playerId, winnings: 0, wins: 0, losses: 0, currentStreak: 0, bestStreak: 0 };
+        standings.set(key, s);
+      }
+      return s;
+    };
+    const unlock = (playerId: number, key: string, time: string) => {
+      const identity = `${playerId}:${key}`;
+      if (!achievements.has(identity)) achievements.set(identity, { playerId, key, unlockedAt: unlockTimes.get(identity) ?? time });
+    };
+    for (const event of events) {
+      if (event.kind === "match_win" && event.match_id !== null) {
+        const match = matches.get(event.match_id)!;
+        const winnerId = match.winner_id!;
+        const loserId = winnerId === match.player_one_id ? match.player_two_id : match.player_one_id;
+        // Live scoring picks the lowest player ID when leaders have equal Elo.
+        let topId: number | undefined;
+        let topElo = -Infinity;
+        for (const [id, r] of ratings) {
+          if (r.elo > topElo || (r.elo === topElo && id < topId!)) { topId = id; topElo = r.elo; }
+        }
+        const winner = rating(winnerId);
+        const loser = rating(loserId);
+        const winnerElo = winner.elo;
+        const loserElo = loser.elo;
+        event.player_id = winnerId;
+        event.points = matchWinPoints({ myElo: winnerElo, oppElo: loserElo, seasonMultiplier: SEASON_MULTIPLIER_DEFAULT });
+        event.opponent_elo = loserElo;
+        event.tournament_id = tournamentForMatch.get(match.id) ?? event.tournament_id;
+        winner.elo = nextRating(winnerElo, loserElo, 1);
+        loser.elo = nextRating(loserElo, winnerElo, 0);
+        const ws = standing(event.season_id, winnerId);
+        const ls = standing(event.season_id, loserId);
+        ws.wins += 1;
+        ws.currentStreak += 1;
+        ws.bestStreak = Math.max(ws.bestStreak, ws.currentStreak);
+        winner.bestStreak = Math.max(winner.bestStreak, ws.bestStreak);
+        ls.losses += 1;
+        ls.currentStreak = 0;
+        if (topId === loserId && loserElo > winnerElo) unlock(winnerId, "giant_slayer", event.created_at);
+      }
+      const r = rating(event.player_id);
+      r.winnings += event.points;
+      standing(event.season_id, event.player_id).winnings += event.points;
+      if (event.placement === "champion") r.titles += 1;
+      for (const key of evaluateAchievements({ careerWinnings: r.winnings, bestStreak: r.bestStreak,
+        tournamentTitles: r.titles, beatTopRanked: achievements.has(`${event.player_id}:giant_slayer`) })) {
+        unlock(event.player_id, key, event.created_at);
+      }
+    }
+
+    db.prepare("delete from player_ratings where guild_id=?").run(guildId);
+    db.prepare("delete from season_standings where guild_id=?").run(guildId);
+    db.prepare("delete from point_awards where guild_id=?").run(guildId);
+    db.prepare("delete from player_achievements where guild_id=?").run(guildId);
+    const insertAward = db.prepare(
+      `insert into point_awards (id, guild_id, season_id, player_id, kind, placement, match_id, tournament_id, points, opponent_elo, size_multiplier, created_at)
+       values (@id, @guild_id, @season_id, @player_id, @kind, @placement, @match_id, @tournament_id, @points, @opponent_elo, @size_multiplier, @created_at)`,
+    );
+    for (const event of events) insertAward.run(event);
+    const insertRating = db.prepare("insert into player_ratings (guild_id, player_id, elo, career_winnings) values (?, ?, ?, ?)");
+    for (const [id, r] of ratings) insertRating.run(guildId, id, r.elo, r.winnings);
+    const insertStanding = db.prepare(
+      `insert into season_standings (guild_id, season_id, player_id, winnings, wins, losses, current_streak, best_streak)
+       values (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const s of standings.values()) insertStanding.run(guildId, s.seasonId, s.playerId, s.winnings, s.wins, s.losses, s.currentStreak, s.bestStreak);
+    const insertAchievement = db.prepare("insert into player_achievements (guild_id, player_id, achievement_key, unlocked_at) values (?, ?, ?, ?)");
+    for (const a of achievements.values()) insertAchievement.run(guildId, a.playerId, a.key, a.unlockedAt);
+  });
+
+  const rebuildStandings = (guildId: string, options: RebuildOptions = {}): void => rebuildStandingsTx(guildId, options);
 
   return { recordMatchResult, recordTournamentResult, getLeaderboard, getProfile, rebuildStandings };
 }

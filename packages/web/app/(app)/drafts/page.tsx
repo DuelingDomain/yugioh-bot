@@ -1,3 +1,4 @@
+import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Layers, Plus } from "lucide-react";
@@ -20,8 +21,8 @@ export default async function DraftsPage() {
   const db = getDb();
 
   const playerRows = db
-    .prepare("select id from players where discord_user_id = ?")
-    .all(discordUserId) as Array<{ id: number }>;
+    .prepare("select id from players where discord_user_id = ? and guild_id = ?")
+    .all(discordUserId, env.discordGuildId) as Array<{ id: number }>;
   const playerIds = playerRows.map((r) => r.id);
 
   let data: DraftsData = { active: [], pending: [], completed: [], cancelled: [] };
@@ -38,7 +39,7 @@ export default async function DraftsPage() {
          from drafts d
          inner join draft_players dp_me on dp_me.draft_id = d.id
          left join draft_players dp on dp.draft_id = d.id
-         where dp_me.player_id in (${ph})
+         where d.guild_id = ? and dp_me.player_id in (${ph})
          group by d.id
          order by
            case d.status
@@ -49,7 +50,7 @@ export default async function DraftsPage() {
            end,
            d.created_at desc`
       )
-      .all(...playerIds)
+      .all(env.discordGuildId, ...playerIds)
       .map((row: any) => {
         let mode: "booster" | "theme" = "booster";
         try {

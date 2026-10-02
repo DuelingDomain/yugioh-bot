@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import type { DraftConfig } from "../types/index.js";
 import type { TournamentFormat } from "./tournaments.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { createSavedDeckService } from "./saved-decks.js";
@@ -35,7 +36,7 @@ export function createDraftTournamentService(db: Database.Database) {
 
       const draft = db
         .prepare(
-          "select id, guild_id, channel_id, name, status, created_by_user_id, tournament_id from drafts where id = ?",
+          "select id, guild_id, channel_id, name, status, created_by_user_id, tournament_id, config_json from drafts where id = ?",
         )
         .get(input.draftId) as
         | {
@@ -46,6 +47,7 @@ export function createDraftTournamentService(db: Database.Database) {
             status: string;
             created_by_user_id: string;
             tournament_id: number | null;
+            config_json: string;
           }
         | undefined;
 
@@ -71,6 +73,8 @@ export function createDraftTournamentService(db: Database.Database) {
         }
       }
 
+      const randomizeSeats = (JSON.parse(draft.config_json) as DraftConfig).randomizeSeats === true;
+
       const result = db.transaction(() => {
         const insertResult = db
           .prepare(
@@ -83,15 +87,28 @@ export function createDraftTournamentService(db: Database.Database) {
 
         const players = db
           .prepare(
-            "select player_id from draft_players where draft_id = ? order by joined_at asc, rowid asc",
+            randomizeSeats
+              ? "select player_id from draft_players where draft_id = ? order by seat_index asc, joined_at asc, rowid asc"
+              : "select player_id from draft_players where draft_id = ? order by joined_at asc, rowid asc",
           )
           .all(draft.id) as Array<{ player_id: number }>;
 
-        const joinStmt = db.prepare(
-          "insert into tournament_participants (tournament_id, player_id) values (?, ?)",
-        );
-        for (const { player_id } of players) {
-          joinStmt.run(tournamentId, player_id);
+        if (randomizeSeats) {
+          const joinStmt = db.prepare(
+            "insert into tournament_participants (tournament_id, player_id, joined_at) values (?, ?, datetime(?, ? || ' seconds'))",
+          );
+          // Seeding sorts by joined_at, so give seats distinct timestamps before now.
+          const joinedAt = new Date().toISOString();
+          for (const [index, { player_id }] of players.entries()) {
+            joinStmt.run(tournamentId, player_id, joinedAt, index - players.length);
+          }
+        } else {
+          const joinStmt = db.prepare(
+            "insert into tournament_participants (tournament_id, player_id) values (?, ?)",
+          );
+          for (const { player_id } of players) {
+            joinStmt.run(tournamentId, player_id);
+          }
         }
 
         db.prepare("update drafts set tournament_id = ? where id = ?").run(tournamentId, draft.id);

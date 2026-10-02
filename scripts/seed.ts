@@ -303,7 +303,7 @@ matchPairs.forEach(([p1, p2], idx) => {
       `insert into matches (guild_id, player_one_id, player_two_id, winner_id, reporter_id, status, source, tournament_id, resolved_at)
        values (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
     )
-    .run(guildId, p1, p2, p1, me.id, "completed", "tournament", t1Id);
+    .run(guildId, p1, p2, p1, me.id, "approved", "tournament", t1Id);
   const mId = Number(m.lastInsertRowid);
   db.prepare(
     `insert into tournament_matches (tournament_id, match_id, player_one_id, player_two_id, round_number, status, metadata_json)
