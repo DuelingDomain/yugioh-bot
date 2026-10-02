@@ -181,7 +181,7 @@ test.describe("4-player FFA", () => {
 
   test("current engine: direct attack picks one rival, queued surrenders land at turn boundaries, last duelist wins", async ({ player }) => {
     const seats = await openSeats(player);
-    await startTable(seats, "ffa4 pick surrender", decks([FILLER, FILLER]));
+    const { slug } = await startTable(seats, "ffa4 pick surrender", decks([FILLER, FILLER]));
     const [alice, bob, carol, dave] = seats as [Seat, Seat, Seat, Seat];
 
     // Turn 1 to 4: seat 0 summons, everybody else just passes the turn.
@@ -198,17 +198,24 @@ test.describe("4-player FFA", () => {
     const directly = (seat: number) => alice.page.locator(`[data-opponent-bar='direct'] [data-rival-seat='${seat}']`);
     for (const seat of [1, 2, 3]) await expect(directly(seat)).toBeVisible();
     await expect(directly(0)).toHaveCount(0);
+    const posts = actionPosts(alice.page, slug);
     await directly(2).click();
+    expect(posts.count, "choosing a rival must not POST").toBe(0);
     await expect(directly(2)).toHaveAttribute("data-locked", "true");
     await alice.page.getByTestId("aim-confirm").click();
+    await expect.poll(() => posts.count).toBe(1);
 
     // The hit lands on seat 2 only (2000 damage). All four pages agree.
     for (const seat of seats) {
+      await expect(tableLpValue(seat.page, 0)).toHaveText("8,000");
       await expect(tableLpValue(seat.page, 2)).toHaveText("6,000");
       await expect(tableLpValue(seat.page, 1)).toHaveText("8,000");
       await expect(tableLpValue(seat.page, 3)).toHaveText("8,000");
       for (const untouched of [0, 1, 3]) await expect(tableLp(seat.page, untouched).locator("[data-damage-chip]")).toHaveCount(0);
     }
+
+    expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.lp)).toEqual([8000, 8000, 6000, 8000]);
+    expect(posts.count, "one POST after damage resolves").toBe(1);
 
     // Seat 3 surrenders in the middle of the attack. The seat shows "Leaving" until the step is done, and the duel goes on.
     await surrender(dave.page);

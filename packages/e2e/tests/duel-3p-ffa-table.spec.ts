@@ -126,9 +126,11 @@ test.describe("FFA3 real-engine table rules", () => {
     await alice.page.getByTestId("aim-confirm").click();
     await expect.poll(() => posts.count).toBe(1);
     await expect(tableLpValue(alice.page, 2)).toHaveText("6,000");
+    await expect(tableLpValue(alice.page, 0)).toHaveText("8,000");
     await expect(tableLpValue(alice.page, 1)).toHaveText("8,000");
     for (const untouched of [0, 1]) await expect(tableLp(alice.page, untouched).locator("[data-damage-chip]")).toHaveCount(0);
     expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.lp)).toEqual([8000, 8000, 6000]);
+    expect(posts.count, "one POST after damage resolves").toBe(1);
     await tableShot(alice.page, slug, info, "direct-damage");
     expect(errors).toEqual([]);
   });
@@ -151,10 +153,12 @@ test.describe("FFA3 real-engine table rules", () => {
     await expect.poll(() => posts.count).toBe(1);
     await expect(occupied(alice.page, 2)).toHaveCount(0);
     await expect(occupied(alice.page, 1)).toHaveCount(1);
+    await expect(tableLpValue(alice.page, 0)).toHaveText("8,000");
     await expect(tableLpValue(alice.page, 2)).toHaveText("4,400");
     await expect(tableLpValue(alice.page, 1)).toHaveText("3,000");
-    await expect(tableLp(alice.page, 1).locator("[data-damage-chip]")).toHaveCount(0);
+    for (const untouched of [0, 1]) await expect(tableLp(alice.page, untouched).locator("[data-damage-chip]")).toHaveCount(0);
     expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.lp)).toEqual([8000, 3000, 4400]);
+    expect(posts.count, "one POST after damage resolves").toBe(1);
     expect(errors).toEqual([]);
   });
 
