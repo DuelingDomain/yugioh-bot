@@ -16,6 +16,19 @@ async function attackNext(page: Page, sequence: number): Promise<void> {
   await useCard(page, tableField(page, 0).locator(`[data-zones='0:4:${sequence}'] button`), "Attack");
 }
 
+/** Decline only browser response prompts, bounded so a changed engine cannot hang the proof. */
+async function declineUntilHeavyStorm(page: Page, slug: string): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await expect.poll(async () => (await readTable(page, slug)).engine!.prompt?.seat).toBe(0);
+    const view = (await readTable(page, slug)).engine!;
+    if (view.prompt!.options.some((option) => option.id.startsWith("activate:") && option.card?.name === "Heavy Storm")) return;
+    const id = view.prompt!.id;
+    await page.locator("[data-prompt-panel]").getByRole("button", { name: "No", exact: true }).click();
+    await expect.poll(async () => (await readTable(page, slug)).engine!.prompt?.id).not.toBe(id);
+  }
+  throw new Error("Heavy Storm not offered after 10 browser response windows");
+}
+
 test.describe("FFA3 real-engine table rules", () => {
   test("current engine: mounts three own-EMZ fields, draws first, and has no BP on turns 1-3", async ({ player }, info) => {
     const alice = await player("p1");
@@ -183,18 +196,7 @@ test.describe("FFA3 real-engine table rules", () => {
     const errors = collectTableErrors(alice.page);
     const slug = await startTablePreset(alice.page, "ffa3-table-chain");
     await expectRealCore(alice.page, slug, "scripted", info);
-    // Decline any empty-chain response window before Main Phase 1.
-    let view: DuelEngineView;
-    for (;;) {
-      await expect.poll(async () => {
-        view = (await readTable(alice.page, slug)).engine!;
-        return view.prompt?.seat;
-      }).toBe(0);
-      if (view!.prompt!.options.some((option) => option.id.startsWith("activate:") && option.card?.name === "Heavy Storm")) break;
-      const id = view!.prompt!.id;
-      await answerTable(alice.page, slug, view!, decide(view!.prompt!, { wants: [] }).answer);
-      await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.id).not.toBe(id);
-    }
+    await declineUntilHeavyStorm(alice.page, slug);
     await useCard(alice.page, handCard(alice.page, "Heavy Storm"), "Activate");
     await pickLegalZone(alice.page, "st");
     const priority = alice.page.locator("[data-chain-fx] [data-testid='priority-chips'] [data-seat]");
@@ -221,6 +223,30 @@ test.describe("FFA3 real-engine table rules", () => {
     await tableField(alice.page, 2).locator("[data-kind='st'][data-legal='true'] button").click();
     await expect.poll(async () => (await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.spells.filter(Boolean).length)).toEqual([0, 0, 0]);
     expect((await readTable(alice.page, slug)).engine!.seats[0]!.graveyard.map((card) => card.name)).toContain("Mystical Space Typhoon");
+    expect(errors).toEqual([]);
+  });
+
+  test("the turn player responds last and the chain resolves only after consecutive passes", async ({ player }, info) => {
+    const alice = await player("p1");
+    const errors = collectTableErrors(alice.page);
+    const slug = await startTablePreset(alice.page, "ffa3-turn-player-last");
+    await expectRealCore(alice.page, slug, "scripted", info);
+    await declineUntilHeavyStorm(alice.page, slug);
+    await useCard(alice.page, handCard(alice.page, "Heavy Storm"), "Activate");
+    await pickLegalZone(alice.page, "st");
+    const no = alice.page.locator("[data-prompt-panel]").getByRole("button", { name: "No", exact: true });
+    await expect(no).toBeVisible();
+    const trace = await readTableTrace(alice.page, slug);
+    const responses = trace.promptLog.filter((entry) => entry.promptType === "chain" && JSON.stringify(entry.chainSeats) === "[0]");
+    expect(responses.map((entry) => entry.promptSeat)).toEqual([1, 2, 0]);
+    expect((await readTable(alice.page, slug)).engine!.chain.map((link) => link.seat)).toEqual([0]);
+    const priority = alice.page.locator("[data-chain-fx] [data-testid='priority-chips'] [data-seat]");
+    expect(await priority.evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute("data-seat"))))).toEqual([1, 2, 0]);
+    await expect(alice.page.locator("[data-chain-fx] [data-seat='0'][data-now='true']")).toBeVisible();
+    await info.attach("turn-player-last-prompt-log", { body: JSON.stringify(responses, null, 2), contentType: "application/json" });
+    await no.click();
+    await expect.poll(async () => (await readTable(alice.page, slug)).engine!.chain.length).toBe(0);
+    for (const seat of [0, 1, 2]) await expect(tableField(alice.page, seat).locator("[data-kind='st'][data-occupied='true']")).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 

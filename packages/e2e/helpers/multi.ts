@@ -123,6 +123,7 @@ const PLANS: Record<string, Plan> = {
   "ffa4-chain-order-heavy-storm": { wants: [{ verb: "activate", card: "Heavy Storm" }] },
   "ffa4-surrender-in-chain": { wants: [{ verb: "activate", card: "Heavy Storm" }] },
   "ffa3-table-battle": { wants: [{ verb: "activate", card: "Raigeki" }] },
+  "ffa3-turn-player-last": { wants: [{ verb: "activate", card: "Heavy Storm" }] },
   "ffa3-table-chain": { wants: [{ verb: "activate", card: "Heavy Storm" }] },
 };
 
