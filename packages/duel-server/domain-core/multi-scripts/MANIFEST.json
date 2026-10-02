@@ -2851,6 +2851,20 @@
       "stockSha256": "1bf3f96b489d20378f9f070fe7a68d91aea7316a4d3855e1ceda7352649c39da"
     },
     {
+      "code": 46918794,
+      "file": "c46918794.lua",
+      "name": "Tremendous Fire",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "cbae6226689c792c597be5edde51a2ecc9b89586f3bdfe387dbe48cad80a7807",
+      "note": "Pick the FFA LP opponent at activation, before resolution. Keep all opposing fields available; Tag keeps the stock team result.",
+      "wrap": {
+        "MPPick": [
+          "target"
+        ]
+      }
+    },
+    {
       "code": 47233801,
       "file": "c47233801.lua",
       "name": "Dark Snake Syndrome",
