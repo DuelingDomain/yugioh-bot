@@ -6,6 +6,7 @@ import { seatCountFor } from "@yugidraft/shared/duels";
 import { preset as dustTornado } from "./dust-tornado-chain.js";
 import { preset as ffa4ChainOrder } from "./ffa4-chain-order-heavy-storm.js";
 import { preset as ffa4Surrender } from "./ffa4-surrender-in-chain.js";
+import { presets as ffa3Elimination } from "./ffa3-elimination.js";
 import { presets as ffa3Table } from "./ffa3-table.js";
 import { preset as ffa3Direct } from "./ffa3-table-direct.js";
 import { preset as turnPlayerLast } from "./ffa3-turn-player-last.js";
@@ -35,6 +36,7 @@ export const PRESETS: readonly Preset[] = [
   ffa4ChainOrder,
   ffa4Surrender,
   ...ffa3Table,
+  ...ffa3Elimination,
   ffa3Direct,
   turnPlayerLast,
   thirdResponse,
