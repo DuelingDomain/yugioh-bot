@@ -70,7 +70,7 @@ function fusion(format: Format, partner: boolean): Scenario {
 function opponentOnly(format: Format, kind: "ritual" | "fusion"): Scenario {
   const ritualCase = kind === "ritual";
   const setup = baseSetup(format, {
-    p0: ritualCase ? { hand: [RITUAL, SOLDIER], monsters: [OX] } : { hand: [POLY], monsters: [MAGIC], extra: [FUSION] },
+    p0: ritualCase ? { deck: ["Ookazi"], hand: [RITUAL, SOLDIER], monsters: [OX] } : { deck: ["Ookazi"], hand: [POLY], monsters: [MAGIC], extra: [FUSION] },
     p1: { grave: ritualCase ? [DJINN] : [GAIA, CURSE] },
     ...(format === "tag" ? { p2: {} } : { p2: { grave: ritualCase ? [DJINN] : [GAIA, CURSE] } }),
     ...(format === "ffa3" ? {} : { p3: { grave: ritualCase ? [DJINN] : [GAIA, CURSE] } }),
@@ -86,7 +86,7 @@ function opponentOnly(format: Format, kind: "ritual" | "fusion"): Scenario {
       expectNotOffered("activate", ritualCase ? RITUAL : POLY, "p0"), endTurn("p0"),
       everySeat(format, Object.fromEntries(SEATS[format].map((seat) => [seat, {
         monsters: setup[seat]?.monsters ?? [], grave: setup[seat]?.grave ?? [],
-        hand: seat === "p1" ? ["Mystical Elf"] : setup[seat]?.hand ?? [], extra: setup[seat]?.extra ?? [],
+        hand: seat === "p1" ? ["Mystical Elf"] : [...(setup[seat]?.hand ?? [])], extra: setup[seat]?.extra ?? [],
       }]))),
     ],
   });
