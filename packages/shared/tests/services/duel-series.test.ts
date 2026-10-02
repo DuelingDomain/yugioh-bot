@@ -495,6 +495,68 @@ describe("series result recording", () => {
 });
 
 describe("Best of 3", () => {
+  it("carries only admitted spectators into games 2 and 3 without sharing invite codes", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    const spectator2 = insertPlayer(app.db, "g1", "u4", "Tea");
+    const uninvited = insertPlayer(app.db, "g1", "u5", "Tristan");
+    const laterSpectator = insertPlayer(app.db, "g1", "u6", "Bakura");
+    const inviteCode = (game: DuelSession) =>
+      (app.db.prepare("select invite_code from duels where id = ?").get(game.id) as { invite_code: string }).invite_code;
+    const grants = (game: DuelSession) =>
+      app.db.prepare("select player_id from duel_invite_grants where duel_id = ? order by player_id").all(game.id);
+    const unrelated = app.duels.create({
+      guildId: "g1", organizerPlayerId: app.p1, name: "Other table", mode: "normal", settings: { visibility: "private" },
+    });
+    app.duels.admit(unrelated.slug, "g1", uninvited, inviteCode(unrelated));
+    for (const playerId of [app.p3, spectator2]) {
+      app.duels.admit(duel.slug, "g1", playerId, inviteCode(duel));
+      expect(app.duels.room(duel.slug, "g1", playerId).role).toBe("spectator");
+    }
+    expectStatus(() => app.duels.room(duel.slug, "g1", uninvited), 403);
+
+    playGame(app, duel.slug, app.p1);
+    const game2 = app.series.createNextGame(series.id, "g1");
+    for (const playerId of [app.p3, spectator2]) {
+      expect(app.duels.room(game2.slug, "g1", playerId)).toMatchObject({ role: "spectator", mySeat: null });
+      expect(app.duels.room(game2.slug, "g1", playerId).inviteCode).toBeUndefined();
+    }
+    expect(grants(game2)).toEqual([{ player_id: app.p3 }, { player_id: spectator2 }]);
+    expectStatus(() => app.duels.room(game2.slug, "g1", uninvited), 403);
+    expectStatus(() => app.duels.room(game2.slug, "g1", laterSpectator), 403);
+    expectStatus(() => app.duels.admit(game2.slug, "g1", uninvited, inviteCode(duel)), 403);
+    expect(app.series.createNextGame(series.id, "g1").id).toBe(game2.id);
+
+    app.duels.admit(game2.slug, "g1", laterSpectator, inviteCode(game2));
+    playGame(app, game2.slug, app.p2);
+    const game3 = app.series.createNextGame(series.id, "g1");
+    for (const playerId of [app.p3, spectator2, laterSpectator]) {
+      expect(app.duels.room(game3.slug, "g1", playerId)).toMatchObject({ role: "spectator", mySeat: null });
+      expect(app.duels.room(game3.slug, "g1", playerId).inviteCode).toBeUndefined();
+    }
+    expect(grants(game3)).toEqual([{ player_id: app.p3 }, { player_id: spectator2 }, { player_id: laterSpectator }]);
+    expectStatus(() => app.duels.room(game3.slug, "g1", uninvited), 403);
+    expect(new Set([inviteCode(duel), inviteCode(game2), inviteCode(game3)]).size).toBe(3);
+  });
+
+  it("rolls back the next game if carrying spectator grants fails", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    const code = (app.db.prepare("select invite_code from duels where id = ?").get(duel.id) as { invite_code: string }).invite_code;
+    app.duels.admit(duel.slug, "g1", app.p3, code);
+    playGame(app, duel.slug, app.p1);
+    app.db.exec(`
+      create temp trigger fail_grant_copy before insert on duel_invite_grants
+      begin select raise(abort, 'forced grant copy failure'); end;
+    `);
+    expect(() => app.series.createNextGame(series.id, "g1")).toThrow("forced grant copy failure");
+    expect(app.series.get(series.id, "g1")).toMatchObject({ status: "between_games", currentDuelSlug: duel.slug, gameNumber: 1 });
+    expect(app.db.prepare("select id from duels where series_id = ?").all(series.id)).toEqual([{ id: duel.id }]);
+    app.db.exec("drop trigger fail_grant_copy");
+    const next = app.series.createNextGame(series.id, "g1");
+    expect(app.duels.room(next.slug, "g1", app.p3).role).toBe("spectator");
+  });
+
   it("runs 2-0: the second win completes the series and records once", () => {
     const app = setup();
     const { duel, series } = challenge(app, 3, true);

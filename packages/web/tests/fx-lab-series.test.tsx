@@ -34,6 +34,8 @@ describe("fx lab: Best of 3 scenarios", () => {
       "match-won",
       "match-spectator-siding",
       "match-spectator-next-live",
+      "match-spectator-private-siding",
+      "match-spectator-private-next-live",
       "match-spectator-won",
     ]);
     for (const id of ids) expect(findScenario(id)!.build().series).toBeDefined();
@@ -70,17 +72,20 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByText("Side 3")).toBeTruthy();
   });
 
-  it("shows a spectator the side decking state without Ready buttons", () => {
-    const { room, spec } = open("match-spectator-siding");
+  it.each(["match-spectator-siding", "match-spectator-private-siding"])("shows side decking and normal follow behavior in %s", (id) => {
+    const { room, spec } = open(id);
     expect(room.mySeat).toBeNull();
+    expect(room.session.settings.visibility).toBe(id.includes("private") ? "private" : "public");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByText("Side decking in progress")).toBeTruthy();
     expect(screen.getAllByTestId("series-ready-row")).toHaveLength(2);
+    expect(screen.getByText(/You will move to game 2 when it starts/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Ready/ })).toBeNull();
   });
 
-  it("points a spectator at the live next game", () => {
-    const { room, spec } = open("match-spectator-next-live");
+  it.each(["match-spectator-next-live", "match-spectator-private-next-live"])("offers the live next game in %s", (id) => {
+    const { room, spec } = open(id);
+    expect(room.session.settings.visibility).toBe(id.includes("private") ? "private" : "public");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByText("Game 2 of 3 is live")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Watch game 2" })).toBeTruthy();

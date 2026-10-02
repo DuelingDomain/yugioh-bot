@@ -76,14 +76,18 @@ describe("DuelRoomView: a spectator between games of a series", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("does not move a spectator of an invite-only table", () => {
+  it("moves a spectator of a private table to the next game", () => {
     const replace = vi.fn();
     state.replace = replace;
     state.data = spectatorRoom({ status: "active", currentDuelSlug: "game-1" }, { status: "active", visibility: "private" });
     const view = render(<DuelRoomView slug="game-1" />);
 
-    state.data = spectatorRoom({ status: "active", wins: [1, 0], gameNumber: 2, currentDuelSlug: "game-2" }, { visibility: "private" });
+    state.data = spectatorRoom({ status: "between_games", wins: [1, 0], nextGameAt: new Date(Date.now() + 60_000).toISOString() }, { visibility: "private" });
     view.rerender(<DuelRoomView slug="game-1" />);
     expect(replace).not.toHaveBeenCalled();
+
+    state.data = spectatorRoom({ status: "active", wins: [1, 0], gameNumber: 2, currentDuelSlug: "game-2" }, { visibility: "private" });
+    view.rerender(<DuelRoomView slug="game-1" />);
+    expect(replace).toHaveBeenCalledWith("/duels/game-2");
   });
 });

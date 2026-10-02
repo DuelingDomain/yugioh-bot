@@ -72,6 +72,20 @@ export const SERIES_SCENARIOS: LabScenario[] = [
     build: () => seriesScript({ wins: [1, 0], game: 1, screen: "next-live", viewer: "spectator" }),
   },
   {
+    id: "match-spectator-private-siding",
+    category: "Match",
+    name: "Private spectator: side decking",
+    description: "An admitted spectator on a private table watches the players side deck and moves to game 2 automatically when it starts.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "ready", secondsLeft: 48, opponentReady: true, viewer: "spectator", visibility: "private" }),
+  },
+  {
+    id: "match-spectator-private-next-live",
+    category: "Match",
+    name: "Private spectator: next game live",
+    description: "An admitted spectator opens the finished private game 1 after game 2 has started: Watch game 2 opens the live game with admission carried over.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "next-live", viewer: "spectator", visibility: "private" }),
+  },
+  {
     id: "match-spectator-won",
     category: "Match",
     name: "Spectator: match decided",

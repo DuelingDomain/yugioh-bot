@@ -276,13 +276,9 @@ function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
         <div className={seriesStyles.result} data-testid="next-game-live">
           <p className={seriesStyles.resultHead}>{live.headline}</p>
           <p className={seriesStyles.resultLine}>Series score <b>{seriesScoreForViewer(series, index)}</b></p>
-          {live.follow ? (
-            <button type="button" className={styles.btn} data-kind="primary" onClick={() => (onNavigate ?? noop)(live.nextSlug)}>
-              Watch game {series.gameNumber}
-            </button>
-          ) : (
-            <p className={seriesStyles.resultRecord}>That game is invite-only. Ask a player for an invite to watch it.</p>
-          )}
+          <button type="button" className={styles.btn} data-kind="primary" onClick={() => (onNavigate ?? noop)(live.nextSlug)}>
+            Watch game {series.gameNumber}
+          </button>
         </div>
       ) : info ? (
         <div className={seriesStyles.result} data-testid="between-games-info">

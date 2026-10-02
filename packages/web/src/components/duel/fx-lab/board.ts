@@ -86,6 +86,8 @@ export type LabSeries = {
   screen: "label" | "side" | "ready" | "won" | "next-live";
   /** Who looks at the screen: the player in seat 0 (default) or a spectator. */
   viewer?: "player" | "spectator";
+  /** Private spectators keep their admission for later games (default public). */
+  visibility?: "public" | "private";
   /** The player in seat 1 has not clicked Ready, or has. */
   opponentReady?: boolean;
   /** Seconds left in the side deck window (ready and side screens). */

@@ -130,7 +130,7 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   const watching = index == null ? spectatorSeriesStatus(room, slug) : null;
   const siding = watching?.kind === "siding" ? watching : null;
   const status = siding
-    ? `${siding.detail}${siding.follow ? ` You will move to game ${series.gameNumber + 1} when it starts.` : ""}`
+    ? `${siding.detail} You will move to game ${series.gameNumber + 1} when it starts.`
     : index == null ? "Waiting for the players."
       : imReady ? (theirReady ? "Both players are ready." : "You are ready.")
         : interrupted ? "The last game did not finish. Both players must click Ready to play on."

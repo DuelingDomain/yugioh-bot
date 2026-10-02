@@ -111,10 +111,11 @@ describe("following the series", () => {
     expect(nextGameTarget(makeSeriesRoom({ series: open, mySeat: null }), "game-1", { followAsSpectator: false })).toBeNull();
   });
 
-  it("does not move a spectator into an invite-only next game", () => {
+  it("moves a spectator of a private table to the next game", () => {
     const room = makeSeriesRoom({ series: makeSeries({ status: "active", currentDuelSlug: "game-2" }), mySeat: null });
     room.session.settings = { visibility: "private" } as typeof room.session.settings;
-    expect(nextGameTarget(room, "game-1", { followAsSpectator: true })).toBeNull();
+    expect(nextGameTarget(room, "game-1", { followAsSpectator: true })).toBe("game-2");
+    expect(nextGameTarget(room, "game-1")).toBeNull();
   });
 
   it("moves nobody once the series is over", () => {
@@ -298,10 +299,16 @@ describe("spectatorSeriesStatus", () => {
     });
   });
 
-  it("does not offer to follow into an invite-only game", () => {
+  it("offers to follow into the next private game", () => {
     const room = makeSeriesRoom({ series: makeSeries({ status: "active", gameNumber: 2, currentDuelSlug: "game-2" }), mySeat: null });
     room.session.settings = { visibility: "private" } as typeof room.session.settings;
-    expect(spectatorSeriesStatus(room, "game-1")).toMatchObject({ kind: "next-live", follow: false });
+    expect(spectatorSeriesStatus(room, "game-1")).toMatchObject({ kind: "next-live", follow: true });
+  });
+
+  it("tells a private spectator they will follow after side decking", () => {
+    const room = makeSeriesRoom({ series: makeSeries({ status: "between_games", nextGameAt: "2026-10-01T10:00:00.000Z" }), mySeat: null });
+    room.session.settings = { visibility: "private" } as typeof room.session.settings;
+    expect(spectatorSeriesStatus(room, "game-1")).toMatchObject({ kind: "siding", follow: true });
   });
 
   it("is null for a player, a decided series and a game still in play", () => {

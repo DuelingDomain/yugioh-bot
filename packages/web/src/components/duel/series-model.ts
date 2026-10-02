@@ -79,15 +79,6 @@ export function formatCountdown(seconds: number): string {
 }
 
 /**
- * True when a spectator may be sent on to the next game of this series. A next game copies the
- * table settings, and an invite-only game needs its own invite, so a spectator of a private table
- * is never moved into a room they cannot open.
- */
-export function canSpectatorFollow(room: Pick<DuelRoom, "session">): boolean {
-  return room.session.settings?.visibility !== "private";
-}
-
-/**
  * The slug the viewer should follow. Set when the series is still open and its latest game is
  * another duel than the one on screen. A seated series player always follows. A spectator follows
  * only with `followAsSpectator`: the room sets it once the spectator has watched this game while it
@@ -103,7 +94,7 @@ export function nextGameTarget(
   if (!series || !isSeriesOpen(series)) return null;
   if (!series.currentDuelSlug || series.currentDuelSlug === slug) return null;
   if (seriesPlayerIndex(room, series) != null) return series.currentDuelSlug;
-  return options.followAsSpectator && canSpectatorFollow(room) ? series.currentDuelSlug : null;
+  return options.followAsSpectator ? series.currentDuelSlug : null;
 }
 
 /** True when the side-deck window is open for this game: the series waits between games on this duel. */
@@ -227,14 +218,14 @@ export type SpectatorSeriesStatus =
       detail: string;
       players: SeriesReadyRow[];
       /** The spectator moves to the next game when it starts. */
-      follow: boolean;
+      follow: true;
     }
   | {
       kind: "next-live";
       headline: string;
       nextSlug: string;
-      /** The spectator may open the next game (it is not invite-only). */
-      follow: boolean;
+      /** The spectator may open the next game; private admission carries over. */
+      follow: true;
     };
 
 /**
@@ -248,7 +239,6 @@ export function spectatorSeriesStatus(
 ): SpectatorSeriesStatus | null {
   const series = room.series;
   if (!series || !isSeriesOpen(series) || seriesPlayerIndex(room, series) != null) return null;
-  const follow = canSpectatorFollow(room);
   if (isBetweenGames({ series }, slug)) {
     const next = `Game ${series.gameNumber + 1} of ${series.bestOf}`;
     const timed = series.nextGameAt != null;
@@ -259,7 +249,7 @@ export function spectatorSeriesStatus(
         ? `${next} starts when both players are ready or the timer runs out.`
         : `${next} starts when both players click Ready.`,
       players: seriesReadyRows(series),
-      follow,
+      follow: true,
     };
   }
   if (series.status === "active" && series.currentDuelSlug && series.currentDuelSlug !== slug) {
@@ -267,7 +257,7 @@ export function spectatorSeriesStatus(
       kind: "next-live",
       headline: `Game ${series.gameNumber} of ${series.bestOf} is live`,
       nextSlug: series.currentDuelSlug,
-      follow,
+      follow: true,
     };
   }
   return null;

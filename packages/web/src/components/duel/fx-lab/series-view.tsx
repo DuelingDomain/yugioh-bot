@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { DuelDeck, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
+import { defaultDuelSettings, type DuelDeck, type DuelRoom, type DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { SeriesGameLabel } from "../series-banner";
 import { DuelResultScreen } from "../duel-result";
 import { SideDeckPanel } from "../side-deck-panel";
@@ -64,7 +64,7 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       mode: "normal",
       masterRule: 5,
       status: finished ? "completed" : "active",
-      settings: {} as DuelRoom["session"]["settings"],
+      settings: { ...defaultDuelSettings("normal"), visibility: spec.visibility ?? "public" },
       seats: [
         { seat: 0, playerId: 1, displayName: NAMES[0], ready: true, isBot: false },
         { seat: 1, playerId: 2, displayName: NAMES[1], ready: true, isBot: false },

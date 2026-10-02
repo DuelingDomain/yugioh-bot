@@ -433,28 +433,28 @@ await scenarioBlock("spectator-late", async (scenario) => {
   await finish(scenario, room);
 });
 
-// ---- Scenario 3: an invite-only table ---------------------------------------------------------------------
+// ---- Scenario 3: an admitted spectator follows a private table --------------------------------------------
 await scenarioBlock("spectator-private", async (scenario) => {
   const world = gameOneLive("spectator", "private");
   const room = await openRoom(scenario, world, "game-1");
   advance(world, endGameOne);
   await room.invalidate();
-  await check(scenario, "game 1 ends: side decking shown, no promise to move the spectator", async () => {
+  await check(scenario, "game 1 ends: side decking shown, spectator will move to game 2", async () => {
     await visible(room.result().getByText("Side decking in progress"), "\"Side decking in progress\"");
-    await hidden(room.result().getByText(/You will move to game 2/), "\"You will move to game 2\"");
+    await visible(room.result().getByText(/You will move to game 2/), "\"You will move to game 2\"");
   });
   await room.screenshot("game1-ended-siding");
   advance(world, startGameTwo);
-  await room.page.waitForTimeout(POLL_WINDOW);
-  await check(scenario, `game 2 starts: stays on /duels/game-1 for ${POLL_WINDOW} ms`, async () => {
-    expectEqual(room.path(), "/duels/game-1", "URL");
-    expectEqual(await room.navigations(), [], "router calls");
+  await check(scenario, "game 2 starts: the browser moves to /duels/game-2 by itself, no click", async () => {
+    await room.page.waitForURL(`${ORIGIN}/duels/game-2`, { timeout: POLL_WINDOW + 1500 });
+    expectEqual(await room.navigations(), [{ method: "replace", href: "/duels/game-2" }], "router calls");
   });
-  await check(scenario, "the invite message shows instead of a Watch button", async () => {
-    await visible(room.result().getByText(/That game is invite-only/), "invite-only message", 1000);
-    await hidden(room.result().getByRole("button", { name: "Watch game 2" }), "\"Watch game 2\" button");
+  await check(scenario, "game 2's board is showing, end screen gone", async () => {
+    await visible(room.page.locator('[data-duel-field="true"]'), "duel field");
+    await hidden(room.result(), "end screen");
+    if (!room.roomGets.includes("game-2")) throw new Error("game 2 was never fetched");
   });
-  await room.screenshot("game2-live-invite-only");
+  await room.screenshot("moved-to-game2");
   await finish(scenario, room);
 });
 

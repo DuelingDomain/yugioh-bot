@@ -322,9 +322,11 @@ describe("DuelResultScreen with a series", () => {
     expect(screen.getByText("Unranked")).toBeTruthy();
   });
 
-  it("tells a spectator that side decking is in progress and that they will follow the next game", () => {
+  it.each(["public", "private"] as const)("tells a %s spectator they will follow after side decking", (visibility) => {
     const series = makeSeries({ status: "between_games", wins: [1, 0], nextGameAt: soon(), sideReady: [false, true] });
-    render(<DuelResultScreen room={makeSeriesRoom({ series, mySeat: null })} {...screenProps} />);
+    const room = makeSeriesRoom({ series, mySeat: null });
+    room.session.settings = { visibility } as typeof room.session.settings;
+    render(<DuelResultScreen room={room} {...screenProps} />);
     const block = screen.getByRole("region", { name: "Series" });
     expect(within(block).getByText("Game 1 won by Sulman · 1–0")).toBeTruthy();
     expect(within(block).getByText("Side decking in progress")).toBeTruthy();
@@ -334,10 +336,12 @@ describe("DuelResultScreen with a series", () => {
     expect(within(block).queryByRole("button", { name: /Ready/ })).toBeNull();
   });
 
-  it("points a spectator on a finished game at the next game once it is live", () => {
+  it.each(["public", "private"] as const)("points a %s spectator at the next game once it is live", (visibility) => {
     const onNavigate = vi.fn();
     const series = makeSeries({ status: "active", wins: [1, 0], gameNumber: 2, currentDuelSlug: "game-2" });
-    render(<DuelResultScreen room={makeSeriesRoom({ series, mySeat: null })} {...screenProps} onNavigate={onNavigate} />);
+    const room = makeSeriesRoom({ series, mySeat: null });
+    room.session.settings = { visibility } as typeof room.session.settings;
+    render(<DuelResultScreen room={room} {...screenProps} onNavigate={onNavigate} />);
     const block = screen.getByRole("region", { name: "Series" });
     expect(within(block).getByText("Game 2 of 3 is live")).toBeTruthy();
     // Watching the live game is the main action; leaving steps back.
