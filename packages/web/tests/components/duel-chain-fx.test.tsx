@@ -61,6 +61,19 @@ afterEach(() => {
 });
 
 describe("ChainFx", () => {
+  it("keeps table responder order visible when every chain link is on the board", () => {
+    placeZones("0:8:0", "1:8:0");
+    const events = [activate(1, 0, 11, z(0, SZONE, 0)), activate(2, 1, 22, z(1, SZONE, 0))];
+    const chain: DuelChainLink[] = [{ index: 1, seat: 0, code: 11 }, { index: 2, seat: 1, code: 22 }];
+    const priority = [{ seat: 0, choosing: true }, { seat: 1, choosing: false }, { seat: 2, choosing: false }];
+    const { container } = render(<ChainFx events={events} chain={chain} duelKey="t" reducedMotion mySeat={0} playerName={names} priority={priority} />);
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(rows(container)).toHaveLength(0);
+    const chips = [...container.querySelectorAll("[data-chain-panel] [data-testid='priority-chips'] [data-seat]")];
+    expect(chips.map((chip) => chip.getAttribute("data-seat"))).toEqual(["0", "1", "2"]);
+    expect(chips[0].getAttribute("data-now")).toBe("true");
+  });
+
   it("renders nothing for an empty chain", () => {
     const { container } = render(view([]));
     expect(container.querySelector("[data-chain-link]")).toBeNull();

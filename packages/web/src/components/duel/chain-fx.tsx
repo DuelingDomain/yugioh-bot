@@ -393,12 +393,12 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             </span>
           </div>
         ))}
-        {rows.length > 0 ? (
+        {rows.length > 0 || (links.length > 0 && priority && priority.length > 0) ? (
           <div className={styles.dock}>
             <ol className={styles.panel} data-chain-panel="true">
               <li className={styles.head}>
                 <span>Chain</span>
-                <small>off board</small>
+                <small>{rows.length > 0 ? "off board" : "response order"}</small>
               </li>
               {priority && priority.length > 0 ? (
                 <li className={styles.prioRow}>
