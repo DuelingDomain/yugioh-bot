@@ -11,6 +11,7 @@
  * --name  scenario id (kebab-case). Default: derived from the file name and step.
  *
  * Needs the engine data of the run (DUEL_DATA_DIR, default data/duel-engine-next). See tests/scenarios/generated/README.md.
+ * FFA3 and FFA4 use generateDraft() (scripts/triage.ts) instead of this two-seat scenario writer.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -53,6 +54,9 @@ export function slugify(text: string): string {
 export async function generate(options: { file: string; step?: number; name?: string; dataDirectory?: string; wasmPath?: string }) {
   const dataDirectory = options.dataDirectory ?? engineDataDirectory();
   const source = loadSource(options.file);
+  if (source.format === "ffa3" || source.format === "ffa4") {
+    throw new Error("generate() supports 1v1 and Tag only. Use generateDraft() for FFA3 or FFA4.");
+  }
   const step = options.step ?? source.failureStep;
   if (step === undefined) throw new Error("Give --step N (the source has no failure step)");
   const views = await replaySource(source, dataDirectory, step, undefined, options.wasmPath ? { wasmPath: options.wasmPath } : {});
