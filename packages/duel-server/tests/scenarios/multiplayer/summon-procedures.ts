@@ -140,11 +140,12 @@ const kaijuScenarios = ({ slug, name, code }: (typeof KAIJU)[number]): Scenario[
       id: `summon-procedures-tag-${slug}-no-tribute-with-kaiju-on-opposing-member`,
       title: `Tag: a Kaiju on the field of the opposing member p3: p0 summons ${name} with no Tribute to the own field and no seat loses a card`,
       source: TAG_SRC,
-      rules: ["R-TAG-PARTNER", "R-COMMON-OPP-FIELD"],
+      rules: ["R-TAG-UNIQUE", "R-TAG-PARTNER", "R-COMMON-OPP-FIELD"],
       tags: tags("tag", ["no-tribute"]),
       setup: { format: "tag", p0: { hand: [name] }, p1: { monsters: [ELF] }, p3: { monsters: [GAMECIEL] } },
       steps: [
-        ...noTribute,
+        // A second Kaiju on the opposing team is forbidden, leaving one legal procedure.
+        ...tribute,
         expectBoard({
           p0: tagSeat({ monsters: [name] }),
           p1: tagSeat({ monsters: [ELF] }),

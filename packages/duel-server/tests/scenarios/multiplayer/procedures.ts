@@ -445,11 +445,12 @@ export const PROCEDURE_TAG_SCENARIOS: Scenario[] = [
     id: "procedures-tag-kaiju-no-tribute-kaiju-on-opposing-member",
     title: "Tag: a face-up Kaiju on the field of the opposing member p3 lets p0 summon Gameciel with no Tribute, to the own field",
     source: `${SOURCE} [R-TAG-PARTNER]`,
-    rules: ["R-TAG-PARTNER", "R-COMMON-OPP-FIELD"],
+    rules: ["R-TAG-UNIQUE", "R-TAG-PARTNER", "R-COMMON-OPP-FIELD"],
     tags: ["multiplayer", "summon", "procedure", "kaiju", "tag", "card:55063751", "card:28674152"],
     setup: { format: "tag", p0: { hand: [KAIJU] }, p1: { monsters: [ELF] }, p3: { monsters: [RADIAN] } },
     steps: [
-      ...kaijuNoTribute,
+      // The opposing team already has a Kaiju, so only the no-Tribute procedure is legal.
+      specialSummon({ card: KAIJU, nth: 0 }, "p0"),
       expectBoard({
         p0: tagSeat({ monsters: [KAIJU] }),
         p1: tagSeat({ monsters: [ELF] }),
