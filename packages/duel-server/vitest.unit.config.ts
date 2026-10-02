@@ -31,6 +31,7 @@ const NEEDS_ENGINE = [
   "tests/domain-pendulum.test.ts",
   "tests/domain-recall-kind.test.ts",
   "tests/engine-eliminate.test.ts",
+  "tests/engine-elimination-order.test.ts",
   "tests/engine-multi-scripts.test.ts",
   "tests/engine-events.test.ts",
   "tests/engine-first-seat.test.ts",

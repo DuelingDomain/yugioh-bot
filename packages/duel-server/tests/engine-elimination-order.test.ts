@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import { createEngineGame } from "../src/engine.js";
 import { chooseSurrenderedAnswer } from "../src/practice-bot.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
+import { describeWithCores, needs } from "./support/cores.js";
 
-describe("engine elimination groups", () => {
+describeWithCores("engine elimination groups", [needs.cards(engineDataDirectory), needs.scripts(engineDataDirectory), needs.installedMulti(engineDataDirectory)], () => {
   it.each([
     ["simultaneous", "Duel.SetLP(1,0) Duel.SetLP(2,0)", [[1, 2]]],
     ["separate turns", "if Duel.GetTurnCount()==1 then Duel.SetLP(1,0) else Duel.SetLP(2,0) end", [[1], [2]]],
