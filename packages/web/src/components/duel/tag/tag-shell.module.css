@@ -112,6 +112,21 @@
 .live { display: flex; justify-content: flex-end; align-items: center; gap: 12px; color: var(--duel-ink-3); font-size: var(--duel-t-xs); }
 .liveDot { display: inline-flex; align-items: center; gap: 6px; letter-spacing: 0.1em; text-transform: uppercase; }
 .liveDot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--duel-loss); box-shadow: 0 0 8px rgb(228 90 77 / 0.7); }
+.tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--duel-ink-2);
+}
+.tool:hover { border-color: var(--duel-rule); color: var(--duel-ink); }
+.tool:focus-visible { outline: 2px solid var(--duel-pen-ink); outline-offset: 1px; }
+.options { display: flex; flex-direction: column; gap: 12px; padding: 14px; font-size: var(--duel-t-body); }
+.options h2 { margin: 0; color: var(--duel-ink-3); font-size: var(--duel-t-xs); font-weight: 400; letter-spacing: 0.14em; text-transform: uppercase; }
+.options p, .options dt { color: var(--duel-ink-2); font-size: var(--duel-t-sm); }
 .spectatorTag { padding: 1px 8px; border: 1px solid var(--duel-rule); border-radius: 999px; color: var(--duel-ink-2); letter-spacing: 0.06em; text-transform: uppercase; }
 
 /* ---------- three columns ---------- */

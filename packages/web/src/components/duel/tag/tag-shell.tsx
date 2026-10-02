@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
+import { Settings, Volume2, VolumeX } from "lucide-react";
 import { teamOfSeat, type DuelCard, type DuelCardInfo } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { centerKind, PromptCenter } from "../prompt-center";
@@ -11,7 +12,8 @@ import { DuelHistoryRail } from "../history-rail";
 import { PileViewer } from "../pile-viewer";
 import { isAttackTargetPrompt, PromptTray } from "../prompts";
 import { StationTrack } from "../station-track";
-import { CardTabEmpty, SidePanel, SideTabs, type SidePane } from "../side-panel";
+import { DuelSettingsSummary, DuelSoundControls } from "../room-settings";
+import { CardTabEmpty, DESKTOP_PANES, SidePanel, SideTabs, type SidePane } from "../side-panel";
 import { resolveEquipLinks } from "../equip-links";
 import { isBattlePhase, phaseLabel, zoneKey } from "../constants";
 import { formatClock } from "../table/holo-lp";
@@ -33,7 +35,7 @@ export interface TagShellProps {
   initialCamera?: Partial<CameraState>;
 }
 
-const PANES: readonly SidePane[] = ["card", "log"];
+const PANES: readonly SidePane[] = DESKTOP_PANES;
 const PHASE_TITLE: Record<string, string> = {
   Draw: "Draw Phase",
   Standby: "Standby Phase",
@@ -116,6 +118,9 @@ export function TagShell({ controller, teamNames, initialCamera }: TagShellProps
   });
   const [logUnread, setLogUnread] = useState(0);
   const [hideResult, setHideResult] = useState(false);
+  // The preview has no account preferences: the sound switch is local. A live room keeps its own.
+  const [soundOn, setSoundOn] = useState(true);
+  const [volume, setVolume] = useState(0.7);
 
   const showCard = useCallback((card: DuelCard | DuelCardInfo) => {
     setInspect("location" in card ? { type: "card", card } : { type: "info", card } as InspectTarget);
@@ -206,6 +211,19 @@ export function TagShell({ controller, teamNames, initialCamera }: TagShellProps
         <div className={styles.live}>
           {spectator ? <span className={styles.spectatorTag}>Spectating</span> : null}
           <span className={styles.liveDot}>Live</span>
+          <button
+            type="button"
+            className={styles.tool}
+            data-sound-toggle
+            aria-label={`Sound effects ${soundOn ? "on" : "off"}`}
+            aria-pressed={soundOn}
+            onClick={() => setSoundOn((on) => !on)}
+          >
+            {soundOn ? <Volume2 size={15} strokeWidth={1.75} aria-hidden /> : <VolumeX size={15} strokeWidth={1.75} aria-hidden />}
+          </button>
+          <button type="button" className={styles.tool} data-settings-toggle aria-label="Duel settings" onClick={() => setPane("settings")}>
+            <Settings size={15} strokeWidth={1.75} aria-hidden />
+          </button>
         </div>
       </header>
 
@@ -223,6 +241,13 @@ export function TagShell({ controller, teamNames, initialCamera }: TagShellProps
               ) : (
                 <CardTabEmpty />
               )}
+            </SidePanel>
+            <SidePanel pane="settings" selected={pane}>
+              <div className={styles.options}>
+                <DuelSettingsSummary session={room.session} />
+                <h2>Presentation</h2>
+                <DuelSoundControls enabled={soundOn} volume={volume} onEnabledChange={setSoundOn} onVolumeChange={setVolume} />
+              </div>
             </SidePanel>
             <SidePanel pane="log" selected={pane} keepMounted>
               <DuelHistoryRail
