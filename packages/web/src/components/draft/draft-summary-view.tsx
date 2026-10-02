@@ -15,6 +15,7 @@ import {
 } from "@/components/sheet";
 import { CardHoverPopup } from "@/components/draft/card-hover-popup";
 import { PoolBreakdown } from "@/components/draft/pool-breakdown";
+import { formatPickSeconds } from "./pick-time";
 import { CardPoolPanel } from "@/components/cards/card-pool-panel";
 import type { CardSummary } from "@/lib/card-types";
 import type { DraftCardDetail } from "@/lib/stores/draft-store";
@@ -338,7 +339,7 @@ export function DraftSummaryView({
     if (each) setupRows.push(["Each player", plural(each, "card")]);
     if (cfg.packsPerPlayer && cfg.packSize) setupRows.push(["Packs", `${cfg.packsPerPlayer} of ${cfg.packSize}`]);
   }
-  if (cfg.pickSeconds) setupRows.push(["Pick duration", `${cfg.pickSeconds} s`]);
+  if (cfg.pickSeconds) setupRows.push(["Pick duration", formatPickSeconds(cfg.pickSeconds)]);
   if (draft.startedAt) setupRows.push(["Started", formatStamp(draft.startedAt)]);
   if (draft.endedAt) setupRows.push(["Ended", formatStamp(draft.endedAt)]);
 

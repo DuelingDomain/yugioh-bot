@@ -88,7 +88,7 @@ describe("DraftsPage", () => {
 
     const fin = within(screen.getByRole("region", { name: "Finished" }));
     const rows = fin.getAllByRole("row").slice(1);
-    expect(rows.map((r) => within(r).getAllByRole("cell")[0].textContent)).toEqual(["Gone", "Done"]);
+    expect(rows.map((r) => within(r).getByRole("link").textContent)).toEqual(["Gone", "Done"]);
     expect(within(rows[0]).getByText("Cancelled").className).toContain("early");
     expect(within(rows[1]).getByText("Sep 28")).toBeTruthy();
     expect(document.body.textContent).not.toContain("→");

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DraftManageView } from "../../src/components/draft/draft-manage-view";
 import type { CardSummary } from "../../src/lib/card-types";
@@ -46,12 +46,20 @@ describe("DraftManageView — setup rail", () => {
     expect(screen.getByText("Each player")).toBeInTheDocument();
     expect(screen.getByText("45 cards")).toBeInTheDocument();
     expect(screen.getByText("Pick duration")).toBeInTheDocument();
-    expect(screen.getByText("60 s")).toBeInTheDocument();
+    expect(screen.getByText("1 min")).toBeInTheDocument();
   });
 
   it("lists the sets as chips", () => {
     render(<DraftManageView {...baseProps} />);
     expect(screen.getByText("Legend of Blue Eyes White Dragon")).toBeInTheDocument();
+  });
+
+  it.each([
+    [45, "45 s"], [90, "1 min 30 s"], [600, "10 min"],
+  ])("formats a %i-second pick in the lobby Setup panel as %s", (seconds, text) => {
+    render(<DraftManageView {...baseProps} draft={{ ...baseDraft, config: { ...baseDraft.config, pickSeconds: seconds } }} />);
+    const setup = screen.getByRole("heading", { name: "Setup" }).closest("section")!;
+    expect(within(setup).getByText("Pick duration").nextElementSibling).toHaveTextContent(text);
   });
 
   it("shows the theme setup, not the cube defaults, for a theme draft", () => {
@@ -220,15 +228,28 @@ describe("DraftManageView — theme draft", () => {
       return Response.json({}, { status: 404 });
     }));
 
-  it("names preflight problems by theme for everyone and offers only what you can do", async () => {
+  it("keeps unknown preflight messages as raw paragraphs", async () => {
     stubFetch();
     render(<DraftManageView {...baseProps} slug="s" draft={themeDraft()} isCreator={false} isParticipant />);
     expect(await screen.findByText(/Main pool is too small/)).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("Despia: Main pool is too small.");
     expect(screen.getAllByRole("status").some((el) => /Lightsworn:\s*38 cards need 42/.test(el.textContent ?? ""))).toBe(true);
-    expect(screen.getByText("Despia:").tagName).toBe("B");
-    expect(screen.getByText(/You can edit the cube or start anyway\./)).toBeInTheDocument();
+    expect(screen.getByText("Despia: Main pool is too small.").tagName).toBe("P");
+    expect(screen.getByText("Lightsworn: 38 cards need 42.").tagName).toBe("P");
     expect(screen.queryByText(/re-roll/i)).not.toBeInTheDocument();
+  });
+
+  it("shows parsed shortfalls on theme tiles and compact summaries for joined players", async () => {
+    stubFetch((url) => url.endsWith("/preflight") ? Response.json({
+      errors: ["Despia: Main pool has 12 cards but needs at least 42 for a 40-card main deck (3 choices/pick)."],
+      warnings: ["Lightsworn: Extra pool has 3 cards but needs 17 for a full 15-card Extra Deck; players may end with fewer Extra cards."],
+    }) : undefined);
+    render(<DraftManageView {...baseProps} slug="s" draft={themeDraft()} isCreator={false} isParticipant />);
+    expect(await screen.findByText("Main pool too small: 12 of 42 cards")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Despia can't be drafted yet. Its main pool is too small.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Add cards to the cube, or remove the theme.");
+    expect(screen.getByText("Extra may run short: 3 of 17 cards")).toBeInTheDocument();
+    expect(screen.getByText("1 theme may run short on Extra deck cards, so that player could end with fewer. You can start anyway.").closest('[role="status"]')).toBeInTheDocument();
   });
 
   it("lets a joined player claim a theme and confirms it in a live line", async () => {

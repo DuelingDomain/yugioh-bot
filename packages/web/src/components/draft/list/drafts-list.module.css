@@ -2,14 +2,32 @@
    so the middle column sizes to its content. Doubled selectors beat the board's own rule. */
 :global(.ms) .row:global(.tl-row) { grid-template-columns: minmax(0, 1fr) auto auto; }
 .row:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+.details { min-width: 0; }
 .count b { margin-left: 0; }
-.count[aria-label] { white-space: nowrap; }
+.count { white-space: nowrap; }
+/* Keep one accessible joined count at both sizes; the large count is decorative. */
+.joined { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.mobileKind { display: none; }
 @container (max-width: 760px) {
-  :global(.ms) .row:global(.tl-row) { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  :global(.ms) .row:global(.tl-row) { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 16px; }
+  .details { grid-column: 1 / -1; }
   :global(.ms) .row :global(.tl-name) { font-size: 17px; }
   .prog { width: 100%; min-width: 0; }
   :global(.ms) .prog :global(.trk) { justify-items: start; }
   :global(.ms) .prog :global(.trk-cap) { text-align: left; }
+  :global(.ms) .row .side:global(.tl-side) { justify-content: flex-end; }
+  :global(.ms) .row .count, :global(.ms) .row .waitingSide, .chevron { display: none; }
+  .joined { position: static; display: inline-flex; align-items: center; gap: 11px; width: auto; height: auto; overflow: visible; clip-path: none; }
+  :global(.ms) .ledger .kindColumn { display: none; }
+  /* Beat the shared ledger rule that hides its fourth column on small screens. */
+  :global(.ms) .ledger:global(.ledger) th:nth-child(4),
+  :global(.ms) .ledger:global(.ledger) td:nth-child(4) { display: table-cell; }
+  .mobileKind { display: block; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
+  :global(.ms) .ledger .fin td:first-child { min-width: 0; overflow-wrap: anywhere; }
+}
+@container (max-width: 560px) {
+  /* Four theme stops and the room chip share the same line on a phone. */
+  :global(.ms) .prog :global(.trk.sm) { --pw: 40px; --gap: 6px; }
 }
 .fin a { color: var(--ink); }
 .fin a:hover { color: var(--pen-ink); text-decoration: underline; text-underline-offset: 3px; }

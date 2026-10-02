@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { splitPreflight } from "@/components/draft/lobby/lobby-model";
+import { extraShortfallSummary, mainShortfallFix, mainShortfallSummary, parsePreflight } from "@/components/draft/lobby/lobby-model";
 import { ThemeMenu } from "@/components/draft/lobby/theme-menu";
 import styles from "@/components/draft/lobby/lobby.module.css";
 
@@ -93,7 +93,15 @@ export function CubeLobbyPanel({
   };
 
   const names = allowedCubes.map((c) => c.name);
-  const warnedNames = new Set((preflight?.warnings ?? []).map((w) => splitPreflight(w, names).name));
+  const errors = (preflight?.errors ?? []).map((message) => parsePreflight(message, names));
+  const warnings = (preflight?.warnings ?? []).map((message) => parsePreflight(message, names));
+  const mainNames = [...new Set(errors.filter((issue) => issue.shortfall?.kind === "main").map((issue) => issue.name!))];
+  const extraNames = new Set(warnings.filter((issue) => issue.shortfall?.kind === "extra").map((issue) => issue.name));
+  const rawErrors = errors.filter((issue) => issue.shortfall?.kind !== "main");
+  const rawWarnings = warnings.filter((issue) => issue.shortfall?.kind !== "extra");
+  const errorSummary = mainShortfallSummary(mainNames);
+  const warningSummary = extraShortfallSummary(extraNames.size);
+  const warnedNames = new Set(warnings.map((issue) => issue.name));
   const pickMode = themeSelection === "player_pick";
   const showClaim = pickMode && canClaim;
 
@@ -102,11 +110,6 @@ export function CubeLobbyPanel({
     uniqueThemes && allowedCubes.length > 0 ? "each player gets a different one" : null,
     showClaim ? "claim yours" : null,
   ].filter(Boolean).join(" · ");
-
-  const message = (text: string) => {
-    const { name, rest } = splitPreflight(text, names);
-    return name ? <><b>{name}:</b> {rest}</> : <>{text}</>;
-  };
 
   return (
     <section aria-labelledby={headingId}>
@@ -117,14 +120,17 @@ export function CubeLobbyPanel({
 
       {preflight?.errors.length ? (
         <div className="banner banner-bad" role="alert">
-          <div>{preflight.errors.map((e, i) => <p key={i}>{message(e)}</p>)}</div>
+          <div>
+            {errorSummary && <><p>{errorSummary}</p><p>{mainShortfallFix(mainNames.length)}</p></>}
+            {rawErrors.map((issue, i) => <p key={i}>{issue.raw}</p>)}
+          </div>
         </div>
       ) : null}
       {preflight?.warnings.length ? (
         <div className="banner banner-warn" role="status" style={{ marginTop: preflight.errors.length ? 10 : 0 }}>
           <div>
-            {preflight.warnings.map((w, i) => <p key={i}>{message(w)}</p>)}
-            <p>You can edit the cube or start anyway.</p>
+            {warningSummary && <p>{warningSummary}</p>}
+            {rawWarnings.map((issue, i) => <p key={i}>{issue.raw}</p>)}
           </div>
         </div>
       ) : null}
@@ -147,8 +153,10 @@ export function CubeLobbyPanel({
         <ul className={styles.themes}>
           {allowedCubes.map((cube) => {
             const images = cube.sampleImages.slice(0, 3);
+            const main = errors.find((issue) => issue.name === cube.name && issue.shortfall?.kind === "main")?.shortfall;
+            const extra = warnings.find((issue) => issue.name === cube.name && issue.shortfall?.kind === "extra")?.shortfall;
             return (
-              <li key={cube.id} className={styles.th} data-warn={warnedNames.has(cube.name) ? "" : undefined} data-nofan={images.length === 0 ? "" : undefined}>
+              <li key={cube.id} className={styles.th} data-warn={warnedNames.has(cube.name) ? "" : undefined} data-bad={main ? "" : undefined} data-nofan={images.length === 0 ? "" : undefined}>
                 {images.length > 0 && (
                   <span className={styles.fan} aria-hidden="true">
                     {images.map((src, i) => <img key={i} src={src} alt="" loading="lazy" />)}
@@ -156,6 +164,12 @@ export function CubeLobbyPanel({
                 )}
                 <span className={styles.thn}>{cube.name}</span>
                 <span className={styles.thm}>{cube.mainCount} main · {cube.extraCount} extra</span>
+                {(main || extra) && (
+                  <span className={styles.thProblems}>
+                    {main && <span className={styles.shortfall} data-kind="main">Main pool too small: {main.have} of {main.need} cards</span>}
+                    {extra && <span className={styles.shortfall} data-kind="extra">Extra may run short: {extra.have} of {extra.need} cards</span>}
+                  </span>
+                )}
                 {showClaim && (
                   <span className={styles.thx}>
                     <button

@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   initialOf,
   packsOf,
+  parsePreflight,
+  mainShortfallSummary,
+  mainShortfallFix,
+  extraShortfallSummary,
   plural,
   poolSources,
   setupRows,
@@ -80,6 +84,13 @@ describe("startSummary", () => {
 });
 
 describe("setupRows", () => {
+  it.each([
+    [45, "45 s"], [60, "1 min"], [90, "1 min 30 s"], [600, "10 min"],
+  ])("formats %i seconds as %s for both kinds of lobby", (seconds, text) => {
+    for (const mode of ["booster", "theme"] as const) {
+      expect(setupRows({ mode, pickSeconds: seconds }).find((row) => row.label === "Pick duration")?.value).toBe(text);
+    }
+  });
   it("lists the cube setup, with passing only when it alternates", () => {
     const rows = setupRows({ cardsPerPlayer: 40, packsPerPlayer: 3, packSize: 15, pickSeconds: 45, alternatePassDirection: true, randomizeSeats: true });
     expect(rows).toEqual([
@@ -108,6 +119,64 @@ describe("setupRows", () => {
     expect(rows.find((r) => r.label === "Themes")?.value).toBe("Random");
     expect(rows.find((r) => r.label === "Extra deck")?.value).toBe("Off");
     expect(rows.find((r) => r.label === "Passed cards")?.value).toBe("Burned");
+  });
+});
+
+describe("preflight presentation", () => {
+  it("parses the server's main pool shortfall, including names containing colons", () => {
+    const raw = "Mind: Control: Main pool has 12 cards but needs at least 42 for a 40-card main deck (3 choices/pick).";
+    expect(parsePreflight(raw, ["Mind: Control"])).toEqual({
+      name: "Mind: Control", shortfall: { kind: "main", have: 12, need: 42 }, raw,
+    });
+  });
+
+  it("parses the server's Extra pool shortfall", () => {
+    const raw = "Toon: Extra pool has 3 cards but needs 17 for a full 15-card Extra Deck; players may end with fewer Extra cards.";
+    expect(parsePreflight(raw, ["Toon"])).toEqual({ name: "Toon", shortfall: { kind: "extra", have: 3, need: 17 }, raw });
+  });
+
+  it.each(["Main", "Extra"])("parses a singular card and an empty %s pool", (pool) => {
+    const kind = pool.toLowerCase();
+    const atLeast = pool === "Main" ? "at least " : "";
+    expect(parsePreflight(`Toon: ${pool} pool has 1 card but needs ${atLeast}17`, ["Toon"]).shortfall).toEqual({ kind, have: 1, need: 17 });
+    expect(parsePreflight(`Toon: ${pool} pool has 0 cards but needs ${atLeast}17`, ["Toon"]).shortfall).toEqual({ kind, have: 0, need: 17 });
+  });
+
+  it.each([
+    "Unknown check: Something changed.",
+    "Toon: Main pool is too small.",
+    "Toon: Extra pool has many cards but needs 17",
+    "Toon: Prefix Main pool has 1 card but needs at least 42",
+    "Main pool has 1 card but needs at least 42",
+  ])("preserves unmatched text: %s", (raw) => {
+    const issue = parsePreflight(raw, ["Toon"]);
+    expect(issue.shortfall).toBeNull();
+    expect(issue.raw).toBe(raw);
+  });
+
+  it("uses the existing fallback name split", () => {
+    expect(parsePreflight("Toon: Main pool has 1 card but needs at least 42", []).shortfall).toEqual({ kind: "main", have: 1, need: 42 });
+  });
+
+  it("summarizes one, two or three small main pools", () => {
+    expect(mainShortfallSummary([])).toBeNull();
+    expect(mainShortfallSummary(["Gaia knights"])).toBe("Gaia knights can't be drafted yet. Its main pool is too small.");
+    expect(mainShortfallSummary(["Gaia knights", "Toon"])).toBe("Gaia knights and Toon can't be drafted yet. Their main pools are too small.");
+    expect(mainShortfallSummary(["Gaia knights", "Toon", "Despia"])).toBe("Gaia knights, Toon and Despia can't be drafted yet. Their main pools are too small.");
+  });
+
+  it.each([
+    [1, "Add cards to the cube, or remove the theme."],
+    [2, "Add cards to those cubes, or remove those themes."],
+    [3, "Add cards to those cubes, or remove those themes."],
+  ])("offers a repair for %i small main pools", (count, text) => {
+    expect(mainShortfallFix(count)).toBe(text);
+  });
+
+  it("summarizes singular and plural Extra pool warnings", () => {
+    expect(extraShortfallSummary(0)).toBeNull();
+    expect(extraShortfallSummary(1)).toBe("1 theme may run short on Extra deck cards, so that player could end with fewer. You can start anyway.");
+    expect(extraShortfallSummary(3)).toBe("3 themes may run short on Extra deck cards, so those players could end with fewer. You can start anyway.");
   });
 });
 

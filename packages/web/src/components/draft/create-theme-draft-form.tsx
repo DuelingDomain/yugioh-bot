@@ -87,7 +87,7 @@ export function CreateThemeDraftForm() {
             <p>{error}</p>
           </div>
         )}
-        <div className="mk-secs">
+        <div className={`mk-secs ${styles.sections}`}>
           <section className="mk-sec" aria-labelledby="dt-d">
             <div className="mk-side">
               <h2 id="dt-d">Draft</h2>
@@ -107,7 +107,7 @@ export function CreateThemeDraftForm() {
                     setName(e.target.value);
                     if (nameError) setNameError(false);
                   }}
-                  placeholder="Friday Theme Night"
+                  placeholder="Theme night"
                   aria-invalid={nameError ? true : undefined}
                 />
               </div>

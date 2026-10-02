@@ -224,7 +224,7 @@ export function CreateDraftForm() {
             <p>{error}</p>
           </div>
         )}
-        <div className="mk-secs">
+        <div className={`mk-secs ${styles.sections}`}>
           <section className="mk-sec" aria-labelledby="dc-d">
             <div className="mk-side">
               <h2 id="dc-d">Draft</h2>
@@ -245,7 +245,7 @@ export function CreateDraftForm() {
                     setName(e.target.value);
                     if (nameError) setNameError(false);
                   }}
-                  placeholder="My Awesome Draft"
+                  placeholder="Friday cube night"
                   aria-invalid={nameError ? true : undefined}
                 />
               </div>
@@ -390,7 +390,7 @@ export function CreateDraftForm() {
             </div>
           </dl>
           <PoolPreview cards={poolCards} unknownIds={poolUnknownIds} loading={poolLoading} />
-          <ol className="next" aria-label="What happens next">
+          <ol className={`next ${styles.next}`} aria-label="What happens next">
             <li><span>You get a lobby with an invite link. You&apos;re in it as a player.</span></li>
             <li><span>Players join from the link or with <code className="cmd">/draft join</code>.</span></li>
             <li><span>You press Start. Seats are shuffled and the first packs are dealt.</span></li>

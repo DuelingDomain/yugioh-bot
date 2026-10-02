@@ -11,6 +11,7 @@
 :global(.ms) .inviteRow.inviteRow { display: flex; flex-wrap: wrap; gap: 8px; }
 :global(.ms) .inviteRow > :global(.input) { flex: 1 1 240px; }
 :global(.ms) .inviteRow > :global(.acts) { display: flex; flex-wrap: wrap; gap: 8px; }
+.joinCommand { white-space: nowrap; }
 
 .stack { display: grid; gap: 12px; }
 .seatsSec > :global(.seats) { margin: 0; padding: 0; list-style: none; }
@@ -31,10 +32,11 @@
 
 /* Themes */
 .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px; margin: 12px 0; padding: 0; list-style: none; }
-.th { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "fan n x" "fan m x" "fan a a"; align-items: center; column-gap: 12px; padding: 12px 12px 10px 8px; border: 1px solid var(--rule-lo); border-radius: 6px; background: rgb(10 17 32 / 0.6); }
-.th[data-nofan] { grid-template-areas: "n x" "m x" "a a"; grid-template-columns: minmax(0, 1fr) auto; padding-left: 14px; }
+.th { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "fan n x" "fan m x" "fan p p" "fan a a"; align-items: center; column-gap: 12px; padding: 12px 12px 10px 8px; border: 1px solid var(--rule-lo); border-radius: 6px; background: rgb(10 17 32 / 0.6); }
+.th[data-nofan] { grid-template-areas: "n x" "m x" "p p" "a a"; grid-template-columns: minmax(0, 1fr) auto; padding-left: 14px; }
 .th[data-warn] { border-color: rgb(228 182 79 / 0.4); }
 .th[data-warn] .thm { color: var(--chain-ink); }
+.th[data-bad] { border-color: rgb(228 90 77 / 0.45); }
 .fan { grid-area: fan; align-self: center; position: relative; display: inline-flex; align-items: flex-end; height: 64px; padding-inline: 6px; }
 .fan img { width: 40px; height: auto; aspect-ratio: 421 / 614; border-radius: 3px; object-fit: cover; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.12), 0 14px 22px -14px #000; }
 .fan img + img { margin-left: -24px; }
@@ -42,6 +44,11 @@
 .fan img:nth-child(3) { rotate: 9deg; translate: 0 4px; }
 .thn { grid-area: n; align-self: end; font-size: 16px; font-weight: 450; overflow-wrap: anywhere; }
 .thm { grid-area: m; align-self: start; color: var(--ink-3); font: 400 15px/1.3 var(--f-num); }
+.thProblems { grid-area: p; display: grid; gap: 4px; margin-top: 5px; min-width: 0; }
+.shortfall { display: flex; align-items: baseline; gap: 6px; font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
+.shortfall::before { content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.shortfall[data-kind="main"] { color: var(--loss-ink); }
+.shortfall[data-kind="extra"] { color: var(--chain-ink); }
 .thx { grid-area: x; }
 .tha { grid-area: a; display: flex; justify-content: flex-end; gap: 2px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--rule-lo); }
 .ib { width: 42px; padding: 0; justify-content: center; }
