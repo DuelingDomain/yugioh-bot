@@ -86,7 +86,7 @@ describe("auth public routes", () => {
       delete process.env.DUEL_FX_LAB;
     });
 
-    it("lets the lab page and the card art through when DUEL_FX_LAB=1", async () => {
+    it("allows the lab page and card art without login when DUEL_FX_LAB=1", async () => {
       process.env.DUEL_FX_LAB = "1";
       const authorized = await loadAuthorizedCallback();
 
@@ -96,12 +96,13 @@ describe("auth public routes", () => {
       }
     });
 
-    it("keeps the lab behind login when the switch is off", async () => {
+    it("returns 404 for the lab when disabled and protects card art", async () => {
       const authorized = await loadAuthorizedCallback();
 
       for (const path of ["/dev/fx-lab", "/api/cards/89631139/image"]) {
         const result = await authorized({ auth: null, request: { nextUrl: new URL(`http://localhost${path}`) } });
         expect(result, path).toBeInstanceOf(Response);
+        if (path === "/dev/fx-lab") expect((result as Response).status).toBe(404);
       }
     });
 

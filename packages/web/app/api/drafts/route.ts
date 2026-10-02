@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
 import { analyzeCube, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
@@ -20,8 +21,8 @@ export async function GET() {
     const db = getDb();
 
     const playerRows = db
-      .prepare("select id from players where discord_user_id = ?")
-      .all(discordUserId) as Array<{ id: number }>;
+      .prepare("select id from players where discord_user_id = ? and guild_id = ?")
+      .all(discordUserId, env.discordGuildId) as Array<{ id: number }>;
 
     const playerIds = playerRows.map((r) => r.id);
 
@@ -49,7 +50,7 @@ export async function GET() {
         from drafts d
         inner join draft_players dp_me on dp_me.draft_id = d.id
         left join draft_players dp on dp.draft_id = d.id
-        where dp_me.player_id in (${placeholders})
+        where d.guild_id = ? and dp_me.player_id in (${placeholders})
         group by d.id
         order by
           case d.status
@@ -61,7 +62,7 @@ export async function GET() {
           d.created_at desc
       `
       )
-      .all(...playerIds)
+      .all(env.discordGuildId, ...playerIds)
       .map((row: any) => {
         let mode: "booster" | "theme" = "booster";
         try {
@@ -124,13 +125,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const db = getDb();
+  const denied = cubeReferenceAccess(db, config?.allowedCubeIds);
+  if (denied) return denied;
+
   // Theme mode: no card-pool sync — the pool lives in the theme cubes, which the
   // host adds inside the draft after creation. So a theme draft starts blank.
   if (config?.mode === "theme") {
     if (!name) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
-    const db = getDb();
     const players = createPlayerService(db);
     const player = players.findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
     const drafts = createDraftService(db);
@@ -164,7 +168,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const db = getDb();
   const players = createPlayerService(db);
   const player = players.findOrCreate(guildId, session.user.id, session.user.name ?? "Unknown");
   const drafts = createDraftService(db);

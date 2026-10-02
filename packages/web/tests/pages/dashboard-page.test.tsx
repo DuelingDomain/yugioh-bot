@@ -8,6 +8,7 @@ import DashboardPage from "../../app/(app)/dashboard/page";
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/db", () => ({ getDb }));
+vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1" } }));
 
 describe("DashboardPage match stats", () => {
   let db: Database.Database;
@@ -25,7 +26,7 @@ describe("DashboardPage match stats", () => {
     vi.clearAllMocks();
   });
 
-  it("shows approved wins and losses across guilds, excluding pending, denied and unrelated matches", async () => {
+  it("shows approved wins and losses in the configured guild, excluding foreign, pending, denied and unrelated matches", async () => {
     db.prepare(
       `insert into players (id, guild_id, discord_user_id, display_name) values
        (1, 'g1', 'u1', 'Yugi'),
@@ -48,10 +49,10 @@ describe("DashboardPage match stats", () => {
 
     render(await DashboardPage());
 
-    expect(screen.getByText("Wins").parentElement?.nextElementSibling).toHaveTextContent(/^2$/);
+    expect(screen.getByText("Wins").parentElement?.nextElementSibling).toHaveTextContent(/^1$/);
     expect(screen.getByText("Losses").parentElement?.nextElementSibling).toHaveTextContent(/^1$/);
-    expect(screen.getByText("Matches").parentElement?.nextElementSibling).toHaveTextContent(/^3$/);
-    expect(screen.getByText("Win Rate").parentElement?.nextElementSibling).toHaveTextContent(/^67%$/);
+    expect(screen.getByText("Matches").parentElement?.nextElementSibling).toHaveTextContent(/^2$/);
+    expect(screen.getByText("Win Rate").parentElement?.nextElementSibling).toHaveTextContent(/^50%$/);
   });
 
   it("shows zero stats when the player has no matches", async () => {

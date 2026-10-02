@@ -25,11 +25,13 @@ function seedActive(dbPath: string) {
 describe("POST /api/tournaments/[slug]/complete", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: "u-org", name: "Org" } });
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.DATABASE_PATH;
     while (tempDirs.length > 0) {
       const d = tempDirs.pop();
