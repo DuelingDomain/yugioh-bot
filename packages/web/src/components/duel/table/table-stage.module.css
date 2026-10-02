@@ -138,3 +138,24 @@
   z-index: 50;
   pointer-events: none;
 }
+
+/*
+ * A table of 3 or 4: the "Activate its effect?" bar leaves the middle (where it hid the turn ring and the rival
+ * fields) and sits in the lower-left lane, beside your own field. The chain stack moves up, off that lane, so the
+ * two never cross. Picks and card lists keep the middle: they are placed against the board, not this slot.
+ */
+.slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
+  top: auto;
+  left: 0.5%;
+  bottom: 12%;
+  translate: none;
+  width: 19%;
+  min-width: 142px;
+  max-width: 260px;
+  flex-wrap: wrap;
+}
+.slot[data-slot="fx"] :global([data-chain-panel]) {
+  align-self: flex-start;
+  margin-top: 9%;
+  max-height: 52%;
+}
