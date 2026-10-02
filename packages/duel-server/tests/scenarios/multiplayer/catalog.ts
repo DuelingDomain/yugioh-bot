@@ -881,7 +881,13 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "compare-ffa4-evenly-matched-three-opponents",
     "compare-tag-evenly-matched-joined-field-picked-duelist-banishes",
   ], // Evenly Matched
-  29843091: ["w9-ffa3-opponent-pick-and-place-refuse-wrong-answers", "w9-tag-opponent-pick-and-place-refuse-wrong-answers"], // Ojama Trio
+  29843091: [
+    "w9-ffa3-opponent-pick-and-place-refuse-wrong-answers",
+    "w9-tag-opponent-pick-and-place-refuse-wrong-answers",
+    "opponent-field-effects-ffa3-ojama-trio-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-ojama-trio-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-ojama-trio-goes-to-an-opposing-member",
+  ], // Ojama Trio
   72405967: [
     "late-ffa3-royal-tribute-every-duelist-discards-its-monsters",
     "late-ffa4-royal-tribute-every-duelist-discards-its-monsters",
@@ -902,6 +908,9 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
   83778600: [
     "late-ffa3-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked",
     "late-tag-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked",
+    "opponent-field-effects-ffa3-foolish-revival-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-foolish-revival-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-foolish-revival-goes-to-an-opposing-member",
   ], // Foolish Revival
   76375976: [
     "compare-gaps-ffa3-mystic-mine-only-the-opponent-with-more-monsters-is-locked",
@@ -1021,4 +1030,29 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "summon-procedures-ffa4-fallen-of-argyros-own-field-asks-no-opponent",
     "summon-procedures-tag-fallen-of-argyros-own-field-asks-no-opponent",
   ], // Fallen of Argyros
+  11654067: [
+    "opponent-field-effects-ffa3-fire-ejection-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-fire-ejection-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-fire-ejection-goes-to-an-opposing-member",
+  ], // Fire Ejection
+  14470845: [
+    "opponent-field-effects-ffa3-ojama-duo-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-ojama-duo-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-ojama-duo-goes-to-an-opposing-member",
+  ], // Ojama Duo
+  28062325: [
+    "opponent-field-effects-ffa3-bamboo-scrap-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-bamboo-scrap-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-bamboo-scrap-goes-to-an-opposing-member",
+  ], // Bamboo Scrap
+  42956963: [
+    "opponent-field-effects-ffa3-nightmare-archfiends-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-nightmare-archfiends-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-nightmare-archfiends-goes-to-an-opposing-member",
+  ], // Nightmare Archfiends
+  55465441: [
+    "opponent-field-effects-ffa3-give-and-take-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-give-and-take-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-give-and-take-goes-to-an-opposing-member",
+  ], // Give and Take
 };

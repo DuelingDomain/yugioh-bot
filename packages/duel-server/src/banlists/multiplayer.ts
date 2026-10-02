@@ -292,10 +292,10 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   10000080: ["ffa3"], // The Winged Dragon of Ra - Sphere Mode
   90669991: ["ffa3", "ffa4", "tag"], // Pineapple Blast
   15693423: ["ffa3", "ffa4", "tag"], // Evenly Matched
-  29843091: ["ffa3", "tag"], // Ojama Trio
+  29843091: ["ffa3", "ffa4", "tag"], // Ojama Trio
   71645242: ["ffa3", "tag"], // Black Garden
   80551022: ["ffa3"], // Mimighoul Slime
-  83778600: ["ffa3", "tag"], // Foolish Revival
+  83778600: ["ffa3", "ffa4", "tag"], // Foolish Revival
   76375976: ["ffa3"], // Mystic Mine
   57314798: ["ffa3"], // Number 100: Numeron Dragon
   38817295: ["ffa3"], // Ultimate Sky
@@ -315,6 +315,11 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   91697229: ["ffa3", "ffa4", "tag"], // Fenrir (Nordic)
   75732622: ["ffa3", "ffa4", "tag"], // Grinder Golem
   82090807: ["ffa3", "ffa4", "tag"], // Fallen of Argyros
+  11654067: ["ffa3", "ffa4", "tag"], // Fire Ejection
+  14470845: ["ffa3", "ffa4", "tag"], // Ojama Duo
+  28062325: ["ffa3", "ffa4", "tag"], // Bamboo Scrap
+  42956963: ["ffa3", "ffa4", "tag"], // Nightmare Archfiends
+  55465441: ["ffa3", "ffa4", "tag"], // Give and Take
 };
 
 export const MULTIPLAYER_CARD_RULES: readonly MultiplayerCardRule[] = CARD_RULE_DRAFTS.map((draft) => {
