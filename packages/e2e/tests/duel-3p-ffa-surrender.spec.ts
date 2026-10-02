@@ -245,42 +245,48 @@ test.describe("FFA surrender and spectators", () => {
 
   for (const ownerRule of [false, true]) {
     test(ownerRule
-      ? "R-FFA-SURRENDER: a Leaving seat's response in another seat's turn is answerable or automatically passed"
-      : "current engine: a Leaving seat retains an unanswered response while the UI blocks it", async ({ player }, info) => {
+      ? "R-FFA-SURRENDER: a seat already Leaving stays live through a later response, with human answers or automatic passes"
+      : "current engine: a seat already Leaving is eliminated before a later Ash Blossom response can be offered", async ({ player }, info) => {
       const [alice, bob, carol] = await humans(player, "ffa3") as [Seat, Seat, Seat];
-      const { slug } = await startTable([alice, bob, carol], "ffa3 leaving response", [
+      const { slug } = await startTable([alice, bob, carol], "ffa3 later Leaving response", [
         { main: withFiller(["Pot of Greed"], 40) },
         { main: withFiller(["Ash Blossom & Joyous Spring"], 40) }, normalDeck(),
       ], options);
       await expectRealCore(alice.page, slug, "practice", info, 0);
+      const before = await readTable(alice.page, slug);
+      expect(before.engine!.chain).toHaveLength(0);
+      expect(viewSeat(await readTable(bob.page, slug), 1).hand.some(card => card.name === "Ash Blossom & Joyous Spring")).toBe(true);
+      await surrender(bob.page);
+      const pending = await readTable(alice.page, slug);
+      expect(viewSeat(pending, 1)).toMatchObject({ eliminated: false, pendingElimination: true });
       await useCard(alice.page, handCard(alice.page, "Pot of Greed"), "Activate");
       await pickLegalZone(alice.page, "st");
-      await expect.poll(async () => (await readTable(bob.page, slug)).engine!.prompt?.context?.type).toBe("chain");
-      const before = await readTable(bob.page, slug);
-      expect(before.engine!.prompt?.seat).toBe(1);
-      expect(before.engine!.turnSeat).toBe(0);
-      await surrender(bob.page);
-      const pending = await readTable(bob.page, slug);
-      await evidence(alice.page, slug, info, "leaving-response-policy", [before, pending]);
+      // The future engine may auto-pass Leaving responses or expose them to the human.
+      await expect.poll(async () => {
+        const prompt = (await readTableTrace(alice.page, slug)).promptLog.at(-1);
+        return (prompt?.promptSeat === 0 && prompt.promptType === "action")
+          || (prompt?.promptSeat === 1 && prompt.promptType === "chain");
+      }).toBe(true);
+      const offered = await readTable(alice.page, slug);
+      const log = await evidence(alice.page, slug, info, "later-leaving-response-policy", [before, pending, offered]);
       if (ownerRule) {
-        test.fail(true, "R-FFA-SURRENDER pending engine change: Leaving responses must remain answerable or auto-pass; Q1 policy unresolved");
-        // Accept either owner policy; never require an activation by the Leaving seat.
-        await expect.poll(async () => {
-          const prompt = (await readTable(bob.page, slug)).engine!.prompt;
-          return prompt?.id !== before.engine!.prompt!.id
-            || await bob.page.locator("[data-table-shell]").getAttribute("data-can-act") === "true";
-        }).toBe(true);
-        if ((await readTable(bob.page, slug)).engine!.prompt?.id === before.engine!.prompt!.id) {
+        test.fail(true, "R-FFA-SURRENDER pending engine change: keep a no-chain Leaving seat live through later responses; Q1 policy unresolved");
+        expect(viewSeat(offered, 1)).toMatchObject({ eliminated: false, pendingElimination: true });
+        if ((await readTable(bob.page, slug)).engine!.prompt?.seat === 1) {
+          await expect(bob.page.locator("[data-table-shell]")).toHaveAttribute("data-can-act", "true");
           await bob.page.locator("[data-prompt-panel]").getByRole("button", { name: "No", exact: true }).click();
         }
         await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("action");
+        expect(viewSeat(await readTable(alice.page, slug), 1)).toMatchObject({ eliminated: false, pendingElimination: true });
         await endTurn(alice.page, 2);
         const after = await readTable(carol.page, slug);
         expect(after.engine!.turnSeat).toBe(2);
         expect(viewSeat(after, 1).eliminated).toBe(true);
       } else {
-        expect(pending.engine!.prompt?.id).toBe(before.engine!.prompt!.id);
-        expect(viewSeat(pending, 1)).toMatchObject({ eliminated: false, pendingElimination: true });
+        expect(viewSeat(offered, 1).eliminated).toBe(true);
+        expect(log.some(entry => entry.promptSeat === 1 && entry.options.some(option => option.card?.name === "Ash Blossom & Joyous Spring"))).toBe(false);
+        expect(offered.engine!.prompt?.context?.type).toBe("action");
+        expect(offered.engine!.seats[0]!.hand).toHaveLength(before.engine!.seats[0]!.hand.length + 1);
         await expect(bob.page.locator("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
         await expect(bob.page.locator("[data-prompt-panel]")).toHaveCount(0);
       }
