@@ -386,8 +386,12 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
 
           <div className={styles.actions}>
             {readyReason ? <p className={styles.reason} role="status" data-testid="my-side-status">{status}</p> : null}
-            {hasSide ? <p className={styles.help}>Changing your deck after Ready takes back your Ready. Click Ready again when you are done.</p> : null}
-            {!interrupted ? <p className={styles.help}>When the timer runs out, the next game starts with your last saved deck, ready or not. Click Ready to save your swaps.</p> : null}
+            {hasSide || !interrupted ? (
+              <p className={styles.help}>
+                {[hasSide ? "Changing your deck after Ready takes it back." : null,
+                  !interrupted ? "When the timer ends, the next game starts with your last saved deck." : null].filter(Boolean).join(" ")}
+              </p>
+            ) : null}
             <p className={styles.reason} id="between-reason" data-testid="ready-reason">
               {readyReason ?? <span role="status" data-testid="my-side-status">{status}</span>}
             </p>

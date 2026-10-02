@@ -227,7 +227,7 @@ try {
     headless: true,
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 960 }, reducedMotion: "reduce" });
+  const page = await browser.newPage({ viewport: { width: Number(process.env.PROOF_WIDTH ?? 1440), height: Number(process.env.PROOF_WIDTH ?? 1440) < 600 ? 844 : 960 }, reducedMotion: "reduce" });
   page.on("pageerror", (error: Error) => pageErrors.push(error.message));
   await page.route(`${ORIGIN}/**`, async (route: any) => {
     const request = route.request();
