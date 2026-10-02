@@ -208,6 +208,36 @@ function spellKeys(seat: number, sequence: number, masterRule: DuelMasterRule): 
   return keys;
 }
 
+/** One physical EMZ pair. Each cell keeps both seat references and the actual card controller. */
+export function SharedExtraZones({ pair, nameOf, callbacks }: {
+  pair: [DuelSeatView, DuelSeatView];
+  nameOf: (seat: number) => string;
+  callbacks: SeatBoardCallbacks;
+}) {
+  const [first, across] = pair;
+  const firstName = nameOf(first.seat);
+  const acrossName = nameOf(across.seat);
+  const firstDisabled = disabledZones(first);
+  const acrossDisabled = disabledZones(across);
+  return (
+    <div className={`${styles.extras} ${styles.sharedPair}`} data-testid={`shared-emz-pair-${first.seat}-${across.seat}`}
+      data-seats={`${first.seat} ${across.seat}`} role="group" aria-label={`${firstName} / ${acrossName} shared extra monster zones`}>
+      <span className={styles.extraLabel}>{firstName} / {acrossName} shared extra monster zones</span>
+      {[5, 6].map((sequence) => {
+        const mirror = 11 - sequence;
+        const card = first.monsters[sequence] ?? across.monsters[mirror] ?? null;
+        const firstOff = firstDisabled.monsters[sequence]!;
+        const acrossOff = acrossDisabled.monsters[mirror]!;
+        const label = `${firstName} extra monster zone ${sequence - 4} / ${acrossName} extra monster zone ${mirror - 4}, shared`
+          + (firstOff ? `, ${firstName} zone disabled` : "") + (acrossOff ? `, ${acrossName} zone disabled` : "");
+        return <CardCell key={sequence} card={card} kind="emz" label={label}
+          keys={withExact(card, [zoneKey(first.seat, LOCATION_MZONE, sequence), zoneKey(across.seat, LOCATION_MZONE, mirror)])}
+          callbacks={callbacks} disabled={firstOff && acrossOff} testId={`shared-emz-${first.seat}-${across.seat}-${sequence - 4}`} />;
+      })}
+    </div>
+  );
+}
+
 /** Master Rule 3 only: the two Pendulum Zones (Spell and Trap sequence 6 left, 7 right). */
 function PendulumCells({ view, name, callbacks }: { view: DuelSeatView; name: string; callbacks: SeatBoardCallbacks }) {
   const off = disabledZones(view).pendulum;
@@ -253,8 +283,7 @@ function DisabledNote({ view }: { view: DuelSeatView }) {
 }
 
 /**
- * What the shared DuelField cannot show for a seat at a 3 or 4 seat table: the seat's own Extra Monster Zones
- * (focused opponent only; the viewer's own are in the field band) and its disabled zones.
+ * Separate EMZ of the focused opponent and disabled-zone notes. FFA4 shared EMZ use SharedExtraZones instead.
  */
 export function SeatExtras({
   view,
@@ -305,6 +334,7 @@ export function SeatBoard({
   masterRule = 4,
   format,
   pick,
+  showExtraZones = true,
 }: {
   view: DuelSeatView;
   name: string;
@@ -320,6 +350,8 @@ export function SeatBoard({
   onFocusSeat?: (seat: number) => void;
   masterRule?: DuelMasterRule;
   format?: DuelFormat;
+  /** False when the stage draws this seat's EMZ in an FFA4 shared row. */
+  showExtraZones?: boolean;
   /** An opponent pick is open: this board answers it when its seat is offered. */
   pick?: SeatPick | null;
 }) {
@@ -389,9 +421,9 @@ export function SeatBoard({
                   disabled={disabled.monsters[sequence]} testId={`seat-mz-${seat}-${sequence + 1}`} />
               ))}
             </div>
-            {masterRule >= 3 || master ? (
+            {masterRule === 3 || (showExtraZones && masterRule >= 4) || master ? (
               <div className={styles.row} data-row="special">
-                {masterRule >= 4 ? <ExtraZoneCells view={view} name={name} callbacks={callbacks} /> : null}
+                {showExtraZones && masterRule >= 4 ? <ExtraZoneCells view={view} name={name} callbacks={callbacks} /> : null}
                 {masterRule === 3 ? <PendulumCells view={view} name={name} callbacks={callbacks} /> : null}
                 {master ? (
                   <>

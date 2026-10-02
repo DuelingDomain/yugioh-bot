@@ -263,6 +263,25 @@
   color: var(--ink-3);
 }
 
+.sharedExtras {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sharedPair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(2, var(--cw));
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.sharedPair .extraLabel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .head {
   display: flex;
   align-items: center;
