@@ -50,9 +50,13 @@ const TAG_HOME: readonly HomeSlot[] = [
   { x: 800, y: 220, rotateDeg: 180, scale: 0.66, tiltDeg: 10 },
 ];
 
-function compassAndAngle(format: TableFormat, place: number): { compass: Compass; baseAngleDeg: number } {
-  if (format === "ffa3") return [{ compass: "S", baseAngleDeg: 0 }, { compass: "W", baseAngleDeg: 120 }, { compass: "E", baseAngleDeg: 240 }][place];
-  if (format === "ffa4") return [{ compass: "S", baseAngleDeg: 0 }, { compass: "W", baseAngleDeg: 90 }, { compass: "N", baseAngleDeg: 180 }, { compass: "E", baseAngleDeg: 270 }][place];
+type CompassSlot = { compass: Compass; baseAngleDeg: number };
+const FFA3_COMPASS: readonly CompassSlot[] = [{ compass: "S", baseAngleDeg: 0 }, { compass: "W", baseAngleDeg: 120 }, { compass: "E", baseAngleDeg: 240 }];
+const FFA4_COMPASS: readonly CompassSlot[] = [{ compass: "S", baseAngleDeg: 0 }, { compass: "W", baseAngleDeg: 90 }, { compass: "N", baseAngleDeg: 180 }, { compass: "E", baseAngleDeg: 270 }];
+
+function compassAndAngle(format: TableFormat, place: number): CompassSlot {
+  if (format === "ffa3") return FFA3_COMPASS[Math.min(place, 2)];
+  if (format === "ffa4") return FFA4_COMPASS[Math.min(place, 3)];
   // Tag: two teams, the near side (viewer and partner) at S and the far side at N.
   return place < 2 ? { compass: "S", baseAngleDeg: 0 } : { compass: "N", baseAngleDeg: 180 };
 }
