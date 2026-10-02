@@ -129,8 +129,9 @@ export function lpPairProofs(code: number): Scenario[] {
 }
 
 /** The first Draw Phase is skipped so the card proof is independent of the host draw flag. */
-export async function runLpPairScenario(scenario: Scenario): Promise<void> {
+export async function runLpPairScenario(scenario: Scenario, prepare?: (script: string) => string): Promise<void> {
   const compiled = compileBoard(scenario.setup);
+  if (prepare) compiled.options.startupScripts![0].content = prepare(compiled.options.startupScripts![0].content);
   compiled.options.startupScripts![0].content += `
   do local skip=Effect.GlobalEffect(); skip:SetType(EFFECT_TYPE_FIELD); skip:SetCode(EFFECT_SKIP_DP)
   skip:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skip:SetTargetRange(1,1); Duel.RegisterEffect(skip,0)

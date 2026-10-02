@@ -18,7 +18,7 @@ Each fix has a separate commit with its suffix, generated manifest entry and rea
 | 76004142 | Bad Luck Blast | The same opponent supplies the target and takes the damage. Other fields are absent from the target list. | 9 | 6 fail, 3 pass |
 | 83819309 | Cooling Embers | Choose the opponent before resolution of the LP-gain trigger. | 9 | 6 fail, 3 pass |
 | 48814566 | Banquet of Millions | Return each Extra Deck card to its real owner at End Phase. | 4 | 3 fail, 1 pass |
-| 51612489 | Riot's Reason | Use the returned card's actual hand controller for the prompt and face-down summon. | 3 | 3 fail |
+| 51612489 | Riot's Reason | Remove the owner hint pick; return a stolen monster to its owner and let that owner summon. | 6 | 4 fail, 2 Tag controls pass on the prior suffix |
 | 21501961 | Pair Bear Scare!! | Bind both target steps; retain the reveal, recovery and return recipient through resolution. | 12 | 12 fail on the Standard P68 trap core |
 
 The first nine rows account for nine of the 17 saved suffixes. Pair Bear already had a committed suffix. Its new proof covers both branches with holders p0 and p1 in FFA3, FFA4 and Tag. The old suffix produced a forbidden bind in FFA and a nil reveal card in Tag.
@@ -103,3 +103,7 @@ The hit-list Markdown files, ranked PLAYER_ALL CSV, raw scan CSV and timing JSON
 No native check, core gate or nduel run was required for these overlay/test changes, and none is claimed. The three exported native expectation changes must be tested by their core owners after C3/C5 integration. The owner/action core task must run the saved destination and exact-actor proofs on private Standard and Domain builds.
 
 The final task report lists current TypeScript errors in other owners' files. No file changed by this task has a type error. Earlier historical-suite runs had two P68 failures in all-player-zone-gaps because another owner had added a C3-only opponent prompt to Underworld Circle. The same issue affects the old Worm fixture; the new independent P68 Worm proof covers the table exception. Do not change an owner's scenario to match an uninstalled core as part of this overlay review.
+
+## Review corrections
+
+- Finding 1: a real-engine probe changed only the owner value in the possible summon hint to PLAYER_ALL. The FFA pick disappeared. Six cases per installed P68 core now check no pick, the actual owner choice, and every seat. Four cases fail on the prior suffix; the two Tag controls pass.
