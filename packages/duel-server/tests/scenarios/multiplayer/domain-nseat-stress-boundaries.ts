@@ -28,7 +28,7 @@ for (const seat of ["p2", "p3"] as const) {
     }),
     scenario("tag", `matching-partner-field-master-is-material-by-${seat}`, {
       setup: tagSetup,
-      steps: [...turnsBefore("tag", seat).flatMap((step) => step.by === partner
+      steps: [...turnsBefore("tag", seat).flatMap((step) => step.op === "phase" && step.by === partner
         ? [normalSummon({ card: "Elemental HERO Avian", from: "dmz" }, partner), step] : [step]),
         board("tag", { [partner]: { monsters: ["Elemental HERO Avian"], deckMaster: OUT }, [seat]: { monsters: ["Elemental HERO Burstinatrix"] } }),
         activate("Polymerization", seat), select("Elemental HERO Avian", "Elemental HERO Burstinatrix"),
