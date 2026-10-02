@@ -537,7 +537,8 @@
 
 /* team LP plates */
 .plate {
-  position: relative;
+  position: absolute;
+  z-index: 6;
   width: calc(258 * var(--u));
   padding: calc(8 * var(--u)) calc(9 * var(--u));
   border-radius: 6px;

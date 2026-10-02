@@ -1,5 +1,6 @@
 import { opponentSeatsOf, seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
 import type { DuelChainLink, DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
+import { opponentPickOptions } from "../multi-seat";
 import { tagSeatCode } from "../table-format";
 
 /** Pure rules of the 2v2 Rooftop: team LP, team loss, response window, chain labels, baton, direct attack. */
@@ -139,4 +140,23 @@ export function responseWindow(
     passedSeats: otherPassed ? seatsOfTeam(TAG, 1 - team) : [],
     bothPassed: members.every((m) => m.state === "passed"),
   };
+}
+
+/**
+ * Rivals the viewer can click on the team plate. An opponent pick gives its own options. A direct attack is a choice
+ * whose every option names a rival seat (`controller`); eliminated rivals are left out.
+ */
+export function rivalPickOptions(engine: DuelEngineView, prompt: DuelPrompt | null): Map<number, string> {
+  const picks = opponentPickOptions(prompt, engine);
+  if (picks.size > 0 || !prompt || prompt.kind !== "choice") return picks;
+  const type = prompt.context?.type;
+  if (type === "chain" || type === "action") return picks;
+  const rivals = opponentSeatsOf(TAG, prompt.seat);
+  if (prompt.options.length === 0 || !prompt.options.every((o) => o.controller != null && rivals.includes(o.controller))) return picks;
+  for (const option of prompt.options) {
+    const view = engine.seats.find((s) => s.seat === option.controller);
+    if (!view || view.eliminated || view.pendingElimination || picks.has(option.controller!)) continue;
+    picks.set(option.controller!, option.id);
+  }
+  return picks;
 }

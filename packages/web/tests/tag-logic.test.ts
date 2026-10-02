@@ -6,6 +6,7 @@ import {
   defaultDirectSeat,
   directAttackSeats,
   responseWindow,
+  rivalPickOptions,
   resultBanner,
   teamGlyph,
   teamLoss,
@@ -208,5 +209,33 @@ describe("responseWindow", () => {
   it("both passed means the chain resolves", () => {
     const w = responseWindow(base([{ index: 1, seat: 1 }]), null, 0, [0, 2]);
     expect(w?.bothPassed).toBe(true);
+  });
+});
+
+describe("rivalPickOptions", () => {
+  const four = () => engine([seat(0, 1, true), seat(1, 1, true), seat(2, 1, true), seat(3, 1, false)]);
+  const choice = (options: Array<{ id: string; label: string; controller?: number }>, context?: unknown) =>
+    ({ id: "p", seat: 0, kind: "choice", title: "t", options, context }) as unknown as DuelPrompt;
+
+  it("is empty without a prompt", () => {
+    expect(rivalPickOptions(four(), null).size).toBe(0);
+  });
+  it("reads an opponent pick", () => {
+    const p = choice([{ id: "o1", label: "a", controller: 1 }, { id: "o3", label: "b", controller: 3 }], { type: "opponent" });
+    expect([...rivalPickOptions(four(), p)]).toEqual([[1, "o1"], [3, "o3"]]);
+  });
+  it("reads a direct attack whose options name rivals", () => {
+    const p = choice([{ id: "direct-3", label: "x", controller: 3 }]);
+    expect([...rivalPickOptions(four(), p)]).toEqual([[3, "direct-3"]]);
+  });
+  it("ignores a chain or action prompt and options of the own team", () => {
+    expect(rivalPickOptions(four(), choice([{ id: "a", label: "a", controller: 1 }], { type: "chain" })).size).toBe(0);
+    expect(rivalPickOptions(four(), choice([{ id: "a", label: "a", controller: 2 }])).size).toBe(0);
+    expect(rivalPickOptions(four(), choice([{ id: "a", label: "a" }])).size).toBe(0);
+  });
+  it("leaves out an eliminated rival", () => {
+    const e = engine([seat(0, 1, true), seat(1, 1, true), seat(2, 1, true), seat(3, 1, true, { eliminated: true })]);
+    const p = choice([{ id: "o1", label: "a", controller: 1 }, { id: "o3", label: "b", controller: 3 }], { type: "opponent" });
+    expect([...rivalPickOptions(e, p)]).toEqual([[1, "o1"]]);
   });
 });
