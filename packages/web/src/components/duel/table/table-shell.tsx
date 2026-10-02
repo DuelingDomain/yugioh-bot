@@ -65,6 +65,8 @@ export interface TableShellActions {
 
 export interface TableShellProps {
   controller: TableController;
+  /** Live duel pages have no height-bound parent; previews keep their container's height. */
+  fillViewport?: boolean;
   /** Starting camera; the preview passes what its URL asks for. */
   initialCamera?: Partial<CameraState>;
   /** Start with the FX lock on (the preview shows the chip with it). It stays on until the page reloads. */
@@ -106,6 +108,7 @@ export interface TableShellProps {
  */
 export function TableShell({
   controller: supplied,
+  fillViewport = false,
   initialCamera,
   initialLock = null,
   actions,
@@ -289,6 +292,8 @@ export function TableShell({
       ref={rootRef}
       className={`${roomStyles.shell} ${styles.shell} ${duelFontClasses}`}
       data-table-shell
+      data-can-act={canAct ? "true" : "false"}
+      data-viewport={fillViewport ? "true" : undefined}
       data-domain={domain}
       data-fit="true"
       data-phase={battle ? "battle" : undefined}

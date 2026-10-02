@@ -585,7 +585,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     );
   }
   if (liveTable && liveController) {
-    return <TableShell key={slug} controller={liveController} boardRef={boardRef} pickContinuation={pick}
+    return <TableShell key={slug} controller={liveController} fillViewport boardRef={boardRef} pickContinuation={pick}
       inputSuspended={confirmSurrender || sidePanelOpen}
       fxActive={!error && !realtime.recovering} busy={busy || Boolean(error) || catchingUp}
       initialOutOrder={eliminationOrder(liveController.engine)}

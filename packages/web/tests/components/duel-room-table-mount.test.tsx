@@ -102,6 +102,7 @@ describe("live room table mount", () => {
     room(FFA3_FIXTURES.states.main.room);
     const { container } = mount();
     const card = container.querySelector("[data-hand-seat='0'] [data-zones][data-legal='true']")!;
+    expect(container.querySelector("[data-table-shell]")).toHaveAttribute("data-can-act", "true");
     fireEvent.click(card.querySelector("button") ?? card);
     const item = screen.getAllByRole("menuitem")[0];
     await act(async () => { fireEvent.click(item); });
@@ -141,6 +142,7 @@ describe("live room table mount", () => {
     if (gate === "error") state.error = new Error("offline"); else state[gate] = true;
     const { container } = mount();
     const card = container.querySelector("[data-zones='0:2:0']")!;
+    expect(container.querySelector("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
     expect(card).not.toBeNull();
     await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
     const item = screen.queryAllByRole("menuitem")[0];

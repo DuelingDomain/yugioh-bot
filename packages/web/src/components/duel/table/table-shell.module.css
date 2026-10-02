@@ -4,6 +4,12 @@
   min-height: 0;
 }
 
+.shell.shell[data-viewport="true"] {
+  position: fixed;
+  inset: 0;
+  height: 100dvh;
+}
+
 /* Who left the table: a small note over the top centre of the stage, between the two top LP panels. It never takes clicks. */
 .outNote {
   position: absolute;
