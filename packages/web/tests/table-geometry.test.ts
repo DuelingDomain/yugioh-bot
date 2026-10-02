@@ -325,6 +325,8 @@ describe("4-way camera places", () => {
     expect(at(2, { mode: "focus", focusSeat: 1 })).toMatchObject({ x: 8, y: 464, beam: "up" });
     expect(at(3, { mode: "focus", focusSeat: 1 })).toMatchObject({ x: 896, y: 464 });
     expect(at(0, { mode: "look", lookSeat: 2 }).me).toBe(false);
+    // Overview: your own panel keeps the home x, so it stays inside the stage at 1280 wide.
+    expect(at(0, { mode: "overview" })).toMatchObject({ x: 882, y: 740, me: true });
   });
 
   it("the turn ring keeps clear of the fields and each seat sits at its compass angle", () => {

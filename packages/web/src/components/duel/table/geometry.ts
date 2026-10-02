@@ -284,7 +284,7 @@ function ffa4Anchor(slot: PoseSlot): Omit<HoloAnchor, "me"> {
     case "focus": return { x: 8, y: 8, beam: "none" };
     case "dockL": return { x: 8, y: 464, beam: "up" };
     case "dockR": return { x: 896, y: 464, beam: "up" };
-    case "oHome": return { x: 896, y: 740, beam: "none" };
+    case "oHome": return { x: 882, y: 740, beam: "none" };
     case "oL": return { x: 242, y: 340, beam: "none" };
     case "oN": return { x: 734, y: 20, beam: "none" };
     case "oR": return { x: 662, y: 340, beam: "none" };
