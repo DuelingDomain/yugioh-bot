@@ -113,6 +113,8 @@ function closeCopy(duel: DuelListItem): CloseCopy {
 
 function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelListItem) => void }) {
   const own = duel.mySeat != null;
+  const open = duel.status === "lobby" && duel.seats.length < 2 && duel.seriesId == null && duel.series == null;
+  const full = duel.status === "lobby" && duel.seats.length >= 2;
   const activity = relativeActivity(duel.lastActivityAt);
   return (
     <li className={styles.row}>
@@ -132,11 +134,18 @@ function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelLi
           </span>
         </span>
         <span className={styles.go}>
-          {own ? null : <Eye size={15} strokeWidth={1.6} aria-hidden />}
-          {own ? "Return" : "Watch"}
+          {own || open ? null : <Eye size={15} strokeWidth={1.6} aria-hidden />}
+          {own ? "Return" : open ? "Join" : full ? "Full — watch" : "Watch"}
           <ArrowRight size={15} strokeWidth={1.6} aria-hidden />
         </span>
       </Link>
+      {!own && open ? (
+        <div className={styles.close}>
+          <Link href={`/duels/${duel.slug}`} className={sheetButtonClass("quiet", "sm")}>
+            <Eye size={15} strokeWidth={1.6} aria-hidden />Watch
+          </Link>
+        </div>
+      ) : null}
       {own ? (
         <div className={styles.close}>
           <SheetButton kind="quiet" size="sm" onClick={() => onClose(duel)} aria-label={`Close ${duel.name}`}>
@@ -244,7 +253,7 @@ export function DuelLobby({ initialView = "live" }: { initialView?: DuelListView
         <p className={ui.hint}>
           {history
             ? "Finished duels with replays and saved final boards."
-            : "Your open tables and duels in progress. Finished duels move to Match history."}
+            : "Open tables and duels in progress. Enter as a spectator, then take an open seat to play. Finished duels move to Match history."}
         </p>
         {isLoading && !data ? <p className={ui.hint}>Loading tables…</p> : null}
         {error && !data ? (

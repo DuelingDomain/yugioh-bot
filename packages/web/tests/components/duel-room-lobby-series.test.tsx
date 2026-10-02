@@ -26,7 +26,7 @@ function lobby(options: Parameters<typeof makeSeriesRoom>[0], mySeat: number | n
   room.session.seats[0].ready = ready[0];
   room.session.seats[1].ready = ready[1];
   const handlers = {
-    onJoin: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn(),
+    onTakeSeat: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn(),
   };
   render(<RoomLobby room={room} slug="game-1" busy={false} actionError={null} {...handlers} />);
   return handlers;
@@ -96,7 +96,7 @@ describe("RoomLobby practice bot note", () => {
     room.session.ranked = extra.ranked ?? false;
     room.session.seats = room.session.seats.slice(0, extra.seats ?? 1);
     if (extra.bot) room.session.seats.push({ seat: 1, playerId: null, displayName: "Practice Bot", ready: true, isBot: true } as never);
-    const handlers = { onJoin: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
+    const handlers = { onTakeSeat: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
     render(<RoomLobby room={room} slug="game-1" busy={false} actionError={null} {...handlers} />);
     return handlers;
   }
@@ -138,7 +138,7 @@ describe("RoomLobby remove practice bot", () => {
     room.session.settings = defaultDuelSettings("normal");
     room.session.seats = room.session.seats.slice(0, 1);
     if (options.bot !== false) room.session.seats.push({ seat: 1, playerId: null, displayName: "Practice Bot", ready: true, isBot: true } as never);
-    const handlers = { onJoin: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
+    const handlers = { onTakeSeat: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
     render(<RoomLobby room={room} slug="game-1" busy={false} actionError={null} {...handlers} />);
     return handlers;
   }

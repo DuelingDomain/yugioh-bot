@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels } from "../src/components/duel/api";
+import { duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels, takeDuelSeat } from "../src/components/duel/api";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -18,6 +18,14 @@ describe("duel room authentication responses", () => {
 });
 
 describe("duel list, leave and replay helpers", () => {
+  it("takes a specific seat through the explicit seat endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ session: { slug: "t" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await takeDuelSeat("t", 1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/duels/t/seat", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seat: 1 }),
+    });
+  });
   it("lists live tables without query parameters", async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ duels: [] }));
     vi.stubGlobal("fetch", fetchMock);

@@ -125,6 +125,14 @@ export async function joinDuel(slug: string): Promise<{ session: DuelSession }> 
   );
 }
 
+export async function takeDuelSeat(slug: string, seat: number): Promise<{ session: DuelSession }> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/seat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ seat }),
+  }));
+}
+
 export async function addPracticeBot(slug: string): Promise<{ session: DuelSession }> {
   return parseBody(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/bot`, { method: "POST" }),

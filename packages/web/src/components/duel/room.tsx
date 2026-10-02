@@ -21,7 +21,7 @@ import {
   cancelDuel,
   duelRoomKey,
   getDuelRoom,
-  joinDuel,
+  takeDuelSeat,
   leaveDuel,
   markDuelReady,
   sendDuelAction,
@@ -640,7 +640,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     const lobby = (
       <RoomLobby room={data} slug={slug} busy={busy} starting={starting} actionError={actionError}
         onDeckLocked={() => void refreshRoom()}
-        onJoin={() => void run(() => joinDuel(slug))}
+        onTakeSeat={(seat) => void run(() => takeDuelSeat(slug, seat))}
         onAddBot={() => void run(() => addPracticeBot(slug))}
         onRemoveBot={() => void run(() => removePracticeBot(slug))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
@@ -662,10 +662,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           });
         }}
         onCancel={() => void run(() => cancelDuel(slug))}
-        onLeave={() => void run(async () => {
-          await leaveDuel(slug);
-          router.replace("/duels");
-        })}
+        onLeave={() => void run(() => leaveDuel(slug))}
       />
     );
     if (!opening) return lobby;
