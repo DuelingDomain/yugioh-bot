@@ -161,7 +161,7 @@ test.describe("FFA surrender and spectators", () => {
         expect(adjusted.engine!.prompt?.context?.type).toBe("action");
         expect(log.filter(entry => entry.turn === 1).map(entry => entry.kind)).toContain("places");
         if (ownerRule) {
-          test.fail(true, "owner rule 2026-10-02: surrender at end of turn pending engine change");
+          test.fail(true, "R-FFA-SURRENDER pending engine change: keep Leaving until end of turn");
           expect(viewSeat(adjusted, leavingSeat).eliminated, "surrender must stay queued through Main Phase actions").toBe(false);
           expect(viewSeat(adjusted, leavingSeat).pendingElimination).toBe(true);
           await expect(leaver.page.locator(`[data-holo='${leavingSeat}']`)).toHaveAttribute("data-leaving", "true");
