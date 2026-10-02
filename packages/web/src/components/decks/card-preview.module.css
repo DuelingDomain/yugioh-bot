@@ -7,24 +7,17 @@
   padding: 18px 18px 16px;
 }
 
-/* The art takes at most about 45% of the pane height, so most card text fits below it without scrolling. */
+/* The art takes at most about 45% of the pane height, so most card text fits below it without scrolling.
+   .art also carries the global card-frame rule (app/globals.css): true ratio, no crop, hairline radius. */
 .art {
-  position: relative;
   width: min(100%, 360px, calc(31dvh - 16px));
-  aspect-ratio: 59 / 86;
   margin: 0 auto 6px;
-  overflow: hidden;
-  border-radius: 8px;
   background: #06080e;
   box-shadow: 0 14px 34px rgb(0 0 0 / 0.55);
 }
 .art > img {
   position: absolute;
   inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .full { opacity: 0; transition: opacity 120ms ease-out; }
 .full[data-loaded="true"] { opacity: 1; }

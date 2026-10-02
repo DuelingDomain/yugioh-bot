@@ -28,7 +28,7 @@ export function DraftCardPreview({ className }: DraftCardPreviewProps) {
     >
       <div
         data-testid="draft-card-preview-art"
-        className="relative aspect-[421/614] w-full overflow-hidden rounded-lg bg-bg-elevated"
+        className="card-frame aspect-[421/614] w-full bg-bg-elevated"
       >
         {imageErrors.has(previewCard.id) ? (
           <div className="flex h-full items-center justify-center text-sm text-text-secondary">

@@ -1,4 +1,4 @@
-import type { DuelCardInfo } from "@yugidraft/shared/duels";
+import type { DuelCardInfo, DuelMasterRule } from "@yugidraft/shared/duels";
 import { LOCATION_HAND, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
 import {
   BANISHED,
@@ -1129,6 +1129,28 @@ function selectScenario(id: string, name: string, description: string, selected:
   };
 }
 
+/** A field as a given Master Rule draws it: Extra Monster Zones from MR4, Pendulum Zones from MR3 (apart under MR3). */
+function fieldRuleScenario(rule: DuelMasterRule, name: string, description: string): LabScenario {
+  return {
+    id: `state-field-mr${rule}`,
+    category: "Board states",
+    name,
+    description,
+    build: () =>
+      script(
+        board((e) => {
+          e.push(edit.monster(ME, 1, C.celtic), edit.monster(ME, 3, C.blueEyes), edit.monster(OPP, 2, C.harpie), edit.setSpell(ME, 2, C.solemn), edit.hiddenSpell(OPP, 3));
+          if (rule >= 4) e.push(edit.monster(ME, 5, C.decodeTalker), edit.monster(OPP, 5, C.decodeTalker));
+          if (rule === 3) e.push(edit.spell(ME, 6, C.oddEyes), edit.spell(OPP, 7, C.oddEyes));
+          if (rule >= 4) e.push(edit.spell(ME, 0, C.oddEyes), edit.spell(OPP, 4, C.oddEyes));
+        }),
+        [],
+        2400,
+        { masterRule: rule },
+      ),
+  };
+}
+
 const STATES: LabScenario[] = [
   {
     id: "state-equip",
@@ -1286,6 +1308,10 @@ const STATES: LabScenario[] = [
     description: "The result screen when the duel ends with no winner.",
     build: () => script(board(), [{ at: 0, result: { winnerSeat: null, reason: "Both players ran out of time" } }], 3600),
   },
+
+  fieldRuleScenario(5, "Master Rule 5: Extra Monster Zones", "Two Extra Monster Zones between the fields (a Link monster each) and the Pendulum Zones in the outer Spell/Trap Zones."),
+  fieldRuleScenario(3, "Master Rule 3: no Extra Monster Zones", "No Extra Monster Zones. The two Pendulum Zones are separate zones beside each field, so the board is wider."),
+  fieldRuleScenario(1, "Master Rule 1: plain field", "No Extra Monster Zones and no Pendulum Zones: five monster zones, five Spell/Trap Zones and a Field Zone."),
 ];
 
 /* ---------- catalog ---------- */

@@ -1,8 +1,17 @@
 # YugiDraft
 
-A Discord-first Yu-Gi-Oh draft and tournament platform. Discord is the lobby; the web dashboard is the draft room and tournament view.
+A Discord-first Yu-Gi-Oh draft, tournament, and duel platform. Discord is the lobby; the web dashboard is the draft room, tournament view, and duel table.
 
 ## Language
+
+### Drafts
+
+**Cube**:
+A reusable, guild-owned draft configuration and card pool. Stored in `cubes` with optional explicit `cube_cards` entries split into `main` / `extra` pools and per-card `max_copies`. Supplies shared booster-style drafts or a player's private pool in a **Theme draft**. Bot template commands also save cubes.
+_Avoid_: Theme (for the saved resource)
+
+**Theme draft**:
+A draft with `DraftConfig.mode === "theme"` where each player picks privately from an assigned **Cube**. `allowedCubeIds` lists available cubes; `draft_player_cube` stores player assignments. The mode and UI still use "theme"; the saved resource is a **Cube**.
 
 ### Tournaments
 
@@ -25,7 +34,7 @@ The bracket structure of a **Tournament**. Currently `round_robin` or `single_el
 A **Tournament**'s lifecycle status. `pending` = accepting participants; `active` = bracket generated, matches in progress; `completed` = final match resolved; `cancelled` = aborted by organizer.
 
 **Invite link**:
-A shareable URL based on the tournament's `web_slug` (e.g., `/tournament/abcd1234`). Any signed-in Discord user who opens the link can join while the tournament is **pending**. Not rotatable — if leaked, cancel and recreate.
+A shareable URL based on the tournament's `web_slug` (e.g., `/tournament/abcd1234`). Under the web access policy documented in `CLAUDE.md`, signed-in members of the configured Discord guild can join while the tournament is **pending**. Not rotatable — if leaked, cancel and recreate.
 
 **Kick**:
 The **Organizer**'s removal of a **Participant** from a **pending** Tournament. Distinct from **Leave**, which is participant-initiated.
@@ -40,7 +49,7 @@ A Discord message the bot posts into a guild's announce channel about a **Draft*
 _Avoid_: notification (reserved — see **Broadcast**)
 
 **Broadcast**:
-A fire-and-forget real-time state push to the WebSocket server (relayed to browser clients in a **Draft** or **Tournament** room) about a state change — a pick, resync, seat update, status, or completion. No user-visible Discord message; no result is awaited. Distinct from an **Announcement**.
+A real-time state push to the WebSocket server (relayed to browser clients in a **Draft**, **Tournament**, or **Duel** room) about a state change — a pick, resync, seat update, status, completion, or duel invalidation. HTTP/network failures are swallowed (some callers await delivery); no user-visible Discord message. Distinct from an **Announcement**.
 _Avoid_: announcement, event
 
 ## Relationships

@@ -50,6 +50,7 @@ function seedThemeCards(
 /** Build a started-ready theme draft: creates themes, players, the draft, joins everyone. */
 function makeThemeDraft(opts: {
   players?: number;
+  random?: () => number;
   config: Partial<DraftConfig>;
   themes: Array<{ main: number; extra: number }>;
   /** Theme index assigned to each player (forces host_assigned selection). */
@@ -57,7 +58,7 @@ function makeThemeDraft(opts: {
 }) {
   const db = new Database(":memory:");
   migrate(db);
-  const drafts = createDraftService(db);
+  const drafts = createDraftService(db, { random: opts.random });
   const themesService = createCubeService(db, emptyCatalog(db));
   const guildId = "g";
 
@@ -195,6 +196,26 @@ describe("theme draft — start & assignment", () => {
         .toEqual({ cube_id: themeIds[1 - index] });
       expect(drafts.currentPackOptions(draftId, playerId)).toHaveLength(3);
     }
+  });
+
+  it.each([true, false, undefined])("respects randomizeSeats = %s when assigning theme draft seats", (randomizeSeats) => {
+    const randomValues = [0.5, 0, 0.5];
+    const { db, drafts, draftId, playerIds } = makeThemeDraft({
+      players: 4,
+      random: () => randomValues.shift()!,
+      config: { randomizeSeats, themeSelection: "random", uniqueThemes: false, extraDeckEnabled: false, cardsPerPlayer: 2, themePackSize: 2 },
+      themes: [{ main: 4, extra: 0 }],
+    });
+
+    drafts.start(draftId);
+
+    const [yugi, kaiba, joey, mai] = playerIds;
+    const expectedOrder = randomizeSeats ? [mai, kaiba, yugi, joey] : [yugi, kaiba, joey, mai];
+    expect(db.prepare("select player_id from draft_players where draft_id = ? order by seat_index").all(draftId)).toEqual(
+      expectedOrder.map((player_id) => ({ player_id })),
+    );
+    expect(drafts.players(draftId).map((player) => player.playerId)).toEqual(expectedOrder);
+    for (const playerId of playerIds) expect(drafts.currentPackOptions(draftId, playerId)).toHaveLength(2);
   });
 
   it("starts a theme draft, assigns distinct themes (random), and opens round 1", () => {

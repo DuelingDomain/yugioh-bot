@@ -46,25 +46,27 @@ export function CardHoverPopup({ card, position, imageError, onImageError, dismi
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
-          <div className="relative isolate aspect-[3/4] w-full overflow-hidden rounded-t-xl bg-bg-elevated">
-            {imageError ? (
-              <div className="flex h-full items-center justify-center text-sm text-text-secondary">No image</div>
-            ) : (
-              <CardArt
-                smallSrc={card.imageUrlSmall || card.imageUrl}
-                fullSrc={card.imageUrl}
-                alt={card.name}
-                sizes="288px"
-                loadFull
-                className="object-contain"
-                onError={onImageError}
-              />
-            )}
-            {(card.qty ?? 1) > 1 && (
-              <div className="absolute right-2 top-2 z-10 rounded-md bg-black/80 px-2 py-0.5 text-sm font-bold tabular-nums text-white">
-                ×{card.qty}
-              </div>
-            )}
+          <div className="p-3 pb-0">
+            <div className="card-frame isolate w-full bg-bg-elevated">
+              {imageError ? (
+                <div className="flex h-full items-center justify-center text-sm text-text-secondary">No image</div>
+              ) : (
+                <CardArt
+                  smallSrc={card.imageUrlSmall || card.imageUrl}
+                  fullSrc={card.imageUrl}
+                  alt={card.name}
+                  sizes="288px"
+                  loadFull
+                  className="object-contain"
+                  onError={onImageError}
+                />
+              )}
+              {(card.qty ?? 1) > 1 && (
+                <div className="absolute right-2 top-2 z-10 rounded-md bg-black/80 px-2 py-0.5 text-sm font-bold tabular-nums text-white">
+                  ×{card.qty}
+                </div>
+              )}
+            </div>
           </div>
           <div className="space-y-3 p-4">
             <h3 className="mb-1 font-display text-lg text-text-primary">{card.name}</h3>

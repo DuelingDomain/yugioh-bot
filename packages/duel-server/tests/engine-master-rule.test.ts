@@ -154,39 +154,45 @@ describe("native master rule presets", () => {
     expect(await collectPzoneSequences(5)).toEqual([0, 4]);
   });
 
-  it("restricts Extra Deck Fusion summons to Extra Monster Zones under MR4, not MR5", async () => {
+  async function fusionZoneSequences(masterRule: DuelMasterRule): Promise<number[]> {
     const db = new Database(`${dataDirectory}/cards.cdb`, { readonly: true });
     const instant = cardId(db, "Instant Fusion");
     const fusion = cardId(db, "Flame Swordsman");
     const main = [instant, ...vanillaMain(db, [instant]).slice(0, 39)];
     db.close();
     const base: DuelDeck = { main, extra: [fusion], side: [] };
-
-    const extraMonsterSequences = async (masterRule: DuelMasterRule): Promise<number[]> => {
-      const deck = await arrangeWanted(base, [instant], masterRule);
-      const game = await createEngineGame({ mode: "normal", decks: [deck, deck], seed, dataDirectory, masterRule });
-      try {
-        for (let step = 0; step < 20; step++) {
-          const waiting = answering(game);
-          assert(waiting, "prompt while Instant Fusion summons");
-          if (waiting.prompt.kind === "places") {
-            const sequences = waiting.prompt.options
-              .filter((option) => option.location === OcgLocation.MZONE && option.controller === 0)
-              .map((option) => option.sequence ?? -1)
-              .sort((a, b) => a - b);
-            if (sequences.length > 0) return sequences;
-          }
-          game.answer(waiting.seat, waiting.prompt.id, choose(waiting.prompt, instant, fusion));
+    const deck = await arrangeWanted(base, [instant], masterRule);
+    const game = await createEngineGame({ mode: "normal", decks: [deck, deck], seed, dataDirectory, masterRule });
+    try {
+      for (let step = 0; step < 20; step++) {
+        const waiting = answering(game);
+        assert(waiting, "prompt while Instant Fusion summons");
+        if (waiting.prompt.kind === "places") {
+          const sequences = waiting.prompt.options
+            .filter((option) => option.location === OcgLocation.MZONE && option.controller === 0)
+            .map((option) => option.sequence ?? -1)
+            .sort((a, b) => a - b);
+          if (sequences.length > 0) return sequences;
         }
-        throw new Error("Instant Fusion never offered a monster zone");
-      } finally {
-        game.close();
+        game.answer(waiting.seat, waiting.prompt.id, choose(waiting.prompt, instant, fusion));
       }
-    };
+      throw new Error("Instant Fusion never offered a monster zone");
+    } finally {
+      game.close();
+    }
+  }
 
-    expect(await extraMonsterSequences(4)).toEqual([5, 6]);
-    const mr5 = await extraMonsterSequences(5);
+  it("restricts Extra Deck Fusion summons to Extra Monster Zones under MR4, not MR5", async () => {
+    expect(await fusionZoneSequences(4)).toEqual([5, 6]);
+    const mr5 = await fusionZoneSequences(5);
     expect(mr5).toEqual(expect.arrayContaining([0, 1, 2, 3, 4]));
     expect(mr5).toEqual(expect.arrayContaining([5, 6]));
+  });
+
+  it("never offers Extra Monster Zones (sequences 5 and 6) under MR1, MR2 and MR3", async () => {
+    for (const rule of [1, 2, 3] as const) {
+      const sequences = await fusionZoneSequences(rule);
+      expect(sequences, `MR${rule}`).toEqual([0, 1, 2, 3, 4]);
+    }
   });
 });
