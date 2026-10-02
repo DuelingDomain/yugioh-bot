@@ -10,6 +10,8 @@ import {
 } from "../../support/dsl.js";
 import { ELF, ELF_ATK, SOURCE } from "./nseat-scenarios.js";
 
+const DESTRUCTION_RING = { card: "Destruction Ring", pos: "set" as const };
+
 type Seat = "p0" | "p1" | "p2" | "p3";
 const passTurns = (...seats: Seat[]): Step[] => seats.map((seat) => endTurn(seat));
 /** A set trap that can be activated opens optional chain windows at turn changes: decline this many. */
@@ -643,6 +645,83 @@ export const FFA_SCENARIOS: Scenario[] = [
       // The second Elf answers "no" to the direct question and attacks the Elf of p1 (equal ATK: both are destroyed).
       attack(ELF, { card: ELF, owner: "p1" }, "p0"),
       expectBoard({ p1: { monsters: { count: 0 }, lp: 8000 }, p0: { monsters: [ELF] }, p3: { lp: 8000 - ELF_ATK } }),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-ffa4-turn-player-and-one-opponent-out-in-one-effect",
+    title: "FFA4: Destruction Ring takes the turn player and p1 to 0 LP in one effect: both are out, and the turn goes to p2, then p3, then p2",
+    source: `${SOURCE} [R-FFA-ELIMINATION]`,
+    rules: ["R-FFA-ELIMINATION", "R-FFA-ORDER"],
+    tags: ["multiplayer", "elimination", "simultaneous", "ffa4", "card:15025844", "card:21219755"],
+    setup: { format: "ffa4", p0: { lp: 1000, monsters: [ELF], spells: [DESTRUCTION_RING] }, p1: { lp: 1000 } },
+    steps: [
+      activate("Destruction Ring", "p0"),
+      expectEliminated("p0", "p1"),
+      expectBoard({ p0: { lp: 0, ...VIEW_EMPTY }, p1: { lp: 0, ...VIEW_EMPTY }, p2: { lp: 7000 }, p3: { lp: 7000 } }),
+      // The turn of p0 is cut short: the next living seat is p2 (turn 2), then p3, then p2 again.
+      expectTurn("p2", 2),
+      endTurn("p2"),
+      expectTurn("p3", 3),
+      endTurn("p3"),
+      expectTurn("p2", 4),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-ffa4-three-out-in-one-effect-last-wins",
+    title: "FFA4: Destruction Ring takes p0, p1 and p3 to 0 LP in one effect: p2 is the last seat left and wins",
+    source: `${SOURCE} [R-FFA-WINNER]`,
+    rules: ["R-FFA-WINNER", "R-FFA-ELIMINATION"],
+    tags: ["multiplayer", "elimination", "simultaneous", "ffa4", "card:15025844", "card:21219755"],
+    setup: { format: "ffa4", p0: { lp: 1000, monsters: [ELF], spells: [DESTRUCTION_RING] }, p1: { lp: 1000 }, p3: { lp: 500 } },
+    steps: [
+      activate("Destruction Ring", "p0"),
+      expectEliminated("p0", "p1", "p3"),
+      expectResult({ seat: "p2" }),
+      expectBoard({ p0: { lp: 0 }, p1: { lp: 0 }, p2: { lp: 7000 }, p3: { lp: 0 } }),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-ffa4-all-four-out-in-one-effect-draw",
+    title: "FFA4: Destruction Ring takes all four seats to 0 LP in one effect: nobody is left, the duel is a draw (no winner)",
+    source: `${SOURCE} [R-FFA-WINNER]`,
+    rules: ["R-FFA-WINNER", "R-FFA-ELIMINATION"],
+    tags: ["multiplayer", "elimination", "simultaneous", "draw", "ffa4", "card:15025844", "card:21219755"],
+    setup: {
+      format: "ffa4",
+      p0: { lp: 1000, monsters: [ELF], spells: [DESTRUCTION_RING] }, p1: { lp: 1000 }, p2: { lp: 1000 }, p3: { lp: 1000 },
+    },
+    steps: [
+      activate("Destruction Ring", "p0"),
+      expectEliminated("p0", "p1", "p2", "p3"),
+      expectResult(null),
+      expectBoard({ p0: { lp: 0 }, p1: { lp: 0 }, p2: { lp: 0 }, p3: { lp: 0 } }),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-ffa4-last-two-out-in-one-effect-draw",
+    title: "FFA4: p2 and p3 are out by two Hinotama, then Destruction Ring takes the last two seats (p0 and p1) to 0 LP together: a draw",
+    source: `${SOURCE} [R-FFA-WINNER]`,
+    rules: ["R-FFA-WINNER", "R-FFA-ELIMINATION", "R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "elimination", "simultaneous", "draw", "ffa4", "card:15025844", "card:21219755", "card:46130346"],
+    setup: {
+      format: "ffa4",
+      p0: { lp: 1000, monsters: [ELF], spells: [DESTRUCTION_RING], hand: ["Hinotama", "Hinotama"] }, p1: { lp: 1000 }, p2: { lp: 500 }, p3: { lp: 500 },
+    },
+    steps: [
+      activate("Hinotama", "p0"),
+      expectPickSeats(["p1", "p2", "p3"], "p0"),
+      pickOpponent("p2", "p0"),
+      pass("p0"), pass("p0"),
+      activate("Hinotama", "p0"),
+      expectPickSeats(["p1", "p3"], "p0"),
+      pickOpponent("p3", "p0"),
+      pass("p0"), pass("p0"),
+      expectEliminated("p2", "p3"),
+      expectBoard({ p0: { lp: 1000 }, p1: { lp: 1000 } }),
+      activate("Destruction Ring", "p0"),
+      expectEliminated("p0", "p1", "p2", "p3"),
+      expectResult(null),
+      expectBoard({ p0: { lp: 0 }, p1: { lp: 0 }, p2: { lp: 0 }, p3: { lp: 0 } }),
     ],
   }),
 ];

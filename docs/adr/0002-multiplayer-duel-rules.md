@@ -45,6 +45,7 @@ These are the defaults. The organizer may later get options for LP.
 - `[R-FFA-ELIMINATION]` A duelist loses at 0 LP or when they must draw from an empty Deck. **Their cards leave the game**, including their cards that another duelist controls, and their ongoing effects stop. **Their Chain Links that are already on the chain resolve with no effect.** This holds from the moment the loss is flagged, also for a duelist who gives up while the chain is open: the loss lands after the chain, but the Chain Links of that duelist must not act. This sentence is only about Chain Links. Until the chain ends, the other cards of a flagged duelist stay on the field and their ongoing effects still apply. A Chain Link that has already started to resolve when its duelist gives up finishes with its effect, because the check is made once, when the link starts to resolve.
 - **A turn cut short by an elimination counts as an ended turn** for every turn count (for example `RESET_OPPO_TURN`): when the turn player loses in its own turn, a card such as Nightmare's Steelcage ends exactly as if that turn had reached its End Phase.
 - `[R-FFA-WINNER]` The last duelist left wins.
+  - If the last duelists left reach 0 LP at the same time (for example one effect that damages all of them), nobody is left: the duel is a **draw** and has no winner (`winnerSeat` is null). If one effect takes all but one duelist to 0 LP, the one duelist left wins.
 
 ## Decisions added on 2026-09-30 (product owner)
 
