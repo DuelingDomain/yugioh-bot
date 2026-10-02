@@ -20,4 +20,12 @@ describe("table stage lanes", () => {
     expect(rule![1]).toMatch(/align-self:\s*flex-start/);
     expect(rule![1]).toMatch(/max-height:\s*\d+%/);
   });
+
+  it("keeps rival hand backs off the top row of the rival field, on a table stage only", () => {
+    const rule = css.match(/\.board :global\(\[data-hand-seat\]\[data-side="opp"\]\)\s*\{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/translate:\s*-50%\s*-[0-9]%/);
+    const shared = readFileSync(join(__dirname, "../src/components/duel/table/rival-hand.module.css"), "utf8");
+    expect(shared).toMatch(/translate:\s*-50%\s*-38%/);
+  });
 });
