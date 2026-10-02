@@ -15,6 +15,10 @@ const AXE_RAIDER = 48305365;
 const POT_OF_GREED = 55144522;
 const OBELISK = 10000000;
 const GAGAGIGO = 49003308;
+const UMI = 22702055;
+const LEGENDARY_OCEAN = 295517;
+const HARPIE_LADY = 76812113;
+const HARPIE_LADY_1 = 91932350;
 const TYPE_EXTRA = 0x40 | 0x2000 | 0x800000 | 0x4000000;
 const settings = defaultDuelSettings("domain");
 const forbidden = new Set(MULTIPLAYER_FORBIDDEN.map(({ code }) => code));
@@ -133,6 +137,14 @@ for (const table of ["1v1", "ffa3", "ffa4", "tag"] as const) {
       expect(() => validateDeck("domain", invalid, DATA, settings, { table })).toThrow(/cannot appear/);
     });
 
+    it("refuses a treated-as Deck Master name in Main", () => {
+      const invalid = deck([HARPIE_LADY_1], [], HARPIE_LADY);
+      expect(inspectDeck("domain", invalid, DATA, settings, { table }).issues).toEqual([
+        { message: expect.stringContaining("cannot appear"), cards: [expect.objectContaining({ section: "main", index: 0, code: HARPIE_LADY_1 })] },
+      ]);
+      expect(() => validateDeck("domain", invalid, DATA, settings, { table })).toThrow(/cannot appear/);
+    });
+
     it("refuses the Deck Master in Side", () => {
       const invalid = { ...deck(), side: [ELF] };
       expect(inspectDeck("domain", invalid, DATA, settings, { table }).issues).toEqual([
@@ -141,9 +153,9 @@ for (const table of ["1v1", "ffa3", "ffa4", "tag"] as const) {
       expect(() => validateDeck("domain", invalid, DATA, settings, { table })).toThrow(/does not use a Side Deck/);
     });
 
-    it("refuses duplicate Main and Extra cards, including alternate art", () => {
+    it("refuses duplicate Main and Extra cards, including alternate art and treated-as names", () => {
       const extra = lightExtras()[0]!;
-      for (const invalid of [deck([POT_OF_GREED, POT_OF_GREED]), deck([DARK_MAGICIAN, 46986415]), deck([], [extra, extra])]) {
+      for (const invalid of [deck([POT_OF_GREED, POT_OF_GREED]), deck([DARK_MAGICIAN, 46986415]), deck([UMI, LEGENDARY_OCEAN]), deck([], [extra, extra])]) {
         expect(inspectDeck("domain", invalid, DATA, settings, { table }).issues.some(issue => /Duplicate card/.test(issue.message))).toBe(true);
       }
     });
