@@ -19,15 +19,19 @@ const SECRET = "ffa4-real-secret";
 
 class RealEngineWorker implements DuelGameWorker {
   game: EngineGame | null = null;
+  answers = 0;
   private stopped = false;
   get running() { return !this.stopped; }
   async create(options: GameOptions) {
     const bytes = readFileSync(multiWasmPath);
     const multiWasmBinary = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-    this.game = await createEngineGame({ ...options, multiWasmBinary });
+    this.game = await createEngineGame({ ...options, seed: ["1", "2", "3", "4"], multiWasmBinary });
   }
   async view(seat: number | null) { return this.game!.view(seat); }
-  async answer(seat: number, promptId: string, answer: DuelAnswer) { this.game!.answer(seat, promptId, answer); }
+  async answer(seat: number, promptId: string, answer: DuelAnswer) {
+    this.game!.answer(seat, promptId, answer);
+    this.answers += 1;
+  }
   async eliminate(seat: number, reason: number) { this.game!.eliminate(seat, reason); }
   async search(query: string): Promise<DuelCardInfo[]> { return this.game!.searchCards(query); }
   async close() {
@@ -151,6 +155,8 @@ describeWithCores("FFA4 host with the real engine", [needs.multi(multiWasmPath),
       status = t.duels.get(t.slug, "g1").status;
     }
     expect(status).toBe("completed");
+    // The fixed seed needs more answers than the old per-call cap.
+    expect(t.worker.answers).toBeGreaterThan(128);
     const view = await t.view(0);
     // Exactly one seat is left, it is the winner, the seat of the human is out (it gave up) and no prompt is open.
     const living = state(view).flatMap((entry, seat) => (entry === "in" ? [seat] : []));
