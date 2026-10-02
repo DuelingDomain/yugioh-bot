@@ -1,4 +1,4 @@
-import { it } from "vitest";
+import { runScenarios } from "../../support/runner.js";
 import { createEngineGame } from "../../../src/engine.js";
 import { resolveCard } from "../../support/card-catalog.js";
 import { compileBoard } from "../../support/board.js";
@@ -16,7 +16,7 @@ skip:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skip:SetTargetRange(1,1); Duel.Regi
 local undo=Effect.GlobalEffect(); undo:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS); undo:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
 undo:SetOperation(function(e) skip:Reset() e:Reset() end); Duel.RegisterEffect(undo,0) end`;
 describeWithCores("live Grass Deck comparisons", liveNseat, () => {
-  for (const scenario of [...GRASS_DECK_COUNTS_SCENARIOS, ...GRASS_TAG_DECLARED_DECK_SCENARIOS]) it(scenario.id, async () => {
+  runScenarios("multiplayer/grass-deck-counts", [...GRASS_DECK_COUNTS_SCENARIOS, ...GRASS_TAG_DECLARED_DECK_SCENARIOS], async (scenario) => {
     const compiled = compileBoard(scenario.setup);
     compiled.options.startupScripts![0].content += SKIP_OPENING_DRAW;
     {

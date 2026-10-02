@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect } from "vitest";
 import { createEngineGame } from "../../../src/engine.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { compileBoard } from "../../support/board.js";
@@ -6,10 +6,10 @@ import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
 import { ALL_PLAYER_ZONE_GAPS_SCENARIOS } from "./all-player-zone-gaps.js";
+import { runScenarios } from "../../support/runner.js";
 
 describeWithCores("live remaining all-player zone actions", liveNseat, () => {
-  for (const scenario of ALL_PLAYER_ZONE_GAPS_SCENARIOS) {
-    it(scenario.id, async () => {
+  runScenarios("multiplayer/all-player-zone-gaps", ALL_PLAYER_ZONE_GAPS_SCENARIOS, async (scenario) => {
       const game = await createEngineGame({
         ...compileBoard(scenario.setup).options, seed: ["1", "2", "3", "4"],
         dataDirectory: engineDataDirectory, multiWasmBinary: nseatWasmBinary(),
@@ -27,6 +27,5 @@ describeWithCores("live remaining all-player zone actions", liveNseat, () => {
       } finally {
         game.close();
       }
-    });
-  }
+  });
 });

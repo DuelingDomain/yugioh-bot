@@ -1,4 +1,3 @@
-import { it } from "vitest";
 import { createEngineGame } from "../../../src/engine.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { compileBoard } from "../../support/board.js";
@@ -6,10 +5,10 @@ import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
 import { ALL_PLAYER_EXTRA_SCENARIOS } from "./all-player-extra.js";
+import { runScenarios } from "../../support/runner.js";
 
 describeWithCores("live all-player Extra Deck and Deck top actions", liveNseat, () => {
-  for (const scenario of ALL_PLAYER_EXTRA_SCENARIOS) {
-    it(scenario.id, async () => {
+  runScenarios("multiplayer/all-player-extra", ALL_PLAYER_EXTRA_SCENARIOS, async (scenario) => {
       const compiled = compileBoard(scenario.setup);
       if (scenario.tags.includes("card:19491080")) {
         const count = scenario.setup.format === "1v1" ? 2 : scenario.setup.format === "ffa3" ? 3 : 4;
@@ -26,6 +25,5 @@ describeWithCores("live all-player Extra Deck and Deck top actions", liveNseat, 
         session.startRecording();
         scenario.steps.forEach((step, index) => session.run(step, index + 1));
       } finally { game.close(); }
-    });
-  }
+  });
 });

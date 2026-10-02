@@ -152,6 +152,20 @@ describe("rule rows", () => {
   });
 });
 
+describe("original scenario runners", () => {
+  it("registers the card lists with the scenario runner", async () => {
+    const names = new Set([
+      "ALL_PLAYER_EXTRA_SCENARIOS", "ALL_PLAYER_ZONE_GAPS_SCENARIOS", "BANQUET_RETURN_OWNER_SCENARIOS",
+      "GLOBAL_FLAG_MEMORY_SCENARIOS", "GRASS_DECK_COUNTS_SCENARIOS", "GRASS_TAG_DECLARED_DECK_SCENARIOS",
+      "GUMBLAR_HAND_BINDING_SCENARIOS", "PAIR_BEAR_BINDING_SCENARIOS", "PAIRED_HIDDEN_ZONES_SCENARIOS",
+      "PAIRED_ZONE_TRIGGERS_SCENARIOS", "PLAYER_ALL_LP_PAIR_SCENARIOS", "UNDERWORLD_CIRCLE_STANDBY_SCENARIOS",
+    ]);
+    const lists = (await loadScenarioLists()).filter(list => names.has(list.name));
+    expect(lists).toHaveLength(names.size);
+    expect(unrunLists(lists, runnerSources())).toEqual([]);
+  });
+});
+
 describe("scenario lists", () => {
   const scenario = (id: string) => ({ id, rules: ["R-COMMON-A"], steps: [{ op: "phase" }, { op: "expectLp" }] });
   const list = (name: string, ...ids: string[]) => ({ file: `/x/${name}.ts`, name, scenarios: ids.map(scenario) });

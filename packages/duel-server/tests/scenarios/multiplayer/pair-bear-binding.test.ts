@@ -1,4 +1,5 @@
-import { expect, it } from "vitest";
+import { runScenarios } from "../../support/runner.js";
+import { expect } from "vitest";
 import { createEngineGame } from "../../../src/engine.js";
 import { compileBoard } from "../../../src/presets/board.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
@@ -8,7 +9,7 @@ import { nseatWasmBinary, Session } from "../../support/session.js";
 import { PAIR_BEAR_BINDING_SCENARIOS } from "./pair-bear-binding.js";
 
 describeWithCores("live Pair Bear opponent binding", liveNseat, () => {
-  for (const scenario of PAIR_BEAR_BINDING_SCENARIOS) it(scenario.id, async () => {
+  runScenarios("multiplayer/pair-bear-binding", PAIR_BEAR_BINDING_SCENARIOS, async (scenario) => {
     const compiled = compileBoard(scenario.setup);
     const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory, seed: ["1", "2", "3", "4"], multiWasmBinary: nseatWasmBinary() });
     try {

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect } from "vitest";
 import { copyFileSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,7 @@ import { liveNseat } from "../../support/live-nseat.js";
 import { domainNseatWasmBinary, nseatWasmBinary, Session } from "../../support/session.js";
 import { domainVariant } from "./domain-variants.js";
 import { GLOBAL_FLAG_MEMORY_SCENARIOS } from "./global-flag-memory.js";
+import { runScenarios } from "../../support/runner.js";
 
 // Panther only tests the existence of its flag. Observe its real engine count after each release as well,
 // so a second flag cannot hide behind an unchanged attack permission. This observer writes no game state.
@@ -61,8 +62,7 @@ describeWithCores("global flag memory after an LP loss", liveNseat, () => {
     setCatalogDirectory(undefined);
     if (fixture) rmSync(fixture, { recursive: true, force: true });
   });
-  for (const s of [...GLOBAL_FLAG_MEMORY_SCENARIOS, ...GLOBAL_FLAG_MEMORY_SCENARIOS.map(domainVariant)]) {
-    it(s.id, async () => {
+  runScenarios("multiplayer/global-flag-memory", [...GLOBAL_FLAG_MEMORY_SCENARIOS, ...GLOBAL_FLAG_MEMORY_SCENARIOS.map(domainVariant)], async (s) => {
       const compiled = compileBoard(s.setup);
       const game = await createEngineGame({
         ...compiled.options, dataDirectory: fixture, seed: ["1", "2", "3", "4"],
@@ -78,6 +78,5 @@ describeWithCores("global flag memory after an LP loss", liveNseat, () => {
           expect(game.view(1).seats[1].monsters.filter((c) => c != null).map((c) => c!.code).sort()).toEqual([15025844, 15025844, 77482666]);
         }
       } finally { game.close(); }
-    });
-  }
+  });
 });
