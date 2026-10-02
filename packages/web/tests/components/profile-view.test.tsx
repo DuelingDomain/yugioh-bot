@@ -81,7 +81,7 @@ describe("profile view", () => {
     render(<ProfileView profile={profile} leaderboardRank={5} />);
     expect(screen.queryByText("540 of 1,000")).toBeNull();
     expect(screen.queryByText("Not yet")).toBeNull();
-    expect(screen.getByText("Earn 1,000 winnings over your career.")).toBeInTheDocument();
+    expect(screen.getByText("Earn 1,000 winnings across all seasons.")).toBeInTheDocument();
   });
 
   it("lights new unlocks once, after the first visit has recorded the list", async () => {
