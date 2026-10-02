@@ -1,0 +1,48 @@
+/* The deadline picker (board 07, "Deadline picker"). The board's own rules for it were
+   not part of the foundation stylesheet, so they live here, on the .ms tokens. */
+.wrap { position: relative; }
+.group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; width: auto; color: var(--ink); cursor: pointer; text-align: left; }
+.btn :global(.ic) { color: var(--ink-3); }
+.btn:hover { border-color: var(--rule); }
+.empty { color: var(--ink-3); border-style: dashed; }
+.clear { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); cursor: pointer; }
+.clear:hover { color: var(--ink); background: rgb(239 231 213 / 0.06); }
+.clear:focus-visible, .nav:focus-visible, .day:focus-visible, .none:focus-visible { outline: 2px solid var(--pen); outline-offset: 1px; }
+
+.pop {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  display: grid;
+  gap: 8px;
+  width: 292px;
+  max-width: calc(100cqi - 8px);
+  padding: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: #0e1729;
+  box-shadow: 0 24px 60px -24px rgb(0 0 0 / 0.95);
+}
+.head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 8px; border-bottom: 3px double var(--rule); }
+.head b { font-family: var(--f-disp); font-size: 14px; font-weight: 500; letter-spacing: 0.06em; }
+.nav { display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); cursor: pointer; }
+.nav:hover { color: var(--ink); background: rgb(239 231 213 / 0.06); }
+.grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.grid i { font-style: normal; text-align: center; color: var(--ink-3); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.day { height: 34px; border: 0; border-radius: 4px; background: none; color: var(--ink); font-family: var(--f-num); font-size: 16px; cursor: pointer; }
+.day:hover:not(:disabled) { background: rgb(239 231 213 / 0.06); }
+.day:disabled { color: var(--ink-4); cursor: default; }
+.today { box-shadow: inset 0 0 0 1px var(--rule-hi); }
+.sel, .sel:hover:not(:disabled) { background: linear-gradient(#33268a, #241a66); color: #fff; box-shadow: inset 0 0 0 1px var(--pen); }
+.foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 12.5px; }
+.none { margin-left: -10px; }
+
+.times { width: 180px; gap: 0; padding: 6px; max-height: 280px; overflow-y: auto; outline: none; }
+.times:focus-visible { border-color: var(--pen); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.22), 0 24px 60px -24px rgb(0 0 0 / 0.95); }
+.opt { padding: 8px 10px; border-radius: 4px; font-family: var(--f-num); font-size: 16px; color: var(--ink-2); cursor: pointer; }
+.opt:hover { background: rgb(239 231 213 / 0.06); }
+.opt[aria-selected="true"] { background: var(--pen-soft); color: var(--pen-ink); box-shadow: inset 2px 0 0 var(--pen); }
+.opt[data-active="true"] { box-shadow: inset 0 0 0 1px var(--rule-hi); }
+.opt[aria-selected="true"][data-active="true"] { box-shadow: inset 2px 0 0 var(--pen), inset 0 0 0 1px var(--pen); }
