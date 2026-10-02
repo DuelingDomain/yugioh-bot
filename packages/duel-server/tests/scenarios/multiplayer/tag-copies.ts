@@ -5,7 +5,7 @@
 // state of EVERY seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectTurn, normalSummon, pickOpponent, select, yes,
+  activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectTurn, normalSummon, pickOpponent, select, yes,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -353,6 +353,61 @@ export const TAG_COPY_SCENARIOS: Scenario[] = [
         p1: { hand: [] },
         p2: { hand: [] },
         p3: { hand: [], monsters: { count: 1 } },
+      }),
+    ],
+  }),
+  // Snake-Eyes Diabellstar: when it attacks a monster, both battling monsters are placed in the Spell/Trap Zone of their OWNER as Continuous Spells.
+  // The dead bound opponent case of FFA3 and FFA4 (a seat is eliminated before the trigger) cannot happen in Tag: a team that loses ends the duel,
+  // so the Tag scenarios run the effect against the joined opposing team. The stock script runs, the overlay has no file for this card.
+  defineScenario({
+    id: "tag-copies-diabellstar-attacked-monster-goes-to-its-owner-spell-zone",
+    title: "Tag: p0 attacks the monster of p1 with Snake-Eyes Diabellstar: both battling monsters become Continuous Spells in the zone of their owner (p0 and p1), the partners p2 and p3 keep their monsters",
+    source: TAG_PARTNER,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "trigger", "tag", "card:27260347"],
+    setup: {
+      format: "tag",
+      p0: { monsters: ["Snake-Eyes Diabellstar"] },
+      p1: { monsters: [OX] },
+      p2: { monsters: [RAT] },
+      p3: { monsters: [AXE] },
+    },
+    steps: [
+      ...(["p0", "p1", "p2", "p3"] as Seat[]).map((seat) => endTurn(seat)),
+      changePhase("battle", "p0"),
+      attack("Snake-Eyes Diabellstar", { card: OX, owner: "p1" }, "p0"),
+      yes("p0"),
+      everyTagSeat({
+        p0: { spells: ["Snake-Eyes Diabellstar"] },
+        p1: { spells: [OX] },
+        p2: { monsters: [RAT] },
+        p3: { monsters: [AXE] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "tag-copies-diabellstar-attacked-monster-of-the-second-opposing-member",
+    title: "Tag: p0 attacks the monster of the opposing member p3 with Snake-Eyes Diabellstar: the monster of p3 goes to the Spell/Trap Zone of p3 and p1 keeps its monster",
+    source: TAG_PARTNER,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "trigger", "tag", "card:27260347"],
+    setup: {
+      format: "tag",
+      p0: { monsters: ["Snake-Eyes Diabellstar"] },
+      p1: { monsters: [OX] },
+      p2: { monsters: [RAT] },
+      p3: { monsters: [AXE] },
+    },
+    steps: [
+      ...(["p0", "p1", "p2", "p3"] as Seat[]).map((seat) => endTurn(seat)),
+      changePhase("battle", "p0"),
+      attack("Snake-Eyes Diabellstar", { card: AXE, owner: "p3" }, "p0"),
+      yes("p0"),
+      everyTagSeat({
+        p0: { spells: ["Snake-Eyes Diabellstar"] },
+        p1: { monsters: [OX] },
+        p2: { monsters: [RAT] },
+        p3: { spells: [AXE] },
       }),
     ],
   }),
