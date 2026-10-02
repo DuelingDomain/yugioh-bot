@@ -336,6 +336,19 @@ describe("FX lock", () => {
     const orbit = locked(run(run(HOME, { type: "overview" }), { type: "orbit", dYawDeg: 25, dTiltDeg: 0 }));
     expect(effectiveCamera(orbit, 1100)).toMatchObject({ mode: "fly", fly: FLY_HOME });
   });
+
+  it("effectiveCamera turns compact chips off under a lock, so FX play on the real fields", () => {
+    const on = run(HOME, { type: "toggleCompact" });
+    expect(on.compact).toBe("on");
+    expect(effectiveCamera(locked(on), 1200).compact).toBe("off");
+    expect(effectiveCamera(locked(run(on, { type: "focus", seat: 2 })), 1200)).toMatchObject({ mode: "home", compact: "off" });
+    expect(effectiveCamera(locked(run(on, { type: "overview" })), 1200).compact).toBe("off");
+    expect(effectiveCamera(on, 3000)).toBe(on);
+    const off = run(on, { type: "toggleCompact" });
+    expect(off.compact).toBe("off");
+    const lockedOff = locked(off);
+    expect(effectiveCamera(lockedOff, 1200)).toMatchObject({ mode: "home", compact: "off" });
+  });
 });
 
 describe("fxLockFor and friends", () => {
