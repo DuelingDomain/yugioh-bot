@@ -8,7 +8,8 @@
   color: var(--duel-ink-3, #958f81);
   font-size: var(--duel-t-xs, 11px);
 }
-.prio[data-compact="true"] { padding-inline: 8px; }
+.prio[data-compact="true"] { flex-wrap: nowrap; gap: 3px; padding: 5px 6px 4px; white-space: nowrap; }
+.prio[data-compact="true"] .chip { padding: 1px 6px; gap: 4px; }
 .cap { letter-spacing: 0.06em; }
 .slot { display: inline-flex; align-items: center; gap: 4px; }
 .chip {

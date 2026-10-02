@@ -49,17 +49,17 @@ export function PriorityChips({
   if (order.length === 0) return null;
   return (
     <div className={styles.prio} data-testid="priority-chips" data-compact={compact ? "true" : undefined} aria-label="Who may respond, in order">
-      <span className={styles.cap}>Priority</span>
+      {compact ? null : <span className={styles.cap}>Priority</span>}
       {order.map((slot, at) => {
         const tone = seatTones?.get(slot.seat);
         const style = tone ? ({ "--seat-main": tone.main, "--seat-ink": tone.ink } as CSSProperties) : undefined;
         return (
           <span key={slot.seat} className={styles.slot}>
             {at > 0 ? <ArrowRight size={11} strokeWidth={1.75} aria-hidden /> : null}
-            <span className={styles.chip} data-now={slot.choosing ? "true" : undefined} data-seat={slot.seat} style={style}>
+            <span className={styles.chip} data-now={slot.choosing ? "true" : undefined} data-seat={slot.seat} style={style} title={slot.choosing ? `${nameOf(slot.seat)} is choosing` : undefined}>
               <i aria-hidden="true" />
-              {slot.seat === mySeat ? "You" : nameOf(slot.seat)}
-              {slot.choosing ? <em> · choosing</em> : null}
+              {slot.seat === mySeat ? "You" : compact ? nameOf(slot.seat).split(" ")[0] : nameOf(slot.seat)}
+              {slot.choosing && !compact ? <em> · choosing</em> : null}
             </span>
           </span>
         );
