@@ -342,6 +342,46 @@ const SPECS: EffectSpec[] = [
     p0End: { monsters: ["Battle Ox"], spells: [], hand: [], grave: ["Giant Rat"] },
     tgtEnd: { monsters: ["Abyss Actor - Liberty Dramatist"], grave: ["Kuriboh"] },
   },
+  {
+    code: 40343749, name: "House Duston", slug: "house-duston", does: "Special Summons a Duston to its controller and a Duston to the opponent that destroyed it by battle",
+    attackFirstTurn: true,
+    noPick: true,
+    tgt: { monsters: ["Battle Ox"] },
+    p0: { monsters: [{ card: "House Duston", pos: "def" }], deck: ["Blue Duston", "Red Duston"] },
+    steps: (roles) => [
+      ...(["p0", "p1", "p2", "p3"] as const).slice(0, (["p0", "p1", "p2", "p3"] as const).indexOf(roles.tgt)).map((seat) => endTurn(seat)),
+      attack("Battle Ox", { card: "House Duston", owner: "p0" }, roles.tgt),
+      yes("p0"),
+      select("Blue Duston"),
+    ],
+    p0End: { monsters: ["Blue Duston"], grave: ["House Duston"] },
+    tgtEnd: { monsters: ["Battle Ox", "Red Duston"] },
+  },
+  {
+    code: 3685372, name: "Gimmick Puppet Fanatix Machinix", slug: "gimmick-puppet-fanatix-machinix", does: "Special Summons a monster from a Graveyard in Defense Position",
+    p0: { monsters: [{ card: "CXyz Gimmick Puppet Fanatix Machinix", materials: [ELF, ELF, ELF] }], grave: ["Kuriboh"] },
+    steps: [activate("CXyz Gimmick Puppet Fanatix Machinix", "p0")],
+    then: [select(ELF), select("Kuriboh")],
+    p0End: { monsters: ["CXyz Gimmick Puppet Fanatix Machinix"], grave: [ELF] },
+    gain: { monsters: ["Kuriboh"] },
+  },
+  {
+    code: 47126872, name: "Space-Time Police", slug: "space-time-police", does: "Sets the monster it banished (of p1) on the field of the opponent that destroyed it, when it leaves the field",
+    attackFirstTurn: true,
+    noPick: true,
+    p0: { hand: ["Monster Reborn"], grave: ["Space-Time Police"] },
+    tgt: { monsters: [MAGICIAN, ELF] },
+    steps: (roles) => [
+      activate("Monster Reborn", "p0"),
+      select({ card: ELF, owner: roles.others[0] }),
+      ...(["p0", "p1", "p2", "p3"] as const).slice(0, (["p0", "p1", "p2", "p3"] as const).indexOf(roles.tgt)).map((seat) => endTurn(seat)),
+      attack(MAGICIAN, { card: "Space-Time Police", owner: "p0" }, roles.tgt),
+    ],
+    p0End: (roles) => ({ hand: [], grave: ["Monster Reborn", "Space-Time Police"], lp: roles.format === "tag" ? 15800 : 7800 }),
+    tgtEnd: { monsters: [MAGICIAN, ELF, ELF] },
+    seatEnd: { p1: { monsters: [] } },
+    partnerEnd: { monsters: ["Battle Ox"], lp: 15800 },
+  },
 ];
 
 export const MONSTER_EFFECT_SCENARIOS = SPECS.flatMap(effectScenarios);

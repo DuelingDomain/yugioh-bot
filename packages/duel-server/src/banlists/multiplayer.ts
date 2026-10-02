@@ -384,6 +384,9 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   59900655: ["ffa3", "ffa4", "tag"], // Gold Pride - Nytro Head
   63013339: ["ffa3", "ffa4", "tag"], // Sky Striker Ace - Camellia
   65477143: ["ffa3", "ffa4", "tag"], // Abyss Actor - Liberty Dramatist
+  40343749: ["ffa3", "ffa4", "tag"], // House Duston
+  3685372: ["ffa3", "ffa4", "tag"], // CXyz Gimmick Puppet Fanatix Machinix
+  47126872: ["ffa3", "ffa4", "tag"], // Space-Time Police
 };
 
 export const MULTIPLAYER_CARD_RULES: readonly MultiplayerCardRule[] = CARD_RULE_DRAFTS.map((draft) => {

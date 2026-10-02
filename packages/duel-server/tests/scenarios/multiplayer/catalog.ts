@@ -1375,4 +1375,19 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "opponent-field-effects-ffa4-abyss-actor-liberty-dramatist-goes-to-the-picked-opponent",
     "opponent-field-effects-tag-abyss-actor-liberty-dramatist-goes-to-an-opposing-member",
   ], // Abyss Actor - Liberty Dramatist
+  40343749: [
+    "opponent-field-effects-ffa3-house-duston-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-house-duston-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-house-duston-goes-to-an-opposing-member",
+  ], // House Duston
+  3685372: [
+    "opponent-field-effects-ffa3-gimmick-puppet-fanatix-machinix-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-gimmick-puppet-fanatix-machinix-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-gimmick-puppet-fanatix-machinix-goes-to-an-opposing-member",
+  ], // CXyz Gimmick Puppet Fanatix Machinix
+  47126872: [
+    "opponent-field-effects-ffa3-space-time-police-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-space-time-police-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-space-time-police-goes-to-an-opposing-member",
+  ], // Space-Time Police
 };
