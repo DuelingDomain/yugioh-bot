@@ -37,8 +37,8 @@ export interface DuelGameWorker {
   view(seat: number | null): Promise<DuelEngineView>;
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
   search(query: string): Promise<DuelCardInfo[]>;
-  /** Remove a duelist from a duel with more than two seats. Rejects when the core has no `Debug.EliminateDuelist`. Optional so that test doubles may omit it (the host then uses autopilot). */
-  eliminate?(seat: number, reason: number): Promise<void>;
+  /** Flag a core loss, or queue it until the turn ends. New queued surrenders require this method. */
+  eliminate?(seat: number, reason: number, atTurnEnd?: boolean): Promise<void>;
   /** The engine's triage ring buffer (host report only). */
   diagnostics?(): Promise<EngineDiagnostic[]>;
   /** Worker state for debug-trace, reports and the stall watchdog. Optional so that test doubles may omit it. */
@@ -123,8 +123,8 @@ export class GameWorker implements DuelGameWorker {
     return this.request({ op: "search", query });
   }
 
-  eliminate(seat: number, reason: number): Promise<void> {
-    return this.request({ op: "eliminate", seat, reason });
+  eliminate(seat: number, reason: number, atTurnEnd = false): Promise<void> {
+    return this.request({ op: "eliminate", seat, reason, atTurnEnd });
   }
 
   diagnostics(): Promise<EngineDiagnostic[]> {

@@ -22,7 +22,7 @@ import { describeFailure } from "../tests/fuzz/failures.js";
 import { runDuel } from "../tests/fuzz/driver.js";
 import { runAndVerify } from "../tests/fuzz/run-one.js";
 import type { DuelMasterRule, DuelMode } from "@yugidraft/shared/duels";
-import { createEngineGame, eliminationCodeOf, registerDomainCoreFactory } from "../src/engine.js";
+import { createEngineGame, eliminationCodeOf, eliminationAtTurnEnd, registerDomainCoreFactory } from "../src/engine.js";
 import { createDomainCore } from "../src/domain-core.js";
 import { readViews } from "../tests/fuzz/driver.js";
 import { viewsHash } from "../tests/fuzz/invariants.js";
@@ -66,7 +66,7 @@ async function replayDifferentialFile(saved: DifferentialFile, dataDirectory: st
         if (elimination === null && view.prompt?.id !== command.promptId) throw new Error(`journal entry ${i}: prompt ${view.prompt?.id ?? "none"}, journal ${command.promptId}`);
         if (process.argv.includes("--trace")) console.log(`  ${i}: seat ${command.seat} ${command.promptId} ${JSON.stringify(command.answer)}`);
         if (elimination === null) game.answer(command.seat, command.promptId, command.answer);
-        else game.eliminate(command.seat, elimination);
+        else game.eliminate(command.seat, elimination, eliminationAtTurnEnd(command.promptId));
       }
       const views = readViews(game);
       console.log(`replay done: turn ${views.v0.turn}, result ${JSON.stringify(views.v0.result)}, final views hash ${viewsHash(views)}`);

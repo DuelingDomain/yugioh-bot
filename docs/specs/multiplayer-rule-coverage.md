@@ -11,6 +11,8 @@ each part that adds an outcome scenario removes its entries. `--strict` fails on
 on a stale entry, and on a scenario that declares `rules` with no outcome assert.
 The forbidden-list rule has one host exception: `tests/host-rule-forbidden.test.ts`. It checks a forbidden deck at every seat
 through real lobby validation and start, then starts the legal table on the real Standard and Domain engine in all three formats.
+The surrender rule has a host proof too: `tests/host-surrender-eot.test.ts`. Real workers check all three formats on both cores,
+with End Phase prompts, open chains, recovery, replay, pass answers, and spectator views after elimination.
 
 A rule id is one unit: if a rule has several clauses, one tested clause is enough to mark it covered. The marker does not check
 which clauses a scenario proves, so read the scenario before you trust a rule that has more than one clause. When a covered rule
@@ -19,7 +21,7 @@ has clauses that no scenario proves, `scripts/rule-coverage-partial.json` says s
 The outcome scenarios in `tests/scenarios/multiplayer/nseat-scenarios.ts` run on a real engine only with `NSEAT_LIVE=1` and a
 multi core that has `Debug.SetupDuelists`. Until the live core is the default (and the gate is removed), a default `npm test` skips them.
 
-Summary: 38 rules. 32 covered by an outcome scenario, 6 pending (allow-list), 0 with no test and no allow-list entry. 63 catalog sketches are still pending (not counted).
+Summary: 39 rules. 33 covered by an outcome scenario, 6 pending (allow-list), 0 with no test and no allow-list entry. 63 catalog sketches are still pending (not counted).
 
 | Rule | Text | Status | Outcome scenarios | Listed, not counted |
 | --- | --- | --- | --- | --- |
@@ -33,6 +35,7 @@ Summary: 38 rules. 32 covered by an outcome scenario, 6 pending (allow-list), 0 
 | `R-COMMON-EMZ` | Separate Extra Monster Zones (FFA3 and Tag). Each duelist has their own two Extra Monst... | covered | `emz-ffa3-every-seat-left-and-own-link-arrow`, `emz-ffa3-every-seat-right-and-own-link-arrow`, `emz-ffa3-colink-is-local-p0`, `emz-ffa3-colink-is-local-p2`, `emz-ffa3-columns-stay-on-each-seat`, `emz-ffa3-arrow-viewer-p0`, and 42 more | - |
 | `R-COMMON-FL-LIST` | The Forbidden & Limited List applies per duelist (per Deck). | covered | `tests/host-rule-forbidden.test.ts` | - |
 | `R-COMMON-SEAT-STATE` | Per-player flags and counters (owner decision Q6). A flag or counter that a card keeps... | covered | `aa-zeus-ffa3-p2-xyz-battle-permits-summon`, `aa-zeus-ffa3-p2-non-xyz-battle-does-not-permit-summon`, `aa-zeus-ffa4-p3-xyz-battle-permits-summon`, `aa-zeus-ffa4-p3-non-xyz-battle-does-not-permit-summon`, `aa-zeus-tag-p3-xyz-battle-permits-summon`, `aa-zeus-tag-p3-non-xyz-battle-does-not-permit-summon`, and 450 more | - |
+| `R-COMMON-SURRENDER-EOT` | Surrender at the end of the turn (owner rule, 2026-10-02). In Tag, FFA3 and FFA4, surre... | covered | `tests/host-surrender-eot.test.ts` | - |
 | `R-TAG-LP` | Two teams of two duelists. Each team shares one LP total, equal to the sum of its membe... | covered | `domain-nseat-stress-tag-recovery-goes-to-late-seat-or-its-team`, `domain-nseat-stress-tag-simultaneous-team-loss-is-a-draw`, `domain-tag-return-tax-p2-zero-500-1000`, `domain-tag-return-tax-p3-zero-500-1000`, `lp-pair-tag-tri-and-guess-pick-from-opposing-team-team-recovers`, `nseat-tag-team-lp`, and 6 more | `src/presets/tag-lp-solemn-partner.ts` (preset) |
 | `R-TAG-ORDER` | Turn order is 1A, 2A, 1B, 2B. First draws follow R-FFA-FIRST-DRAW. The first three duel... | covered | `r3-tag-appointer-of-the-red-lotus-card-returns-to-the-picked-opponent-at-the-end-of-the-next-opposing-turn`, `r3-tag-depth-amulet-partner-turn-does-not-count`, `nseat-tag-first-battle-turn-4`, `nseat-tag-deck-and-turn-order`, `r3-tag-steelcage-partner-turn-does-not-count`, `rule-proof-tag-first-draw-control`, and 9 more | - |
 | `R-TAG-SHARED-CARDS` | "You control", "your field" and "your Graveyard" include your partner's cards. "Your ha... | covered | `banquet-return-owner-tag`, `fabled-unicore-counts-tag-matching-count`, `fabled-unicore-counts-tag-unequal-team-total`, `grass-tag-declared-deck-p1-sizes-5-and-3`, `grass-tag-declared-deck-p3-sizes-5-and-3`, `gumblar-hand-binding-tag-hand-selection`, and 50 more | 1 catalog sketch |

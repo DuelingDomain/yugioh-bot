@@ -15,9 +15,10 @@
 // from the table this script makes. Without --strict the exit code is always 0.
 // One tested clause is enough to mark the whole rule id as covered: the marker cannot see which clauses of a rule a scenario checks.
 // A covered rule with clauses that no scenario proves is listed in scripts/rule-coverage-partial.json (rule id -> what is not proven).
+// The host proofs below use real workers for rules that need host actions.
 // R-COMMON-FL-LIST has one explicit host exception. tests/host-rule-forbidden.test.ts uses real deck validation, refuses a start
 // with a forbidden deck at EVERY seat in each format, then starts the repaired table on the real Standard or Domain engine.
-// A duel DSL setup cannot prove this rule: its decks deliberately skip lobby validation. No other host or unit test counts.
+// A duel DSL setup cannot prove this rule: its decks deliberately skip lobby validation. The surrender proof in tests/host-surrender-eot.test.ts also counts. Other host and unit tests do not count.
 // The table shows it as "covered (partial: ...)". --strict fails on a partial entry for a rule that is not covered or not in the ADR.
 // Usage: npx tsx scripts/rule-coverage.ts [--strict] [--check]   (--check: write nothing, compare the doc with the table)
 
@@ -175,6 +176,8 @@ export function renderTable(rows: RuleRow[], sketchEntries: number): string {
     "on a stale entry, and on a scenario that declares `rules` with no outcome assert.",
     "The forbidden-list rule has one host exception: `tests/host-rule-forbidden.test.ts`. It checks a forbidden deck at every seat",
     "through real lobby validation and start, then starts the legal table on the real Standard and Domain engine in all three formats.",
+    "The surrender rule has a host proof too: `tests/host-surrender-eot.test.ts`. Real workers check all three formats on both cores,",
+    "with End Phase prompts, open chains, recovery, replay, pass answers, and spectator views after elimination.",
     "",
     "A rule id is one unit: if a rule has several clauses, one tested clause is enough to mark it covered. The marker does not check",
     "which clauses a scenario proves, so read the scenario before you trust a rule that has more than one clause. When a covered rule",
@@ -295,6 +298,11 @@ export async function collect(root = packageRoot) {
   const hostPath = join(root, hostProof);
   if (existsSync(hostPath) && readFileSync(hostPath, "utf8").includes("R-COMMON-FL-LIST: $mode $format refuses seat $seat and starts after repair")) {
     refs.push({ rule: "R-COMMON-FL-LIST", ref: { test: hostProof, kind: "host-outcome" } });
+  }
+  const surrenderProof = "tests/host-surrender-eot.test.ts";
+  const surrenderPath = join(root, surrenderProof);
+  if (existsSync(surrenderPath) && readFileSync(surrenderPath, "utf8").includes("R-COMMON-SURRENDER-EOT: %s stays through the End Phase and recovers the queue")) {
+    refs.push({ rule: "R-COMMON-SURRENDER-EOT", ref: { test: surrenderProof, kind: "host-outcome" } });
   }
   for (const file of presetFiles(root)) {
     const name = relative(root, file);

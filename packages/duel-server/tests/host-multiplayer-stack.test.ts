@@ -109,10 +109,26 @@ for (const mode of ["normal", "domain"] as const) {
             if (mode === "domain") expect(seat.deckMaster).toMatchObject({ card: { code: deck.deckMaster }, inZone: true, returns: 0 });
           }
         }
-        for (let seat = count - 1; seat >= 1 && t.service.get(session.slug, "g").status === "active"; seat--) {
+        for (const seat of (format === "tag" ? [1] : Array.from({ length: count - 1 }, (_, i) => count - 1 - i))) {
           expect((await t.post("surrender", { slug: session.slug }, seat)).status).toBe(200);
         }
-        const result = format === "tag" ? { winnerSeat: 0, winnerTeam: 0, reason: "Surrender" } : { winnerSeat: 0, reason: "Surrender" };
+        if (t.service.get(session.slug, "g").status === "active") {
+          for (let step = 0; step < 30 && t.service.get(session.slug, "g").status === "active"; step++) {
+            let answered = false;
+            for (let seat = 0; seat < count; seat++) {
+              const room = await t.post("view", { slug: session.slug }, seat);
+              const view = room.data.engine;
+              if (view?.prompt) {
+                expect((await t.post("respond", { slug: session.slug, command: { promptId: view.prompt.id,
+                  revision: view.revision, answer: chooseSurrenderedAnswer(view.prompt) } }, seat)).status).toBe(200);
+                answered = true;
+                break;
+              }
+            }
+            expect(answered).toBe(true);
+          }
+        }
+        const result = format === "tag" ? { winnerSeat: 0, winnerTeam: 0, reason: "Surrendered" } : { winnerSeat: 0, reason: "Surrendered" };
         for (let seat = 0; seat < count; seat++) {
           const final = await t.post("view", { slug: session.slug }, seat);
           expect(final.status).toBe(200);

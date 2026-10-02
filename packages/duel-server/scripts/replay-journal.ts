@@ -26,7 +26,7 @@ import { parseJournalText } from "./lib/journal-file.js";
 import { join } from "node:path";
 import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, seatCountFor, type DuelAnswer, type DuelDeck, type DuelFormat, type DuelMasterRule, type DuelMode } from "@yugidraft/shared/duels";
 import { engineDataDirectory } from "../tests/fuzz/config.js";
-import { createEngineGame, eliminationCodeOf } from "../src/engine.js";
+import { createEngineGame, eliminationCodeOf, eliminationAtTurnEnd } from "../src/engine.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { savedFirstTurnDraw } from "../src/first-turn-draw.js";
 
@@ -139,7 +139,7 @@ try {
     if (process.argv.includes("--trace")) log(`  ${done}: seat ${seat} ${command.promptId} "${view.prompt?.title ?? "(elimination)"}" ${JSON.stringify(command.answer)}`);
     // A host-driven elimination (FFA surrender or time loss) is journaled like an answer.
     if (elimination === null) game.answer(seat, command.promptId, command.answer);
-    else game.eliminate(seat, elimination);
+    else game.eliminate(seat, elimination, eliminationAtTurnEnd(command.promptId));
     if (asJson) sample(done + 1);
   }
   if (!failed) log(`replayed ${done} of ${journal.commands.length} answers`);

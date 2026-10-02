@@ -18,7 +18,7 @@ import type {
   DuelSettings,
 } from "@yugidraft/shared/duels";
 import { multiplayerTableBlockReason, opponentSeatsOf, seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
-import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf } from "./engine.js";
+import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, ELIMINATE_EOT_PROMPT_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { inspectDeck, validateDeck } from "./deck-legality.js";
 import { normalizeImportedDeck } from "./deck-import.js";
@@ -102,9 +102,8 @@ type LiveGame = {
   lastRequestAt: number;
   guildId: string;
   /**
-   * Seats that surrendered or ran out of time in a table with more than two seats. The core has no
-   * "leave the duel" call yet, so the host keeps them in the game and passes for them (autopilot).
-   * Saved in the duel setup so a recover restores it.
+   * Seats whose prompts the host answers with passes after a surrender.
+   * Queue commands restore these seats after recovery. Old cores also use the saved setup field.
    */
   surrendered: Set<number>;
   /** Scripted bot rules by seat (hand scenarios). Seats not in the map play like the random practice bot. */
@@ -457,6 +456,7 @@ export function createDuelHost(options: {
     game: DuelGameWorker,
     decidedAt: number,
     note?: string,
+    surrenderedSeats?: number[],
   ): Promise<void> {
     const state = service.privateState(slug, guildId);
     const view = await readClockView(game, seatCountFor(state.session.format), games.get(slug)?.surrendered);
@@ -470,7 +470,10 @@ export function createDuelHost(options: {
       isSeatIndex(seat) ? seat : undefined,
     );
     // The journal keeps the reason of a scripted bot in `note`. Replay reads only promptId, revision and answer.
-    service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock);
+    options.db.transaction(() => {
+      service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock);
+      if (surrenderedSeats) service.setSetup(slug, guildId, { ...(state.setup ?? {}), surrenderedSeats });
+    })();
   }
 
   /** Stop a long duel once no human can play. This is an interruption, not a game draw. */
@@ -853,7 +856,7 @@ export function createDuelHost(options: {
         }
         try {
           if (elimination === null) await game.answer(input.seat, input.command.promptId, input.command.answer);
-          else if (game.eliminate) await game.eliminate(input.seat, elimination);
+          else if (game.eliminate) await game.eliminate(input.seat, elimination, eliminationAtTurnEnd(input.command.promptId));
           else throw new ReplayMismatchError("Duel recovery needs an engine that can eliminate a duelist");
         } catch (error) {
           if (error instanceof ReplayMismatchError) throw error;
@@ -877,7 +880,10 @@ export function createDuelHost(options: {
       game,
       lastRequestAt: now(),
       guildId,
-      surrendered: new Set(state.setup?.surrenderedSeats ?? []),
+      surrendered: new Set([
+        ...(state.setup?.surrenderedSeats ?? []),
+        ...state.commands.filter((input) => eliminationAtTurnEnd(input.command.promptId)).map((input) => input.seat),
+      ]),
       policies: policiesOf(state.setup),
       traces: new Map(),
     });
@@ -887,13 +893,14 @@ export function createDuelHost(options: {
 
   /**
    * Remove a seat from a duel with more than two seats through the core (`Debug.EliminateDuelist`).
-   * Returns false when the core cannot do it: the caller then keeps the seat on autopilot.
+   * Returns false when the core cannot do it. Keep the old fallback for time losses;
+   * refuse a new queued surrender when the core has no loss function.
    */
-  async function eliminateInCore(slug: string, guildId: string, game: DuelGameWorker, seat: number, code: number): Promise<boolean> {
+  async function eliminateInCore(slug: string, guildId: string, game: DuelGameWorker, seat: number, code: number, atTurnEnd = false): Promise<boolean> {
     if (typeof game.eliminate !== "function") return false;
     const before = await game.view(seat);
     try {
-      await game.eliminate(seat, code);
+      await game.eliminate(seat, code, atTurnEnd);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Engine rejected the elimination";
       if (/no Debug\.EliminateDuelist/.test(message)) return false;
@@ -901,9 +908,10 @@ export function createDuelHost(options: {
       if (!game.running) throw new RequestError(message, 503);
       throw new RequestError(message, 409);
     }
-    const command: DuelCommand = { promptId: `${ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
+    const command: DuelCommand = { promptId: `${atTurnEnd ? ELIMINATE_EOT_PROMPT_PREFIX : ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
     try {
-      await persistAcceptedCommand(slug, guildId, seat, command, game, now());
+      const surrenderedSeats = atTurnEnd ? [...games.get(slug)!.surrendered].sort((a, b) => a - b) : undefined;
+      await persistAcceptedCommand(slug, guildId, seat, command, game, now(), undefined, surrenderedSeats);
     } catch (error) {
       // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.
       await disposeGame(slug);
@@ -914,9 +922,8 @@ export function createDuelHost(options: {
 
   /**
    * A seat gives up (surrender or time limit).
-   * - 1v1: the other seat wins. Tag: the team is the unit, the other team wins (winner seat = its lowest seat).
-   * - FFA (3 or 4 seats): only this seat is out. The host records it and plays its prompts with passes
-   *   (only when the core has no `Debug.EliminateDuelist`; otherwise the core removes it). The last living seat wins.
+   * 1v1 surrender and Tag time losses end the duel at once. A multiplayer surrender with no
+   * open chain is queued until the turn ends. An open-chain surrender uses the current core loss rule.
    */
   async function forfeitSeat(
     slug: string,
@@ -932,7 +939,7 @@ export function createDuelHost(options: {
       await persistComplete(slug, guildId, game, null, reason);
       return;
     }
-    if (format === "1v1" || format === "tag") {
+    if (format === "1v1" || (format === "tag" && reason === TIME_LIMIT_REASON)) {
       const winner = opponentSeatsOf(format, seat)[0];
       if (winner === undefined) throw new RequestError("Opponent is missing", 409);
       await persistComplete(slug, guildId, game, winner, reason);
@@ -940,6 +947,24 @@ export function createDuelHost(options: {
     }
     const entry = games.get(slug);
     if (!entry) throw new RequestError("Duel is not running", 409);
+    if (entry.surrendered.has(seat)) return;
+    const before = await game.view(seat);
+    if (before.seats?.find((view) => view.seat === seat)?.eliminated) return;
+    const atTurnEnd = reason !== TIME_LIMIT_REASON && (before.chain?.length ?? 0) === 0;
+    if (atTurnEnd) {
+      entry.surrendered.add(seat);
+      try {
+        if (!(await eliminateInCore(slug, guildId, game, seat, WIN_REASON_SURRENDER, true))) {
+          throw new RequestError("This engine cannot queue a surrender until the turn ends", 409);
+        }
+      } catch (error) {
+        entry.surrendered.delete(seat);
+        throw error;
+      }
+      await emitChange(slug, guildId);
+      if (drive) await driveBot(slug, guildId, game);
+      return;
+    }
     if (!entry.surrendered.has(seat) && (await eliminateInCore(slug, guildId, game, seat, reason === TIME_LIMIT_REASON ? WIN_REASON_TIME_LIMIT : WIN_REASON_SURRENDER))) {
       // The core removed the seat (journaled like an answer). The last duelist standing ends the duel.
       const after = await game.view(0);
@@ -947,10 +972,9 @@ export function createDuelHost(options: {
         await persistComplete(slug, guildId, game, after.result.winnerSeat, reason);
         return;
       }
-      // The loss of a seat that is flagged lands only after the open prompt is answered, and that prompt may belong to the last
-      // living seat. That seat has already won: do not wait for its answer (a time limit on it would end the duel as a draw).
+      // Keep the current final-seat rule for time-limit losses. A surrender waits for the chain to end.
       const { living } = botTableOf(after);
-      if (living?.length === 1) {
+      if (reason === TIME_LIMIT_REASON && format !== "tag" && living?.length === 1) {
         await persistComplete(slug, guildId, game, living[0] ?? null, reason);
         return;
       }
@@ -1004,19 +1028,44 @@ export function createDuelHost(options: {
 
   async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker): Promise<DuelRoom> {
     const room = stampRoomClock(service.room(slug, guildId, playerId), now());
+    const setup = service.privateState(slug, guildId);
+    const queued = new Set(setup.commands.filter((input) => eliminationAtTurnEnd(input.command.promptId)).map((input) => input.seat));
+    const markLegacyLosses = (view: DuelEngineView | null) => {
+      for (const gone of setup.setup?.surrenderedSeats ?? []) {
+        if (queued.has(gone)) continue;
+        const seat = view?.seats.find((seat) => seat.seat === gone);
+        if (seat) seat.eliminated = true;
+      }
+    };
     if (game && game.running && room.session.status === "active") {
       room.engine = await game.view(room.mySeat);
-      rememberView(slug, room.mySeat, room.engine);
-      // Surrendered seats stay in the core on autopilot. Show them as out of the game.
-      for (const gone of games.get(slug)?.surrendered ?? []) {
-        const seatView = room.engine.seats?.find((entry) => entry.seat === gone);
-        if (seatView) seatView.eliminated = true;
-      }
+      markLegacyLosses(room.engine);
       if (room.engine.result) {
         await persistComplete(slug, guildId, game, room.engine.result.winnerSeat, room.engine.result.reason);
-        return stampRoomClock(service.room(slug, guildId, playerId), now());
+        return project(slug, guildId, playerId);
       }
     }
+    // An interruption can have no final board. Do not restore a surrendered player's private view.
+    const savedLosses = new Set([
+      ...(setup.setup?.surrenderedSeats ?? []),
+      ...setup.commands.filter((input) => eliminationReasonOf(input.command) !== null).map((input) => input.seat),
+    ]);
+    const noBoardLoss = room.engine === null && room.session.status === "interrupted" && room.session.format !== "1v1"
+      && [...savedLosses].some((gone) => room.session.format === "tag"
+        ? teamOfSeat("tag", gone) === teamOfSeat("tag", room.mySeat ?? -1)
+        : gone === room.mySeat);
+    if (room.mySeat !== null && (room.engine?.seats.find((seat) => seat.seat === room.mySeat)?.eliminated || noBoardLoss)) {
+      room.role = "spectator";
+      room.mySeat = null;
+      room.myDeck = null;
+      if (game?.running && room.session.status === "active") room.engine = await game.view(null);
+      else {
+        const snapshot = options.db.prepare("select snapshot_public_json from duels where id = ?").get(room.session.id) as { snapshot_public_json: string | null };
+        room.engine = snapshot.snapshot_public_json ? JSON.parse(snapshot.snapshot_public_json) : null;
+      }
+    }
+    markLegacyLosses(room.engine);
+    rememberView(slug, room.mySeat, room.engine);
     return room;
   }
 
@@ -1074,7 +1123,7 @@ export function createDuelHost(options: {
           if (before.revision !== input.command.revision || (elimination === null && before.prompt?.id !== input.command.promptId)) throw mismatch();
           try {
             if (elimination === null) await game.answer(input.seat, input.command.promptId, input.command.answer);
-            else if (game.eliminate) await game.eliminate(input.seat, elimination);
+            else if (game.eliminate) await game.eliminate(input.seat, elimination, eliminationAtTurnEnd(input.command.promptId));
             else throw mismatch();
           } catch (error) {
             if (error instanceof RequestError) throw error;
@@ -1340,6 +1389,7 @@ export function createDuelHost(options: {
     ];
     const markerAt = new Map<number, number>();
     for (const seat of state.setup?.surrenderedSeats ?? []) {
+      if (state.commands.some((entry) => entry.seat === seat && eliminationAtTurnEnd(entry.command.promptId))) continue;
       const index = state.commands.findIndex((entry) => entry.seat === seat && (entry.command as { note?: string }).note === SURRENDER_AUTOPILOT_NOTE);
       markerAt.set(seat, index >= 0 ? index + 1 : state.commands.length + 1);
     }
@@ -1480,9 +1530,17 @@ export function createDuelHost(options: {
   function staleRoom(slug: string, guildId: string, actor: number): (DuelRoom & { stale: true }) | null {
     const room = stampRoomClock(service.room(slug, guildId, actor), now());
     if (room.session.status !== "active") return null;
-    const view = lastViews.get(slug)?.get(room.mySeat ?? -1);
+    const cached = lastViews.get(slug);
+    const view = cached?.get(room.mySeat ?? -1);
     if (!view) return null;
     room.engine = view;
+    const publicView = cached?.get(-1);
+    if (room.mySeat !== null && [...cached!.values()].some((known) => known.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated))) {
+      room.role = "spectator";
+      room.mySeat = null;
+      room.myDeck = null;
+      room.engine = publicView ?? null;
+    }
     return { ...room, stale: true };
   }
 
@@ -1676,7 +1734,7 @@ export function createDuelHost(options: {
     }
     if (op === "report") return writeReport(slug, guildId, actor, body.note, ctl);
     if (op === "debug-trace") return debugTrace(slug, guildId, actor);
-    if (op === "replay") return replay(slug, guildId, room);
+    if (op === "replay") return replay(slug, guildId, await project(slug, guildId, actor));
     if (room.mySeat === null) throw new RequestError("Join this duel first", 403);
     const seat = room.mySeat;
     if (op === "deck" || op === "validate-deck") {
