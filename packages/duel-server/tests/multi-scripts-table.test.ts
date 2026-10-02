@@ -27,12 +27,14 @@ import { liveNseat } from "./support/live-nseat.js";
 // The debug core is not in git. Build it with
 //   MULTI_TREE=<tree> OUT_NAME=ocgcore.multi-<tag>-trap.sync.wasm EXTRA_CXXFLAGS=-DYGO_N_TRAP scripts/build-multi-core.sh
 // and put the file in domain-core/dist (the tag is CURRENT_MULTI_TAG of tests/support/cores.ts), or name it with TABLE_TRAP_WASM.
+// NSEAT_WASM selects another real core (for example the installed Domain core); TABLE_TRAP_WASM takes precedence.
+// Trap diagnostics are checked when the selected core emits them. The default remains the debug core.
 // Without it the live table is skipped; with DUEL_REQUIRE_CORES=1 (CI, npm run test:engine) the missing file FAILS. CI builds it in the cores job.
 
-const TRAP_WASM = process.env.TABLE_TRAP_WASM
-  ? resolve(process.env.TABLE_TRAP_WASM)
+const TRAP_WASM = process.env.TABLE_TRAP_WASM || process.env.NSEAT_WASM
+  ? resolve((process.env.TABLE_TRAP_WASM ?? process.env.NSEAT_WASM)!)
   : fileURLToPath(new URL(`../domain-core/dist/ocgcore.multi-${CURRENT_MULTI_TAG}-trap.sync.wasm`, import.meta.url));
-const trapWasm = needs.file("debug multi core (-DYGO_N_TRAP)", TRAP_WASM, "Build it with EXTRA_CXXFLAGS=-DYGO_N_TRAP (see the head of tests/multi-scripts-table.test.ts) or set TABLE_TRAP_WASM.");
+const trapWasm = needs.file("table multi core (default: -DYGO_N_TRAP)", TRAP_WASM, "Build it with EXTRA_CXXFLAGS=-DYGO_N_TRAP (see the head of tests/multi-scripts-table.test.ts), or set TABLE_TRAP_WASM or NSEAT_WASM.");
 
 const overlayDirectory = process.env.TABLE_OVERLAY ? resolve(process.env.TABLE_OVERLAY) : OVERLAY_DIRECTORY;
 const manifest = readManifest(overlayDirectory);
@@ -119,6 +121,12 @@ const NO_CONDITION_RUN: Record<number, string> = {
   23639291: "Raging Cloudian: a Trap on a custom event that a global watcher raises after a Cloudian monster is destroyed by its own effect; the generic game has no Cloudian (tests/scenarios/multiplayer/r2-checks.ts plays it)",
   5010422: "Prediction Princess Astromorrigan: a Flip effect whose only function is an End Phase operation registered at the flip (the table runs no operation); the generic game does not flip a Set monster",
   35059553: "Kaiser Colosseum: the card has no condition, target or cost function (only SetTargetRange values), so there is nothing for the table to see",
+  18654201: "Criosphinx: hdtg runs on a custom event after a monster returns from the field to the hand; the generic game has no return effect (criosphinx.ts proves the event and every seat)",
+  44155002: "The Fabled Unicore: its negate effect has only a continuous operation; its Synchro procedure needs a Fabled Tuner that the generic board does not have (fabled-unicore-counts.ts proves its operation and every seat)",
+  54635100: "Linkerbell: its summon cost runs for a Link Summon with at least three more Extra Deck cards than an opponent; the generic board has only Linkerbell in the Extra Deck (opponent-count-gates.ts proves the summon and every seat)",
+  59011257: "Fallin' Cheatah: ctrltg runs on a custom event after an opponent Special Summons a monster; no such event reaches it in the generic game (cheatah-controller.ts proves the event and every seat)",
+  71315423: "Worm Millidith: eqtg runs on a Flip and damtg runs after it equips; the generic board starts it face-up and does not flip a Set monster (worm-table-p68.test.ts proves the equip, damage and every seat)",
+  83819309: "Cooling Embers: its targets run after a duelist gains LP (EVENT_RECOVER); the generic game has no LP gain effect (cooling-embers.test.ts proves the trigger and every seat)",
   // R2 cards. Their global effects and flags load and run (no Lua error, no trap U or c); only a condition, target or cost never ran.
   3900605: "Absorbing Jar: the target is a Flip effect and the rest are continuous Summon and Set locks; the generic game does not flip a Set monster",
   18114794: "Summon Breaker: a Field Spell whose trigger is a custom event raised by a global effect after a Normal or Flip Summon; no such event reaches its condition",
