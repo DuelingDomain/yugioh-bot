@@ -18,6 +18,7 @@ const NEEDS_ENGINE = [
   "tests/deck-legality-multiplayer.test.ts",
   "tests/deck-legality-settings.test.ts",
   "tests/deck-legality.test.ts",
+  "tests/domain-format-deck-rules.test.ts",
   "tests/scenarios/registry.test.ts",
   "tests/scenarios/multiplayer/catalog.test.ts",
   // the engine bundle manifest (the host reads it when it is made; the identity test hashes the legacy files)
@@ -40,6 +41,7 @@ const NEEDS_ENGINE = [
   "tests/engine.test.ts",
   "tests/failure-to-scenario.test.ts",
   "tests/host-bot-pacing.test.ts",
+  "tests/host-bot-turn-limit.test.ts",
   "tests/host-eliminate.test.ts",
   "tests/host-domain-multi-real.test.ts",
   "tests/host-nseat.test.ts",
@@ -47,6 +49,7 @@ const NEEDS_ENGINE = [
   "tests/host-series.test.ts",
   "tests/host-table-legality.test.ts",
   "tests/host.test.ts",
+  "tests/multi-scripts-table.test.ts",
   "tests/ocgcore-wrapper-abi.test.ts",
   "tests/practice-bot.test.ts",
   "tests/presets.test.ts",
@@ -62,6 +65,9 @@ const NEEDS_ENGINE = [
   "tests/scenarios/spells.test.ts",
   "tests/scenarios/summons.test.ts",
   "tests/scenarios/traps.test.ts",
+  "tests/scenarios/multiplayer/red-eyes-exceed.test.ts",
+  "tests/scenarios/multiplayer/swiftwind-panther-warrior.test.ts",
+  "tests/scenarios/multiplayer/nseat.test.ts",
   // main's engine tests, run against the legacy 1v1 engine (src/legacy): a Standard or Domain core each
   "tests/legacy-main/**",
 ];
