@@ -112,4 +112,96 @@ export const TAG_COPY_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
+  // Ultimate Sky: "if your opponent controls more monsters than you". In Tag the joined count of the opposing team is compared with the joined count
+  // of the own team, and the target cap is the joined face-up count of the opposing team.
+  defineScenario({
+    id: "tag-copies-ultimate-sky-joined-count-passes-no-single-member-does",
+    title: "Tag: the team of p0 controls 2 monsters, p1 controls 1 and p3 controls 2 (3 joined): Ultimate Sky is offered to p0 although no member alone has more, and it negates a monster of p1",
+    source: TAG_PARTNER,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "compare", "tag", "card:38817295"],
+    // Sangan of p1 is negated by the Sky: Offerings to the Doomed then destroys it and Sangan does NOT add a card (a Sangan that is not negated
+    // would offer p1 a search). The Sky costs 800 LP of the team of p0. Every other card of every seat is unchanged.
+    setup: {
+      format: "tag",
+      p0: { hand: [SKY, OFFERINGS], monsters: [ELF] },
+      p1: { monsters: [SANGAN] },
+      p2: { monsters: [RAT] },
+      p3: { monsters: [BUG, WITCH] },
+    },
+    steps: [
+      expectOffered("activate", SKY, "p0"),
+      activate(SKY, "p0"),
+      select(SANGAN),
+      expectBoard({ p0: { lp: 15200 }, p2: { lp: 15200 } }),
+      activate(OFFERINGS, "p0"),
+      select(SANGAN),
+      everyTagSeat(
+        {
+          p0: { hand: [], monsters: [ELF], grave: [SKY, OFFERINGS] },
+          p1: { hand: [], grave: [SANGAN] },
+          p2: { hand: [], monsters: [RAT] },
+          p3: { hand: [], monsters: [BUG, WITCH] },
+        },
+        { team0: 15200 },
+      ),
+    ],
+  }),
+  defineScenario({
+    id: "tag-copies-ultimate-sky-partner-is-offered-at-the-joined-count",
+    title: "Tag: Ultimate Sky is in the hand of the partner p2 and the team of p0 controls 2 monsters against 3 joined of p1 and p3: p2 is offered the Sky in its own turn and negates a monster of p3",
+    source: TAG_PARTNER,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "compare", "tag", "card:38817295"],
+    setup: {
+      format: "tag",
+      p0: { monsters: [ELF] },
+      p1: { monsters: [SANGAN] },
+      p2: { hand: [SKY, OFFERINGS], monsters: [RAT] },
+      p3: { monsters: [BUG, WITCH] },
+    },
+    steps: [
+      endTurn("p0"),
+      endTurn("p1"),
+      expectOffered("activate", SKY, "p2"),
+      activate(SKY, "p2"),
+      select(WITCH),
+      expectBoard({ p0: { lp: 15200 }, p2: { lp: 15200 } }),
+      activate(OFFERINGS, "p2"),
+      select(WITCH),
+      everyTagSeat(
+        {
+          p0: { hand: [], monsters: [ELF] },
+          p1: { hand: [ELF], monsters: [SANGAN] },
+          p2: { hand: [ELF], monsters: [RAT], grave: [SKY, OFFERINGS] },
+          p3: { hand: [], monsters: [BUG], grave: [WITCH] },
+        },
+        { team0: 15200 },
+      ),
+    ],
+  }),
+  defineScenario({
+    id: "tag-copies-ultimate-sky-equal-joined-counts-is-not-offered",
+    title: "Tag: the team of p0 controls 2 monsters and p1 and p3 control 1 each (2 joined, equal): Ultimate Sky is not offered to p0",
+    source: TAG_PARTNER,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "compare", "tag", "card:38817295"],
+    setup: {
+      format: "tag",
+      p0: { hand: [SKY], monsters: [ELF] },
+      p1: { monsters: [SANGAN] },
+      p2: { monsters: [RAT] },
+      p3: { monsters: [WITCH] },
+    },
+    steps: [
+      expectNotOffered("activate", SKY, "p0"),
+      endTurn("p0"),
+      everyTagSeat({
+        p0: { hand: [SKY], monsters: [ELF] },
+        p1: { hand: [ELF], monsters: [SANGAN] },
+        p2: { monsters: [RAT] },
+        p3: { monsters: [WITCH] },
+      }),
+    ],
+  }),
 ];
