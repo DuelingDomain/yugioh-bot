@@ -3160,6 +3160,18 @@
       }
     },
     {
+      "code": 51612489,
+      "file": "c51612489.lua",
+      "name": "Riot's Reason",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "cd367bebca09e0ed91b7e2cd1fead32c7a109f0fff1a7047a1a13cb1606c0c1c",
+      "note": "The returned card identifies the duelist who can select and summon from their own hand.",
+      "redefined": [
+        "rthop"
+      ]
+    },
+    {
       "code": 51869363,
       "file": "c51869363.lua",
       "name": "Superconductive Plasma Blast",
