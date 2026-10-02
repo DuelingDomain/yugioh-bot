@@ -5145,7 +5145,7 @@
       ],
       "r2Class": "FLAG-L0",
       "stockSha256": "7e9fec5c03f2ad168580a4c86d05c313593e0061d7507e8bac6fd186125c4d3b",
-      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+      "note": "The global destruction counter reaches every seat in FFA and every team in Tag. The hand summon condition reads the counter of its own holder, so a Tag holder on team 1 does not pick an opponent."
     },
     {
       "code": 93671934,

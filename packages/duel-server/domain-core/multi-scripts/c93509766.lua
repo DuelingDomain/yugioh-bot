@@ -5,6 +5,15 @@ if not aux.MPKey then return end
 local mp_wrapped={}
 local mp_initial=s.initial_effect
 function s.initial_effect(c)
+	local sc=Effect.SetCondition
+	Effect.SetCondition=function(e,fn)
+		if e:GetRange()==LOCATION_HAND then
+			return sc(e,function(e,tp)
+				return Duel.IsMainPhase() and Duel.HasFlagEffect(tp,id,2)
+			end)
+		end
+		return sc(e,fn)
+	end
 	local reg=Duel.RegisterEffect
 	Duel.RegisterEffect=function(e,p,...)
 		local op=e:GetOperation()
@@ -37,6 +46,7 @@ function s.initial_effect(c)
 		return reg(e,p,...)
 	end
 	local ok,err=pcall(mp_initial,c)
+	Effect.SetCondition=sc
 	Duel.RegisterEffect=reg
 	if not ok then error(err,0) end
 end
