@@ -331,7 +331,7 @@ export function CreateDraftForm() {
                     type="text"
                     value={templateName}
                     onChange={(e) => setTemplateName(e.target.value)}
-                    placeholder="Goat Cube"
+                    placeholder="Goat cube"
                   />
                 </div>
                 <button className="btn btn-secondary" type="button" onClick={handleSaveTemplate}>

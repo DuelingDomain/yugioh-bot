@@ -161,7 +161,9 @@ describe("CreateDraftForm", () => {
 
     render(<CreateDraftForm />);
 
-    fireEvent.change(await screen.findByLabelText(/save this pool as/i), { target: { value: "Goat Cube" } });
+    const poolName = await screen.findByLabelText(/save this pool as/i);
+    expect(poolName).toHaveAttribute("placeholder", "Goat cube");
+    fireEvent.change(poolName, { target: { value: "Goat Cube" } });
     fireEvent.change(screen.getByLabelText(/custom card ids/i), { target: { value: "46986414\n83764718" } });
     fireEvent.click(screen.getByRole("button", { name: /save pool/i }));
 

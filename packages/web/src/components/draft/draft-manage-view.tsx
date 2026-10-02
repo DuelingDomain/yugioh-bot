@@ -29,6 +29,7 @@ import {
 } from "./lobby/lobby-model";
 import styles from "./lobby/lobby.module.css";
 import { useInlineConfirm } from "./use-inline-confirm";
+import { MetaLine } from "./meta-line";
 
 interface DraftManageViewProps {
   draft: {
@@ -366,13 +367,12 @@ export function DraftManageView({
               )}
             </h1>
           )}
-          <p className="t-meta">
-            <span className="status"><span className="lamp" data-s="open" aria-hidden="true" />Waiting to start</span>
-            <span className="dot" aria-hidden="true" />
-            <span>{isTheme ? "Theme draft" : "Cube draft"}</span>
-            {isCreator && <><span className="dot" aria-hidden="true" /><span>Hosted by you</span></>}
-            {created && <><span className="dot" aria-hidden="true" /><span>Created {created}</span></>}
-          </p>
+          <MetaLine className="t-meta" items={[
+            { content: <span className="status"><span className="lamp" data-s="open" aria-hidden="true" />Waiting to start</span> },
+            { content: <span>{isTheme ? "Theme draft" : "Cube draft"}</span> },
+            ...(isCreator ? [{ content: <span>Hosted by you</span> }] : []),
+            ...(created ? [{ content: <span>Created {created}</span> }] : []),
+          ]} />
         </div>
         <StationTrack
           stations={stations}
