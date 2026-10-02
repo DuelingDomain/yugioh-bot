@@ -1033,6 +1033,13 @@
   height: calc(106 * var(--u));
 }
 
+.handRow {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: calc(6 * var(--u));
+}
+
 .hcard {
   position: relative;
   width: calc(58 * var(--u));
