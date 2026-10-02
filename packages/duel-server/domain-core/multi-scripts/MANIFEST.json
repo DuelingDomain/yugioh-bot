@@ -4287,6 +4287,19 @@
       "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
+      "code": 74586817,
+      "file": "c74586817.lua",
+      "name": "PSY-Framelord Omega",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "e4ab158d12b1394e142d20e1f3105100e58aba63c83c76ca625cf9b1c48efc33",
+      "note": "Keep the real hand controller for the delayed return.",
+      "redefines": [
+        "rmop",
+        "retop"
+      ]
+    },
+    {
       "code": 74733322,
       "file": "c74733322.lua",
       "name": "Artmage Academic Arcane Arts Acropolis",
@@ -4670,6 +4683,18 @@
         "s"
       ],
       "seatInit": "false"
+    },
+    {
+      "code": 82257940,
+      "file": "c82257940.lua",
+      "name": "Gift Exchange",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "86c130d8031f1a54edc06ebcc49bfc3a7cf44f11dfef3314a5aab7ab67091f0e",
+      "note": "Return the exchanged cards to the real hands of the picked pair.",
+      "redefines": [
+        "thop"
+      ]
     },
     {
       "code": 82301904,

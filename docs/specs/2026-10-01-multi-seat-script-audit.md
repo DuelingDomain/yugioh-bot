@@ -111,3 +111,11 @@ DoomZ Command (68831625) and Worm Millidith (71315423) used the equip target's f
 ## Cheatah control return
 
 Fallin' Cheatah (59011257) changed control to a picked opponent after its custom summon event, even when another opponent summoned the target. Its check and operation now bind the summoned target's real controller. Live proof: `cheatah-controller.ts`. All three stock outcomes show the wrong field. All three fixed outcomes pass on both cores.
+
+## Delayed hand recipients
+
+Gift Exchange (82257940) and PSY-Framelord Omega (74586817) returned cards to the picked opponent instead of the real hand controller. Their overlays keep the actual pair or hand seat through the delayed return. Live proof: `gift-exchange-pair.ts` and `omega-hand-return.ts`. All six stock outcomes fail. All six fixed cases pass on both cores.
+
+## Damage after destruction
+
+TA.I. Strike (86449372) and Arcana Force XV - The Fiend (59712426) used a folded controller after destruction. Their overlays keep the real controller before the card moves. Live proof: `tai-battle-controller.ts` and `arcana-target-controller.ts`. Six stock FFA outcomes fail; three Tag controls pass. All nine fixed cases pass on both cores. The TA.I. Strike tests include a monster whose owner and controller differ.
