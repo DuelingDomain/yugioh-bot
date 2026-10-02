@@ -374,7 +374,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
           Camera locked &middot; {lockLabel(camera.lock.reason)}
         </div>
       ) : null}
-      {promptCenter != null ? <div className={styles.slot}>{promptCenter}</div> : null}
+      {/* PromptCenter measures its parent as the board (card scope, bar place): it must sit right in the stage root. */}
+      {promptCenter}
       {overlay != null ? <div className={styles.slot}>{overlay}</div> : null}
     </div>
   );

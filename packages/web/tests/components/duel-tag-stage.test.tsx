@@ -9,6 +9,7 @@ vi.mock("next/font/google", () => {
 });
 
 import { SeatField } from "@/components/duel/field";
+import { PromptCenter } from "@/components/duel/prompt-center";
 import { TAG_FIXTURES, TAG_TEAM_NAMES } from "@/components/duel/tag/fixtures";
 import { initialRoofCamera, roofReducer } from "@/components/duel/tag/roof-camera";
 import { TagStage } from "@/components/duel/tag/tag-stage";
@@ -18,7 +19,7 @@ import type { TableStateId } from "@/components/duel/table/fixtures/common";
 
 afterEach(cleanup);
 
-function Stage({ id }: { id: TableStateId }) {
+function Stage({ id, withPrompt = false }: { id: TableStateId; withPrompt?: boolean }) {
   const state = TAG_FIXTURES.states[id];
   const controller = useFixtureController(state, { reducedMotion: true });
   const layout = tableLayout("tag", controller.engine, controller.viewerSeat);
@@ -32,6 +33,28 @@ function Stage({ id }: { id: TableStateId }) {
         dispatchCamera={dispatch}
         renderSeatField={(props) => <SeatField {...props} />}
         teamNames={TAG_TEAM_NAMES}
+        promptCenter={
+          withPrompt ? (
+            <PromptCenter
+              prompt={controller.prompt}
+              mySeat={controller.viewerSeat}
+              active
+              slug="tag-test"
+              busy={false}
+              draft={controller.draft}
+              onSubmit={controller.onAnswer}
+              menuOpen={false}
+              chain={controller.engine.chain}
+              aimLocked={false}
+              reducedMotion
+              revision={controller.engine.revision}
+              battleStep={controller.engine.battleStep}
+              revealed
+              onInspectCard={() => {}}
+              nameOf={controller.nameOf}
+            />
+          ) : undefined
+        }
       />
     </div>
   );
@@ -83,6 +106,14 @@ describe("TagStage field relations", () => {
 
   it("calls every field other for a spectator", () => {
     expect(relations(mount("spectator"))).toEqual(["other", "other", "other", "other"]);
+  });
+});
+
+describe("TagStage prompt centre", () => {
+  it("answers a card pick on the board with the select bar", () => {
+    const root = render(<Stage id="target-pick" withPrompt />).container;
+    const bar = root.querySelector("[data-tag-stage] > div[class*='layer'] [data-place]");
+    expect(bar).not.toBeNull();
   });
 });
 
