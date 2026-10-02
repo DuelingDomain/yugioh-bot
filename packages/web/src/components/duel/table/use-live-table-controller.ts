@@ -13,23 +13,26 @@ export type LiveTableControllerInput = Omit<TableController, "room" | "engine" |
 
 /** Adapt the room's existing state and handlers; the room remains the only owner of its prompt draft. */
 export function useLiveTableController(input: LiveTableControllerInput): TableController | null {
+  const { room, error, catchingUp, nameOf, prompt, canAct: allowed, busy: working, revealed, draft,
+    legalKeys, selectedKeys, aim, reducedMotion, onAnswer, onActivate, onInspect, onHoverCard, onAim } = input;
   return useMemo(() => {
-    const { room, error, catchingUp, ...state } = input;
     const engine = room?.engine;
     if (!room || !engine) return null;
-    const busy = state.busy || Boolean(error) || Boolean(catchingUp);
-    const canAct = state.canAct && !busy;
-    const picks = canAct && state.revealed ? opponentPickOptions(state.prompt, engine) : null;
+    const busy = working || Boolean(error) || Boolean(catchingUp);
+    const canAct = allowed && !busy;
+    const picks = canAct && revealed ? opponentPickOptions(prompt, engine) : null;
     return {
-      ...state, room, engine, viewerSeat: room.mySeat,
-      promptSeat: state.prompt?.seat ?? null, busy, canAct,
+      room, engine, viewerSeat: room.mySeat, nameOf, prompt, revealed, draft, legalKeys, selectedKeys,
+      aim, reducedMotion, onAnswer, onActivate, onInspect, onHoverCard, onAim,
+      promptSeat: prompt?.seat ?? null, busy, canAct,
       seatPick: picks && picks.size > 0 ? {
         options: picks,
         onPick: (seat) => {
           const choice = picks.get(seat);
-          if (choice != null) state.onAnswer({ choice });
+          if (choice != null) onAnswer({ choice });
         },
       } : null,
     };
-  }, [input]);
+  }, [room, error, catchingUp, nameOf, prompt, allowed, working, revealed, draft, legalKeys, selectedKeys,
+    aim, reducedMotion, onAnswer, onActivate, onInspect, onHoverCard, onAim]);
 }

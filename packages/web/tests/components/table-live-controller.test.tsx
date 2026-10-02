@@ -25,6 +25,17 @@ function setup(overrides: Partial<LiveTableControllerInput> = {}) {
 }
 
 describe("live table controller", () => {
+  it("retains controller and seat-pick identity when only the input container changes", () => {
+    const source = setup().result.current.source;
+    const { result, rerender } = renderHook((fields) => useLiveTableController({ ...fields }), { initialProps: source });
+    const first = result.current;
+    rerender({ ...source });
+    expect(result.current).toBe(first);
+    expect(result.current!.seatPick).toBe(first!.seatPick);
+    rerender({ ...source, busy: true });
+    expect(result.current).not.toBe(first);
+    expect(result.current!.seatPick).toBeNull();
+  });
   it("uses the live room and the room's draft, keys and handlers without another draft", () => {
     const { result } = setup();
     const { source, controller } = result.current;
