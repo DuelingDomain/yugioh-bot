@@ -1,0 +1,89 @@
+/* The rival bar: a slim strip at the top middle of the board, over the stage. */
+.bar {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  z-index: 62;
+  display: flex;
+  max-width: calc(100% - 32px);
+  translate: -50% 0;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 12px;
+  border: 1px solid rgb(228 182 79 / 0.55);
+  border-radius: 8px;
+  background: rgb(9 12 24 / 0.94);
+  box-shadow: 0 0 24px -8px rgb(228 182 79 / 0.55);
+  color: #c3bba8;
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-size: 12.5px;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.title {
+  margin-right: 4px;
+  color: #efe7d5;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rival,
+.confirm,
+.cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid rgb(var(--t, 181 153 99) / 0.5);
+  border-radius: 5px;
+  background: rgb(var(--t, 181 153 99) / 0.1);
+  color: var(--tink, #efe7d5);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rival:hover,
+.rival[data-locked="true"] {
+  background: rgb(var(--t) / 0.26);
+  border-color: rgb(var(--t) / 0.9);
+}
+
+.rival i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgb(var(--t));
+  box-shadow: 0 0 8px rgb(var(--t));
+}
+
+.confirm {
+  border-color: rgb(217 141 82 / 0.9);
+  background: rgb(217 141 82 / 0.24);
+  color: #ffd2ad;
+}
+
+.confirm:hover {
+  background: rgb(217 141 82 / 0.4);
+}
+
+.cancel {
+  color: #958f81;
+}
+
+.bar kbd {
+  padding: 1px 4px;
+  border: 1px solid rgb(181 153 99 / 0.45);
+  border-radius: 3px;
+  color: #efe7d5;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.bar button:focus-visible {
+  outline: 2px solid #c6b6ff;
+  outline-offset: 2px;
+}
