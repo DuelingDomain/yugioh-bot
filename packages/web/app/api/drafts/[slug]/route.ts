@@ -141,7 +141,8 @@ export async function PUT(
     const drafts = createDraftService(db);
     const existing = drafts.findById(draft.id);
     const mergedConfig = { ...existing.config, ...(config as object) };
-    const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds);
+    // Edits can retain library cubes deleted since attachment, including in the request body.
+    const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds, { allowMissing: true });
     if (denied) return denied;
 
     if (name !== undefined) {
@@ -164,7 +165,7 @@ export async function PUT(
 
     let analysisWarnings: ReturnType<typeof analyzeCube> | undefined;
 
-    if (config !== undefined) {
+    if (config !== undefined && mergedConfig.mode !== "theme") {
       // The submitted config redefines the pool (sets + custom passcodes), so
       // any previously materialized ids are stale. Drop them before resolving —
       // otherwise resolveCubeCardIds returns the old snapshot and edits like
@@ -211,7 +212,9 @@ export async function PUT(
       );
 
       (mergedConfig as any).cubeCardIds = cubeCardIds;
+    }
 
+    if (config !== undefined) {
       db.prepare("update drafts set config_json = ? where id = ?").run(
         JSON.stringify(mergedConfig),
         draft.id,

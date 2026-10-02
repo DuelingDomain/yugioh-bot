@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
@@ -22,6 +23,7 @@ async function seedDraft(cubes: SeedCube[], configOverrides: Record<string, unkn
   const { migrate } = await import("@yugidraft/shared/db");
   const db = new Database(dbPath);
   migrate(db);
+  db.exec("begin");
 
   const p1 = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','u1','P1')").run().lastInsertRowid);
   const p2 = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','u2','P2')").run().lastInsertRowid);
@@ -68,6 +70,7 @@ async function seedDraft(cubes: SeedCube[], configOverrides: Record<string, unkn
   );
   db.prepare("insert into draft_players (draft_id, player_id) values (?, ?)").run(draftId, p1);
   db.prepare("insert into draft_players (draft_id, player_id) values (?, ?)").run(draftId, p2);
+  db.exec("commit");
   db.close();
 
   return { cubeIds, p1, p2 };
@@ -123,6 +126,151 @@ describe("theme lobby routes", () => {
     expect(res.status).toBe(403);
     expect(getDb().prepare("select count(*) as n from draft_player_cube").get()).toEqual({ n: 0 });
   }, 30000);
+
+  describe.each(["random", "player_pick"])("deleted attachments (%s)", (themeSelection) => {
+    it.each(["timer-only", "config round-trip"])("allows a %s edit", async (edit) => {
+      const { cubeIds } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], {
+        themeSelection, extraDeckEnabled: false,
+      });
+      const { getDb } = await import("../src/lib/db");
+      const { createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
+      const db = getDb();
+      createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
+      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      const { GET, PUT } = await import("../app/api/drafts/[slug]/route");
+      const context = { params: Promise.resolve({ slug: "theme-slug" }) };
+      const current = await (await GET(new Request("http://x"), context)).json();
+      expect(current.config.allowedCubeIds).toEqual(cubeIds);
+      expect(current.allowedCubes.map((cube: { id: number }) => cube.id)).toEqual([cubeIds[1]]);
+      const body = { config: { ...(edit === "config round-trip" ? current.config : {}), pickSeconds: 60 } };
+
+      const response = await PUT(new Request("http://x", {
+        method: "PUT", body: JSON.stringify(body),
+      }) as NextRequest, context);
+
+      expect(response.status).toBe(200);
+      const updated = await response.json();
+      expect(updated.config.allowedCubeIds).toEqual(cubeIds);
+      expect(updated.config.themeSelection).toBe(themeSelection);
+      expect(updated.config.pickSeconds).toBe(60);
+      expect(updated.name).toBe("Theme Night");
+      const stored = db.prepare("select name, config_json, status from drafts where id = 1").get() as {
+        name: string; config_json: string; status: string;
+      };
+      expect(stored.name).toBe(updated.name);
+      expect(JSON.parse(stored.config_json)).toEqual(updated.config);
+      expect(stored.status).toBe("pending");
+    }, 30000);
+
+    it("preflight skips deleted attachments", async () => {
+      const { cubeIds } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], {
+        themeSelection, extraDeckEnabled: false,
+      });
+      const { getDb } = await import("../src/lib/db");
+      const { createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
+      const db = getDb();
+      createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
+      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
+      const response = await GET(new Request("http://x"), { params: Promise.resolve({ slug: "theme-slug" }) });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ errors: [], warnings: [] });
+    }, 30000);
+
+    it("starts using surviving cubes after an attachment is deleted", async () => {
+      const { cubeIds } = await seedDraft([
+        { main: 42, extra: 0 }, { main: 42, extra: 0 }, { main: 42, extra: 0 },
+      ], { themeSelection, extraDeckEnabled: false });
+      const { getDb } = await import("../src/lib/db");
+      const { createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
+      const db = getDb();
+      createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
+      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      const { POST } = await import("../app/api/drafts/[slug]/route");
+      const response = await POST(new Request("http://x", { method: "POST" }), {
+        params: Promise.resolve({ slug: "theme-slug" }),
+      });
+      expect(response.status).toBe(200);
+      expect(db.prepare("select status from drafts where id = 1").get()).toEqual({ status: "active" });
+      expect(db.prepare("select cube_id from draft_player_cube where draft_id = 1 order by cube_id").all())
+        .toEqual([{ cube_id: cubeIds[1] }, { cube_id: cubeIds[2] }]);
+    }, 30000);
+  });
+
+  describe.each(["random", "player_pick"])("attachments moved to another guild (%s)", (themeSelection) => {
+    it.each(["timer-only", "config round-trip"])("rejects a %s edit before changing the draft", async (edit) => {
+      const { cubeIds } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], {
+        themeSelection, extraDeckEnabled: false,
+      });
+      const { getDb } = await import("../src/lib/db");
+      const db = getDb();
+      db.prepare("update cubes set guild_id = 'other-guild' where id = ?").run(cubeIds[0]);
+      const before = db.prepare("select name, config_json from drafts where id = 1").get();
+      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      const { PUT } = await import("../app/api/drafts/[slug]/route");
+      const response = await PUT(new Request("http://x", {
+        method: "PUT", body: JSON.stringify({ name: "Renamed", config: {
+          pickSeconds: 60, ...(edit === "config round-trip" ? { allowedCubeIds: cubeIds } : {}),
+        } }),
+      }) as NextRequest, { params: Promise.resolve({ slug: "theme-slug" }) });
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "Cube not found" });
+      expect(db.prepare("select name, config_json from drafts where id = 1").get()).toEqual(before);
+    }, 30000);
+
+    it("rejects start before dealing cards", async () => {
+      const { cubeIds } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], {
+        themeSelection, extraDeckEnabled: false,
+      });
+      const { getDb } = await import("../src/lib/db");
+      const db = getDb();
+      db.prepare("update cubes set guild_id = 'other-guild' where id = ?").run(cubeIds[0]);
+      auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+      const { POST } = await import("../app/api/drafts/[slug]/route");
+      const response = await POST(new Request("http://x", { method: "POST" }), {
+        params: Promise.resolve({ slug: "theme-slug" }),
+      });
+      expect(response.status).toBe(404);
+      expect(db.prepare("select status from drafts where id = 1").get()).toEqual({ status: "pending" });
+      expect(db.prepare("select count(*) as n from draft_cards").get()).toEqual({ n: 0 });
+    }, 30000);
+  });
+
+  it("allows claiming a surviving cube but rejects claiming the deleted attachment", async () => {
+    const { cubeIds, p1 } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }]);
+    const { getDb } = await import("../src/lib/db");
+    const { createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
+    const db = getDb();
+    createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
+    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    const { POST } = await import("../app/api/drafts/[slug]/claim-cube/route");
+    const context = { params: Promise.resolve({ slug: "theme-slug" }) };
+    const claim = (cubeId: number) => POST(new Request("http://x", {
+      method: "POST", body: JSON.stringify({ cubeId }),
+    }), context);
+    expect((await claim(cubeIds[1])).status).toBe(200);
+    expect((await claim(cubeIds[0])).status).toBe(404);
+    expect(db.prepare("select cube_id from draft_player_cube where draft_id = 1 and player_id = ?").get(p1))
+      .toEqual({ cube_id: cubeIds[1] });
+  }, 30000);
+
+  it("creation still rejects a deleted cube ID", async () => {
+    const { cubeIds } = await seedDraft([{ main: 42, extra: 0 }]);
+    const { getDb } = await import("../src/lib/db");
+    const { createCubeService, createCardCatalogService } = await import("@yugidraft/shared/services");
+    const db = getDb();
+    createCubeService(db, createCardCatalogService(db)).deleteCube(cubeIds[0]);
+    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    const { POST } = await import("../app/api/drafts/route");
+    const response = await POST(new Request("http://x", {
+      method: "POST", body: JSON.stringify({ name: "New Draft", channelId: "c", config: {
+        mode: "theme", allowedCubeIds: cubeIds,
+      } }),
+    }) as NextRequest);
+    expect(response.status).toBe(404);
+    expect(db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 1 });
+  }, 30000);
+
   it.each(["foreign", "unallowed-local"])("rejects a poisoned %s player claim before start", async (kind) => {
     const { cubeIds, p1, p2 } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], { extraDeckEnabled: false });
     const { getDb } = await import("../src/lib/db");
