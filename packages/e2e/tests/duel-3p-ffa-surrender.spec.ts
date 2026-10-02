@@ -41,7 +41,7 @@ async function publicRoom(page: Page, slug: string): Promise<DuelRoom> {
 
 // Moved from duel-3p-ffa-table.spec.ts; extended with the explicit spectator choice.
 test.describe("FFA surrender and spectators", () => {
-  test("current engine: queued surrender reaches a turn boundary, then the eliminated player watches live turns and placings", async ({ player }, info) => {
+  test("owner rule 2026-10-02: queued surrender reaches a turn boundary, then the eliminated player watches live turns and placings", async ({ player }, info) => {
     const [alice, bob, carol] = await humans(player, "ffa3") as [Seat, Seat, Seat];
     const errors = collectTableErrors(alice.page, [bob.page, carol.page]);
     const { slug } = await startTable([alice, bob, carol], "ffa3 leaving and watching", [normalDeck(), normalDeck(), normalDeck()], options);

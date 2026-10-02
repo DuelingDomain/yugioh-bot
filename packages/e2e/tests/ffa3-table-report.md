@@ -76,7 +76,7 @@ none is a UI timeout. They demonstrate the unresolved rule difference.
 
 | New-spec test group | Run 1 | Run 2 | Exact evidence |
 | --- | ---: | ---: | --- |
-| current engine: queued surrender reaches a turn boundary, then the eliminated player watches live turns and placings | 1 pass | 1 pass | Leaving during Bob's held prompt; Bob ends turn 2; Alice is eliminated on turn 3 with empty owned zones and retained seat 0. Ending the turn is the next adjustment in this path, so this alone does not prove the owner timing rule. |
+| owner rule 2026-10-02: queued surrender reaches a turn boundary, then the eliminated player watches live turns and placings | 1 pass | 1 pass | Leaving during Bob's held prompt; Bob ends turn 2; Alice is eliminated on turn 3 with empty owned zones and retained seat 0. Ending the turn is the next adjustment in this path, so this alone does not prove the owner timing rule. |
 | an eliminated player can leave the room while the other duelists keep playing | 1 pass | 1 pass | Leave room navigates to `/duels`; remaining duel continues to turn 4 with original seat IDs. |
 | current engine: FFA3/FFA4 no-chain summon-placement controls | 2 passes | 2 passes | Same-turn elimination described above, engine snapshots and full prompt logs. |
 | FFA3/FFA4 owner rule: Leaving through a summon until end of turn | 2 expected failures | 2 expected failures | Engine eliminates before end of turn. |
