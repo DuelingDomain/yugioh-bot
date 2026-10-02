@@ -1,7 +1,7 @@
 if not aux.MPKey then return end
 local function mp_seats()
 	local seats={}
-	aux.MPForEachDuelist(function(tp_i,seat_i) seats[#seats+1]=seat_i end)
+	aux.MPEachSeat(function(tp_i,seat_i) seats[#seats+1]=seat_i end)
 	return seats
 end
 local function mp_effects(tp)

@@ -17,7 +17,7 @@ function s.initial_effect(c)
 					local n=select('#',...)
 					local first
 					local seen={}
-					aux.MPForEachDuelist(function(tp_i,seat_i)
+					aux.MPEachSeat(function(tp_i,seat_i)
 						local k=aux.MPKeyOfSeat(seat_i)
 						if not seen[k] then
 							seen[k]=true
