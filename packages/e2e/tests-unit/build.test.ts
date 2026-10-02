@@ -80,6 +80,7 @@ test("slot builds restore generated config even on failure without touching unch
       throw new Error("failed build");
     }), /failed build/);
     assert.equal(readFileSync(config, "utf8"), "original");
+    assert.equal(statSync(config).mtimeMs, 1000, "restoring config must not stale other slots' stamps");
     assert.equal(existsSync(generated), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

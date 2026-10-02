@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 
 /** Latest input mtime, ignoring generated Next output and dependencies. */
 export function newest(paths) {
@@ -46,13 +46,16 @@ export async function withBuildLock(directory, build) {
 
 /** Slot builds must leave the worktree's tracked Next/TypeScript configuration unchanged. */
 export async function withPreservedFiles(files, build) {
-  const before = files.map((file) => existsSync(file) ? readFileSync(file) : null);
+  const before = files.map((file) => existsSync(file) ? { bytes: readFileSync(file), info: statSync(file) } : null);
   try {
     return await build();
   } finally {
     files.forEach((file, index) => {
       if (before[index] === null) rmSync(file, { force: true });
-      else if (!existsSync(file) || !readFileSync(file).equals(before[index])) writeFileSync(file, before[index]);
+      else if (!existsSync(file) || !readFileSync(file).equals(before[index].bytes)) {
+        writeFileSync(file, before[index].bytes);
+        utimesSync(file, before[index].info.atime, before[index].info.mtime);
+      }
     });
   }
 }
