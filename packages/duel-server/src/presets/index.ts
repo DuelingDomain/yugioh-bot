@@ -6,6 +6,7 @@ import { seatCountFor } from "@yugidraft/shared/duels";
 import { preset as dustTornado } from "./dust-tornado-chain.js";
 import { preset as ffa4ChainOrder } from "./ffa4-chain-order-heavy-storm.js";
 import { preset as ffa4Surrender } from "./ffa4-surrender-in-chain.js";
+import { presets as ffa3Table } from "./ffa3-table.js";
 import { preset as jinzo } from "./jinzo-stops-trap.js";
 import { preset as mindCrush } from "./mind-crush-ffa4-pick.js";
 import { presets as raigekiDarkHole } from "./raigeki-dark-hole.js";
@@ -28,6 +29,7 @@ export const PRESETS: readonly Preset[] = [
   tagJinzo,
   ffa4ChainOrder,
   ffa4Surrender,
+  ...ffa3Table,
 ];
 
 export function getPreset(id: string): Preset | undefined {

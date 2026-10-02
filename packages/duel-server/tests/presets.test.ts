@@ -80,7 +80,7 @@ describe("preset registry", () => {
       "solemn-judgment-summon",
       "jinzo-stops-trap",
     ]);
-    expect(PRESETS.filter((preset) => preset.needs === "multi-core")).toHaveLength(7);
+    expect(PRESETS.filter((preset) => preset.needs === "multi-core")).toHaveLength(9);
     expect(getPreset("nope")).toBeUndefined();
   });
 
