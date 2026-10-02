@@ -77,6 +77,8 @@ This directory holds the patch series for the N-duelist ygopro-core. The series 
 
 | `0063-tag-unique.patch` | Owner rule [R-TAG-UNIQUE]: a unique-on-field limit counts one copy per team. Registration, removal and field scans include the team. | None with 2 duelists. Each changed path keeps the stock branch at `n_duelists == 2`. 10 P61 live failures; 25 fixed checks in the supplied Standard and Domain proof. |
 
+| `0064-tag-xyz-attach.patch` | An effect may attach a partner monster as Xyz material without a change-control check. Opponent monsters keep that check. | None with 2 duelists. Each changed path keeps the stock branch at `n_duelists == 2`. 4 P61 live failures; 15 fixed checks in the supplied Standard and Domain proof. |
+
 ## Commands
 
 Run all commands in the repository root.

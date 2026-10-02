@@ -27,11 +27,11 @@ import { currentEngineDataDirectory } from "../engine-data-dir.js";
  * A developer's current local per-task build. It is used when the file exists and MULTI_WASM / DOMAIN_MULTI_WASM
  * are not set. A clean checkout and CI do not have it; they use the canonical build, which the documented build
  * (scripts/build-multi-core.sh, .github/workflows/test.yml) makes. Change the tags when the merged core is installed.
- * P63 is the production build of patches 0001 to 0063 (OUT_NAME=ocgcore.multi-P63.sync.wasm and ocgcore.multi-domain-P63.sync.wasm); it is the build
- * installed in data/duel-engine-next. The debug build for the Table test is ocgcore.multi-P63-trap.sync.wasm (see tests/multi-scripts-table.test.ts).
+ * P64 is the production build of patches 0001 to 0064 (OUT_NAME=ocgcore.multi-P64.sync.wasm and ocgcore.multi-domain-P64.sync.wasm); it is the build
+ * installed in data/duel-engine-next. The debug build for the Table test is ocgcore.multi-P64-trap.sync.wasm (see tests/multi-scripts-table.test.ts).
  */
-export const CURRENT_MULTI_TAG = "P63";
-export const CURRENT_DOMAIN_MULTI_TAG = "P63";
+export const CURRENT_MULTI_TAG = "P64";
+export const CURRENT_DOMAIN_MULTI_TAG = "P64";
 
 export type CoreKind = "standard" | "domain" | "multi" | "domain-multi" | "native" | "data" | "live" | "local";
 
