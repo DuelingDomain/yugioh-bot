@@ -226,9 +226,12 @@ function ante(format: Format, ownerWins: boolean): Scenario {
   const spec: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of seats) {
     const hand = seat === "p0" ? [ANTE, ownerCard] : seat === picked ? [pickedCard] : [HANDS[seat]];
+    // Keep a real choice in Standard FFA after the turn-1 draw is removed.
+    if (seat === "p0" && format !== "tag") hand.push(ELF);
     (setup as Record<string, unknown>)[seat] = { hand };
     const kept = seat === "p0" ? (ownerWins ? [ownerCard] : []) : seat === picked ? (ownerWins ? [] : [pickedCard]) : [HANDS[seat]];
     const grave = [...(seat === "p0" ? [ANTE] : []), ...(seat === "p0" && !ownerWins ? [ownerCard] : []), ...(seat === picked && ownerWins ? [pickedCard] : [])];
+    if (seat === "p0" && format !== "tag") kept.push(ELF);
     spec[seat] = { hand: kept, grave, ...(loserSeats.includes(seat) ? { lp: lp - 1000 } : {}) };
   }
   return defineScenario({
@@ -270,9 +273,12 @@ function anteEmptyHand(format: Format): Scenario {
     : seats.filter((seat) => seat === "p0");
   for (const seat of seats) {
     const hand: string[] = seat === "p0" ? [ANTE, ownerCard] : seat === picked ? [pickedCard] : others[seat] ? [others[seat] as string] : [];
+    // Keep a real choice in Standard FFA after the turn-1 draw is removed.
+    if (seat === "p0" && format !== "tag") hand.push(ELF);
     (setup as Record<string, unknown>)[seat] = { hand };
     const kept = seat === "p0" ? (ownerWins ? [ownerCard] : []) : seat === picked ? (ownerWins ? [] : [pickedCard]) : others[seat] ? [others[seat] as string] : [];
     const grave = [...(seat === "p0" ? [ANTE] : []), ...(seat === "p0" && !ownerWins ? [ownerCard] : []), ...(seat === picked && ownerWins ? [pickedCard] : [])];
+    if (seat === "p0" && format !== "tag") kept.push(ELF);
     spec[seat] = { hand: kept, grave, ...(loserSeats.includes(seat) ? { lp: lp - 1000 } : {}) };
   }
   // After the activation: a pick prompt that lists exactly the opponents with a hand card (FFA4), or the main phase of p0 (one legal opponent).

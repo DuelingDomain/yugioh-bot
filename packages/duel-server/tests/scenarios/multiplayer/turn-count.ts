@@ -40,7 +40,7 @@ function handsAfter(format: Format, activator: Id, turn: number, drawn: boolean,
   hand[activator] = played ? 0 : 1;
   for (let t = 0; t < turn + (drawn ? 1 : 0); t++) {
     const seat = order[t % order.length]!;
-    if (t > 0 || format !== "tag") hand[seat] += 1;
+    if (t > 0) hand[seat] += 1;
     if (t < turn && hand[seat] > 6) {
       discarded[seat] += hand[seat] - 6;
       hand[seat] = 6;

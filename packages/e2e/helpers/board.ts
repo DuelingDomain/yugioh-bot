@@ -7,7 +7,7 @@ export type Duelists = { alice: Seat; bob: Seat; slug: string; table: string };
 
 /**
  * Two duelists, one table, both decks imported, duel started, both in the duel room.
- * Alice takes seat 1 (moves first, no draw on turn 1). Decks are in imported order when `ordered` is set.
+ * Alice takes seat 1 (moves first, no draw on turn 1 in Standard MR3/MR4/MR5). Decks are in imported order when `ordered` is set.
  */
 export async function startDuel(
   alice: Seat,

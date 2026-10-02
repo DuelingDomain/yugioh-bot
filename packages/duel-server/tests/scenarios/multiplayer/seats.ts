@@ -162,7 +162,8 @@ export const SEATS_SCENARIOS: Scenario[] = [
     tags: ["multiplayer", "r1", "each-duelist", "q10", "ffa3", "card:89928517"],
     setup: {
       format: "ffa3",
-      p0: { monsters: [TWO_FOR_ONE], hand: [HOLE], deck: [RAT, OX] },
+      // A second card makes the reveal an explicit choice even without a first draw.
+      p0: { monsters: [TWO_FOR_ONE], hand: [HOLE, ELF], deck: [RAT, OX] },
       p1: { hand: [RAIGEKI], deck: [AXE, FANG] },
       p2: { hand: [SWORDS], deck: [ELF, RAT] },
     },
@@ -170,7 +171,7 @@ export const SEATS_SCENARIOS: Scenario[] = [
       activate(TWO_FOR_ONE, "p0"),
       select(HOLE),
       everySeat("ffa3", {
-        p0: { hand: [HOLE, RAT, OX], monsters: [TWO_FOR_ONE] },
+        p0: { hand: [HOLE, ELF, RAT, OX], monsters: [TWO_FOR_ONE] },
         p1: { hand: [RAIGEKI, AXE, FANG] },
         p2: { hand: [SWORDS, ELF, RAT] },
       }),
@@ -184,7 +185,7 @@ export const SEATS_SCENARIOS: Scenario[] = [
     tags: ["multiplayer", "r1", "each-duelist", "q10", "ffa3", "card:89928517"],
     setup: {
       format: "ffa3",
-      p0: { monsters: [TWO_FOR_ONE], hand: [RAT] },
+      p0: { monsters: [TWO_FOR_ONE], hand: [RAT, ELF] },
       p1: { hand: [OX] },
       p2: { hand: [AXE] },
     },
@@ -195,7 +196,7 @@ export const SEATS_SCENARIOS: Scenario[] = [
       no("p1"),
       yes("p2"),
       everySeat("ffa3", {
-        p0: { monsters: [TWO_FOR_ONE, RAT] },
+        p0: { hand: [ELF], monsters: [TWO_FOR_ONE, RAT] },
         p1: { hand: [OX] },
         p2: { monsters: [AXE] },
       }),

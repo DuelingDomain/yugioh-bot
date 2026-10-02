@@ -238,11 +238,13 @@ function darkScheme(format: Format, negate: boolean): Scenario {
   const tag = format === "tag";
   const picks: Seat[] = tag ? ["p1", "p3"] : format === "ffa4" ? ["p1", "p2", "p3"] : ["p1", "p2"];
   const picked = picks[picks.length - 1];
+  // Keep a real discard choice when Standard skips its first draw.
+  const extraHand = !negate && !tag ? [ELF] : [];
   const setup: Scenario["setup"] = { format };
   const spec: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of seats) {
     (setup as Record<string, unknown>)[seat] = {
-      hand: [...SCHEME_HAND[seat]],
+      hand: [...SCHEME_HAND[seat], ...(seat === "p0" ? extraHand : [])],
       deck: [SCHEME_DECK[seat], SCHEME_DECK[seat], SCHEME_DECK[seat]],
       ...(seat === "p0" ? { spells: [{ card: SCHEME, pos: "set" }] } : {}),
     };
@@ -253,9 +255,9 @@ function darkScheme(format: Format, negate: boolean): Scenario {
         grave: [...(seat === "p0" ? [SCHEME] : []), ...(seat === picked ? [SCHEME_HAND[seat][0]] : [])],
       };
     } else {
-      // Nobody negates: every duelist (the partner too) discards its 2 cards and draws 2 cards.
+      // Nobody negates: every duelist (the partner too) discards 2 cards and draws 2 cards.
       spec[seat] = {
-        hand: [SCHEME_DECK[seat], SCHEME_DECK[seat]],
+        hand: [SCHEME_DECK[seat], SCHEME_DECK[seat], ...(seat === "p0" ? extraHand : [])],
         grave: [...(seat === "p0" ? [SCHEME] : []), ...SCHEME_HAND[seat]],
       };
     }

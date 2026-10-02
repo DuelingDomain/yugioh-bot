@@ -326,8 +326,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     throw new Error(multi ? `Exactly ${seatCount} decks are required for a ${format} duel` : "Exactly two decks are required");
   }
   const start = engineStartConfig(options.settings);
+  // MR1/MR2 already include FIRST_TURN_DRAW. Standard MR3 onward keeps the stock skip.
   const flags = duelFlagsFor(options.masterRule)
-    | (format === "ffa3" || format === "ffa4" ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
+    | (options.mode === "domain" ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
   const seed = parseSeed(options.seed);
   const cards = loadCardDatabase(options.dataDirectory);
   // Duels with more than two seats read the Lua overlay. 1v1 gets none, so its script text stays the original.

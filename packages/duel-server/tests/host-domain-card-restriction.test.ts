@@ -96,7 +96,7 @@ describeWithCores("live Domain card restriction at every multiplayer seat", need
         expect(member.spells.filter(Boolean)).toEqual([]);
         expect(member.graveyard).toEqual([]);
         expect(member.banished).toEqual([]);
-        expect(member.hand).toHaveLength(index === 0 && format === "tag" ? 4 : 5);
+        expect(member.hand).toHaveLength(5);
         expect(member.deckMaster).toMatchObject({ card: { code: decks[index]!.deckMaster }, inZone: true, returns: 0, nextCost: 0 });
       }
       expect(game!.view(0).prompt?.context?.type).toBe("action");

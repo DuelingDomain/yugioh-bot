@@ -72,7 +72,7 @@ export function captureBoard(source: CaptureSource, lookup: CardLookup): Capture
   const seatCount = source.seats.length;
   if (seatCount < 2 || seatCount > 4) throw new Error(`captureBoard needs 2 to 4 seat views, got ${seatCount}`);
   const seatList = Array.from({ length: seatCount }, (_, seat) => seat);
-  const board: NBoardSpec = { mode, masterRule, deckSize: 1 };
+  const board: NBoardSpec = { mode, masterRule, deckSize: 1, skipOpeningDraw: true };
   if (source.format && source.format !== "1v1") board.format = source.format;
   const view = source.seats[0]!;
   const turn = view.turn;
@@ -392,6 +392,7 @@ export function renderScenario(options: RenderOptions): string {
   out.push(`      mode: ${JSON.stringify(board.mode)},`);
   out.push(`      masterRule: ${board.masterRule},`);
   out.push(`      turn: ${JSON.stringify(board.turn)},`);
+  if (board.skipOpeningDraw) out.push("      skipOpeningDraw: true,");
   if (board.attackFirstTurn) out.push("      attackFirstTurn: true,");
   out.push(`      deckSize: ${board.deckSize},`);
   for (const id of ["p0", "p1"] as const) {

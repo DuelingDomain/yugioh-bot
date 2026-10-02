@@ -106,7 +106,7 @@ DOMAIN_NSEAT_STRESS.push(
     rules: ["R-TAG-LP", "R-TAG-LOSS"],
     // A final Tag draw ends the duel directly. It does not emit individual elimination messages.
     steps: [activate("Self-Destruct Button", "p0"), expectResult({ team: null, reason: "lp" }),
-      board("tag", Object.fromEntries(SEATS.tag.map((s) => [s, { lp: 0, hand: [], ...(s === "p0" ? { spells: ["Self-Destruct Button"] } : {}) }])))],
+      board("tag", Object.fromEntries(SEATS.tag.map((s) => [s, { lp: 0, hand: s === "p0" ? ["Mystical Elf"] : [], ...(s === "p0" ? { spells: ["Self-Destruct Button"] } : {}) }])))],
   }),
 );
 

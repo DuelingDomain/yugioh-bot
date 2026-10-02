@@ -192,8 +192,9 @@ Do the steps in this order. Write down the result of each step. Report every ste
 
 1. Make a 3-player free-for-all Standard table. First try a deck with Ring of Destruction or Swords of Revealing Light.
    Expect a refusal. Then use legal decks.
-2. Start the duel. Expect: the seat order is shown. Every duelist draws on their first turn, the first duelist too
-   (p0 has 6 cards on turn 1).
+2. Start the duel. Expect: the seat order is shown. Standard MR5 skips only the turn-1 draw (p0 has 5 cards).
+   Domain in every seat layout draws on turn 1 (p0 has 6 cards with default settings). Standard MR1/MR2 also draw.
+   Standard MR3/MR4/MR5 skip only the turn-1 draw. P68 rejects MR1-4 at tables with more than two seats.
 3. Turns 1 to 3: there is no attack option. Attacks start on turn 4.
 4. The turn passes in the order 0, 1, 2, 0. The "To play" and "Choosing" tags follow the turn.
 5. Attack when one opponent has monsters and one has none. Expect: the targets are right, a direct attack is possible only
@@ -210,7 +211,7 @@ Do the steps in this order. Write down the result of each step. Report every ste
 13. Reduce a player to 0 LP by battle in your own turn. Expect: your turn continues, and the next turn goes to the next
     living player.
 14. Finish the duel. Expect: all players see the right winner and the right reason, and the history shows it.
-15. Play a short 1v1 Standard duel and a short 1v1 Domain duel. Expect: 1v1 is unchanged.
+15. Play a short 1v1 Standard duel and a short 1v1 Domain duel. Expect: Domain p0 draws on turn 1. Standard MR3/MR4/MR5 p0 skips the draw; Standard MR1/MR2 p0 draws.
 
 ## Open risks
 

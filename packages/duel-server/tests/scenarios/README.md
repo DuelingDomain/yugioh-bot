@@ -64,12 +64,11 @@ The scenario starts in Main Phase 1 of the turn player. The harness declines opt
 
 ### FFA opening draw in older fixtures
 
-Every FFA3 and FFA4 duelist draws on their first turn, including p0, in Standard
-and Domain. New scenarios must use `defineScenario` from `support/dsl.ts` and
+In Domain 1v1, Tag, FFA3 and FFA4, every duelist draws on their first turn, including p0. Standard MR1/MR2 also draw on turn 1. Standard MR3/MR4/MR5 skip only the turn-1 draw, in every seat layout. New scenarios must use `defineScenario` from `support/dsl.ts` and
 write the hand and Deck counts after that draw explicitly.
 
 `multiplayer/ffa-first-draw.ts` exports `defineScenarioWithFfaFirstDraw` for
-older fixtures whose p0 expectations exclude the opening draw. The wrapper
+older fixtures whose p0 expectations exclude the opening draw. The wrapper applies only to Domain and MR1/MR2, after the mode and rule are selected. Standard MR3/MR4/MR5 fixtures pass through unchanged. The wrapper
 copies the scenario and adds the tag `ffa-first-draw-included`. For a custom
 p0 `deck` without `deckSize`, it puts a filler card (`Mystical Elf` by default)
 before the custom cards. With an explicit `deckSize`, it keeps the custom Deck
@@ -84,11 +83,11 @@ snapshot at `lp: 0` unchanged.
 The optional second argument is `{ card, destination }`. `card` selects the
 opening card; `destination` selects `hand` (default), `grave`, or `banished`
 when the scenario moves that card. The wrapper adjusts expectations; the
-scenario must still perform the action that moves the card.
+scenario must still perform the action that moves the card. A Domain variant keeps these options from its source fixture.
 
+Captured boards use `setup.skipOpeningDraw: true`; the helper keeps those snapshots unchanged.
 To opt out, add `ffa-first-draw-included` to `tags` and write the opening draw
-in the setup and expectations yourself. The wrapper also passes Tag, 1v1,
-the default format, and `turn: "p1"` fixtures through unchanged. Many older
+in the setup and expectations yourself. The wrapper passes `turn: "p1"` fixtures through unchanged because the board compiler explicitly skips their opening Draw Phase. Domain variants apply the wrapper after they select Domain mode. Many older
 files still import the wrapper `as defineScenario`; their literal values are
 the input to this transform. Removal of those aliases is a later cleanup.
 The direct `rule-proof-ffa-order.test.ts` proves the draw rule on real cores.

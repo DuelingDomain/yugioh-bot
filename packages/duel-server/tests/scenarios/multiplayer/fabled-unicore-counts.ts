@@ -34,6 +34,10 @@ function unicore(format: "1v1" | "ffa3" | "ffa4" | "tag", unequal = false): Scen
     }
   }
   if (format === "ffa3" || format === "ffa4") {
+    // Standard skips the opening draw. Keep two cards explicitly so Unicore
+    // compares equal with the responding opponent and still negates Mirror Force.
+    setup.p0!.hand!.push("Mystical Elf");
+    (board.p0!.hand as string[]).push("Mystical Elf");
     setup[last]!.hand = [HANDS[count - 1], HANDS[count - 1]];
     board[last]!.hand = [HANDS[count - 1], HANDS[count - 1]];
   }

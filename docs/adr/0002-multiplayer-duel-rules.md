@@ -4,9 +4,11 @@
 
 We are adding three multi-player formats next to the current 1v1 duel: **2v2 Tag**, **3-player free-for-all** and **4-player free-for-all**. All three work in both Standard and Domain duels. Each duelist has their own main field. In FFA4, seats across from each other share the Extra Monster Zones and columns, as specified below. The EDOPro shared-field tag (one field and one LP total per team, partners swap each turn) was considered and rejected.
 
-Konami publishes official rules only for Tag Duels ([TCG, revised 5 December 2019](https://www.yugioh-card.com/en/play/tagduel/)). The free-for-all rules below follow Domain Format, with the owner decisions of 2026-10-02. They do not change 1v1.
+Konami publishes official rules only for Tag Duels ([TCG, revised 5 December 2019](https://www.yugioh-card.com/en/play/tagduel/)). The free-for-all rules below follow Domain Format, with the owner decisions of 2026-10-02. The first-draw rule below also applies to 1v1.
 
 ## Rules common to every multi-player format
+
+- `[R-FFA-FIRST-DRAW]` **First draw by duel mode and Master Rule (all seat layouts).** Domain 1v1, Tag, FFA3 and FFA4: every duelist draws on their first turn, including the turn-1 duelist. Standard MR1 and MR2: the turn-1 duelist draws, as specified by the stock core flags. Standard MR3, MR4 and MR5: only the turn-1 duelist skips the draw; all later duelists draw on their first turn. MR3 removed the turn-1 draw on 21 March 2014. The rule id is kept for existing references.
 
 - `[R-COMMON-SEP-FIELDS]` **Separate fields.** Each duelist has their own Main Monster Zones, Spell & Trap Zones, Field Zone, Pendulum Zones (per the Master Rule), Graveyard, banishment, hand, Deck and Extra Deck. In Domain, each duelist has their own Deck Master and Deck Master zone.
 The FFA rules for "your opponent" are in the free-for-all section. Tag uses the opposing team under its official rules.
@@ -21,7 +23,7 @@ The FFA rules for "your opponent" are in the free-for-all section. Tag uses the 
 ## 2v2 Tag (official TCG Tag Duel rules)
 
 - `[R-TAG-LP]` Two teams of two duelists. **Each team shares one LP total**, equal to the sum of its members' starting LP (16,000 with the default 8,000).
-- `[R-TAG-ORDER]` Turn order is 1A, 2A, 1B, 2B. The first duelist does not draw on their first turn. The first three duelists cannot attack; the first Battle Phase is turn 4.
+- `[R-TAG-ORDER]` Turn order is 1A, 2A, 1B, 2B. First draws follow R-FFA-FIRST-DRAW. The first three duelists cannot attack; the first Battle Phase is turn 4.
 - `[R-TAG-SHARED-CARDS]` "You control", "your field" and "your Graveyard" include your partner's cards. "Your hand" and "your Deck" mean only your own.
 - `[R-TAG-UNIQUE]` **Unique cards.** In Tag, a unique-on-field limit ("You can only control 1") permits one copy per team. Both team fields count.
 - `[R-TAG-ATTACK]` **Direct attacks.** In Tag, you may attack a duelist directly when that duelist controls no monster, even if the partner controls monsters. This is an exception to R-TAG-SHARED-CARDS.
@@ -37,8 +39,7 @@ The FFA rules for "your opponent" are in the free-for-all section. Tag uses the 
 These are the defaults. The organizer may later get options for LP.
 
 - `[R-FFA-LP]` Each duelist has their own LP (default 8,000).
-- `[R-FFA-ORDER]` Turn order is clockwise in seat order. Every duelist draws on their first turn, including the first duelist (R-FFA-FIRST-DRAW).
-- `[R-FFA-FIRST-DRAW]` **Every duelist draws on their first turn, including the first duelist.**
+- `[R-FFA-ORDER]` Turn order is clockwise in seat order. First draws follow R-FFA-FIRST-DRAW.
 - `[R-FFA-NO-ATTACK]` **The last duelist gets the first Battle Phase on their first turn (pending engine change).** In FFA3 this is turn 3; in FFA4 this is turn 4. Turns 1 through n-1 have no Battle Phase. Only living duelists count: a duelist eliminated before their first turn does not keep this window open. The window ends in the turn when the last living duelist starts their first turn.
 - `[R-FFA-OPP-ONE]` **"Your opponent": one declared opponent (pending engine change).** A condition that does not change resources needs only one opponent to meet it. For an activated or ignition effect on "your opponent", declare ONE opponent at activation. Pick the opponent first, then any cards. The effect applies only to that opponent, including their field, Graveyard and banishment. Raigeki and Harpie's Feather Duster affect one declared opponent. Book of Eclipse and Prediction Princess Astromorrigan also use one declared opponent; their later End Phase effects affect only that opponent.
 - `[R-FFA-OPP-RESPONSE]` **Trigger and response effects (pending engine change).** An effect on "your opponent" applies only to the opponent or opponents that met its requirement. A Mirror Force-type response to an opponent's monster declaring an attack is open to every duelist for whom the attacker is an opponent. If A attacks B, C may activate Mirror Force, but it affects only A's monsters. A direct-attack response, such as Battle Fader, Gorz, Drowning Mirror Force or Number 100: Numeron Dragon, is offered only to the attacked duelist (in Tag, the attacked team).

@@ -332,7 +332,7 @@ describe("live N-seat duel", () => {
       const view = game.view(0);
       expect(view.format).toBe("ffa3");
       expect(view.seats).toHaveLength(3);
-      expect(view.seats.map((seat) => seat.hand.length)).toEqual([6, 5, 5]);
+      expect(view.seats.map((seat) => seat.hand.length)).toEqual([5, 5, 5]);
       expect(view.seats[0]!.hand.every((card) => card.code != null)).toBe(true);
       expect(view.seats[1]!.hand.every((card) => card.code == null)).toBe(true);
       expect(() => game.view(3)).toThrow("Invalid seat");
@@ -425,16 +425,15 @@ describe("engine diagnostics, disabled zones and the first win", () => {
 describe("seats 2 and 3 get their cards (SetupDuelists runs before any card is added)", () => {
   const settings = { visibility: "public" as const, banlist: "none" as const, cardPool: "both" as const, turnSeconds: 240, startingLP: 8000, startingHand: 5, drawPerTurn: 1, timeout: "loss" as const, validateDeck: false, shuffleDeck: true };
 
-  itEachWithCores<[DuelFormat, number]>(needs.installedMulti(dataDirectory), [["ffa3", 3], ["ffa4", 4], ["tag", 4]], "%s: every seat gets its starting hand and the first FFA seat draws", async (format, seats) => {
+  itEachWithCores<[DuelFormat, number]>(needs.installedMulti(dataDirectory), [["ffa3", 3], ["ffa4", 4], ["tag", 4]], "%s: every seat gets its starting hand and Standard MR5 skips the turn-1 draw", async (format, seats) => {
     const decks = Array.from({ length: seats }, () => ({ main: vanillaMain(40), extra: [], side: [] }));
     const game = await createEngineGame({ mode: "normal", format, decks, seed: ["5", "6", "7", "8"], dataDirectory, settings });
     try {
-      // FFA p0 has drawn once: 6 cards in hand and 34 in the Deck. Other seats and Tag start with 5 and 35.
+      // Standard MR5 skips the turn-1 draw, so every seat starts with 5 cards and a 35-card Deck.
       const view = game.view(null);
       expect(view.seats).toHaveLength(seats);
       for (const seat of view.seats) {
-        const firstDraw = format !== "tag" && seat.seat === 0;
-        expect([seat.seat, seat.hand.length, seat.deckCount]).toEqual([seat.seat, firstDraw ? 6 : 5, firstDraw ? 34 : 35]);
+        expect([seat.seat, seat.hand.length, seat.deckCount]).toEqual([seat.seat, 5, 35]);
       }
     } finally {
       game.close();
