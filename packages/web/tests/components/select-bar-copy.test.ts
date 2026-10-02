@@ -236,5 +236,8 @@ describe("synchroSelectionValues", () => {
     expect(synchroSelectionValues(prompt).total).toBeUndefined();
     expect(selectBarCopy({ kind: "toggle", title: prompt.title, min: 1, max: 1, count: 1, target: 6, sumMode: "exact",
       ...synchroSelectionValues(prompt) }).counter).toBe("1 selected");
+    // Unknown, not unmet: the prompt falls back to the core's Finish state.
+    expect(selectBarCopy({ kind: "toggle", title: prompt.title, min: 1, max: 1, count: 1, target: 6, sumMode: "exact",
+      ...synchroSelectionValues(prompt) }).met).toBeNull();
   });
 });

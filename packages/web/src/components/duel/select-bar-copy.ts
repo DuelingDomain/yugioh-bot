@@ -258,7 +258,8 @@ export function selectBarCopy(input: BarCopyInput): BarCopy {
     instruction,
     counter,
     met: (input.kind === "sum" || synchroMaterials(input)) && input.target != null
-      ? input.sumMet ?? (input.total != null && (input.sumMode === "at-least" ? input.total >= input.target : input.total === input.target))
+      // No total (a material with its own Synchro Level) is unknown, not unmet: the core's Finish state decides.
+      ? input.sumMet ?? (input.total != null ? (input.sumMode === "at-least" ? input.total >= input.target : input.total === input.target) : null)
       : null,
     remaining: remainingCards(input),
     sub: detail ? `${detail} · ${progress}` : progress,
