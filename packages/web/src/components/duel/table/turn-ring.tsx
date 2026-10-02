@@ -38,7 +38,9 @@ export interface TurnRingProps {
 }
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
-const at = (deg: number, r = R) => ({ x: C + Math.cos(rad(deg)) * r, y: C + Math.sin(rad(deg)) * r });
+/** Rounded: server and client trig can differ in the last digits, which breaks hydration. */
+const r2 = (value: number) => Math.round(value * 100) / 100;
+const at = (deg: number, r = R) => ({ x: r2(C + Math.cos(rad(deg)) * r), y: r2(C + Math.sin(rad(deg)) * r) });
 
 /**
  * The turn medallion at the middle of the table: the turn number and phase in the hub, a node per seat at the angle
