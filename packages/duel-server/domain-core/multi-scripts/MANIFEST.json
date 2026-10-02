@@ -2246,7 +2246,8 @@
         "target"
       ],
       "chooserClass": "CH-EACH",
-      "stockSha256": "a647c24660bf8aa6baef63356cdde6717ff53135eac3a481b8228dd9326f3b0e"
+      "stockSha256": "a647c24660bf8aa6baef63356cdde6717ff53135eac3a481b8228dd9326f3b0e",
+      "note": "Each living duelist selects from its own Graveyard or banishment and summons to its own field. Tag includes the partner. A target group with three or four cards does not use PLAYER_ALL."
     },
     {
       "code": 40155014,
@@ -2382,7 +2383,8 @@
         "target"
       ],
       "chooserClass": "CH-EACH",
-      "stockSha256": "1ba4dcc6433a7a015e5e879dfc97204469d5cd095c0a6fc165dacc7560cc141c"
+      "stockSha256": "1ba4dcc6433a7a015e5e879dfc97204469d5cd095c0a6fc165dacc7560cc141c",
+      "note": "Each living duelist selects from its own Graveyard or banishment and summons to its own field. Tag includes the partner. A target group with three or four cards does not use PLAYER_ALL."
     },
     {
       "code": 43452193,
@@ -3395,7 +3397,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
+      "name": "Evil★Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"
@@ -4572,7 +4574,7 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "a529e9038c05c03bdea6e448683c62b41564ff84a6e920492ea1754450542a89",
-      "note": "The target stores the operation info for the activator when the group is not 2 cards (the core demands 2 for PLAYER_ALL); the operation Special Summons each target for the duelist whose Graveyard holds it (windows)."
+      "note": "Each living duelist selects from its own Graveyard or banishment and summons to its own field. Tag includes the partner. A target group with three or four cards does not use PLAYER_ALL."
     },
     {
       "code": 84257883,

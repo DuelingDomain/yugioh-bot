@@ -13,3 +13,9 @@ Live proof: `tests/scenarios/multiplayer/owner-field-returns.ts`. The 16 cases i
 Seeds 1 to 100, Standard, default 1000 steps: FFA3 100/100, FFA4 100/100, Tag 100/100. No error, hang or budget stop. Steps: 34912, 49381, 33507.
 
 Seeds 1 to 50, Domain, default 1000 steps: FFA3 50/50, FFA4 50/50, Tag 50/50. No error, hang or budget stop. Steps: 16615, 24417, 15844.
+
+## Each duelist summons
+
+The Shallow Grave (43434803), The Grave of Enkindling (84136000) and Different Dimension Encounter (39900763) skipped the Tag partner. An own-side Graveyard query also allowed the activator to select a partner card as its own choice. Each living duelist now selects and summons in its own scope. The query checks the real seat of the card. The summon completes once after all seats act. The PLAYER_ALL group-size guards stay in place.
+
+Live proof: `tests/scenarios/multiplayer/each-duelist-revival.ts`. The 12 new cases cover FFA3, FFA4 and both Tag teams. Each case checks the prompts and every seat. The original overlays fail all six Tag cases. The fixed cases and six existing cases pass on each core.

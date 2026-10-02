@@ -10,7 +10,7 @@ local function anyopp(fn)
 	return false
 end
 -- Different Dimension Encounter: "each player" is every living duelist (R1). It can be activated when you and at least one opponent can Special Summon;
--- then every opposing duelist who can Special Summons 1 of their banished monsters, one after the other.
+-- then each living duelist Special Summons 1 of its own banished monsters. Tag includes the partner.
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then
 		return Duel.GetLocationCount(tp,LOCATION_MZONE)>0
@@ -23,19 +23,15 @@ function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 	Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,nil,2,PLAYER_ALL,0)
 end
 function s.operation(e,tp,eg,ep,ev,re,r,rp)
-	if Duel.GetLocationCount(tp,LOCATION_MZONE)>0 then
-		Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_SPSUMMON)
-		local g=Duel.SelectMatchingCard(tp,s.filter,tp,LOCATION_REMOVED,0,1,1,nil,e,tp)
-		local tc=g:GetFirst()
-		if tc then Duel.SpecialSummonStep(tc,0,tp,tp,false,false,POS_FACEDOWN_DEFENSE) end
-	end
-	aux.MPEachOpponent(function()
-		if Duel.GetLocationCount(1-tp,LOCATION_MZONE)>0 then
-			Duel.Hint(HINT_SELECTMSG,1-tp,HINTMSG_SPSUMMON)
-			local g=Duel.SelectMatchingCard(1-tp,s.filter,1-tp,LOCATION_REMOVED,0,1,1,nil,e,1-tp)
+	aux.MPForEachDuelist(function(tp_i,seat_i)
+		if Duel.GetLocationCount(tp_i,LOCATION_MZONE)>0 then
+			Duel.Hint(HINT_SELECTMSG,tp_i,HINTMSG_SPSUMMON)
+			local g=Duel.SelectMatchingCard(tp_i,function(c)
+				return Duel.MPSeatOf(c)==seat_i and s.filter(c,e,tp_i)
+			end,tp_i,LOCATION_REMOVED,0,1,1,nil)
 			local tc=g:GetFirst()
-			if tc then Duel.SpecialSummonStep(tc,0,1-tp,1-tp,false,false,POS_FACEDOWN_DEFENSE) end
+			if tc then Duel.SpecialSummonStep(tc,0,tp_i,tp_i,false,false,POS_FACEDOWN_DEFENSE) end
 		end
-	end)()
+	end)
 	Duel.SpecialSummonComplete()
 end

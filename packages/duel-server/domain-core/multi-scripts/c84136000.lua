@@ -9,8 +9,7 @@ local function anyopp(fn)
 	end
 	return false
 end
--- The Grave of Enkindling: "each player" is every living duelist (R1). It can be activated when you and at least one opponent can Special Summon;
--- every opposing duelist who can targets 1 monster in their own Graveyard, one after the other. The stock operation Special Summons each target for its controller.
+-- The Grave of Enkindling: each living duelist targets from its own Graveyard. Tag includes the partner.
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
 	if chkc then return false end
 	if chk==0 then return Duel.GetLocationCount(tp,LOCATION_MZONE)>0
@@ -19,31 +18,31 @@ function s.target(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
 			return Duel.GetLocationCount(1-tp,LOCATION_MZONE)>0
 				and Duel.IsExistingTarget(s.spfilter,1-tp,LOCATION_GRAVE,0,1,nil,e,1-tp)
 		end) end
-	Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_SPSUMMON)
-	local g=Duel.SelectTarget(tp,s.spfilter,tp,LOCATION_GRAVE,0,1,1,nil,e,tp)
-	aux.MPEachOpponent(function()
-		if Duel.GetLocationCount(1-tp,LOCATION_MZONE)>0
-			and Duel.IsExistingTarget(s.spfilter,1-tp,LOCATION_GRAVE,0,1,nil,e,1-tp) then
-			Duel.Hint(HINT_SELECTMSG,1-tp,HINTMSG_SPSUMMON)
-			g:Merge(Duel.SelectTarget(1-tp,s.spfilter,1-tp,LOCATION_GRAVE,0,1,1,nil,e,1-tp))
+	local g=Group.CreateGroup()
+	aux.MPForEachDuelist(function(tp_i,seat_i)
+		local function filter(c) return Duel.MPSeatOf(c)==seat_i and s.spfilter(c,e,tp_i) end
+		if Duel.GetLocationCount(tp_i,LOCATION_MZONE)>0
+			and Duel.IsExistingTarget(filter,tp_i,LOCATION_GRAVE,0,1,nil) then
+			Duel.Hint(HINT_SELECTMSG,tp_i,HINTMSG_SPSUMMON)
+			g:Merge(Duel.SelectTarget(tp_i,filter,tp_i,LOCATION_GRAVE,0,1,1,nil))
 		end
-	end)()
-	-- The core accepts CATEGORY_SPECIAL_SUMMON with PLAYER_ALL only for a group of exactly 2 cards (both sides summon). With one target per
-	-- living duelist at 3 or 4 seats the group has more cards: it is stored for the activator then, the stock info of the group.
+	end)
+	-- A non-nil Special Summon group with PLAYER_ALL must contain exactly two cards.
 	if #g==2 then
 		Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,#g,PLAYER_ALL,g:GetFirst():GetOwner())
-	else
-		Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,#g,tp,g:GetFirst():GetOwner())
+	elseif #g>0 then
+		Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,#g,tp,0)
 	end
 end
--- The stock operation Special Summons each target for tc:GetControler(). The Lua value of a controller is 0 or 1 only, so at 3 or 4 seats a target of the
--- second opponent would be summoned for the first one. Each target is summoned inside the window of the duelist that controls it (the own targets with no
--- window; a window shows the Graveyard of one opponent only, and a card is not told apart by its controller value); the targets are one simultaneous Special Summon, so SpecialSummonComplete runs once after the last window.
+-- Each target is summoned for its own duelist. All summons complete together.
 function s.activate(e,tp,eg,ep,ev,re,r,rp)
-	local g=Duel.GetChainInfo(0,CHAININFO_TARGET_CARDS)
-	local function summon(tg)
+	local g=Duel.GetTargetCards(e)
+	aux.MPForEachDuelist(function(tp_i,seat_i)
+		local tg=Duel.GetFieldGroup(tp_i,LOCATION_GRAVE,0):Filter(function(c)
+			return Duel.MPSeatOf(c)==seat_i and g:IsContains(c)
+		end,nil)
 		for tc in aux.Next(tg) do
-			if tc:IsRelateToEffect(e) and Duel.SpecialSummonStep(tc,0,tc:GetControler(),tc:GetControler(),false,false,POS_FACEUP_DEFENSE) then
+			if tc:IsRelateToEffect(e) and Duel.SpecialSummonStep(tc,0,tp_i,tp_i,false,false,POS_FACEUP_DEFENSE) then
 				local e1=Effect.CreateEffect(e:GetHandler())
 				e1:SetType(EFFECT_TYPE_SINGLE)
 				e1:SetCode(EFFECT_CANNOT_CHANGE_POSITION)
@@ -51,10 +50,6 @@ function s.activate(e,tp,eg,ep,ev,re,r,rp)
 				tc:RegisterEffect(e1,true)
 			end
 		end
-	end
-	summon(Duel.GetFieldGroup(tp,LOCATION_GRAVE,0):Filter(function(c) return g:IsContains(c) end,nil))
-	aux.MPEachOpponent(function()
-		summon(Duel.GetFieldGroup(tp,0,LOCATION_GRAVE):Filter(function(c) return g:IsContains(c) end,nil))
-	end)()
+	end)
 	Duel.SpecialSummonComplete()
 end
