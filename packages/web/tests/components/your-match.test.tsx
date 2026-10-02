@@ -18,6 +18,15 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 function show(props = matchProps) { return render(<SheetRoot><YourMatch {...props} /></SheetRoot>); }
 
 describe("Your match", () => {
+  it("shows the winnings with the stakes on a phone, and skips the tier names and deck fetch", () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    render(<SheetRoot><YourMatch {...matchProps} narrow /></SheetRoot>);
+    const projection = projectMatch({ myElo: 1184, oppElo: 1062, seasonMultiplier: 1 });
+    expect(screen.getByText(`+${projection.winWinnings} winnings`)).toBeInTheDocument();
+    expect(screen.queryByText("Gold")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("matches the reference names, records, tiers, rules and projectMatch stakes", async () => {
     const fetchMock = vi.fn(async () => Response.json(deckResponse())); vi.stubGlobal("fetch", fetchMock);
     show();

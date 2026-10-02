@@ -163,7 +163,7 @@ describe("standings on a wide column", () => {
   });
 
   it("uses a standings list for other formats with no grid toggle", () => {
-    renderStandings({ tournament: { ...standingsTournament, format: "single_elimination" } });
+    renderStandings({ tournament: { ...standingsTournament, format: "single_elim" } });
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.queryByRole("button", { name: /Show/ })).toBeNull();
     const row = screen.getByRole("link", { name: "Imran" }).closest("li")!;
