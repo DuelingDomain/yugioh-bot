@@ -1525,6 +1525,19 @@
       ]
     },
     {
+      "code": 25096909,
+      "file": "c25096909.lua",
+      "name": "Simultaneous Equation Cannons",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "c51f8ea1515f45e548d608e7211d58d28b891e922fdbaa14a453cfb3c677246b",
+      "note": "Use a picked FFA count and combined opposing Tag hands and fields.",
+      "redefines": [
+        "target",
+        "activate"
+      ]
+    },
+    {
       "code": 25274141,
       "file": "c25274141.lua",
       "name": "Urgent Schedule",
@@ -3199,6 +3212,18 @@
       "note": "The global battle flag reaches every seat in FFA and every team in Tag. The activation reads the flag of its own holder, so a Tag holder on team 1 does not pick an opponent."
     },
     {
+      "code": 54635100,
+      "file": "c54635100.lua",
+      "name": "Linkerbell",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "91e3b82dfc209b5a6108d78d535c5dd460fdd30663153c54ef17f76322638de5",
+      "note": "Check every eligible opponent before a Link Summon.",
+      "redefines": [
+        "spcost"
+      ]
+    },
+    {
       "code": 55273560,
       "file": "c55273560.lua",
       "name": "Incredible Ecclesia, the Virtuous",
@@ -3400,6 +3425,19 @@
       "chooserClass": "CH-EACH",
       "stockSha256": "56d09211c1bf32d4ca6b981bb31ddabae4858936747f84d261dfe6881ac30137",
       "note": "The target stores the operation info for the activator when the group is not 2 cards (the core demands 2 for PLAYER_ALL); the operation Special Summons each target for the duelist whose Graveyard holds it (windows)."
+    },
+    {
+      "code": 58720904,
+      "file": "c58720904.lua",
+      "name": "Pendransaction",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "b146c73efbd1e92c38aee7968c44c27a714aaccf5011285e2a1b41f8bf280542",
+      "note": "Check every eligible opponent and bind the picked Extra Deck.",
+      "redefines": [
+        "target",
+        "operation"
+      ]
     },
     {
       "code": 59011257,
@@ -5819,6 +5857,18 @@
       "chooserClass": "CH-OP",
       "stockSha256": "ddf7aa16cbf1aaf9a19ec929488e2a042fadf5524510bb5c7e438149f83b9094",
       "note": "Chooser card with a compare in an inline condition (MPAny); the file replaces the script. The triage did not list it as a compare card."
+    },
+    {
+      "code": 98520301,
+      "file": "c98520301.lua",
+      "name": "Asset Mountis",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "af14946742212b40beb2399a52c0365c24abb97b79119a185397088d4852fbeb",
+      "note": "Check each FFA hand or the combined opposing Tag hands.",
+      "redefines": [
+        "initial_effect"
+      ]
     },
     {
       "code": 98715423,

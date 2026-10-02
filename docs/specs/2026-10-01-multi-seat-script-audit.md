@@ -137,3 +137,7 @@ The Fabled Unicore (44155002) compared only the event opponent's hand in Tag. Q2
 ## Bujinki detach state
 
 Bujinki Ahashima (71095768) stored the detach sequence relative to the first global holder. A later holder then missed its linked Xyz monster's effect. The overlay stores the real detach controller and compares it with each holder. Live proof: `bujinki-detach-state.ts`, with a real Gagaga Cowboy detach. All three original two-holder cases fail; all three one-holder controls pass. All six fixed cases pass on both cores.
+
+## Eligible opponent counts
+
+Simultaneous Equation Cannons (25096909), Linkerbell (54635100), Pendransaction (58720904) and Asset Mountis (98520301) checked the wrong count scope or only the first opponent before activation. The overlays check each eligible FFA opponent, bind the picked opponent for resolution and use the required Tag hand or field totals. Extra Deck comparisons remain per picked duelist. Live proof: `opponent-count-gates.ts`. Eleven original cases fail; 17 controls pass. All 28 fixed cases pass on both cores, including four stock 1v1 controls and 12 negative count controls. The fixture skips only the opening Draw Phase to keep the count stable.
