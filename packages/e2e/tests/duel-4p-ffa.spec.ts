@@ -96,7 +96,7 @@ test.describe("4-player FFA", () => {
     expect(prompt.context?.type).toBe("action");
     test.fail(true, "R-FFA-NO-ATTACK pending engine change");
     expect(prompt.options.some((option) => option.id === "to_bp")).toBe(true);
-    await expect(toBattle(seats[3]!.page)).toBeEnabled({ timeout: 1000 });
+    await expect(toBattle(seats[3]!.page)).toBeEnabled();
   });
 
   test("current engine: Raigeki hits all opponents (R-FFA-OPP-ONE pending)", async ({ player }) => {
@@ -135,9 +135,9 @@ test.describe("4-player FFA", () => {
     await useCard(alice.page, handCard(alice.page, "Raigeki"), "Activate");
     await pickLegalZone(alice.page, "st");
     test.fail(true, "R-FFA-OPP-ONE pending engine change");
-    expect((await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("opponent");
+    await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("opponent");
     const choice = alice.page.getByTestId("holo-pick-2");
-    await expect(choice).toBeVisible({ timeout: 1000 });
+    await expect(choice).toBeVisible();
     await choice.click();
     await expect(tableField(alice.page, 2).locator("[data-kind='mz'][data-occupied='true']")).toHaveCount(0);
     for (const seat of [0, 1, 3]) await expect(tableField(alice.page, seat).locator("[data-kind='mz'][data-occupied='true']")).toHaveCount(1);

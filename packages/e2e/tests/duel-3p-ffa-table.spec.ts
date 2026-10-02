@@ -277,7 +277,7 @@ test.describe("FFA3 real-engine table rules", () => {
       await expect(occupied(alice.page, 2)).toHaveCount(1);
       if (adr) test.fail(true, "R-FFA-OPP-RESPONSE pending engine change: If A attacks B, C may activate Mirror Force, but it affects only A's monsters.");
       expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.monsters.filter(Boolean).length)).toEqual(adr ? [0, 1, 1] : [0, 0, 1]);
-      await expect(occupied(alice.page, 1)).toHaveCount(adr ? 1 : 0, { timeout: 1000 });
+      await expect(occupied(alice.page, 1)).toHaveCount(adr ? 1 : 0);
       expect(errors).toEqual([]);
     });
   }
