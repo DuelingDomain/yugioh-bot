@@ -176,6 +176,12 @@
   width: max-content;
   max-width: min(420px, calc(100% - 24px));
 }
+/* The far seat's LP sits partway down a four-way table. Its chain lane ends above that panel. */
+.board[data-format="ffa4"] .slot[data-slot="fx"] :global([data-chain-panel]) {
+  top: 8px;
+  max-height: calc(30% - 24px);
+  overflow-y: auto;
+}
 .slot[data-slot="fx"] :global([data-chain-panel] [data-testid="priority-chips"]) {
   flex-wrap: wrap;
 }
