@@ -1,4 +1,4 @@
-import { activate, endTurn, expectNotOffered, normalSummon, select, specialSummon, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, expectNotOffered, expectOffered, expectPickOptions, normalSummon, select, specialSummon, type Scenario } from "../../support/dsl.js";
 import { PARTNER, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 import { stressBoard as board, stressScenario as scenario, stressSetup as setup } from "./domain-nseat-stress.js";
 
@@ -14,6 +14,34 @@ for (const [format, seat] of [["ffa3", "p2"], ["ffa4", "p3"], ["tag", "p2"], ["t
       board(format, { [seat]: { monsters: ["Elemental HERO Flame Wingman"],
         grave: ["Polymerization", "Elemental HERO Avian", "Elemental HERO Burstinatrix"] } })],
   }));
+  // Gaia is legal for a proper Fusion Summon when its materials are present. An ordinary
+  // Extra Deck query must still exclude its Deck Master zone, even with those materials.
+  const materials = ["Gaia The Fierce Knight", "Curse of Dragon", "Elemental HERO Avian", "Elemental HERO Burstinatrix"];
+  const extra = ["Elemental HERO Flame Wingman", "Elemental HERO Phoenix Enforcer"];
+  DOMAIN_NSEAT_STRESS_BOUNDARIES.push(
+    scenario(format, `ordinary-extra-filter-rejects-master-with-materials-by-${seat}`, {
+      setup: setup(format, { [seat]: { deckMaster: "Gaia the Dragon Champion", hand: ["Fusion Conscription"],
+        monsters: materials, grave: ["Gaia The Fierce Knight", "Elemental HERO Avian", "Elemental HERO Burstinatrix"], extra } }),
+      steps: [...turnsBefore(format, seat), activate("Fusion Conscription", seat),
+        expectNotOffered("choice", "Gaia the Dragon Champion", seat),
+        expectPickOptions(extra.map(card => ({ card })), seat), select("Elemental HERO Flame Wingman"),
+        select({ card: "Elemental HERO Avian", from: "grave" }),
+        board(format, { [seat]: { monsters: materials, extra,
+          hand: { include: ["Elemental HERO Avian"], exclude: ["Fusion Conscription"], count: 2 },
+          grave: ["Fusion Conscription", "Gaia The Fierce Knight", "Elemental HERO Burstinatrix"] } })],
+    }),
+    scenario(format, `proper-fusion-offers-master-with-materials-by-${seat}`, {
+      setup: setup(format, { [seat]: { deckMaster: "Gaia the Dragon Champion", hand: ["Polymerization"],
+        monsters: materials, extra } }),
+      steps: [...turnsBefore(format, seat), activate("Polymerization", seat),
+        expectOffered("choice", "Gaia the Dragon Champion", seat),
+        expectPickOptions([...extra, "Gaia the Dragon Champion"].map(card => ({ card })), seat),
+        select("Gaia the Dragon Champion"), select("Gaia The Fierce Knight", "Curse of Dragon"),
+        board(format, { [seat]: { monsters: ["Gaia the Dragon Champion", "Elemental HERO Avian", "Elemental HERO Burstinatrix"],
+          grave: ["Polymerization", "Gaia The Fierce Knight", "Curse of Dragon"],
+          extra, hand: { count: 1 }, deckMaster: OUT } })],
+    }),
+  );
   const opponent = format === "tag" && seat === "p2" ? "p1" : "p0";
   DOMAIN_NSEAT_STRESS_BOUNDARIES.push(scenario(format, `synchro-master-rejects-opponent-material-by-${seat}`, {
     setup: setup(format, { [opponent]: { monsters: ["The Magical King of Dimension Zeta"] },
