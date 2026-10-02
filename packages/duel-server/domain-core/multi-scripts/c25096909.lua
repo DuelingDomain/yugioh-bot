@@ -1,14 +1,11 @@
--- Cannons uses one bound opponent in FFA and the opposing team in Tag.
+if not aux.MPForEachDuelist then return end
+-- R-COMMON-EACH-PLAYER: count every living hand and field once, including the Tag partner.
 local function mp_total(tp)
-	if Duel.MPMode()~=2 then
-		return Duel.GetFieldGroupCount(tp,LOCATION_ONFIELD|LOCATION_HAND,LOCATION_ONFIELD|LOCATION_HAND)
-	end
-	local me=aux.MPKey(tp)
-	local ct=Duel.GetFieldGroupCount(tp,LOCATION_ONFIELD|LOCATION_HAND,0)+Duel.GetFieldGroupCount(tp,0,LOCATION_ONFIELD)
-	aux.MPForEachDuelist(function(p,seat)
-		if aux.MPKeyOfSeat(seat)~=me then ct=ct+Duel.GetFieldGroupCount(p,LOCATION_HAND,0) end
+	local g=Group.CreateGroup()
+	aux.MPForEachDuelist(function(p)
+		g:Merge(Duel.GetFieldGroup(p,LOCATION_ONFIELD|LOCATION_HAND,0))
 	end)
-	return ct
+	return #g
 end
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then
