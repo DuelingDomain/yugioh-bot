@@ -4,7 +4,7 @@
 // Dust Tornado (the chain). Every scenario asserts a FINAL state after an action.
 
 import {
-  activate, announce, attack, changePhase, defineScenario, endTurn, expectBoard, expectChain, expectEliminated, expectLp, expectNotOffered,
+  activate, announce, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectChain, expectEliminated, expectLp, expectNotOffered,
   expectPickSeats, expectPrompt, expectResolved, expectResponseOrder, expectResult, expectTurn, pass, pickOpponent,
   select, surrender, yes, type Scenario, type Step,
 } from "../../support/dsl.js";
@@ -722,6 +722,68 @@ export const FFA_SCENARIOS: Scenario[] = [
       expectEliminated("p0", "p1", "p2", "p3"),
       expectResult(null),
       expectBoard({ p0: { lp: 0 }, p1: { lp: 0 }, p2: { lp: 0 }, p3: { lp: 0 } }),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-ffa4-turn-player-out-mid-round-turn-passes-to-next-living",
+    title: "FFA4: the turn player p2 and p3 are out by a flip effect in the turn of p2: the turn goes to p0, then p1, then p0",
+    source: `${SOURCE} [R-FFA-ELIMINATION]`,
+    rules: ["R-FFA-ELIMINATION", "R-FFA-ORDER"],
+    tags: ["multiplayer", "elimination", "turn-order", "ffa4", "card:6783559"],
+    setup: { format: "ffa4", p2: { lp: 1000, monsters: [{ card: "Self-Destruct Ant", pos: "set" }] }, p3: { lp: 1000 } },
+    steps: [
+      endTurn("p0"),
+      endTurn("p1"),
+      expectTurn("p2", 3),
+      changePosition("Self-Destruct Ant", "p2"),
+      expectEliminated("p2", "p3"),
+      expectBoard({ p0: { lp: 7000 }, p1: { lp: 7000 }, p2: { lp: 0, ...VIEW_EMPTY }, p3: { lp: 0, ...VIEW_EMPTY } }),
+      // The turn of p2 is cut short. The next living seat clockwise is p0 (turn 4), then p1, then p0 again.
+      expectTurn("p0", 4),
+      endTurn("p0"),
+      expectTurn("p1", 5),
+      endTurn("p1"),
+      expectTurn("p0", 6),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-ffa4-two-neighbours-out-turn-skips-both",
+    title: "FFA4: p1 and p2 (neighbours in the turn order) give up in the turn of p0: the turn goes p3, p0, p3 and never to a seat that is out",
+    source: `${SOURCE} [R-FFA-ORDER]`,
+    rules: ["R-FFA-ORDER", "R-FFA-ELIMINATION"],
+    tags: ["multiplayer", "elimination", "turn-order", "surrender", "ffa4"],
+    setup: { format: "ffa4" },
+    steps: [
+      surrender("p1"),
+      surrender("p2"),
+      // With no chain open, the loss of a seat that gave up lands at the next check of the core: the turn player ends its turn.
+      endTurn("p0"),
+      expectTurn("p3", 2),
+      expectEliminated("p1", "p2"),
+      expectBoard({ p0: { lp: 8000 }, p1: { lp: 8000, ...VIEW_EMPTY }, p2: { lp: 8000, ...VIEW_EMPTY }, p3: { lp: 8000 } }),
+      endTurn("p3"),
+      expectTurn("p0", 3),
+      endTurn("p0"),
+      expectTurn("p3", 4),
+    ],
+  }),
+  defineScenario({
+    id: "nseat-ffa4-three-surrenders-in-a-row-last-wins",
+    title: "FFA4: p3, p1 and p2 give up one after the other (not in seat order): the last seat left, p0, wins when the third one goes",
+    source: `${SOURCE} [R-FFA-WINNER]`,
+    rules: ["R-FFA-WINNER", "R-FFA-ELIMINATION"],
+    tags: ["multiplayer", "elimination", "surrender", "ffa4"],
+    setup: { format: "ffa4" },
+    steps: [
+      surrender("p3"),
+      surrender("p1"),
+      surrender("p2"),
+      // The three losses land at the next check of the core: the turn player ends its turn.
+      endTurn("p0"),
+      expectEliminated("p1", "p2", "p3"),
+      expectResult({ seat: "p0" }),
+      // A seat that gives up keeps its LP: it loses by the surrender, not at 0 LP.
+      expectBoard({ p0: { lp: 8000 }, p1: { lp: 8000 }, p2: { lp: 8000 }, p3: { lp: 8000 } }),
     ],
   }),
 ];
