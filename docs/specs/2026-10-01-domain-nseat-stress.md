@@ -43,8 +43,9 @@ playable monster as Deck Master, exactly 60 Main Deck cards, at most 15 Extra
 Deck cards, no Side Deck, one copy per card identity across Main and Extra,
 and no copy of the Deck Master in those decks. Monster membership follows the
 master's Domain (Type, Attribute, archetype, or a named card; Divine cards are
-included). The Forbidden and Limited List applies per deck. These checks and
-the Domain card restriction are outside this engine audit. The other agent
+included). No banlist applies by default. When the host selects a banlist, it
+applies per deck. The multiplayer safety list always applies. These checks
+and the Domain card restriction are outside this engine audit. The other agent
 owns the restriction and the host and lobby paths. Fuzz deliberately uses
 60-card engine decks with Deck Masters and varied cards; it does not prove
 competitive deck legality.
