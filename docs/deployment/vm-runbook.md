@@ -8,7 +8,7 @@ This runbook covers deploying the YuGiOh bot + web app to a VM. The stack runs v
 - Production branch: `main`
 - Deploy workflow: `.github/workflows/deploy.yml`
 - VM provider: Hetzner Cloud
-- VM public IP: `178.105.36.104`
+- VM public IP: `178.105.36.104`; production hostname (`SITE_DOMAIN`): `duelistskingdom.com`
 - VM app path: `/opt/yugioh-bot`
 - Runtime user: `root`
 - Data path: `/opt/yugioh-bot/data/bot.sqlite`
@@ -16,24 +16,25 @@ This runbook covers deploying the YuGiOh bot + web app to a VM. The stack runs v
 ## SSH Access
 
 The deploy key lives at `~/.ssh/hetzner_deploy` on the maintainer's workstation.
+Use the VM IP from the [facts list](#current-repository-state) for `YOUR_VM_IP` below.
 
 ```bash
-ssh -i ~/.ssh/hetzner_deploy root@178.105.36.104
+ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP
 ```
 
 One-liners (run from your workstation, no interactive shell needed):
 
 ```bash
 # Tail logs
-ssh -i ~/.ssh/hetzner_deploy root@178.105.36.104 \
+ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP \
   'cd /opt/yugioh-bot && docker compose -f docker-compose.yml logs --tail=100'
 
 # Inspect production .env
-ssh -i ~/.ssh/hetzner_deploy root@178.105.36.104 \
-  'grep -E "^(NEXTAUTH_URL|NEXT_PUBLIC_WS_URL|WEB_URL)=" /opt/yugioh-bot/.env'
+ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP \
+  'grep -E "^(SITE_DOMAIN|NEXTAUTH_URL|WEB_URL)=" /opt/yugioh-bot/.env'
 
 # Restart a service
-ssh -i ~/.ssh/hetzner_deploy root@178.105.36.104 \
+ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP \
   'cd /opt/yugioh-bot && docker compose -f docker-compose.yml restart bot'
 ```
 
@@ -41,7 +42,7 @@ Optional — add a `~/.ssh/config` entry so you can drop the `-i` flag:
 
 ```sshconfig
 Host yugioh-bot
-    HostName 178.105.36.104
+    HostName YOUR_VM_IP
     User root
     IdentityFile ~/.ssh/hetzner_deploy
 ```
@@ -77,8 +78,9 @@ The deploy workflow requires these GitHub Actions secrets:
    the volume bundle and runs `node packages/duel-server/dist/server.js`
    (`dist/worker.js` is loaded by the compiled host). Container restarts do
    not re-download or recompile the bundle.
-6. Caddy reverse-proxies HTTP on port 80. Port 4003 stays on the Docker
-   network only — do not publish it.
+6. Caddy serves `https://<SITE_DOMAIN>` and 308-redirects `www.<SITE_DOMAIN>`
+   and every plain-HTTP host (including old IP links), preserving path and query.
+   Keep `caddy_data` and `caddy_config` volumes so certificates survive deploys.
 
 Remote steps used by the workflow (bundle tarball is built on the runner first):
 
@@ -106,11 +108,12 @@ docker compose -f docker-compose.yml logs --tail=40
 4. Image: Ubuntu 24.04
 5. Type: CAX11 (ARM64, 4GB RAM, €3.79/mo)
 6. Add your SSH public key
-7. Firewall: allow TCP 22, 80, 443
+7. Hetzner Cloud Firewall: allow TCP 22/80/443 + UDP 443; Docker-published ports bypass ufw; never publish 4003. Keep TCP 80 open for redirects and ACME HTTP-01 challenges.
 8. Name: `yugioh-bot`
 9. Create & Buy
 
 Note the IPv4 address after creation.
+Point the DNS A records for `SITE_DOMAIN` and `www.<SITE_DOMAIN>` to the VM IP.
 
 ### Initial Server Setup
 
@@ -136,7 +139,7 @@ cp .env.example .env
 nano .env
 ```
 
-Fill in:
+Fill in (Compose expands `${SITE_DOMAIN}` in the unquoted URL values):
 
 ```bash
 DISCORD_TOKEN=your_bot_token
@@ -146,9 +149,10 @@ DISCORD_GUILD_ID=your_guild_id
 DISCORD_REMINDER_CHANNEL_ID=your_channel_id
 DISCORD_DEFAULT_CHANNEL_ID=your_default_channel_id
 
+SITE_DOMAIN=  # hostname without scheme; see facts list
 NEXTAUTH_SECRET=  # generate with: openssl rand -base64 32
-NEXTAUTH_URL=http://YOUR_VM_IP
-NEXT_PUBLIC_WS_URL=http://YOUR_VM_IP
+NEXTAUTH_URL=https://${SITE_DOMAIN}
+WEB_URL=https://${SITE_DOMAIN}
 
 WS_INTERNAL_SECRET=  # openssl rand -hex 32; same on web, bot, duel, ws
 BOT_ANNOUNCE_SECRET=  # openssl rand -hex 32
@@ -159,7 +163,7 @@ REMINDER_CRON=0 10 * * *
 REMINDER_TIMEZONE=America/New_York
 ```
 
-Do not publish host port 4003. Compose already keeps the duel engine on the internal network.
+After editing `.env`, recreate containers with `docker compose -f docker-compose.yml up -d`. `restart` does not re-read `.env`.
 
 ### Build & Run
 
@@ -180,14 +184,16 @@ docker compose -f docker-compose.yml ps
 docker compose -f docker-compose.yml logs -f
 ```
 
-Open `http://YOUR_VM_IP` in a browser.
+After deploy, run `scripts/smoke-test-site.sh <SITE_DOMAIN> <VM IP>` from the repo on your workstation to check certificates, redirects, Socket.IO, and the Discord callback URL.
+
+Manually open `https://<SITE_DOMAIN>` in a browser, sign in with Discord, and confirm the dashboard loads and a draft updates live; the smoke script cannot verify these checks.
 
 ### Discord OAuth Redirect
 
 In the [Discord Developer Portal](https://discord.com/developers/applications) → OAuth2 → Redirects, add:
 
 ```
-http://YOUR_VM_IP/api/auth/callback/discord
+https://<SITE_DOMAIN>/api/auth/callback/discord
 ```
 
 ## GitHub Actions Secrets
@@ -239,32 +245,16 @@ docker compose -f docker-compose.yml up -d --build
 docker compose -f docker-compose.yml down
 ```
 
-## Adding HTTPS with a Domain
-
-1. Point your domain's A record to the VM IP.
-2. Edit `Caddyfile` — replace `:80` with `yourdomain.com`.
-3. Update `.env` on the VM:
-   ```
-   NEXTAUTH_URL=https://yourdomain.com
-   NEXT_PUBLIC_WS_URL=https://yourdomain.com
-   ```
-4. Update Discord redirect URI to `https://yourdomain.com/api/auth/callback/discord`.
-5. Open port 443 in the firewall:
-   ```bash
-   ufw allow 443/tcp
-   ```
-6. Restart: `docker compose -f docker-compose.yml up -d` — Caddy provisions HTTPS via Let's Encrypt automatically.
-
 ## VM Setup Checklist
 
 - [ ] VM created (Hetzner CAX11 or similar, 4GB+ RAM)
 - [ ] SSH key added
-- [ ] Firewall allows TCP 22, 80, 443 (not 4003)
+- [ ] [Firewall and DNS configured](#create-the-server)
 - [ ] Docker and Docker Compose installed
 - [ ] Repo cloned to `/opt/yugioh-bot`
-- [ ] `.env` created with all values including `DUEL_INTERNAL_SECRET` and `WS_INTERNAL_SECRET`
+- [ ] [Production environment configured](#create-env)
 - [ ] GitHub Actions secrets configured
 - [ ] Push to `main` (or `workflow_dispatch`) installs `data/duel-engine` and starts services
-- [ ] `http://YOUR_VM_IP` loads in browser
-- [ ] Discord OAuth redirect added
-- [ ] `duel` container logs show the private server listening; no public 4003
+- [ ] [Deployment verification passes](#verify)
+- [ ] [Discord OAuth redirect added](#discord-oauth-redirect)
+- [ ] `duel` container logs show the private server listening

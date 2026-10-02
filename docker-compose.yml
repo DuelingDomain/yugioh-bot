@@ -70,10 +70,12 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    environment:
+      - SITE_DOMAIN=${SITE_DOMAIN:?Set SITE_DOMAIN in .env (localhost for local dev)}
     ports:
       - "80:80"
-      # To enable HTTPS: add "443:443", replace :80 with your domain in Caddyfile,
-      # and ensure caddy_data volume persists (stores Let's Encrypt certs).
+      - "443:443"
+      - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
