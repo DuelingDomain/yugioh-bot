@@ -518,7 +518,7 @@ export function TableShell({
           clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} compact /> : null}
           caption={trackCaption}
           reducedMotion={controller.reducedMotion}
-          attackLock={attackLockAt(format, engine.seats.length, engine.turn)}
+          attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
         />
       </div>
       {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}

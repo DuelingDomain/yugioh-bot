@@ -1,4 +1,4 @@
-import type { DuelEngineView } from "@yugidraft/shared/duels";
+import type { DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
 import { isEliminated } from "../multi-seat";
 import { nextSeatAfter } from "../multi-seat";
 import type { SeatStatus, SeatTone, TableLayout } from "./types";
@@ -95,10 +95,16 @@ export function placeLabel(place: number): string {
   return `${place}${["th", "st", "nd", "rd"][place % 10 <= 3 ? place % 10 : 0]}`;
 }
 
-/** The turn from which attacks are legal: Tag turn 4, a table of n duelists turn n + 1, a duel of two turn 2. */
+// The engine view has no first-attack-turn metadata. Keep the current engine's format gates here.
+// TODO(R-FFA-NO-ATTACK): use FFA3 turn 3 / FFA4 turn 4 when the pending engine rule lands,
+// or consume its first-attack-turn metadata when exposed. The UI must not advertise an unavailable phase.
+const FIRST_ATTACK_TURN: ReadonlyMap<string, number> = new Map([
+  ["1v1", 2], ["tag", 4], ["ffa3", 4], ["ffa4", 5],
+]);
+
+/** Current format fallback when the engine has not yet offered Battle Phase. */
 export function firstAttackTurn(format: string | undefined, seatCount: number): number {
-  if (format === "tag") return 4;
-  return seatCount > 2 ? seatCount + 1 : 2;
+  return FIRST_ATTACK_TURN.get(format ?? "") ?? (seatCount > 2 ? seatCount + 1 : 2);
 }
 
 export interface AttackLock {
@@ -106,8 +112,10 @@ export interface AttackLock {
   turnsLeft: number;
 }
 /** Set while attacks are still shut at `turn`; null once they are open. */
-export function attackLockAt(format: string | undefined, seatCount: number, turn: number | null | undefined): AttackLock | null {
+export function attackLockAt(format: string | undefined, seatCount: number, turn: number | null | undefined, prompt?: DuelPrompt | null): AttackLock | null {
   if (turn == null) return null;
+  // An authoritative phase offer takes precedence over the fallback table.
+  if (prompt?.context?.type === "action" && prompt.options.some((option) => option.id === "to_bp")) return null;
   const firstTurn = firstAttackTurn(format, seatCount);
   return turn < firstTurn ? { firstTurn, turnsLeft: firstTurn - turn } : null;
 }

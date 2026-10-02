@@ -64,14 +64,20 @@ describe("seat-state", () => {
     expect([1, 2, 3, 4, 11, 12, 21].map(placeLabel)).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "21st"]);
   });
 
-  it("knows when the first attack is legal", () => {
+  it("current engine: derives the attack gate from the format rule table", () => {
     expect(firstAttackTurn("ffa3", 3)).toBe(4);
     expect(firstAttackTurn("ffa4", 4)).toBe(5);
     expect(firstAttackTurn("tag", 4)).toBe(4);
     expect(firstAttackTurn("1v1", 2)).toBe(2);
+    expect(firstAttackTurn("ffa3", 2)).toBe(4);
     expect(attackLockAt("ffa3", 3, 2)).toEqual({ firstTurn: 4, turnsLeft: 2 });
     expect(attackLockAt("ffa3", 3, 4)).toBeNull();
     expect(attackLockAt("ffa3", 3, null)).toBeNull();
+  });
+
+  it("removes the attack lock when the engine offers Battle Phase before the fallback turn", () => {
+    const prompt = engineOf("main").prompt;
+    expect(attackLockAt("ffa3", 3, 3, prompt)).toBeNull();
   });
 
   it("builds the seat strip in turn order with the viewer marked", () => {
