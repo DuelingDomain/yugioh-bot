@@ -356,7 +356,7 @@ cd /home/sulman633/orca/workspaces/yugioh-bot/n-player-ui
 ( set -a; . /home/sulman633/repos/yugioh-bot/.env; set +a
   export NEXTAUTH_URL=http://localhost:3100 AUTH_TRUST_HOST=true DUEL_FX_LAB=1 \
          CARD_IMAGE_CACHE_DIR=$PWD/data/card-images DATABASE_PATH=$PWD/data/bot.sqlite
-  nohup npm run dev --workspace=@yugioh-discord-bot/web -- -p 3100 > "$SCRATCH/web-dev.log"   # SCRATCH = your scratchpad dir 2>&1 & )
+  nohup npm run dev --workspace=@yugioh-discord-bot/web -- -p 3100 > "$SCRATCH/web-dev.log" 2>&1 & )   # SCRATCH = your scratchpad dir
 ```
 The env is sourced from the main checkout's `.env` (read only); nothing is copied into the worktree and no secret is
 committed. `NEXTAUTH_SECRET` is the only value the preview needs (middleware). `data/` is git-ignored. Card art is
