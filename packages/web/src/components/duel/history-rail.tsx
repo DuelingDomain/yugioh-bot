@@ -87,7 +87,8 @@ export type DuelHistoryRailProps = {
   seatTones?: ReadonlyMap<number, { main: string; ink: string }>;
 };
 
-function contextFor(engine: DuelEngineView): HistoryContext {
+/** The facts the history model reads from an engine view. Shared with the table's history strip. */
+export function contextFor(engine: DuelEngineView): HistoryContext {
   const cards: DuelCard[] = [];
   for (const seat of engine.seats) {
     for (const card of seat.monsters) if (card) cards.push(card);
@@ -107,7 +108,8 @@ function contextFor(engine: DuelEngineView): HistoryContext {
 type IconComponent = ComponentType<{ size?: number; strokeWidth?: number; "aria-hidden"?: boolean }>;
 type IconTone = "plain" | "attack" | "loss" | "gain" | "chain" | "quiet";
 
-const ICONS: Record<HistoryIconKind, { Icon: IconComponent; tone: IconTone; label: string }> = {
+/** Icon, tone and label of each history row kind. Shared with the table's history strip. */
+export const ICONS: Record<HistoryIconKind, { Icon: IconComponent; tone: IconTone; label: string }> = {
   normal: { Icon: Hand, tone: "plain", label: "Normal Summon" },
   tribute: { Icon: Crown, tone: "plain", label: "Tribute Summon" },
   special: { Icon: Sparkles, tone: "plain", label: "Special Summon" },

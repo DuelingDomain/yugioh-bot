@@ -92,6 +92,18 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("[data-testid='card-tab-empty']")).toBeNull();
   });
 
+  it("shows a history strip at the top of the left column with seat-edged tiles, newest first", () => {
+    const { container } = render(<Shell id="main" />);
+    const strip = container.querySelector("[data-testid='history-strip']") as HTMLElement;
+    expect(strip).not.toBeNull();
+    const aside = strip.closest("aside") as HTMLElement;
+    expect(aside.firstElementChild).toBe(strip);
+    const tiles = strip.querySelectorAll("li[data-seat]");
+    expect(tiles.length).toBeGreaterThan(0);
+    expect(tiles.length).toBeLessThanOrEqual(8);
+    expect((tiles[0] as HTMLElement).style.getPropertyValue("--seat-main")).not.toBe("");
+  });
+
   it("puts rival Deck Masters on the holo panels, and only your own master and the camera panel in the right column", () => {
     const { container } = render(<Shell id="main" />);
     const aside = container.querySelector("[aria-label='Deck Masters']") as HTMLElement;

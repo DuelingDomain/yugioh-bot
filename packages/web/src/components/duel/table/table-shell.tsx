@@ -38,6 +38,7 @@ import { useDuelPreferences } from "../preferences";
 import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
+import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
 import { attackLockAt, placeLabel, placings, seatStrip, toneBySeat, trackOutOrder } from "./seat-state";
 import { TableSettings } from "./table-side";
@@ -310,6 +311,14 @@ export function TableShell({
       ) : null}
       <div className={roomStyles.layout}>
         <aside className={roomStyles.inspector}>
+          <HistoryStrip
+            engine={engine}
+            mySeat={viewerSeat}
+            playerName={nameOf}
+            seatTones={seatTones}
+            onInspectCard={(card) => ui.inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
+            onOpenLog={() => ui.setPane("log")}
+          />
           <SideTabs panes={DESKTOP_PANES} selected={desktopPane(ui.pane)} unread={logUnread} onSelect={ui.setPane} />
           <div className={roomStyles.sideContent}>
             <SidePanel pane="card" selected={desktopPane(ui.pane)}>{cardPanel}</SidePanel>
