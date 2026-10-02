@@ -1140,7 +1140,7 @@
       ],
       "r2Class": "FLAG-L0",
       "stockSha256": "4e86617869ac8b8d3ec3a87e3f1081422ce4ae98806f7796cd0958bd236c0228",
-      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+      "note": "The global monster counter reaches every seat in FFA and every team in Tag. The GY summon condition reads the counter of its own holder, so a Tag holder on team 1 does not pick an opponent."
     },
     {
       "code": 20960340,
