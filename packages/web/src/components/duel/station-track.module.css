@@ -696,8 +696,13 @@ button.plate[data-next="true"]:hover {
   .root[data-seats="true"] .onlyWide { display: none; }
   .root[data-seats="true"] .onlyNarrow { display: inline; }
 }
-/* Four chips under 1440px: the status word goes (the dot, the name and the title still tell it), the chips are slimmer and
-   the actions column is wider, so the strip never runs under End. */
+/* Four seats: the strip needs about 440px, so the actions column gets more of the bar below 1500px. Under 1440px the status
+   word goes too (the dot, the name and the title still tell it) and the chips are slimmer, so the strip never runs under End. */
+@media (max-width: 1499px) {
+  .root[data-seat-count] {
+    grid-template-columns: minmax(110px, 0.5fr) minmax(0, 30rem) minmax(520px, 1.6fr);
+  }
+}
 @media (max-width: 1439px) {
   .root[data-seat-count] {
     grid-template-columns: minmax(110px, 0.5fr) minmax(0, 30rem) minmax(470px, 1.5fr);
