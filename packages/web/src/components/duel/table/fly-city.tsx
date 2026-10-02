@@ -117,10 +117,10 @@ export function FlyCity({ title = "3-WAY DUEL" }: { title?: string } = {}) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
-  return <FlyCityBody />;
+  return <FlyCityBody title={title} />;
 }
 
-function FlyCityBody() {
+function FlyCityBody({ title }: { title: string }) {
   const textures = useMemo(() => [windowTexture(7, 420, 900, true), windowTexture(31, 420, 900, false), windowTexture(77, 420, 900, true)], []);
   const lamps = useMemo(() => {
     const list: { key: number; x: number; y: number }[] = [];

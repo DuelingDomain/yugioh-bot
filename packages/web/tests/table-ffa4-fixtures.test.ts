@@ -26,7 +26,7 @@ describe("4-way fixtures", () => {
 
   it("makes a two-link chain with Sakuretsu Armor then Mystical Space Typhoon", () => {
     const chain = FFA4_FIXTURES.states["chain-2"].room.engine!.chain!;
-    expect(chain.map((entry) => entry.seat ?? entry.controller)).toEqual([2, 3]);
+    expect(chain.map((entry) => entry.seat)).toEqual([2, 3]);
   });
 
   it("offers the three rivals as opponents", () => {
