@@ -108,7 +108,7 @@ the normal summon limit at every tested late seat.
 Eight summon boundary cases pass on P61. Proper Fusion procedures reject an
 incompatible master at every late seat. In Tag, a matching partner master is
 not a material while it is in the Domain zone. After a real Normal Summon,
-that same partner master is a valid Fusion material. Both partner directions
+that same partner master is a valid Fusion material. Both teams
 pass, and every board check includes all four seats.
 
 Three pending-loss chain cases pass on P61. FFA preserves the response window
@@ -116,3 +116,4 @@ of a living seat. The lost seat's Dust Tornado has no effect, Pot of Greed
 finishes, and the lost master's real zone is removed. In Tag, the living
 partner keeps its response window until the loss is applied. The team result
 then ends the duel, with the unfinished chain and final board preserved.
+Two direct core checks also query all real zones after the FFA chain cases.
