@@ -22,20 +22,22 @@ export const PhoneTopBar = forwardRef<HTMLButtonElement, PhoneTopBarProps>(funct
 ) {
   const pathname = usePathname();
   return (
-    <SheetRoot flow as="header" className={`ns-top ${styles.top}`}>
-      <button
-        ref={menuButtonRef}
-        className="ns-ib"
-        type="button"
-        aria-label="Open menu"
-        aria-haspopup="dialog"
-        aria-expanded={menuOpen}
-        onClick={onMenuClick}
-      >
-        <Menu className="ic" aria-hidden="true" />
-      </button>
-      <p className="ns-title">{pageTitle(pathname, account.playerId)}</p>
-      <AccountMenu account={account} pathname={pathname} variant="phone" />
+    <SheetRoot flow className={styles.topWrap}>
+      <header className="ns-top">
+        <button
+          ref={menuButtonRef}
+          className="ns-ib"
+          type="button"
+          aria-label="Open menu"
+          aria-haspopup="dialog"
+          aria-expanded={menuOpen}
+          onClick={onMenuClick}
+        >
+          <Menu className="ic" aria-hidden="true" />
+        </button>
+        <p className="ns-title">{pageTitle(pathname, account.playerId)}</p>
+        <AccountMenu account={account} pathname={pathname} variant="phone" />
+      </header>
     </SheetRoot>
   );
 });

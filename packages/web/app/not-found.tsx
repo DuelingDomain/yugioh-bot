@@ -4,8 +4,9 @@ import { SheetRoot } from "@/components/sheet";
 
 export default function NotFound() {
   return (
-    <main className="min-h-screen bg-bg-deep p-4 text-text-primary sm:p-6 lg:p-8">
-      <SheetRoot>
+    <main className="grid min-h-screen place-items-center bg-bg-deep p-4 text-text-primary sm:p-6 lg:p-8">
+      {/* .ms is an inline-size container, so it needs a real width inside a centring grid. */}
+      <SheetRoot className="w-full max-w-xl">
         <div className="nf">
           <p className="nf-code">
             <Compass className="ic" aria-hidden="true" />
