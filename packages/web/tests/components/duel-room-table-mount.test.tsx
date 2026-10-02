@@ -37,7 +37,8 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 function room(source: DuelRoom) {
-  state.room = { ...source, session: { ...source.session, slug: "live" }, engine: { ...source.engine!, events: [] } };
+  state.room = { ...source, session: { ...source.session, slug: "live" }, engine: { ...source.engine!, events: [],
+    prompt: source.engine!.prompt ? { ...source.engine!.prompt, options: source.engine!.prompt.options.map((option) => ({ ...option })) } : null } };
 }
 function mount(windowed = true) { return render(<DuelRoomView slug="live" windowed={windowed} />); }
 
@@ -123,11 +124,53 @@ describe("live room table mount", () => {
     expect(state.send).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["error", "syncing", "recovering"] as const)("blocks actions during %s", (gate) => {
+  it.each(["error", "syncing", "recovering"] as const)("blocks actions during %s", async (gate) => {
     room(FFA3_FIXTURES.states.main.room);
     if (gate === "error") state.error = new Error("offline"); else state[gate] = true;
-    mount();
+    const { container } = mount();
+    const card = container.querySelector("[data-zones='0:2:0']")!;
+    expect(card).not.toBeNull();
+    await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
+    const item = screen.queryAllByRole("menuitem")[0];
+    if (item) await act(async () => { fireEvent.click(item); });
     expect(screen.queryByRole("button", { name: "Battle Phase" })).toBeNull();
+    expect(state.send).not.toHaveBeenCalled();
+  });
+
+  it("answers a live opponent pick from the seat strip exactly once", async () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    mount();
+    await act(async () => { fireEvent.click(screen.getByTestId("seat-strip-pick-2")); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-2" },
+    });
+  });
+
+  it("locks a live direct attack in OpponentBar and confirms one room action", async () => {
+    room(FFA3_FIXTURES.states["direct-attack"].room);
+    state.room!.engine!.prompt!.options[0].id = "opt:0";
+    const { container } = mount();
+    fireEvent.click(container.querySelector("[data-opponent-bar='direct'] [data-rival-seat='1']")!);
+    expect(state.send).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-rival-seat='1'][data-locked='true']")).not.toBeNull();
+    await act(async () => { fireEvent.click(screen.getByTestId("aim-confirm")); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "direct-attack", revision: state.room!.engine!.revision, answer: { choice: "opt:0" },
+    });
+  });
+
+  it.each(["spectator", "eliminated self"])("does not offer or send actions for an %s", async (role) => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    if (role === "spectator") state.room!.mySeat = null;
+    else state.room!.engine!.seats = state.room!.engine!.seats.map((seat) => ({ ...seat, eliminated: seat.seat === 0 }));
+    const { container } = mount();
+    expect(screen.queryByTestId("seat-strip-pick-1")).toBeNull();
+    const card = container.querySelector("[data-zones='1:4:0']")!;
+    await act(async () => {
+      fireEvent.click(card.querySelector("button") ?? card);
+      fireEvent.keyDown(window, { key: "1" });
+    });
+    expect(screen.queryByRole("menu")).toBeNull();
     expect(state.send).not.toHaveBeenCalled();
   });
 

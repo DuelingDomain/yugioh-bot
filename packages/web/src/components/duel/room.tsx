@@ -190,7 +190,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     reducedMotion: preferences.reducedMotion,
     board: boardRef,
   });
-  const promptMine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat && data.session.status === "active";
+  const viewerOut = isMultiSeat(data?.engine) && data?.engine?.seats.some((seat) =>
+    seat.seat === data.mySeat && (seat.eliminated === true || seat.pendingElimination === true)) === true;
+  const promptMine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat && data.session.status === "active" && !viewerOut;
   // Every prompt except your own action menu is answered in the middle of the board (PromptCenter):
   // a floating panel for responses, an instruction bar for picks on the field. The left dock keeps
   // only the action prompt's Cancel / Finish and the live region; unknown kinds fall back to the old tray.
@@ -345,7 +347,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const onSubmitAnswer = useCallback(
     (answer: DuelAnswer) => {
       if (!data?.engine || !prompt || error || catchingUp || data.mySeat !== prompt.seat ||
-          data.session.status !== "active" || inFlight.current) return;
+          data.session.status !== "active" || viewerOut || inFlight.current) return;
       const command = { promptId: prompt.id, revision: data.engine.revision, answer };
       // The answer is on its way (e.g. an Extra Deck summon picked in the pile viewer): the next prompt decides
       // whether the viewer stays (it wants a card in the pile) or closes (materials on the field must not sit behind it).
@@ -359,7 +361,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         : null);
       void run(() => sendDuelAction(slug, command));
     },
-    [data, prompt, error, catchingUp, run, slug, pick.noteAnswer],
+    [data, prompt, error, catchingUp, run, slug, pick.noteAnswer, viewerOut],
   );
 
   /** A prompt tile or response row under the pointer: show the card in the inspector, as board cards do. */
@@ -540,7 +542,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const top = multi ? engine?.seats.find((seat) => seat.seat === focusSeat)
     : engine?.seats.find((seat) => seat.seat !== localSeat);
   const mine = prompt != null && prompt.seat === data.mySeat;
-  const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active";
+  const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active" && !viewerOut;
   // An opponent pick also answers by tapping the offered seat on the table (after the same human beat as the panel).
   const seatPick = multi && canAct && revealed ? seatPickFor(prompt, engine, onSubmitAnswer) : null;
   const canSurrender = data.session.status === "active" && data.mySeat != null && !engine?.result;
