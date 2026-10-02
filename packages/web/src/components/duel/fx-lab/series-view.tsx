@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import type { DuelDeck, DuelOpeningView, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { SeriesGameLabel } from "../series-banner";
 import { DuelResultScreen } from "../duel-result";
-import { SideDeckPanel } from "../side-deck-panel";
+import { BetweenGamesScreen, type CardMeta } from "../between-games";
+import { NO_MARKS, type SideMarks } from "../side-deck-model";
 import styles from "../room.module.css";
 import { OpeningScreen } from "../opening";
 import type { LabBoard, LabOpening, LabSeries } from "./board";
@@ -12,7 +13,7 @@ import { CARDS as C } from "./cards";
 
 /**
  * The Best of 3 part of the FX lab: a room for the series scenarios, the real header label and the
- * real between-games and match screens. The buttons that save or ready call the real API, which
+ * real Between games and match screens. The buttons that save or ready call the real API, which
  * answers with an error in the lab; that is the only part that is not live.
  */
 
@@ -26,6 +27,20 @@ const SIDE_DECK: DuelDeck = {
   extra: [C.darkPaladin.code, C.stardust.code],
   side: [C.cyberDragon.code, C.summonedSkull.code, C.utopia.code],
 };
+
+const NO_SIDE_DECK: DuelDeck = { ...SIDE_DECK, side: [] };
+
+/** Names and types of the lab cards, so the screen routes Extra Deck monsters without a card database. */
+const KNOWN_CARDS: ReadonlyMap<number, CardMeta> = new Map(
+  Object.values(C).map((card) => [card.code, { name: card.name, type: card.type }] as const),
+);
+
+/** Siding in progress: a Main card and an Extra card out, a Main card and an Extra monster in (or one fewer in). */
+function labMarks(spec: LabSeries): SideMarks {
+  if (spec.marks === "even") return { out: [{ section: "main", index: 1 }, { section: "extra", index: 0 }], inn: [0, 2] };
+  if (spec.marks === "uneven") return { out: [{ section: "main", index: 1 }, { section: "main", index: 2 }], inn: [0] };
+  return NO_MARKS;
+}
 
 function summary(spec: LabSeries): DuelSeriesSummary {
   const over = spec.screen === "won";
@@ -46,8 +61,9 @@ function summary(spec: LabSeries): DuelSeriesSummary {
     tournamentMatchId: null,
     nextGameAt: between ? new Date(Date.now() + (spec.secondsLeft ?? 45) * 1000).toISOString() : null,
     // The practice bot is ready at once and never sides.
-    sideReady: [false, spec.vsBot ? true : spec.opponentReady === true],
-    hasSide: [true, !spec.vsBot],
+    // A player with no Side Deck is ready at once, like the practice bot.
+    sideReady: [spec.noSide === true, spec.vsBot ? true : spec.opponentReady === true],
+    hasSide: [spec.noSide !== true, !spec.vsBot],
     // The loser of the game on screen chooses: you when the opponent leads, the opponent when you lead.
     firstChooser: between ? (spec.wins[0] > spec.wins[1] ? 1 : 0) : null,
     // The bot chooses to go first by itself when it lost the game.
@@ -104,7 +120,7 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       result,
     },
     series: summary(spec),
-    mySide: { baseDeck: SIDE_DECK, currentDeck: SIDE_DECK },
+    mySide: spec.noSide ? { baseDeck: NO_SIDE_DECK, currentDeck: NO_SIDE_DECK } : { baseDeck: SIDE_DECK, currentDeck: SIDE_DECK },
   };
 }
 
@@ -127,16 +143,13 @@ export function SeriesLabHeader({ room }: { room: DuelRoom }) {
   );
 }
 
-/** The screen a scenario opens: the result screen (ready, won) with the Side deck button wired to the real panel. */
+/** The screen a scenario opens: the real Between games screen (ready, side) or the match result (won). */
 export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom; spec: LabSeries; reduced: boolean; sound: boolean }) {
   const [closed, setClosed] = useState(false);
-  const [side, setSide] = useState(spec.screen === "side");
-  const series = room.series;
-  if (spec.screen === "label" || !series) return null;
-  if (side && room.mySide) {
+  if (spec.screen === "label" || !room.series) return null;
+  if (spec.screen === "ready" || spec.screen === "side") {
     return (
-      <SideDeckPanel slug="fx-lab" series={series} myIndex={0} side={room.mySide}
-        onClose={() => { setSide(false); if (spec.screen === "side") setClosed(true); }}
+      <BetweenGamesScreen room={room} slug="fx-lab" knownCards={KNOWN_CARDS} initialMarks={labMarks(spec)}
         onChanged={() => undefined} onNavigate={() => undefined} />
     );
   }
@@ -144,7 +157,7 @@ export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom
   return (
     <DuelResultScreen room={room} slug="fx-lab" reducedMotion={reduced} soundEnabled={sound}
       onClose={() => setClosed(true)} onExit={() => setClosed(true)}
-      onOpenSide={() => setSide(true)} onSeriesChanged={() => undefined} onNavigate={() => undefined} />
+      onSeriesChanged={() => undefined} onNavigate={() => undefined} />
   );
 }
 

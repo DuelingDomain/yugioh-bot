@@ -42,6 +42,31 @@ export function OpponentFirstChip({ series, index }: { series: DuelSeriesSummary
   );
 }
 
+/** The loser's Go first / Go second choice. The default, Go first, is what happens when the timer ends. */
+export function FirstChoiceGroup({ series, busy, onChoose }: {
+  series: DuelSeriesSummary;
+  busy: boolean;
+  onChoose: (choice: "first" | "second") => void;
+}) {
+  const myChoice = series.firstChoice ?? "first";
+  return (
+    <div className={styles.first} role="group" aria-label="Who goes first in the next game" data-testid="first-choice">
+      <p className={styles.firstHead}>You lost, so you choose</p>
+      <div className={styles.firstRow}>
+        {(["first", "second"] as const).map((choice) => (
+          <button key={choice} type="button" className={styles.firstBtn} aria-pressed={myChoice === choice}
+            data-testid={`first-choice-${choice}`} disabled={busy} onClick={() => onChoose(choice)}>
+            Go {choice}
+          </button>
+        ))}
+      </div>
+      <p className={styles.firstNote}>
+        {series.firstChoice == null ? "Go first is chosen when the timer ends." : `You will go ${series.firstChoice}.`}
+      </p>
+    </div>
+  );
+}
+
 type ButtonKind = "primary" | "secondary" | "quiet";
 
 /** The result screen has its own button look; the room strip uses the Match Sheet buttons. */
@@ -65,10 +90,10 @@ function Action({ tone, kind, disabled, loading, onClick, children }: {
 }
 
 /**
- * The between-games controls: countdown, Ready, the side deck button and (for an interrupted casual
- * series) Cancel series. Shown while the series waits between games on this duel.
+ * The between-games controls for a spectator or a strip: countdown, Ready and (for an interrupted
+ * casual series) Cancel series. The players side their decks on the Between games screen instead.
  */
-export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, onOpenSide, beforeReady }: {
+export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate }: {
   room: DuelRoom;
   slug: string;
   tone: "result" | "sheet";
@@ -76,10 +101,6 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   onChanged: () => void;
   /** Go to the next game's room. */
   onNavigate: (slug: string) => void;
-  /** Open the side deck panel; only offered to a player with a side deck. */
-  onOpenSide?: () => void;
-  /** Runs before Ready, e.g. to save pending side deck swaps. */
-  beforeReady?: () => Promise<void>;
 }) {
   const series = room.series;
   const seconds = useSecondsUntil(series?.nextGameAt ?? null);
@@ -91,11 +112,8 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   const index = seriesPlayerIndex(room, series);
   const imReady = index != null && series.sideReady[index];
   const theirReady = index != null && series.sideReady[index === 0 ? 1 : 0];
-  const canSide = index != null && series.hasSide[index] && onOpenSide != null;
   const interrupted = series.nextGameAt == null;
   const choosing = viewerChoosesFirst(series, index);
-  // The default is "Go first": it is what happens when the timer ends or the loser clicks Ready.
-  const myChoice = series.firstChoice ?? "first";
 
   async function run(work: () => Promise<void>) {
     if (busy) return;
@@ -112,7 +130,6 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   }
 
   const ready = () => run(async () => {
-    await beforeReady?.();
     const result = await readySeries(slug);
     if (result.nextSlug) onNavigate(result.nextSlug);
     else onChanged();
@@ -132,7 +149,7 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   const status = index == null ? "Waiting for the players."
     : imReady ? (theirReady ? "Both players are ready." : "You are ready.")
       : interrupted ? "The last game did not finish. Both players must click Ready to play on."
-        : canSide ? "Swap cards from your Side Deck, then click Ready." : "Click Ready to start sooner.";
+        : "Click Ready to start sooner.";
 
   return (
     <section className={styles.next} data-tone={tone} aria-label="Next game">
@@ -143,27 +160,13 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
       <OpponentSideChip series={series} index={index} />
       <OpponentFirstChip series={series} index={index} />
       {choosing ? (
-        <div className={styles.first} role="group" aria-label="Who goes first in the next game" data-testid="first-choice">
-          <p className={styles.firstHead}>You lost, so you choose</p>
-          <div className={styles.firstRow}>
-            {(["first", "second"] as const).map((choice) => (
-              <button key={choice} type="button" className={styles.firstBtn} aria-pressed={myChoice === choice}
-                data-testid={`first-choice-${choice}`} disabled={busy} onClick={() => void choose(choice)}>
-                Go {choice}
-              </button>
-            ))}
-          </div>
-          <p className={styles.firstNote}>
-            {series.firstChoice == null ? "Go first is chosen when the timer ends." : `You will go ${series.firstChoice}.`}
-          </p>
-        </div>
+        <FirstChoiceGroup series={series} busy={busy} onChoose={(choice) => void choose(choice)} />
       ) : null}
       {index != null ? (
         <div className={styles.actions}>
           <Action tone={tone} kind="primary" loading={busy && !confirmCancel} disabled={imReady || busy} onClick={() => void ready()}>
             {imReady ? "Ready" : "Ready for next game"}
           </Action>
-          {canSide ? <Action tone={tone} kind="secondary" disabled={busy} onClick={onOpenSide}>Side deck</Action> : null}
           {canCancelInterrupted(series) ? (
             confirmCancel ? (
               <>

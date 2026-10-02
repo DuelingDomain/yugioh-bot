@@ -98,6 +98,10 @@ export type LabSeries = {
   choice?: "first" | "second";
   /** The opponent is the practice bot: no player id, ready at once, no side deck. */
   vsBot?: boolean;
+  /** Side deck screen: siding already in progress. "even" takes 2 cards out and brings 2 in; "uneven" takes 2 out and brings 1 in. */
+  marks?: "even" | "uneven";
+  /** Side deck screen: the player's deck has no Side Deck. */
+  noSide?: boolean;
 };
 
 export type LabCategory = "Attacks" | "Destroy" | "Summons" | "Card moves" | "Chain" | "LP" | "Banners" | "Board states" | "Match";

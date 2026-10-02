@@ -29,6 +29,10 @@ describe("fx lab: Best of 3 scenarios", () => {
       "match-label-game-2",
       "match-label-game-3",
       "match-side-deck",
+      "match-side-even",
+      "match-side-uneven",
+      "match-side-none",
+      "match-side-opponent-ready",
       "match-ready",
       "match-ready-opponent",
       "match-choose-first-second",
@@ -54,16 +58,17 @@ describe("fx lab: Best of 3 scenarios", () => {
     const { room, spec } = open("match-ready");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByText("Game 1 won by you · 1–0")).toBeTruthy();
-    expect(screen.getByText("Game 2 of 3")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Game 2 of 3");
     expect(screen.getByTestId("opponent-side-status").textContent).toBe("Opponent is siding…");
-    expect(screen.getByRole("button", { name: "Ready for next game" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ready" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Seats" })).toBeNull();
   });
 
   it("shows the opponent ready after a loss, and lets the loser choose first or second", () => {
     const { room, spec } = open("match-ready-opponent");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByText("Game 1 won by Imran · 0–1")).toBeTruthy();
-    expect(screen.getByText("You choose to go first or second")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Who goes first in the next game" })).toBeTruthy();
     expect(screen.getByTestId("opponent-side-status").textContent).toBe("Opponent ready");
     expect(screen.getByTestId("first-choice")).toBeTruthy();
   });
@@ -79,7 +84,7 @@ describe("fx lab: Best of 3 scenarios", () => {
     const { room, spec } = open("match-choose-second");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByRole("button", { name: "Go second" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByText("Imran goes first (you chose to go second)")).toBeTruthy();
+    expect(screen.getByText("You will go second.")).toBeTruthy();
   });
 
   it("tells the winner that the opponent is choosing, and then what they chose", () => {
@@ -94,12 +99,42 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByText("You go first (the opponent chose to go second)")).toBeTruthy();
   });
 
-  it("opens the side deck screen", async () => {
+  it("opens the siding screen with the Main, Extra and Side Deck", () => {
     const { room, spec } = open("match-side-deck");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
-    expect(screen.getByRole("dialog", { name: "Side deck" })).toBeTruthy();
-    expect(screen.getByText("Game 2 of 3")).toBeTruthy();
-    expect(screen.getByText("Side 3")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Game 2 of 3");
+    expect(screen.getByTestId("swap-counter").textContent).toContain("0 out · 0 in");
+    expect(screen.getByTestId("section-main")).toBeTruthy();
+    expect(screen.getByTestId("section-extra")).toBeTruthy();
+    expect(screen.getByTestId("section-side")).toBeTruthy();
+  });
+
+  it("shows siding with matching counts: Ready is on", () => {
+    const { room, spec } = open("match-side-even");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByTestId("swap-counter").textContent).toContain("2 out · 2 in");
+    expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("shows siding with differing counts: Ready is off, with a reason", () => {
+    const { room, spec } = open("match-side-uneven");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByTestId("swap-counter").textContent).toContain("2 out · 1 in");
+    expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("ready-reason").textContent).toMatch(/Bring in 1 card/);
+  });
+
+  it("shows a player with no Side Deck as ready", () => {
+    const { room, spec } = open("match-side-none");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByText("No Side Deck. You play the same deck again.")).toBeTruthy();
+    expect(screen.getByTestId("swap-counter").textContent).toContain("0 out · 0 in");
+  });
+
+  it("shows the opponent ready while the player sides", () => {
+    const { room, spec } = open("match-side-opponent-ready");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByTestId("opponent-side-status").textContent).toBe("Opponent ready");
   });
 
   it("ends the match with a result and no next game", () => {
@@ -117,7 +152,7 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(lost.room.session.seats[1]).toMatchObject({ playerId: null, isBot: true, displayName: "Practice Bot" });
     const { unmount } = render(<SeriesLabScreen room={lost.room} spec={lost.spec} reduced sound={false} />);
     expect(screen.getByText("Game 1 won by Practice Bot · 0–1")).toBeTruthy();
-    expect(screen.getByText("You choose to go first or second")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Who goes first in the next game" })).toBeTruthy();
     expect(screen.getByTestId("opponent-side-status").textContent).toBe("Opponent ready");
     unmount();
     const won = open("match-bot-won-game");
@@ -126,11 +161,11 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByText("Practice Bot goes first (the opponent chose to go first)")).toBeTruthy();
   });
 
-  it("opens the side deck screen against the bot", () => {
+  it("opens the siding screen against the bot", () => {
     const { room, spec } = open("match-bot-side");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
-    expect(screen.getByRole("dialog", { name: "Side deck" })).toBeTruthy();
-    expect(screen.getByText("Game 3 of 3")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Game 3 of 3");
+    expect(screen.getByText("The practice bot is always ready.")).toBeTruthy();
   });
 
   it("ends a match against the bot as a practice match", () => {

@@ -60,7 +60,7 @@ import { DuelResultScreen } from "./duel-result";
 import { duelWindowPath, exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
 import { ownWindowGateVisible } from "./start-flow";
 import { SeriesBanner, SeriesGameLabel } from "./series-banner";
-import { SideDeckPanel } from "./side-deck-panel";
+import { BetweenGamesScreen, isStartingNextGame, NextGameStarting } from "./between-games";
 import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
 import { SheetButton } from "./sheet-ui";
 import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } from "./room-settings";
@@ -274,7 +274,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [hideResult, setHideResult] = useState(false);
-  const [sideOpen, setSideOpen] = useState(false);
+  // The next game of a series waits in its lobby for a moment; "Open the table" shows that lobby anyway.
+  const [showTable, setShowTable] = useState(false);
   // Read after mount: the server render cannot know whether this is the duel window.
   const [inDuelWindow, setInDuelWindow] = useState(windowed);
   const [playHere, setPlayHere] = useState(false);
@@ -424,7 +425,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     setInspect(null);
     setPile(null);
     setHideResult(false);
-    setSideOpen(false);
+    setShowTable(false);
     setMobileInspect(false);
     setLogUnread(0);
     setActionError(null);
@@ -630,6 +631,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,
     hasResult: Boolean(data.engine?.result), starting, windowOpened,
   });
+  // The next game of a Best of 3 is made in a lobby that starts by itself: no table settings between games.
+  if (isStartingNextGame(data) && !showTable && !ownWindowGate) {
+    return <NextGameStarting room={data} onShowTable={() => setShowTable(true)} />;
+  }
   if (data.session.status === "lobby" && !ownWindowGate) {
     const opening = data.opening;
     const lobby = (
@@ -688,13 +693,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const canArchive = terminal && isOrganizer && !data.session.archivedAt;
   const series = data.series ?? null;
   const myIndex = series ? seriesPlayerIndex(data, series) : null;
-  const sidePanelOpen = sideOpen && series != null && myIndex != null && data.mySide != null && isBetweenGames(data, slug);
-  const showResult = !hideResult && !sidePanelOpen && resultReady && (engine?.result != null || terminal);
   const hasResult = engine?.result != null || terminal;
+  // A series player sees the side deck screen, not the result screen, once the last game has played out.
+  const betweenGames = series != null && myIndex != null && isBetweenGames(data, slug);
+  const showBetweenGames = betweenGames && resultReady && hasResult;
+  const showResult = !hideResult && !showBetweenGames && resultReady && (engine?.result != null || terminal);
   const exitDuel = () => {
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
     else router.replace("/duels");
   };
+  if (showBetweenGames) {
+    return <BetweenGamesScreen room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame} />;
+  }
   if (ownWindowGate) {
     return (
       <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 text-center"
@@ -929,9 +939,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           </button>
         </div>
       </header>
-      {series && !showResult ? (
-        <SeriesBanner room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame}
-          onOpenSide={() => setSideOpen(true)} />
+      {series && !showResult && !(betweenGames && myIndex != null) ? (
+        <SeriesBanner room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame} />
       ) : null}
       <div className={styles.layout}>
         {/* Notices float over the top of the layout. In flow they would take height from the board
@@ -1056,12 +1065,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       {showResult ? (
         <DuelResultScreen room={data} slug={slug} reducedMotion={preferences.reducedMotion}
           soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel}
-          onOpenSide={() => { setHideResult(true); setSideOpen(true); }}
           onSeriesChanged={() => void refreshRoom()} onNavigate={goToGame} />
-      ) : null}
-      {sidePanelOpen && series && myIndex != null && data.mySide ? (
-        <SideDeckPanel slug={slug} series={series} myIndex={myIndex} side={data.mySide}
-          onClose={() => setSideOpen(false)} onChanged={() => void refreshRoom()} onNavigate={goToGame} />
       ) : null}
     </div>
   );
