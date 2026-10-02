@@ -39,6 +39,8 @@ export interface HistoryThumb {
   name: string | null;
   struck: boolean;
   side: HistorySide;
+  /** The seat the tile belongs to (its controller). Tables of 3 or more seats colour the tile edge with it. */
+  seat?: number | null;
   /** Portrait only: the player the plate stands for ("You", a name or "Opponent"). */
   label?: string;
 }
@@ -73,6 +75,8 @@ export interface HistoryEntry {
   lastEventId: number;
   icon: HistoryIconKind;
   side: HistorySide;
+  /** The acting seat. Tables of 3 or more seats colour the row with it. */
+  seat?: number | null;
   actor: string;
   verb: string;
   /** The short line: card name, "Attacker → Target", or the player for LP rows. */
@@ -506,21 +510,31 @@ function thumbsFor(tile: HistoryTile, side: HistorySide, mySeat: number | null, 
   }
 }
 
+/** Each thumb carries the seat it belongs to: the attacker's, the target's, or the acting seat. */
+function withThumbSeats(thumbs: HistoryThumb[], tile: HistoryTile, actorSeat: number | null): HistoryThumb[] {
+  return thumbs.map((thumb) => {
+    const seat = tile.kind === "attack" ? (thumb.role === "attacker" ? tile.seat : (tile.target?.seat ?? null)) : actorSeat;
+    return { ...thumb, seat };
+  });
+}
+
 /** One tile as a list entry. */
 export function entryFor(tile: HistoryTile, options: HistoryViewOptions): HistoryEntry {
   const { mySeat, who } = options;
-  const side = sideOf(tile.kind === "damage" ? (tile.hits[0]?.seat ?? tile.seat) : tile.kind === "heal" ? (tile.gain?.seat ?? tile.seat) : tile.seat, mySeat);
+  const actorSeat = tile.kind === "damage" ? (tile.hits[0]?.seat ?? tile.seat) : tile.kind === "heal" ? (tile.gain?.seat ?? tile.seat) : tile.seat;
+  const side = sideOf(actorSeat, mySeat);
   return {
     type: "entry",
     key: tile.key,
     lastEventId: tile.lastEventId,
     icon: iconFor(tile),
     side,
-    actor: who(tile.kind === "damage" ? (tile.hits[0]?.seat ?? tile.seat) : tile.kind === "heal" ? (tile.gain?.seat ?? tile.seat) : tile.seat),
+    seat: actorSeat,
+    actor: who(actorSeat),
     verb: verbFor(tile),
     title: titleFor(tile, who, mySeat),
     sentence: sentenceFor(tile, who, mySeat),
-    thumbs: thumbsFor(tile, side, mySeat, who),
+    thumbs: withThumbSeats(thumbsFor(tile, side, mySeat, who), tile, actorSeat),
     lp: lpFor(tile, mySeat, who),
     tags: tagsFor(tile),
     negated: tile.chain?.status === "negated",

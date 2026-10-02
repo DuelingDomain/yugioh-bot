@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
   type ComponentType,
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -79,6 +80,11 @@ export type DuelHistoryRailProps = {
   active?: boolean;
   /** Told how many rows arrived while `active` was false. Back to 0 once the list is in view again. */
   onUnread?: (count: number) => void;
+  /**
+   * Seat colours (3 and 4 seat tables). A row, its mark, its thumb edges and its name pill take the colour of the seat
+   * they belong to. Keep the map stable between renders. Absent: the 1v1 look (purple for you, dashed for the rest).
+   */
+  seatTones?: ReadonlyMap<number, { main: string; ink: string }>;
 };
 
 function contextFor(engine: DuelEngineView): HistoryContext {
@@ -136,10 +142,19 @@ type ThumbHandlers = {
   onOpen: (card: HistoryCard) => void;
 };
 
-function Thumb({ thumb, handlers, iconBadge }: { thumb: HistoryThumb; handlers: ThumbHandlers; iconBadge?: ReactNode }) {
+type SeatTones = NonNullable<DuelHistoryRailProps["seatTones"]>;
+
+/** CSS variables of a seat colour, or nothing when the rail has no colours or the seat is unknown. */
+function toneStyle(tones: SeatTones | undefined, seat: number | null | undefined): CSSProperties | undefined {
+  const tone = tones && seat != null ? tones.get(seat) : undefined;
+  return tone ? ({ "--seat-main": tone.main, "--seat-ink": tone.ink } as CSSProperties) : undefined;
+}
+
+function Thumb({ thumb, handlers, iconBadge, tones }: { thumb: HistoryThumb; handlers: ThumbHandlers; iconBadge?: ReactNode; tones?: SeatTones }) {
+  const toned = toneStyle(tones, thumb.seat);
   if (thumb.role === "portrait") {
     return (
-      <span className={styles.portrait} data-side={thumb.side} title={thumb.label} aria-hidden="true">
+      <span className={styles.portrait} data-side={thumb.side} data-toned={toned ? "true" : undefined} style={toned} title={thumb.label} aria-hidden="true">
         <UserRound size={16} strokeWidth={1.75} aria-hidden />
         <b>{thumb.label}</b>
         {iconBadge}
@@ -158,6 +173,8 @@ function Thumb({ thumb, handlers, iconBadge }: { thumb: HistoryThumb; handlers: 
   );
   const common = {
     className: styles.thumb,
+    style: toned,
+    "data-toned": toned ? "true" : undefined,
     "data-role": thumb.role,
     "data-back": thumb.code == null || undefined,
     "data-struck": thumb.struck || undefined,
@@ -209,14 +226,18 @@ type RowProps = {
   latest: boolean;
   animate: boolean;
   handlers: ThumbHandlers;
+  tones?: SeatTones;
 };
 
-const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers }: RowProps) {
+const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers, tones }: RowProps) {
+  const rowTone = toneStyle(tones, entry.seat);
   const attack = entry.icon === "attack" || entry.icon === "direct";
   const [first, second] = entry.thumbs;
   return (
     <li
       className={styles.row}
+      style={rowTone}
+      data-toned={rowTone ? "true" : undefined}
       data-side={entry.side}
       data-icon={entry.icon}
       data-latest={latest || undefined}
@@ -227,14 +248,14 @@ const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers }: Ro
       <span className={styles.thumbs} data-count={entry.thumbs.length}>
         {attack && second ? (
           <>
-            <Thumb thumb={first} handlers={handlers} />
+            <Thumb thumb={first} handlers={handlers} tones={tones} />
             <span className={styles.link} aria-hidden="true">
               <IconBadge kind={entry.icon} />
             </span>
-            <Thumb thumb={second} handlers={handlers} />
+            <Thumb thumb={second} handlers={handlers} tones={tones} />
           </>
         ) : (
-          <Thumb thumb={first} handlers={handlers} iconBadge={<IconBadge kind={entry.icon} corner />} />
+          <Thumb thumb={first} handlers={handlers} tones={tones} iconBadge={<IconBadge kind={entry.icon} corner />} />
         )}
       </span>
       <span className={styles.text} aria-hidden="true" title={entry.sentence}>
@@ -275,6 +296,7 @@ const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers }: Ro
   a.entry.actor === b.entry.actor &&
   a.entry.sentence === b.entry.sentence &&
   a.entry.side === b.entry.side &&
+  a.tones === b.tones &&
   a.latest === b.latest &&
   a.animate === b.animate &&
   a.handlers === b.handlers);
@@ -287,11 +309,12 @@ const PhaseRow = memo(function PhaseRow({ row }: { row: HistoryPhaseRow }) {
   );
 });
 
-const Group = memo(function Group({ group, latestKey, animateAfter, handlers }: {
+const Group = memo(function Group({ group, latestKey, animateAfter, handlers, tones }: {
   group: HistoryGroup;
   latestKey: number | null;
   animateAfter: number;
   handlers: ThumbHandlers;
+  tones?: SeatTones;
 }) {
   return (
     <li className={styles.group}>
@@ -302,7 +325,7 @@ const Group = memo(function Group({ group, latestKey, animateAfter, handlers }: 
             <PhaseRow key={`p${row.key}`} row={row} />
           ) : (
             <EntryRow key={`e${row.key}`} entry={row} latest={row.key === latestKey} animate={row.key > animateAfter}
-              handlers={handlers} />
+              handlers={handlers} tones={tones} />
           ),
         )}
       </ol>
@@ -312,7 +335,7 @@ const Group = memo(function Group({ group, latestKey, animateAfter, handlers }: 
 
 const TOP_SLACK = 12;
 
-export function DuelHistoryRail({ events, engine, mySeat, playerName, onInspectCard, reducedMotion, active = true, onUnread }: DuelHistoryRailProps) {
+export function DuelHistoryRail({ events, engine, mySeat, playerName, onInspectCard, reducedMotion, active = true, onUnread, seatTones }: DuelHistoryRailProps) {
   const [stored, setStored] = useState<HistoryState>(() => ingestHistory(emptyHistory(), events, contextFor(engine)));
   const [hover, setHover] = useState<Hover | null>(null);
   const [atTop, setAtTop] = useState(true);
@@ -401,7 +424,7 @@ export function DuelHistoryRail({ events, engine, mySeat, playerName, onInspectC
           <ol className={styles.groups} role="list">
             {view.groups.map((group) => (
               <Group key={group.key} group={group} latestKey={latestKey} animateAfter={history.animateAfter}
-                handlers={handlers} />
+                handlers={handlers} tones={seatTones} />
             ))}
           </ol>
         </div>

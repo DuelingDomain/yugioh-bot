@@ -575,3 +575,20 @@ describe("history entries: positions in Yu-Gi-Oh! words", () => {
     expect(list[0].sentence).toBe("You changed Wall to Defense Position.");
   });
 });
+
+describe("history entries: seats", () => {
+  it("carries the acting seat on the row and on each thumb", () => {
+    const list = entries(
+      [{ id: 1, kind: "attack", seat: 0, card: info(1, "Attacker"), text: "", zone: zone(0, MZONE, 0), target: zone(2, MZONE, 0) }],
+      ctx({ seatCount: 3, cards: [{ controller: 2, location: MZONE, sequence: 0, position: 1, code: 2, name: "Defender" }] }),
+    );
+    expect(list[0].seat).toBe(0);
+    expect(list[0].thumbs.map((thumb) => thumb.seat)).toEqual([0, 2]);
+  });
+
+  it("uses the damaged seat for an LP row", () => {
+    const list = entries([{ id: 1, kind: "damage", seat: 2, amount: 500, cause: "effect", text: "" }], ctx({ seatCount: 3 }));
+    expect(list[0].seat).toBe(2);
+    expect(list[0].thumbs[0].seat).toBe(2);
+  });
+});
