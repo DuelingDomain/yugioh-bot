@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { prepareManualData } from "../stack/manual-data.mjs";
+import { prepareManualData, verifyInstalledWrapper } from "../stack/manual-data.mjs";
+import { fileURLToPath } from "node:url";
 
 test("manual bundle pins the verified local wrapper while preserving the core snapshot", () => {
   const dir = mkdtempSync(join(tmpdir(), "e2e-manual-core-"));
@@ -41,5 +42,18 @@ test("manual bundle refuses to repin a wrapper that fails patch verification", (
   writeFileSync(join(dir, "wrapper.js"), "unverified wrapper");
   try {
     assert.throws(() => prepareManualData(dir, { outputDirectory: join(dir, "runtime"), wrapperPath: join(dir, "wrapper.js"), verifyWrapper: () => { throw new Error("patch verification failed"); } }), /patch verification failed/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("patch verification accepts borrowed dependencies and rejects altered wrapper bytes", () => {
+  const wrapper = fileURLToPath(import.meta.resolve("ocgcore-wasm"));
+  const before = readFileSync(wrapper);
+  verifyInstalledWrapper(wrapper);
+  assert.deepEqual(readFileSync(wrapper), before);
+  const dir = mkdtempSync(join(tmpdir(), "e2e-altered-wrapper-"));
+  try {
+    const altered = join(dir, "wrapper.js");
+    writeFileSync(altered, "not the checked-in patched wrapper");
+    assert.throws(() => verifyInstalledWrapper(altered), /does not match the checked-in patch/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -1,18 +1,27 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { repoRoot, stackDir } from "./env.mjs";
 
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
-function verifyInstalledWrapper() {
+export function verifyInstalledWrapper(wrapperPath = fileURLToPath(import.meta.resolve("ocgcore-wasm"))) {
   // Do not bless a corrupt or arbitrary installed wrapper by changing its manifest hash.
-  const checked = spawnSync("git", ["apply", "--reverse", "--check", "patches/ocgcore-wasm+0.1.2.patch"], {
-    cwd: repoRoot, encoding: "utf8",
-  });
-  if (checked.status !== 0) throw new Error("Installed ocgcore-wasm does not match the checked-in patch. Reinstall that dependency and apply the patch before starting the manual stack.");
+  // Git refuses paths beyond a node_modules symlink, even for --check. Verify a local copy of the
+  // exact installed bytes instead; neither the borrowed dependency nor the snapshot is modified.
+  mkdirSync(stackDir, { recursive: true });
+  const checkDir = mkdtempSync(join(stackDir, "wrapper-check-"));
+  try {
+    const candidate = join(checkDir, "node_modules/ocgcore-wasm/dist/index.js");
+    mkdirSync(dirname(candidate), { recursive: true });
+    writeFileSync(candidate, readFileSync(wrapperPath));
+    const checked = spawnSync("git", ["apply", "--reverse", "--check", "--directory", relative(repoRoot, checkDir), "patches/ocgcore-wasm+0.1.2.patch"], {
+      cwd: repoRoot, encoding: "utf8",
+    });
+    if (checked.status !== 0) throw new Error("Installed ocgcore-wasm does not match the checked-in patch. Reinstall that dependency and apply the patch before starting the manual stack.");
+  } finally { rmSync(checkDir, { recursive: true, force: true }); }
 }
 
 /**
@@ -30,7 +39,7 @@ export function prepareManualData(sourceDirectory, {
   const manifest = JSON.parse(readFileSync(join(source, "manifest.json"), "utf8"));
   const wrapperHash = hash(readFileSync(wrapperPath));
   if (manifest.integrity?.wrapper === wrapperHash) return source;
-  verifyWrapper();
+  verifyWrapper(wrapperPath);
   const output = resolve(outputDirectory);
   if (source === output || source.startsWith(output + sep)) throw new Error("Manual runtime directory must not contain the core snapshot.");
   rmSync(output, { recursive: true, force: true });
