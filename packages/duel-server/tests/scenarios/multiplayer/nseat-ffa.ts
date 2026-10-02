@@ -769,7 +769,7 @@ export const FFA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa4-three-surrenders-in-a-row-last-wins",
-    title: "FFA4: p3, p1 and p2 give up one after the other (not in seat order): the last seat left, p0, wins when the third one goes",
+    title: "FFA4: p3, p1 and p2 give up one after the other; p0 wins when it ends its turn and the three losses take effect",
     source: `${SOURCE} [R-FFA-WINNER]`,
     rules: ["R-FFA-WINNER", "R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "surrender", "ffa4"],
