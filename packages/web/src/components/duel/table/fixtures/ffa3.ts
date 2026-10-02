@@ -139,7 +139,13 @@ const states = {
       kind: "choice",
       title: "Main Phase 1",
       context: { type: "action", phase: "main" },
-      options: [handOption(0, C.raigeki.name), handOption(2, C.celtic.name), handOption(4, C.heavyStorm.name)],
+      options: [
+        handOption(0, C.raigeki.name),
+        handOption(2, C.celtic.name),
+        handOption(4, C.heavyStorm.name),
+        { id: "to_bp", label: "Battle Phase" },
+        { id: "to_ep", label: "End Phase" },
+      ],
     }),
   }),
   "battle-aim": make("battle-aim", "Battle: aim an attack", {
