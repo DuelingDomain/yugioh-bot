@@ -277,7 +277,7 @@ function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
           <p className={seriesStyles.resultHead}>{live.headline}</p>
           <p className={seriesStyles.resultLine}>Series score <b>{seriesScoreForViewer(series, index)}</b></p>
           {live.follow ? (
-            <button type="button" className={styles.btn} data-kind="secondary" onClick={() => (onNavigate ?? noop)(live.nextSlug)}>
+            <button type="button" className={styles.btn} data-kind="primary" onClick={() => (onNavigate ?? noop)(live.nextSlug)}>
               Watch game {series.gameNumber}
             </button>
           ) : (
@@ -313,6 +313,9 @@ const readNoBody = () => null;
 export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, onOpenSide, onSeriesChanged, onNavigate }: DuelResultScreenProps) {
   const model = useMemo(() => describeDuelResult(room), [room]);
   const { outcome } = model;
+  // A spectator whose next game is already live gets "Watch game N" as the main button; leaving steps back.
+  const watching = room.series ? spectatorSeriesStatus(room, slug) : null;
+  const leaveKind = watching?.kind === "next-live" && watching.follow ? "secondary" : "primary";
   const host = useSyncExternalStore(subscribeNever, readBody, readNoBody);
   const rootRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -480,11 +483,11 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
           <SeriesResult room={room} slug={slug} onOpenSide={onOpenSide} onChanged={onSeriesChanged} onNavigate={onNavigate} />
         ) : null}
 
-        <div className={`${styles.card} ${styles.actions}`}>
+        <div className={styles.actions}>
           {onExit ? (
-            <button type="button" className={styles.btn} data-kind="primary" onClick={onExit}>Exit duel</button>
+            <button type="button" className={styles.btn} data-kind={leaveKind} onClick={onExit}>Exit duel</button>
           ) : (
-            <Link href="/duels" className={styles.btn} data-kind="primary">Back to tables</Link>
+            <Link href="/duels" className={styles.btn} data-kind={leaveKind}>Back to tables</Link>
           )}
           {canReplay ? (
             <Link href={`/duels/${slug}/replay`} className={styles.btn} data-kind="secondary">Watch replay</Link>

@@ -340,6 +340,9 @@ describe("DuelResultScreen with a series", () => {
     render(<DuelResultScreen room={makeSeriesRoom({ series, mySeat: null })} {...screenProps} onNavigate={onNavigate} />);
     const block = screen.getByRole("region", { name: "Series" });
     expect(within(block).getByText("Game 2 of 3 is live")).toBeTruthy();
+    // Watching the live game is the main action; leaving steps back.
+    expect(within(block).getByRole("button", { name: "Watch game 2" }).getAttribute("data-kind")).toBe("primary");
+    expect(screen.getByRole("link", { name: "Back to tables" }).getAttribute("data-kind")).toBe("secondary");
     fireEvent.click(within(block).getByRole("button", { name: "Watch game 2" }));
     expect(onNavigate).toHaveBeenCalledWith("game-2");
   });

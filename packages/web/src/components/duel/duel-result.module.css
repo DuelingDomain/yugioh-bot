@@ -265,14 +265,6 @@
     radial-gradient(60% 75% at 50% 38%, var(--panel-soft), transparent 100%),
     linear-gradient(180deg, var(--panel-soft) 0%, var(--panel-soft) 45%, var(--panel) 72%);
 }
-/* The frame's double hairline, small: the plate reads as part of the same object. */
-.titleCard::before {
-  content: "";
-  position: absolute;
-  inset: 4px;
-  border: 1px solid var(--rule-lo);
-  pointer-events: none;
-}
 .root[data-outcome="lose"] .titleCard {
   border-color: rgb(228 90 77 / 0.42);
 }
@@ -483,7 +475,7 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
-  padding: 8px;
+  margin-top: 2px;
 }
 .btn {
   display: inline-flex;
