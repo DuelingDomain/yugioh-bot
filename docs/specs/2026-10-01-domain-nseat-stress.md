@@ -104,3 +104,9 @@ with no recall prompt. The Fusion cases also prove that Fusion Conscription,
 which uses an ordinary Extra Deck filter, cannot see the master in the zone,
 while Polymerization can use the proper Fusion procedure. Monster Set uses
 the normal summon limit at every tested late seat.
+
+Eight summon boundary cases pass on P61. Proper Fusion procedures reject an
+incompatible master at every late seat. In Tag, a matching partner master is
+not a material while it is in the Domain zone. After a real Normal Summon,
+that same partner master is a valid Fusion material. Both partner directions
+pass, and every board check includes all four seats.
