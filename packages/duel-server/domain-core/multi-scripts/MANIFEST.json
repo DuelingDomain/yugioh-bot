@@ -1638,6 +1638,20 @@
       "stockSha256": "7bf55c3d6d037af36db5c32628b5cde0febf4b60340f189d56f1cd3fe1a8dfd0"
     },
     {
+      "code": 26273196,
+      "file": "c26273196.lua",
+      "name": "Time Wizard of Tomorrow",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "f3ae7f5cf114a493d2b0de2110ce45c580b4c7c661fd426caae5db7650adf7ba",
+      "note": "Pick the FFA LP opponent at activation, before resolution. Keep all opposing fields available; Tag keeps the stock team result.",
+      "wrap": {
+        "MPPick": [
+          "destg"
+        ]
+      }
+    },
+    {
       "code": 26775203,
       "file": "c26775203.lua",
       "name": "Blackwing - Ghibli the Searing Wind",
