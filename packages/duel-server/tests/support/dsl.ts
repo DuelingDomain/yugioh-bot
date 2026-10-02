@@ -224,7 +224,11 @@ export const expectOffered = (action: ActionKind | "choice", sel: CardSel, by?: 
 export const expectNotOffered = (action: ActionKind | "choice", sel: CardSel, by?: DuelistId): Step => ({
   op: "expectNotOffered", action, sel, by,
 });
-/** This seat's private view has no offer for the card, including when another seat has the open prompt. */
+/**
+ * This seat's private view has no offer for the card. Passes when the seat has no open prompt,
+ * including when another seat has the prompt. This does not prove the card is illegal in a response window.
+ * To prove that a card is not offered in a real window, open that seat's prompt and use expectNotOffered.
+ */
 export const expectSeatNotOffered = (action: ActionKind | "choice", sel: CardSel, by: DuelistId): Step => ({
   op: "expectSeatNotOffered", action, sel, by,
 });
