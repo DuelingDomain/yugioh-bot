@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cancelSeries, createDuel, markDuelReady, readySeries, saveSeriesSideDeck, searchPlayers, unreadySeries } from "../src/components/duel/api";
+import { cancelSeries, chooseOpeningOrder, chooseSeriesFirst, createDuel, markDuelReady, pickOpeningMove, readySeries, saveSeriesSideDeck, searchPlayers, unreadySeries } from "../src/components/duel/api";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -54,10 +54,28 @@ describe("series requests", () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ deck: { main: [1], extra: [], side: [2] } });
   });
 
+  it("posts the first or second choice to the series first route", async () => {
+    const fetchMock = stub({ series: {}, nextSlug: null });
+    await chooseSeriesFirst("t", "second");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/duels/t/series/first");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ choice: "second" });
+  });
+
   it("raises the server message when a series request fails", async () => {
     stub({ error: "Not your series" }, 403);
     await expect(readySeries("t")).rejects.toMatchObject({ message: "Not your series", status: 403 });
     stub({ error: "Nope" }, 409);
     await expect(cancelSeries(7)).rejects.toMatchObject({ message: "Nope", status: 409 });
+  });
+});
+
+describe("opening requests", () => {
+  it("posts a move and a first or second choice to the opening route", async () => {
+    const fetchMock = stub({ session: {} });
+    await pickOpeningMove("t", "paper");
+    await chooseOpeningOrder("t", "second");
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(["/api/duels/t/opening", "/api/duels/t/opening"]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ move: "paper" });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ choice: "second" });
   });
 });

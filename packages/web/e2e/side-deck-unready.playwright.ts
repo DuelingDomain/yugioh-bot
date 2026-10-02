@@ -2,11 +2,11 @@
  * Browser proof for the side deck Ready bug: Ready, then a swap with no save, then the opponent readies.
  * The player must stay on the side deck screen (no longer ready) and only move on after clicking Ready again.
  *
- * Real parts: the duel room and side deck panel (bundled from src with vite), the shared duel and series
+ * Real parts: the duel room and between-games screen (bundled from src with vite), the shared duel and series
  * services on a temp SQLite DB, and the duel host with real engine workers and card data. Stand-ins:
  * Discord sign-in (the browser is always player 1), the web API routes (mirrored below, one line each,
  * onto the same host ops), next/navigation, socket.io (the room polls instead) and placeholder card art.
- * The side deck window is stretched to 10 minutes so its timer cannot start game 2 during the run.
+ * The between-games timer is stretched to 10 minutes so its timer cannot start game 2 during the run.
  *
  * Run (Node 22, shared built, engine data in data/duel-engine):
  *   PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs SIDE_DECK_ARTIFACTS=/tmp/side-deck-proof \
@@ -77,7 +77,7 @@ const practice = buildPracticeBotDeck("normal", dataDirectory);
 const registered: DuelDeck = { main: practice.main, extra: [], side: [practice.main[0]!, practice.main[1]!] };
 // The swap the browser makes: Main card 1 out, Side card 2 in.
 const swapped: DuelDeck = {
-  main: [registered.side[1]!, ...registered.main.slice(1)],
+  main: [...registered.main.slice(1), registered.side[1]!],
   extra: [],
   side: [registered.side[0]!, registered.main[0]!],
 };
@@ -125,10 +125,10 @@ async function api(method: string, url: URL, body: unknown) {
     const result = await callHost({ op: "view", slug, playerId: p1 });
     return json(result.status, result.data);
   }
-  const ops: Record<string, string> = { "/series/side": "series-side", "/series/ready": "series-ready", "/series/unready": "series-unready" };
+  const ops: Record<string, string> = { "/series/side": "series-side", "/series/ready": "series-ready", "/series/unready": "series-unready", "/series/first": "series-first" };
   if (method === "POST" && ops[rest]) {
     const deck = rest === "/series/side" ? (body as { deck: DuelDeck }).deck : undefined;
-    const result = await callHost({ op: ops[rest], slug, playerId: p1, ...(deck ? { deck } : {}) });
+    const result = await callHost({ op: ops[rest], slug, playerId: p1, ...(deck ? { deck } : {}), ...(rest === "/series/first" ? { choice: (body as { choice: string }).choice } : {}) });
     return json(result.status, result.data);
   }
   if (rest === "/deck/validate" && method === "POST") {
@@ -217,15 +217,16 @@ function check(step: string, name: string, ok: boolean, detail: unknown = "") {
   console.log(`${ok ? "PASS" : "FAIL"} [${step}] ${name}${detail === "" ? "" : ` (${typeof detail === "string" ? detail : JSON.stringify(detail)})`}`);
 }
 
-const browser = await chromium.launch({
-  ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
-  headless: true,
-  args: ["--no-sandbox", "--disable-dev-shm-usage"],
-});
+let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 const pageErrors: string[] = [];
 const unrouted: string[] = [];
 let exitCode = 0;
 try {
+  browser = await chromium.launch({
+    ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
+    headless: true,
+    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  });
   const page = await browser.newPage({ viewport: { width: 1440, height: 960 }, reducedMotion: "reduce" });
   page.on("pageerror", (error: Error) => pageErrors.push(error.message));
   await page.route(`${ORIGIN}/**`, async (route: any) => {
@@ -251,45 +252,42 @@ try {
     return route.fulfill({ status: 200, contentType: types[extname(file)] ?? "application/octet-stream", body: readFileSync(file) });
   });
 
-  const dialog = page.getByRole("dialog", { name: "Side deck" });
+  const siding = page.getByRole("region", { name: "Between games", exact: true });
+  const readyButton = () => siding.getByRole("button", { name: "Ready", exact: true });
   const navigations = () => page.evaluate(() => window.__navigations) as Promise<string[]>;
   const shot = async (name: string) => {
     const file = resolve(out, `${name}.png`);
     await page.screenshot({ path: file, fullPage: true });
     shots[name] = file;
   };
-  const openSide = async () => {
-    await page.getByRole("button", { name: "Side deck", exact: true }).first().click();
-    await dialog.waitFor({ state: "visible" });
-    await dialog.locator('section[aria-label="Side deck"] li button').first().waitFor({ state: "visible" });
-    await page.waitForTimeout(400);
-  };
 
-  // a. The side deck screen, before Ready.
+  // a. The dedicated between-games screen, before Ready.
   await page.goto(`${ORIGIN}/index.html?slug=${game1}`);
-  await openSide();
+  await siding.waitFor({ state: "visible" });
+  await siding.locator('section[aria-label="Side Deck"] li button').first().waitFor({ state: "visible" });
+  await page.waitForTimeout(400);
   await shot("a-side-deck-before-ready");
-  check("a", "side deck screen is open on game 1", await dialog.isVisible());
+  check("a", "between-games screen is open on game 1", await siding.isVisible());
   check("a", "server: player 1 is not ready", seriesNow().sideReady[p1Index] === false, seriesNow().sideReady);
-  check("a", "Ready for next game is offered", await dialog.getByRole("button", { name: "Ready for next game" }).isEnabled());
+  check("a", "Ready is offered", await readyButton().isEnabled());
 
-  // b. After clicking Ready (the panel closes on Ready; reopen it to keep siding).
-  await dialog.getByRole("button", { name: "Ready for next game" }).click();
-  await dialog.waitFor({ state: "hidden" });
-  await page.waitForTimeout(500);
-  await openSide();
+  // b. Ready keeps the screen open and the deck editable.
+  await readyButton().click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="my-side-status"]')?.textContent?.includes("You are ready"));
   await shot("b-after-ready");
   check("b", "server: player 1 is ready", seriesNow().sideReady[p1Index] === true, seriesNow().sideReady);
-  check("b", "panel shows the player as ready", await dialog.getByRole("button", { name: "Ready", exact: true }).isDisabled());
+  check("b", "screen shows the player as ready", await readyButton().isDisabled());
+  check("b", "deck remains editable after Ready", await siding.locator('section[aria-label="Main Deck"] li button').first().getAttribute("aria-disabled") !== "true");
 
-  // c. After a swap (no save).
-  await dialog.locator('section[aria-label="Main deck"] li button').nth(0).click();
-  await dialog.locator('section[aria-label="Side deck"] li button').nth(1).click();
+  // c. Mark a swap without saving: the first mark takes Ready back on the server.
+  await siding.locator('section[aria-label="Main Deck"] li button').first().click();
+  await siding.locator('section[aria-label="Side Deck"] li button').nth(1).click();
   await page.waitForTimeout(1500);
   await shot("c-after-swap");
-  check("c", "the swap is on screen", (await dialog.getByText("1 card swapped from your registered deck").count()) === 1);
+  check("c", "the swap marks are on screen", (await siding.getByTestId("swap-counter").textContent())?.includes("1 out · 1 in") === true);
   check("c", "server: player 1 is no longer ready (nothing saved)", seriesNow().sideReady[p1Index] === false, seriesNow().sideReady);
-  check("c", "panel says the player is no longer ready", (await dialog.getByText(/You are no longer ready/).count()) === 1);
+  check("c", "screen says the player is no longer ready", (await siding.getByTestId("my-side-status").textContent())?.includes("You are no longer ready") === true);
+  check("c", "the last saved deck is unchanged", JSON.stringify(series.sideState(started.series.id, GUILD, p1).currentDeck) === JSON.stringify(registered));
 
   // d. The opponent readies.
   const opponent = await callHost({ op: "series-ready", slug: game1, playerId: p2 });
@@ -299,11 +297,11 @@ try {
   check("d", "opponent's Ready did not start game 2", opponent.data?.nextSlug == null && afterD.status === "between_games",
     { opponentNextSlug: opponent.data?.nextSlug ?? null, series: afterD.status, game: afterD.gameNumber });
   check("d", "player 1 was not moved to another game", (await navigations()).length === 0, await navigations());
-  check("d", "player 1 is still on the side deck screen", await dialog.isVisible());
+  check("d", "player 1 is still on the between-games screen", await siding.isVisible());
 
   // e. Player 1 clicks Ready again: the next game starts with the swapped deck.
-  if (await dialog.isVisible()) {
-    await dialog.getByRole("button", { name: "Ready for next game" }).click();
+  if (await siding.isVisible()) {
+    await readyButton().click();
     await page.waitForFunction(() => window.__navigations.length > 0, undefined, { timeout: 15_000 }).catch(() => undefined);
     // A live game first offers its own window; stay in this tab to show the board.
     const here = page.getByRole("button", { name: "Open here instead" });
@@ -316,12 +314,13 @@ try {
     const afterE = seriesNow();
     const nav = await navigations();
     check("e", "game 2 started", afterE.status === "active" && afterE.gameNumber === 2, { series: afterE.status, game: afterE.gameNumber });
-    // The panel and the room's own follow both replace the URL with game 2: one move, maybe sent twice.
+    // The screen and the room's own follow both replace the URL with game 2: one move, maybe sent twice.
     check("e", "player 1 followed to game 2", nav.length > 0 && nav.every((href) => href.endsWith(`/${afterE.currentDuelSlug}`)), nav);
     if (afterE.currentDuelSlug && afterE.currentDuelSlug !== game1) {
       const game2 = duels.get(afterE.currentDuelSlug, GUILD);
-      const seat = game2.seats.find((entry) => entry.playerId === p1)!.seat;
-      const deck = duels.privateState(game2.slug, GUILD).decks[seat];
+      const human = game2.seats.find((entry) => entry.playerId === p1)!;
+      check("e", "server: player 1 is ready in game 2", human.ready);
+      const deck = duels.privateState(game2.slug, GUILD).decks[human.seat];
       check("e", "game 2 uses player 1's swapped deck", JSON.stringify(deck) === JSON.stringify(swapped));
     }
   } else {
@@ -341,9 +340,10 @@ try {
   check("all", "every API call the room made is mirrored", unrouted.length === 0, [...new Set(unrouted)]);
 } catch (error) {
   console.error(error);
+  check("harness", browser ? "browser scenario completed" : "Chromium launched", false, error instanceof Error ? error.message : String(error));
   exitCode = 1;
 } finally {
-  await browser.close();
+  await browser?.close();
   await host.close();
   db.close();
   cardDb.close();

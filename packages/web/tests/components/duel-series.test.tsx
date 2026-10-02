@@ -17,6 +17,7 @@ vi.mock("next/link", () => ({
 const api = vi.hoisted(() => ({
   readySeries: vi.fn(),
   unreadySeries: vi.fn(),
+  chooseSeriesFirst: vi.fn(),
   saveSeriesSideDeck: vi.fn(),
   cancelSeries: vi.fn(),
   getDuelCards: vi.fn(),
@@ -30,11 +31,11 @@ vi.mock("../../src/components/duel/api", async (importOriginal) => ({
 import { DuelResultScreen } from "../../src/components/duel/duel-result";
 import { SeriesBadges, SeriesGameLabel } from "../../src/components/duel/series-banner";
 import { SeriesNextControls } from "../../src/components/duel/series-next";
-import { SideDeckPanel } from "../../src/components/duel/side-deck-panel";
 
 const soon = () => new Date(Date.now() + 42_000).toISOString();
 
 beforeEach(() => {
+  api.chooseSeriesFirst.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.readySeries.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.unreadySeries.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.saveSeriesSideDeck.mockReset().mockResolvedValue({ series: makeSeries() });
@@ -52,6 +53,45 @@ function controls(seriesOverrides: Parameters<typeof makeSeries>[0], extra: Part
   render(<SeriesNextControls room={makeSeriesRoom({ series })} slug="game-1" tone="sheet" {...props} />);
   return props;
 }
+
+describe("SeriesNextControls: first or second", () => {
+  it("lets the loser choose, with Go first selected by default", () => {
+    controls({ nextGameAt: soon(), firstChooser: 0 });
+    const group = screen.getByRole("group", { name: "Who goes first in the next game" });
+    expect(within(group).getByRole("button", { name: "Go first" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(group).getByRole("button", { name: "Go second" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByTestId("opponent-first-status")).toBeNull();
+  });
+
+  it("sends the choice and refreshes", async () => {
+    const props = controls({ nextGameAt: soon(), firstChooser: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Go second" }));
+    await waitFor(() => expect(api.chooseSeriesFirst).toHaveBeenCalledWith("game-1", "second"));
+    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
+  });
+
+  it("does not send the choice that is already stored", () => {
+    controls({ nextGameAt: soon(), firstChooser: 0, firstChoice: "second" });
+    fireEvent.click(screen.getByRole("button", { name: "Go second" }));
+    expect(api.chooseSeriesFirst).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Go second" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("shows the opponent that the loser is choosing, and then what they chose", () => {
+    controls({ nextGameAt: soon(), firstChooser: 1 });
+    expect(screen.queryByRole("group", { name: "Who goes first in the next game" })).toBeNull();
+    expect(screen.getByTestId("opponent-first-status").textContent).toBe("Opponent is choosing to go first or second…");
+    cleanup();
+    controls({ nextGameAt: soon(), firstChooser: 1, firstChoice: "first" });
+    expect(screen.getByTestId("opponent-first-status").textContent).toBe("Opponent chose to go first");
+  });
+
+  it("shows nothing about a choice after a draw", () => {
+    controls({ nextGameAt: soon(), firstChooser: null });
+    expect(screen.queryByTestId("first-choice")).toBeNull();
+    expect(screen.queryByTestId("opponent-first-status")).toBeNull();
+  });
+});
 
 describe("SeriesNextControls", () => {
   it("counts down to the next game", () => {
@@ -108,24 +148,6 @@ describe("SeriesNextControls", () => {
     expect(screen.queryByTestId("opponent-side-status")).toBeNull();
   });
 
-  it("offers the side deck only to a player who has one", () => {
-    const onOpenSide = vi.fn();
-    controls({ nextGameAt: soon(), hasSide: [false, true] }, { onOpenSide });
-    expect(screen.queryByRole("button", { name: "Side deck" })).toBeNull();
-    cleanup();
-    controls({ nextGameAt: soon(), hasSide: [true, false] }, { onOpenSide });
-    fireEvent.click(screen.getByRole("button", { name: "Side deck" }));
-    expect(onOpenSide).toHaveBeenCalled();
-  });
-
-  it("saves pending side deck work before it marks the player ready", async () => {
-    const order: string[] = [];
-    api.readySeries.mockImplementation(async () => { order.push("ready"); return { series: makeSeries(), nextSlug: null }; });
-    controls({ nextGameAt: soon() }, { beforeReady: async () => { order.push("save"); } });
-    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
-    await waitFor(() => expect(order).toEqual(["save", "ready"]));
-  });
-
   it("cancels an interrupted casual series after a second click", async () => {
     const props = controls({ nextGameAt: null });
     fireEvent.click(screen.getByRole("button", { name: "Cancel series" }));
@@ -152,321 +174,12 @@ describe("SeriesNextControls", () => {
   });
 });
 
-describe("SideDeckPanel", () => {
-  function panel(overrides: { base?: ReturnType<typeof makeDeck>; current?: ReturnType<typeof makeDeck>; sideReady?: [boolean, boolean] } = {}) {
-    const base = overrides.base ?? makeDeck();
-    const props = { onClose: vi.fn(), onChanged: vi.fn(), onNavigate: vi.fn() };
-    const series = makeSeries({ status: "between_games", nextGameAt: soon(), hasSide: [true, false], sideReady: overrides.sideReady ?? [false, false] });
-    render(<SideDeckPanel slug="game-1" series={series} myIndex={0} side={{ baseDeck: base, currentDeck: overrides.current ?? base }} {...props} />);
-    return props;
-  }
-  const tile = (name: string) => screen.findByRole("button", { name });
-
-  it("swaps a main card with a side card and saves the new deck", async () => {
-    const props = panel();
-    fireEvent.click(await tile("Card 2"));
-    fireEvent.click(await tile("Card 10"));
-    expect(await screen.findByRole("button", { name: "Card 10, swapped in" })).toBeTruthy();
-    expect(screen.getByText("1 card swapped from your registered deck")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", { main: [1, 10, 3], extra: [100, 101], side: [2, 11] }));
-    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
-  });
-
-  it("works from the side card first", async () => {
-    panel();
-    fireEvent.click(await tile("Card 11"));
-    fireEvent.click(await tile("Card 100"));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", { main: [1, 2, 3], extra: [11, 101], side: [10, 100] }));
-  });
-
-  it("refuses an extra deck monster in the main deck and keeps the deck as it was", async () => {
-    panel();
-    fireEvent.click(await tile("Card 1"));
-    fireEvent.click(await tile("Card 11"));
-    expect((await screen.findByRole("alert")).textContent).toMatch(/cannot go into the Main Deck/);
-    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("resets to the registered deck", async () => {
-    const base = makeDeck();
-    panel({ base, current: { main: [1, 10, 3], extra: [100, 101], side: [2, 11] } });
-    const reset = screen.getByRole("button", { name: "Reset to registered deck" }) as HTMLButtonElement;
-    expect(reset.disabled).toBe(false);
-    fireEvent.click(reset);
-    expect(reset.disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", base));
-  });
-
-  it("saves a pending swap before it marks the player ready, then follows the next game", async () => {
-    api.readySeries.mockResolvedValue({ series: makeSeries(), nextSlug: "game-2" });
-    const props = panel();
-    fireEvent.click(await tile("Card 3"));
-    fireEvent.click(await tile("Card 10"));
-    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
-    await waitFor(() => expect(props.onNavigate).toHaveBeenCalledWith("game-2"));
-    expect(api.saveSeriesSideDeck.mock.invocationCallOrder[0]).toBeLessThan(api.readySeries.mock.invocationCallOrder[0]);
-  });
-
-  it("says the timer starts the next game with the last saved deck", () => {
-    panel();
-    expect(screen.getByText(/When the timer runs out, the next game starts with your last saved deck/)).toBeTruthy();
-  });
-
-  it("un-readies a ready player on the server as soon as they start a swap, before any save", async () => {
-    let finish!: (value: unknown) => void;
-    api.unreadySeries.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
-    const props = panel({ sideReady: [true, true] });
-    expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByText(/no longer ready/)).toBeNull();
-
-    fireEvent.click(await tile("Card 2"));
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
-    expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
-    expect(screen.getByText(/You are no longer ready/).getAttribute("role")).toBe("status");
-    expect((screen.getByRole("button", { name: "Ready for next game" }) as HTMLButtonElement).disabled).toBe(false);
-
-    // Finishing the swap while the un-ready is in flight does not send a second one.
-    fireEvent.click(await tile("Card 10"));
-    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
-    finish({ series: makeSeries(), nextSlug: null });
-    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
-  });
-
-  it("sends Ready only after a pending un-ready has landed", async () => {
-    let finish!: (value: unknown) => void;
-    api.unreadySeries.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
-    panel({ sideReady: [true, false] });
-    fireEvent.click(await tile("Card 2"));
-    fireEvent.click(await tile("Card 10"));
-    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
-    expect(api.readySeries).not.toHaveBeenCalled();
-    finish({ series: makeSeries(), nextSlug: null });
-    await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
-    expect(api.saveSeriesSideDeck.mock.invocationCallOrder[0]).toBeLessThan(api.readySeries.mock.invocationCallOrder[0]);
-  });
-
-  it("falls back to the save clearing Ready when the un-ready request fails", async () => {
-    const base = makeDeck();
-    const swapped = { main: [1, 10, 3], extra: [100, 101], side: [2, 11] };
-    const between = { status: "between_games" as const, nextGameAt: soon(), hasSide: [true, false] as [boolean, boolean] };
-    api.saveSeriesSideDeck.mockResolvedValue({ series: makeSeries({ ...between, sideReady: [false, true] }) });
-    api.unreadySeries.mockRejectedValue(new Error("Network down"));
-    const element = (sideReady: [boolean, boolean], current: typeof base) => (
-      <SideDeckPanel slug="game-1" series={makeSeries({ ...between, sideReady })} myIndex={0}
-        side={{ baseDeck: base, currentDeck: current }} onClose={vi.fn()} onChanged={vi.fn()} onNavigate={vi.fn()} />
-    );
-    const { rerender } = render(element([true, true], base));
-    expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByText(/clears your Ready|no longer ready/)).toBeNull();
-
-    fireEvent.click(await tile("Card 2"));
-    expect(await screen.findByText("Network down")).toBeTruthy();
-    // The next edit retries the un-ready, which fails again: the save is the backstop.
-    fireEvent.click(await tile("Card 10"));
-    expect((await screen.findByText(/Saving these swaps clears your Ready/)).getAttribute("role")).toBe("status");
-    expect(api.unreadySeries).toHaveBeenCalledTimes(2);
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", swapped));
-
-    // The room refreshes with the server state: this player is no longer ready.
-    rerender(element([false, true], swapped));
-    expect((await screen.findByText(/You are no longer ready/)).getAttribute("role")).toBe("status");
-    expect(screen.queryByText(/clears your Ready/)).toBeNull();
-    const ready = screen.getByRole("button", { name: "Ready for next game" }) as HTMLButtonElement;
-    expect(ready.disabled).toBe(false);
-  });
-
-  it("locks the cards while Ready is in flight, so an edit cannot slip past the Ready", async () => {
-    let finish!: (value: unknown) => void;
-    api.readySeries.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
-    const props = panel({ sideReady: [false, true] });
-    fireEvent.click(await tile("Card 3"));
-    fireEvent.click(await tile("Card 10"));
-    // The first edit sends its un-ready; Ready waits for it.
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
-    await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
-
-    const card = await tile("Card 1");
-    expect((card as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(card);
-    fireEvent.click(await tile("Card 11"));
-    expect(card.getAttribute("aria-pressed")).toBe("false");
-    expect(screen.getByText("1 card swapped from your registered deck")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Reset to registered deck" }) as HTMLButtonElement).disabled).toBe(true);
-
-    finish({ series: makeSeries({ status: "between_games", sideReady: [true, true] }), nextSlug: "game-2" });
-    await waitFor(() => expect(props.onNavigate).toHaveBeenCalledWith("game-2"));
-    expect(api.saveSeriesSideDeck).toHaveBeenCalledTimes(1);
-    expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", { main: [1, 2, 10], extra: [100, 101], side: [3, 11] });
-    // The clicks during the lock changed nothing and sent nothing.
-    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
-  });
-
-  it("un-readies an edit made right after Ready, before the room has refreshed", async () => {
-    let refreshed!: () => void;
-    api.readySeries.mockResolvedValue({ series: makeSeries({ status: "between_games", sideReady: [true, false] }), nextSlug: null });
-    const props = panel({ sideReady: [false, false] });
-    props.onChanged.mockReturnValue(new Promise<void>((resolve) => { refreshed = resolve; }));
-    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
-    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
-    // The panel stays open until the room has the new Ready, so reopening never shows stale state.
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(props.onClose).not.toHaveBeenCalled();
-    refreshed();
-    await waitFor(() => expect(props.onClose).toHaveBeenCalled());
-
-    // Still mounted with the room's old props (sideReady false): the edit must still take Ready back.
-    expect(screen.getByText("You are ready")).toBeTruthy();
-    fireEvent.click(await tile("Card 2"));
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
-  });
-
-  it("un-readies again when the server says the player is ready once more", async () => {
-    const base = makeDeck();
-    const between = { status: "between_games" as const, nextGameAt: soon(), hasSide: [true, false] as [boolean, boolean] };
-    const element = (sideReady: [boolean, boolean]) => (
-      <SideDeckPanel slug="game-1" series={makeSeries({ ...between, sideReady })} myIndex={0}
-        side={{ baseDeck: base, currentDeck: base }} onClose={vi.fn()} onChanged={vi.fn()} onNavigate={vi.fn()} />
-    );
-    const { rerender } = render(element([true, false]));
-    fireEvent.click(await tile("Card 2"));
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(1));
-
-    // The room refreshes (not ready), then Ready arrives from another tab.
-    rerender(element([false, false]));
-    rerender(element([true, false]));
-    expect(await screen.findByText("You are ready")).toBeTruthy();
-    fireEvent.click(await tile("Card 3"));
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
-  });
-
-  it("un-readies again when a refresh still shows Ready after an un-ready (Ready from another tab)", async () => {
-    const base = makeDeck();
-    const between = { status: "between_games" as const, nextGameAt: soon(), hasSide: [true, false] as [boolean, boolean] };
-    const onChanged = vi.fn();
-    const element = (sideReady: [boolean, boolean]) => (
-      <SideDeckPanel slug="game-1" series={makeSeries({ ...between, sideReady })} myIndex={0}
-        side={{ baseDeck: base, currentDeck: base }} onClose={vi.fn()} onChanged={onChanged} onNavigate={vi.fn()} />
-    );
-    const { rerender } = render(element([true, false]));
-    fireEvent.click(await tile("Card 2"));
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(onChanged).toHaveBeenCalled());
-
-    // The refresh never showed the player not ready: Ready landed again from another tab.
-    rerender(element([true, false]));
-    fireEvent.click(await tile("Card 3"));
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(api.unreadySeries).toHaveBeenCalledTimes(2);
-  });
-
-  it("sends un-ready on the first edit after the panel opens, even when it shows the player not ready, and only once", async () => {
-    const props = panel({ sideReady: [false, false] });
-    fireEvent.click(await tile("Card 2"));
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
-    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
-    // A player shown as not ready gets no "no longer ready" copy.
-    expect(screen.queryByText(/no longer ready/)).toBeNull();
-    fireEvent.click(await tile("Card 10"));
-    fireEvent.click(await tile("Card 3"));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
-  });
-
-  it("un-readies on the first edit after a reopen when Ready worked but the room's refresh failed", async () => {
-    const base = makeDeck();
-    const between = { status: "between_games" as const, nextGameAt: soon(), hasSide: [true, false] as [boolean, boolean] };
-    api.readySeries.mockResolvedValue({ series: makeSeries({ ...between, sideReady: [true, false] }), nextSlug: null });
-    const onClose = vi.fn();
-    const onChanged = vi.fn().mockRejectedValue(new Error("Refresh failed"));
-    // The room keeps its stale snapshot: this player is not ready.
-    const element = () => (
-      <SideDeckPanel slug="game-1" series={makeSeries({ ...between, sideReady: [false, false] })} myIndex={0}
-        side={{ baseDeck: base, currentDeck: base }} onClose={onClose} onChanged={onChanged} onNavigate={vi.fn()} />
-    );
-    const first = render(element());
-    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
-    first.unmount();
-    expect(api.unreadySeries).not.toHaveBeenCalled();
-
-    render(element());
-    fireEvent.click(await tile("Card 2"));
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
-  });
-
-  it("un-readies on the next edit when a Ready's answer was lost", async () => {
-    api.readySeries.mockRejectedValue(new Error("Network down"));
-    panel({ sideReady: [false, false] });
-    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
-    expect(await screen.findByText("Network down")).toBeTruthy();
-    // The Ready may have landed on the server, so the edit takes it back to be safe.
-    fireEvent.click(await tile("Card 2"));
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
-  });
-
-  it("closes on Escape", async () => {
-    const props = panel();
-    await tile("Card 1");
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(props.onClose).toHaveBeenCalled();
-  });
-
-  it("moves focus once and keeps focus on a card when the room re-renders with a new onClose", async () => {
-    const base = makeDeck();
-    const series = makeSeries({ status: "between_games", nextGameAt: soon(), hasSide: [true, false], sideReady: [false, false] });
-    const first = vi.fn();
-    const second = vi.fn();
-    const element = (onClose: () => void) => (
-      <SideDeckPanel slug="game-1" series={series} myIndex={0} side={{ baseDeck: base, currentDeck: base }}
-        onClose={onClose} onChanged={vi.fn()} onNavigate={vi.fn()} />
-    );
-    const { rerender } = render(element(first));
-    const card = await tile("Card 2");
-    const dialog = screen.getByRole("dialog");
-    expect(document.activeElement).toBe(dialog);
-    card.focus();
-    rerender(element(second));
-    rerender(element(() => undefined));
-    rerender(element(second));
-    expect(document.activeElement).toBe(card);
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(second).toHaveBeenCalledTimes(1);
-    expect(first).not.toHaveBeenCalled();
-  });
-
-  it("shows the next game and the opponent's state", async () => {
-    panel({ sideReady: [false, true] });
-    await tile("Card 1");
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Game 2 of 3")).toBeTruthy();
-    expect(within(dialog).getByText(/Starts in 0:4\d/)).toBeTruthy();
-    expect(within(dialog).getByTestId("opponent-side-status").textContent).toBe("Opponent ready");
-  });
-
-  it("shows the deck counts", async () => {
-    panel();
-    await tile("Card 1");
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Main 3")).toBeTruthy();
-    expect(within(dialog).getByText("Extra 2")).toBeTruthy();
-    expect(within(dialog).getByText("Side 2")).toBeTruthy();
-  });
-});
-
 describe("DuelResultScreen with a series", () => {
   const screenProps = { slug: "game-1", reducedMotion: true, soundEnabled: false, onClose: vi.fn() };
 
   it("shows the score and the between games controls", () => {
     const series = makeSeries({ status: "between_games", wins: [1, 0], nextGameAt: soon(), hasSide: [true, false] });
-    render(<DuelResultScreen room={makeSeriesRoom({ series })} {...screenProps} onOpenSide={vi.fn()} />);
+    render(<DuelResultScreen room={makeSeriesRoom({ series })} {...screenProps} />);
     const block = screen.getByRole("region", { name: "Series" });
     expect(within(block).getByText("Best of 3")).toBeTruthy();
     expect(within(block).getByText("Game 1 won by you · 1–0")).toBeTruthy();
@@ -474,12 +187,11 @@ describe("DuelResultScreen with a series", () => {
     expect(within(block).getByText("Imran goes first (the loser of game 1 goes first)")).toBeTruthy();
     expect(within(block).getByTestId("opponent-side-status").textContent).toBe("Opponent is siding…");
     expect(within(block).getByRole("timer")).toBeTruthy();
-    expect(within(block).getByRole("button", { name: "Side deck" })).toBeTruthy();
   });
 
-  it("hides the side deck button from a player with no side deck", () => {
+  it("has no side deck button: players side their deck on the Between games screen", () => {
     const series = makeSeries({ status: "between_games", nextGameAt: soon(), hasSide: [false, true] });
-    render(<DuelResultScreen room={makeSeriesRoom({ series })} {...screenProps} onOpenSide={vi.fn()} />);
+    render(<DuelResultScreen room={makeSeriesRoom({ series })} {...screenProps} />);
     expect(screen.queryByRole("button", { name: "Side deck" })).toBeNull();
     expect(screen.getByRole("button", { name: "Ready for next game" })).toBeTruthy();
   });

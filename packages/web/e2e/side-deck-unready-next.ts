@@ -1,7 +1,7 @@
 /**
- * Test-only stand-ins for next/navigation and socket.io-client in the side deck harness. The router
+ * Test-only stand-ins for next/navigation and socket.io-client in the between-games un-ready harness. The router
  * keeps the room's slug in a tiny store, so a router.replace to /duels/<slug> swaps the room the same
- * way the App Router does, and every navigation is recorded on window.__navigations for the script.
+ * way the App Router does (including the transition from BetweenGamesScreen), and every navigation is recorded on window.__navigations for the script.
  */
 type Listener = () => void;
 
