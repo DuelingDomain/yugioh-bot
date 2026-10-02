@@ -107,8 +107,8 @@ export class Fx3dEngine implements Fx3dApi {
     return !this.lost && !this.disposed;
   }
 
-  prefetchArt(code: number): void {
-    if (this.ready) this.art.prefetch(code);
+  prefetchArt(code: number, uploadEarly = false): void {
+    if (this.ready) this.art.prefetch(code, uploadEarly);
   }
 
   play(id: Fx3dEffectId, request: FxRequest, signal?: AbortSignal): Promise<void> {

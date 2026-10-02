@@ -450,8 +450,8 @@ describe("BattleFx resolution", () => {
     try {
       const { rerender, unmount } = open();
       rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
-      expect(prefetchArt).toHaveBeenCalledWith(warrior.code);
-      expect(prefetchArt).toHaveBeenCalledWith(machine.code);
+      expect(prefetchArt).toHaveBeenCalledWith(warrior.code, true);
+      expect(prefetchArt).toHaveBeenCalledWith(machine.code, true);
       const resolved = [phase, attack, damage(3, 0), destroyed(4, 0)];
       rerender(<BattleFx events={resolved} reducedMotion={false} seats={seats()} />);
       const request = play.mock.calls[0]![1];
@@ -471,6 +471,19 @@ describe("BattleFx resolution", () => {
       setSharedFx3d(null);
       clearPromptRevealHold();
     }
+  });
+
+  it("does not prefetch attack art under reduced motion", () => {
+    const prefetchArt = vi.fn();
+    const play = vi.fn(() => Promise.resolve());
+    setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt, cancelAll() {} } });
+    try {
+      const { rerender } = open();
+      rerender(<BattleFx events={[phase, attack]} reducedMotion seats={seats()} />);
+      rerender(<BattleFx events={[phase, attack, damage(3, 0), destroyed(4, 0)]} reducedMotion seats={seats()} />);
+      expect(prefetchArt).not.toHaveBeenCalled();
+      expect(play).not.toHaveBeenCalled();
+    } finally { setSharedFx3d(null); }
   });
 
   it("shows a clash when the next phase closes a fight that left no damage and no destroy", () => {

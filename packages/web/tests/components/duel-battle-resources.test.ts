@@ -134,7 +134,7 @@ describe("decoded card textures", () => {
     });
     const uploaded = vi.fn();
     const art = new ArtStore(uploaded);
-    art.prefetch(1234);
+    art.prefetch(1234, true);
     const loaded = images[0]!.onload();
     expect(images[0]!.decode).toHaveBeenCalledOnce();
     expect(art.peek(1234)).toBeNull();
@@ -155,10 +155,49 @@ describe("decoded card textures", () => {
     });
     const uploaded = vi.fn();
     const art = new ArtStore(uploaded);
-    art.prefetch(1234);
+    art.prefetch(1234, true);
     const loaded = images[0]!.onload();
     art.dispose(); finish(); await loaded;
     expect(uploaded).not.toHaveBeenCalled();
     expect(art.peek(1234)).toBeNull();
+  });
+
+  it("keeps ordinary prefetches lazy and uploads cached attack art only once", async () => {
+    const images: Array<{ onload: () => Promise<void> }> = [];
+    vi.stubGlobal("Image", class {
+      onload = async () => {}; onerror = () => {}; decoding = ""; src = "";
+      decode = async () => {};
+      constructor() { images.push(this); }
+    });
+    const uploaded = vi.fn();
+    const art = new ArtStore(uploaded);
+    art.prefetch(1234);
+    await images[0]!.onload();
+    await images[1]!.onload();
+    expect(uploaded).not.toHaveBeenCalled();
+    art.prefetch(1234, true);
+    expect(uploaded).toHaveBeenCalledTimes(2);
+    art.prefetch(1234, true);
+    expect(uploaded).toHaveBeenCalledTimes(2);
+    art.dispose();
+  });
+
+  it("never uploads attack art whose entry was evicted while it loaded", async () => {
+    const images: Array<{ onload: () => Promise<void> }> = [];
+    vi.stubGlobal("Image", class {
+      onload = async () => {}; onerror = () => {}; decoding = ""; src = "";
+      decode = async () => {};
+      constructor() { images.push(this); }
+    });
+    const uploaded = vi.fn();
+    const disposed = vi.spyOn(THREE.Texture.prototype, "dispose");
+    const art = new ArtStore(uploaded);
+    art.prefetch(1, true);
+    for (let code = 2; code <= 41; code++) art.prefetch(code);
+    await images[0]!.onload();
+    expect(uploaded).not.toHaveBeenCalled();
+    expect(disposed).toHaveBeenCalledOnce();
+    expect(art.peek(1)).toBeNull();
+    art.dispose();
   });
 });

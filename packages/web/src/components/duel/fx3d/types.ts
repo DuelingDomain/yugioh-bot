@@ -190,8 +190,8 @@ export interface Fx3dApi {
   readonly ready: boolean;
   /** Runs an effect. Resolves when it has finished or was cancelled (abort the signal); never rejects. */
   play(id: Fx3dEffectId, request: FxRequest, signal?: AbortSignal): Promise<void>;
-  /** Starts loading the art of a card so the embodiment finds it in the cache. */
-  prefetchArt(code: number): void;
+  /** Loads art; uploadEarly is reserved for the attacker and target of a pending battle. */
+  prefetchArt(code: number, uploadEarly?: boolean): void;
   /** Stops every running effect at once. */
   cancelAll(): void;
 }

@@ -532,7 +532,7 @@ function startBattle3d(capture: AttackCapture, play: Play, skipMs: number, contr
       }
     : null;
   const battle = planBattle({ kind: fx.kind, timing: fx.timing, attacker: attackerSide, defender: defenderSide, hit: to(fx.hit) });
-  for (const code of [attackerSide.code, defenderSide?.code ?? 0]) if (code > 0) shared.api.prefetchArt(code);
+  for (const code of [attackerSide.code, defenderSide?.code ?? 0]) if (code > 0) shared.api.prefetchArt(code, true);
   const controller = new AbortController();
   controllers.add(controller);
   void shared.api
@@ -644,9 +644,9 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     if (latest) {
       const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest, prevIndexRef.current, indexSeats(seats));
       // Load and decode both faces during the declaration/response window, before a possible counter.
-      const shared = getSharedFx3d();
+      const shared = !reducedRef.current ? getSharedFx3d() : null;
       for (const code of [capture?.attackerCard?.code, capture?.targetCard?.code]) {
-        if (code) shared?.api.prefetchArt(code);
+        if (code) shared?.api.prefetchArt(code, true);
       }
       incoming = { attack: latest, capture, at: stamp };
     }
