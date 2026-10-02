@@ -1,18 +1,121 @@
 "use client";
 
-import { useCallback, useEffect, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
-import { ArrowRight, FileUp, Plus } from "lucide-react";
+import { Check, FileUp, Layers, Plus, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import type { SavedDeck } from "@yugidraft/shared/duels";
-import { cx, SheetButton, sheetButtonClass, sheetRoot } from "@/components/duel/sheet-ui";
-import ui from "@/components/duel/sheet-ui.module.css";
+import { SheetRoot } from "@/components/sheet";
+import { cardArtUrl } from "@/components/duel/constants";
 import { deleteSavedDeck, listSavedDecks } from "./api";
 import { DeckImportPanel, useDeckImport } from "./import-panel";
+import { deckFanCodes, deckStatus } from "./library-status";
 import { formatWhen, modeLabel } from "./model";
 import styles from "./library.module.css";
 
 function hasFiles(event: DragEvent): boolean {
   return Array.from(event.dataTransfer.types).includes("Files");
+}
+
+function DeckRow({
+  deck,
+  confirming,
+  busy,
+  deleteError,
+  onAskDelete,
+  onDelete,
+  onKeep,
+}: {
+  deck: SavedDeck;
+  confirming: boolean;
+  busy: boolean;
+  deleteError: string | null;
+  onAskDelete: () => void;
+  onDelete: () => void;
+  onKeep: () => void;
+}) {
+  const keepRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirming) keepRef.current?.focus();
+  }, [confirming]);
+  const status = deckStatus(deck);
+  const fan = deckFanCodes(deck.deck);
+  return (
+    <li className={`cb-row ${styles.row}`} data-confirm={confirming || undefined}>
+      <span className="cb-fan" aria-hidden="true">
+        {fan.map((code) => (
+          <img key={code} src={cardArtUrl(code, "small")} alt="" loading="lazy" decoding="async" />
+        ))}
+      </span>
+      <div>
+        <p className="nm-line">
+          <Link className={`nm ${styles.openLink}`} href={`/decks/${deck.id}`}>
+            {deck.name}
+          </Link>
+          <span className={`chip${deck.mode === "domain" ? " chip-gold" : ""}`}>{modeLabel(deck.mode)}</span>
+        </p>
+        <p className="mt">
+          <span>
+            Main <b>{deck.deck.main.length}</b> · Extra <b>{deck.deck.extra.length}</b> · Side{" "}
+            <b>{deck.deck.side.length}</b>
+            {deck.deck.deckMaster != null ? " · Master" : ""}
+          </span>
+          <span className="dot" />
+          <span>Updated {formatWhen(deck.updatedAt)}</span>
+        </p>
+        {deck.draftId != null ? (
+          <p className="tags">
+            <span className="chip">
+              <Layers className="ic" aria-hidden="true" />
+              Made in a draft
+            </span>
+            <span>Only cards you drafted</span>
+          </p>
+        ) : null}
+      </div>
+      <div className="cb-ready">
+        <span className={`l ${status.ok ? "ok" : "short"}`}>
+          {status.ok ? <Check className="ic" aria-hidden="true" /> : <TriangleAlert className="ic" aria-hidden="true" />}
+          {status.head}
+        </span>
+        {status.rest != null || status.more > 0 ? (
+          <span>
+            {status.rest}
+            {status.more > 0 ? (
+              <span className="more">
+                {status.rest != null ? " · " : ""}
+                {status.more} more {status.more === 1 ? "note" : "notes"}
+              </span>
+            ) : null}
+          </span>
+        ) : null}
+      </div>
+      {confirming ? (
+        <div className={`cb-confirm ${styles.confirm}`} role="group" aria-label={`Delete ${deck.name}`}>
+          <span>Delete {deck.name}? This can&apos;t be undone.</span>
+          {deleteError ? (
+            <span className={styles.why} role="alert">
+              {deleteError}
+            </span>
+          ) : null}
+          <button className="btn btn-danger btn-sm" type="button" disabled={busy} onClick={onDelete}>
+            Delete
+          </button>
+          <button ref={keepRef} className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={onKeep}>
+            Keep
+          </button>
+        </div>
+      ) : (
+        <div className="cb-acts">
+          <Link className="btn btn-secondary btn-sm" href={`/decks/${deck.id}`} aria-label={`Open ${deck.name}`}>
+            Open
+          </Link>
+          <button className="ib danger" type="button" aria-label={`Delete ${deck.name}`} disabled={busy} onClick={onAskDelete}>
+            <Trash2 className="ic" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+    </li>
+  );
 }
 
 export function SavedDeckLibrary() {
@@ -67,8 +170,7 @@ export function SavedDeckLibrary() {
   }
 
   return (
-    <div
-      className={cx(sheetRoot, styles.wrap)}
+    <SheetRoot
       onDragOver={(event) => {
         if (!hasFiles(event)) return;
         event.preventDefault();
@@ -86,18 +188,25 @@ export function SavedDeckLibrary() {
         importer.importFiles(event.dataTransfer.files, importer.mode);
       }}
     >
-      <header className={styles.head}>
-        <div className={styles.headText}>
-          <h1 className={ui.title}>Decks</h1>
-          <p className={ui.lede}>Private lists you can import at a table. Saving here does not make a deck legal for a duel.</p>
+      <header className="page-h sheet-head">
+        <div>
+          <h1 className="t-title">Decks</h1>
+          <p className="page-sub">
+            Private lists you can import at a table. Saving here does not make a deck legal for a duel.
+          </p>
         </div>
         <div className={styles.headActions}>
-          <SheetButton size="lg" aria-expanded={importOpen} onClick={() => setImportOpen((open) => !open)}>
-            <FileUp size={17} strokeWidth={1.7} aria-hidden />
+          <button
+            className="btn btn-secondary"
+            type="button"
+            aria-expanded={importOpen}
+            onClick={() => setImportOpen((open) => !open)}
+          >
+            <FileUp className="ic sm" aria-hidden="true" />
             Import YDK
-          </SheetButton>
-          <Link href="/decks/new" className={sheetButtonClass("primary", "lg")}>
-            <Plus size={17} strokeWidth={1.7} aria-hidden />
+          </button>
+          <Link href="/decks/new" className="btn btn-primary">
+            <Plus className="ic sm" aria-hidden="true" />
             New deck
           </Link>
         </div>
@@ -108,30 +217,51 @@ export function SavedDeckLibrary() {
       ) : null}
 
       {decks == null && !error ? (
-        <div className={styles.skeleton} aria-busy="true" aria-label="Loading saved decks">
-          <div className={styles.skelRow} />
-          <div className={styles.skelRow} />
-          <div className={styles.skelRow} />
+        <div className="cb-list" aria-busy="true" aria-label="Loading saved decks">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className={`cb-row ${styles.row}`}>
+              <span className="sk" style={{ width: 64, height: 64 }} />
+              <div style={{ display: "grid", gap: 10 }}>
+                <span className="sk" style={{ width: "42%", height: 14 }} />
+                <span className="sk" style={{ width: "66%" }} />
+              </div>
+              <span className="cb-ready">
+                <span className="sk" style={{ width: "80%" }} />
+              </span>
+              <span className="cb-acts">
+                <span className="sk" style={{ width: 64, height: 30 }} />
+              </span>
+            </div>
+          ))}
         </div>
       ) : null}
 
       {error ? (
-        <div className={styles.errorBlock}>
-          <p role="alert" className={ui.alert}>{error}</p>
-          <SheetButton size="sm" onClick={load}>Retry</SheetButton>
+        <div className="banner banner-bad" role="alert">
+          <TriangleAlert className="ic" aria-hidden="true" />
+          <div>{error}</div>
+          <button className="btn btn-secondary btn-sm" type="button" style={{ marginLeft: "auto" }} onClick={load}>
+            <RotateCcw className="ic sm" aria-hidden="true" />
+            Retry
+          </button>
         </div>
       ) : null}
 
       {decks && decks.length === 0 ? (
-        <div className={styles.empty}>
-          <p>No saved decks yet. Import your YDK files or build a list, and reuse it when you sit down at a table.</p>
-          <div className={styles.emptyActions}>
-            <SheetButton onClick={() => setImportOpen(true)}>
-              <FileUp size={16} strokeWidth={1.7} aria-hidden />
+        <div className="empty" style={{ padding: "36px 20px" }}>
+          <FileUp className="ic" aria-hidden="true" />
+          <h2>No saved decks yet</h2>
+          <p>
+            Import your YDK files or build a list, and reuse it when you sit down at a table. You can also drop .ydk
+            files anywhere on this page.
+          </p>
+          <div className="acts">
+            <button className="btn btn-primary" type="button" onClick={() => setImportOpen(true)}>
+              <FileUp className="ic sm" aria-hidden="true" />
               Import YDK files
-            </SheetButton>
-            <Link href="/decks/new" className={sheetButtonClass("primary")}>
-              <Plus size={16} strokeWidth={1.7} aria-hidden />
+            </button>
+            <Link href="/decks/new" className="btn btn-secondary">
+              <Plus className="ic sm" aria-hidden="true" />
               Create a deck
             </Link>
           </div>
@@ -139,76 +269,30 @@ export function SavedDeckLibrary() {
       ) : null}
 
       {decks && decks.length > 0 ? (
-        <ul className={styles.list}>
-          {decks.map((deck) => {
-            const confirming = pendingId === deck.id;
-            return (
-              <li key={deck.id} className={styles.row}>
-                <Link href={`/decks/${deck.id}`} className={styles.rowLink}>
-                  <span className={styles.rowMain}>
-                    <span className={styles.rowTitle}>
-                      <span className={styles.name}>{deck.name}</span>
-                      <span className={cx(ui.chip, deck.mode === "domain" && ui.chipGold)}>{modeLabel(deck.mode)}</span>
-                    </span>
-                    <span className={styles.meta}>
-                      <span className={styles.counts}>
-                        Main <b className={ui.num}>{deck.deck.main.length}</b>
-                        <span aria-hidden> · </span>
-                        Extra <b className={ui.num}>{deck.deck.extra.length}</b>
-                        <span aria-hidden> · </span>
-                        Side <b className={ui.num}>{deck.deck.side.length}</b>
-                        {deck.deck.deckMaster != null ? (
-                          <>
-                            <span aria-hidden> · </span>
-                            Master
-                          </>
-                        ) : null}
-                      </span>
-                      <span className={styles.when}>Updated {formatWhen(deck.updatedAt)}</span>
-                    </span>
-                  </span>
-                  <span className={styles.go}>
-                    Open
-                    <ArrowRight size={15} strokeWidth={1.6} aria-hidden />
-                  </span>
-                </Link>
-                <div className={styles.actions}>
-                  {confirming ? (
-                    <div className={styles.confirm}>
-                      <p className={styles.confirmText}>Delete {deck.name}?</p>
-                      {deleteError ? <p role="alert" className={ui.alert}>{deleteError}</p> : null}
-                      <div className={styles.confirmBtns}>
-                        <SheetButton
-                          kind="danger"
-                          size="sm"
-                          loading={busyId === deck.id}
-                          disabled={busyId != null}
-                          onClick={() => void confirmDelete(deck)}
-                        >
-                          Delete
-                        </SheetButton>
-                        <SheetButton kind="quiet" size="sm" disabled={busyId != null} onClick={() => { setPendingId(null); setDeleteError(null); }}>
-                          Keep
-                        </SheetButton>
-                      </div>
-                    </div>
-                  ) : (
-                    <SheetButton
-                      kind="quiet"
-                      size="sm"
-                      aria-label={`Delete ${deck.name}`}
-                      disabled={busyId != null}
-                      onClick={() => { setPendingId(deck.id); setDeleteError(null); }}
-                    >
-                      Delete
-                    </SheetButton>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <>
+          <ul className="cb-list" aria-label="Saved decks">
+            {decks.map((deck) => (
+              <DeckRow
+                key={deck.id}
+                deck={deck}
+                confirming={pendingId === deck.id}
+                busy={busyId != null}
+                deleteError={pendingId === deck.id ? deleteError : null}
+                onAskDelete={() => {
+                  setPendingId(deck.id);
+                  setDeleteError(null);
+                }}
+                onDelete={() => void confirmDelete(deck)}
+                onKeep={() => {
+                  setPendingId(null);
+                  setDeleteError(null);
+                }}
+              />
+            ))}
+          </ul>
+          <p className="dk-foot">Sizes only. The table checks the banlist and copy limits when you ready up.</p>
+        </>
       ) : null}
-    </div>
+    </SheetRoot>
   );
 }
