@@ -45,6 +45,9 @@ function summary(spec: LabSeries): DuelSeriesSummary {
     nextGameAt: between ? new Date(Date.now() + (spec.secondsLeft ?? 45) * 1000).toISOString() : null,
     sideReady: [false, spec.opponentReady === true],
     hasSide: [true, true],
+    // The loser of the game on screen chooses: you when the opponent leads, the opponent when you lead.
+    firstChooser: between ? (spec.wins[0] > spec.wins[1] ? 1 : 0) : null,
+    firstChoice: between ? spec.choice ?? null : null,
   };
 }
 

@@ -2,11 +2,11 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import type { DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
-import { cancelSeries, readySeries } from "./api";
+import { cancelSeries, chooseSeriesFirst, readySeries } from "./api";
 import { SheetButton } from "./sheet-ui";
 import resultStyles from "./duel-result.module.css";
 import styles from "./series.module.css";
-import { canCancelInterrupted, formatCountdown, opponentSideStatus, seriesPlayerIndex, secondsUntil } from "./series-model";
+import { canCancelInterrupted, formatCountdown, opponentFirstStatus, opponentSideStatus, seriesPlayerIndex, secondsUntil, viewerChoosesFirst } from "./series-model";
 
 /** Whole seconds left until `iso`, ticking twice a second; null when there is no deadline. */
 export function useSecondsUntil(iso: string | null): number | null {
@@ -26,6 +26,17 @@ export function OpponentSideChip({ series, index }: { series: DuelSeriesSummary;
   if (!status) return null;
   return (
     <p className={styles.opp} data-ready={status.ready ? "true" : "false"} role="status" data-testid="opponent-side-status">
+      <i aria-hidden />{status.text}
+    </p>
+  );
+}
+
+/** "Opponent is choosing to go first or second…" and then what they chose. Null when nobody chooses. */
+export function OpponentFirstChip({ series, index }: { series: DuelSeriesSummary; index: 0 | 1 | null }) {
+  const status = opponentFirstStatus(series, index);
+  if (!status) return null;
+  return (
+    <p className={styles.opp} data-ready={status.done ? "true" : "false"} role="status" data-testid="opponent-first-status">
       <i aria-hidden />{status.text}
     </p>
   );
@@ -82,6 +93,9 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   const theirReady = index != null && series.sideReady[index === 0 ? 1 : 0];
   const canSide = index != null && series.hasSide[index] && onOpenSide != null;
   const interrupted = series.nextGameAt == null;
+  const choosing = viewerChoosesFirst(series, index);
+  // The default is "Go first": it is what happens when the timer ends or the loser clicks Ready.
+  const myChoice = series.firstChoice ?? "first";
 
   async function run(work: () => Promise<void>) {
     if (busy) return;
@@ -103,6 +117,12 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
     if (result.nextSlug) onNavigate(result.nextSlug);
     else onChanged();
   });
+  const choose = (choice: "first" | "second") => run(async () => {
+    if (choice === series.firstChoice) return;
+    const result = await chooseSeriesFirst(slug, choice);
+    if (result.nextSlug) onNavigate(result.nextSlug);
+    else onChanged();
+  });
   const cancel = () => run(async () => {
     await cancelSeries(series.id);
     setConfirmCancel(false);
@@ -121,6 +141,23 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
       </p>
       <p className={styles.status} role="status">{status}</p>
       <OpponentSideChip series={series} index={index} />
+      <OpponentFirstChip series={series} index={index} />
+      {choosing ? (
+        <div className={styles.first} role="group" aria-label="Who goes first in the next game" data-testid="first-choice">
+          <p className={styles.firstHead}>You lost, so you choose</p>
+          <div className={styles.firstRow}>
+            {(["first", "second"] as const).map((choice) => (
+              <button key={choice} type="button" className={styles.firstBtn} aria-pressed={myChoice === choice}
+                data-testid={`first-choice-${choice}`} disabled={busy} onClick={() => void choose(choice)}>
+                Go {choice}
+              </button>
+            ))}
+          </div>
+          <p className={styles.firstNote}>
+            {series.firstChoice == null ? "Go first is chosen when the timer ends." : `You will go ${series.firstChoice}.`}
+          </p>
+        </div>
+      ) : null}
       {index != null ? (
         <div className={styles.actions}>
           <Action tone={tone} kind="primary" loading={busy && !confirmCancel} disabled={imReady || busy} onClick={() => void ready()}>

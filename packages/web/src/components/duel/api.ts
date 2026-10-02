@@ -186,6 +186,17 @@ export async function readySeries(slug: string): Promise<{ series: DuelSeriesSum
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/series/ready`, { method: "POST" }));
 }
 
+/** The loser of the last game chooses to go first or second in the next game; `slug` is any game of the series. */
+export async function chooseSeriesFirst(slug: string, choice: DuelFirstChoice): Promise<{ series: DuelSeriesSummary; nextSlug: string | null }> {
+  return parseBody(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/series/first`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice }),
+    }),
+  );
+}
+
 /** Cancel a series (casual: either player; tournament: the tournament creator). The body is not used. */
 export async function cancelSeries(seriesId: number): Promise<void> {
   const res = await fetch(`/api/duels/series/${seriesId}/cancel`, { method: "POST" });

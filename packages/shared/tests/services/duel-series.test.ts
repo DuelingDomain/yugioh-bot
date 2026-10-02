@@ -408,6 +408,101 @@ describe("Best of 3", () => {
   });
 });
 
+describe("the loser chooses first or second", () => {
+  it("names the loser as the chooser after a decided game, and nobody after a draw or an interrupt", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    expect(app.series.get(series.id, "g1")).toMatchObject({ firstChooser: null, firstChoice: null });
+    playGame(app, duel.slug, app.p1);
+    const index = (playerId: number) => app.series.get(series.id, "g1").playerIds.indexOf(playerId);
+    expect(app.series.get(series.id, "g1")).toMatchObject({ firstChooser: index(app.p2), firstChoice: null });
+
+    const game2 = app.series.createNextGame(series.id, "g1");
+    expect(app.series.get(series.id, "g1")).toMatchObject({ firstChooser: null, firstChoice: null });
+    playGame(app, game2.slug, null);
+    expect(app.series.get(series.id, "g1")).toMatchObject({ status: "between_games", firstChooser: null });
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p1, "second"), 409);
+  });
+
+  it("puts the loser in seat 1 when they choose second, and in seat 0 when they choose first", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    playGame(app, duel.slug, app.p1);
+    const summary = app.series.setFirstChoice(series.id, "g1", app.p2, "second");
+    expect(summary.firstChoice).toBe("second");
+    const game2 = app.series.createNextGame(series.id, "g1");
+    expect(seatOf(game2, app.p2)).toBe(1);
+    expect(seatOf(game2, app.p1)).toBe(0);
+
+    playGame(app, game2.slug, app.p2);
+    app.series.setFirstChoice(series.id, "g1", app.p1, "second");
+    app.series.setFirstChoice(series.id, "g1", app.p1, "first");
+    const game3 = app.series.createNextGame(series.id, "g1");
+    expect(seatOf(game3, app.p1)).toBe(0);
+  });
+
+  it("lets the loser change the choice until the next game is made", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    playGame(app, duel.slug, app.p1);
+    app.series.setFirstChoice(series.id, "g1", app.p2, "second");
+    expect(app.series.setFirstChoice(series.id, "g1", app.p2, "first").firstChoice).toBe("first");
+    expect(seatOf(app.series.createNextGame(series.id, "g1"), app.p2)).toBe(0);
+  });
+
+  it("goes first by default when the window ends without a choice", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    playGame(app, duel.slug, app.p1);
+    expect(app.series.dueNextGames(Date.now() + SERIES_SIDE_WINDOW_MS + 1000, 10)).toHaveLength(1);
+    expect(seatOf(app.series.createNextGame(series.id, "g1"), app.p2)).toBe(0);
+  });
+
+  it("refuses the winner, a stranger, a bad value and a series that is not between games", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p2, "first"), 409);
+    playGame(app, duel.slug, app.p1);
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p1, "second"), 403);
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p3, "second"), 403);
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p2, "third" as never), 400);
+    app.series.createNextGame(series.id, "g1");
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p2, "second"), 409);
+  });
+
+  it("keeps the next game back until the loser has chosen, even when both are ready", () => {
+    const app = setup();
+    const started = app.series.createChallenge({ guildId: "g1", challengerPlayerId: app.p1, opponentPlayerId: app.p2, bestOf: 3, ranked: false, mode: "normal" });
+    app.duels.setDeck(started.duel.slug, "g1", app.p1, validDeck(1, 0));
+    app.duels.setDeck(started.duel.slug, "g1", app.p2, validDeck(1000, 0));
+    playGame(app, started.duel.slug, app.p1);
+    // Neither has side cards: both are ready at once, but the loser still has to choose.
+    expect(app.series.get(started.series.id, "g1").sideReady).toEqual([true, true]);
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    app.series.setFirstChoice(started.series.id, "g1", app.p2, "second");
+    expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
+  });
+
+  it("Ready from the loser keeps the default and releases the game", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    playGame(app, duel.slug, app.p1);
+    app.series.setSideReady(series.id, "g1", app.p1);
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    const summary = app.series.setSideReady(series.id, "g1", app.p2);
+    expect(summary.firstChoice).toBe("first");
+    expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
+  });
+
+  it("Ready after a choice keeps the choice", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    playGame(app, duel.slug, app.p1);
+    app.series.setFirstChoice(series.id, "g1", app.p2, "second");
+    expect(app.series.setSideReady(series.id, "g1", app.p2).firstChoice).toBe("second");
+  });
+});
+
 describe("side decking", () => {
   function betweenGames(app: App) {
     const { duel, series } = challenge(app, 3);

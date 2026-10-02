@@ -142,9 +142,9 @@ export interface BetweenGamesInfo {
 
 /**
  * What the between-games screen says: how the last game ended, which game is next and who goes
- * first in it. The loser of the last game goes first; after a draw or an interrupted game the seats
- * swap (the same rule as `createNextGame` in the shared series service). Null unless the series
- * waits between games on this duel.
+ * first in it. After a decided game the loser chooses to go first or second (default first); after
+ * a draw or an interrupted game the seats swap (the same rules as `createNextGame` in the shared
+ * series service). Null unless the series waits between games on this duel.
  */
 export function betweenGamesInfo(room: Pick<DuelRoom, "session" | "mySeat" | "series">, slug: string): BetweenGamesInfo | null {
   const series = room.series;
@@ -158,21 +158,66 @@ export function betweenGamesInfo(room: Pick<DuelRoom, "session" | "mySeat" | "se
   const winnerIndex = winnerId == null ? -1 : series.playerIds.indexOf(winnerId);
 
   let result: string;
-  let firstIndex: number;
-  let why: string;
+  let first: string;
   if (session.status === "completed" && winnerIndex >= 0) {
     const won = index == null ? series.displayNames[winnerIndex] : winnerIndex === index ? "you" : series.displayNames[winnerIndex];
     result = `Game ${played} won by ${won} · ${score}`;
-    firstIndex = winnerIndex === 0 ? 1 : 0;
-    why = `the loser of game ${played} goes first`;
+    first = firstLine(series, index, played, winnerIndex === 0 ? 1 : 0);
   } else {
     result = session.status === "completed" ? `Game ${played} was a draw · ${score}` : `Game ${played} did not finish · ${score}`;
     const second = session.seats.find((seat) => seat.seat === 1)?.playerId;
-    firstIndex = second == null ? 0 : Math.max(0, series.playerIds.indexOf(second));
-    why = "the seats swap";
+    const firstIndex = second == null ? 0 : Math.max(0, series.playerIds.indexOf(second));
+    first = `${index != null && firstIndex === index ? "You go" : `${series.displayNames[firstIndex]} goes`} first (the seats swap)`;
   }
+  return { result, next: `Game ${played + 1} of ${series.bestOf}`, first };
+}
+
+/** Who goes first after a decided game; `loserIndex` is the loser, who chooses. */
+function firstLine(series: DuelSeriesSummary, index: 0 | 1 | null, played: number, loserIndex: 0 | 1): string {
+  const chooser = series.firstChooser ?? loserIndex;
+  if (series.firstChooser == null) {
+    // A series saved before the choice existed: the loser goes first.
+    const who = index != null && chooser === index ? "You go" : `${series.displayNames[chooser]} goes`;
+    return `${who} first (the loser of game ${played} goes first)`;
+  }
+  const iChoose = index != null && chooser === index;
+  if (series.firstChoice == null) {
+    return iChoose ? "You choose to go first or second" : opponentChoosingText(series, index);
+  }
+  const firstIndex = series.firstChoice === "first" ? chooser : chooser === 0 ? 1 : 0;
   const who = index != null && firstIndex === index ? "You go" : `${series.displayNames[firstIndex]} goes`;
-  return { result, next: `Game ${played + 1} of ${series.bestOf}`, first: `${who} first (${why})` };
+  const by = iChoose ? "you chose" : index == null ? `${series.displayNames[chooser]} chose` : "the opponent chose";
+  return `${who} first (${by} to go ${series.firstChoice})`;
+}
+
+function opponentChoosingText(series: Pick<DuelSeriesSummary, "displayNames" | "firstChooser">, index: 0 | 1 | null): string {
+  if (index == null && series.firstChooser != null) return `${series.displayNames[series.firstChooser]} is choosing to go first or second…`;
+  return "Opponent is choosing to go first or second…";
+}
+
+/** True when the viewer lost the last game and chooses to go first or second now. */
+export function viewerChoosesFirst(series: DuelSeriesSummary, index: 0 | 1 | null): boolean {
+  return series.status === "between_games" && index != null && series.firstChooser === index;
+}
+
+export interface OpponentFirstStatus {
+  text: string;
+  /** The opponent has chosen. */
+  done: boolean;
+}
+
+/** The other player's first or second choice: "Opponent is choosing to go first or second…" and then the result. */
+export function opponentFirstStatus(series: DuelSeriesSummary, index: 0 | 1 | null): OpponentFirstStatus | null {
+  if (series.status !== "between_games" || series.firstChooser == null) return null;
+  if (index == null) {
+    return series.firstChoice == null
+      ? { text: opponentChoosingText(series, index), done: false }
+      : { text: `${series.displayNames[series.firstChooser]} chose to go ${series.firstChoice}`, done: true };
+  }
+  if (series.firstChooser === index) return null;
+  return series.firstChoice == null
+    ? { text: opponentChoosingText(series, index), done: false }
+    : { text: `Opponent chose to go ${series.firstChoice}`, done: true };
 }
 
 export interface OpponentSideStatus {

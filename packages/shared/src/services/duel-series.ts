@@ -3,6 +3,7 @@ import { randomInt } from "node:crypto";
 import type {
   DuelBestOf,
   DuelDeck,
+  DuelFirstChoice,
   DuelMasterRule,
   DuelMode,
   DuelSeriesSideState,
@@ -80,14 +81,21 @@ export interface DuelSeriesService {
    * extra <= 15.
    */
   setSideDeck(seriesId: number, guildId: string, playerId: number, deck: DuelDeck): DuelSeriesSummary;
+  /**
+   * The loser of the last game chooses to go first or second in the next game. Only that player, only
+   * between games. A later call changes the choice until the next game is made. When nobody chooses,
+   * the loser goes first.
+   */
+  setFirstChoice(seriesId: number, guildId: string, playerId: number, choice: DuelFirstChoice): DuelSeriesSummary;
+  /** Ready also fixes the default (first) for a chooser who has not chosen. */
   setSideReady(seriesId: number, guildId: string, playerId: number): DuelSeriesSummary;
   /** between_games series whose deadline passed or whose players are both ready. */
   dueNextGames(nowMs: number, limit: number): Array<{ seriesId: number; guildId: string }>;
   /** Series games in lobby with two ready seats (auto-start recovery after a host restart). */
   dueStarts(limit: number): Array<{ slug: string; guildId: string }>;
   /**
-   * Makes the next game in lobby: the loser of the last game in seat 0 (after
-   * a draw or interrupt, the players swap seats), both decks from the series
+   * Makes the next game in lobby: the loser of the last game chooses to go first
+   * or second (default first); after a draw or interrupt, the players swap seats. Both decks from the series
    * current decks, both seats ready. Sets the series back to active.
    * Idempotent: returns the existing lobby game.
    */
@@ -126,6 +134,8 @@ export type SeriesRow = {
   deck1_json: string | null;
   side_ready0: number;
   side_ready1: number;
+  first_chooser: number | null;
+  first_choice: string | null;
   next_game_at: string | null;
   created_by_player_id: number;
   created_at: string;
@@ -306,6 +316,8 @@ export function createSeriesStore(db: Database.Database) {
       nextGameAt: row.next_game_at,
       sideReady: [row.side_ready0 === 1, row.side_ready1 === 1],
       hasSide: [(deck0?.side.length ?? 0) > 0, (deck1?.side.length ?? 0) > 0],
+      firstChooser: row.first_chooser === 0 ? 0 : row.first_chooser === 1 ? 1 : null,
+      firstChoice: row.first_choice === "first" || row.first_choice === "second" ? row.first_choice : null,
     };
   };
 
@@ -445,22 +457,32 @@ export function createSeriesStore(db: Database.Database) {
         return 1;
       }
     };
-    const betweenGames = (wins0: number, wins1: number, nextGameAt: string | null, ready0: number, ready1: number) => {
-      db.prepare<[number, number, string | null, number, number, number]>(
+    // `chooser` is the series index of the loser of a decided game; null keeps the seat swap (draw, interrupt).
+    const betweenGames = (
+      wins0: number,
+      wins1: number,
+      nextGameAt: string | null,
+      ready0: number,
+      ready1: number,
+      chooser: 0 | 1 | null = null,
+    ) => {
+      db.prepare<[number, number, string | null, number, number, number | null, number]>(
         `
           update duel_series
-          set status = 'between_games', wins0 = ?, wins1 = ?, next_game_at = ?, side_ready0 = ?, side_ready1 = ?
+          set status = 'between_games', wins0 = ?, wins1 = ?, next_game_at = ?, side_ready0 = ?, side_ready1 = ?,
+              first_chooser = ?, first_choice = null
           where id = ?
         `,
-      ).run(wins0, wins1, nextGameAt, ready0, ready1, series.id);
+      ).run(wins0, wins1, nextGameAt, ready0, ready1, chooser, series.id);
     };
-    const sideWindow = (wins0: number, wins1: number) =>
+    const sideWindow = (wins0: number, wins1: number, chooser: 0 | 1 | null = null) =>
       betweenGames(
         wins0,
         wins1,
         new Date(now + SERIES_SIDE_WINDOW_MS).toISOString(),
         emptySide(series.deck0_json),
         emptySide(series.deck1_json),
+        chooser,
       );
 
     if (status === "interrupted") {
@@ -486,7 +508,7 @@ export function createSeriesStore(db: Database.Database) {
     const wins0 = series.wins0 + (winnerIndex === 0 ? 1 : 0);
     const wins1 = series.wins1 + (winnerIndex === 1 ? 1 : 0);
     if ((winnerIndex === 0 ? wins0 : wins1) < needed) {
-      sideWindow(wins0, wins1);
+      sideWindow(wins0, wins1, winnerIndex === 0 ? 1 : 0);
       return;
     }
 
@@ -626,14 +648,16 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
   const markSideReady0 = db.prepare<[number]>("update duel_series set side_ready0 = 1 where id = ?");
   const markSideReady1 = db.prepare<[number]>("update duel_series set side_ready1 = 1 where id = ?");
   const resetToActive = db.prepare<[number]>(
-    "update duel_series set status = 'active', side_ready0 = 0, side_ready1 = 0, next_game_at = null where id = ?",
+    "update duel_series set status = 'active', side_ready0 = 0, side_ready1 = 0, next_game_at = null, first_chooser = null, first_choice = null where id = ?",
   );
+  const updateFirstChoice = db.prepare<[string, number]>("update duel_series set first_choice = ? where id = ?");
   const selectDueNext = db.prepare<[string, number], { seriesId: number; guildId: string }>(
     `
       select id as seriesId, guild_id as guildId
       from duel_series
       where status = 'between_games'
-        and ((side_ready0 = 1 and side_ready1 = 1) or (next_game_at is not null and next_game_at <= ?))
+        and ((side_ready0 = 1 and side_ready1 = 1 and (first_chooser is null or first_choice is not null))
+          or (next_game_at is not null and next_game_at <= ?))
       order by id asc
       limit ?
     `,
@@ -862,8 +886,25 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
     const index = store.requirePlayerIndex(row, playerId);
     if (row.status !== "between_games") throw new DuelServiceError("The series is not between games", 409);
     (index === 0 ? markSideReady0 : markSideReady1).run(row.id);
+    // Ready without a choice keeps the default: the loser goes first.
+    if (row.first_chooser === index && row.first_choice === null) updateFirstChoice.run("first", row.id);
     return store.summarize(store.requireSeries(row.id));
   });
+
+  const setFirstChoiceTx = db.transaction(
+    (seriesId: number, guildId: string, playerId: number, choice: DuelFirstChoice): DuelSeriesSummary => {
+      if (choice !== "first" && choice !== "second") throw new DuelServiceError("Choose first or second", 400);
+      const row = store.requireSeries(seriesId, guildId);
+      const index = store.requirePlayerIndex(row, playerId);
+      if (row.status !== "between_games") throw new DuelServiceError("The series is not between games", 409);
+      if (row.first_chooser === null) {
+        throw new DuelServiceError("The seats swap after a draw or an unfinished game, so nobody chooses", 409);
+      }
+      if (row.first_chooser !== index) throw new DuelServiceError("Only the loser of the last game chooses who goes first", 403);
+      updateFirstChoice.run(choice, row.id);
+      return store.summarize(store.requireSeries(row.id));
+    },
+  );
 
   /** Null when the series was closed because its tournament is no longer active (the caller throws after the commit). */
   const createNextGameTx = db.transaction((seriesId: number, guildId: string): DuelSession | null => {
@@ -883,14 +924,22 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
     const deck1 = parseSeriesDeck(row.deck1_json ?? row.base_deck1_json);
     if (!deck0 || !deck1) throw new DuelServiceError("This series has no decks yet", 409);
 
-    // The loser of the last game goes first; after a draw or an interrupt the seats swap.
+    // The loser of the last game chooses to go first or second (default first); after a draw or an
+    // interrupt the seats swap.
     let first = row.player0_id;
     let second = row.player1_id;
     if (latest) {
       const lastSeats = store.gameSeats(latest.id);
       const lastFirst = lastSeats[0]?.player_id ?? row.player0_id;
       const lastSecond = lastSeats[1]?.player_id ?? row.player1_id;
-      if (latest.status === "completed" && latest.winner_player_id !== null) {
+      if (row.first_chooser !== null) {
+        const chooser = row.first_chooser === 0 ? row.player0_id : row.player1_id;
+        const other = row.first_chooser === 0 ? row.player1_id : row.player0_id;
+        const goesFirst = row.first_choice === "second" ? other : chooser;
+        first = goesFirst;
+        second = goesFirst === chooser ? other : chooser;
+      } else if (latest.status === "completed" && latest.winner_player_id !== null) {
+        // A series that was between games before the choice existed: the loser goes first.
         const loser = latest.winner_player_id === row.player0_id ? row.player1_id : row.player0_id;
         first = loser;
         second = loser === row.player0_id ? row.player1_id : row.player0_id;
@@ -949,6 +998,9 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
     },
     setSideDeck(seriesId, guildId, playerId, deck) {
       return setSideDeckTx(seriesId, guildId, playerId, deck);
+    },
+    setFirstChoice(seriesId, guildId, playerId, choice) {
+      return setFirstChoiceTx(seriesId, guildId, playerId, choice);
     },
     setSideReady(seriesId, guildId, playerId) {
       return setSideReadyTx(seriesId, guildId, playerId);

@@ -94,6 +94,8 @@ export type LabSeries = {
   opponentReady?: boolean;
   /** Seconds left in the side deck window (ready and side screens). */
   secondsLeft?: number;
+  /** What the loser of the last game chose for the next game; absent while they are still choosing. */
+  choice?: "first" | "second";
 };
 
 export type LabCategory = "Attacks" | "Destroy" | "Summons" | "Card moves" | "Chain" | "LP" | "Banners" | "Board states" | "Match";

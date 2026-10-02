@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   betweenGamesInfo,
+  opponentFirstStatus,
+  viewerChoosesFirst,
   canCancelInterrupted,
   formatCountdown,
   isBetweenGames,
@@ -156,24 +158,42 @@ describe("betweenGamesInfo", () => {
   const between = (overrides: Parameters<typeof makeSeries>[0] = {}) =>
     makeSeries({ status: "between_games", wins: [1, 0], ...overrides });
 
-  it("says who won, the score, the next game and that the loser goes first", () => {
-    const room = makeSeriesRoom({ series: between() });
+  it("says who won, the score, the next game and that the opponent is choosing", () => {
+    const room = makeSeriesRoom({ series: between({ firstChooser: 1 }) });
     room.session.winnerSeat = 0;
     expect(betweenGamesInfo(room, "game-1")).toEqual({
       result: "Game 1 won by you · 1–0",
       next: "Game 2 of 3",
-      first: "Imran goes first (the loser of game 1 goes first)",
+      first: "Opponent is choosing to go first or second…",
     });
   });
 
-  it("tells the loser that they go first", () => {
-    const room = makeSeriesRoom({ series: between({ wins: [0, 1] }) });
+  it("tells the loser that they choose, and what they chose", () => {
+    const room = makeSeriesRoom({ series: between({ wins: [0, 1], firstChooser: 0 }) });
     room.session.winnerSeat = 1;
     expect(betweenGamesInfo(room, "game-1")).toEqual({
       result: "Game 1 won by Imran · 0–1",
       next: "Game 2 of 3",
-      first: "You go first (the loser of game 1 goes first)",
+      first: "You choose to go first or second",
     });
+    const chose = makeSeriesRoom({ series: between({ wins: [0, 1], firstChooser: 0, firstChoice: "second" }) });
+    chose.session.winnerSeat = 1;
+    expect(betweenGamesInfo(chose, "game-1")?.first).toBe("Imran goes first (you chose to go second)");
+    const first = makeSeriesRoom({ series: between({ wins: [0, 1], firstChooser: 0, firstChoice: "first" }) });
+    first.session.winnerSeat = 1;
+    expect(betweenGamesInfo(first, "game-1")?.first).toBe("You go first (you chose to go first)");
+  });
+
+  it("tells the winner what the opponent chose", () => {
+    const room = makeSeriesRoom({ series: between({ firstChooser: 1, firstChoice: "second" }) });
+    room.session.winnerSeat = 0;
+    expect(betweenGamesInfo(room, "game-1")?.first).toBe("You go first (the opponent chose to go second)");
+  });
+
+  it("keeps the old wording for a series saved before the choice existed", () => {
+    const room = makeSeriesRoom({ series: between({ wins: [0, 1] }) });
+    room.session.winnerSeat = 1;
+    expect(betweenGamesInfo(room, "game-1")?.first).toBe("You go first (the loser of game 1 goes first)");
   });
 
   it("uses the winner's player id when the session has one", () => {
@@ -219,5 +239,30 @@ describe("opponentSideStatus", () => {
     const series = makeSeries({ status: "between_games", nextGameAt: null });
     expect(opponentSideStatus(series, 0)).toEqual({ text: "Opponent is not ready", ready: false });
     expect(opponentSideStatus(series, null)).toBeNull();
+  });
+});
+
+describe("the first or second choice", () => {
+  const between = (overrides: Parameters<typeof makeSeries>[0] = {}) =>
+    makeSeries({ status: "between_games", wins: [0, 1], nextGameAt: "2030-01-01T00:00:00.000Z", ...overrides });
+
+  it("says that the viewer chooses only when they are the chooser between games", () => {
+    expect(viewerChoosesFirst(between({ firstChooser: 0 }), 0)).toBe(true);
+    expect(viewerChoosesFirst(between({ firstChooser: 0 }), 1)).toBe(false);
+    expect(viewerChoosesFirst(between({ firstChooser: null }), 0)).toBe(false);
+    expect(viewerChoosesFirst(between({ firstChooser: 0 }), null)).toBe(false);
+    expect(viewerChoosesFirst(makeSeries({ status: "active", firstChooser: 0 }), 0)).toBe(false);
+  });
+
+  it("shows the opponent's choosing state and then the result", () => {
+    expect(opponentFirstStatus(between({ firstChooser: 1 }), 0)).toEqual({ text: "Opponent is choosing to go first or second…", done: false });
+    expect(opponentFirstStatus(between({ firstChooser: 1, firstChoice: "second" }), 0)).toEqual({ text: "Opponent chose to go second", done: true });
+    expect(opponentFirstStatus(between({ firstChooser: 0 }), 0)).toBeNull();
+    expect(opponentFirstStatus(between({ firstChooser: null }), 0)).toBeNull();
+  });
+
+  it("names the chooser to a spectator", () => {
+    expect(opponentFirstStatus(between({ firstChooser: 0 }), null)).toEqual({ text: "Sulman is choosing to go first or second…", done: false });
+    expect(opponentFirstStatus(between({ firstChooser: 0, firstChoice: "first" }), null)).toEqual({ text: "Sulman chose to go first", done: true });
   });
 });

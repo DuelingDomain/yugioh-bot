@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cancelSeries, chooseOpeningOrder, createDuel, markDuelReady, pickOpeningMove, readySeries, saveSeriesSideDeck, searchPlayers } from "../src/components/duel/api";
+import { cancelSeries, chooseOpeningOrder, chooseSeriesFirst, createDuel, markDuelReady, pickOpeningMove, readySeries, saveSeriesSideDeck, searchPlayers } from "../src/components/duel/api";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -50,6 +50,13 @@ describe("series requests", () => {
       "/api/duels/series/7/cancel",
     ]);
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ deck: { main: [1], extra: [], side: [2] } });
+  });
+
+  it("posts the first or second choice to the series first route", async () => {
+    const fetchMock = stub({ series: {}, nextSlug: null });
+    await chooseSeriesFirst("t", "second");
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/duels/t/series/first");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ choice: "second" });
   });
 
   it("raises the server message when a series request fails", async () => {

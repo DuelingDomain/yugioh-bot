@@ -229,7 +229,8 @@ export function createDuelHost(options: {
   /** A between-games series is due when both players are ready or the side deck window has ended. */
   function isSeriesDue(info: DuelSeriesSummary, at: number): boolean {
     if (info.status !== "between_games") return false;
-    if (info.sideReady[0] && info.sideReady[1]) return true;
+    // The loser of the last game may still be choosing first or second; the window end decides then.
+    if (info.sideReady[0] && info.sideReady[1] && (info.firstChooser === null || info.firstChoice !== null)) return true;
     if (info.nextGameAt === null) return false;
     const deadline = Date.parse(info.nextGameAt);
     return Number.isFinite(deadline) && deadline <= at;
@@ -1148,7 +1149,7 @@ export function createDuelHost(options: {
       return project(slug, guildId, actor);
     }
     if (op === "replay") return replay(slug, guildId, room);
-    if (op === "series-side" || op === "series-ready") {
+    if (op === "series-side" || op === "series-ready" || op === "series-first") {
       const seriesId = room.session.seriesId ?? null;
       if (seriesId === null) throw new RequestError("This duel is not part of a series", 409);
       const info = series.get(seriesId, guildId);
@@ -1160,6 +1161,17 @@ export function createDuelHost(options: {
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
         validateSessionDeck(room.session.mode, deck, room.session.settings);
         return { series: series.setSideDeck(seriesId, guildId, actor, deck) };
+      }
+      if (op === "series-first") {
+        if (!isFirstChoice(body.choice)) throw new RequestError("Choose first or second", 400);
+        if (info.status !== "between_games") throw new RequestError("The series is not between games", 409);
+        const updated = series.setFirstChoice(seriesId, guildId, actor, body.choice);
+        await emitChange(updated.currentDuelSlug ?? slug, guildId);
+        const advanced = isSeriesDue(updated, now()) ? await advanceSeries(seriesId, guildId) : null;
+        const latest = series.get(seriesId, guildId);
+        const nextSlug = advanced
+          ?? (latest.status === "active" && latest.currentDuelSlug !== slug ? latest.currentDuelSlug : null);
+        return { series: latest, nextSlug };
       }
       if (info.status !== "between_games") {
         // The next game may already exist (the timer or the other player was first): point the client at it.

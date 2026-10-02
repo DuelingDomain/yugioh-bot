@@ -16,6 +16,7 @@ vi.mock("next/link", () => ({
 
 const api = vi.hoisted(() => ({
   readySeries: vi.fn(),
+  chooseSeriesFirst: vi.fn(),
   saveSeriesSideDeck: vi.fn(),
   cancelSeries: vi.fn(),
   getDuelCards: vi.fn(),
@@ -34,6 +35,7 @@ import { SideDeckPanel } from "../../src/components/duel/side-deck-panel";
 const soon = () => new Date(Date.now() + 42_000).toISOString();
 
 beforeEach(() => {
+  api.chooseSeriesFirst.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.readySeries.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.saveSeriesSideDeck.mockReset().mockResolvedValue({ series: makeSeries() });
   api.cancelSeries.mockReset().mockResolvedValue(undefined);
@@ -50,6 +52,45 @@ function controls(seriesOverrides: Parameters<typeof makeSeries>[0], extra: Part
   render(<SeriesNextControls room={makeSeriesRoom({ series })} slug="game-1" tone="sheet" {...props} />);
   return props;
 }
+
+describe("SeriesNextControls: first or second", () => {
+  it("lets the loser choose, with Go first selected by default", () => {
+    controls({ nextGameAt: soon(), firstChooser: 0 });
+    const group = screen.getByRole("group", { name: "Who goes first in the next game" });
+    expect(within(group).getByRole("button", { name: "Go first" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(group).getByRole("button", { name: "Go second" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByTestId("opponent-first-status")).toBeNull();
+  });
+
+  it("sends the choice and refreshes", async () => {
+    const props = controls({ nextGameAt: soon(), firstChooser: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Go second" }));
+    await waitFor(() => expect(api.chooseSeriesFirst).toHaveBeenCalledWith("game-1", "second"));
+    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
+  });
+
+  it("does not send the choice that is already stored", () => {
+    controls({ nextGameAt: soon(), firstChooser: 0, firstChoice: "second" });
+    fireEvent.click(screen.getByRole("button", { name: "Go second" }));
+    expect(api.chooseSeriesFirst).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Go second" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("shows the opponent that the loser is choosing, and then what they chose", () => {
+    controls({ nextGameAt: soon(), firstChooser: 1 });
+    expect(screen.queryByRole("group", { name: "Who goes first in the next game" })).toBeNull();
+    expect(screen.getByTestId("opponent-first-status").textContent).toBe("Opponent is choosing to go first or second…");
+    cleanup();
+    controls({ nextGameAt: soon(), firstChooser: 1, firstChoice: "first" });
+    expect(screen.getByTestId("opponent-first-status").textContent).toBe("Opponent chose to go first");
+  });
+
+  it("shows nothing about a choice after a draw", () => {
+    controls({ nextGameAt: soon(), firstChooser: null });
+    expect(screen.queryByTestId("first-choice")).toBeNull();
+    expect(screen.queryByTestId("opponent-first-status")).toBeNull();
+  });
+});
 
 describe("SeriesNextControls", () => {
   it("counts down to the next game", () => {

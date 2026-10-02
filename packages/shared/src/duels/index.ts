@@ -1,5 +1,5 @@
 import type { DuelClock, DuelSettings } from "./settings.js";
-import type { DuelOpeningView } from "./opening.js";
+import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
 
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
@@ -102,6 +102,13 @@ export interface DuelSeriesSummary {
   sideReady: [boolean, boolean];
   /** Per playerIds index: the player's deck has side deck cards. */
   hasSide: [boolean, boolean];
+  /**
+   * Between games after a decided game: the playerIds index of the loser, who chooses to go first or
+   * second. Null before game 1, after a draw or an interrupt (the seats swap then), and while a game runs.
+   */
+  firstChooser: 0 | 1 | null;
+  /** What the chooser picked for the next game; null until they choose (the default is first). */
+  firstChoice: DuelFirstChoice | null;
 }
 
 /** The viewer's own decks in a series; only sent to that player. */

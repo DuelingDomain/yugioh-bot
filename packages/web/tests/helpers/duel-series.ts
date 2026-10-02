@@ -18,6 +18,8 @@ export function makeSeries(overrides: Partial<DuelSeriesSummary> = {}): DuelSeri
     nextGameAt: null,
     sideReady: [false, false],
     hasSide: [false, false],
+    firstChooser: null,
+    firstChoice: null,
     ...overrides,
   };
 }

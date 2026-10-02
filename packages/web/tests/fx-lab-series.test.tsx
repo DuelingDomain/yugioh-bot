@@ -31,6 +31,10 @@ describe("fx lab: Best of 3 scenarios", () => {
       "match-side-deck",
       "match-ready",
       "match-ready-opponent",
+      "match-choose-first-second",
+      "match-choose-second",
+      "match-opponent-choosing",
+      "match-opponent-chose",
       "match-won",
     ]);
     for (const id of ids) expect(findScenario(id)!.build().series).toBeDefined();
@@ -51,12 +55,39 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByRole("button", { name: "Ready for next game" })).toBeTruthy();
   });
 
-  it("shows the opponent ready after a loss, and sends the loser first", () => {
+  it("shows the opponent ready after a loss, and lets the loser choose first or second", () => {
     const { room, spec } = open("match-ready-opponent");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByText("Game 1 won by Imran · 0–1")).toBeTruthy();
-    expect(screen.getByText("You go first (the loser of game 1 goes first)")).toBeTruthy();
+    expect(screen.getByText("You choose to go first or second")).toBeTruthy();
     expect(screen.getByTestId("opponent-side-status").textContent).toBe("Opponent ready");
+    expect(screen.getByTestId("first-choice")).toBeTruthy();
+  });
+
+  it("shows the loser's choice with Go first selected by default", () => {
+    const { room, spec } = open("match-choose-first-second");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByRole("button", { name: "Go first" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Go second" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("shows a loser who chose second, and that the opponent goes first", () => {
+    const { room, spec } = open("match-choose-second");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByRole("button", { name: "Go second" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Imran goes first (you chose to go second)")).toBeTruthy();
+  });
+
+  it("tells the winner that the opponent is choosing, and then what they chose", () => {
+    const choosing = open("match-opponent-choosing");
+    const { unmount } = render(<SeriesLabScreen room={choosing.room} spec={choosing.spec} reduced sound={false} />);
+    expect(screen.getByTestId("opponent-first-status").textContent).toBe("Opponent is choosing to go first or second…");
+    expect(screen.queryByTestId("first-choice")).toBeNull();
+    unmount();
+    const chose = open("match-opponent-chose");
+    render(<SeriesLabScreen room={chose.room} spec={chose.spec} reduced sound={false} />);
+    expect(screen.getByTestId("opponent-first-status").textContent).toBe("Opponent chose to go second");
+    expect(screen.getByText("You go first (the opponent chose to go second)")).toBeTruthy();
   });
 
   it("opens the side deck screen", async () => {
