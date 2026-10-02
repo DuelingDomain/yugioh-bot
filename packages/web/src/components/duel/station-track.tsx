@@ -247,6 +247,7 @@ export function StationTrack({
       data-phase={STATIONS[current]?.code ?? "none"}
       data-step={step ?? undefined}
       data-reduced={reducedMotion ? "true" : "false"}
+      data-seats={seatStrip && seatStrip.length > 0 ? "true" : undefined}
     >
       <div className={styles.seat}>
         <span className={styles.lamp} aria-hidden="true" />

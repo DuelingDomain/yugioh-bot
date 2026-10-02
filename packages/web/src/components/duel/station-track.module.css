@@ -655,6 +655,23 @@ button.plate[data-next="true"]:hover {
   border-color: rgb(228 90 77 / 0.6);
 }
 
+/* ---------- table of 3 or 4: the seat strip needs room, and each seat's clock sits on its LP panel ---------- */
+
+.root[data-seats="true"] {
+  grid-template-columns: minmax(200px, 1fr) minmax(0, 40rem) minmax(340px, 1fr);
+}
+.root[data-seats="true"] .clockSlot span[data-active="false"] {
+  display: none;
+}
+.root[data-seats="true"] .chip {
+  flex: none;
+}
+.root[data-seats="true"] .primary {
+  padding: 0 12px 0 14px;
+  gap: 8px;
+  font-size: 15px;
+}
+
 /* ---------- phone / narrow: two rows ---------- */
 
 @media (max-width: 900px) {

@@ -127,6 +127,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     <div
       ref={rootRef}
       className={styles.board}
+      data-prompt-scope
       data-table-stage={layout.format}
       data-format={format}
       data-camera-mode={camera.mode}

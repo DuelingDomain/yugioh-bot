@@ -170,10 +170,8 @@ const states = {
       kind: "choice",
       title: `${NAMES[MIKA]} activated ${C.callOfTheHaunted.name}. Respond?`,
       context: { type: "chain", forced: false },
-      options: [
-        { id: "activate", label: `Activate ${C.solemn.name}`, card: C.solemn },
-        { id: "pass", label: "Pass" },
-      ],
+      cancelable: true,
+      options: [{ id: "activate", label: `Activate ${C.solemn.name}`, card: C.solemn }],
     }),
   }),
   "target-pick": make("target-pick", "Pick a target", {

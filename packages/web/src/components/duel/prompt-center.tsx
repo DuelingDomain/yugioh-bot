@@ -342,6 +342,14 @@ export function optionsOnBoard(prompt: DuelPrompt, hasZone: (key: string) => boo
   });
 }
 
+/**
+ * The box the prompt measures: the room's board is the layer's parent. A table stage puts the layer in a slot beside
+ * its canvas, so it marks the stage with `data-prompt-scope` and the zones are found there.
+ */
+function boardOf(layer: HTMLElement | null): HTMLElement | null {
+  return layer?.closest<HTMLElement>("[data-prompt-scope]") ?? layer?.parentElement ?? null;
+}
+
 function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
   return optionsOnBoard(prompt, (key) => scope.querySelector(`[data-zones~="${key}"]`) != null);
 }
@@ -1259,7 +1267,7 @@ export function PromptCenter(props: PromptCenterProps) {
 
   // Which way to answer a card pick: on the board, or in a centred grid.
   useLayoutEffect(() => {
-    const scope = layerRef.current?.parentElement;
+    const scope = boardOf(layerRef.current);
     if ((baseKind !== "select" && !boardToggle) || !prompt || !scope) {
       setOnBoard(null);
       return;
@@ -1272,7 +1280,7 @@ export function PromptCenter(props: PromptCenterProps) {
   // easy to see and hits no hand card or field row you can pick (see select-bar-place.ts).
   const placeBar = useCallback(() => {
     const layer = layerRef.current;
-    const board = layer?.parentElement;
+    const board = boardOf(layer ?? null);
     if (!layer || !board) return;
     const rectOf = (element: Element): BarRect => {
       const { left, right, top, bottom } = element.getBoundingClientRect();
@@ -1291,7 +1299,7 @@ export function PromptCenter(props: PromptCenterProps) {
   useLayoutEffect(() => {
     if (kind !== "select" || onBoard !== true) return;
     placeBar();
-    const board = layerRef.current?.parentElement;
+    const board = boardOf(layerRef.current);
     if (!board || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(placeBar);
     observer.observe(board);
