@@ -44,6 +44,7 @@
   --duel-cat-chain: var(--duel-chain-ink);
   --duel-cat-battle: #f0905a;
   --duel-cat-destroy: #ff8f9c;
+  --duel-cat-graveyard: #aba395;
   --duel-cat-material: #b9a3cf;
   --duel-cat-banish: #8fd3e2;
   --duel-cat-set: #c9b38a;
@@ -452,6 +453,7 @@
 .log li[data-cat="chain"] { --duel-cat: var(--duel-cat-chain); }
 .log li[data-cat="battle"] { --duel-cat: var(--duel-cat-battle); }
 .log li[data-cat="destroy"] { --duel-cat: var(--duel-cat-destroy); }
+.log li[data-cat="graveyard"] { --duel-cat: var(--duel-cat-graveyard); }
 .log li[data-cat="material"] { --duel-cat: var(--duel-cat-material); }
 .log li[data-cat="banish"] { --duel-cat: var(--duel-cat-banish); }
 .log li[data-cat="set"] { --duel-cat: var(--duel-cat-set); }

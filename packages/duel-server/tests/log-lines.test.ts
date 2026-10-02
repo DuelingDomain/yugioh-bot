@@ -64,11 +64,19 @@ describe("move log lines", () => {
   const field = at(0, OcgLocation.MZONE, 1);
   const grave = at(0, OcgLocation.GRAVE, 0);
 
-  it("says sent to the Graveyard, and marks lines from the field that may turn out to be destroys", () => {
+  it("keeps a field send distinct from the destruction text the engine rewrites it to", () => {
     expect(moveLogLines(move(1, field, grave), cards)).toEqual([{ text: "Stardust Dragon was sent to the Graveyard", audience: "all", leftField: true }]);
     expect(destroyedLogText(cards, 1)).toBe("Stardust Dragon was destroyed");
-    // A material or a cost from the hand or Deck can never be a destroy.
+  });
+
+  it("logs discards and hand materials as plain Graveyard sends without a destruction marker", () => {
+    // MOVE has no discard/material reason; the following summon identifies hand materials in the Text log.
     expect(moveLogLines(move(1, at(0, OcgLocation.HAND, 0), grave), cards)).toEqual([{ text: "Stardust Dragon was sent to the Graveyard", audience: "all" }]);
+    expect(seen([
+      ...moveLogLines(move(3, at(0, OcgLocation.HAND, 0), grave), cards),
+      ...summonLogLines(summon(OcgMessageType.SPSUMMONING, OcgPosition.FACEUP_ATTACK), cards, "ritual"),
+    ], null)).toEqual(["Pot of Greed was sent to the Graveyard", "Player 1 Ritual Summons Stardust Dragon"]);
+    // A material or a cost from the Deck also stays a plain send.
     expect(seen(moveLogLines(move(1, at(0, OcgLocation.DECK, 0, OcgPosition.FACEDOWN_DEFENSE), grave), cards), null)).toEqual(["Stardust Dragon was sent to the Graveyard"]);
   });
 

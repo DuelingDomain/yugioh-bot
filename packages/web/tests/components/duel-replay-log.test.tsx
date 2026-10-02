@@ -27,6 +27,7 @@ const LOG = [
   { id: 7, text: "Mirror Force was sent to the Graveyard" },
   { id: 8, text: "Decode Talker moved" },
   { id: 9, text: "Add 1 Spellcaster monster from your Deck to your hand" },
+  { id: 10, text: "Pot of Greed was discarded" },
 ];
 
 function lines() {
@@ -47,13 +48,16 @@ describe("replay Text log", () => {
       "Mirror Force was sent to the Graveyard",
       "Decode Talker moved",
       "Add 1 Spellcaster monster from your Deck to your hand",
+      "Pot of Greed was discarded",
     ]);
-    expect(items.map((li) => li.dataset.kind)).toEqual(["turn", "phase", "line", "line", "chain", "line", "line", "line", "line"]);
+    expect(items.map((li) => li.dataset.kind)).toEqual(["turn", "phase", "line", "line", "chain", "line", "line", "line", "line", "line"]);
     // The Synchro material is muted; the spell sent after resolving stays a Graveyard send.
-    expect(items.map((li) => li.dataset.cat ?? null)).toEqual([null, null, "material", "summon", "chain", "destroy", "destroy", "system", null]);
+    expect(items.map((li) => li.dataset.cat ?? null)).toEqual([null, null, "material", "summon", "chain", "destroy", "graveyard", "system", null, "graveyard"]);
     expect(items[3]!.dataset.summon).toBe("synchro");
     // Every coloured line carries its category icon, so colour is never the only cue.
     for (const li of items) expect(li.querySelector("svg") !== null).toBe(li.dataset.cat !== undefined);
+    expect(items.filter((li) => li.dataset.cat === "graveyard" && li.querySelector("svg[aria-hidden]"))).toHaveLength(2);
+    expect(items[6]!.querySelector("svg")!.innerHTML).not.toBe(items[5]!.querySelector("svg")!.innerHTML);
   });
 
   it("keeps the highlight on the lines new at this step, chain lines included", () => {

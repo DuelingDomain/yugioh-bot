@@ -33,7 +33,7 @@ const EXPECTED: Record<HistoryIconKind, LogCategory> = {
   direct: "battle",
   "lp-loss": "battle",
   destroy: "destroy",
-  grave: "destroy",
+  grave: "graveyard",
   banish: "banish",
   set: "set",
   draw: "hand",
@@ -53,6 +53,8 @@ describe("log categories: history icons", () => {
     // "material" has no icon of its own: it comes from the action label (categoryForEntry).
     expect(new Set([...Object.values(EXPECTED), "material"])).toEqual(new Set(LOG_CATEGORIES));
     for (const category of LOG_CATEGORIES) expect(LOG_CATEGORY_LABEL[category]).toBeTruthy();
+    expect(LOG_CATEGORY_LABEL.destroy).toBe("Destroyed");
+    expect(LOG_CATEGORY_LABEL.graveyard).toBe("Sent to Graveyard");
   });
 
   it("falls back to system for an icon kind it does not know yet", () => {
@@ -123,9 +125,22 @@ describe("log categories: built entries", () => {
     ]);
     // A plain send stays a Graveyard send, and other entries keep their icon's category.
     const [sent] = entries([{ id: 1, kind: "move", seat: 1, reason: "send", card: info(3, "Sent"), zone: { controller: 1, location: 0x10, sequence: 0 }, text: "" }]);
-    expect(categoryForEntry(sent!)).toBe("destroy");
+    expect(categoryForEntry(sent!)).toBe("graveyard");
     expect(categoryForEntry({ icon: "banish", verb: "Used as material" })).toBe("material");
     expect(categoryForEntry({ icon: "synchro", verb: "Synchro Summon" })).toBe("summon");
+  });
+
+  it("keeps sends and discards separate from destructions", () => {
+    const list = entries([
+      { id: 1, kind: "move", seat: 1, reason: "send", card: info(1, "Sent"), zone: { controller: 1, location: 0x10, sequence: 0 }, text: "" },
+      { id: 2, kind: "move", seat: 1, reason: "discard", card: info(2, "Discarded"), zone: { controller: 1, location: 0x10, sequence: 1 }, text: "" },
+      { id: 3, kind: "destroy", seat: 1, card: info(3, "Destroyed"), zone: { controller: 1, location: 0x04, sequence: 0 }, text: "" },
+    ]).reverse();
+    expect(list.map((entry) => [entry.verb, categoryForEntry(entry)])).toEqual([
+      ["Sent to Graveyard", "graveyard"],
+      ["Discard", "graveyard"],
+      ["Destroyed", "destroy"],
+    ]);
   });
 });
 
@@ -144,7 +159,8 @@ describe("log categories: text log lines", () => {
     ["Player 2 Ritual Summons Paladin of White Dragon", "summon"],
     ["Player 1 Pendulum Summons Odd-Eyes Pendulum Dragon", "summon"],
     ["Stardust Dragon was destroyed", "destroy"],
-    ["Raigeki was sent to the Graveyard", "destroy"],
+    ["Raigeki was sent to the Graveyard", "graveyard"],
+    ["Pot of Greed was discarded", "graveyard"],
     ["Decode Talker was banished", "banish"],
     ["Pot of Greed was added to Player 1's hand", "hand"],
     ["Player 2 added a card to their hand", "hand"],
@@ -193,6 +209,7 @@ describe("log categories: text log lines", () => {
 
   it("does not let a card name pose as a template", () => {
     expect(categoryForLogText("Stardust Dragon was destroyed by Mirror Force")).toBeNull();
+    expect(categoryForLogText("Pot of Greed was discarded by Card Destruction")).toBeNull();
     expect(categoryForLogText("Player 1 Summons Destroyer")).toBeNull();
   });
 
@@ -221,7 +238,7 @@ describe("log categories: a whole Text log", () => {
       "Junk Synchron was sent to the Graveyard",
       "Cyber Dragon was sent to the Graveyard",
       "Player 1 Synchro Summons Stardust Dragon",
-    ])).toEqual(["destroy", "chain", "material", "material", "summon"]);
+    ])).toEqual(["graveyard", "chain", "material", "material", "summon"]);
     for (const method of ["Fusion", "Link", "Ritual"]) {
       expect(categoriesForLog(["A was sent to the Graveyard", `Player 1 ${method} Summons B`])[0]).toBe("material");
     }
@@ -233,15 +250,23 @@ describe("log categories: a whole Text log", () => {
       "Cost was sent to the Graveyard",
       "Monster Reborn is activating",
       "Player 1 Special Summons Stardust Dragon",
-    ])).toEqual(["destroy", "chain", "summon"]);
+    ])).toEqual(["graveyard", "chain", "summon"]);
     for (const verb of ["Normal", "Special", "Flip", "Xyz", "Pendulum"]) {
-      expect(categoriesForLog(["A was sent to the Graveyard", `Player 1 ${verb} Summons B`])[0]).toBe("destroy");
+      expect(categoriesForLog(["A was sent to the Graveyard", `Player 1 ${verb} Summons B`])[0]).toBe("graveyard");
     }
     // A destroyed card is never material, and a send below the summon is not either.
     expect(categoriesForLog([
       "A was destroyed",
       "Player 1 Synchro Summons B",
       "C was sent to the Graveyard",
-    ])).toEqual(["destroy", "summon", "destroy"]);
+    ])).toEqual(["destroy", "summon", "graveyard"]);
+  });
+
+  it("never treats a discard as material even immediately before a material summon", () => {
+    expect(categoriesForLog([
+      "Cost was discarded",
+      "Tuner was sent to the Graveyard",
+      "Player 1 Synchro Summons Stardust Dragon",
+    ])).toEqual(["graveyard", "material", "summon"]);
   });
 });

@@ -1,11 +1,12 @@
 // Colour categories for the duel log. Pure, no React, no DOM.
 //
-// Both log surfaces colour an entry by what kind of action it was, so the log can be scanned at a glance:
+// Live Text, history and replay logs colour an entry by what kind of action it was, so the log can be scanned at a glance:
 //   summon    Normal, Tribute, Flip, Special and every Extra Deck summon. The method (Fusion, Synchro, Xyz, Link,
 //             Ritual, Pendulum, or "monster" for the rest) picks the badge fill and the label colour.
 //   chain     activations and chain links (gold, the chain colour everywhere in the duel).
 //   battle    attacks, direct attacks, damage and LP paid.
-//   destroy   destroyed, sent to the Graveyard, discarded.
+//   destroy   destroyed, including field departures the engine rewrites to "was destroyed".
+//   graveyard sent to the Graveyard or discarded, except for Tributes and materials below.
 //   material  Tributed or used as material: muted, so a combo turn does not read as a board wipe. In the Text log,
 //             the Graveyard sends directly above a summon that takes materials (categoriesForLog).
 //   banish    banished.
@@ -18,18 +19,19 @@
 // the viewer was sent), never from the card, so colour can never say more about a hidden card than the text does.
 import type { HistoryEntry, HistoryIconKind } from "./history-entries";
 
-export type LogCategory = "summon" | "chain" | "battle" | "destroy" | "material" | "banish" | "set" | "hand" | "system";
+export type LogCategory = "summon" | "chain" | "battle" | "destroy" | "graveyard" | "material" | "banish" | "set" | "hand" | "system";
 
 /** Which card frame a summon echoes. "monster" covers Normal, Tribute, Flip and plain Special Summons. */
 export type SummonMethod = "monster" | "fusion" | "synchro" | "xyz" | "link" | "ritual" | "pendulum";
 
-export const LOG_CATEGORIES: readonly LogCategory[] = ["summon", "chain", "battle", "destroy", "material", "banish", "set", "hand", "system"];
+export const LOG_CATEGORIES: readonly LogCategory[] = ["summon", "chain", "battle", "destroy", "graveyard", "material", "banish", "set", "hand", "system"];
 
 export const LOG_CATEGORY_LABEL: Record<LogCategory, string> = {
   summon: "Summon",
   chain: "Activation and chain",
   battle: "Battle and damage",
-  destroy: "Destroyed or sent to the Graveyard",
+  destroy: "Destroyed",
+  graveyard: "Sent to Graveyard",
   material: "Tributed or used as material",
   banish: "Banished",
   set: "Set face-down",
@@ -64,8 +66,9 @@ export function categoryForIcon(icon: HistoryIconKind): LogCategory {
     case "lp-loss":
       return "battle";
     case "destroy":
-    case "grave":
       return "destroy";
+    case "grave":
+      return "graveyard";
     case "banish":
       return "banish";
     case "set":
@@ -137,7 +140,8 @@ const TEXT_RULES: ReadonlyArray<readonly [RegExp, LogCategory]> = [
   [/^Player \d+ takes \d+ damage$/, "battle"],
   [/^Player \d+ pays \d+ LP$/, "battle"],
   [/ was destroyed$/, "destroy"],
-  [/ was sent to the Graveyard$/, "destroy"],
+  [/ was sent to the Graveyard$/, "graveyard"],
+  [/ was discarded$/, "graveyard"],
   [/ was banished$/, "banish"],
   [/^Player \d+ gains \d+ LP$/, "system"],
   // Older engine text: "<card> moved" was logged for both the Graveyard and a face-up banish, so it is neutral.

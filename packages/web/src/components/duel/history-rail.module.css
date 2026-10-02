@@ -32,6 +32,7 @@
   --h-cat-chain: var(--h-chain-ink);
   --h-cat-battle: #f0905a;
   --h-cat-destroy: #ff8f9c;
+  --h-cat-graveyard: #aba395;
   --h-cat-material: #b9a3cf;
   --h-cat-banish: #8fd3e2;
   --h-cat-set: #c9b38a;
@@ -321,6 +322,7 @@ button.thumb:focus-visible { outline: 2px solid var(--h-pen); outline-offset: 2p
 .row[data-cat="chain"] { --h-cat: var(--h-cat-chain); }
 .row[data-cat="battle"] { --h-cat: var(--h-cat-battle); }
 .row[data-cat="destroy"] { --h-cat: var(--h-cat-destroy); }
+.row[data-cat="graveyard"] { --h-cat: var(--h-cat-graveyard); }
 .row[data-cat="material"] { --h-cat: var(--h-cat-material); }
 .row[data-cat="banish"] { --h-cat: var(--h-cat-banish); }
 .row[data-cat="set"] { --h-cat: var(--h-cat-set); }
