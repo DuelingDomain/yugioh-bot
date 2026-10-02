@@ -1,0 +1,17 @@
+[
+  {
+    "route": "A",
+    "exit": 0,
+    "tests": [
+      "tests/scenarios/multiplayer/controller-turn-review.test.ts",
+      "tests/scenarios/multiplayer/law-normal-empty-hands.test.ts"
+    ]
+  },
+  {
+    "route": "B",
+    "exit": 0,
+    "tests": [
+      "tests/scenarios/multiplayer/law-normal-empty-hands.test.ts"
+    ]
+  }
+]

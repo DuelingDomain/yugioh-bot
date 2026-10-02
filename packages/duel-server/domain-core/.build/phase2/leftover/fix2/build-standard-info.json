@@ -1,0 +1,9 @@
+{
+  "ygoproCore": "efc21aa433b88cd35b7c37db4072a35c58d9d435",
+  "ocgcoreWasm": "9f36452f2a2464f057f7fd6e2273aa5ab589401e",
+  "lua": "75ea9ccbea7c4886f30da147fb67b693b2624c26",
+  "emscripten": "4.0.9",
+  "patches": 70,
+  "luaFixedSeed": 0,
+  "head": "1a2a86846c51737fbba0a1857e71cead80d993eb"
+}
