@@ -61,7 +61,8 @@ function reset(): Scenario {
     title: "FFA3: Monster Rebirth is offered after battle and cannot activate in the next turn",
     steps: [
       attack(DRAGON, { card: ELF, owner: "p1" }, "p0"), endTurn("p0"),
-      expectOffered("activate", CARD, "p2"), pass("p2"), pass("p2"), pass("p2"), pass("p2"),
+      expectOffered("activate", CARD, "p2"), pass("p2"), pass("p2"), pass("p2"),
+      expectTurn("p0", 1), pass("p2"), expectTurn("p1", 2),
       expectPrompt({ by: "p1", context: "action" }),
       everySeat("ffa3", {
         p0: { hand: [], deckCount: 20, monsters: [DRAGON], grave: ["Battle Ox"] },
