@@ -57,10 +57,15 @@ export async function useCard(page: Page, card: Locator, action: RegExp | string
 }
 
 /**
- * The card menu is built from the open question. Between two answers the page says "Waiting for a response."
- * and a click on a card would open no menu. Wait until that text is gone.
+ * A live table must own an answerable prompt before a card can open its action menu. The header can
+ * advance while its snapshot is still catching up. The two-seat field uses its existing waiting copy.
  */
 export async function expectReadyToAct(page: Page): Promise<void> {
+  const table = page.locator("[data-table-shell]");
+  if (await table.count()) {
+    await expect(table).toHaveAttribute("data-can-act", "true");
+    return;
+  }
   await expect(page.getByText("Waiting for a response.")).toHaveCount(0);
 }
 
@@ -132,7 +137,10 @@ export async function endTurn(page: Page, nextTurn: number): Promise<void> {
 export async function attackWithFirstMonster(page: Page): Promise<void> {
   await page.getByRole("button", { name: /^To Battle/ }).click();
   await expect(page.getByText(/Battle Phase/).first()).toBeVisible();
-  await page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"] button').first().click();
+  const ownField = page.locator('[data-table-stage] [data-seat-field][data-side="you"]');
+  const monsters = await ownField.count() ? ownField.locator('[data-kind="mz"][data-occupied="true"] button')
+    : page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"] button');
+  await monsters.first().click();
   await page.getByRole("menu").getByRole("menuitem", { name: /Attack/ }).first().click();
 }
 
@@ -174,15 +182,22 @@ export async function startTable(
   return { seats: humans, slug, table };
 }
 
-/** The opponent boards a player sees at a multi-seat table (`section[data-relation="opponent"]`). */
-export const opponentBoards = (page: Page): Locator => page.locator('[data-testid="multi-seat-stage"] section[data-relation="opponent"]');
-
 /**
- * Each seat sees every other seat, and no seat shows the viewer's own board as an opponent. The turn order strip lists
- * `count` opponents. The focused opponent fills the top field, so the rail holds one board fewer.
+ * The live table shows one LP panel per seat and lists every other seat as an opponent in turn order.
  */
 export async function expectOpponentBoards(page: Page, count: number): Promise<void> {
-  await expect(page.getByTestId("multi-seat-stage")).toBeVisible();
+  await expect(page.locator("[data-table-stage]")).toBeVisible();
+  await expect(page.locator("[data-table-stage] [data-lp-seat]")).toHaveCount(count + 1);
   await expect(page.getByTestId("seat-strip").locator('[data-relation="opponent"]')).toHaveCount(count);
-  await expect(opponentBoards(page)).toHaveCount(count - 1);
+  await expect.poll(async () => {
+    const shell = await page.locator("[data-table-shell]").boundingBox();
+    const viewport = page.viewportSize();
+    return Boolean(shell && viewport && shell.x >= 0 && shell.y >= 0 &&
+      shell.x + shell.width <= viewport.width + 1 && shell.y + shell.height <= viewport.height + 1);
+  }, { message: "The live table and station track must fit inside the viewport" }).toBe(true);
+  await expect.poll(async () => {
+    const board = await page.locator("[data-table-stage]").boundingBox();
+    const card = await page.locator("[data-table-stage] [data-hand-seat][data-side='you'] button").first().boundingBox();
+    return Boolean(board && card && card.y >= board.y && card.y + card.height <= board.y + board.height + 1);
+  }, { message: "The player's hand card must fit inside the clickable stage" }).toBe(true);
 }

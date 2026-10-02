@@ -12,7 +12,7 @@ const KEYS = ["p1", "p2", "p3", "p4"] as const;
 const decks = (first: string[]) => Array.from({ length: 4 }, (_, seat) => ({ main: withFiller(seat === 0 ? first : [FILLER], 14) }));
 
 const openSeats = (player: (key: (typeof KEYS)[number]) => Promise<Seat>) => Promise.all(KEYS.map((key) => player(key)));
-const ownMonsters = (page: Page) => page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"]');
+const ownMonsters = (page: Page) => page.locator('[data-seat-field][data-side="you"] [data-kind="mz"][data-occupied="true"]');
 /** The Life Points of a seat. A rail board, the focused top field and the own side all carry `data-lp-seat`. */
 const lpOf = (page: Page, seat: number) => page.locator(`[data-lp-seat="${seat}"]`).first();
 /** The phase bar. The Battle plate is a button only while the engine offers the Battle Phase. */
@@ -38,7 +38,10 @@ test.describe("4-player FFA", () => {
     const seats = await openSeats(player);
     await startTable(seats, "ffa4 start", decks([FILLER]));
     for (const seat of seats) {
-      await expectOpponentBoards(seat.page, 3);
+      for (const size of [{ width: 1440, height: 900 }, { width: 1280, height: 720 }]) {
+        await seat.page.setViewportSize(size);
+        await expectOpponentBoards(seat.page, 3);
+      }
       await expect(turnLabel(seat.page)).toHaveText("Turn 1");
       // The turn order strip lists every seat, and seat 0 is to play.
       await expect(seat.page.getByTestId("seat-strip").getByRole("listitem")).toHaveCount(4);
@@ -91,6 +94,12 @@ test.describe("4-player FFA", () => {
       await endTurn(seat.page, index + 3);
     }
     await expect(turnLabel(alice.page)).toHaveText("Turn 5");
+    const stage = alice.page.locator("[data-table-stage]");
+    const height = (await stage.boundingBox())!.height;
+    await handCard(alice.page, "Raigeki").hover();
+    await expect.poll(async () => Math.abs((await stage.boundingBox())!.height - height), {
+      message: "Inspecting a different card must keep the table stage height stable",
+    }).toBeLessThanOrEqual(1);
     await useCard(alice.page, handCard(alice.page, "Raigeki"), "Activate");
     await pickLegalZone(alice.page, "st");
     for (const seat of others) {
@@ -127,7 +136,8 @@ test.describe("4-player FFA", () => {
     await expect(match).toHaveCount(1);
     await match.click();
     await expect(alice.page.getByRole("button", { name: /^E2E Carol (GY|Graveyard) \(5\)$/ })).toBeVisible();
-    await expect(alice.page.getByRole("button", { name: /^E2E Carol Hand \(0\)$/ })).toBeVisible();
+    await expect(alice.page.locator('[data-hand-seat="2"]')).toHaveAttribute("aria-label", "E2E Carol hand, 0 cards");
+    await expect(alice.page.locator('[data-hand-seat="2"] [data-card-art]')).toHaveCount(0);
     // The other opponents keep their cards.
     for (const name of ["E2E Bob", "E2E Dave"]) {
       await expect(alice.page.getByRole("button", { name: new RegExp(`^${name} (GY|Graveyard) \\(0\\)$`) })).toBeVisible();
@@ -150,10 +160,12 @@ test.describe("4-player FFA", () => {
     // and the own seat is not. (The engine labels the rows "Player N", N = seat + 1.)
     await expect(turnLabel(alice.page)).toHaveText("Turn 5");
     await attackWithFirstMonster(alice.page);
-    const directly = (n: number) => alice.page.getByRole("button", { name: new RegExp(`Attack Player ${n} directly`) });
-    for (const n of [2, 3, 4]) await expect(directly(n)).toBeVisible();
-    await expect(directly(1)).toHaveCount(0);
-    await directly(3).click();
+    const directly = (seat: number) => alice.page.locator(`[data-opponent-bar='direct'] [data-rival-seat='${seat}']`);
+    for (const seat of [1, 2, 3]) await expect(directly(seat)).toBeVisible();
+    await expect(directly(0)).toHaveCount(0);
+    await directly(2).click();
+    await expect(directly(2)).toHaveAttribute("data-locked", "true");
+    await alice.page.getByTestId("aim-confirm").click();
 
     // The hit lands on seat 2 only (2000 damage). All four pages agree.
     for (const seat of seats) {
@@ -195,9 +207,9 @@ test.describe("4-player FFA", () => {
     for (const seat of [bob, carol, dave]) {
       await expect(result(seat.page)).toHaveAttribute("data-outcome", "lose");
     }
-    // Every screen lists the 4 final Life Points.
+    // Every screen lists the 4 final placings and Life Points.
     for (const seat of seats) {
-      await expect(result(seat.page).getByRole("list", { name: "Final Life Points" }).getByRole("listitem")).toHaveCount(4);
+      await expect(result(seat.page).getByRole("list", { name: "Final standings" }).getByRole("listitem")).toHaveCount(4);
     }
   });
 });
