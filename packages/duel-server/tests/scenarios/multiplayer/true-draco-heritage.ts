@@ -1,13 +1,13 @@
 // True Draco Heritage (49430782): "(Ignition, 1/turn) draw cards equal to the number of card types (Monster, Spell, Trap) among the True Draco and True King
 // cards sent from the field to the Graveyard this turn". The global check keeps ONE flag per new card type: it reads the type bits of the flag of the literal
 // seat 0 (Duel.GetFlagEffectLabel(0,id)) and writes the new bits (Duel.SetFlagEffectLabel(0,id,bits)), and the holder draws Duel.GetFlagEffect(0,id) cards.
-// The overlay wrapper writes the flag for every living duelist, so the label of seat 0 is the memory of the check. When p0 has given up there is no flag
-// of seat 0 and every sent monster counted as a new type: the holder drew one card for each monster instead of one for the type "Monster".
+// The overlay keeps the memory at the first key visited by MPEachSeat and writes the label to every key. With p0 at LP 0, a literal-seat-0
+// label read used to return nil for every monster: the holder drew one card per monster instead of one for the type "Monster".
 //
 // The holder (a seat of the turn) destroys the 2 monsters of the opponents (Ignis Heat and Majesty Maiden are both True Draco monsters) with Raigeki and
 // draws with the Heritage: ONE card, because both are Monster cards.
 
-import { activate, defineScenario, expectEliminated, pickOpponent, surrender, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePhase, defineScenario, endTurn, expectEliminated, pickOpponent, surrender, yes, type Scenario, type Step } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -55,3 +55,31 @@ export const TRUE_DRACO_SCENARIOS: Scenario[] = [
   heritage("ffa4", "p3", false), heritage("ffa4", "p1", true), heritage("ffa4", "p3", true),
   heritage("tag", "p1", false), heritage("tag", "p3", false), heritage("tag", "p0", false),
 ];
+
+function heritageAtLpZero(format: "ffa3" | "ffa4"): Scenario {
+  return defineScenario({
+    id: `true-draco-heritage-${format}-p0-lp-zero-two-monsters-draw-one-card`,
+    title: `${label(format)}: p1 defeats p0 at LP 0, destroys two True Draco monsters and draws one card`,
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] the global flag memory skips a seat at LP 0`,
+    rules: ["R-COMMON-SEAT-STATE", "R-FFA-ELIMINATION"],
+    tags: ["multiplayer", "global-effect", "flag", format, "card:49430782"],
+    setup: baseSetup(format, {
+      p0: { lp: 100 },
+      p1: { monsters: ["Mystical Elf"], hand: [RAIGEKI], spells: [HERITAGE] },
+      p2: { monsters: [IGNIS, MAIDEN] },
+      ...(format === "ffa4" ? { p3: { monsters: ["Blue-Eyes White Dragon"] } } : {}),
+    }),
+    steps: [
+      endTurn("p0"), attack("Mystical Elf", "direct", "p1"), yes("p1"), changePhase("main2", "p1"), expectEliminated("p0"),
+      activate(RAIGEKI, "p1"), activate({ card: HERITAGE, from: "szone" }, "p1"),
+      ...(format === "ffa4" ? [pickOpponent("p2", "p1")] : []),
+      everySeat(format, {
+        p0: { lp: 0, hand: [] },
+        p1: { hand: { count: 2 }, monsters: ["Mystical Elf"], spells: [HERITAGE], grave: [RAIGEKI] },
+        p2: { hand: [], grave: [IGNIS, MAIDEN] },
+        ...(format === "ffa4" ? { p3: { hand: [], grave: ["Blue-Eyes White Dragon"] } } : {}),
+      }),
+    ],
+  });
+}
+TRUE_DRACO_SCENARIOS.push(heritageAtLpZero("ffa3"), heritageAtLpZero("ffa4"));

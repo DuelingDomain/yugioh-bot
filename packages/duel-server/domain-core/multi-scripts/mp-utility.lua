@@ -291,3 +291,44 @@ function aux.MPAttackedAtMe(fn)
 		return not other
 	end
 end
+
+-- A global flag shared by every seat: literal 0 is one memory slot, not necessarily seat 0.
+-- Read it from the first key MPEachSeat visits. Register flags and write labels once per key.
+-- These replacements last only for this operation; handler effects keep their normal player reads.
+function aux.MPGlobalFlagOperation(op)
+	if Duel.MPMode()==0 then return op end
+	return function(...)
+		local seats,seen={},{}
+		aux.MPEachSeat(function(_,seat)
+			local key=aux.MPKeyOfSeat(seat)
+			if not seen[key] then seen[key]=true seats[#seats+1]=seat end
+		end)
+		local first=seats[1] or 0
+		local rf,gf,hf,gl,sl=Duel.RegisterFlagEffect,Duel.GetFlagEffect,Duel.HasFlagEffect,Duel.GetFlagEffectLabel,Duel.SetFlagEffectLabel
+		Duel.GetFlagEffect=function(pl,...) return gf(pl==0 and first or pl,...) end
+		Duel.HasFlagEffect=function(pl,...) return hf(pl==0 and first or pl,...) end
+		Duel.GetFlagEffectLabel=function(pl,...) return gl(pl==0 and first or pl,...) end
+		Duel.RegisterFlagEffect=function(pl,...)
+			if pl~=0 then return rf(pl,...) end
+			local value
+			for _,seat in ipairs(seats) do
+				local flag=rf(seat,...)
+				value=value or flag
+			end
+			return value
+		end
+		Duel.SetFlagEffectLabel=function(pl,...)
+			if pl~=0 then return sl(pl,...) end
+			local value=false
+			for _,seat in ipairs(seats) do
+				local changed=sl(seat,...)
+				value=changed or value
+			end
+			return value
+		end
+		local result=table.pack(pcall(op,...))
+		Duel.RegisterFlagEffect,Duel.GetFlagEffect,Duel.HasFlagEffect,Duel.GetFlagEffectLabel,Duel.SetFlagEffectLabel=rf,gf,hf,gl,sl
+		if not result[1] then error(result[2],0) end
+		return table.unpack(result,2,result.n)
+	end
+end
