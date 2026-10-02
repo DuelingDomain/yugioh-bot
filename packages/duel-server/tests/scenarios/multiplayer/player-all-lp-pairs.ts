@@ -135,7 +135,8 @@ export function lpPairProofs(code: number): Scenario[] {
   return scenarios;
 }
 
-/** The first Draw Phase is skipped so the card proof is independent of the host draw flag. */
+// The opening-draw skip is intentional: keep the card fixture hand and Deck counts fixed.
+// rule-proof-ffa-order.test.ts checks the first draw without this skip in the default test:engine gate.
 export async function runLpPairScenario(scenario: Scenario, prepare?: (script: string) => string): Promise<void> {
   const compiled = compileBoard(scenario.setup);
   if (prepare) compiled.options.startupScripts![0].content = prepare(compiled.options.startupScripts![0].content);
