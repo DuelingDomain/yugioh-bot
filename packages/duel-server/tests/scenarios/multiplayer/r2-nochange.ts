@@ -5,7 +5,7 @@
 
 import {
   activate, attack, auto, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, no,
-  expectNoPrompt, normalSummon, pickOpponent, setCard, select, finish, specialSummon, yes, zone,
+  expectNoPrompt, changePosition, normalSummon, pass, pickOpponent, setCard, select, finish, specialSummon, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -71,6 +71,19 @@ const SKYBLASTER = "Phantom Skyblaster";
 const TRIAL = "Trial and Tribulation";
 const SKULL = "Summoned Skull";
 const GAIA = "Gaia The Fierce Knight";
+const PINNY = "Melffy Pinny";
+const SAMNITE = "Gladiator Beast Samnite";
+const CED = "Compulsory Evacuation Device";
+const DOOMED = "Tribute to The Doomed";
+const CROSS = "Final Cross";
+const SCRAP = "Scrap Archfiend";
+const RITUAL = "Numeron Chaos Ritual";
+const BUG = "Man-Eater Bug";
+const SUNYA = "Number C1: Numeron Chaos Gate Sunya";
+const NETWORK = "Numeron Network";
+const UTOPIA = "Number 39: Utopia";
+const NUMERONIUS = "Number C1000: Numerounius";
+const UNIFIED = "Unified Front";
 const CARNOT = "Carnot the Eternal Machine";
 const SPIDER = "Link Spider";
 const YOWIE = "Yowie";
@@ -318,6 +331,134 @@ const trial = (format: "ffa3" | "tag", tributes: 1 | 2): Scenario => {
     { [holder]: { monsters: [big], grave: tributes === 1 ? [TRIAL, ELF] : [TRIAL], hand: tributes === 1 ? [ELF, ELF] : [ELF, ELF, ELF] } });
 };
 
+/**
+ * "Own action first" probes: the holder starts with the card NOT offered (its flag is 0), makes the action that the global check counts for the holder, and
+ * then the card is offered and resolves. Melffy Pinny 34800281 (a face-up Beast of the holder returned to the hand: flag for the previous controller; Compulsory
+ * Evacuation Device on the own Gladiator Beast Samnite) and Final Cross 35756798 (a Synchro Monster of the holder sent to the Graveyard: flag for its controller;
+ * Tribute to the Doomed on one Scrap Archfiend; the second Scrap Archfiend gets the extra attack).
+ */
+const ownAction = (format: "ffa3" | "tag", kind: "pinny" | "cross"): Scenario => {
+  const tag = format === "tag";
+  // Pinny: p0 in its first turn (the Set Trap of the holder would open a chain window in the turns before). Final Cross needs the Battle Phase, which a seat has only after its first turn: p1 in turn 5 (FFA3) or p3 of team 1 in turn 4 (Tag).
+  const holder: Seat = kind === "pinny" ? "p0" : tag ? "p3" : "p1";
+  const first: Step[] = kind === "pinny" ? [] : tag ? turns(["p0", "p1", "p2"]) : turns(["p0", "p1", "p2", "p0"]);
+  const filler = { deck: [ELF, ELF, ELF] };
+  const setup: Record<string, unknown> = { p0: filler, p1: filler, p2: filler };
+  if (tag) setup.p3 = filler;
+  if (kind === "pinny") {
+    setup[holder] = { hand: [PINNY], monsters: [SAMNITE], spells: [{ card: CED, pos: "set" }], deck: [ELF, ELF, ELF] };
+    return probe(format, `melffy-pinny-after-a-beast-bounce-of-${holder}`, 34800281,
+      `${tag ? "Tag" : "FFA3"}: ${holder} controls a Beast and holds Melffy Pinny (not offered: flag 0); Compulsory Evacuation Device returns the Beast (flag kept for ${tag ? "team 1" : holder}), then Pinny is offered to ${holder} and is Special Summoned`,
+      setup,
+      [...first, expectNotOffered("activate", PINNY, holder), activate(CED, holder), expectOffered("activate", PINNY, holder), activate(PINNY, holder), auto(holder)],
+      { [holder]: { monsters: [PINNY], hand: [SAMNITE], grave: [CED] } });
+  }
+  setup[holder] = { hand: [CROSS, DOOMED, ELF], monsters: [SCRAP, SCRAP], deck: [ELF, ELF, ELF] };
+  return probe(format, `final-cross-after-a-synchro-to-grave-of-${holder}`, 35756798,
+    `${tag ? "Tag" : "FFA3"}: ${holder} controls 2 Synchro Monsters and holds Final Cross (not offered: flag 0); Tribute to the Doomed destroys a Synchro of the holder (flag kept for ${tag ? "team 1" : holder}), then Final Cross is offered to ${holder} and gives the other Synchro a second attack`,
+    setup,
+    [...first, expectNotOffered("activate", CROSS, holder), activate(DOOMED, holder), select(ELF), select({ card: SCRAP, nth: 0 }), expectOffered("activate", CROSS, holder), activate(CROSS, holder), auto(holder)],
+    { [holder]: { monsters: [SCRAP], hand: tag ? [ELF] : [ELF, ELF], grave: [SCRAP, DOOMED, ELF, CROSS] } });
+};
+
+/**
+ * Numeron Chaos Ritual 41850466: a global check keeps a flag for the previous controller of a face-up Number C1: Numeron Chaos Gate Sunya that a MONSTER effect
+ * destroyed; the Spell needs Duel.GetFlagEffect(tp,id)>0. The holder (Network and 4 Numbers in the Graveyard, Numeron C1000 in the Extra Deck) flips Man-Eater Bug,
+ * which destroys the own Sunya: the Spell is not offered before, is offered after, and Special Summons Number C1000 with the 5 targets as Xyz Material.
+ */
+const numeron = (format: "ffa3" | "tag"): Scenario => {
+  const { tag, holder, first } = twoTurns(format);
+  const filler = { deck: [ELF, ELF, ELF] };
+  const setup: Record<string, unknown> = { p0: filler, p1: filler, p2: filler };
+  if (tag) setup.p3 = filler;
+  setup[holder] = { hand: [RITUAL], monsters: [{ card: BUG, pos: "set" }, SUNYA], grave: [NETWORK, UTOPIA, UTOPIA, UTOPIA, UTOPIA], extra: [NUMERONIUS], deck: [ELF, ELF, ELF] };
+  return probe(format, `numeron-chaos-ritual-after-sunya-destroyed-by-a-monster-of-${holder}`, 41850466,
+    `${tag ? "Tag" : "FFA3"}: ${holder} holds Numeron Chaos Ritual (not offered: flag 0); Man-Eater Bug flips and destroys the own Number C1: Numeron Chaos Gate Sunya (flag kept for ${tag ? "team 1" : holder}), then the Spell is offered to ${holder} and Special Summons Number C1000: Numerounius`,
+    setup,
+    [...first, expectNotOffered("activate", RITUAL, holder), changePosition({ card: BUG }, holder), select(SUNYA), expectOffered("activate", RITUAL, holder), activate(RITUAL, holder), auto(holder), auto(holder), auto(holder), ...(tag ? [pickOpponent("p0", holder)] : [])],
+    { [holder]: { monsters: [BUG, NUMERONIUS], hand: [ELF], grave: [UTOPIA, RITUAL] } });
+};
+
+const unified = (format: "ffa3" | "tag"): Scenario => {
+  const tag = format === "tag";
+  const UFSET = { card: UNIFIED, pos: "set" };
+  const setup: Record<string, unknown> = { p0: { monsters: [ELF, ELF], spells: [UFSET], hand: [DM], deck: [ELF, ELF, ELF] }, p1: { monsters: [DM], spells: [UFSET], hand: [ELF], deck: [ELF, ELF, ELF] }, p2: { deck: [ELF, ELF] } };
+  if (tag) setup.p3 = { deck: [ELF, ELF] };
+  // Set traps open a chain window for their owner at every phase change, in the turn of every seat, so the passes are part of the line.
+  const ffa3Steps: Step[] = [
+    endTurn("p0"), pass("p1"), pass("p0"), pass("p1"), pass("p1"), pass("p0"), pass("p1"), pass("p0"), pass("p1"), pass("p0"), endTurn("p1"),
+    pass("p0"), pass("p1"), pass("p0"), pass("p0"), pass("p1"), pass("p0"), pass("p1"), pass("p0"), pass("p1"), endTurn("p2"), pass("p0"), pass("p1"),
+    pass("p0"), pass("p1"), pass("p0"), pass("p1"), pass("p0"), pass("p1"), pass("p0"), pass("p1"), changePhase("battle", "p0"), pass("p1"),
+    expectOffered("activate", UNIFIED, "p0"), pass("p0"), pass("p1"), attack({ card: ELF, nth: 0 }, "direct", "p0"), yes("p0"),
+    expectOffered("activate", UNIFIED, "p1"), pass("p1"), pass("p1"), pass("p1"), pass("p1"), expectNotOffered("activate", UNIFIED, "p0"),
+  ];
+  const tagSteps: Step[] = [
+    endTurn("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    endTurn("p1"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    endTurn("p2"),
+    pass("p1"),
+    pass("p0"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    endTurn("p3"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    pass("p0"),
+    pass("p1"),
+    changePhase("battle", "p0"),
+    pass("p1"),
+    expectOffered("activate", UNIFIED, "p0"),
+    pass("p0"),
+    pass("p1"),
+    attack({ card: ELF, nth: 0 }, "direct", "p0"),
+    yes("p0"),
+    expectOffered("activate", UNIFIED, "p1"),
+    pass("p1"),
+    pass("p1"),
+    pass("p1"),
+    pass("p1"),
+    expectNotOffered("activate", UNIFIED, "p0"),
+  ];
+  const steps = tag ? tagSteps : ffa3Steps;
+  const hit: Seat = tag ? "p1" : "p2";
+  const spec: Partial<Record<Seat, DuelistExpect>> = { p0: { monsters: [ELF, ELF], spells: [UNIFIED] }, p1: { monsters: [DM], spells: [UNIFIED] } };
+  spec[hit] = { ...spec[hit], lp: tag ? 15200 : 7200 };
+  if (tag) spec.p3 = { lp: 15200 };
+  return probe(format, "unified-front-direct-attack-flag-p0", 31472884,
+    `${tag ? "Tag" : "FFA3"}: p0 and p1 each control a Set Unified Front; p0 attacks directly (the flag is kept for ${tag ? "team 0" : "p0"}): the Set Unified Front of p0 is offered before the attack and not after it, the Set Unified Front of p1 is offered in the Damage Step`,
+    setup, steps, spec);
+};
+
 const yowies = (): Scenario[] => [yowie("ffa3", 1), yowie("ffa3", 2), yowie("tag", 1), yowie("tag", 2)];
 
 export const R2_NOCHANGE_SCENARIOS: Scenario[] = [
@@ -365,6 +506,14 @@ export const R2_NOCHANGE_SCENARIOS: Scenario[] = [
     [...quills("p0"), yes("p3"), auto("p3")],
     { p0: { grave: [WATER], banished: [QUILL, QUILL, QUILL, QUILL] }, p2: { grave: [VOLCANO] }, p3: { grave: [METEOR, VOLCANO] } }),
   ...yowies(),
+  unified("ffa3"),
+  unified("tag"),
+  numeron("ffa3"),
+  numeron("tag"),
+  ownAction("ffa3", "pinny"),
+  ownAction("tag", "pinny"),
+  ownAction("ffa3", "cross"),
+  ownAction("tag", "cross"),
   flavian("ffa3"),
   flavian("tag"),
   skyblaster("ffa3"),
