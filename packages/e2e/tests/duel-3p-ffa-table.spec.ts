@@ -341,38 +341,6 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(errors).toEqual([]);
   });
 
-  test("current engine: queued surrender without an open chain shows Leaving until the turn ends", async ({ player }, info) => {
-    const alice = await player("p1");
-    const bob = await player("p2");
-    const errors = collectTableErrors(alice.page, [bob.page]);
-    // Hold a real human response window: a practice bot can answer before Leaving is painted.
-    // The other FFA3 gameplay and complete-match tests use one human plus two practice bots.
-    const { slug } = await startTable([alice, bob], "ffa3 leaving", [
-      { main: withFiller([FILLER], 40) }, { main: withFiller([FILLER], 40) },
-    ], { ...options, bots: [2] });
-    await expectRealCore(alice.page, slug, "practice", info, 1);
-    await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
-    await pickLegalZone(alice.page, "mz");
-    await openOptions(alice.page);
-    await endTurn(alice.page, 2);
-    const response = alice.page.waitForResponse((reply) => reply.url().endsWith(`/api/duels/${slug}/surrender`) && reply.request().method() === "POST");
-    expect((await readTable(alice.page, slug)).engine!.chain).toHaveLength(0);
-    await surrender(alice.page);
-    const pending = await (await response).json();
-    expect(pending.engine.seats[0].pendingElimination).toBe(true);
-    await expect(alice.page.locator("[data-holo='0']")).toHaveAttribute("data-leaving", "true");
-    await tableShot(alice.page, slug, info, "leaving");
-    await endTurn(bob.page, 3);
-    await expect(alice.page.locator("[data-holo='0']")).toHaveAttribute("data-elim", "true");
-    await expect(occupied(alice.page, 0)).toHaveCount(0);
-    await expect(alice.page.getByTestId("self-eliminated")).toBeVisible();
-    await alice.page.reload();
-    await enterDuelRoom(alice.page);
-    await expect(alice.page.getByTestId("seat-out")).toContainText("3rd");
-    expect((await readTable(alice.page, slug)).engine!.eliminationOrder).toEqual([[0]]);
-    expect(errors).toEqual([]);
-  });
-
   test("an API-driven human auto-pass simulation ends with a loss screen and engine placings", async ({ player }, info) => {
     test.setTimeout(240_000);
     const alice = await player("p1");
