@@ -1747,6 +1747,15 @@
       "stockSha256": "4ec451fb4c2f5dd925619fa76d572ca586908d5fa80df67e0140da94024c08d3"
     },
     {
+      "code": 30339825,
+      "file": "c30339825.lua",
+      "name": "Hydor, the Base of All Things",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "e98149e737afe61094068a4c3879012afaddfcf4b8d85c669b8662c45b104a43",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 30353551,
       "file": "c30353551.lua",
       "name": "Human-Wave Tactics",

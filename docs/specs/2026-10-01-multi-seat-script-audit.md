@@ -63,3 +63,7 @@ Black Dragon Ninja (56562619) returned a later owner's banished monster to the p
 ## Union controller returns
 
 Combination Attack (8964854) summoned an opposing Union Monster to a picked opponent instead of its controller. Its target checks and summon now bind the actual controller. Live proof: `combination-controller.ts`. The stock FFA probes return Y-Dragon Head to the wrong field; the three fixed cases pass on both cores.
+
+## Hydor owner field
+
+Hydor (30339825) offered WATER monsters from other FFA owners as its destruction choice. Its filter and operation now bind the Graveyard target's real owner and restrict the FFA field query to that seat. The Tag query retains the joined own team field. Live proof: `hydor-owner.ts`. The original FFA3/FFA4 choice probes show an extra wrong-owner monster. All four fixed outcomes pass on both cores.
