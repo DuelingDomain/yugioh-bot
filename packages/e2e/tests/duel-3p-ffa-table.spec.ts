@@ -17,16 +17,16 @@ async function attackNext(page: Page, sequence: number): Promise<void> {
 }
 
 /** Decline only browser response prompts, bounded so a changed engine cannot hang the proof. */
-async function declineUntilHeavyStorm(page: Page, slug: string): Promise<void> {
+async function declineUntilAction(page: Page, slug: string, cardName?: string): Promise<void> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await expect.poll(async () => (await readTable(page, slug)).engine!.prompt?.seat).toBe(0);
     const view = (await readTable(page, slug)).engine!;
-    if (view.prompt!.options.some((option) => option.id.startsWith("activate:") && option.card?.name === "Heavy Storm")) return;
+    if (view.prompt!.context?.type === "action" && (!cardName || view.prompt!.options.some((option) => option.id.startsWith("activate:") && option.card?.name === cardName))) return;
     const id = view.prompt!.id;
     await page.locator("[data-prompt-panel]").getByRole("button", { name: "No", exact: true }).click();
     await expect.poll(async () => (await readTable(page, slug)).engine!.prompt?.id).not.toBe(id);
   }
-  throw new Error("Heavy Storm not offered after 10 browser response windows");
+  throw new Error("Action prompt not offered after 10 browser response windows");
 }
 
 test.describe("FFA3 real-engine table rules", () => {
@@ -163,8 +163,7 @@ test.describe("FFA3 real-engine table rules", () => {
     const errors = collectTableErrors(alice.page);
     const slug = await startTablePreset(alice.page, "ffa3-mind-crush-pick");
     await expectRealCore(alice.page, slug, "scripted", info);
-    // Debug.AddCard sets a trap on turn 1; it becomes usable on the next turn.
-    await endTurn(alice.page, 2);
+    // The pre-set preset Trap is offered in the first draw response window.
     await activateSingleResponse(alice.page);
     for (const seat of [1, 2]) await expect(alice.page.getByTestId(`holo-pick-${seat}`)).toBeVisible();
     await expect(alice.page.getByTestId("holo-pick-0")).toHaveCount(0);
@@ -196,7 +195,7 @@ test.describe("FFA3 real-engine table rules", () => {
     const errors = collectTableErrors(alice.page);
     const slug = await startTablePreset(alice.page, "ffa3-table-chain");
     await expectRealCore(alice.page, slug, "scripted", info);
-    await declineUntilHeavyStorm(alice.page, slug);
+    await declineUntilAction(alice.page, slug, "Heavy Storm");
     await useCard(alice.page, handCard(alice.page, "Heavy Storm"), "Activate");
     await pickLegalZone(alice.page, "st");
     const priority = alice.page.locator("[data-chain-fx] [data-testid='priority-chips'] [data-seat]");
@@ -231,7 +230,7 @@ test.describe("FFA3 real-engine table rules", () => {
     const errors = collectTableErrors(alice.page);
     const slug = await startTablePreset(alice.page, "ffa3-turn-player-last");
     await expectRealCore(alice.page, slug, "scripted", info);
-    await declineUntilHeavyStorm(alice.page, slug);
+    await declineUntilAction(alice.page, slug, "Heavy Storm");
     await useCard(alice.page, handCard(alice.page, "Heavy Storm"), "Activate");
     await pickLegalZone(alice.page, "st");
     const no = alice.page.locator("[data-prompt-panel]").getByRole("button", { name: "No", exact: true });
@@ -261,6 +260,9 @@ test.describe("FFA3 real-engine table rules", () => {
       await endTurn(alice.page, 4);
       for (const seat of [0, 1, 2]) await expect(occupied(alice.page, seat)).toHaveCount(1);
       await attackWithFirstMonster(alice.page);
+      await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.kind).toBe("cards");
+      await expectReadyToAct(alice.page);
+      for (const seat of [1, 2]) await expect(tableField(alice.page, seat).locator("[data-kind='mz'][data-legal='true']")).toHaveCount(1);
       await tableField(alice.page, 1).locator("[data-kind='mz'][data-legal='true'] button").click();
       await alice.page.locator("[data-attack-confirm] [data-go]").click();
       await expect.poll(async () => (await readTable(alice.page, slug)).engine!.seats[2]!.graveyard.map((card) => card.name)).toContain("Mirror Force");
