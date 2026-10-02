@@ -30,13 +30,14 @@ async function declineUntilAction(page: Page, slug: string, cardName?: string): 
 }
 
 test.describe("FFA3 real-engine table rules", () => {
-  test("current engine: mounts three own-EMZ fields, draws first, and has no BP on turns 1-3", async ({ player }, info) => {
+  test("current engine: mounts three own-EMZ fields, skips the Standard MR5 first draw, and has no BP on turns 1-3", async ({ player }, info) => {
     const alice = await player("p1");
     const errors = collectTableErrors(alice.page);
     const { slug } = await startTable([alice], "ffa3 first round", [{ main: withFiller([FILLER], 40) }], options);
     await expectRealCore(alice.page, slug, "practice", info);
     const room = await readTable(alice.page, slug);
     expect(room.session.mode).toBe("normal");
+    expect(room.session.masterRule).toBe(5);
     expect(room.session.seats.map((seat) => seat.isBot)).toEqual([false, true, true]);
     await expect(alice.page.locator("[data-table-stage='ffa3'] [data-seat-field]")).toHaveCount(3);
     await expect(alice.page.locator("[data-lp-seat]")).toHaveCount(3);
@@ -50,11 +51,11 @@ test.describe("FFA3 real-engine table rules", () => {
     }
     const first = (await readTableTrace(alice.page, slug)).promptLog.find((entry) => entry.turn === 1 && entry.promptType === "action");
     expect(first, "first turn-1 action prompt must be recorded").toBeDefined();
-    expect(first!.seats[0]).toMatchObject({ handCount: 6, deckCount: 34 });
-    expect(room.engine!.seats[0]!.hand).toHaveLength(6);
-    expect(room.engine!.seats[0]!.deckCount).toBe(34);
-    await expect(alice.page.locator("[data-holo='0'] [title='Cards in hand']")).toHaveText("6");
-    await expect(alice.page.locator("[data-holo='0'] [title='Cards in Deck']")).toHaveText("34");
+    expect(first!.seats[0]).toMatchObject({ handCount: 5, deckCount: 35 });
+    expect(room.engine!.seats[0]!.hand).toHaveLength(5);
+    expect(room.engine!.seats[0]!.deckCount).toBe(35);
+    await expect(alice.page.locator("[data-holo='0'] [title='Cards in hand']")).toHaveText("5");
+    await expect(alice.page.locator("[data-holo='0'] [title='Cards in Deck']")).toHaveText("35");
     await observeTable(alice.page);
     await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
     await pickLegalZone(alice.page, "mz");
@@ -72,6 +73,7 @@ test.describe("FFA3 real-engine table rules", () => {
       expect(painted.every((entry) => entry.seat === seat && entry.who === name)).toBe(true);
       const engineTurns = traces.filter((entry) => entry.turn === turn && entry.turnSeat === seat && entry.promptType === "action");
       expect(engineTurns.length, `engine action prompt on turn ${turn}`).toBeGreaterThan(0);
+      if (turn === 2 || turn === 3) expect(engineTurns[0]!.seats[seat]).toMatchObject({ handCount: 6, deckCount: 34 });
       expect(engineTurns.every((entry) => entry.options.some((option) => option.id === "to_bp") === (turn >= 4))).toBe(true);
     }
     expect(seen.filter((entry) => entry.turn <= 3).every((entry) => !entry.battleOffered)).toBe(true);
