@@ -5314,7 +5314,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "a8a65252dfab6528cd2563d086627dd9e9bd11c2dffc534aa6d13c9e23a9bd43",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Battle destruction damages each living duelist; each Tag team takes 2000."
     },
     {
       "code": 94804055,

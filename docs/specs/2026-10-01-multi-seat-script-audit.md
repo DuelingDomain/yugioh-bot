@@ -40,7 +40,7 @@ Live proof: `clear-world-seats.ts` and `hama-damage-state.ts`. The original scri
 
 ## Damage to each side
 
-Mecha-Dog Marron (94667532) damaged only folded players 0 and 1 after battle destruction. It now damages each living FFA seat once. In Tag, each team loses LP once. Live proof: `mecha-dog-marron.ts`. Both stock FFA outcomes fail and both Tag controls pass. All four fixed cases pass on each core.
+Mecha-Dog Marron (94667532) damaged only folded players 0 and 1 after battle destruction. It now damages each living duelist once. Under Q3, each Tag member takes the stated damage, so each team loses 2000 LP. Live proof: `mecha-dog-marron.ts`. Both stock FFA outcomes fail and both Tag controls pass. All four fixed cases pass on each core.
 
 ## Returned owners discard
 
@@ -49,3 +49,5 @@ Criosphinx (18654201) represented returned monster owners with two bits. It now 
 ## Target controller and owner actions
 
 Mecha Bunny (10110717) damaged a picked opponent instead of the actual target controller. Mimighoul Fork (19338434) gave two draws to a picked opponent instead of the sent card's owner. These overlays bind the target controller for damage and the controller of the Graveyard card for the owner's draw. Fork keeps the opponent's effect choice. Live proof: `owner-actions.ts`. The stock probe fails five of six outcomes; the fixed six cases pass on each core.
+
+The first Marron fix used one damage action per Tag team. The Q3 rule requires each living duelist. The corrected Tag scenarios fail that first fix (expected 14000, got 15000) and pass 4/4 on each core.
