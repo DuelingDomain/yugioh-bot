@@ -689,12 +689,21 @@ button.plate[data-next="true"]:hover {
   gap: 5px;
   padding: 0 9px 0 7px;
 }
-.root[data-seats="true"] .strip { gap: 3px; }
+.root[data-seats="true"] .strip { gap: 3px; min-width: 0; overflow: hidden; }
 .root[data-seats="true"] .actions { gap: 6px; padding: 0 10px 0 4px; }
 /* Under 1400px the strip, End and the primary button share about 340px: End is short. */
 @media (max-width: 1400px) {
   .root[data-seats="true"] .onlyWide { display: none; }
   .root[data-seats="true"] .onlyNarrow { display: inline; }
+}
+/* Four chips under 1440px: the status word goes (the dot, the name and the title still tell it), the chips are slimmer and
+   the actions column is wider, so the strip never runs under End. */
+@media (max-width: 1439px) {
+  .root[data-seat-count] {
+    grid-template-columns: minmax(110px, 0.5fr) minmax(0, 30rem) minmax(470px, 1.5fr);
+  }
+  .root[data-seat-count] .chipWord { display: none; }
+  .root[data-seat-count] .chip { padding: 0 8px 0 7px; }
 }
 .root[data-seats="true"] .primary {
   padding: 0 12px 0 14px;
