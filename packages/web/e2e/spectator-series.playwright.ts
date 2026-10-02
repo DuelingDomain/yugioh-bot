@@ -1,5 +1,4 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { extname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "vite";
@@ -211,7 +210,7 @@ function expectEqual(actual: unknown, expected: unknown, what: string) {
 }
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH ?? resolve(homedir(), ".cache/ms-playwright/chromium-1234/chrome-linux64/chrome"),
+  ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
   headless: true,
 });
 
