@@ -111,8 +111,8 @@ Worker recovery and all journal replay paths use this saved flag. The engine res
 bundle and Lua overlay. A rule change alone does not change an existing duel's draw flag.
 
 Old records have no saved flag. Production ran `main`; after migration, all its old duels are 1v1
-and need no action. Staging ran this branch after `0fb46df`, when
-only FFA gained the new draw rule. Commits `d4338a2` and `42e66c3` were not deployed. Standard and Domain
+and need no action. Staging ran this branch before and after `0fb46df`, but never `d4338a2` or a later commit.
+Only FFA gained the new draw rule at `0fb46df`. Standard and Domain
 1v1 and Tag therefore used the stock Master Rule draw flag: MR1/MR2 drew on turn 1; MR3-MR5 did not.
 The server infers those old rules. No backfill is needed for Domain 1v1 or Tag records.
 
