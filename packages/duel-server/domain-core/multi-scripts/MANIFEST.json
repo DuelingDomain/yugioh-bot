@@ -1865,6 +1865,18 @@
       "note": "Reads the Graveyard and the banished zone (field class) of the bound opponent. Tag: the target picks the opposing duelist (MPTarget) and the operation runs bound to that duelist (MPOne), who may Special Summon from the Deck. The triage text that calls it OK-BIND is wrong."
     },
     {
+      "code": 34267821,
+      "file": "c34267821.lua",
+      "name": "Artifact Lancea",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "7860b041cf0f95bb301d0b0330da4f23f84b661d4ba38c87fecd88f38a21b379",
+      "note": "The resolved flag of literal player 0 is registered for every duelist, so another holder cannot activate Lancea for the rest of the turn. The stock banish restriction and End Phase reset stay unchanged.",
+      "r2Class": "FLAG-L0"
+    },
+    {
       "code": 34449261,
       "file": "c34449261.lua",
       "name": "Fusion Fright Waltz",
@@ -3383,7 +3395,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil★Twins Ki-sikil & Lil-la",
+      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"
