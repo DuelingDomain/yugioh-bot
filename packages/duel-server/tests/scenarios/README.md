@@ -62,6 +62,37 @@ Use `faceDown(card)`, `defense(card)`, `xyz(card, materials)` for stance.
 The scenario starts in Main Phase 1 of the turn player. The harness declines optional Draw Phase chain windows on its own.
 `p2` and `p3` and `teams` are in the types. They throw until the multiplayer core exists.
 
+### FFA opening draw in older fixtures
+
+Every FFA3 and FFA4 duelist draws on their first turn, including p0, in Standard
+and Domain. New scenarios must use `defineScenario` from `support/dsl.ts` and
+write the hand and Deck counts after that draw explicitly.
+
+`multiplayer/ffa-first-draw.ts` exports `defineScenarioWithFfaFirstDraw` for
+older fixtures whose p0 expectations exclude the opening draw. The wrapper
+copies the scenario and adds the tag `ffa-first-draw-included`. For a custom
+p0 `deck` without `deckSize`, it puts a filler card (`Mystical Elf` by default)
+before the custom cards. With an explicit `deckSize`, it keeps the custom Deck
+and accounts for its top card and later draws instead.
+
+In each `expectBoard` with a living p0, the wrapper adds the opening card to
+an exact hand list or increases a hand `count` by one. It decreases a positive
+`deckCount` by one; zero stays zero. Other seats and unspecified lists stay
+unchanged. It stops changing p0 after `expectEliminated("p0")` and leaves a p0
+snapshot at `lp: 0` unchanged.
+
+The optional second argument is `{ card, destination }`. `card` selects the
+opening card; `destination` selects `hand` (default), `grave`, or `banished`
+when the scenario moves that card. The wrapper adjusts expectations; the
+scenario must still perform the action that moves the card.
+
+To opt out, add `ffa-first-draw-included` to `tags` and write the opening draw
+in the setup and expectations yourself. The wrapper also passes Tag, 1v1,
+the default format, and `turn: "p1"` fixtures through unchanged. Many older
+files still import the wrapper `as defineScenario`; their literal values are
+the input to this transform. Removal of those aliases is a later cleanup.
+The direct `rule-proof-ffa-order.test.ts` proves the draw rule on real cores.
+
 ### Actions
 
 `activate`/`respond`, `normalSummon`, `setCard`, `specialSummon`, `changePosition`, `attack(attacker, target | "direct")`,
