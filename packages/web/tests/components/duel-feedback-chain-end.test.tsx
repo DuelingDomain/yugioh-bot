@@ -41,6 +41,20 @@ afterEach(() => {
 });
 
 describe("DuelFeedback chain end", () => {
+  it.each([false, true])("keeps target updates out of banners and sound queues (reduced motion %s)", (reducedMotion) => {
+    const feedback = (events: DuelEvent[]) => <DuelFeedback events={events} duelKey="t" soundEnabled reducedMotion={reducedMotion} />;
+    const { container, rerender } = render(feedback([]));
+    const activate = ev("activate", "Mystical Space Typhoon", 1);
+    const target = { ...ev("target", "Chain Link 1 targets 1 card", 1), targets: [{ controller: 1, location: 8, sequence: 0 }] };
+    rerender(feedback([activate, target]));
+    expect(container.querySelector('[data-kind="activate"]')).not.toBeNull();
+    act(() => { vi.advanceTimersByTime(2100); });
+    expect(container.querySelector("[data-kind]")).toBeNull();
+    act(() => { vi.runAllTimers(); });
+    expect(container.textContent).toBe("");
+    expect(play).not.toHaveBeenCalledWith("target");
+  });
+
   it("shows no centre banner when the chain ends, but still plays its quiet cue", () => {
     const { container, rerender } = render(view([]));
     const end = ev("chain-end", "Chain ended");

@@ -21,14 +21,17 @@ import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
   clearRevealsAt,
+  CHAIN_TARGET_NOTE_SCRIPT,
   createEventContext,
   createRevealMap,
   DESTROY_NOTE_SCRIPT,
   drainDeferredDestroys,
   moveReveals,
   nextBattleStep,
+  noteChainTargetLog,
   noteDestroyLog,
   noteReveal,
+  observeChainTargetEvents,
   observeDuelEvent,
   observeMoveEvents,
   phaseName,
@@ -187,7 +190,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     return content;
   };
   const errorHandler = (type: number, text: string) => {
-    if (noteDestroyLog(eventContext, text)) return;
+    if (noteDestroyLog(eventContext, text) || noteChainTargetLog(eventContext, text)) return;
     if (type === OcgLogType.ERROR || type === OcgLogType.UNDEFINED) errors.push(text);
   };
   const team = {
@@ -237,6 +240,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     loadScriptOrThrow(lib, handle, cards, "constant.lua");
     loadScriptOrThrow(lib, handle, cards, "utility.lua");
     if (!lib.loadScript(handle, "duel-events.lua", DESTROY_NOTE_SCRIPT)) throw new Error("Failed to register destruction reporter");
+    if (!lib.loadScript(handle, "chain-target-notes.lua", CHAIN_TARGET_NOTE_SCRIPT)) throw new Error("Failed to register chain target reporter");
     if (options.mode === "domain") {
       loadScriptOrThrow(lib, handle, cards, "domain.lua");
       // Card creation runs initial_effect; procedure libraries must be loaded first.
@@ -311,6 +315,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
     if (stored) pushEvent(stored);
+    for (const target of observeChainTargetEvents(message, chainMemory, nextEventId, eventContext)) pushEvent(target);
   };
 
   const pushEvent = (stored: StoredDuelEvent) => {
@@ -557,6 +562,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         promptSeat: pending?.seat ?? null,
         log,
         events,
+        chain: chainMemory,
         result,
         reveals,
         mode: options.mode,

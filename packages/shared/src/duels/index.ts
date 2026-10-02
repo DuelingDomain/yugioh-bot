@@ -301,11 +301,14 @@ export type DuelBattleStep = "start" | "battle" | "damage" | "damage-calculation
 export interface DuelEvent {
   id: number;
   kind:
-    | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
+    | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
     | "attack" | "phase" | "damage" | "destroy" | "move" | "position" | "equip";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
+  /** target: the link's complete current target list (including [] when cleared). Coordinates only;
+   * identities must come from the viewer's redacted board. Also accepted on activation events. */
+  targets?: DuelZoneRef[];
   text: string;
   description?: string;
   /**
@@ -369,6 +372,10 @@ export interface DuelChainLink {
   code?: number;
   name?: string;
   description?: string;
+  /** Where the source activated; retained when its activation leaves the event window. */
+  zone?: DuelZoneRef;
+  /** Current target coordinates, public to every viewer. No target names or passcodes. */
+  targets?: DuelZoneRef[];
 }
 
 export interface DuelEngineView {
