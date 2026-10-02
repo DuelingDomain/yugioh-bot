@@ -263,10 +263,10 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
       ) : null}
 
       {camera.mode === "look" && camera.lookSeat != null ? (
-        <div className={styles.look} data-camera-look style={toneVars(layout, camera.lookSeat)} role="status">
+        <div className={styles.look} data-camera-look data-format={layout.format} title="Their hand stays hidden." style={toneVars(layout, camera.lookSeat)} role="status">
           <Eye size={14} aria-hidden="true" />
           <span>
-            Looking from <b>{nameOf(camera.lookSeat)}</b>&apos;s seat. Their hand stays hidden.
+            Looking from <b>{nameOf(camera.lookSeat)}</b>&apos;s seat.<span className={styles.lookNote}> Their hand stays hidden.</span>
           </span>
           <button type="button" onClick={() => dispatch({ type: "home" })} disabled={locked}>
             Back to my seat <Key>H</Key>

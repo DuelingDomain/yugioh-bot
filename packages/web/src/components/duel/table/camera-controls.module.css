@@ -254,6 +254,19 @@
   color: var(--tink);
 }
 
+/* 4-way: the far field's hand row sits under the top-centre banner, so the banner moves to the bottom-left, above the camera pill. */
+.look[data-format="ffa4"] {
+  top: auto;
+  bottom: 44px;
+  left: 10px;
+  max-width: 330px;
+  translate: none;
+}
+
+.look[data-format="ffa4"] .lookNote {
+  display: none;
+}
+
 .look button {
   display: inline-flex;
   align-items: center;
