@@ -36,8 +36,16 @@ describe.each<DuelMode>(["normal", "domain"])("%s shared EMZ seat view", (mode) 
   it.each(DUEL_FORMATS)("publishes each seat's sharedExtraWith in %s", (format) => {
     const view = project(format, mode, 0);
     expect(view.seats.map((seat) => seat.sharedExtraWith))
-      .toEqual(format === "ffa4" ? [2, 3, 0, 1] : Array(seatCountFor(format)).fill(null));
+      .toEqual(format === "ffa4" ? [2, 3, 0, 1] : Array(seatCountFor(format)).fill(format === "1v1" ? undefined : null));
     expect(view.seats.map((seat) => seat.monsters[5]?.controller)).toEqual(Array.from({ length: seatCountFor(format) }, (_, seat) => seat));
+  });
+
+  it("keeps the 1v1 seat payload free of the multi-seat pairing key", () => {
+    for (const viewer of [0, 1, null]) {
+      for (const seat of project("1v1", mode, viewer).seats) {
+        expect(seat).not.toHaveProperty("sharedExtraWith");
+      }
+    }
   });
 
   it("publishes the same pairing for every player and spectators without sharing hidden cards", () => {

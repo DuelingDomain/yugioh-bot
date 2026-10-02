@@ -1199,7 +1199,6 @@ export function projectView(args: {
     const domain = args.domainState?.[seat];
     const view: DuelSeatView = {
       seat,
-      sharedExtraWith: args.coreCapabilities?.ffa4SharedExtraZones ? sharedExtraSeatOf(format, seat, args.eliminated) : null,
       lp: args.lp[seat] ?? 0,
       hand,
       deckCount: player ? player.deck_size : args.lib.duelQueryCount(args.handle, controller, OcgLocation.DECK),
@@ -1215,6 +1214,7 @@ export function projectView(args: {
       if (info) view.deckMaster = { card: info, inZone: domain.inZone, returns: domain.returns, nextCost: domain.nextCost };
     }
     if (multi) {
+      view.sharedExtraWith = args.coreCapabilities?.ffa4SharedExtraZones ? sharedExtraSeatOf(format, seat, args.eliminated) : null;
       view.team = teamOfSeat(format, seat);
       view.eliminated = false;
       if (args.leaving?.has(seat)) view.pendingElimination = true;
