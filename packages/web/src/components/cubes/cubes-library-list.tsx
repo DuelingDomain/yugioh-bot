@@ -3,25 +3,157 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Box, Layers, Plus, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
+import { SheetRoot } from "@/components/sheet";
+import { isDraftTemplate, nextCubeName, type AddTab, type CubeSummary } from "./library-model";
+import styles from "./cubes.module.css";
 
-interface CubeSummary {
-  id: number;
-  name: string;
-  archetype: string | null;
-  mainCount: number;
-  extraCount: number;
+const MAX_SET_NAMES = 4;
+
+function DeleteConfirm({
+  cube,
+  busy,
+  onDelete,
+  onKeep,
+}: {
+  cube: CubeSummary;
+  busy: boolean;
+  onDelete: () => void;
+  onKeep: () => void;
+}) {
+  const keepRef = React.useRef<HTMLButtonElement>(null);
+  React.useEffect(() => keepRef.current?.focus(), []);
+  return (
+    <div className={`cb-confirm ${styles.confirm}`} role="alertdialog" aria-label={`Delete ${cube.name}`}>
+      <span>Delete {cube.name} for everyone on the server?</span>
+      <button className="btn btn-danger btn-sm" type="button" disabled={busy} onClick={onDelete}>
+        Delete
+      </button>
+      <button ref={keepRef} className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={onKeep}>
+        Keep
+      </button>
+    </div>
+  );
+}
+
+function CubeRow({
+  cube,
+  confirming,
+  busy,
+  onAskDelete,
+  onDelete,
+  onKeep,
+}: {
+  cube: CubeSummary;
+  confirming: boolean;
+  busy: boolean;
+  onAskDelete: () => void;
+  onDelete: () => void;
+  onKeep: () => void;
+}) {
+  const template = isDraftTemplate(cube);
+  const sets = cube.setNames ?? [];
+  const rowClass = `cb-row ${styles.row}`;
+
+  const actions = confirming ? (
+    <DeleteConfirm cube={cube} busy={busy} onDelete={onDelete} onKeep={onKeep} />
+  ) : (
+    <div className={`cb-acts ${styles.acts}`}>
+      {!template && (
+        <Link className="btn btn-secondary btn-sm" href={`/cubes/${cube.id}`} aria-label={`Open ${cube.name}`}>
+          Open
+        </Link>
+      )}
+      <button
+        className="ib danger"
+        type="button"
+        aria-label={`Delete ${cube.name}`}
+        disabled={busy}
+        onClick={onAskDelete}
+      >
+        <Trash2 className="ic" aria-hidden="true" />
+      </button>
+    </div>
+  );
+
+  if (template) {
+    return (
+      <li className={rowClass} data-template data-confirm={confirming || undefined}>
+        <div>
+          <span className="nm">{cube.name}</span>
+          <p className="mt">
+            <span>Draft template</span>
+            <span className="dot" />
+            <span>
+              {sets.length} {sets.length === 1 ? "set" : "sets"}
+            </span>
+          </p>
+          <p className={`mt ${styles.setNames}`}>
+            {sets.slice(0, MAX_SET_NAMES).map((set, i) => (
+              <React.Fragment key={set}>
+                {i > 0 && <span className="dot" />}
+                <span>{set}</span>
+              </React.Fragment>
+            ))}
+            {sets.length > MAX_SET_NAMES && <span>+{sets.length - MAX_SET_NAMES} more</span>}
+          </p>
+          <p className={styles.tmplNote}>
+            <Layers className="ic sm" aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 6 }} />
+            Used by <code>/draft</code>. Booster sets, not a pool, so there are no cards to edit.
+          </p>
+        </div>
+        {actions}
+      </li>
+    );
+  }
+
+  return (
+    <li className={rowClass} data-confirm={confirming || undefined}>
+      <div>
+        <Link className={`nm ${styles.openLink}`} href={`/cubes/${cube.id}`}>
+          {cube.name}
+        </Link>
+        <p className="mt">
+          {cube.archetype ? (
+            <span>
+              Seeded from <b>{cube.archetype}</b>
+            </span>
+          ) : (
+            <span>Built by hand</span>
+          )}
+          {cube.banlist ? (
+            <>
+              <span className="dot" />
+              <span>{cube.banlist} banlist</span>
+            </>
+          ) : null}
+        </p>
+        <p className="mt">
+          <span>
+            Main <b>{cube.mainCount}</b> cards
+          </span>
+          <span>
+            Extra <b>{cube.extraCount}</b> cards
+          </span>
+        </p>
+      </div>
+      {actions}
+    </li>
+  );
 }
 
 export function CubesLibraryList() {
   const router = useRouter();
   const [cubes, setCubes] = React.useState<CubeSummary[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadFailed, setLoadFailed] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [confirmId, setConfirmId] = React.useState<number | null>(null);
 
   const load = React.useCallback(() => {
+    setLoading(true);
+    setLoadFailed(false);
     fetch("/api/cubes")
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error("load failed"))))
       .then((data: { cubes: CubeSummary[] }) => {
@@ -29,17 +161,14 @@ export function CubesLibraryList() {
         setLoading(false);
       })
       .catch(() => {
-        setError("Failed to load cubes.");
+        setLoadFailed(true);
         setLoading(false);
       });
   }, []);
 
   React.useEffect(() => load(), [load]);
 
-  const deleteCube = async (id: number, name: string) => {
-    if (typeof window !== "undefined" && !window.confirm(`Delete "${name}"? This can't be undone.`)) {
-      return;
-    }
+  const deleteCube = async (id: number) => {
     setBusy(true);
     setError(null);
     try {
@@ -50,12 +179,13 @@ export function CubesLibraryList() {
         return;
       }
       setCubes((cur) => cur.filter((c) => c.id !== id));
+      setConfirmId(null);
     } finally {
       setBusy(false);
     }
   };
 
-  const create = async (body: Record<string, unknown>) => {
+  const create = async (body: Record<string, unknown>, tab?: AddTab) => {
     setBusy(true);
     setError(null);
     try {
@@ -69,7 +199,7 @@ export function CubesLibraryList() {
         setError(data.error ?? "Failed to create cube.");
         return;
       }
-      router.push(`/cubes/${data.cube.id}`);
+      router.push(`/cubes/${data.cube.id}${tab ? `?add=${tab}` : ""}`);
     } finally {
       setBusy(false);
     }
@@ -77,56 +207,92 @@ export function CubesLibraryList() {
 
   // Create a fresh blank cube (auto-named to avoid collisions) and jump straight
   // into its editor, where the user names it and builds the pool.
-  const addCube = () => {
-    const existing = new Set(cubes.map((c) => c.name));
-    let name = "New cube";
-    let n = 2;
-    while (existing.has(name)) name = `New cube ${n++}`;
-    void create({ kind: "blank", name });
+  const addCube = (tab?: AddTab) => {
+    void create({ kind: "blank", name: nextCubeName(cubes.map((c) => c.name)) }, tab);
   };
 
   return (
-    <div className="space-y-6">
-      {error && <p className="rounded-lg border border-accent-cta/50 bg-accent-cta/10 px-4 py-3 text-sm text-accent-cta">{error}</p>}
+    <SheetRoot>
+      <header className="page-h sheet-head">
+        <div>
+          <h1 className="t-title">Cubes</h1>
+          <p className="page-sub">
+            Reusable card pools for cube drafts and Theme Drafts. Anyone on the server can edit them.
+          </p>
+        </div>
+        <button className="btn btn-primary" type="button" disabled={busy || loading} onClick={() => addCube()}>
+          <Plus className="ic sm" aria-hidden="true" />
+          New cube
+        </button>
+      </header>
 
-      <div className="flex items-center justify-end">
-        <Button type="button" variant="primary" disabled={busy} onClick={() => addCube()}>
-          <Plus className="h-4 w-4" /> Add cube
-        </Button>
-      </div>
+      {error && (
+        <div className={`banner banner-bad ${styles.err}`} role="alert">
+          <TriangleAlert className="ic" aria-hidden="true" />
+          <div>{error}</div>
+        </div>
+      )}
 
       {loading ? (
-        <p className="text-sm text-text-secondary">Loading cubes...</p>
-      ) : cubes.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-8 text-center">
-          <p className="text-lg text-text-secondary">No cubes yet</p>
-          <p className="mt-2 text-sm text-text-muted">Click &ldquo;Add cube&rdquo; to build your first one.</p>
-        </div>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {cubes.map((cube) => (
-            <div key={cube.id} className="relative">
-            <Link
-              href={`/cubes/${cube.id}`}
-              className="block rounded-lg border border-border bg-surface p-4 pr-10 hover:border-accent-primary"
-            >
-              <p className="font-display text-text-primary">{cube.name}</p>
-              {cube.archetype && <p className="mt-1 text-xs text-accent-primary">{cube.archetype}</p>}
-              <p className="mt-2 text-sm text-text-secondary">{cube.mainCount} main · {cube.extraCount} extra</p>
-            </Link>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void deleteCube(cube.id, cube.name)}
-              title={`Delete ${cube.name}`}
-              className="absolute right-2 top-2 rounded-lg border border-accent-cta/40 p-1.5 text-accent-cta hover:bg-accent-cta/10 disabled:opacity-50"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+        <div className="cb-list" aria-busy="true" aria-label="Loading cubes">
+          {[46, 38].map((w) => (
+            <div key={w} className={`cb-row ${styles.row}`}>
+              <div style={{ display: "grid", gap: 10 }}>
+                <span className="sk" style={{ width: `${w}%`, height: 14 }} />
+                <span className="sk" style={{ width: `${w + 24}%` }} />
+              </div>
+              <span className="cb-acts">
+                <span className="sk" style={{ width: 64, height: 30 }} />
+              </span>
             </div>
           ))}
         </div>
+      ) : loadFailed ? (
+        <div className="banner banner-bad" role="alert">
+          <TriangleAlert className="ic" aria-hidden="true" />
+          <div>
+            <b>Couldn&apos;t load your cubes.</b> Check your connection and try again.
+          </div>
+          <button className="btn btn-secondary btn-sm" type="button" style={{ marginLeft: "auto" }} onClick={load}>
+            <RotateCcw className="ic sm" aria-hidden="true" />
+            Retry
+          </button>
+        </div>
+      ) : cubes.length === 0 ? (
+        <div className="empty" style={{ padding: "36px 20px" }}>
+          <Box className="ic" aria-hidden="true" />
+          <h2>No cubes yet</h2>
+          <p>
+            A cube is a pool you draft from. Start from an archetype, paste a list of passcodes, or pick cards one at a
+            time.
+          </p>
+          <div className={`acts ${styles.startActs}`}>
+            <button className="btn btn-primary" type="button" disabled={busy} onClick={() => addCube("archetype")}>
+              From an archetype
+            </button>
+            <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => addCube("passcodes")}>
+              From passcodes
+            </button>
+            <button className="btn btn-quiet" type="button" disabled={busy} onClick={() => addCube()}>
+              Blank cube
+            </button>
+          </div>
+        </div>
+      ) : (
+        <ul className="cb-list" aria-label="Cubes">
+          {cubes.map((cube) => (
+            <CubeRow
+              key={cube.id}
+              cube={cube}
+              confirming={confirmId === cube.id}
+              busy={busy}
+              onAskDelete={() => setConfirmId(cube.id)}
+              onDelete={() => void deleteCube(cube.id)}
+              onKeep={() => setConfirmId(null)}
+            />
+          ))}
+        </ul>
       )}
-    </div>
+    </SheetRoot>
   );
 }
