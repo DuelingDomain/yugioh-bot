@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
@@ -14,6 +14,7 @@ import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 
 const MANIFEST = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { integrity: Record<string, string> };
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+const LEGACY_DOMAIN_AVAILABLE = existsSync(join(DATA, "ocgcore.domain.legacy.wasm"));
 
 const settings = {
   visibility: "public" as const, banlist: "none" as const, cardPool: "both" as const, turnSeconds: 240,
@@ -64,6 +65,30 @@ describe("legacy 1v1 engine core identity", () => {
     }
   });
 
+  it.skipIf(!LEGACY_DOMAIN_AVAILABLE).each([1, 2, 3, 4, 5] as const)("Domain MR%s: only MR1 and MR2 draw on turn 1", async (masterRule) => {
+    const game = await createLegacyEngineGame({ mode: "domain", format: "1v1", masterRule,
+      decks: decks(true), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
+    try {
+      for (let actor = 0; actor < 2; actor++) {
+        const own = game.view(actor);
+        expect(own.turn).toBe(actor + 1);
+        expect(own.turnSeat).toBe(actor);
+        expect(own.prompt?.options.some((option) => option.id === "to_ep")).toBe(true);
+        for (let viewer = 0; viewer < 2; viewer++) {
+          const view = game.view(viewer);
+          for (let seat = 0; seat < 2; seat++) {
+            const drew = seat <= actor && (seat > 0 || masterRule <= 2);
+            expect(view.seats[seat]!.hand).toHaveLength(5 + Number(drew));
+            expect(view.seats[seat]!.deckCount).toBe(35 - Number(drew));
+          }
+        }
+        if (actor === 0) game.answer(actor, own.prompt!.id, { choice: "to_ep" });
+      }
+    } finally {
+      game.close();
+    }
+  });
+
   it("Standard runs the npm package core, byte for byte", async () => {
     const game = await createLegacyEngineGame({ mode: "normal", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
     try {
@@ -76,7 +101,7 @@ describe("legacy 1v1 engine core identity", () => {
     }
   });
 
-  it("Domain runs main's Domain build, the file the manifest lists as domainLegacyWasm", async () => {
+  it.skipIf(!LEGACY_DOMAIN_AVAILABLE)("Domain runs main's Domain build, the file the manifest lists as domainLegacyWasm", async () => {
     const game = await createLegacyEngineGame({ mode: "domain", format: "1v1", decks: decks(true), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
     try {
       const info = game.coreInfo();
