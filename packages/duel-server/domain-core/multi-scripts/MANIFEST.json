@@ -735,6 +735,15 @@
       "seatNoReset": true
     },
     {
+      "code": 14391920,
+      "file": "c14391920.lua",
+      "name": "Inferno Tempest",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "f51bab6244f67e17c50f1c54d5679072e9019ce02938ae6024a1291a938ad4b1",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 14989021,
       "file": "c14989021.lua",
       "name": "Simorgh, Bird of Divinity",
@@ -878,6 +887,15 @@
       "r2Class": "LITERAL",
       "stockSha256": "c3cc26d13d1f3e74b260ba271bfc60d77260b356ffbd72074ba043d9abd72ffd",
       "note": "the global check registers the flag for the literals 0 and 1 by comparing the real player with 0; it registers the flag for the real seat of each matching card instead (the core keys a flag by seat in FFA and by team in Tag). One flag per summoned monster of the real summoner (the stock script counts monsters)."
+    },
+    {
+      "code": 17449108,
+      "file": "c17449108.lua",
+      "name": "Nobleman of Extermination",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "dfb7a850bcf128c05c13cc0e24795bcdf9d964e8018bb7ea262676b81806af42",
+      "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
       "code": 17956906,
@@ -3850,6 +3868,15 @@
       ],
       "stockSha256": "264e8cab82b266b698bd27f2b30276eccac675524b8e9f94753eef4e97f44ddc",
       "note": "Reads the Graveyard and the banished zone (field class); today it sums all opponents. The triage text that calls it OK-BIND is wrong."
+    },
+    {
+      "code": 71044499,
+      "file": "c71044499.lua",
+      "name": "Nobleman of Crossout",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "b0291828810d92323cde5e9b5b54fc606ab40bbf63ad2ead8f67f62b6766be2a",
+      "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
       "code": 71095768,

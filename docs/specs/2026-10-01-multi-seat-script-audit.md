@@ -25,3 +25,9 @@ Live proof: `tests/scenarios/multiplayer/each-duelist-revival.ts`. The 12 new ca
 Neo-Daedalus (10485110) and The Law of the Normal (66926224) left the hands of unpicked opponents unchanged. Norleras (48453776) and Sophia (4335427) included all FFA hands while unbound, but missed the Tag partner hand. Each overlay collects the cards of every living duelist before one simultaneous send or banish action. The target information uses that exact group.
 
 Live proof: `tests/scenarios/multiplayer/all-player-zones.ts`. The 20 cases check every seat, include 1v1 controls and skip an eliminated FFA4 seat. The stock three-format probe fails eight of 12 outcomes; the fixed 20 cases pass on each core.
+
+## All Decks
+
+Nobleman of Extermination (17449108), Nobleman of Crossout (71044499) and Inferno Tempest (14391920) missed later Decks after a scoped query. Crossout failed in Tag; the other two failed in all three formats. Each overlay now collects each living duelist's Deck before the action. The Noblemen reveal the collected Decks to each duelist and shuffle each Deck.
+
+Live proof: `tests/scenarios/multiplayer/all-player-decks.ts`. Seven of 12 stock cases fail. All 12 fixed cases, including 1v1 controls, pass on Standard and Domain.
