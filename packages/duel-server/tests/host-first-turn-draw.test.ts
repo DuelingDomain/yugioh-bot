@@ -1,0 +1,216 @@
+import { createHmac } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import Database from "better-sqlite3";
+import { migrate } from "@yugidraft/shared/db";
+import { createDuelService } from "@yugidraft/shared/services";
+import { seatCountFor, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode, type DuelReplay, type DuelRoom } from "@yugidraft/shared/duels";
+import { afterEach, expect, it, vi } from "vitest";
+import { createEngineGame, type EngineGame } from "../src/engine.js";
+import { createDuelHost, type DuelHost } from "../src/host.js";
+import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
+import { GameWorker } from "../src/worker-client.js";
+import { loadSource, replaySource } from "../scripts/lib/replay-source.js";
+import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { describeWithCores, needs } from "./support/cores.js";
+
+const SECRET = "first-draw-pin-test";
+const seed = ["1", "2", "3", "4"];
+const resources: Array<{ host: DuelHost; db: Database.Database }> = [];
+const dirs: string[] = [];
+afterEach(async () => {
+  for (const { host, db } of resources.splice(0)) { await host.close(); db.close(); }
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  vi.unstubAllEnvs();
+});
+
+async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterRule = 5) {
+  vi.stubEnv("MULTIPLAYER_TABLES", "1");
+  const db = new Database(":memory:");
+  migrate(db);
+  const duels = createDuelService(db);
+  const count = seatCountFor(format);
+  const players = Array.from({ length: count }, (_, seat) => Number(db.prepare(
+    "insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)",
+  ).run("g", `u${seat}`, `P${seat}`).lastInsertRowid));
+  const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Draw rule pin", mode, format, masterRule,
+    settings: { validateDeck: false, shuffleDeck: false, turnSeconds: 0 } });
+  for (const player of players.slice(1)) duels.join(session.slug, "g", player);
+  const decks = Array.from({ length: count }, () => ({ main: Array(40).fill(15025844), extra: [], side: [],
+    ...(mode === "domain" ? { deckMaster: 48305365 } : {}) }));
+  for (let seat = 0; seat < count; seat++) duels.setDeck(session.slug, "g", players[seat]!, decks[seat]!);
+  const workers: GameWorker[] = [];
+  const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], stallMs: 0,
+    pollIntervalMs: 60_000, createWorker: () => { const worker = new GameWorker(); workers.push(worker); return worker; } });
+  resources.push({ host, db });
+  const post = async (op: string, seat = 0, extra: Record<string, unknown> = {}) => {
+    const raw = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId: players[seat], ...extra });
+    const response = await host.handle(new Request("http://localhost/internal/duel", { method: "POST", body: raw,
+      headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
+    return { status: response.status, data: await response.json() as DuelRoom & DuelReplay & { error?: string } };
+  };
+  const bundle = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")).bundleVersion as string;
+  const pin = pinnedEngineVersion(bundle, count, count > 2 ? activeMultiScriptsHash(DATA) : null);
+  const options = { mode, format, masterRule: session.masterRule, settings: session.settings, decks, seed, dataDirectory: DATA };
+  return { db, duels, session, decks, options, count, players, post, pin, workers };
+}
+
+function checkDraws(view: DuelEngineView, firstTurnDraw: boolean, actor: number) {
+  for (let seat = 0; seat < view.seats.length; seat++) {
+    const draws = Number(seat <= actor && (seat > 0 || firstTurnDraw));
+    expect(view.seats[seat]!.hand, `seat ${seat}, turn ${actor + 1}`).toHaveLength(5 + draws);
+    expect(view.seats[seat]!.deckCount).toBe(35 - draws);
+    const draw = view.events.filter((event) => event.kind === "move" && event.reason === "draw"
+      && event.seat === seat && event.zone?.sequence === 5);
+    expect(draw, `DRAW seat ${seat}, turn ${actor + 1}`).toHaveLength(draws);
+  }
+}
+
+const oldCases = [
+  { mode: "domain", format: "1v1", firstTurnDraw: false },
+  { mode: "domain", format: "tag", firstTurnDraw: false },
+  { mode: "normal", format: "ffa3", firstTurnDraw: true },
+  { mode: "normal", format: "ffa4", firstTurnDraw: true },
+] satisfies Array<{ mode: DuelMode; format: DuelFormat; firstTurnDraw: boolean }>;
+const newCases = (["normal", "domain"] as const).flatMap((mode) =>
+  (["1v1", "tag", "ffa3", "ffa4"] as const).map((format) => ({ mode, format })));
+const stableCases = [
+  ...([1, 2, 3, 4, 5] as const).map((masterRule) => ({ mode: "normal" as const, format: "1v1" as const, masterRule })),
+  { mode: "normal", format: "tag", masterRule: 5 },
+  ...([1, 2] as const).map((masterRule) => ({ mode: "domain" as const, format: "1v1" as const, masterRule })),
+] satisfies Array<{ mode: DuelMode; format: DuelFormat; masterRule: DuelMasterRule }>;
+
+describeWithCores("first-turn draw survives real worker recovery and journal replay", [needs.standard(DATA), needs.domain(DATA),
+  needs.installedMulti(DATA), ...needs.domainMulti(DATA, join(DATA, "ocgcore.multi-domain.wasm"))], () => {
+  it.each(oldCases)("$mode $format: an old-rule journal uses its stored flag on all replay paths", async ({ mode, format, firstTurnDraw }) => {
+    const t = await table(mode, format);
+    // Record the old rule on the real engine, with real end-turn answers. The saved flag
+    // is the same FIRST_TURN_DRAW bit used before d4338a2 for Standard FFA and Domain 1v1/Tag.
+    const game: EngineGame = await createEngineGame({ ...t.options, ...{ firstTurnDraw } });
+    const history: DuelEngineView[][] = [];
+    const commands: Array<{ seat: number; command: { promptId: string; revision: number; answer: { choice: string } } }> = [];
+    try {
+      t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, { ...{ firstTurnDraw } });
+      expect(t.duels.privateState(t.session.slug, "g").setup).toMatchObject({ firstTurnDraw });
+      for (let actor = 0; actor < t.count; actor++) {
+        const views = Array.from({ length: t.count }, (_, viewer) => game.view(viewer));
+        for (const view of views) checkDraws(view, firstTurnDraw, actor);
+        history.push(views);
+        const view = views[actor]!;
+        expect(view.turnSeat).toBe(actor);
+        expect(view.prompt?.options.some((option) => option.id === "to_ep")).toBe(true);
+        const command = { promptId: view.prompt!.id, revision: view.revision, answer: { choice: "to_ep" } };
+        game.answer(actor, command.promptId, command.answer);
+        t.duels.recordCommand(t.session.slug, "g", actor, command, null);
+        commands.push({ seat: actor, command });
+      }
+      history.push(Array.from({ length: t.count }, (_, viewer) => game.view(viewer)));
+    } finally { game.close(); }
+    // Recovery creates a fresh real worker. A second recovery follows a stopped worker.
+    for (let recovery = 0; recovery < 2; recovery++) {
+      for (let viewer = 0; viewer < t.count; viewer++) {
+        const response = await t.post("view", viewer);
+        expect(response.status, response.data.error).toBe(200);
+        expect(response.data.engine).toEqual(history.at(-1)![viewer]);
+      }
+      await t.workers.at(-1)!.close();
+    }
+    t.duels.interrupt(t.session.slug, "g", "Test finished");
+    for (let viewer = 0; viewer < t.count; viewer++) {
+      const response = await t.post("replay", viewer);
+      expect(response.status, response.data.error).toBe(200);
+      for (let step = 0; step <= commands.length; step++) {
+        const expected = history[step]![viewer]!;
+        expect(response.data.frames[step]!.view).toMatchObject({ turn: expected.turn, turnSeat: expected.turnSeat,
+          revision: expected.revision, seats: JSON.parse(JSON.stringify(expected.seats)) });
+      }
+    }
+    const dir = mkdtempSync(join(tmpdir(), "first-draw-journal-"));
+    dirs.push(dir);
+    const file = join(dir, "old-rule.json");
+    writeFileSync(file, JSON.stringify({ format: "yugidraft-duel-journal/1", mode, tableFormat: format,
+      masterRule: t.session.masterRule, seed, decks: t.decks, settings: t.session.settings,
+      bundleVersion: t.pin, setup: { firstTurnDraw }, commands }));
+    const replayed = await replaySource(loadSource(file), DATA, commands.length);
+    expect(replayed.seats).toEqual(history.at(-1));
+    const output = execFileSync("npx", ["tsx", "scripts/replay-journal.ts", file, "--data", DATA, "--json", "--views"],
+      { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const cli = JSON.parse(output);
+    expect(cli).toMatchObject({ ok: true, replayed: commands.length, total: commands.length, seatCount: t.count });
+    for (let viewer = 0; viewer < t.count; viewer++) expect(cli.views[String(viewer)]).toEqual(history.at(-1)![viewer]);
+  }, 120_000);
+
+  it.each(newCases)("$mode $format: a new duel stores and restores the current draw rule", async ({ mode, format }) => {
+    const t = await table(mode, format);
+    const started = await t.post("start");
+    expect(started.status, started.data.error).toBe(200);
+    const firstTurnDraw = mode === "domain";
+    expect(t.duels.privateState(t.session.slug, "g").setup).toMatchObject({ firstTurnDraw });
+    for (let viewer = 0; viewer < t.count; viewer++) checkDraws((await t.post("view", viewer)).data.engine!, firstTurnDraw, 0);
+    const initial = Array.from({ length: t.count }, async (_, viewer) => (await t.post("view", viewer)).data.engine!);
+    const views = await Promise.all(initial);
+    await t.workers[0]!.close();
+    for (let viewer = 0; viewer < t.count; viewer++) {
+      const recovered = await t.post("view", viewer);
+      expect(recovered.status, recovered.data.error).toBe(200);
+      expect(recovered.data.engine).toEqual(views[viewer]);
+    }
+  }, 60_000);
+
+  it.each(stableCases)("$mode MR$masterRule $format: an old record can infer the unchanged draw rule", async ({ mode, format, masterRule }) => {
+    const t = await table(mode, format, masterRule);
+    const game = await createEngineGame(t.options);
+    let initial: DuelEngineView[];
+    let expected: DuelEngineView[];
+    try {
+      initial = Array.from({ length: t.count }, (_, viewer) => game.view(viewer));
+      for (const view of initial) checkDraws(view, masterRule <= 2, 0);
+      t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null);
+      const view = game.view(0);
+      const command = { promptId: view.prompt!.id, revision: view.revision, answer: { choice: "to_ep" } };
+      game.answer(0, command.promptId, command.answer);
+      t.duels.recordCommand(t.session.slug, "g", 0, command, null);
+      expected = Array.from({ length: t.count }, (_, viewer) => game.view(viewer));
+    } finally { game.close(); }
+    for (let viewer = 0; viewer < t.count; viewer++) {
+      const recovered = await t.post("view", viewer);
+      expect(recovered.status, recovered.data.error).toBe(200);
+      expect(recovered.data.engine).toEqual(expected[viewer]);
+    }
+    t.duels.interrupt(t.session.slug, "g", "Test finished");
+    for (let viewer = 0; viewer < t.count; viewer++) {
+      const replay = await t.post("replay", viewer);
+      expect(replay.status, replay.data.error).toBe(200);
+      expect(replay.data.frames[0]!.view.seats).toEqual(initial[viewer]!.seats);
+      expect(replay.data.frames[1]!.view.seats).toEqual(expected[viewer]!.seats);
+    }
+  }, 60_000);
+
+  it.each(oldCases)("$mode $format: a journal without a stored rule fails with a clear message", async ({ mode, format }) => {
+    const t = await table(mode, format);
+    t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null);
+    const response = await t.post("view");
+    expect(response.status).toBe(409);
+    expect(response.data.error).toContain("first-turn draw rule was not saved");
+    expect(t.workers).toHaveLength(0);
+    t.duels.interrupt(t.session.slug, "g", "Test finished");
+    const replay = await t.post("replay");
+    expect(replay.status).toBe(409);
+    expect(replay.data.error).toContain("first-turn draw rule was not saved");
+    const dir = mkdtempSync(join(tmpdir(), "first-draw-missing-"));
+    dirs.push(dir);
+    const file = join(dir, "missing-rule.json");
+    writeFileSync(file, JSON.stringify({ format: "yugidraft-duel-journal/1", mode, tableFormat: format,
+      masterRule: t.session.masterRule, seed, decks: t.decks, commands: [] }));
+    expect(() => loadSource(file)).toThrow("first-turn draw rule was not saved");
+    try {
+      execFileSync("npx", ["tsx", "scripts/replay-journal.ts", file, "--data", DATA],
+        { cwd: process.cwd(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      expect.fail("The CLI must refuse an ambiguous journal");
+    } catch (error) {
+      expect(String((error as { stderr?: string }).stderr)).toContain("first-turn draw rule was not saved");
+    }
+  }, 60_000);
+});

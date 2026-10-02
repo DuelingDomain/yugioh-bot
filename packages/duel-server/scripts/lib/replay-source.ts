@@ -7,10 +7,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parseJournalText } from "./journal-file.js";
 import { resolve } from "node:path";
-import { legacyDuelSettings, normalizeDuelSettings, type DuelAnswer, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode, type DuelSettings } from "@yugidraft/shared/duels";
+import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, type DuelAnswer, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode, type DuelSettings } from "@yugidraft/shared/duels";
 import { createDomainCore } from "../../src/domain-core.js";
 import { createEngineGame, eliminationCodeOf, registerDomainCoreFactory } from "../../src/engine.js";
 import { engineSeed } from "../../tests/fuzz/rng.js";
+import { savedFirstTurnDraw } from "../../src/first-turn-draw.js";
 
 export interface SourceCommand {
   seat: number;
@@ -30,6 +31,7 @@ export interface DuelSource {
   /** Only a differential file of the scenarios mode has these (Layer 1 board scripts). */
   startupScripts?: Array<{ name: string; content: string }>;
   format?: DuelFormat;
+  firstTurnDraw?: boolean;
   /** The core the file was recorded or found on (differential file): the multi core, or the reference core for a harness self-check. */
   wasmPath?: string;
   commands: SourceCommand[];
@@ -42,11 +44,14 @@ export function loadSource(file: string): DuelSource {
   if (json.format === "yugidraft-duel-journal/1") {
     if (!json.seed) throw new Error("The journal has no seed: the duel never started");
     if ((json.decks as unknown[]).some((deck) => !deck)) throw new Error("The journal has an empty deck");
+    const format: DuelFormat = isDuelFormat(json.tableFormat) ? json.tableFormat : json.decks.length === 3 ? "ffa3" : json.decks.length >= 4 ? "ffa4" : "1v1";
     return {
       kind: "journal",
       label: json.slug ?? file,
       mode: json.mode,
       masterRule: json.masterRule,
+      format,
+      firstTurnDraw: savedFirstTurnDraw(json.setup?.firstTurnDraw, json.mode, json.masterRule, format),
       decks: json.decks,
       seed: json.seed,
       settings: json.settings == null ? legacyDuelSettings() : normalizeDuelSettings(json.mode, json.settings),
@@ -90,12 +95,13 @@ export function loadSource(file: string): DuelSource {
 export interface ReplayedViews {
   /** Answers applied. */
   step: number;
-  seats: [DuelEngineView, DuelEngineView];
+  seats: [DuelEngineView, DuelEngineView, ...DuelEngineView[]];
   spectator: DuelEngineView;
 }
 
 function read(game: { view(seat: number | null): DuelEngineView }, step: number): ReplayedViews {
-  return { step, seats: [game.view(0), game.view(1)], spectator: game.view(null) };
+  const spectator = game.view(null);
+  return { step, seats: [game.view(0), game.view(1), ...spectator.seats.slice(2).map((_, index) => game.view(index + 2))], spectator };
 }
 
 /**
@@ -132,6 +138,9 @@ export async function replaySource(
   try {
     game = await createEngineGame({
       mode: source.mode,
+      ...(source.kind === "journal"
+        ? { firstTurnDraw: savedFirstTurnDraw(source.firstTurnDraw, source.mode, source.masterRule, source.format) }
+        : source.firstTurnDraw !== undefined ? { firstTurnDraw: source.firstTurnDraw } : {}),
       masterRule: source.masterRule,
       decks: source.decks,
       seed: source.seed,

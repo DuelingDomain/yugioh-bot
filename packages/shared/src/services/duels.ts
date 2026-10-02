@@ -74,6 +74,8 @@ export class DuelServiceError extends Error {
 
 /** Scenario setup kept with the private state so a recover can rebuild the board. */
 export interface DuelSetup {
+  /** The resolved FIRST_TURN_DRAW flag at start. Recovery and replay must keep this rule. */
+  firstTurnDraw?: boolean;
   startupScripts?: string[];
   scenarioId?: string;
   /** Seats that gave up (or ran out of time) in a table with more than two seats; the host plays them on autopilot. */
@@ -324,6 +326,7 @@ function parseSetup(raw: string | null | undefined): DuelSetup | undefined {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
     const input = parsed as Record<string, unknown>;
     const setup: DuelSetup = {};
+    if (typeof input.firstTurnDraw === "boolean") setup.firstTurnDraw = input.firstTurnDraw;
     if (Array.isArray(input.startupScripts) && input.startupScripts.every((entry) => typeof entry === "string")) {
       setup.startupScripts = input.startupScripts as string[];
     }
@@ -344,9 +347,13 @@ function validateSetup(setup: unknown): DuelSetup {
     throw new DuelServiceError("Duel setup must be an object", 400);
   }
   const input = setup as Record<string, unknown>;
-  const extra = Object.keys(input).find((key) => key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies");
+  const extra = Object.keys(input).find((key) => key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies");
   if (extra) throw new DuelServiceError(`Unknown duel setup field: ${extra}`, 400);
   const out: DuelSetup = {};
+  if (input.firstTurnDraw !== undefined) {
+    if (typeof input.firstTurnDraw !== "boolean") throw new DuelServiceError("firstTurnDraw must be a boolean", 400);
+    out.firstTurnDraw = input.firstTurnDraw;
+  }
   if (input.startupScripts !== undefined) {
     if (!Array.isArray(input.startupScripts) || input.startupScripts.some((entry) => typeof entry !== "string")) {
       throw new DuelServiceError("startupScripts must be a list of strings", 400);

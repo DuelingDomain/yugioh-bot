@@ -24,6 +24,7 @@ import { inspectDeck, validateDeck } from "./deck-legality.js";
 import { normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "./multi-scripts.js";
+import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
 import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
 import {
   freezeContinueClock,
@@ -258,6 +259,7 @@ export function createDuelHost(options: {
     settings: DuelSettings,
     format: DuelFormat = "1v1",
     startupScripts?: string[],
+    firstTurnDraw = firstTurnDrawFor(mode, masterRule),
   ): GameOptions {
     const created: GameOptions = {
       mode,
@@ -266,6 +268,7 @@ export function createDuelHost(options: {
       dataDirectory: options.dataDirectory,
       masterRule,
       settings,
+      firstTurnDraw,
     };
     // 1v1 keeps the exact old options. Other formats name the format; `decks` is one deck per seat in seat order.
     if (format !== "1v1") created.format = format;
@@ -274,6 +277,14 @@ export function createDuelHost(options: {
       created.startupScripts = startupScripts.map((content, index) => ({ name: `startup-${index}.lua`, content }));
     }
     return created;
+  }
+
+  function drawRuleOf(state: ReturnType<typeof service.privateState>): boolean {
+    try {
+      return savedFirstTurnDraw(state.setup?.firstTurnDraw, state.session.mode, state.session.masterRule, state.session.format);
+    } catch (error) {
+      throw new RequestError((error as Error).message, 409);
+    }
   }
 
   /** Seats the host answers for: practice bots, plus seats that surrendered (they only pass). */
@@ -803,6 +814,7 @@ export function createDuelHost(options: {
       await emitChange(slug, guildId);
       throw new RequestError("Duel interrupted: engine resource version changed", 409);
     }
+    const firstTurnDraw = drawRuleOf(state);
     const game = spawn();
     try {
       await game.create(workerCreateOptions(
@@ -813,6 +825,7 @@ export function createDuelHost(options: {
         state.session.settings,
         state.session.format,
         state.setup?.startupScripts,
+        firstTurnDraw,
       ));
     } catch (error) {
       await safeClose(game);
@@ -1024,6 +1037,7 @@ export function createDuelHost(options: {
         409,
       );
     }
+    const firstTurnDraw = drawRuleOf(state);
     const viewer = room.mySeat;
     const mismatch = () =>
       new RequestError("Replay could not reproduce this duel. The final board is still available.", 409);
@@ -1035,7 +1049,7 @@ export function createDuelHost(options: {
     let lastView: DuelEngineView;
     try {
       try {
-        await game.create(workerCreateOptions(session.mode, state.decks, state.seed, session.masterRule, session.settings, session.format, state.setup?.startupScripts));
+        await game.create(workerCreateOptions(session.mode, state.decks, state.seed, session.masterRule, session.settings, session.format, state.setup?.startupScripts, firstTurnDraw));
       } catch (error) {
         throw transport(error);
       }
@@ -1172,6 +1186,7 @@ export function createDuelHost(options: {
       }
       const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
       service.activate(slug, guildId, actor, seed, pinnedVersionFor(preset.format), clock, {
+        firstTurnDraw: firstTurnDrawFor(state.session.mode, state.session.masterRule),
         scenarioId: preset.id,
         presetId: preset.id,
         startupScripts: scripts,
@@ -1703,7 +1718,9 @@ export function createDuelHost(options: {
           state.session.format,
         ));
         const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
-        service.activate(slug, guildId, actor, seed, pinnedVersionFor(state.session.format), clock);
+        service.activate(slug, guildId, actor, seed, pinnedVersionFor(state.session.format), clock, {
+          ...(state.setup ?? {}), firstTurnDraw: firstTurnDrawFor(state.session.mode, state.session.masterRule),
+        });
         games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
         await emitChange(slug, guildId);
         await driveBot(slug, guildId, game);

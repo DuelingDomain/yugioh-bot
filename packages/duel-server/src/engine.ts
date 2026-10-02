@@ -50,6 +50,7 @@ import { chooseSurrenderedAnswer } from "./practice-bot.js";
 import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, parseDuelistMessages, rawMessageCapture, withoutDuelistParseWarnings, type RawDuelistMessage } from "./raw-messages.js";
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
 import { fillPlaceholders } from "./text.js";
+import { firstTurnDrawFor } from "./first-turn-draw.js";
 
 /** A wasm the engine loaded: the bytes, the file name and the sha256 of the bytes (core identity for reports). */
 export interface LoadedWasm {
@@ -123,6 +124,8 @@ export interface EngineGameOptions {
   settings?: DuelSettings;
   /** Seat and team layout. Default `1v1`. `decks` has one entry per seat (`seatCountFor(format)`). */
   format?: DuelFormat;
+  /** Saved FIRST_TURN_DRAW flag for recovery/replay. Omit only when starting a new duel. */
+  firstTurnDraw?: boolean;
   /**
    * Lua chunks run after the Decks (and Domain Deck Masters) exist and before the Duel starts.
    * Tests use them to place an exact board with `Debug.AddCard` without playing turns.
@@ -326,9 +329,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     throw new Error(multi ? `Exactly ${seatCount} decks are required for a ${format} duel` : "Exactly two decks are required");
   }
   const start = engineStartConfig(options.settings);
-  // MR1/MR2 already include FIRST_TURN_DRAW. Standard MR3 onward keeps the stock skip.
-  const flags = duelFlagsFor(options.masterRule)
-    | (options.mode === "domain" ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
+  const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule);
+  const flags = (duelFlagsFor(options.masterRule) & ~OcgDuelMode.FIRST_TURN_DRAW)
+    | (firstTurnDraw ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
   const seed = parseSeed(options.seed);
   const cards = loadCardDatabase(options.dataDirectory);
   // Duels with more than two seats read the Lua overlay. 1v1 gets none, so its script text stays the original.

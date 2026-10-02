@@ -11,6 +11,8 @@ export interface GameOptions {
   settings?: DuelSettings;
   /** Seat and team layout; `decks` holds one deck per seat. Default `1v1`. */
   format?: DuelFormat;
+  /** Saved FIRST_TURN_DRAW flag. */
+  firstTurnDraw?: boolean;
   /** Lua chunks that run before the duel starts (hand scenarios). */
   startupScripts?: EngineStartupScript[];
 }

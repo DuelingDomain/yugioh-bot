@@ -106,6 +106,23 @@ Open the address and sign in with Discord.
 
 ## Normal use
 
+New duels save `setup.firstTurnDraw`, the resolved `DUEL_1ST_TURN_DRAW` flag, when they start.
+Worker recovery and all journal replay paths use this saved flag. The engine resource pin still checks the
+bundle and Lua overlay. A rule change alone does not change an existing duel's draw flag.
+
+Old records have no saved flag. Standard 1v1 and Tag used the stock Master Rule draw flag throughout these
+changes, and MR1/MR2 always drew on turn 1. The server can infer those rules. It cannot infer Domain
+MR3-MR5 or Standard FFA: commit `0fb46df` enabled the FFA draw, and commit `d4338a2` moved that draw to
+Domain only. These server changes did not change the resource pin. A creation date does not prove which
+server version started a duel. Recovery and replay refuse these ambiguous records with this message:
+"The first-turn draw rule was not saved for this duel. Its old rule cannot be determined safely; recovery
+and replay are unavailable." The saved final board remains available.
+
+Before deployment, let ambiguous active duels finish. To restore an old replay, first establish the server
+rule used at its start from deployment records, then save the flag in its setup: `true` for Standard FFA
+under `0fb46df`, `false` for Domain 1v1 or Tag before `d4338a2` (MR3-MR5). Do not set an old flag from the
+current mode or creation date alone. This change does not alter existing database rows.
+
 - **Update staging to a newer commit.** Push the branch. Run the workflow again with `action` = `deploy`.
   The staging database is kept. Staging is stopped during a deploy, so a duel that is running in staging at that time
   is set to `interrupted` (the engine install refuses a new bundle while a duel is active).

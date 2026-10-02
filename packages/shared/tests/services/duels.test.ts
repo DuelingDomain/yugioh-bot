@@ -93,6 +93,23 @@ function start(app: ReturnType<typeof setup>, slug: string, seed: string[] = ["s
 
 
 describe("duel persistence invariants", () => {
+  it.each([true, false])("stores the first-turn draw flag %s through setup updates", (firstTurnDraw) => {
+    const app = setup();
+    const session = readyDuel(app);
+    app.duels.activate(session.slug, "g1", app.p1, ["s"], "v", null, { ...{ firstTurnDraw } });
+    const saved = app.duels.privateState(session.slug, "g1").setup;
+    expect(saved).toEqual({ firstTurnDraw });
+    app.duels.setSetup(session.slug, "g1", { ...saved, surrenderedSeats: [1] });
+    expect(app.duels.privateState(session.slug, "g1").setup).toEqual({ firstTurnDraw, surrenderedSeats: [1] });
+  });
+
+  it("refuses a first-turn draw flag that is not a boolean", () => {
+    const app = setup();
+    const session = readyDuel(app);
+    expect(() => app.duels.activate(session.slug, "g1", app.p1, ["s"], "v", null,
+      { firstTurnDraw: "false" } as never)).toThrow("firstTurnDraw must be a boolean");
+  });
+
   it("claims distinct relational seats and refuses a third occupant", () => {
     const app = setup();
     const created = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Seat claim", mode: "normal" });
