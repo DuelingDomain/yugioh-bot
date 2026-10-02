@@ -86,7 +86,10 @@ const stableCases = [
 
 describeWithCores("first-turn draw survives real worker recovery and journal replay", [needs.standard(DATA), needs.domain(DATA),
   needs.installedMulti(DATA), ...needs.domainMulti(DATA, join(DATA, "ocgcore.multi-domain.wasm"))], () => {
-  it.each(oldCases)("$mode $format: an old-rule journal uses its stored flag on all replay paths", async ({ mode, format, firstTurnDraw }) => {
+  it.each([
+    ...oldCases.map((test) => ({ ...test, saved: true })),
+    ...(["1v1", "tag"] as const).map((format) => ({ mode: "domain" as const, format, firstTurnDraw: false, saved: false })),
+  ])("$mode $format: an old-rule journal (saved=$saved) uses its rule on all replay paths", async ({ mode, format, firstTurnDraw, saved }) => {
     const t = await table(mode, format);
     // Record the old rule on the real engine, with real end-turn answers. The saved flag
     // is the same FIRST_TURN_DRAW bit used before d4338a2 for Standard FFA and Domain 1v1/Tag.
@@ -94,8 +97,9 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     const history: DuelEngineView[][] = [];
     const commands: Array<{ seat: number; command: { promptId: string; revision: number; answer: { choice: string } } }> = [];
     try {
-      t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, { ...{ firstTurnDraw } });
-      expect(t.duels.privateState(t.session.slug, "g").setup).toMatchObject({ firstTurnDraw });
+      t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, saved ? { firstTurnDraw } : undefined);
+      if (saved) expect(t.duels.privateState(t.session.slug, "g").setup).toMatchObject({ firstTurnDraw });
+      else expect(t.duels.privateState(t.session.slug, "g").setup?.firstTurnDraw).toBeUndefined();
       for (let actor = 0; actor < t.count; actor++) {
         const views = Array.from({ length: t.count }, (_, viewer) => game.view(viewer));
         for (const view of views) checkDraws(view, firstTurnDraw, actor);
@@ -134,7 +138,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     const file = join(dir, "old-rule.json");
     writeFileSync(file, JSON.stringify({ format: "yugidraft-duel-journal/1", mode, tableFormat: format,
       masterRule: t.session.masterRule, seed, decks: t.decks, settings: t.session.settings,
-      bundleVersion: t.pin, setup: { firstTurnDraw }, commands }));
+      bundleVersion: t.pin, ...(saved ? { setup: { firstTurnDraw } } : {}), commands }));
     const replayed = await replaySource(loadSource(file), DATA, commands.length);
     expect(replayed.seats).toEqual(history.at(-1));
     const output = execFileSync("npx", ["tsx", "scripts/replay-journal.ts", file, "--data", DATA, "--json", "--views"],
@@ -190,7 +194,8 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     }
   }, 60_000);
 
-  it.each(oldCases)("$mode $format: a journal without a stored rule fails with a clear message", async ({ mode, format }) => {
+  it.each((["normal", "domain"] as const).flatMap((mode) =>
+    (["ffa3", "ffa4"] as const).map((format) => ({ mode, format }))))("$mode $format: a journal without a stored rule fails with a clear message", async ({ mode, format }) => {
     const t = await table(mode, format);
     t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null);
     const response = await t.post("view");

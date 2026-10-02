@@ -6,13 +6,14 @@ export function firstTurnDrawFor(mode: DuelMode, masterRule: DuelMasterRule = 5)
 }
 
 /**
- * A resource pin does not identify the server draw rule. Standard 1v1/Tag and MR1/MR2
- * did not change, so those old records have an unambiguous rule. Domain MR3-MR5 and
- * Standard FFA used different rules with the same pin: refuse to guess for them.
+ * A resource pin does not identify the server draw rule. Deployed 1v1/Tag duels used
+ * the stock Master Rule flags in both modes. d4338a2 and 42e66c3 were not deployed.
+ * FFA used different rules before and after 0fb46df with the same pin in both modes:
+ * refuse to guess for an old FFA record.
  */
 export function savedFirstTurnDraw(
   stored: unknown,
-  mode: DuelMode,
+  _mode: DuelMode,
   masterRule: DuelMasterRule = 5,
   format: DuelFormat = "1v1",
 ): boolean {
@@ -21,6 +22,6 @@ export function savedFirstTurnDraw(
     return stored;
   }
   if (masterRule <= 2) return true;
-  if (mode === "normal" && (format === "1v1" || format === "tag")) return false;
+  if (format === "1v1" || format === "tag") return false;
   throw new Error("The first-turn draw rule was not saved for this duel. Its old rule cannot be determined safely; recovery and replay are unavailable.");
 }
