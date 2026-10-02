@@ -35,14 +35,7 @@ Or push to `main` and let GitHub Actions deploy automatically.
 
 ## Backups
 
-```bash
-./scripts/backup-sqlite.sh
-```
-
-Optional daily cron:
-```cron
-0 3 * * * cd /opt/yugioh-bot && ./scripts/backup-sqlite.sh >> backup.log 2>&1
-```
+See the [runbook's Backups section](vm-runbook.md#backups) for automatic backups and restore instructions.
 
 ## Avoid
 

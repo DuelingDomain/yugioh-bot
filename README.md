@@ -261,7 +261,7 @@ For focused duel checks, run `npx vitest run tests/host.test.ts` from `packages/
 
 ## Backups
 
-Run `./scripts/backup-sqlite.sh` to create a timestamped SQLite backup in `./backups`.
+See the [runbook's Backups section](docs/deployment/vm-runbook.md#backups) for automatic backups and restore instructions.
 
 ## Project Structure
 

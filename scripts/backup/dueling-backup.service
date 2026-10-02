@@ -1,0 +1,13 @@
+[Unit]
+Description=Verified SQLite backup for the Dueling System
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/yugioh-bot/scripts/backup/dueling-backup
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+# Live WAL readers need write access to -shm: keep the data directory writable.
