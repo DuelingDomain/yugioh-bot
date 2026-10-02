@@ -181,8 +181,7 @@ test.describe("FFA surrender and spectators", () => {
       const nextSeat = format === "ffa4" ? 2 : 1;
       if (format === "ffa4") {
         await surrender(seats[1]!.page);
-        await summon(alice.page);
-        expect(viewSeat(await readTable(alice.page, slug), 1).eliminated).toBe(true);
+        await expect.poll(async () => viewSeat(await readTable(alice.page, slug), 1).pendingElimination).toBe(true);
       }
       await surrender(alice.page);
       await expect.poll(async () => (await readTable(seats[nextSeat]!.page, slug)).engine!.turnSeat).toBe(nextSeat);
@@ -190,6 +189,7 @@ test.describe("FFA surrender and spectators", () => {
       expect(room.engine!.turn).toBe(2);
       expect(room.engine!.prompt?.seat).toBe(nextSeat);
       expect(viewSeat(room, 0).eliminated).toBe(true);
+      if (format === "ffa4") expect(viewSeat(room, 1).eliminated).toBe(true);
       const log = await evidence(seats[nextSeat]!.page, slug, info, "own-turn-surrender-handoff", [room]);
       expect(log.filter(entry => entry.promptType === "action" && entry.turn === 2).map(entry => entry.promptSeat)).toEqual([nextSeat]);
       await expect(alice.page.locator("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
