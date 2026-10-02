@@ -1,4 +1,5 @@
 import type { DuelClock, DuelSettings } from "./settings.js";
+import type { DuelOpeningView } from "./opening.js";
 
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
@@ -28,6 +29,21 @@ export {
   PINNED_TCG_BANLIST_ID,
 } from "./settings.js";
 export type { DuelBanlistOption } from "./banlist-options.js";
+export type {
+  DuelFirstChoice,
+  DuelOpeningReveal,
+  DuelOpeningState,
+  DuelOpeningView,
+  DuelRpsMove,
+} from "./opening.js";
+export {
+  DUEL_OPENING_PICK_MS,
+  DUEL_OPENING_REVEAL_MS,
+  DUEL_RPS_MOVES,
+  isFirstChoice,
+  isRpsMove,
+  rpsWinner,
+} from "./opening.js";
 export type { DeckPoolIssue } from "./pool.js";
 export { checkDeckAgainstPool, deckCardCounts } from "./pool.js";
 export { DUEL_BANLIST_OPTIONS } from "./banlist-options.js";
@@ -405,6 +421,8 @@ export interface DuelRoom {
   series?: DuelSeriesSummary | null;
   /** The viewer's series decks when the viewer is a series player; otherwise null. */
   mySide?: DuelSeriesSideState | null;
+  /** Rock-paper-scissors before the game starts; null when there is none. */
+  opening?: DuelOpeningView | null;
 }
 
 /** A table row in the lobby list or match history, as seen by one viewer. */

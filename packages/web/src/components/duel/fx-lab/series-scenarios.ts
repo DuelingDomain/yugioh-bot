@@ -1,4 +1,4 @@
-import { newBoard, type LabScenario, type LabScript, type LabSeries, type SeatOptions } from "./board";
+import { newBoard, type LabOpening, type LabScenario, type LabScript, type LabSeries, type SeatOptions } from "./board";
 import { CARDS as C } from "./cards";
 
 /**
@@ -14,7 +14,74 @@ function seriesScript(series: LabSeries): LabScript {
   return { initial: newBoard(myHand, oppHand, "main1", 0), steps: [], tailMs: 1800, series };
 }
 
+function openingScript(opening: LabOpening): LabScript {
+  return { initial: newBoard(myHand, oppHand, "main1", 0), steps: [], tailMs: 1800, opening };
+}
+
 export const SERIES_SCENARIOS: LabScenario[] = [
+  {
+    id: "rps-choosing",
+    category: "Match",
+    name: "Rock-paper-scissors: choosing",
+    description: "Before the duel: pick rock, paper or scissors. The opponent is still choosing and a 30 second countdown runs. Clicks call the real API, which fails in the lab.",
+    build: () => openingScript({ stage: "pick" }),
+  },
+  {
+    id: "rps-waiting",
+    category: "Match",
+    name: "Rock-paper-scissors: waiting",
+    description: "You already chose. Your move is locked and you wait for the opponent. The pick stays hidden from both sides until both are in.",
+    build: () => openingScript({ stage: "pick-chosen" }),
+  },
+  {
+    id: "rps-opponent-chose",
+    category: "Match",
+    name: "Rock-paper-scissors: opponent chose",
+    description: "The opponent has played and you have not. The chip says Opponent chose, not what.",
+    build: () => openingScript({ stage: "pick", opponentChose: true }),
+  },
+  {
+    id: "rps-reveal-win",
+    category: "Match",
+    name: "Rock-paper-scissors: you win",
+    description: "Both moves show for a moment: your paper beats the opponent's rock. You win.",
+    build: () => openingScript({ stage: "reveal-win" }),
+  },
+  {
+    id: "rps-reveal-lose",
+    category: "Match",
+    name: "Rock-paper-scissors: you lose",
+    description: "Your rock loses to the opponent's paper. You lose.",
+    build: () => openingScript({ stage: "reveal-lose" }),
+  },
+  {
+    id: "rps-reveal-tie",
+    category: "Match",
+    name: "Rock-paper-scissors: tie",
+    description: "Both played scissors. Tie, again: the next round starts at once.",
+    build: () => openingScript({ stage: "reveal-tie" }),
+  },
+  {
+    id: "rps-choose-order",
+    category: "Match",
+    name: "Rock-paper-scissors: go first or second",
+    description: "The winner's choice: Go first or Go second. If the 30 seconds run out, the winner goes first.",
+    build: () => openingScript({ stage: "choose" }),
+  },
+  {
+    id: "rps-opponent-choosing",
+    category: "Match",
+    name: "Rock-paper-scissors: opponent chooses order",
+    description: "You lost the game. The opponent is choosing to go first or second.",
+    build: () => openingScript({ stage: "wait-choose" }),
+  },
+  {
+    id: "rps-start",
+    category: "Match",
+    name: "Rock-paper-scissors: order settled",
+    description: "The order is settled and the duel is about to start.",
+    build: () => openingScript({ stage: "start" }),
+  },
   {
     id: "match-label-game-2",
     category: "Match",

@@ -943,3 +943,101 @@ describe("duel lobby listing, history and leave", () => {
     expect(status(() => app.duels.leave(active.slug, "g1", app.p2))).toBe(409);
   });
 });
+
+describe("rock-paper-scissors opening", () => {
+  function lobby() {
+    const { db, duels, p1, p2 } = setup();
+    const room = duels.create({ guildId: "g1", organizerPlayerId: p1, name: "T", mode: "normal" });
+    duels.join(room.slug, "g1", p2);
+    duels.setDeck(room.slug, "g1", p1, validDeck(1));
+    duels.setDeck(room.slug, "g1", p2, validDeck(500));
+    return { db, duels, p1, p2, slug: room.slug };
+  }
+
+  it("starts only for the organizer with two ready seats", () => {
+    const { duels, p1, p2, slug } = lobby();
+    expect(() => duels.startOpening(slug, "g1", p2, 1000)).toThrow(/Only the organizer/);
+    const state = duels.startOpening(slug, "g1", p1, 1000);
+    expect(state.phase).toBe("rps");
+    expect(duels.startOpening(slug, "g1", p1, 2000)).toEqual(state);
+  });
+
+  it("refuses to start with an empty seat", () => {
+    const { db, duels, p1 } = setup();
+    const room = duels.create({ guildId: "g1", organizerPlayerId: p1, name: "T", mode: "normal" });
+    duels.setDeck(room.slug, "g1", p1, validDeck(1));
+    expect(() => duels.startOpening(room.slug, "g1", p1, 1000)).toThrow(DuelServiceError);
+    db.close();
+  });
+
+  it("freezes seats and decks while the opening runs", () => {
+    const { duels, p1, p2, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 1000);
+    expect(() => duels.setDeck(slug, "g1", p2, validDeck(900))).toThrow(/fixed/);
+    expect(() => duels.markReady(slug, "g1", p2)).toThrow(/fixed/);
+    expect(() => duels.leave(slug, "g1", p2)).toThrow(/fixed/);
+  });
+
+  it("never shows a pick to the other player in the room", () => {
+    const { duels, p1, p2, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 1000);
+    duels.submitOpeningPick(slug, "g1", 0, "rock", 1100);
+    expect(duels.room(slug, "g1", p1).opening?.myPick).toBe("rock");
+    const other = duels.room(slug, "g1", p2).opening;
+    expect(other?.myPick).toBeNull();
+    expect(other?.picked).toEqual([true, false]);
+    expect(JSON.stringify(other)).not.toContain("rock");
+  });
+
+  it("swaps the seats when the winner chooses to go second", () => {
+    const { duels, p1, p2, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 1000);
+    duels.submitOpeningPick(slug, "g1", 0, "rock", 1100);
+    duels.submitOpeningPick(slug, "g1", 1, "scissors", 1200);
+    const state = duels.submitOpeningChoice(slug, "g1", 0, "second", 1300);
+    expect(state.phase).toBe("start");
+    const seats = duels.get(slug, "g1").seats;
+    expect(seats.find((seat) => seat.seat === 0)?.playerId).toBe(p2);
+    expect(seats.find((seat) => seat.seat === 1)?.playerId).toBe(p1);
+    // The decks follow the players: seat 0 is now the second player's deck.
+    expect(duels.privateState(slug, "g1").decks[0]?.main[0]).toBe(500);
+    // The room shows the result in the new seat numbers.
+    const view = duels.room(slug, "g1", p1).opening;
+    expect(view?.winnerSeat).toBe(1);
+    expect(view?.reveal?.picks).toEqual(["scissors", "rock"]);
+  });
+
+  it("keeps the seats when the winner chooses to go first", () => {
+    const { duels, p1, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 1000);
+    duels.submitOpeningPick(slug, "g1", 0, "scissors", 1100);
+    duels.submitOpeningPick(slug, "g1", 1, "rock", 1200);
+    duels.submitOpeningChoice(slug, "g1", 1, "first", 1300);
+    const seats = duels.get(slug, "g1").seats;
+    expect(seats.find((seat) => seat.seat === 0)?.playerId).not.toBe(p1);
+  });
+
+  it("settles timeouts and lists due openings", () => {
+    const { duels, p1, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 0);
+    expect(duels.dueOpenings(29_999, 10)).toEqual([]);
+    expect(duels.dueOpenings(30_000, 10)).toEqual([{ slug, guildId: "g1" }]);
+    const randoms = [0, 0.5];
+    const settled = duels.settleOpening(slug, "g1", 30_000, () => randoms.shift() ?? 0);
+    expect(settled?.phase).toBe("choose");
+    const chosen = duels.settleOpening(slug, "g1", settled!.deadline);
+    expect(chosen?.phase).toBe("start");
+    expect(chosen?.choice).toBe("first");
+  });
+
+  it("clears the opening when the duel activates", () => {
+    const { duels, p1, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 0);
+    duels.submitOpeningPick(slug, "g1", 0, "rock", 1);
+    duels.submitOpeningPick(slug, "g1", 1, "paper", 2);
+    duels.submitOpeningChoice(slug, "g1", 1, "first", 3);
+    duels.activate(slug, "g1", p1, ["1", "2", "3", "4"], "bundle", null);
+    expect(duels.openingState(slug, "g1")).toBeNull();
+    expect(duels.room(slug, "g1", p1).opening).toBeNull();
+  });
+});

@@ -71,6 +71,15 @@ export type LabScript = {
   masterRule?: DuelMasterRule;
   /** A Best of 3 game: the header shows the game label; `screen` opens a between-games or match screen over the board. */
   series?: LabSeries;
+  /** The rock-paper-scissors opening: the screen opens over the board, in a lobby room. */
+  opening?: LabOpening;
+};
+
+/** What the opening part of a lab scenario shows. The buttons call the real API, which fails in the lab. */
+export type LabOpening = {
+  stage: "pick" | "pick-chosen" | "reveal-win" | "reveal-lose" | "reveal-tie" | "choose" | "wait-choose" | "start";
+  /** Opponent already played this round. */
+  opponentChose?: boolean;
 };
 
 /** What the series part of a Best of 3 lab scenario shows. Static for the whole run. */

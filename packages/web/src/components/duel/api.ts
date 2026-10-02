@@ -3,6 +3,7 @@ import type {
   DuelCardInfo,
   DuelCommand,
   DuelDeck,
+  DuelFirstChoice,
   DuelDeckValidation,
   DuelHistoryScope,
   DuelListItem,
@@ -10,6 +11,7 @@ import type {
   DuelMasterRule,
   DuelMode,
   DuelRoom,
+  DuelRpsMove,
   DuelSeriesSummary,
   DuelSession,
   DuelSettings,
@@ -192,6 +194,28 @@ export async function cancelSeries(seriesId: number): Promise<void> {
     const body: unknown = await res.json().catch(() => null);
     throw new DuelRequestError(errorMessage(body, res.status), res.status);
   }
+}
+
+/** Plays a rock-paper-scissors move in the opening. The pick is final. */
+export async function pickOpeningMove(slug: string, move: DuelRpsMove): Promise<DuelRoom> {
+  return parseBody(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/opening`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ move }),
+    }),
+  );
+}
+
+/** The opening winner chooses to go first or second. */
+export async function chooseOpeningOrder(slug: string, choice: DuelFirstChoice): Promise<DuelRoom> {
+  return parseBody(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/opening`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice }),
+    }),
+  );
 }
 
 export async function startDuel(slug: string): Promise<DuelRoom> {

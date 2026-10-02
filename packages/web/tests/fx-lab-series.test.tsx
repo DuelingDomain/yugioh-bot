@@ -24,7 +24,7 @@ function open(id: string) {
 
 describe("fx lab: Best of 3 scenarios", () => {
   it("lists the Match scenarios, each with a series", () => {
-    const ids = scenariosIn("Match").map((scenario) => scenario.id);
+    const ids = scenariosIn("Match").map((scenario) => scenario.id).filter((id) => !id.startsWith("rps-"));
     expect(ids).toEqual([
       "match-label-game-2",
       "match-label-game-3",

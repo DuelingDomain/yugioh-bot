@@ -24,7 +24,7 @@ import fx from "./fx-lab.module.css";
 import { applyEdits, numberSteps, scriptDurationMs, type LabBoard, type LabScenario, type LabScript } from "./board";
 import { LAB_CATEGORIES, LAB_SCENARIOS, findScenario, scenariosIn } from "./scenarios";
 import { installTimeShim, type TimeShim } from "./time-shim";
-import { labSeriesRoom, SeriesLabHeader, SeriesLabScreen } from "./series-view";
+import { labSeriesRoom, OpeningLabScreen, SeriesLabHeader, SeriesLabScreen } from "./series-view";
 
 /**
  * The FX lab: the real duel board and effect layers, fed by a scripted engine instead of a server.
@@ -439,6 +439,9 @@ export function FxLab() {
       ) : null}
       {seriesRoom && script.series && status !== "idle" ? (
         <SeriesLabScreen key={`${scenario.id}-${live.runKey}`} room={seriesRoom} spec={script.series} reduced={reduced} sound={sound} />
+      ) : null}
+      {script.opening && status !== "idle" ? (
+        <OpeningLabScreen key={`${scenario.id}-${live.runKey}`} spec={script.opening} />
       ) : null}
       {result ? (
         <DuelResultScreen

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import type { DuelDeck, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
+import { useMemo, useState } from "react";
+import type { DuelDeck, DuelOpeningView, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { SeriesGameLabel } from "../series-banner";
 import { DuelResultScreen } from "../duel-result";
 import { SideDeckPanel } from "../side-deck-panel";
 import styles from "../room.module.css";
-import type { LabBoard, LabSeries } from "./board";
+import { OpeningScreen } from "../opening";
+import type { LabBoard, LabOpening, LabSeries } from "./board";
 import { CARDS as C } from "./cards";
 
 /**
@@ -137,4 +138,33 @@ export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom
       onClose={() => setClosed(true)} onExit={() => setClosed(true)}
       onOpenSide={() => setSide(true)} onSeriesChanged={() => undefined} onNavigate={() => undefined} />
   );
+}
+
+/** The opening view a lab scenario stands for. You are seat 0; the deadline is set when the scenario plays. */
+export function labOpeningView(spec: LabOpening, now = Date.now()): DuelOpeningView {
+  const base: DuelOpeningView = {
+    phase: "rps", round: 1, deadlineAt: new Date(now + 30_000).toISOString(), picked: [false, spec.opponentChose === true],
+    myPick: null, reveal: null, winnerSeat: null, choice: null, choiceByTimeout: false,
+  };
+  // A reveal is on screen for 3 s: the deadline carries that time plus the next 30 s step.
+  const afterReveal = new Date(now + 33_000).toISOString();
+  switch (spec.stage) {
+    case "pick": return base;
+    case "pick-chosen": return { ...base, picked: [true, spec.opponentChose === true], myPick: "paper" };
+    case "reveal-win": return { ...base, phase: "choose", deadlineAt: afterReveal, winnerSeat: 0, picked: [true, true], reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } };
+    case "reveal-lose": return { ...base, phase: "choose", deadlineAt: afterReveal, winnerSeat: 1, picked: [true, true], reveal: { round: 1, picks: ["rock", "paper"], winnerSeat: 1 } };
+    case "reveal-tie": return { ...base, round: 2, deadlineAt: afterReveal, reveal: { round: 1, picks: ["scissors", "scissors"], winnerSeat: null } };
+    case "choose": return { ...base, phase: "choose", winnerSeat: 0, picked: [true, true], reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } };
+    case "wait-choose": return { ...base, phase: "choose", winnerSeat: 1, picked: [true, true], reveal: { round: 1, picks: ["rock", "paper"], winnerSeat: 1 } };
+    case "start": return { ...base, phase: "start", winnerSeat: 0, choice: "first", picked: [true, true], reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } };
+  }
+}
+
+/** The real opening screen over the lab board. The reveal and the choice are on a fresh deadline each run. */
+export function OpeningLabScreen({ spec }: { spec: LabOpening }) {
+  // A reveal stage opens with its 3 s reveal still to play; the other stages open after it.
+  const opening = useMemo(() => labOpeningView(spec), [spec]);
+  const [error, setError] = useState<string | null>(null);
+  const fail = () => setError("The lab has no server: this button calls the real API.");
+  return <OpeningScreen opening={opening} mySeat={0} names={NAMES} error={error} onPick={fail} onChoose={fail} />;
 }

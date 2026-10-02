@@ -14,6 +14,8 @@ import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import {
   acceptDuelInvite,
   addPracticeBot,
+  chooseOpeningOrder,
+  pickOpeningMove,
   removePracticeBot,
   archiveDuel,
   cancelDuel,
@@ -28,6 +30,7 @@ import {
   surrenderDuel,
 } from "./api";
 import { RoomLobby } from "./room-lobby";
+import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
@@ -470,6 +473,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     return () => window.clearInterval(timer);
   }, [seriesWaiting, refreshRoom]);
 
+  // The rock-paper-scissors opening runs on the server clock; poll in case the socket misses a step.
+  const openingRunning = data?.opening != null && data.session.status === "lobby";
+  useEffect(() => {
+    if (!openingRunning) return undefined;
+    const timer = window.setInterval(() => void refreshRoom(), 1500);
+    return () => window.clearInterval(timer);
+  }, [openingRunning, refreshRoom]);
+
   const onSubmitAnswer = useCallback(
     (answer: DuelAnswer) => {
       if (!data?.engine || !prompt || error || catchingUp || data.mySeat !== prompt.seat ||
@@ -620,7 +631,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     hasResult: Boolean(data.engine?.result), starting, windowOpened,
   });
   if (data.session.status === "lobby" && !ownWindowGate) {
-    return (
+    const opening = data.opening;
+    const lobby = (
       <RoomLobby room={data} slug={slug} busy={busy} starting={starting} actionError={actionError}
         onDeckLocked={() => void refreshRoom()}
         onJoin={() => void run(() => joinDuel(slug))}
@@ -650,6 +662,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           router.replace("/duels");
         })}
       />
+    );
+    if (!opening) return lobby;
+    const seatName = (seat: number) => data.session.seats.find((entry) => entry.seat === seat)?.displayName ?? `Player ${seat + 1}`;
+    return (
+      <>
+        {lobby}
+        <OpeningScreen opening={opening} mySeat={data.mySeat} names={[seatName(0), seatName(1)]} busy={busy} error={actionError}
+          onPick={(move) => void run(() => pickOpeningMove(slug, move))}
+          onChoose={(choice) => void run(() => chooseOpeningOrder(slug, choice))} />
+      </>
     );
   }
 
