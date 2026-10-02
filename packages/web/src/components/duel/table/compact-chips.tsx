@@ -23,6 +23,7 @@ import type { DuelActivateHandler, DuelHoverHandler } from "../field";
 import type { InspectTarget } from "../inspector";
 import { hexToRgbTriplet } from "./seat-angle";
 import { SEAT_TONE_HEX, type SeatTone } from "./types";
+import fieldStyles from "../field.module.css";
 import styles from "./compact-chips.module.css";
 
 type CssVars = CSSProperties & Record<`--${string}`, string | number>;
@@ -133,7 +134,7 @@ export function CompactChips({ engine, seat, tone, name, rotateDeg, scale, usabl
         {value ? <span className={styles.value}>{value}</span> : null}
         {(legal || selected) && (usable || selected) ? (
           <>
-            <span className={styles.glow} data-state={selected ? "picked" : "usable"} aria-hidden="true" />
+            <span className={fieldStyles.glow} data-state={selected ? "picked" : "usable"} style={{ "--r": "6px" } as CssVars} aria-hidden="true" />
             <span className={styles.tag} aria-hidden="true">{selected ? <Check strokeWidth={2.6} /> : <Hand strokeWidth={2.2} />}</span>
           </>
         ) : null}

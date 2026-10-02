@@ -116,28 +116,7 @@
   pointer-events: none;
 }
 
-/* Usable or pickable: a soft glow and a small chip on top, never a dashed outline and never a dim. */
-.glow {
-  position: absolute;
-  inset: -1px;
-  z-index: 4;
-  border-radius: 6px;
-  box-shadow:
-    0 0 8px 2px rgb(155 126 255 / 0.9),
-    0 0 20px 5px rgb(155 126 255 / 0.5),
-    0 0 34px 8px rgb(155 126 255 / 0.22);
-  animation: breathe 2.6s ease-in-out infinite;
-  pointer-events: none;
-}
-
-.glow[data-state="picked"] {
-  box-shadow:
-    0 0 4px 2px rgb(244 214 144 / 0.95),
-    0 0 14px 5px rgb(155 126 255 / 1),
-    0 0 30px 10px rgb(155 126 255 / 0.6);
-  animation: none;
-}
-
+/* Usable or pickable: the shared card glow of field.module.css (.glow), and a small chip on top. Never a dashed outline, never a dim. */
 .tag {
   position: absolute;
   top: -16px;
@@ -204,68 +183,4 @@
 .pile[data-legal="true"] {
   border-color: rgb(155 126 255 / 0.9);
   box-shadow: 0 0 10px 1px rgb(155 126 255 / 0.55);
-}
-
-@keyframes breathe {
-  0%,
-  100% {
-    opacity: 0.65;
-  }
-
-  50% {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .glow {
-    animation: none;
-  }
-}
-
-/* The lens: a larger card beside the hovered chip. It lives in the page body, so it uses real pixels. */
-.lens {
-  position: fixed;
-  z-index: 210;
-  width: 176px;
-  padding: 8px;
-  border: 1px solid rgb(var(--t) / 0.7);
-  border-radius: 8px;
-  background: rgb(9 12 24 / 0.96);
-  box-shadow: 0 20px 40px -10px #000;
-  color: #eceaf5;
-  font-size: 13px;
-  pointer-events: none;
-}
-
-.lens img,
-.lensBack {
-  display: block;
-  width: 100%;
-  aspect-ratio: 59 / 86;
-  border-radius: 4px;
-  object-fit: cover;
-}
-
-.lensBack {
-  background: #120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat;
-  border: 1px solid #b08a3e;
-}
-
-.lens b {
-  display: block;
-  margin-top: 6px;
-  font-weight: 600;
-}
-
-.lens span {
-  color: #cfcce0;
-  font: 600 15px var(--font-duel-num, var(--f-ui, sans-serif));
-}
-
-.lens em {
-  display: block;
-  color: var(--tink);
-  font-size: 12px;
-  line-height: 1.25;
 }
