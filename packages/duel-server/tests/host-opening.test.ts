@@ -29,7 +29,11 @@ class FakeWorker implements DuelGameWorker {
   result: DuelEngineView["result"] = null;
   private stopped = false;
   get running() { return !this.stopped; }
-  async create(options: GameOptions) { this.createdOptions = options; }
+  constructor(private readonly failCreate = false) {}
+  async create(options: GameOptions) {
+    if (this.failCreate) throw new Error("engine did not start");
+    this.createdOptions = options;
+  }
   async view(seat: number | null) { return fakeView(seat, this.result); }
   async answer(_seat: number, _promptId: string, _answer: DuelAnswer) {}
   async search(_query: string): Promise<DuelCardInfo[]> { return []; }
@@ -53,14 +57,15 @@ type App = ReturnType<typeof setup>;
 
 function openHost(app: App, random: () => number = Math.random) {
   const workers: FakeWorker[] = [];
+  const control = { failCreate: false };
   const host = createDuelHost({
     db: app.db, dataDirectory: DATA, secret: SECRET, searchCards: () => [],
     archiveAfterMs: 60 * 60 * 1000, idleWorkerMs: 60 * 60 * 1000, pollIntervalMs: 60 * 60 * 1000,
     openingRps: true, random,
-    createWorker: () => { const worker = new FakeWorker(); workers.push(worker); return worker; },
+    createWorker: () => { const worker = new FakeWorker(control.failCreate); workers.push(worker); return worker; },
   });
   hosts.push(host);
-  return { host, workers };
+  return { host, workers, control };
 }
 
 async function post(host: DuelHost, body: Record<string, unknown>) {
@@ -203,7 +208,8 @@ describe("rock-paper-scissors opening", () => {
     expect(view.data.opening.round).toBe(2);
   });
 
-  it("plays against the practice bot: the bot picks at random and goes first when it wins", async () => {
+  it("plays against the practice bot: the human sees the result first, then the bot goes first when it wins", async () => {
+    vi.useFakeTimers();
     const app = setup();
     // The bot's random pick: index 1 is paper.
     const randoms = [0.5];
@@ -218,10 +224,43 @@ describe("rock-paper-scissors opening", () => {
     expect(start.data.opening.picked).toEqual([false, true]);
     expect(start.data.opening.myPick).toBeNull();
 
-    const won = await post(host, { op: "opening-pick", slug: table.slug, playerId: app.p1, move: "rock" });
-    // Rock loses to paper, the bot won and chose to go first: the bot sits in seat 0.
-    expect(won.data.session.status).toBe("active");
-    expect(won.data.session.seats.find((seat: any) => seat.seat === 0).isBot).toBe(true);
+    const lost = await post(host, { op: "opening-pick", slug: table.slug, playerId: app.p1, move: "rock" });
+    // Rock loses to paper. The bot won, but the human first gets to see both hands and the result.
+    expect(lost.data.session.status).toBe("lobby");
+    expect(lost.data.opening.phase).toBe("choose");
+    expect(lost.data.opening.winnerSeat).toBe(1);
+    expect(lost.data.opening.reveal.picks).toEqual(["rock", "paper"]);
+    expect(workers).toHaveLength(0);
+
+    // A look at the room during the reveal does not start the duel either.
+    await vi.advanceTimersByTimeAsync(2_000);
+    const during = await post(host, { op: "view", slug: table.slug, playerId: app.p1 });
+    expect(during.data.session.status).toBe("lobby");
+    expect(workers).toHaveLength(0);
+
+    // The reveal ends: the bot chooses to go first and the duel starts.
+    await vi.advanceTimersByTimeAsync(1_500);
+    await settle();
+    expect(app.duels.get(table.slug, GUILD).status).toBe("active");
+    expect(app.duels.get(table.slug, GUILD).seats.find((seat) => seat.seat === 0)?.isBot).toBe(true);
+    expect(workers).toHaveLength(1);
+  });
+
+  it("starts the duel when somebody looks at the room after the bot's reveal ended", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const randoms = [0.5];
+    const { host, workers } = openHost(app, () => randoms.shift() ?? 0);
+    const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal" });
+    app.duels.setDeck(table.slug, GUILD, app.p1, deckFor());
+    app.duels.markReady(table.slug, GUILD, app.p1);
+    await post(host, { op: "add-bot", slug: table.slug, playerId: app.p1 });
+    await post(host, { op: "start", slug: table.slug, playerId: app.p1 });
+    await post(host, { op: "opening-pick", slug: table.slug, playerId: app.p1, move: "rock" });
+    // The timer is lost (a restart): only the room view can notice the bot's choice is due.
+    vi.setSystemTime(Date.now() + 3_500);
+    const view = await post(host, { op: "view", slug: table.slug, playerId: app.p1 });
+    expect(view.data.session.status).toBe("active");
     expect(workers).toHaveLength(1);
   });
 
@@ -242,6 +281,50 @@ describe("rock-paper-scissors opening", () => {
     const chosen = await post(host, { op: "opening-choose", slug: table.slug, playerId: app.p1, choice: "second" });
     expect(chosen.data.session.status).toBe("active");
     expect(chosen.data.session.seats.find((seat: any) => seat.seat === 1).playerId).toBe(app.p1);
+  });
+
+  it("does not start a series game again on every room view after a failed start", async () => {
+    const app = setup();
+    const { host, workers, control } = openHost(app);
+    const { duel } = app.series.createChallenge({
+      guildId: GUILD, challengerPlayerId: app.p1, opponentPlayerId: app.p2, bestOf: 3, ranked: false, mode: "normal",
+    });
+    await post(host, { op: "deck", slug: duel.slug, playerId: app.p1, deck: deckFor() });
+    await post(host, { op: "deck", slug: duel.slug, playerId: app.p2, deck: deckFor(true) });
+    const seat0 = seatPlayer(app, duel.slug, 0)!;
+    const seat1 = seatPlayer(app, duel.slug, 1)!;
+    await post(host, { op: "opening-pick", slug: duel.slug, playerId: seat0, move: "rock" });
+    await post(host, { op: "opening-pick", slug: duel.slug, playerId: seat1, move: "scissors" });
+    control.failCreate = true;
+    const chosen = await post(host, { op: "opening-choose", slug: duel.slug, playerId: seat0, choice: "first" });
+    expect(chosen.data.session.status).toBe("lobby");
+    expect(workers).toHaveLength(1);
+    // The settled opening is past its deadline, but the start waits out its backoff.
+    for (let i = 0; i < 4; i++) await post(host, { op: "view", slug: duel.slug, playerId: seat1 });
+    await post(host, { op: "start", slug: duel.slug, playerId: seat1 });
+    expect(workers).toHaveLength(1);
+    expect(app.duels.openingState(duel.slug, GUILD)?.phase).toBe("start");
+  });
+
+  it("frees a table that failed to start after the opening, and shows the error", async () => {
+    const app = setup();
+    const { host, workers, control } = openHost(app);
+    const slug = openTable(app);
+    await post(host, { op: "start", slug, playerId: app.p1 });
+    await post(host, { op: "opening-pick", slug, playerId: app.p1, move: "rock" });
+    await post(host, { op: "opening-pick", slug, playerId: app.p2, move: "scissors" });
+    control.failCreate = true;
+    const failed = await post(host, { op: "opening-choose", slug, playerId: app.p1, choice: "first" });
+    expect(failed.status).toBeGreaterThanOrEqual(400);
+    expect(workers).toHaveLength(1);
+    expect(app.duels.get(slug, GUILD).status).toBe("lobby");
+    expect(app.duels.openingState(slug, GUILD)).toBeNull();
+    // The lobby is editable again and the organizer can start over.
+    const swapped = await post(host, { op: "deck", slug, playerId: app.p2, deck: deckFor() });
+    expect(swapped.status).toBe(200);
+    control.failCreate = false;
+    const again = await post(host, { op: "start", slug, playerId: app.p1 });
+    expect(again.data.opening.phase).toBe("rps");
   });
 
   it("plays the opening for game 1 of a match, and not for game 2", async () => {

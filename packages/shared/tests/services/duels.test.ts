@@ -1030,6 +1030,18 @@ describe("rock-paper-scissors opening", () => {
     expect(chosen?.choice).toBe("first");
   });
 
+  it("drops a settled opening so the lobby can change again", () => {
+    const { duels, p1, p2, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 0);
+    expect(() => duels.leave(slug, "g1", p2)).toThrow(/Seats and decks are fixed/);
+    duels.abortOpening(slug, "g1");
+    expect(duels.openingState(slug, "g1")).toBeNull();
+    expect(duels.room(slug, "g1", p1).opening).toBeNull();
+    expect(() => duels.leave(slug, "g1", p2)).not.toThrow();
+    // Nothing to drop: no error.
+    duels.abortOpening(slug, "g1");
+  });
+
   it("clears the opening when the duel activates", () => {
     const { duels, p1, slug } = lobby();
     duels.startOpening(slug, "g1", p1, 0);

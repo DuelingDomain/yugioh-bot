@@ -18,7 +18,9 @@ import type {
   DuelSession,
   DuelSettings,
 } from "@yugidraft/shared/duels";
-import { CardQueryError, isFirstChoice, isRpsMove, normalizeDuelSettings, parseCardQuery, DUEL_RPS_MOVES } from "@yugidraft/shared/duels";
+import {
+  CardQueryError, isFirstChoice, isRpsMove, normalizeDuelSettings, parseCardQuery, DUEL_OPENING_PICK_MS, DUEL_RPS_MOVES,
+} from "@yugidraft/shared/duels";
 import { GameWorker, type DuelGameWorker, type GameOptions } from "./worker-client.js";
 import { DeckLegalityError, inspectDeck, validateDeck } from "./deck-legality.js";
 import { normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
@@ -900,16 +902,30 @@ export function createDuelHost(options: {
     clearTimeout(timer);
   }
 
-  /** Fires `driveOpening` at the phase deadline. A running timer for the slug is replaced. */
+  /**
+   * The practice bot chooses first or second only after the reveal of the round it won, so the human sees both
+   * hands and the result before the duel starts.
+   */
+  function botChoiceAt(winnerSeat: 0 | 1 | null, deadline: number, seats: ReadonlyArray<{ seat: number; isBot: boolean }>): number | null {
+    if (winnerSeat === null || !seats.some((seat) => seat.isBot && seat.seat === winnerSeat)) return null;
+    return deadline - DUEL_OPENING_PICK_MS;
+  }
+
+  /** Fires `driveOpening` at the phase deadline, or when the bot's choice is due. A running timer for the slug is replaced. */
   function scheduleOpening(slug: string, guildId: string, state: DuelOpeningState): void {
     clearOpeningTimer(slug);
     if (stopped || state.phase === "start") return;
+    let wakeAt = state.deadline;
+    if (state.phase === "choose") {
+      const botAt = botChoiceAt(state.winnerSeat, state.deadline, service.get(slug, guildId).seats);
+      if (botAt !== null && botAt > now()) wakeAt = botAt;
+    }
     const timer = setTimeout(() => {
       openingTimers.delete(slug);
       void enqueue(slug, () => driveOpening(slug, guildId)).catch((error) => {
         console.warn("[duel] opening step failed", error);
       });
-    }, Math.min(MAX_TIMER_MS, Math.max(0, state.deadline - now())));
+    }, Math.min(MAX_TIMER_MS, Math.max(0, wakeAt - now())));
     timer.unref();
     openingTimers.set(slug, timer);
   }
@@ -940,8 +956,8 @@ export function createDuelHost(options: {
           const move = DUEL_RPS_MOVES[Math.min(2, Math.floor(random() * 3))]!;
           state = service.submitOpeningPick(slug, guildId, seat, move, now());
           acted = true;
-        } else if (state.phase === "choose" && state.winnerSeat === seat) {
-          // The bot always takes the first turn.
+        } else if (state.phase === "choose" && state.winnerSeat === seat && now() >= (botChoiceAt(seat, state.deadline, [{ seat, isBot: true }]) ?? 0)) {
+          // The bot always takes the first turn, once the reveal of its win is over.
           state = service.submitOpeningChoice(slug, guildId, seat, "first", now());
           acted = true;
         }
@@ -955,13 +971,24 @@ export function createDuelHost(options: {
       await emitChange(slug, guildId);
       return;
     }
+    // After a failed start, a room view or a poll must not start the duel again before the backoff ends.
+    if ((startBackoff.get(slug)?.retryAt ?? 0) > now()) return;
     clearOpeningTimer(slug);
     await emitChange(slug, guildId);
-    // The seats are in their final order. A failed start is retried by the tick sweep.
+    // The seats are in their final order. A failed start of a series game is retried by the tick sweep.
     try {
       await startGame(slug, guildId, state.startedBy);
       startBackoff.delete(slug);
     } catch (error) {
+      const session = service.get(slug, guildId);
+      if (!session.seriesId && session.status === "lobby") {
+        // Nobody retries a start for a table. Give the lobby back to its players, and show them the error.
+        service.abortOpening(slug, guildId);
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[duel] duel ${slug} did not start after the opening: ${reason}`);
+        await emitChange(slug, guildId);
+        throw error;
+      }
       noteStartFailure(slug, error);
       await emitChange(slug, guildId);
       if (error instanceof DeckLegalityError || error instanceof RequestError) throw error;
@@ -1115,8 +1142,10 @@ export function createDuelHost(options: {
     const room = service.room(slug, guildId, actor);
     if (op === "view") {
       // A timeout that no timer caught yet (a restart, a late timer) is applied here.
-      if (room.session.status === "lobby" && room.opening && Date.parse(room.opening.deadlineAt) <= now()) {
-        await driveOpening(slug, guildId);
+      if (room.session.status === "lobby" && room.opening) {
+        const deadline = Date.parse(room.opening.deadlineAt);
+        const botAt = room.opening.phase === "choose" ? botChoiceAt(room.opening.winnerSeat, deadline, room.session.seats) : null;
+        if (deadline <= now() || (botAt !== null && botAt <= now())) await driveOpening(slug, guildId);
       }
       if (service.get(slug, guildId).status === "active") {
         const game = await recover(slug, guildId);

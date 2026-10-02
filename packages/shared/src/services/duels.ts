@@ -169,6 +169,11 @@ export interface DuelService {
   submitOpeningChoice(slug: string, guildId: string, seat: number, choice: DuelFirstChoice, at: number): DuelOpeningState;
   /** Applies the timeouts: random picks, and "go first" for a winner who did not choose. */
   settleOpening(slug: string, guildId: string, at: number, random?: () => number): DuelOpeningState | null;
+  /**
+   * Drops the opening of a lobby duel, so decks, seats and the bot can change again. The host uses it when the
+   * duel failed to start after the opening. Seats keep the order the opening gave them.
+   */
+  abortOpening(slug: string, guildId: string): void;
   /** Duels whose opening phase has timed out, or whose settled opening still waits for the duel to start. */
   dueOpenings(now: number, limit: number): Array<{ slug: string; guildId: string }>;
 }
@@ -1132,6 +1137,11 @@ export function createDuelService(db: Database.Database): DuelService {
       const row = loadDuelRow(slug, guildId);
       if (row.status !== "lobby" || !parseOpening(row.opening_json)) return parseOpening(row.opening_json);
       return openingStepTx(slug, guildId, (state) => settleOpening(state, at, random));
+    },
+
+    abortOpening(slug, guildId) {
+      const row = loadDuelRow(slug, guildId);
+      if (row.status === "lobby" && row.opening_json) storeOpening(row.id, null);
     },
 
     dueOpenings(now, limit) {
