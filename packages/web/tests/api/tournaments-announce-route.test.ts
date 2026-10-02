@@ -26,6 +26,7 @@ describe("POST /api/tournaments/[slug]/announce", () => {
 
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
     fetchSpy.mockReset();
     fetchSpy.mockResolvedValue(new Response(null, { status: 204 }));

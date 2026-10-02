@@ -43,11 +43,13 @@ const get = () => new Request("http://localhost/x") as never;
 describe("tournament deck route", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
     callDuelHost.mockReset();
     auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
   });
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.DATABASE_PATH;
     while (tempDirs.length) {
       const d = tempDirs.pop();

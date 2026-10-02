@@ -44,11 +44,7 @@ describe("POST /api/drafts (theme mode)", () => {
   it.each([undefined, {}, { "999": 1 }, { "1": null }, { "1": 3 }])(
     "rejects host assignment without an allowed theme for the creator (%j)",
     async (themeAssignments) => {
-      const tempDir = mkdtempSync(join(tmpdir(), "yugioh-theme-create-"));
-      tempDirs.push(tempDir);
-      process.env.DATABASE_PATH = join(tempDir, "theme-create.sqlite");
-      process.env.DISCORD_GUILD_ID = "guild-1";
-      process.env.DISCORD_DEFAULT_CHANNEL_ID = "channel-1";
+      const db = await setupHostCreation();
 
       const { POST } = await import("../app/api/drafts/route");
       const response = await POST(new Request("http://localhost/api/drafts", {
@@ -61,8 +57,7 @@ describe("POST /api/drafts (theme mode)", () => {
 
       expect(response.status).toBe(400);
       expect((await response.json()).error).toMatch(/assignment for every player/i);
-      const { getDb } = await import("@/lib/db");
-      expect(getDb().prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
+      expect(db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
     },
   );
 
@@ -98,8 +93,8 @@ describe("POST /api/drafts (theme mode)", () => {
       }),
     }) as NextRequest);
 
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toMatch(/exist.*draft.*guild/i);
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toBe("Cube not found");
     expect(db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
   });
 

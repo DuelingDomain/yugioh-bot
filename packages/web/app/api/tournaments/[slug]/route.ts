@@ -32,7 +32,7 @@ type TournamentRow = {
 class SettingsUpdateError extends Error {}
 
 function resolveTournamentBySlug(db: ReturnType<typeof getDb>, slug: string): TournamentRow | undefined {
-  return db.prepare("select * from tournaments where web_slug = ?").get(slug) as TournamentRow | undefined;
+  return db.prepare("select * from tournaments where web_slug = ? and guild_id = ?").get(slug, env.discordGuildId) as TournamentRow | undefined;
 }
 
 export async function GET(
@@ -131,7 +131,7 @@ export async function GET(
     const duelRules = tournamentDuels.rules(tournamentId);
     const rulesLocked = tournamentDuels.rulesLocked(tournamentId);
     const draftSlug = duelRules.draftId
-      ? ((db.prepare("select web_slug from drafts where id = ?").get(duelRules.draftId) as
+      ? ((db.prepare("select web_slug from drafts where id = ? and guild_id = ?").get(duelRules.draftId, tournament.guild_id) as
           | { web_slug: string | null }
           | undefined)?.web_slug ?? null)
       : null;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
 import { analyzeCube, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
@@ -137,10 +138,14 @@ export async function PUT(
 
     const body = await request.json();
     const { name, config } = body as { name?: string; config?: unknown };
+
     const drafts = createDraftService(db);
-    const draftModel = drafts.findById(draft.id);
-    const mergedConfig = config === undefined ? undefined : { ...draftModel.config, ...(config as object) };
-    const assignmentError = hostThemeAssignmentError(db, draftModel.guildId, mergedConfig ?? draftModel.config, drafts.players(draft.id).map((p) => p.playerId));
+    const existing = drafts.findById(draft.id);
+    const mergedConfig = { ...existing.config, ...(config as object) };
+    // Edits can retain library cubes deleted since attachment, including in the request body.
+    const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds, { allowMissing: true });
+    if (denied) return denied;
+    const assignmentError = hostThemeAssignmentError(db, existing.guildId, mergedConfig, drafts.players(draft.id).map((p) => p.playerId));
     if (assignmentError) {
       return NextResponse.json({ error: assignmentError }, { status: 400 });
     }
@@ -165,56 +170,56 @@ export async function PUT(
 
     let analysisWarnings: ReturnType<typeof analyzeCube> | undefined;
 
-    if (mergedConfig) {
-      if (mergedConfig.mode !== "theme") {
-        // The submitted config redefines the pool (sets + custom passcodes), so
-        // any previously materialized ids are stale. Drop them before resolving —
-        // otherwise resolveCubeCardIds returns the old snapshot and edits like
-        // removing a card never take effect in the saved pool.
-        delete (mergedConfig as { cubeCardIds?: number[] }).cubeCardIds;
-        delete (mergedConfig as { poolCardIds?: number[] }).poolCardIds;
+    if (config !== undefined && mergedConfig.mode !== "theme") {
+      // The submitted config redefines the pool (sets + custom passcodes), so
+      // any previously materialized ids are stale. Drop them before resolving —
+      // otherwise resolveCubeCardIds returns the old snapshot and edits like
+      // removing a card never take effect in the saved pool.
+      delete (mergedConfig as { cubeCardIds?: number[] }).cubeCardIds;
+      delete (mergedConfig as { poolCardIds?: number[] }).poolCardIds;
 
-        const clampedPacks = Math.min(10, Math.max(1, Number((mergedConfig as any).packsPerPlayer) || 5));
-        (mergedConfig as any).packsPerPlayer = clampedPacks;
-        (mergedConfig as any).packSize = Math.ceil(40 / clampedPacks);
+      const clampedPacks = Math.min(10, Math.max(1, Number((mergedConfig as any).packsPerPlayer) || 5));
+      (mergedConfig as any).packsPerPlayer = clampedPacks;
+      (mergedConfig as any).packSize = Math.ceil(40 / clampedPacks);
 
-        const hasPool =
-          ((mergedConfig as any).setNames?.length ?? 0) > 0 ||
-          ((mergedConfig as any).customCardIds?.length ?? 0) > 0;
-        if (!hasPool) {
-          return NextResponse.json(
-            { error: "Select at least one set or paste custom card IDs" },
-            { status: 400 }
-          );
-        }
-
-        const cards = createCardCatalogService(db);
-        await cards.syncDraftPool({
-          setNames: (mergedConfig as any).setNames ?? [],
-          customCardIds: (mergedConfig as any).customCardIds ?? [],
-          includeNames: (mergedConfig as any).includeNames ?? [],
-          excludeNames: (mergedConfig as any).excludeNames ?? [],
-        });
-        const cubeCardIds = drafts.resolveCubeCardIds(mergedConfig as any);
-        if (cubeCardIds.length === 0) {
-          return NextResponse.json(
-            { error: "No cards matched the selected sets / passcodes" },
-            { status: 400 }
-          );
-        }
-
-        // Advisory feasibility check at edit time (min start count = 2 players).
-        // Non-blocking: startDraft is the authoritative gate.
-        analysisWarnings = analyzeCube(
-          cubeCardIds,
-          2,
-          (mergedConfig as any).packsPerPlayer ?? 5,
-          (mergedConfig as any).packSize ?? 8,
+      const hasPool =
+        ((mergedConfig as any).setNames?.length ?? 0) > 0 ||
+        ((mergedConfig as any).customCardIds?.length ?? 0) > 0;
+      if (!hasPool) {
+        return NextResponse.json(
+          { error: "Select at least one set or paste custom card IDs" },
+          { status: 400 }
         );
-
-        (mergedConfig as any).cubeCardIds = cubeCardIds;
       }
 
+      const cards = createCardCatalogService(db);
+      await cards.syncDraftPool({
+        setNames: (mergedConfig as any).setNames ?? [],
+        customCardIds: (mergedConfig as any).customCardIds ?? [],
+        includeNames: (mergedConfig as any).includeNames ?? [],
+        excludeNames: (mergedConfig as any).excludeNames ?? [],
+      });
+      const cubeCardIds = drafts.resolveCubeCardIds(mergedConfig as any);
+      if (cubeCardIds.length === 0) {
+        return NextResponse.json(
+          { error: "No cards matched the selected sets / passcodes" },
+          { status: 400 }
+        );
+      }
+
+      // Advisory feasibility check at edit time (min start count = 2 players).
+      // Non-blocking: startDraft is the authoritative gate.
+      analysisWarnings = analyzeCube(
+        cubeCardIds,
+        2,
+        (mergedConfig as any).packsPerPlayer ?? 5,
+        (mergedConfig as any).packSize ?? 8,
+      );
+
+      (mergedConfig as any).cubeCardIds = cubeCardIds;
+    }
+
+    if (config !== undefined) {
       db.prepare("update drafts set config_json = ? where id = ?").run(
         JSON.stringify(mergedConfig),
         draft.id,
@@ -269,6 +274,19 @@ export async function POST(
 
     const drafts = createDraftService(db);
     const draftModel = drafts.findById(draft.id);
+    // The service drops deleted library cubes; surviving references must stay in this guild.
+    const denied = cubeReferenceAccess(db, draftModel.config.allowedCubeIds, { allowMissing: true });
+    if (denied) return denied;
+    if (draftModel.config.mode === "theme" && (draftModel.config.themeSelection ?? "player_pick") === "player_pick") {
+      const claims = db.prepare("select cube_id from draft_player_cube where draft_id = ?")
+        .all(draft.id) as Array<{ cube_id: number }>;
+      const claimedCubeIds = claims.map((claim) => claim.cube_id);
+      const deniedClaim = cubeReferenceAccess(db, claimedCubeIds);
+      if (deniedClaim) return deniedClaim;
+      if (claimedCubeIds.some((id) => !(draftModel.config.allowedCubeIds ?? []).includes(id))) {
+        return NextResponse.json({ error: "Claimed cube is not allowed in this draft" }, { status: 400 });
+      }
+    }
     const cards = createCardCatalogService(db);
 
     if (!draftModel.config.cubeCardIds?.length && !draftModel.config.poolCardIds?.length) {

@@ -1,3 +1,4 @@
+import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Trophy, Plus } from "lucide-react";
@@ -16,11 +17,11 @@ export default async function TournamentsPage() {
               t.web_slug, count(tp.player_id) as participant_count
        from tournaments t
        left join tournament_participants tp on tp.tournament_id = t.id
-       where t.status in ('pending', 'active', 'completed')
+       where t.guild_id = ? and t.status in ('pending', 'active', 'completed')
        group by t.id
        order by case t.status when 'active' then 0 when 'pending' then 1 else 2 end, t.created_at desc`
     )
-    .all()
+    .all(env.discordGuildId)
     .map((row: any) => ({
       id: row.id,
       guildId: row.guild_id,
