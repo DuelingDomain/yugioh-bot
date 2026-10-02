@@ -5,7 +5,7 @@
 // state of EVERY seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectTurn, normalSummon, pass, select,
+  activate, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectTurn, normalSummon, pickOpponent, select, yes,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -330,6 +330,29 @@ export const TAG_COPY_SCENARIOS: Scenario[] = [
         p0: { monsters: [OX, GUARDIAN], spells: ["Kaiser Colosseum"] },
         p1: { hand: [SKULL, ELF], grave: ["Soul Exchange"] },
         p3: { monsters: [BEAVER] },
+      }),
+    ],
+  }),
+  // Fire Ejection: a yes/no prompt, then the token is Special Summoned to the field of ONE picked opponent. In Tag the pick offers the opposing
+  // members (p1 and p3), not the partner p2.
+  defineScenario({
+    id: "tag-copies-fire-ejection-yes-no-prompt-then-a-token-to-the-picked-opposing-member",
+    title: "Tag: Fire Ejection (a yes/no prompt) asks for one of the 2 opposing members (p1, p3; not the partner p2), then the yes answer Special Summons the token to the picked p3 only",
+    source: TAG_PARTNER,
+    rules: ["R-TAG-PARTNER", "R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "opponent-field-summon", "yes-no", "token", "tag", "card:11654067"],
+    setup: { format: "tag", p0: { hand: ["Fire Ejection"], deck: ["Volcanic Rat"] } },
+    steps: [
+      activate("Fire Ejection", "p0"),
+      expectPickSeats(["p1", "p3"], "p0"),
+      pickOpponent("p3", "p0"),
+      yes("p0"),
+      choose("token", "p0"),
+      everyTagSeat({
+        p0: { hand: [], grave: ["Fire Ejection", "Volcanic Rat"] },
+        p1: { hand: [] },
+        p2: { hand: [] },
+        p3: { hand: [], monsters: { count: 1 } },
       }),
     ],
   }),
