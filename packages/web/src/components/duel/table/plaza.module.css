@@ -1,0 +1,82 @@
+/* The plaza floor. Stage px; the stage scales it. Everything here is decoration. */
+.plaza {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.skyline {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 170px;
+  opacity: 0.55;
+  -webkit-mask: linear-gradient(180deg, #000 30%, transparent);
+  mask: linear-gradient(180deg, #000 30%, transparent);
+}
+
+.skyline text {
+  font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+}
+
+.floor {
+  position: absolute;
+  width: 1660px;
+  height: 1660px;
+  translate: -50% -50%;
+  border-radius: 50%;
+  opacity: 0.62;
+  background:
+    radial-gradient(closest-side, rgb(30 40 70 / 0.45), transparent 60%),
+    repeating-radial-gradient(circle at 50% 50%, transparent 0 26px, rgb(0 0 0 / 0.42) 26px 28.5px),
+    repeating-conic-gradient(from 3deg at 50% 50%, transparent 0 1.6deg, rgb(0 0 0 / 0.38) 1.6deg 1.78deg),
+    radial-gradient(closest-side, #182033, #121827 70%, #0f1420);
+  box-shadow:
+    0 0 0 7px #1a2132,
+    0 0 0 9px rgb(181 153 99 / 0.3),
+    0 0 0 22px rgb(0 0 0 / 0.35);
+}
+
+.rim {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 720px;
+  height: 720px;
+  translate: -50% -50%;
+  border: 1px dashed rgb(181 153 99 / 0.28);
+  border-radius: 50%;
+}
+
+.pool {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 520px;
+  height: 520px;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 196 128 / 0.13), rgb(255 196 128 / 0.04) 55%, transparent);
+}
+
+/* The pad under a seat: a wash of the seat tone, turned and scaled like the field above it. */
+.pad {
+  position: absolute;
+  width: 820px;
+  height: 480px;
+  translate: -50% -50%;
+  border-radius: 40px;
+  background: radial-gradient(closest-side, rgb(var(--t) / 0.26), transparent);
+  filter: blur(18px);
+  opacity: 0.8;
+}
+
+.edge {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-shadow: inset 0 0 120px rgb(2 3 8 / 0.5);
+}
