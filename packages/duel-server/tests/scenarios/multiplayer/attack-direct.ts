@@ -19,6 +19,9 @@ const NUMBER_62 = "Number 62: Galaxy-Eyes Prime Photon Dragon"; // 4000 ATK Xyz,
 const NUMBER_90 = "Number 90: Galaxy-Eyes Photon Lord"; // 2500 ATK Xyz
 const DARK_HOLE = "Dark Hole";
 const REBORN = "Monster Reborn";
+const VIJAM = "Vijam the Cubic Seed";
+const MIST_CLAWS = "The Phantom Knights of Mist Claws";
+const FRAGILE_ARMOR = "The Phantom Knights of Fragile Armor"; // Level 4 Phantom Knights Normal-type monster
 const OPP_PICK = `${SOURCE} [R-COMMON-OPP-PICK]`;
 
 /**
@@ -225,6 +228,26 @@ export const ATTACK_DIRECT_SCENARIOS: Scenario[] = [
     answer: [activate("Flashbang", "p0"), pickOpponent("p1", "p0"), expectPrompt({ by: "p2", offers: ["to_bp", "to_ep"] })],
     atP0: { p0: { lp: 6600, grave: ["Flashbang"] }, p1: { monsters: [RAT] } },
     atP2: { p0: { spells: ["Flashbang"] }, p1: { monsters: [RAT] }, p2: { lp: 6600 } },
+  }),
+  // A Trap that Special Summons a Cubic monster from the hand and takes the ATK of the attacker (its target is the attacker, the attack goes to the holder only).
+  ...pair({
+    slug: "cubic-rebirth", name: "Cubic Rebirth", code: 71442223,
+    p0: { spells: [faceDown("Cubic Rebirth")], hand: [VIJAM], deck: [DARK_HOLE] },
+    p1: { monsters: [RAT] },
+    attacker: RAT,
+    answer: [activate("Cubic Rebirth", "p0")],
+    atP0: { p0: { grave: ["Cubic Rebirth"], monsters: [VIJAM], hand: [DARK_HOLE] }, p1: { monsters: [RAT] } },
+    atP2: { p0: { spells: ["Cubic Rebirth"], hand: [VIJAM, DARK_HOLE] }, p1: { monsters: [RAT] }, p2: { lp: 6600 } },
+  }),
+  // A Trap in the Graveyard that Special Summons itself as a monster, with a Phantom Knights monster of Level 4 or lower of the Graveyard (needs 2 free zones).
+  ...pair({
+    slug: "mist-claws", name: "The Phantom Knights of Mist Claws", code: 9336190,
+    p0: { grave: [MIST_CLAWS, FRAGILE_ARMOR], deck: [DARK_HOLE] },
+    p1: { monsters: [RAT] },
+    attacker: RAT,
+    answer: [activate(MIST_CLAWS, "p0")],
+    atP0: { p0: { monsters: [FRAGILE_ARMOR, MIST_CLAWS], hand: [DARK_HOLE] }, p1: { monsters: [RAT] } },
+    atP2: { p0: { grave: [MIST_CLAWS, FRAGILE_ARMOR], hand: [DARK_HOLE] }, p1: { monsters: [RAT] }, p2: { lp: 6600 } },
   }),
   // Tag keeps the team value: a direct attack at a seat of the team asks the partner of the target as well (p2 holds the Trap, p0 holds nothing).
   defineScenario({
