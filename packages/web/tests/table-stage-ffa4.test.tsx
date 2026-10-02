@@ -129,4 +129,24 @@ describe("TableShell on the 4-way fixtures", () => {
     const plain = render(<Shell id="main" />).container;
     expect(plain.querySelector('[data-slot="prompt"][data-seat-pick]')).toBeNull();
   });
+
+  it("opens the chip lens on a mouse hover only, and closes it on a click", () => {
+    const { container } = render(<Shell id="main" />);
+    press("c");
+    const chip = container.querySelector<HTMLElement>("[data-compact-chips] [data-chip]");
+    expect(chip).not.toBeNull();
+    const lens = () => document.querySelector("[data-chip-lens]");
+    act(() => {
+      fireEvent.pointerEnter(chip!, { pointerType: "touch" });
+    });
+    expect(lens()).toBeNull();
+    act(() => {
+      fireEvent.pointerEnter(chip!, { pointerType: "mouse" });
+    });
+    expect(lens()).not.toBeNull();
+    act(() => {
+      fireEvent.click(chip!);
+    });
+    expect(lens()).toBeNull();
+  });
 });

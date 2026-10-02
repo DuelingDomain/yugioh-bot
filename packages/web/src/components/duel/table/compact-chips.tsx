@@ -83,6 +83,8 @@ export function CompactChips({ engine, seat, tone, name, rotateDeg, scale, usabl
   const spells = view.spells.filter((card): card is DuelCard => card != null);
 
   const showLens = (card: DuelCard, node: HTMLElement) => {
+    // No lens while an attack confirm is open: it would sit over the confirm.
+    if (typeof document !== "undefined" && document.querySelector("[data-go]")) return;
     const box = node.getBoundingClientRect();
     setLens({ card, x: box.right + 12, y: box.top + box.height / 2 });
   };
@@ -108,11 +110,16 @@ export function CompactChips({ engine, seat, tone, name, rotateDeg, scale, usabl
         data-defense={isDefenseAt(card.location, card.position) ? "true" : "false"}
         aria-label={`${name} ${label}`}
         aria-pressed={selected}
-        onClick={(event) => onActivate([key], card, event.currentTarget)}
-        onMouseEnter={(event) => {
-          onHoverCard?.(card, event.currentTarget);
-          showLens(card, event.currentTarget);
+        onClick={(event) => {
+          // A click opens the card's menu or a confirm: the lens steps aside.
+          setLens(null);
+          onActivate([key], card, event.currentTarget);
         }}
+        onPointerEnter={(event) => {
+          // The lens is a mouse hover tool. A tap on touch would open it and never close it.
+          if (event.pointerType === "mouse") showLens(card, event.currentTarget);
+        }}
+        onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
         onMouseLeave={() => {
           onHoverCard?.(null, null);
           setLens(null);
