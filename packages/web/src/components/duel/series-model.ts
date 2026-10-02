@@ -16,6 +16,34 @@ export function seriesPlayerIndex(room: Pick<DuelRoom, "session" | "mySeat">, se
   return index === 0 ? 0 : index === 1 ? 1 : null;
 }
 
+/** The series index (0 or 1) of the seat on screen. The practice bot is index 1 and has no player id. */
+export function seatSeriesIndex(series: Pick<DuelSeriesSummary, "playerIds">, seat: { playerId: number | null; isBot?: boolean } | undefined): 0 | 1 | null {
+  if (!seat) return null;
+  if (seat.isBot) return 1;
+  const index = seat.playerId == null ? -1 : series.playerIds.indexOf(seat.playerId);
+  return index === 0 ? 0 : index === 1 ? 1 : null;
+}
+
+/** Who won a finished series, as a series index; null for a draw or an open series. */
+export function seriesWinnerIndex(series: Pick<DuelSeriesSummary, "winnerPlayerId" | "playerIds" | "status" | "vsBot" | "wins">): 0 | 1 | null {
+  if (series.winnerPlayerId != null) {
+    const index = series.playerIds.indexOf(series.winnerPlayerId);
+    return index === 0 ? 0 : index === 1 ? 1 : null;
+  }
+  // The practice bot has no player id: it won when the series is over and its score leads.
+  return series.vsBot && series.status === "completed" && series.wins[1] > series.wins[0] ? 1 : null;
+}
+
+/**
+ * The note for a table that may play the practice bot, or null when nothing needs saying. A Best of 3
+ * against the bot is a full match with side decking; it never counts, like every bot game.
+ */
+export function practiceBotNote(bestOf: 1 | 3): string {
+  return bestOf === 3
+    ? "Best of 3 works against the practice bot, with side decking between games. The match never counts."
+    : "Games against the practice bot do not count. This table plays one game and records nothing.";
+}
+
 export function isSeriesOpen(series: Pick<DuelSeriesSummary, "status">): boolean {
   return series.status === "active" || series.status === "between_games";
 }
@@ -35,13 +63,14 @@ export function seriesLengthLabel(series: Pick<DuelSeriesSummary, "bestOf">): st
 }
 
 /** Badge text for the kind of match: tournament, ranked or unranked. */
-export function seriesKindLabel(series: Pick<DuelSeriesSummary, "tournamentId" | "ranked">): string {
-  return series.tournamentId != null ? "Tournament" : series.ranked ? "Ranked" : "Unranked";
+export function seriesKindLabel(series: Pick<DuelSeriesSummary, "tournamentId" | "ranked"> & { vsBot?: boolean }): string {
+  return series.vsBot ? "Practice" : series.tournamentId != null ? "Tournament" : series.ranked ? "Ranked" : "Unranked";
 }
 
 /** What the finished series did with the result; null while it is still open or was cancelled. */
 export function seriesRecordLabel(series: DuelSeriesSummary): string | null {
   if (series.status !== "completed") return null;
+  if (series.vsBot) return "Practice match. No result recorded";
   if (series.winnerPlayerId == null) return "Draw. No result recorded";
   if (series.tournamentId != null) return "Recorded to the bracket";
   return series.ranked ? "Ranked result recorded" : "Unranked";
@@ -57,8 +86,8 @@ export function seriesOutcome(series: DuelSeriesSummary, index: 0 | 1 | null): S
   if (series.status === "cancelled") return { headline: "Series cancelled", detail: "No result was recorded." };
   if (series.status !== "completed") return null;
   const score = seriesScoreForViewer(series, index);
-  const winnerIndex = series.winnerPlayerId == null ? -1 : series.playerIds.indexOf(series.winnerPlayerId);
-  if (winnerIndex < 0) return { headline: "Series drawn", detail: `Final score ${score}` };
+  const winnerIndex = seriesWinnerIndex(series);
+  if (winnerIndex == null) return { headline: "Series drawn", detail: `Final score ${score}` };
   const name = series.displayNames[winnerIndex];
   const headline = index == null ? `${name} wins the series` : winnerIndex === index ? "You win the series" : `${name} wins the series`;
   return { headline, detail: `Final score ${score}` };
@@ -153,20 +182,23 @@ export function betweenGamesInfo(room: Pick<DuelRoom, "session" | "mySeat" | "se
   const played = room.session.gameNumber ?? series.gameNumber;
   const score = seriesCompactScore(series, index);
   const { session } = room;
-  const winnerId = session.winnerPlayerId
-    ?? (session.winnerSeat == null ? null : session.seats.find((seat) => seat.seat === session.winnerSeat)?.playerId ?? null);
-  const winnerIndex = winnerId == null ? -1 : series.playerIds.indexOf(winnerId);
+  // The winner is the seat that won; the practice bot has no player id, so go through the seat.
+  const winnerSeat = session.winnerSeat != null
+    ? session.seats.find((seat) => seat.seat === session.winnerSeat)
+    : session.winnerPlayerId != null ? session.seats.find((seat) => seat.playerId === session.winnerPlayerId) : undefined;
+  const winnerIndex = seatSeriesIndex(series, winnerSeat);
 
   let result: string;
   let first: string;
-  if (session.status === "completed" && winnerIndex >= 0) {
+  if (session.status === "completed" && winnerIndex != null) {
     const won = index == null ? series.displayNames[winnerIndex] : winnerIndex === index ? "you" : series.displayNames[winnerIndex];
     result = `Game ${played} won by ${won} · ${score}`;
     first = firstLine(series, index, played, winnerIndex === 0 ? 1 : 0);
   } else {
     result = session.status === "completed" ? `Game ${played} was a draw · ${score}` : `Game ${played} did not finish · ${score}`;
-    const second = session.seats.find((seat) => seat.seat === 1)?.playerId;
-    const firstIndex = second == null ? 0 : Math.max(0, series.playerIds.indexOf(second));
+    const secondIndex = seatSeriesIndex(series, session.seats.find((seat) => seat.seat === 1));
+    // The seats swap: the player in seat 1 now goes first.
+    const firstIndex = secondIndex ?? 0;
     first = `${index != null && firstIndex === index ? "You go" : `${series.displayNames[firstIndex]} goes`} first (the seats swap)`;
   }
   return { result, next: `Game ${played + 1} of ${series.bestOf}`, first };

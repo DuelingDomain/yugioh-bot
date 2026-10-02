@@ -18,7 +18,7 @@ function series(overrides: Partial<DuelSeriesSummary> = {}): DuelSeriesSummary {
     id: 1, bestOf: 3, ranked: false, status: "active", playerIds: [10, 20], displayNames: ["Me", "Bob"],
     wins: [1, 0], gameNumber: 2, currentDuelSlug: "duel-2", winnerPlayerId: null,
     tournamentId: 1, tournamentSlug: "cup", tournamentMatchId: 5, nextGameAt: null,
-    sideReady: [false, false], hasSide: [false, false], firstChooser: null, firstChoice: null,
+    sideReady: [false, false], hasSide: [false, false], firstChooser: null, firstChoice: null, vsBot: false,
     ...overrides,
   };
 }

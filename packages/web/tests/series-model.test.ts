@@ -17,6 +17,7 @@ import {
   seriesRecordLabel,
   seriesScoreForViewer,
   seriesScoreText,
+  seriesWinnerIndex,
 } from "../src/components/duel/series-model";
 import { makeSeries, makeSeriesRoom } from "./helpers/duel-series";
 
@@ -264,5 +265,57 @@ describe("the first or second choice", () => {
   it("names the chooser to a spectator", () => {
     expect(opponentFirstStatus(between({ firstChooser: 0 }), null)).toEqual({ text: "Sulman is choosing to go first or second…", done: false });
     expect(opponentFirstStatus(between({ firstChooser: 0, firstChoice: "first" }), null)).toEqual({ text: "Sulman chose to go first", done: true });
+  });
+});
+
+describe("a series against the practice bot", () => {
+  const botSeries = (overrides: Parameters<typeof makeSeries>[0] = {}) =>
+    makeSeries({ vsBot: true, playerIds: [1, 0], displayNames: ["Sulman", "Practice Bot"], ...overrides });
+  const botRoom = (series: ReturnType<typeof makeSeries>, winnerSeat: number | null) => {
+    const room = makeSeriesRoom({ series });
+    room.session.seats[1] = { seat: 1, playerId: null, displayName: "Practice Bot", ready: true, isBot: true } as never;
+    room.session.winnerSeat = winnerSeat;
+    return room;
+  };
+
+  it("finds the human at index 0", () => {
+    const series = botSeries();
+    expect(seriesPlayerIndex(makeSeriesRoom({ series, mySeat: 0 }), series)).toBe(0);
+  });
+
+  it("counts the bot as the winner of a finished series, and no one as a draw winner", () => {
+    expect(seriesWinnerIndex(botSeries({ status: "completed", wins: [1, 2] }))).toBe(1);
+    expect(seriesWinnerIndex(botSeries({ status: "completed", wins: [2, 1], winnerPlayerId: 1 }))).toBe(0);
+    expect(seriesWinnerIndex(botSeries({ status: "active", wins: [0, 1] }))).toBeNull();
+  });
+
+  it("names the bot as the series winner and says nothing is recorded", () => {
+    const lost = botSeries({ status: "completed", wins: [1, 2] });
+    expect(seriesOutcome(lost, 0)).toEqual({ headline: "Practice Bot wins the series", detail: "Final score 1 – 2" });
+    expect(seriesOutcome(botSeries({ status: "completed", wins: [2, 0], winnerPlayerId: 1 }), 0)?.headline).toBe("You win the series");
+    expect(seriesRecordLabel(lost)).toBe("Practice match. No result recorded");
+    expect(seriesKindLabel(lost)).toBe("Practice");
+  });
+
+  it("names the bot as the winner of a game, and lets the beaten human choose", () => {
+    const room = botRoom(botSeries({ status: "between_games", wins: [0, 1], firstChooser: 0 }), 1);
+    expect(betweenGamesInfo(room, "game-1")).toEqual({
+      result: "Game 1 won by Practice Bot · 0–1",
+      next: "Game 2 of 3",
+      first: "You choose to go first or second",
+    });
+  });
+
+  it("shows that the beaten bot goes first by itself", () => {
+    const room = botRoom(botSeries({ status: "between_games", wins: [1, 0], firstChooser: 1, firstChoice: "first" }), 0);
+    expect(betweenGamesInfo(room, "game-1")).toMatchObject({
+      result: "Game 1 won by you · 1–0",
+      first: "Practice Bot goes first (the opponent chose to go first)",
+    });
+  });
+
+  it("swaps the seats after a draw with the bot in seat 1", () => {
+    const room = botRoom(botSeries({ status: "between_games", wins: [0, 0] }), null);
+    expect(betweenGamesInfo(room, "game-1")?.first).toBe("Practice Bot goes first (the seats swap)");
   });
 });

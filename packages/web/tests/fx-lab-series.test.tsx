@@ -35,6 +35,10 @@ describe("fx lab: Best of 3 scenarios", () => {
       "match-choose-second",
       "match-opponent-choosing",
       "match-opponent-chose",
+      "match-bot-lost-game",
+      "match-bot-won-game",
+      "match-bot-side",
+      "match-bot-won",
       "match-won",
     ]);
     for (const id of ids) expect(findScenario(id)!.build().series).toBeDefined();
@@ -105,5 +109,34 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByText("Final score 2 – 1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Ready/ })).toBeNull();
     expect(screen.queryByTestId("between-games-info")).toBeNull();
+  });
+
+  it("shows the practice bot between games: ready at once, and the loser of the game chooses", () => {
+    const lost = open("match-bot-lost-game");
+    expect(lost.room.series!.vsBot).toBe(true);
+    expect(lost.room.session.seats[1]).toMatchObject({ playerId: null, isBot: true, displayName: "Practice Bot" });
+    const { unmount } = render(<SeriesLabScreen room={lost.room} spec={lost.spec} reduced sound={false} />);
+    expect(screen.getByText("Game 1 won by Practice Bot · 0–1")).toBeTruthy();
+    expect(screen.getByText("You choose to go first or second")).toBeTruthy();
+    expect(screen.getByTestId("opponent-side-status").textContent).toBe("Opponent ready");
+    unmount();
+    const won = open("match-bot-won-game");
+    render(<SeriesLabScreen room={won.room} spec={won.spec} reduced sound={false} />);
+    expect(screen.getByText("Game 1 won by you · 1–0")).toBeTruthy();
+    expect(screen.getByText("Practice Bot goes first (the opponent chose to go first)")).toBeTruthy();
+  });
+
+  it("opens the side deck screen against the bot", () => {
+    const { room, spec } = open("match-bot-side");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByRole("dialog", { name: "Side deck" })).toBeTruthy();
+    expect(screen.getByText("Game 3 of 3")).toBeTruthy();
+  });
+
+  it("ends a match against the bot as a practice match", () => {
+    const { room, spec } = open("match-bot-won");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByText("You win the series")).toBeTruthy();
+    expect(screen.getByText("Practice match. No result recorded")).toBeTruthy();
   });
 });

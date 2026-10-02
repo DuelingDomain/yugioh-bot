@@ -109,6 +109,8 @@ export interface DuelSeriesSummary {
   firstChooser: 0 | 1 | null;
   /** What the chooser picked for the next game; null until they choose (the default is first). */
   firstChoice: DuelFirstChoice | null;
+  /** One player plays the practice bot: `playerIds[1]` is 0 and the bot's name stands in `displayNames[1]`. */
+  vsBot: boolean;
 }
 
 /** The viewer's own decks in a series; only sent to that player. */

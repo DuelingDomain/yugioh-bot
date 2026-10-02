@@ -599,6 +599,76 @@ describe("series advance", () => {
   });
 });
 
+describe("Best of 3 against the practice bot", () => {
+  /** A Best of 3 table: the human's deck is in, the bot sits in the other seat, and game 1 runs. */
+  async function startBotMatch(app: App, host: DuelHost) {
+    const table = app.duels.create({ guildId: GUILD, organizerPlayerId: app.p1, name: "Bot", mode: "normal", bestOf: 3 });
+    app.duels.setDeck(table.slug, GUILD, app.p1, deckWithSide());
+    app.duels.markReady(table.slug, GUILD, app.p1);
+    expect((await post(host, { op: "add-bot", slug: table.slug, playerId: app.p1 })).status).toBe(200);
+    const started = await post(host, { op: "start", slug: table.slug, playerId: app.p1 });
+    expect(started.status).toBe(200);
+    expect(started.data.session.status).toBe("active");
+    return table;
+  }
+  const humanSeat = (app: App, slug: string) => app.duels.get(slug, GUILD).seats.find((seat) => !seat.isBot)!.seat;
+
+  it("keeps the match going after the bot wins: the human chooses, then game 2 starts with the bot", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const table = await startBotMatch(app, host);
+    expect(app.duels.get(table.slug, GUILD).seriesId).not.toBeNull();
+
+    const botSeat = 1 - humanSeat(app, table.slug);
+    await endGame(host, workers[0]!, table.slug, app.p1, botSeat);
+    const view = await post(host, { op: "view", slug: table.slug, playerId: app.p1 });
+    expect(view.data.series).toMatchObject({ status: "between_games", wins: [0, 1], vsBot: true, sideReady: [false, true], firstChooser: 0, firstChoice: null });
+
+    const chosen = await post(host, { op: "series-first", slug: table.slug, playerId: app.p1, choice: "second" });
+    expect(chosen.status).toBe(200);
+    expect(chosen.data.nextSlug).toBeNull();
+    const ready = await post(host, { op: "series-ready", slug: table.slug, playerId: app.p1 });
+    expect(ready.status).toBe(200);
+    expect(typeof ready.data.nextSlug).toBe("string");
+    const game2 = app.duels.get(ready.data.nextSlug, GUILD);
+    expect(game2.status).toBe("active");
+    expect(game2.gameNumber).toBe(2);
+    expect(game2.seats.find((seat) => seat.seat === 0)!.isBot).toBe(true);
+    expect(game2.seats.find((seat) => seat.seat === 1)!.playerId).toBe(app.p1);
+    expect(workers).toHaveLength(2);
+  });
+
+  it("starts game 2 by itself when the window ends, with the beaten bot going first", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const table = await startBotMatch(app, host);
+    await endGame(host, workers[0]!, table.slug, app.p1, humanSeat(app, table.slug));
+    const between = await post(host, { op: "view", slug: table.slug, playerId: app.p1 });
+    expect(between.data.series).toMatchObject({ status: "between_games", wins: [1, 0], firstChooser: 1, firstChoice: "first" });
+
+    await vi.advanceTimersByTimeAsync(61_000);
+    await settle();
+    const after = app.series.get(between.data.series.id, GUILD);
+    expect(after).toMatchObject({ status: "active", gameNumber: 2 });
+    const game2 = app.duels.get(after.currentDuelSlug!, GUILD);
+    expect(game2.status).toBe("active");
+    expect(game2.seats.find((seat) => seat.seat === 0)!.isBot).toBe(true);
+    expect(workers).toHaveLength(2);
+  });
+
+  it("refuses a choice when the bot was the one choosing", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const { host, workers } = openHost(app);
+    const table = await startBotMatch(app, host);
+    await endGame(host, workers[0]!, table.slug, app.p1, humanSeat(app, table.slug));
+    const refused = await post(host, { op: "series-first", slug: table.slug, playerId: app.p1, choice: "second" });
+    expect(refused.status).toBe(403);
+  });
+});
+
 describe("tournament notices", () => {
   it("tells the ws server about the slot and the finished tournament for a Best of 1", async () => {
     const app = setup();

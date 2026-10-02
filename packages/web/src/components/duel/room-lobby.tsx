@@ -10,6 +10,7 @@ import { shouldCheckDeck, startButtonLabel } from "./start-flow";
 import { SeriesBadges } from "./series-banner";
 import { deckCounts } from "./side-deck-model";
 import { DuelSettingsSummary, RoomInvite } from "./room-settings";
+import { practiceBotNote } from "./series-model";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./room-lobby.module.css";
@@ -118,9 +119,9 @@ export function RoomLobby({
   const showPreview = mySeat != null && !lockedDeck;
   const seriesCancel = series != null && mySeat != null && occupied >= 2;
   const showBotPanel = isOrganizer && occupied < 2;
-  // A bot game never makes a series, so a Best of 3 or Ranked table plays one uncounted game against it.
+  // A Best of 3 against the bot is a full match, and a Best of 1 is one game. Neither counts, ranked or not.
   const botNote = series == null && (session.bestOf === 3 || session.ranked === true) && (showBotPanel || session.seats.some((seat) => seat.isBot))
-    ? <p className={ui.hint} data-testid="practice-bot-note">Games against the practice bot do not count. This table plays one game and records nothing.</p>
+    ? <p className={ui.hint} data-testid="practice-bot-note">{practiceBotNote(session.bestOf === 3 ? 3 : 1)}</p>
     : null;
   const canStart = !autoStart && isOrganizer && occupied >= 2 && readyCount >= 2 && session.status === "lobby";
 

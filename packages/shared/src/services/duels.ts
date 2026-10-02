@@ -48,7 +48,7 @@ const MIN_MAIN = 40;
 const MAX_MAIN = 60;
 const MAX_EXTRA = 15;
 const MAX_SIDE = 15;
-const PRACTICE_BOT_NAME = "Practice Bot";
+export const PRACTICE_BOT_NAME = "Practice Bot";
 const ARCHIVE_DUE_CAP = 32;
 const CLOCK_DUE_CAP = 32;
 const HISTORY_LIMIT = 100;
@@ -872,10 +872,12 @@ export function createDuelService(db: Database.Database): DuelService {
       if (row.status !== "active") throw new DuelServiceError("Duel is not active", 400);
 
       let winnerPlayerId: number | null = null;
+      let winnerIsBot = false;
       if (nextStatus === "completed" && winnerSeat !== null) {
         const winner = seatRows(row.id).find((entry) => entry.seat === winnerSeat);
         if (!winner) throw new DuelServiceError("Winner seat is not occupied", 400);
         winnerPlayerId = winner.player_id;
+        winnerIsBot = winner.is_bot === 1;
       }
 
       const result = { winnerSeat: nextStatus === "completed" ? winnerSeat : null, reason };
@@ -904,7 +906,7 @@ export function createDuelService(db: Database.Database): DuelService {
       );
       const updated = selectDuelById.get(row.id);
       if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
-      series.onGameFinished(updated, nextStatus, winnerPlayerId);
+      series.onGameFinished(updated, nextStatus, winnerPlayerId, winnerIsBot);
       return mapSession(updated);
     },
   );

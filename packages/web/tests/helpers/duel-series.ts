@@ -20,6 +20,7 @@ export function makeSeries(overrides: Partial<DuelSeriesSummary> = {}): DuelSeri
     hasSide: [false, false],
     firstChooser: null,
     firstChoice: null,
+    vsBot: false,
     ...overrides,
   };
 }

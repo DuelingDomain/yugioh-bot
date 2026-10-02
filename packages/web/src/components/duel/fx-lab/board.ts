@@ -96,6 +96,8 @@ export type LabSeries = {
   secondsLeft?: number;
   /** What the loser of the last game chose for the next game; absent while they are still choosing. */
   choice?: "first" | "second";
+  /** The opponent is the practice bot: no player id, ready at once, no side deck. */
+  vsBot?: boolean;
 };
 
 export type LabCategory = "Attacks" | "Destroy" | "Summons" | "Card moves" | "Chain" | "LP" | "Banners" | "Board states" | "Match";

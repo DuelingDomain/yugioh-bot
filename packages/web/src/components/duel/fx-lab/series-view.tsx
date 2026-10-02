@@ -17,6 +17,8 @@ import { CARDS as C } from "./cards";
  */
 
 const NAMES: [string, string] = ["Sulman", "Imran"];
+const BOT_NAMES: [string, string] = ["Sulman", "Practice Bot"];
+const namesOf = (spec: LabSeries) => (spec.vsBot ? BOT_NAMES : NAMES);
 
 /** A side deck with a few real cards: swap a Main card with a Side card, or an Extra card with a Side Extra monster. */
 const SIDE_DECK: DuelDeck = {
@@ -33,21 +35,24 @@ function summary(spec: LabSeries): DuelSeriesSummary {
     bestOf: 3,
     ranked: false,
     status: over ? "completed" : between ? "between_games" : "active",
-    playerIds: [1, 2],
-    displayNames: NAMES,
+    playerIds: [1, spec.vsBot ? 0 : 2],
+    displayNames: namesOf(spec),
     wins: spec.wins,
     gameNumber: spec.game,
     currentDuelSlug: "fx-lab",
-    winnerPlayerId: over ? (spec.wins[0] > spec.wins[1] ? 1 : 2) : null,
+    winnerPlayerId: over ? (spec.wins[0] > spec.wins[1] ? 1 : spec.vsBot ? null : 2) : null,
     tournamentId: null,
     tournamentSlug: null,
     tournamentMatchId: null,
     nextGameAt: between ? new Date(Date.now() + (spec.secondsLeft ?? 45) * 1000).toISOString() : null,
-    sideReady: [false, spec.opponentReady === true],
-    hasSide: [true, true],
+    // The practice bot is ready at once and never sides.
+    sideReady: [false, spec.vsBot ? true : spec.opponentReady === true],
+    hasSide: [true, !spec.vsBot],
     // The loser of the game on screen chooses: you when the opponent leads, the opponent when you lead.
     firstChooser: between ? (spec.wins[0] > spec.wins[1] ? 1 : 0) : null,
-    firstChoice: between ? spec.choice ?? null : null,
+    // The bot chooses to go first by itself when it lost the game.
+    firstChoice: between ? (spec.vsBot && spec.wins[0] > spec.wins[1] ? "first" : spec.choice ?? null) : null,
+    vsBot: spec.vsBot === true,
   };
 }
 
@@ -69,12 +74,12 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       settings: {} as DuelRoom["session"]["settings"],
       seats: [
         { seat: 0, playerId: 1, displayName: NAMES[0], ready: true, isBot: false },
-        { seat: 1, playerId: 2, displayName: NAMES[1], ready: true, isBot: false },
+        { seat: 1, playerId: spec.vsBot ? null : 2, displayName: namesOf(spec)[1], ready: true, isBot: spec.vsBot === true },
       ],
       createdAt: "",
       endedAt: null,
       archivedAt: null,
-      winnerPlayerId: finished ? (winnerSeat === 0 ? 1 : 2) : null,
+      winnerPlayerId: finished ? (winnerSeat === 0 ? 1 : spec.vsBot ? null : 2) : null,
       winnerSeat: finished ? winnerSeat : null,
       resultReason: finished ? "Life points reached 0" : null,
       bestOf: 3,

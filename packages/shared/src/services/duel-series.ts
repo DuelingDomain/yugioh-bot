@@ -22,6 +22,7 @@ import {
   DuelServiceError,
   generateInviteCode,
   isDuelMode,
+  PRACTICE_BOT_NAME,
   resolveMasterRule,
   validateDuelDeckShape,
   wrapSettingsError,
@@ -136,6 +137,7 @@ export type SeriesRow = {
   side_ready1: number;
   first_chooser: number | null;
   first_choice: string | null;
+  vs_bot: number;
   next_game_at: string | null;
   created_by_player_id: number;
   created_at: string;
@@ -215,8 +217,8 @@ export function createSeriesStore(db: Database.Database) {
   const selectGame1Name = db.prepare<[number], { name: string }>(
     "select name from duels where series_id = ? and game_number = 1",
   );
-  const selectLastGameSeats = db.prepare<[number], { seat: number; player_id: number | null }>(
-    "select seat, player_id from duel_seats where duel_id = ? order by seat",
+  const selectLastGameSeats = db.prepare<[number], { seat: number; player_id: number | null; is_bot: number }>(
+    "select seat, player_id, is_bot from duel_seats where duel_id = ? order by seat",
   );
   const selectSeatDecks = db.prepare<[number], { seat: number; player_id: number | null; is_bot: number; deck_json: string | null }>(
     "select seat, player_id, is_bot, deck_json from duel_seats where duel_id = ? order by seat",
@@ -249,8 +251,8 @@ export function createSeriesStore(db: Database.Database) {
       values (?, ?, ?, ?, ?, ?, 'lobby', ?, ?, ?, ?, ?, ?)
     `,
   );
-  const insertSeat = db.prepare<[number, number, number, number, string | null]>(
-    "insert into duel_seats (duel_id, seat, player_id, is_bot, ready, deck_json) values (?, ?, ?, 0, ?, ?)",
+  const insertSeat = db.prepare<[number, number, number | null, number, number, string | null]>(
+    "insert into duel_seats (duel_id, seat, player_id, is_bot, ready, deck_json) values (?, ?, ?, ?, ?, ?)",
   );
   const insertSeries = db.prepare<InsertSeriesParams>(
     `
@@ -304,8 +306,9 @@ export function createSeriesStore(db: Database.Database) {
       bestOf: asBestOf(row.best_of),
       ranked: row.ranked === 1,
       status: row.status as DuelSeriesStatus,
-      playerIds: [row.player0_id, row.player1_id],
-      displayNames: [playerName(row.player0_id), playerName(row.player1_id)],
+      // A series against the practice bot: index 0 is the human, index 1 the bot (no player id).
+      playerIds: [row.player0_id, row.vs_bot === 1 ? 0 : row.player1_id],
+      displayNames: [playerName(row.player0_id), row.vs_bot === 1 ? PRACTICE_BOT_NAME : playerName(row.player1_id)],
       wins: [row.wins0, row.wins1],
       gameNumber: latest?.game_number ?? 1,
       currentDuelSlug: latest?.slug ?? null,
@@ -318,6 +321,7 @@ export function createSeriesStore(db: Database.Database) {
       hasSide: [(deck0?.side.length ?? 0) > 0, (deck1?.side.length ?? 0) > 0],
       firstChooser: row.first_chooser === 0 ? 0 : row.first_chooser === 1 ? 1 : null,
       firstChoice: row.first_choice === "first" || row.first_choice === "second" ? row.first_choice : null,
+      vsBot: row.vs_bot === 1,
     };
   };
 
@@ -341,7 +345,7 @@ export function createSeriesStore(db: Database.Database) {
     gameNumber: number;
     bestOf: DuelBestOf;
     ranked: boolean;
-    seats: Array<{ playerId: number; deck: DuelDeck | null; ready: boolean }>;
+    seats: Array<{ playerId: number | null; deck: DuelDeck | null; ready: boolean; isBot?: boolean }>;
   }): { id: number; slug: string } => {
     const slug = generateWebSlug();
     const inviteCode = input.settings.visibility === "private" ? generateInviteCode() : null;
@@ -361,7 +365,7 @@ export function createSeriesStore(db: Database.Database) {
     );
     const id = Number(result.lastInsertRowid);
     input.seats.forEach((seat, index) => {
-      insertSeat.run(id, index, seat.playerId, seat.ready ? 1 : 0, seat.deck ? JSON.stringify(seat.deck) : null);
+      insertSeat.run(id, index, seat.isBot ? null : seat.playerId, seat.isBot ? 1 : 0, seat.ready ? 1 : 0, seat.deck ? JSON.stringify(seat.deck) : null);
     });
     return { id, slug };
   };
@@ -385,7 +389,35 @@ export function createSeriesStore(db: Database.Database) {
     if (duel.series_id === null) {
       const [first, second] = seats;
       if (seats.length !== 2 || !first || !second) return;
-      if (seats.some((seat) => seat.is_bot === 1 || seat.player_id === null)) return;
+      const botSeat = seats.find((seat) => seat.is_bot === 1);
+      if (botSeat) {
+        // Only a Best of 3 against the practice bot makes a series; a single game against it stays a lone duel.
+        const human = seats.find((seat) => seat.is_bot === 0);
+        if (asBestOf(duel.best_of) !== 3 || !human || human.player_id === null) return;
+        // Index 0 is the human, index 1 the bot. Nothing counts: the series is never ranked and records no match.
+        const result = insertSeries.run(
+          duel.guild_id,
+          3,
+          0,
+          human.player_id,
+          human.player_id,
+          "active",
+          duel.mode,
+          duel.master_rule,
+          JSON.stringify(settings),
+          human.deck_json,
+          botSeat.deck_json,
+          human.deck_json,
+          botSeat.deck_json,
+          duel.organizer_player_id,
+          null,
+        );
+        const seriesId = Number(result.lastInsertRowid);
+        db.prepare<[number]>("update duel_series set vs_bot = 1 where id = ?").run(seriesId);
+        db.prepare<[number, number]>("update duels set series_id = ?, game_number = 1, ranked = 0 where id = ?").run(seriesId, duel.id);
+        return;
+      }
+      if (seats.some((seat) => seat.player_id === null)) return;
       const result = insertSeries.run(
         duel.guild_id,
         asBestOf(duel.best_of),
@@ -411,9 +443,9 @@ export function createSeriesStore(db: Database.Database) {
     }
     const series = selectSeries.get(duel.series_id);
     if (!series) return;
-    const deckOf = (playerId: number) => seats.find((seat) => seat.player_id === playerId)?.deck_json ?? null;
+    const deckOf = (playerId: number) => seats.find((seat) => seat.is_bot === 0 && seat.player_id === playerId)?.deck_json ?? null;
     const deck0 = deckOf(series.player0_id);
-    const deck1 = deckOf(series.player1_id);
+    const deck1 = series.vs_bot === 1 ? (seats.find((seat) => seat.is_bot === 1)?.deck_json ?? null) : deckOf(series.player1_id);
     db.prepare<[string | null, string | null, string | null, string | null, number]>(
       `
         update duel_series
@@ -432,6 +464,7 @@ export function createSeriesStore(db: Database.Database) {
     duel: { id: number; series_id: number | null; game_number: number | null },
     status: "completed" | "interrupted",
     winnerPlayerId: number | null,
+    winnerIsBot = false,
   ) => {
     if (duel.series_id === null) return;
     const series = selectSeries.get(duel.series_id);
@@ -457,7 +490,9 @@ export function createSeriesStore(db: Database.Database) {
         return 1;
       }
     };
+    const vsBot = series.vs_bot === 1;
     // `chooser` is the series index of the loser of a decided game; null keeps the seat swap (draw, interrupt).
+    // The practice bot is always ready, and when it lost it chooses to go first at once.
     const betweenGames = (
       wins0: number,
       wins1: number,
@@ -466,14 +501,14 @@ export function createSeriesStore(db: Database.Database) {
       ready1: number,
       chooser: 0 | 1 | null = null,
     ) => {
-      db.prepare<[number, number, string | null, number, number, number | null, number]>(
+      db.prepare<[number, number, string | null, number, number, number | null, string | null, number]>(
         `
           update duel_series
           set status = 'between_games', wins0 = ?, wins1 = ?, next_game_at = ?, side_ready0 = ?, side_ready1 = ?,
-              first_chooser = ?, first_choice = null
+              first_chooser = ?, first_choice = ?
           where id = ?
         `,
-      ).run(wins0, wins1, nextGameAt, ready0, ready1, chooser, series.id);
+      ).run(wins0, wins1, nextGameAt, ready0, vsBot ? 1 : ready1, chooser, vsBot && chooser === 1 ? "first" : null, series.id);
     };
     const sideWindow = (wins0: number, wins1: number, chooser: 0 | 1 | null = null) =>
       betweenGames(
@@ -490,7 +525,7 @@ export function createSeriesStore(db: Database.Database) {
       return;
     }
 
-    const winnerIndex = winnerPlayerId === null ? null : playerIndex(series, winnerPlayerId);
+    const winnerIndex = winnerIsBot && vsBot ? 1 : winnerPlayerId === null ? null : playerIndex(series, winnerPlayerId);
     if (winnerIndex === null) {
       // Draw: no win for either player.
       if (series.best_of === 1 && !tournament) {
@@ -512,14 +547,15 @@ export function createSeriesStore(db: Database.Database) {
       return;
     }
 
-    db.prepare<[number, number, number, number]>(
+    db.prepare<[number, number, number | null, number]>(
       `
         update duel_series
         set status = 'completed', wins0 = ?, wins1 = ?, winner_player_id = ?, next_game_at = null, ended_at = datetime('now')
         where id = ?
       `,
-    ).run(wins0, wins1, winnerPlayerId as number, series.id);
-    if (!tournament && series.ranked !== 1) return;
+    ).run(wins0, wins1, winnerIsBot ? null : (winnerPlayerId as number), series.id);
+    // A series against the practice bot never counts.
+    if (vsBot || (!tournament && series.ranked !== 1)) return;
     try {
       // db.transaction nests as a savepoint: a failure here undoes only the match write.
       const match = matches.recordConfirmedResult({
@@ -576,7 +612,7 @@ export function createSeriesStore(db: Database.Database) {
     game1Name(seriesId: number): string | null {
       return selectGame1Name.get(seriesId)?.name ?? null;
     },
-    gameSeats(duelId: number): Array<{ seat: number; player_id: number | null }> {
+    gameSeats(duelId: number): Array<{ seat: number; player_id: number | null; is_bot: number }> {
       return selectLastGameSeats.all(duelId);
     },
     cancel(seriesId: number, guildId: string) {
@@ -669,7 +705,7 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
       join duel_series s on s.id = d.series_id
       where d.status = 'lobby'
         and s.status = 'active'
-        and (select count(*) from duel_seats x where x.duel_id = d.id and x.is_bot = 0 and x.ready = 1) = 2
+        and (select count(*) from duel_seats x where x.duel_id = d.id and x.ready = 1) = 2
       order by d.id asc
       limit ?
     `,
@@ -925,27 +961,22 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
     if (!deck0 || !deck1) throw new DuelServiceError("This series has no decks yet", 409);
 
     // The loser of the last game chooses to go first or second (default first); after a draw or an
-    // interrupt the seats swap.
-    let first = row.player0_id;
-    let second = row.player1_id;
+    // interrupt the seats swap. `firstIndex` is the series index (0 or 1) who takes seat 0. Against the
+    // practice bot, index 0 is the human and index 1 the bot.
+    let firstIndex: 0 | 1 = 0;
     if (latest) {
       const lastSeats = store.gameSeats(latest.id);
-      const lastFirst = lastSeats[0]?.player_id ?? row.player0_id;
-      const lastSecond = lastSeats[1]?.player_id ?? row.player1_id;
+      const indexOfSeat = (seat: { player_id: number | null; is_bot: number } | undefined, fallback: 0 | 1): 0 | 1 =>
+        !seat ? fallback : seat.is_bot === 1 ? 1 : seat.player_id === row.player0_id ? 0 : 1;
       if (row.first_chooser !== null) {
-        const chooser = row.first_chooser === 0 ? row.player0_id : row.player1_id;
-        const other = row.first_chooser === 0 ? row.player1_id : row.player0_id;
-        const goesFirst = row.first_choice === "second" ? other : chooser;
-        first = goesFirst;
-        second = goesFirst === chooser ? other : chooser;
-      } else if (latest.status === "completed" && latest.winner_player_id !== null) {
+        const chooser: 0 | 1 = row.first_chooser === 0 ? 0 : 1;
+        firstIndex = row.first_choice === "second" ? (chooser === 0 ? 1 : 0) : chooser;
+      } else if (latest.status === "completed" && latest.winner_player_id !== null && row.vs_bot !== 1) {
         // A series that was between games before the choice existed: the loser goes first.
-        const loser = latest.winner_player_id === row.player0_id ? row.player1_id : row.player0_id;
-        first = loser;
-        second = loser === row.player0_id ? row.player1_id : row.player0_id;
+        firstIndex = latest.winner_player_id === row.player0_id ? 1 : 0;
       } else {
-        first = lastSecond;
-        second = lastFirst;
+        // The seats swap: the player who was second goes first.
+        firstIndex = indexOfSeat(lastSeats[0], 0) === 0 ? 1 : 0;
       }
     }
 
@@ -963,11 +994,10 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
       gameNumber,
       bestOf: row.best_of === 3 ? 3 : 1,
       ranked: row.ranked === 1,
-      seats: [first, second].map((playerId) => ({
-        playerId,
-        deck: playerId === row.player0_id ? deck0 : deck1,
-        ready: true,
-      })),
+      seats: [firstIndex, firstIndex === 0 ? 1 : 0].map((index) => {
+        if (index === 1 && row.vs_bot === 1) return { playerId: null, isBot: true, deck: deck1, ready: true };
+        return { playerId: index === 0 ? row.player0_id : row.player1_id, deck: index === 0 ? deck0 : deck1, ready: true };
+      }),
     });
     resetToActive.run(row.id);
     return duels.get(game.slug, guildId);
