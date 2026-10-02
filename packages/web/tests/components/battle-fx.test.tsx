@@ -443,7 +443,12 @@ describe("BattleFx resolution", () => {
     const cues: DuelFxCueDetail[] = [];
     const listen = (event: Event) => cues.push((event as CustomEvent<DuelFxCueDetail>).detail);
     window.addEventListener(DUEL_FX_CUE_EVENT, listen);
-    const play = vi.fn((_id: string, _request: FxRequest) => { now += 200; return Promise.resolve(); });
+    const play = vi.fn((_id: string, request: FxRequest) => {
+      now += 200;
+      // The engine publishes its capped origin after constructing the effect.
+      if (request.clock) request.clock.startedAt = now - 120;
+      return Promise.resolve();
+    });
     const prefetchArt = vi.fn();
     setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt, cancelAll() {} } });
     clearPromptRevealHold();
@@ -456,14 +461,15 @@ describe("BattleFx resolution", () => {
       rerender(<BattleFx events={resolved} reducedMotion={false} seats={seats()} />);
       const request = play.mock.calls[0]![1];
       expect(request.startedAt).toBe(1000);
-      expect(cues.find((cue) => cue.cue === "battle")?.battle?.startedAt).toBe(1000);
-      expect((playLayer() as HTMLElement).style.animationDelay).toBe("-200ms");
-      expect(promptRevealHoldMs()).toBe(request.battle!.totalMs - 200);
+      expect(cues.find((cue) => cue.cue === "battle")?.battle?.startedAt).toBe(1080);
+      expect((playLayer() as HTMLElement).style.animationDelay).toBe("-120ms");
+      expect(promptRevealHoldMs()).toBe(request.battle!.totalMs - 120);
       const counterHit = Math.round(STYLE_TIMING.slash.impact + COUNTER_GAP_MS + STYLE_TIMING.beam.impact * COUNTER_SCALE);
-      expect(battleDestroyAt({ controller: 0, location: 4, sequence: 0 }, now)).toBe(1000 + counterHit + DESTROY_BEAT_MS);
+      expect(battleDestroyAt({ controller: 0, location: 4, sequence: 0 }, now)).toBe(1080 + counterHit + DESTROY_BEAT_MS);
+      expect(takeLpHold(0)).toBe(counterHit + ATTACK_TIMING.lpAfterHitMs - 120);
       now += 300;
       rerender(<BattleFx events={resolved} reducedMotion={false} seats={seats()} />);
-      expect((playLayer() as HTMLElement).style.animationDelay).toBe("-200ms");
+      expect((playLayer() as HTMLElement).style.animationDelay).toBe("-120ms");
       expect(play).toHaveBeenCalledOnce();
       unmount();
     } finally {

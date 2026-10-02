@@ -94,7 +94,7 @@ describe("createDuelFeedbackAudio", () => {
     vi.spyOn(performance, "now").mockReturnValue(1000 + elapsed);
     const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
     const voices: Array<ToneOpts | BurstOpts> = [];
-    scheduleBattleSound({ tone: (opts) => voices.push(opts), burst: (opts) => voices.push(opts) }, battle, 1.01 - elapsed / 1000);
+    scheduleBattleSound({ tone: (opts) => voices.push(opts), burst: (opts) => voices.push(opts) }, battle, 1.01 - Math.min(120, elapsed) / 1000);
     audio.playBattle({ ...battle, startedAt: 1000 });
     const expected = voices.filter((voice) => 1 - voice.start <= 0.03 && voice.start + voice.duration > 1)
       .flatMap((voice) => Array.from({ length: "vibrato" in voice && voice.vibrato ? 2 : 1 }, () => Math.max(1, voice.start)));
@@ -103,22 +103,23 @@ describe("createDuelFeedbackAudio", () => {
     audio.dispose();
   });
 
-  it("keeps the counter sound on the battle clock after 200 ms of GPU preparation", async () => {
+  it("caps the audio seek at 120 ms after 200 ms of preparation", async () => {
     vi.spyOn(performance, "now").mockReturnValue(1200);
     const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
     const timing = battleTiming("lose", "slash", "beam");
     audio.playBattle({ ...battle, kind: "lose", defender: { style: "beam", signature: null }, timing, startedAt: 1000 });
     const starts = created[0]!.sourceNodes.map((node) => node.start.mock.calls[0]![0] as number);
-    expect(starts.some((start) => Math.abs(start - (1.01 + timing.attackerDamageMs / 1000 - 0.2)) < 0.001)).toBe(true);
+    expect(starts.some((start) => Math.abs(start - (1.01 + timing.attackerDamageMs / 1000 - 0.12)) < 0.001)).toBe(true);
     expect(starts.every((start) => start >= created[0]!.currentTime)).toBe(true);
     audio.dispose();
   });
 
-  it("skips expired battle voices instead of scheduling negative audio timestamps", async () => {
+  it("preserves the wind-up after a very late join without negative audio timestamps", async () => {
     vi.spyOn(performance, "now").mockReturnValue(6000);
     const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
     audio.playBattle({ ...battle, startedAt: 1000 });
-    expect(created[0]!.sourceNodes).toHaveLength(0);
+    expect(created[0]!.sourceNodes.length).toBeGreaterThan(0);
+    expect(created[0]!.sourceNodes.every((node) => node.start.mock.calls[0]![0] >= 1)).toBe(true);
     audio.dispose();
   });
   it("stays silent until a user gesture unlocks it", () => {

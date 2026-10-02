@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject }
 import { formatLp } from "./constants";
 import { duelFontClasses } from "./fonts";
 import { LP_TIMING } from "./duel-timing";
+import { battleSeekMs, type BattleClock } from "./battle-clock";
 import { noteLpMotion } from "./lp-motion";
 import styles from "./life-points.module.css";
 
@@ -28,7 +29,7 @@ export type LifePointsProps = {
 
 /* ---------- hold store: lets a battle animation delay a roll it does not own ---------- */
 
-type LpHold = { ms: number; until: number };
+type LpHold = { ms: number; until: number; clock?: BattleClock };
 const lpHolds = new Map<number, LpHold>();
 const lpHoldKeys = new Set<string>();
 
@@ -36,18 +37,18 @@ const lpHoldKeys = new Set<string>();
  * Arm a one-shot delay for the next LP loss shown at `seat`. `key` de-duplicates re-renders
  * (use the damage event id). The hold expires after LP_TIMING.holdExpiryMs if no LP change consumes it.
  */
-export function armLpHold(seat: number, ms: number, key: string): void {
+export function armLpHold(seat: number, ms: number, key: string, clock?: BattleClock): void {
   if (lpHoldKeys.has(key)) return;
   lpHoldKeys.add(key);
   if (lpHoldKeys.size > 200) lpHoldKeys.clear();
-  lpHolds.set(seat, { ms, until: Date.now() + LP_TIMING.holdExpiryMs });
+  lpHolds.set(seat, { ms, until: Date.now() + LP_TIMING.holdExpiryMs, clock });
 }
 
 export function takeLpHold(seat: number): number {
   const hold = lpHolds.get(seat);
   lpHolds.delete(seat);
   if (!hold || hold.until < Date.now()) return 0;
-  return hold.ms;
+  return Math.max(0, hold.ms - (hold.clock ? battleSeekMs(hold.clock.startedAt) : 0));
 }
 
 export function clearLpHolds(): void {

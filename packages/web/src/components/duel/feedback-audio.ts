@@ -1,5 +1,6 @@
 import { scheduleBattleSound, shatter, type BattleSoundPlan, type BurstOpts, type Synth, type ToneOpts } from "./attack-audio";
 import { sceneSound, SCENE_CUES } from "./scene-audio";
+import { battleSeekMs } from "./battle-clock";
 import type { DuelEventKind, DuelFxCue } from "./event-queue";
 
 type Voice = {
@@ -418,7 +419,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     const mine: Voice[] = [];
     collecting = mine;
     try {
-      const elapsed = plan.startedAt == null ? 0 : Math.max(0, performance.now() - plan.startedAt) / 1000;
+      const elapsed = battleSeekMs(plan.startedAt) / 1000;
       scheduleBattleSound(synthFor(audio, dest), plan, audio.currentTime + 0.01 - elapsed);
     } finally {
       collecting = null;

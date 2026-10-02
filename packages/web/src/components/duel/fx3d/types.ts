@@ -1,3 +1,5 @@
+import type { BattleClock } from "../battle-clock";
+
 /**
  * Shared types of the Three.js effect layer. This file never imports `three`, so the rest of the
  * duel room can use these types without pulling the library into its bundle.
@@ -177,8 +179,10 @@ export type FxRequest = {
   seed?: number;
   /** The effect is already this many ms late (it was planned earlier than it started): it starts advanced by this much. */
   skipMs?: number;
-  /** Battle's shared performance.now() origin, including time spent preparing the renderer. */
+  /** Battle's shared performance.now() origin, with initial catch-up capped at 120 ms. */
   startedAt?: number;
+  /** Lets the engine publish its capped origin to the DOM, audio and already-armed holds. */
+  clock?: BattleClock;
   /** id "battle": the fight. */
   battle?: FxBattle;
   /** id "scene": the trap or effect set piece. */

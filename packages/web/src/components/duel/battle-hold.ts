@@ -1,5 +1,6 @@
 import { zoneKey } from "./constants";
 import { MOVE_PACE } from "./duel-timing";
+import type { BattleClock } from "./battle-clock";
 
 /**
  * The battle hold: a destroyed card stays on its zone until the fight that killed it has landed.
@@ -23,7 +24,9 @@ type Zone = { controller: number; location: number; sequence: number };
 /** How long the shards of a 3D break fall before the card may reach the Graveyard. */
 export const BREAK_SETTLE_MS = MOVE_PACE.breakSettleMs;
 
-const holds = new Map<string, number>();
+type Hold = { at: number | BattleClock; delayMs: number };
+const deadline = (hold: Hold): number => (typeof hold.at === "number" ? hold.at : hold.at.startedAt) + hold.delayMs;
+const holds = new Map<string, Hold>();
 /**
  * Wipe takeovers (see fx3d/effects/wipes): the canvas draws the whole card from `takeAt`, and the card
  * reaches its pile at `moveAt`. Keyed by the zone the card stands on. The page keeps the card whole until
@@ -44,19 +47,22 @@ const now = (): number => (typeof performance !== "undefined" ? performance.now(
  */
 export type BattleTakeover = { takeAt: number; moveAt: number };
 
-export function armBattleDestroy(key: string, zone: Zone, delayMs: number, at: number = now(), claim3d = false, takeover?: { moveAfterMs: number }): void {
+export function armBattleDestroy(key: string, zone: Zone, delayMs: number, at: number | BattleClock = now(), claim3d = false, takeover?: { moveAfterMs: number }): void {
   if (armedKeys.has(key)) return;
   armedKeys.add(key);
   // Forget the oldest key only: clearing them all could let a repeat render of the current
   // attack arm it again, later, and push its hold back.
   if (armedKeys.size > 200) armedKeys.delete(armedKeys.values().next().value as string);
   const zoneId = zoneKey(zone.controller, zone.location, zone.sequence);
-  holds.set(zoneId, Math.max(holds.get(zoneId) ?? 0, at + delayMs));
+  const hold = { at, delayMs };
+  const knownHold = holds.get(zoneId);
+  if (!knownHold || deadline(hold) >= deadline(knownHold)) holds.set(zoneId, hold);
   if (claim3d) claims.add(zoneId);
   if (takeover) {
+    const startedAt = typeof at === "number" ? at : at.startedAt;
     const known = takeovers.get(zoneId);
-    const moveAt = at + Math.max(delayMs, takeover.moveAfterMs);
-    takeovers.set(zoneId, { takeAt: Math.max(known?.takeAt ?? 0, at + delayMs), moveAt: Math.max(known?.moveAt ?? 0, moveAt) });
+    const moveAt = startedAt + Math.max(delayMs, takeover.moveAfterMs);
+    takeovers.set(zoneId, { takeAt: Math.max(known?.takeAt ?? 0, startedAt + delayMs), moveAt: Math.max(known?.moveAt ?? 0, moveAt) });
   }
 }
 
@@ -97,8 +103,9 @@ export function attackImpactAt(attackId: number): number {
 export function battleDestroyAt(zone: Zone | undefined | null, at: number = now()): number {
   if (!zone) return 0;
   const id = zoneKey(zone.controller, zone.location, zone.sequence);
-  const until = holds.get(id);
-  if (until == null) return 0;
+  const hold = holds.get(id);
+  if (hold == null) return 0;
+  const until = deadline(hold);
   if (until <= at) {
     holds.delete(id);
     claims.delete(id);

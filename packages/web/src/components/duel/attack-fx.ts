@@ -10,6 +10,7 @@
  * effect a monster plays) lives in attack-styles.ts; this file only draws them.
  */
 import { safeAnimate } from "./safe-animate";
+import { battleSeekMs } from "./battle-clock";
 import {
   COUNTER_GAP_MS,
   DESTROY_BEAT_MS,
@@ -1035,7 +1036,7 @@ function runReduced(cx: Ctx, plan: AttackFxPlan): void {
  */
 export function runAttackFx(html: HTMLElement, svg: SVGSVGElement, plan: AttackFxPlan, cls: FxClasses): () => void {
   const u = Math.max(0.55, Math.min(2, plan.attacker.box.width / 78));
-  const elapsedMs = plan.startedAt == null ? 0 : Math.max(0, performance.now() - plan.startedAt);
+  const elapsedMs = battleSeekMs(plan.startedAt);
   const cx: Ctx = { html, svg, cls, animations: [], nodes: [], particles: { budget: MAX_PARTICLES }, u, elapsedMs };
   if (plan.reduced) {
     runReduced(cx, plan);

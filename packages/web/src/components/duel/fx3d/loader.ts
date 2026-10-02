@@ -42,6 +42,7 @@ export async function loadFx3d(host: HTMLElement, onStatus: (ready: boolean) => 
   try {
     const { createEngine } = await import("./engine");
     const engine = createEngine(host, { onStatus });
+    await engine.warmed;
     return { api: engine, dispose: () => engine.dispose() };
   } catch (error) {
     console.warn("[fx3d] unavailable, using the DOM effects", error);

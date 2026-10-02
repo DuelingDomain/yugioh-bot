@@ -1,10 +1,11 @@
 import * as THREE from "three";
+import { battleSeekMs, joinBattleClock } from "../battle-clock";
 import { ArtStore } from "./art";
 import { pixelRatioFor } from "./coords";
 import { EFFECTS } from "./effects";
 import type { FxEnv, FxInstance } from "./effects/base";
 import { PostPass } from "./post";
-import { FxKit } from "./kit";
+import { FxKit, type ShaderName } from "./kit";
 import type { Fx3dApi, Fx3dEffectId, FxRequest } from "./types";
 
 /**
@@ -44,6 +45,8 @@ export type Fx3dEngineOptions = {
 };
 
 export class Fx3dEngine implements Fx3dApi {
+  /** Startup compilation completes before the loader publishes this engine. */
+  warmed: Promise<void>;
   private readonly canvas: HTMLCanvasElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -62,6 +65,7 @@ export class Fx3dEngine implements Fx3dApi {
   private raf = 0;
   private lost = false;
   private disposed = false;
+  private warming = true;
   private quality = 1;
   private slowFrames = 0;
   private smoothed = 16;
@@ -101,10 +105,11 @@ export class Fx3dEngine implements Fx3dApi {
     this.resize();
     this.observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => this.resize());
     this.observer?.observe(host);
+    this.warmed = this.warmBattle();
   }
 
   get ready(): boolean {
-    return !this.lost && !this.disposed;
+    return !this.lost && !this.disposed && !this.warming;
   }
 
   prefetchArt(code: number, uploadEarly = false): void {
@@ -118,7 +123,6 @@ export class Fx3dEngine implements Fx3dApi {
     // The host may have been resized since the last frame: measure now, so rectangles land exactly.
     this.resize();
     const env: FxEnv = { kit: this.kit, group: this.group, view: this.view, quality: this.quality, art: this.art, post: this.post.uniforms };
-    const preparedAt = performance.now();
     let instance: FxInstance;
     try {
       instance = factory(env, request);
@@ -127,10 +131,11 @@ export class Fx3dEngine implements Fx3dApi {
       return Promise.resolve();
     }
     if (request.artCode) this.art.prefetch(request.artCode);
-    const start = id === "battle" && request.startedAt != null
-      ? request.startedAt
-      : (id === "battle" ? preparedAt : performance.now()) - Math.min(600, Math.max(0, request.skipMs ?? 0));
-    if (id === "battle") this.prepareBattle();
+    const now = performance.now();
+    const start = id === "battle"
+      ? request.clock ? joinBattleClock(request.clock, now)
+        : now - battleSeekMs(request.startedAt ?? now - (request.skipMs ?? 0), now)
+      : now - Math.min(600, Math.max(0, request.skipMs ?? 0));
     const limit = Math.min(instance.durationMs, HARD_LIMIT_MS) - (performance.now() - start);
     if (limit <= 0) {
       instance.dispose();
@@ -158,27 +163,54 @@ export class Fx3dEngine implements Fx3dApi {
     });
   }
 
-  private prepareBattle(): void {
+  private async warmBattle(): Promise<void> {
+    this.warming = true;
+    // Borrow one of every battle material, including signatures, shards and both particle modes.
+    // Keep their programs in the kit's pools after warm-up so future counters reuse them.
+    const names: ShaderName[] = ["ring", "ripple", "glow", "rune", "bolt", "arc", "flame", "haze", "decal", "shard", "sil"];
+    const scene = new THREE.Scene();
+    const meshes = names.map((name) => ({ name, mesh: this.kit.mesh(name) }));
+    const particles = (["add", "solid"] as const).map((kind) => ({ kind, ...this.kit.particles(1, kind) }));
+    for (const { mesh } of meshes) scene.add(mesh);
+    for (const { set } of particles) {
+      set.points.geometry.setDrawRange(0, 1);
+      scene.add(set.points);
+    }
+    try {
+      if (typeof this.renderer.compileAsync === "function") {
+        try { await this.renderer.compileAsync(scene, this.camera); }
+        catch {
+          if (!this.disposed && !this.lost) this.renderer.compile(scene, this.camera);
+        }
+      } else this.renderer.compile(scene, this.camera);
+      if (!this.disposed && !this.lost) this.prepareBattle(scene);
+    } catch (error) {
+      if (!this.disposed) console.warn("[fx3d] battle warm-up failed", error);
+    } finally {
+      if (!this.disposed) {
+        for (const { name, mesh } of meshes) this.kit.releaseMesh(name, mesh);
+        for (const { kind, set } of particles) this.kit.releaseParticles(set, kind);
+      } else scene.clear();
+      this.warming = false;
+      if (this.ready) this.options.onStatus?.(true);
+    }
+  }
+
+  private prepareBattle(scene: THREE.Scene): void {
     const viewport = this.renderer.getViewport(new THREE.Vector4());
     const scissor = this.renderer.getScissor(new THREE.Vector4());
     const scissorTest = this.renderer.getScissorTest();
-    const hidden: THREE.Object3D[] = [];
-    this.scene.traverse((object) => {
-      if (!object.visible) { hidden.push(object); object.visible = true; }
-    });
     try {
       // Use the canvas's output format: an offscreen target generates different shader variants.
-      // A one-pixel draw initializes BOTH strikes and the shards, then is cleared before paint.
-      // compile() alone leaves the first draw's buffer/uniform work until impact.
+      // A one-pixel draw initializes buffers/uniforms, then is cleared before paint.
       this.renderer.setViewport(0, 0, 1, 1);
       this.renderer.setScissor(0, 0, 1, 1);
       this.renderer.setScissorTest(true);
-      this.renderer.render(this.scene, this.camera);
+      this.renderer.render(scene, this.camera);
       this.renderer.clear();
     } catch (error) {
       console.warn("[fx3d] battle preparation failed", error);
     } finally {
-      for (const object of hidden) object.visible = false;
       this.renderer.setViewport(viewport);
       this.renderer.setScissor(scissor);
       this.renderer.setScissorTest(scissorTest);
@@ -332,7 +364,7 @@ export class Fx3dEngine implements Fx3dApi {
   private readonly onRestored = (): void => {
     this.lost = false;
     this.resize();
-    this.options.onStatus?.(true);
+    this.warmed = this.warmBattle();
   };
 
   dispose(): void {

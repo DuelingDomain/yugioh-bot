@@ -8,6 +8,7 @@ import { battleTrigger } from "./battle-trigger";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { armBattleDestroy, attackImpactAt, clearBattleHolds, noteAttackImpact } from "./battle-hold";
+import { battleSeekMs, joinBattleClock, type BattleClock } from "./battle-clock";
 import { planBattle } from "./fx3d/battle-plan";
 import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
@@ -369,7 +370,7 @@ function AttackPlay({ play }: { play: Play }) {
   const htmlRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   // Each play mounts with its own key; CSS advances itself after this initial seek.
-  const [delayMs] = useState(() => play.fx.startedAt == null ? 0 : -Math.max(0, performance.now() - play.fx.startedAt));
+  const [delayMs] = useState(() => -battleSeekMs(play.fx.startedAt));
 
   // Builds every node up front; each animates on its own delay (no render loop). Cleanup removes them.
   useLayoutEffect(() => {
@@ -492,28 +493,28 @@ function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
  * when the attacker loses) has landed and its damage shows; SummonFx and MoveFx read the hold when
  * they plan the destroy (see battle-hold.ts). Keyed by the attack and zone, so a repeat render is a no-op.
  */
-function armBattleDestroys(events: readonly DuelEvent[], attack: DuelEvent, capture: AttackCapture | null, reduced: boolean, claim3d = false, startedAt?: number): void {
+function armBattleDestroys(events: readonly DuelEvent[], attack: DuelEvent, capture: AttackCapture | null, reduced: boolean, claim3d = false, clock?: BattleClock): void {
   if (!capture || !attack.zone) return;
   const { timing, outcome } = resolveBattle(capture, events, attack, reduced);
   if (outcome.target && attack.target && timing.targetBreakMs != null) {
-    armBattleDestroy(`${attack.id}:target`, attack.target, timing.targetBreakMs, startedAt, claim3d);
+    armBattleDestroy(`${attack.id}:target`, attack.target, timing.targetBreakMs, clock, claim3d);
   }
   if (outcome.attacker && timing.attackerBreakMs != null) {
-    armBattleDestroy(`${attack.id}:attacker`, attack.zone, timing.attackerBreakMs, startedAt, claim3d);
+    armBattleDestroy(`${attack.id}:attacker`, attack.zone, timing.attackerBreakMs, clock, claim3d);
   }
 }
 
 /** Damage that follows an attack in the same snapshot rolls when the strike that dealt it lands. */
-function armBattleDamage(events: readonly DuelEvent[], attack: DuelEvent, capture: AttackCapture | null, startedAt: number): void {
+function armBattleDamage(events: readonly DuelEvent[], attack: DuelEvent, capture: AttackCapture | null, clock: BattleClock): void {
   const timing = capture ? resolveBattle(capture, events, attack, false).timing : null;
   for (const event of battleDamageEvents(events, attack)) {
     const ms = timing ? damageDelay(event, attack, capture?.direct ?? false, timing) : BATTLE_IMPACT_MS;
-    armLpHold(event.seat as number, Math.max(0, ms - (performance.now() - startedAt)), `damage-${event.id}`);
+    armLpHold(event.seat as number, ms, `damage-${event.id}`, clock);
   }
 }
 
 /** The fight as the 3D layer plays it, in the canvas space (relative to the host). */
-function startBattle3d(capture: AttackCapture, play: Play, skipMs: number, controllers: Set<AbortController>): number {
+function startBattle3d(capture: AttackCapture, play: Play, clock: BattleClock, controllers: Set<AbortController>): number {
   const shared = getSharedFx3d();
   if (!shared) return 0;
   const host = shared.host.getBoundingClientRect();
@@ -536,9 +537,9 @@ function startBattle3d(capture: AttackCapture, play: Play, skipMs: number, contr
   const controller = new AbortController();
   controllers.add(controller);
   void shared.api
-    .play("battle", { rect: { x: 0, y: 0, w: host.width, h: host.height }, battle, seed: fx.seed, skipMs, startedAt: fx.startedAt, artCode: attackerSide.code || undefined }, controller.signal)
+    .play("battle", { rect: { x: 0, y: 0, w: host.width, h: host.height }, battle, seed: fx.seed, clock, startedAt: clock.startedAt, artCode: attackerSide.code || undefined }, controller.signal)
     .finally(() => controllers.delete(controller));
-  return Math.max(0, battle.totalMs - (fx.startedAt == null ? skipMs : performance.now() - fx.startedAt));
+  return Math.max(0, battle.totalMs - battleSeekMs(clock.startedAt));
 }
 
 /** An attack that was declared and has not resolved yet: its board was read at the declaration. */
@@ -563,7 +564,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const pendingRef = useRef<PendingAttack | null>(null);
   const seqRef = useRef(0);
   // Per attack: which layer draws it (chosen once, in the render phase) and when it started.
-  const routeRef = useRef(new Map<number, { three: boolean; at: number }>());
+  const routeRef = useRef(new Map<number, { three: boolean; clock: BattleClock }>());
   const controllersRef = useRef(new Set<AbortController>());
   const reducedRef = useRef(reducedMotion);
   reducedRef.current = reducedMotion;
@@ -595,15 +596,15 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       let route = routeRef.current.get(ready.attack.id);
       if (!route) {
         const three = pickBattleRoute({ reduced: reducedMotion, ready: getSharedFx3d() != null }) === "three" && cap != null;
-        route = { three, at: stamp };
+        route = { three, clock: { startedAt: stamp } };
         routeRef.current.set(ready.attack.id, route);
         if (routeRef.current.size > 20) routeRef.current.delete(routeRef.current.keys().next().value as number);
       }
       if (!reducedMotion && cap && attackImpactAt(ready.attack.id) === 0) {
-        noteAttackImpact(ready.attack.id, route.at + resolveBattle(cap, events, ready.attack, false).timing.impactMs);
+        noteAttackImpact(ready.attack.id, route.clock.startedAt + resolveBattle(cap, events, ready.attack, false).timing.impactMs);
       }
-      if (!reducedMotion) armBattleDamage(events, ready.attack, cap, route.at);
-      armBattleDestroys(events, ready.attack, cap, reducedMotion, route.three, route.at);
+      if (!reducedMotion) armBattleDamage(events, ready.attack, cap, route.clock);
+      armBattleDestroys(events, ready.attack, cap, reducedMotion, route.three, route.clock);
     }
   }
 
@@ -665,12 +666,14 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     const three = route?.three === true && !reducedRef.current && getSharedFx3d() != null;
     const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, resolved, three) : null;
     if (next && capture) {
-      const startedAt = route?.at ?? performance.now();
-      next.fx.startedAt = startedAt;
-      next.sound.startedAt = startedAt;
+      const clock = route?.clock ?? { startedAt: performance.now() };
+      joinBattleClock(clock);
       // The 3D fight can outlast the DOM one: its shards keep falling after the last break.
-      const long3d = three ? startBattle3d(capture, next, Math.max(0, performance.now() - startedAt), controllersRef.current) : 0;
-      holdPromptReveal(Math.max(0, next.totalMs - (performance.now() - startedAt), long3d));
+      const long3d = three ? startBattle3d(capture, next, clock, controllersRef.current) : 0;
+      next.fx.startedAt = clock.startedAt;
+      next.sound.startedAt = clock.startedAt;
+      if (!reducedRef.current) noteAttackImpact(resolved.id, clock.startedAt + next.fx.timing.impactMs);
+      holdPromptReveal(Math.max(0, next.totalMs - battleSeekMs(clock.startedAt), long3d));
       emitDuelFxCue({ cue: "battle", strength: 1, battle: next.sound });
       setPlay(next);
     }
