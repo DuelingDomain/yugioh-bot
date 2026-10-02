@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type CSSProperties, type ReactNode } from "react";
-import { Eye, Focus, House, Lock, Orbit, Pin, PinOff, Video } from "lucide-react";
+import { Eye, Focus, House, LayoutGrid, Lock, Orbit, Pin, PinOff, Video } from "lucide-react";
 import type { CameraCue } from "./use-camera";
 import { hexToRgbTriplet } from "./seat-angle";
 import { SEAT_TONE_HEX, type CameraAction, type CameraState, type TableLayout } from "./types";
@@ -184,6 +184,17 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
             ) : null}
             <ViewButton action="fly" label={`Fly-in overview ${flyReady ? "on" : "off"}`} icon={<Orbit size={13} aria-hidden="true" />} hotkey="F" pressed={flyReady} disabled={locked} wide onClick={() => dispatch({ type: "toggleFly" })} />
             <ViewButton action="upright" label={`Upright text ${camera.upright ? "on" : "off"}`} icon={<Focus size={13} aria-hidden="true" />} hotkey="S" pressed={camera.upright} wide onClick={() => dispatch({ type: "toggleUpright" })} />
+            {layout.format === "ffa4" ? (
+              <ViewButton
+                action="compact"
+                label={`Compact rival fields ${camera.compact}`}
+                icon={<LayoutGrid size={13} aria-hidden="true" />}
+                hotkey="C"
+                pressed={camera.compact !== "off"}
+                wide
+                onClick={() => dispatch({ type: "toggleCompact" })}
+              />
+            ) : null}
             <ViewButton action="auto" label={`Auto camera ${camera.auto ? "on" : "off"}`} icon={<Focus size={13} aria-hidden="true" />} hotkey="A" pressed={camera.auto} wide onClick={() => dispatch({ type: "toggleAuto" })} />
             <ViewButton
               action="keep"

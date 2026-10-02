@@ -459,3 +459,43 @@ describe("cameraActionForKey", () => {
     expect(key(" ")).toBeNull();
   });
 });
+
+describe("4-way camera", () => {
+  const home4 = initialCamera(L4);
+  const step = (state: CameraState, dir: 1 | -1) => run(state, { type: "focusStep", dir }, L4);
+
+  it("Tab walks the three rivals and comes back home", () => {
+    const first = step(home4, 1);
+    expect([first.mode, first.focusSeat]).toEqual(["focus", 1]);
+    const second = step(first, 1);
+    expect(second.focusSeat).toBe(2);
+    const third = step(second, 1);
+    expect(third.focusSeat).toBe(3);
+    expect(step(third, 1).mode).toBe("home");
+    expect(step(home4, -1).focusSeat).toBe(3);
+  });
+
+  it("P looks from each rival in turn, then returns to your seat", () => {
+    let camera = home4;
+    const seen: Array<number | null> = [];
+    for (let index = 0; index < 4; index += 1) {
+      const action = cameraActionForKey({ key: "p" }, L4, camera);
+      expect(action).not.toBeNull();
+      camera = run(camera, action!, L4);
+      seen.push(camera.mode === "look" ? camera.lookSeat : null);
+    }
+    expect(seen).toEqual([1, 2, 3, null]);
+  });
+
+  it("keys 1 to 4 focus a seat, 1 is home and 0 is the overview", () => {
+    expect(cameraActionForKey({ key: "1" }, L4, home4)).toEqual({ type: "home" });
+    expect(cameraActionForKey({ key: "3" }, L4, home4)).toEqual({ type: "focus", seat: 2 });
+    expect(cameraActionForKey({ key: "0" }, L4, home4)).toEqual({ type: "overview" });
+  });
+
+  it("Compact cycles auto, on, off and back", () => {
+    const on = run(home4, { type: "toggleCompact" }, L4);
+    const off = run(on, { type: "toggleCompact" }, L4);
+    expect([home4.compact, on.compact, off.compact, run(off, { type: "toggleCompact" }, L4).compact]).toEqual(["auto", "on", "off", "auto"]);
+  });
+});
