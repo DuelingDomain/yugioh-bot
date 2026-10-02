@@ -52,7 +52,7 @@ export const PRACTICE_BOT_NAME = "Practice Bot";
 const ARCHIVE_DUE_CAP = 32;
 const CLOCK_DUE_CAP = 32;
 const HISTORY_LIMIT = 100;
-/** Other players' active duels stay in Live tables this long after their last accepted input. */
+/** Other players' lobbies and active duels stay in Live tables this long after their last activity. */
 export const DUEL_LIVE_IDLE_AFTER_MS = 15 * 60 * 1000;
 
 function isTerminalStatus(status: string): status is DuelStatus {
@@ -446,8 +446,7 @@ export function createDuelService(db: Database.Database): DuelService {
         and (
           organizer_player_id = @viewer
           or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
-          or status = 'lobby'
-          or (status = 'active' and datetime(coalesce(last_activity_at, created_at)) >= datetime('now', @idle))
+          or datetime(coalesce(last_activity_at, created_at)) >= datetime('now', @idle)
         )
       order by
         case when organizer_player_id = @viewer
@@ -715,6 +714,7 @@ export function createDuelService(db: Database.Database): DuelService {
       if (isConstraintError(error)) throw new DuelServiceError("That seat is already taken. You are still watching; choose another open seat.", 409);
       throw error;
     }
+    touchActivity.run(row.id);
     return mapSession(row);
   });
 
@@ -791,6 +791,7 @@ export function createDuelService(db: Database.Database): DuelService {
       throw new DuelServiceError("The organizer cannot leave. Cancel the table instead.", 409);
     }
     db.prepare<[number, number]>("delete from duel_seats where duel_id = ? and player_id = ?").run(row.id, playerId);
+    touchActivity.run(row.id);
     const updated = selectDuelById.get(row.id);
     if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
     return mapSession(updated);

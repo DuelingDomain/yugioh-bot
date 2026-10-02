@@ -857,6 +857,50 @@ describe("duel lobby listing, history and leave", () => {
     expect(stamp()).not.toBe("2000-01-01 00:00:00");
   });
 
+  it("shows recently active foreign lobbies and hides idle ones", () => {
+    const app = setup();
+    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
+    app.db.prepare("update duels set last_activity_at = datetime('now', '-14 minutes') where web_slug = ?").run(lobby.slug);
+    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([lobby.slug]);
+
+    app.db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where web_slug = ?").run(lobby.slug);
+    expect(app.duels.list("g1", app.p3)).toEqual([]);
+  });
+
+  it("uses creation time for foreign lobbies with no activity stamp", () => {
+    const app = setup();
+    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
+    app.db.prepare("update duels set last_activity_at = null, created_at = datetime('now', '-14 minutes') where web_slug = ?").run(lobby.slug);
+    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([lobby.slug]);
+
+    app.db.prepare("update duels set created_at = datetime('now', '-16 minutes') where web_slug = ?").run(lobby.slug);
+    expect(app.duels.list("g1", app.p3)).toEqual([]);
+  });
+
+  it("keeps idle lobbies visible to their owner and seated players", () => {
+    const app = setup();
+    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
+    app.duels.takeSeat(lobby.slug, "g1", app.p2, 1);
+    app.db.prepare("update duels set last_activity_at = '2000-01-01 00:00:00' where web_slug = ?").run(lobby.slug);
+    expect(app.duels.list("g1", app.p1).map((row) => row.slug)).toEqual([lobby.slug]);
+    expect(app.duels.list("g1", app.p2).map((row) => row.slug)).toEqual([lobby.slug]);
+    expect(app.duels.list("g1", app.p3)).toEqual([]);
+  });
+
+  it.each(["take", "leave"] as const)("refreshes lobby activity when a guest performs a seat %s", (action) => {
+    const app = setup();
+    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
+    if (action === "leave") app.duels.takeSeat(lobby.slug, "g1", app.p2, 1);
+    app.db.prepare("update duels set last_activity_at = '2000-01-01 00:00:00' where web_slug = ?").run(lobby.slug);
+
+    if (action === "take") app.duels.takeSeat(lobby.slug, "g1", app.p2, 1);
+    else app.duels.leave(lobby.slug, "g1", app.p2);
+
+    const refreshed = app.duels.list("g1", app.p3).find((row) => row.slug === lobby.slug);
+    expect(refreshed).toBeDefined();
+    expect(refreshed?.lastActivityAt).not.toBe("2000-01-01 00:00:00");
+  });
+
   it("shows accessible lobbies and hides idle duels but keeps own tables", () => {
     const app = setup();
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
