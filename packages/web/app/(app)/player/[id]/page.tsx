@@ -2,8 +2,20 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createScoringService } from "@yugidraft/shared/services";
+import { createScoringService, createSeasonService } from "@yugidraft/shared/services";
 import { ProfileView } from "@/components/player/profile-view";
+import { SheetRoot } from "@/components/sheet";
+
+function NotFound() {
+  return (
+    <SheetRoot>
+      <div className="empty">
+        <h2>Player not found.</h2>
+        <p>That player is not in this server.</p>
+      </div>
+    </SheetRoot>
+  );
+}
 
 export default async function PlayerProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -11,40 +23,26 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
 
   const { id } = await params;
   const playerId = Number(id);
-
-  if (!Number.isFinite(playerId) || playerId <= 0) {
-    return (
-      <div className="rounded-xl border border-border bg-surface p-8 text-center text-[#9aa0b8]">
-        Player not found.
-      </div>
-    );
-  }
+  if (!Number.isFinite(playerId) || playerId <= 0) return <NotFound />;
 
   const db = getDb();
   const guildId = env.discordGuildId;
   const scoring = createScoringService(db);
 
-  // Check if player exists
   const playerRow = db.prepare("select id from players where id = ? and guild_id = ?").get(playerId, guildId) as
     | { id: number }
     | undefined;
+  if (!playerRow) return <NotFound />;
 
-  if (!playerRow) {
-    return (
-      <div className="rounded-xl border border-border bg-surface p-8 text-center text-[#9aa0b8]">
-        Player not found.
-      </div>
-    );
-  }
+  const me = db
+    .prepare("select id from players where discord_user_id = ? and guild_id = ?")
+    .get(session.user.id, guildId) as { id: number } | undefined;
+  const hasSeason = Boolean(createSeasonService(db).getActive(guildId));
 
   const profile = scoring.getProfile(guildId, playerId, "season");
   const leaderboard = scoring.getLeaderboard(guildId, "season");
   const posIdx = leaderboard.findIndex((r) => r.playerId === playerId);
   const leaderboardRank = posIdx >= 0 ? posIdx + 1 : null;
 
-  return (
-    <div>
-      <ProfileView profile={profile} leaderboardRank={leaderboardRank} />
-    </div>
-  );
+  return <ProfileView profile={profile} leaderboardRank={leaderboardRank} isMe={me?.id === playerId} hasSeason={hasSeason} />;
 }

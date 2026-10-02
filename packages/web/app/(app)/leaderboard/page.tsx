@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation";
-import { Trophy } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createScoringService } from "@yugidraft/shared/services";
+import { createScoringService, createSeasonService } from "@yugidraft/shared/services";
 import { LeaderboardClient } from "./leaderboard-client";
 
 export default async function LeaderboardPage() {
@@ -21,14 +20,22 @@ export default async function LeaderboardPage() {
 
   const scoring = createScoringService(db);
   const initialRows = scoring.getLeaderboard(guildId, "season");
+  const season = createSeasonService(db).getActive(guildId);
+  const activeSeason = season ? { number: season.number, name: season.name, startedAt: season.startedAt } : null;
+  // SQLite current_timestamp has no zone suffix. Interpret it as UTC here so
+  // the server and hydrated browser never disagree about the calendar date.
+  const seasonStartedOn = season
+    ? new Date(season.startedAt.replace(" ", "T") + "Z").toLocaleDateString("en-US", {
+        weekday: "short", month: "short", day: "numeric", timeZone: "UTC",
+      })
+    : null;
 
   return (
-    <div>
-      <div className="mb-6 flex items-center gap-3">
-        <Trophy className="h-6 w-6 text-[#f5c451]" />
-        <h1 className="font-display text-2xl text-[#E6E8F0] sm:text-3xl">Leaderboard</h1>
-      </div>
-      <LeaderboardClient initialRows={initialRows} currentPlayerId={currentPlayerId} />
-    </div>
+    <LeaderboardClient
+      initialRows={initialRows}
+      currentPlayerId={currentPlayerId}
+      activeSeason={activeSeason}
+      seasonStartedOn={seasonStartedOn}
+    />
   );
 }

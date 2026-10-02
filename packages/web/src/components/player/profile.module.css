@@ -1,0 +1,17 @@
+/* Profile-only rules the board CSS does not cover. */
+
+.busy { transition: opacity 160ms var(--ease, ease); }
+.busy[aria-busy="true"] { opacity: 0.55; }
+
+.meterLink { color: var(--pen-ink); }
+.header :global(.t-title) { min-width: 0; }
+.topTier { margin-top: 10px; }
+.crumbRow { margin-bottom: 14px; }
+.stakes { display: grid; gap: 12px; }
+.empty { padding: 28px 20px; }
+.note { margin-top: 2px; }
+
+/* Earned tiles drop the criteria line on the phone: the name says enough once it is yours. */
+@container (max-width: 600px) {
+  .earned :global(.ac) { display: none; }
+}
