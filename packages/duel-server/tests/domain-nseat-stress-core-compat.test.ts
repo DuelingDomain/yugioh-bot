@@ -10,7 +10,7 @@ import { engineDataDirectory } from "./engine-data-dir.js";
 import { scenarios as TWO_SEAT_CASES } from "./scenarios/cases/domain.js";
 import { DOMAIN_NSEAT_STRESS_CHAIN } from "./scenarios/multiplayer/domain-nseat-stress-chain.js";
 import { SEATS, type Format } from "./scenarios/multiplayer/seat-kit.js";
-import type { Scenario, Step } from "./support/dsl.js";
+import { defineScenario, endTurn, expectBoard, expectNotOffered, select, specialSummon, type Scenario, type Step } from "./support/dsl.js";
 
 // Capture the real Standard core, without adding a production query hook.
 const captured = vi.hoisted(() => ({ lib: null as import("ocgcore-wasm").OcgCoreSync | null,
@@ -59,7 +59,23 @@ describeWithCores("Domain core patch keeps Standard and two-seat rules", [liveNs
     });
   }
 
-  for (const scenario of TWO_SEAT_CASES) {
+  const twoSeatSynchro = [
+    defineScenario({ id: "domain-nseat-stress-two-seat-synchro-own-material", title: "Two seats: own Synchro materials stay legal",
+      source: "docs/specs/2026-10-01-domain-nseat-stress.md", tags: ["domain", "synchro", "compatibility"],
+      setup: { mode: "domain", p0: { deckMaster: "Stardust Dragon", monsters: ["The Magical King of Dimension Zeta", "Axe Raider"] }, p1: { deckMaster: "Celtic Guardian" } },
+      steps: [specialSummon({ card: "Stardust Dragon", from: "dmz" }, "p0"), select("The Magical King of Dimension Zeta", "Axe Raider"),
+        expectBoard({ p0: { lp: 8000, monsters: ["Stardust Dragon"], spells: [], grave: ["The Magical King of Dimension Zeta", "Axe Raider"], banished: [], deckMaster: { inZone: false, returns: 0, nextCost: 0 } },
+          p1: { lp: 8000, monsters: [], spells: [], grave: [], banished: [], deckMaster: { inZone: true, returns: 0, nextCost: 0 } } })],
+    }),
+    defineScenario({ id: "domain-nseat-stress-two-seat-synchro-opponent-material", title: "Two seats: opponent Synchro materials stay illegal",
+      source: "docs/specs/2026-10-01-domain-nseat-stress.md", tags: ["domain", "synchro", "compatibility"],
+      setup: { mode: "domain", p0: { deckMaster: "Stardust Dragon", monsters: ["Axe Raider"] }, p1: { deckMaster: "Celtic Guardian", monsters: ["The Magical King of Dimension Zeta"] } },
+      steps: [expectNotOffered("specialSummon", { card: "Stardust Dragon", from: "dmz" }, "p0"), endTurn("p0"),
+        expectBoard({ p0: { lp: 8000, monsters: ["Axe Raider"], spells: [], grave: [], banished: [], deckMaster: { inZone: true, returns: 0, nextCost: 0 } },
+          p1: { lp: 8000, monsters: ["The Magical King of Dimension Zeta"], spells: [], grave: [], banished: [], deckMaster: { inZone: true, returns: 0, nextCost: 0 } } })],
+    }),
+  ];
+  for (const scenario of [...TWO_SEAT_CASES, ...twoSeatSynchro]) {
     it(`Two seats on the tested multi Domain wasm: ${scenario.id}`, async () => {
       const bytes = readFileSync(currentDomainMultiWasm());
       registerDomainCoreFactory((ctx) => createDomainCore({ ...ctx, wasmBinary: bytes }));

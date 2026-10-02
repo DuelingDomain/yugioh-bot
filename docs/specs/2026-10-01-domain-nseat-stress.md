@@ -132,3 +132,14 @@ Three direct-attack cases pass on the private wasm. A master in the Domain
 zone is not an attack target and does not block a direct attack. Damage goes
 to the selected opponent in FFA and the shared opposing LP pool in Tag.
 The master remains in its zone. Every seat is checked.
+
+Six more Synchro cases close the Tag partner gap. On P61, a Synchro master
+cannot use a legal monster of its partner. Both late-seat cases fail at the
+real summon prompt. This task adopts the existing Tag audit patch from
+`gap-tag2/out/0001-tag-synchro.patch`, without changes to that agent's files.
+The patch uses team membership at more than two seats and keeps the stock
+two-seat check. Both teams now summon the master. FFA3, FFA4, and both Tag
+teams still reject opponent materials. Two extra two-seat cases prove the
+same boundary. All 177 tests pass on the final private wasm. The second
+unnumbered patch and its commit message are under `gap-domain/out/tag-partner-synchro/`,
+with tracked copies under the matching proposal folder.
