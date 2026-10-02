@@ -30,6 +30,7 @@ export function MyDeckPanel({
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [savedNote, setSavedNote] = React.useState(false);
+  const latestRequest = React.useRef(0);
 
   const visible =
     tournament.isParticipant &&
@@ -37,20 +38,23 @@ export function MyDeckPanel({
     (tournament.status === "pending" || tournament.status === "active");
 
   const load = React.useCallback(async () => {
+    const request = ++latestRequest.current;
     try {
       const res = await fetch(`/api/tournaments/${tournamentSlug}/deck`);
-      if (!res.ok) return;
-      setState(parseMyDeckState(await res.json()));
+      if (!res.ok || request !== latestRequest.current) return;
+      const next = parseMyDeckState(await res.json());
+      if (request === latestRequest.current) setState(next);
     } catch {
       // The panel stays on its last state; the next refetch tries again.
     } finally {
-      setLoaded(true);
+      if (request === latestRequest.current) setLoaded(true);
     }
   }, [tournamentSlug]);
 
   // The page refetches the tournament on websocket events; follow it so lock state stays current.
   React.useEffect(() => {
     if (visible) void load();
+    return () => { latestRequest.current++; };
   }, [visible, load, tournament]);
 
   if (!visible || !loaded || !state) return null;

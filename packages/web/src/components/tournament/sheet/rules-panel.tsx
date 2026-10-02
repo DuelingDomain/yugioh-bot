@@ -58,6 +58,7 @@ export function RulesPanel({
       </dl>
       {canEdit && editing === "timing" && (
         <TournamentSettingsForm
+          key={`${tournament.deadlineAt ?? ""}:${tournament.reportConfirmWindowHours ?? ""}`}
           tournamentSlug={tournamentSlug}
           initialDeadlineAt={tournament.deadlineAt}
           initialReportConfirmWindowHours={tournament.reportConfirmWindowHours}

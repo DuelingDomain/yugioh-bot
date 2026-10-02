@@ -43,10 +43,15 @@ describe("match viewer model", () => {
     expect(matchView({ ...liveMatch, series: seriesFor(liveMatch, { status: "cancelled" }) }, 1, false, tournament())).toMatchObject({ canReport: true, canStart: true, canOpen: false });
   });
 
-  it("limits start/Set result to active events and Reopen to decided round robin", () => {
+  it("limits closed events to opponent confirmation and host Reopen", () => {
     for (const status of ["completed", "cancelled"]) {
-      expect(matchView(openMatch, 5, true, tournament({ status }))).toMatchObject({ canReport: true, canStart: false, canSetResult: false });
+      expect(matchView(openMatch, 5, true, tournament({ status }))).toMatchObject({ canReport: false, canStart: false, canSetResult: false, canOpen: false });
+      expect(matchView(liveMatch, 1, true, tournament({ status }))).toMatchObject({ canReport: false, canStart: false, canSetResult: false, canOpen: false });
+      expect(matchView(pendingMatch, 3, true, tournament({ status }))).toMatchObject({ canConfirm: true, canSetResult: false });
+      for (const id of [6, 99, null]) expect(matchView(pendingMatch, id, true, tournament({ status })).canConfirm).toBe(false);
       expect(matchView(decidedMatch, 5, true, tournament({ status })).canReopen).toBe(true);
+      expect(matchView(decidedMatch, 5, false, tournament({ status })).canReopen).toBe(false);
+      expect(matchView(decidedMatch, 5, true, tournament({ status, format: "single_elim" })).canReopen).toBe(false);
     }
     expect(matchView(decidedMatch, 5, true, tournament({ format: "single_elim" })).canReopen).toBe(false);
     expect(matchView(byeMatch, 5, true, tournament())).toMatchObject({ canReopen: false, canSetResult: false, canStart: false, canReport: false });
