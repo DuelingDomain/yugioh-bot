@@ -2969,6 +2969,18 @@
       "stockSha256": "540f994e713b640fae3b27fb32feeb3c914d6bd5ec284c45fb639732ef0c2b08"
     },
     {
+      "code": 48814566,
+      "file": "c48814566.lua",
+      "name": "Banquet of Millions",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "f49aef4b50222c235eef645f06a2adeeeffac782231814c6c20f4da9f91c9010",
+      "note": "Return temporary banished Extra Deck cards to their real owners after the pair bind expires.",
+      "redefined": [
+        "retop"
+      ]
+    },
+    {
       "code": 49027020,
       "file": "c49027020.lua",
       "name": "Traptrix Pudica",
