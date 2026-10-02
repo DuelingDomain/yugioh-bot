@@ -58,9 +58,9 @@ dead-bound-opponent	dead-bound-opponent	-	ready	OQ3: a bound opponent that is go
 pending-loss-pick	pending-loss-pick	-	ready	n > 2: a pick of one opponent (the chain-link pick, the lazy pick in a target) skips a seat with a pending loss (Debug.EliminateDuelist); an answer that names such a seat gets MSG_RETRY while another option is free, then the other seat is hit; Tag has no pick; the lazy pick built when a seat already has a pending loss lists only the living seat. Core patch 0057
 attacked-seat	attacked-seat	-	ready	n > 2: Duel.MPAttackedSeat() gives the real seat that the current attack goes at (direct attack pick at FFA3 seats 1 and 2, one open opponent without a pick, attack on a monster, FFA4, Tag), nil otherwise; the value at each event and the LP of every seat when the attack is redirected to a monster of another opponent (FFA3, Tag), to nil (direct, damage to the controller of the old target), negated, chained (FFA3, FFA4) or the target leaves. Core patch 0058
 tag-team-loss	tag-team-loss	-	ready	Tag: a team at 0 LP or with a member that draws from an empty Deck loses; CANNOT_LOSE_LP and CANNOT_LOSE_DECK work per member (the team stays alive); both teams at 0 = draw
-tag-team-rules	tag-team-rules	-	ready	Tag review rule check
-tag-unique-review	tag-unique-review	-	ready	Tag review rule check
-tag-xyz-attach-review	tag-xyz-attach-review	-	ready	Tag review rule check
-tag-grave-material-review	tag-grave-material-review	-	ready	Tag review rule check
-tag-self-attack-review	tag-self-attack-review	-	ready	Tag review rule check
+tag-team-rules	tag-team-rules	-	ready	Tag: partner monsters are Synchro material on both teams; FFA and n == 2 keep their own-seat checks (core patches 0062 and 0068).
+tag-unique-review	tag-unique-review	-	ready	Tag: a unique-on-field limit counts one copy per team; FFA and n == 2 count one seat (core patch 0063).
+tag-xyz-attach-review	tag-xyz-attach-review	-	ready	Tag: an effect can attach a partner monster as Xyz material without a control-change check; opponent, token and n == 2 restrictions stay (core patch 0064).
+tag-grave-material-review	tag-grave-material-review	-	ready	Tag: extra Ritual and Fusion material effects include the partner Graveyard on both teams; FFA and n == 2 keep one seat (core patch 0065).
+tag-self-attack-review	tag-self-attack-review	-	ready	Tag: EFFECT_SELF_ATTACK permits attacks on own and partner monsters; the attacker stays excluded and EFFECT_ATTACK_ALL keeps its gate, with FFA and n == 2 controls (core patch 0066).
 hints-without-opponent-picks	hints-without-opponent-picks	-	ready	Duel.Hint recipients and unchanged scopes: 12 cases in FFA3, FFA4, Tag and stock two-seat duels; core patch 0067
