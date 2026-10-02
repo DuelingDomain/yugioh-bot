@@ -1,0 +1,76 @@
+{
+  "source": "https://github.com/ProjectIgnis/BabelCDB/blob/430ee8fdee84c83617c428f779209d445b0eb63b/release-betb.cdb",
+  "sourceSha256": "939a33357d6d43e0c392a33df4e31034152a7bec09696041239cded0d8d8e3ae",
+  "datas": [
+    [
+      17242022,
+      1,
+      0,
+      59,
+      97,
+      3400,
+      3000,
+      9,
+      8192,
+      32,
+      9437184
+    ],
+    [
+      40235813,
+      1,
+      0,
+      0,
+      65538,
+      0,
+      0,
+      0,
+      0,
+      0,
+      537133569
+    ]
+  ],
+  "texts": [
+    [
+      17242022,
+      "Red-Eyes Black Dragon Exceed",
+      "\"Red-Eyes Black Dragon\" + 1 monster that mentions \"Dark Time Wizard\"\r\nMust be either Fusion Summoned, or Special Summoned (from your Extra Deck) by Tributing 1 face-up monster on either field during the turn a monster(s) was destroyed by the effect of \"Dark Time Wizard\". You can only Special Summon \"Red-Eyes Black Dragon Exceed\" once per turn this way, no matter which method you use. If this card is Special Summoned: You can Special Summon 1 Level 8 or lower monster from your hand or GY. Unaffected by your opponent's activated monster and Spell effects.",
+      "Special Summon (\"Red-Eyes Black Dragon Exceed\")",
+      "Special Summon 1 Level 8 or lower monster from your hand or GY",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      40235813,
+      "Dark Time Wizard",
+      "Activate 1 of these effects (but you can only use each effect of \"Dark Time Wizard\" once per turn);\r\n● Add 1 card that mentions \"Dark Time Wizard\" from your Deck to your hand, except \"Dark Time Wizard\", also add 1 \"Dark Time Wizard\" from your GY to your hand during the End Phase of this turn.\r\n● Toss a coin and call it. If you call it right, destroy as many monsters your opponent controls as possible, and if you do, inflict damage to your opponent equal to half the total original ATK of those monsters. If you call it wrong, destroy all monsters you control.",
+      "Activate 1 of these effects",
+      "Search 1 card that mentions \"Dark Time Wizard\"",
+      "Toss a coin and call it",
+      "Affected by \"Dark Time Wizard\": will add 1 \"Dark Time Wizard\" from their GY to their hand during the End Phase of this turn",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ]
+  ]
+}
