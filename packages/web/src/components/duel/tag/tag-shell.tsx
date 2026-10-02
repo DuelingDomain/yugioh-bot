@@ -24,7 +24,7 @@ import { duelFontClasses } from "../fonts";
 import { lockForEvents } from "./fx-lock";
 import { CameraDock } from "./roof-map";
 import { initialRoofCamera, roofKeyAction, roofReducer } from "./roof-camera";
-import { batonOrder, firstInspectCard, resultBanner, teamLp } from "./tag-logic";
+import { batonOrder, firstInspectCard, passSummary, responseWindow, resultBanner, teamLp } from "./tag-logic";
 import { TagStage } from "./tag-stage";
 import styles from "./tag-shell.module.css";
 
@@ -161,6 +161,8 @@ export function TagShell({ controller, teamNames, initialCamera }: TagShellProps
   const viewerTeam = viewerSeat == null ? 0 : teamOfSeat("tag", viewerSeat);
   const names = teamNames ?? (["Team 1", "Team 2"] as const);
   const turnTone = SEAT_TONE_HEX[layout.slots.find((slot) => slot.seat === turnSeat)?.tone ?? "violet"];
+  const chainWindow = prompt?.context?.type === "chain" ? responseWindow(engine, prompt, prompt.seat) : null;
+  const passLine = chainWindow ? passSummary(chainWindow, nameOf, viewerSeat == null ? null : viewerTeam) : null;
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const mine = controller.canAct;
   const noLegalMoves = mine && actionOptions.length > 0 && actionOptions.every((option) => PASSIVE_ACTION_IDS.has(option.id));
@@ -263,6 +265,7 @@ export function TagShell({ controller, teamNames, initialCamera }: TagShellProps
             </SidePanel>
           </div>
           <div className={styles.tray} data-tone={prompt?.context?.type === "chain" ? "chain" : "action"} data-idle={centered || !mine ? "true" : "false"}>
+            {passLine ? <p className={styles.pass} data-pass-status role="status">{passLine}</p> : null}
             <PromptTray
               prompt={prompt}
               mySeat={viewerSeat}

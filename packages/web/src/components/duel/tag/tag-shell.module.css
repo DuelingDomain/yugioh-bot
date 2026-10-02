@@ -153,6 +153,7 @@
   padding: 10px 12px 12px;
   border-top: 1px solid var(--duel-rule);
 }
+.pass { margin: 0 0 8px; color: var(--duel-ink-2); font-size: var(--duel-t-sm); line-height: 1.35; }
 .tray[data-idle="true"] { display: none; }
 .tray[data-tone="chain"]:not([data-idle="true"]) { border-top-color: rgb(228 182 79 / 0.55); background: var(--duel-chain-soft); }
 

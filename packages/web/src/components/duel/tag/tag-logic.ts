@@ -172,3 +172,14 @@ export function firstInspectCard(engine: DuelEngineView, viewerSeat: number | nu
   const monster = view.monsters.find((card) => card != null && card.code != null && !isFacedown(card.position));
   return monster ?? view.hand.find((card) => card.code != null) ?? null;
 }
+
+/**
+ * One plain line for the chain tray: who of the answering team still has to decide, and whether the rivals passed.
+ * Example: "Your team: Aster is choosing, Corvin is waiting. Rivals passed."
+ */
+export function passSummary(window: ResponseWindow, nameOf: (seat: number) => string, viewerTeam: number | null): string {
+  const who = window.team === viewerTeam ? "Your team" : "Rival team";
+  const word: Record<ResponderState, string> = { choosing: "is choosing", waiting: "is waiting", passed: "passed" };
+  const members = window.members.map((m) => `${nameOf(m.seat)} ${word[m.state]}`).join(", ");
+  return `${who}: ${members}.${window.otherPassed ? " The other team passed." : ""}`;
+}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DuelChainLink, DuelEngineView, DuelPrompt, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   batonOrder,
+  passSummary,
   chainLinkLabel,
   defaultDirectSeat,
   directAttackSeats,
@@ -237,5 +238,17 @@ describe("rivalPickOptions", () => {
     const e = engine([seat(0, 1, true), seat(1, 1, true), seat(2, 1, true), seat(3, 1, true, { eliminated: true })]);
     const p = choice([{ id: "o1", label: "a", controller: 1 }, { id: "o3", label: "b", controller: 3 }], { type: "opponent" });
     expect([...rivalPickOptions(e, p)]).toEqual([[1, "o1"]]);
+  });
+});
+
+describe("passSummary", () => {
+  const nameOf = (seat: number) => ["Aster", "Mirelle", "Corvin", "Juniper"][seat];
+  it("names the choosing and waiting members of your team", () => {
+    const window = { team: 0, members: [{ seat: 0, state: "choosing" as const }, { seat: 2, state: "waiting" as const }], otherPassed: false, passedSeats: [], bothPassed: false };
+    expect(passSummary(window, nameOf, 0)).toBe("Your team: Aster is choosing, Corvin is waiting.");
+  });
+  it("says when the other team passed, and calls the answering team rival for the other side", () => {
+    const window = { team: 1, members: [{ seat: 1, state: "passed" as const }, { seat: 3, state: "choosing" as const }], otherPassed: true, passedSeats: [0, 2], bothPassed: false };
+    expect(passSummary(window, nameOf, 0)).toBe("Rival team: Mirelle passed, Juniper is choosing. The other team passed.");
   });
 });
