@@ -15,7 +15,7 @@ describe("AA-ZEUS scenario list", () => {
   it("checks every seat after a real battle in every format", () => {
     expect(new Set(AA_ZEUS_SCENARIOS.map((s) => s.id)).size).toBe(AA_ZEUS_SCENARIOS.length);
     for (const s of AA_ZEUS_SCENARIOS) {
-      const board = s.steps.findLast((step) => step.op === "expectBoard");
+      const board = [...s.steps].reverse().find((step) => step.op === "expectBoard");
       expect(board?.op).toBe("expectBoard");
       if (board?.op === "expectBoard") expect(Object.keys(board.board)).toHaveLength(s.setup.format === "ffa3" ? 3 : 4);
       expect(s.steps.some((step) => step.op === "attack")).toBe(true);
