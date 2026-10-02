@@ -40,6 +40,9 @@ export function HelipadHub({ chain, anchorSeat, nameOf, toneOf, response, teamLa
   useEffect(() => {
     if (!pick) return;
     const onKey = (event: KeyboardEvent) => {
+      // PromptTray takes the same digits on a choice prompt and calls preventDefault: whoever is first answers, the other
+      // stands down, so one key press never picks twice.
+      if (event.defaultPrevented) return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
