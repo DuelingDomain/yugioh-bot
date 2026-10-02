@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import type { DuelRoom } from "@yugidraft/shared/duels";
-import { opponentPickOptions } from "../multi-seat";
+import { seatPickFor } from "../multi-seat";
 import type { TableController } from "./types";
 
 export type LiveTableControllerInput = Omit<TableController, "room" | "engine" | "viewerSeat" | "promptSeat" | "seatPick"> & {
@@ -20,18 +20,11 @@ export function useLiveTableController(input: LiveTableControllerInput): TableCo
     if (!room || !engine) return null;
     const busy = working || Boolean(error) || Boolean(catchingUp);
     const canAct = allowed && !busy;
-    const picks = canAct && revealed ? opponentPickOptions(prompt, engine) : null;
     return {
       room, engine, viewerSeat: room.mySeat, nameOf, prompt, revealed, draft, legalKeys, selectedKeys,
       aim, reducedMotion, onAnswer, onActivate, onInspect, onHoverCard, onAim,
       promptSeat: prompt?.seat ?? null, busy, canAct,
-      seatPick: picks && picks.size > 0 ? {
-        options: picks,
-        onPick: (seat) => {
-          const choice = picks.get(seat);
-          if (choice != null) onAnswer({ choice });
-        },
-      } : null,
+      seatPick: canAct && revealed ? seatPickFor(prompt, engine, onAnswer) : null,
     };
   }, [room, error, catchingUp, nameOf, prompt, allowed, working, revealed, draft, legalKeys, selectedKeys,
     aim, reducedMotion, onAnswer, onActivate, onInspect, onHoverCard, onAim]);

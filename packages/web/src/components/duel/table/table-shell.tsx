@@ -1,6 +1,7 @@
 "use client";
 
 import { eliminationOrder } from "@/lib/duel/elimination-order";
+import { connectionLabel as labelForConnection } from "../connection-label";
 import { useCallback, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { Circle, Diamond, Eye, Radio, Volume2, VolumeX } from "lucide-react";
@@ -29,7 +30,7 @@ import { PositionFx } from "../position-fx";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { optionsForCard, PromptTray } from "../prompts";
 import { priorityOrder } from "../priority-chips";
-import { usePickContinuation } from "../pick-continuation";
+import { usePickContinuation, type PickContinuation } from "../pick-continuation";
 import { useResultGate } from "../result-reveal";
 import { firstInspectCard } from "../tag/tag-logic";
 import { DuelClockDisplay } from "../room-settings";
@@ -90,6 +91,8 @@ export interface TableShellProps {
   notices?: ReactNode;
   settingsTools?: ReactNode;
   connection?: TableConnection;
+  /** Live rooms own continuation timing alongside their reveal gate. Previews track it locally. */
+  pickContinuation?: PickContinuation;
   /** A room modal owns keyboard input while open. */
   inputSuspended?: boolean;
   /** The room's prompt reveal gate must wait on this shell's board effects. */
@@ -114,6 +117,7 @@ export function TableShell({
   notices,
   settingsTools,
   connection,
+  pickContinuation,
   inputSuspended = false,
   boardRef: roomBoardRef,
 }: TableShellProps) {
@@ -122,12 +126,13 @@ export function TableShell({
     const blocked = roomBusy || supplied.busy || (centerKind(supplied.prompt) != null && !supplied.revealed);
     return blocked ? { ...supplied, busy: true, canAct: false, seatPick: null } : supplied;
   }, [roomBusy, supplied]);
-  const pick = usePickContinuation(given.prompt);
+  const localPick = usePickContinuation(pickContinuation ? null : given.prompt);
+  const pick = pickContinuation ?? localPick;
   const onAnswer = useCallback<TableController["onAnswer"]>((answer) => {
     if (given.busy || !given.canAct || !given.prompt) return;
-    pick.noteAnswer(given.prompt, answer);
+    if (!pickContinuation) pick.noteAnswer(given.prompt, answer);
     given.onAnswer(answer);
-  }, [given, pick.noteAnswer]);
+  }, [given, pick.noteAnswer, pickContinuation]);
   const tracked = useMemo(() => ({ ...given, onAnswer }), [given, onAnswer]);
   const ui = useTableUi(tracked);
   const base = ui.controller;
@@ -186,8 +191,7 @@ export function TableShell({
   const myTurn = !spectator && turnSeat === viewerSeat;
   const turnText = myTurn ? "Your turn" : `${nameOf(turnSeat)}'s turn`;
   const soundLabel = preferences.soundEnabled ? "On" : "Off";
-  const connectionLabel = terminal ? "Finished" : connection?.syncing || connection?.stale ? "Catching up…"
-    : connection?.error || connection?.recovering ? "Reconnecting" : connection && !connection.connected ? "Polling" : "Live";
+  const connectionLabel = labelForConnection(terminal, connection);
 
   const promptMine = prompt != null && !spectator && prompt.seat === viewerSeat && !terminal;
   const centered = promptMine && centerKind(prompt) != null;

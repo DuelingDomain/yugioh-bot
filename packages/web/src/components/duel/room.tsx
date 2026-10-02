@@ -7,7 +7,8 @@ import useSWR from "swr";
 import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { SurrenderModal } from "./surrender-modal";
+import { connectionLabel as labelForConnection } from "./connection-label";
 import { Sheet } from "@/components/ui/sheet";
 import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
 import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
@@ -34,7 +35,7 @@ import { TableShell } from "./table/table-shell";
 import { useLiveTableController } from "./table/use-live-table-controller";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { MultiSeatStage } from "./multi-seat-stage";
-import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, opponentPickOptions, seatNamer, type SeatPick } from "./multi-seat";
+import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, seatPickFor, seatNamer } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
@@ -541,10 +542,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const mine = prompt != null && prompt.seat === data.mySeat;
   const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active";
   // An opponent pick also answers by tapping the offered seat on the table (after the same human beat as the panel).
-  const pickOptions = multi && canAct && revealed ? opponentPickOptions(prompt, engine) : null;
-  const seatPick: SeatPick | null = pickOptions && pickOptions.size > 0
-    ? { options: pickOptions, onPick: (seat) => { const id = pickOptions.get(seat); if (id) onSubmitAnswer({ choice: id }); } }
-    : null;
+  const seatPick = multi && canAct && revealed ? seatPickFor(prompt, engine, onSubmitAnswer) : null;
   const canSurrender = data.session.status === "active" && data.mySeat != null && !engine?.result;
   const terminal = data.session.status !== "active";
   const isOrganizer = data.session.seats.some((seat) =>
@@ -559,6 +557,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
     else router.replace("/duels");
   };
+  const surrenderModal = <SurrenderModal open={confirmSurrender && !hasResult} busy={busy}
+    onClose={() => setConfirmSurrender(false)} onConfirm={() => {
+      setConfirmSurrender(false);
+      void run(() => surrenderDuel(slug));
+    }} />;
   if (ownWindowGate) {
     return (
       <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 text-center"
@@ -578,7 +581,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     );
   }
   if (liveTable && liveController) {
-    return <TableShell key={slug} controller={liveController} boardRef={boardRef}
+    return <TableShell key={slug} controller={liveController} boardRef={boardRef} pickContinuation={pick}
       inputSuspended={confirmSurrender || sidePanelOpen}
       fxActive={!error && !realtime.recovering} busy={busy || Boolean(error) || catchingUp}
       initialOutOrder={eliminationOrder(liveController.engine)}
@@ -599,23 +602,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
       </>}
       modals={<>
-        <Modal open={confirmSurrender && !hasResult} onClose={() => setConfirmSurrender(false)} title="Surrender">
-          <p className="text-sm text-text-secondary">This ends the duel. Confirm surrender?</p>
-          <div className="mt-4 flex gap-2">
-            <Button type="button" variant="danger" loading={busy} onClick={() => {
-              setConfirmSurrender(false);
-              void run(() => surrenderDuel(slug));
-            }}>Surrender</Button>
-            <Button type="button" variant="ghost" onClick={() => setConfirmSurrender(false)}>Keep playing</Button>
-          </div>
-        </Modal>
+        {surrenderModal}
         {sidePanelOpen && series && myIndex != null && data.mySide ?
           <SideDeckPanel slug={slug} series={series} myIndex={myIndex} side={data.mySide}
             onClose={() => setSideOpen(false)} onChanged={() => void refreshRoom()} onNavigate={goToGame} /> : null}
       </>} />;
   }
-  const connectionLabel = terminal ? "Finished" : realtime.syncing || roomStale ? "Catching up…" :
-    error || realtime.recovering ? "Reconnecting" : realtime.connected ? "Live" : "Polling";
+  const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
   const domain = data.session.mode === "domain";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const spectator = data.mySeat == null;
@@ -946,16 +939,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Settings"}>
         {sidePanes(false)}
       </Sheet>
-      <Modal open={confirmSurrender && !hasResult} onClose={() => setConfirmSurrender(false)} title="Surrender">
-        <p className="text-sm text-text-secondary">This ends the duel. Confirm surrender?</p>
-        <div className="mt-4 flex gap-2">
-          <Button type="button" variant="danger" loading={busy} onClick={() => {
-            setConfirmSurrender(false);
-            void run(() => surrenderDuel(slug));
-          }}>Surrender</Button>
-          <Button type="button" variant="ghost" onClick={() => setConfirmSurrender(false)}>Keep playing</Button>
-        </div>
-      </Modal>
+      {surrenderModal}
       {showResult ? (
         <DuelResultScreen room={data} slug={slug} reducedMotion={preferences.reducedMotion}
           soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel}
