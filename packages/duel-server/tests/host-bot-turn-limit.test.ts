@@ -55,6 +55,16 @@ class EndlessBotWorker implements DuelGameWorker {
   async close() { this.stopped = true; }
 }
 
+/** Every view invalidates the previous plan, so the bot cannot send an answer. */
+class ReplanningBotWorker extends EndlessBotWorker {
+  constructor() { super(null, 5); }
+  override async view(viewer: number | null) {
+    const view = await super.view(viewer);
+    this.revision += 1;
+    return view;
+  }
+}
+
 const hosts: DuelHost[] = [];
 afterEach(async () => {
   vi.useRealTimers();
@@ -87,6 +97,24 @@ async function table(worker: EndlessBotWorker, botStepDelayMs: number) {
 }
 
 describe("bots that play a long duel on their own", () => {
+  it("paced: stops after 32 consecutive plans that no longer match", async () => {
+    vi.useFakeTimers();
+    const worker = new ReplanningBotWorker();
+    const t = await table(worker, 1);
+    expect((await post(t.host, { op: "start", ...t.base })).status).toBe(200);
+    await vi.advanceTimersByTimeAsync(31);
+    expect(t.duels.get(t.slug, "g1").status).toBe("active");
+    expect(worker.running).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    const session = t.duels.get(t.slug, "g1");
+    expect(session.status).toBe("interrupted");
+    expect(session.winnerSeat).toBeNull();
+    expect(session.resultReason).toBe("The practice bot could not keep a valid plan.");
+    expect(worker.answers).toBe(0);
+    expect(worker.running).toBe(false);
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
   it.each([0, 1])("delay %i: stops an endless duel at turn 200 when no human is living", async (delay) => {
     vi.useFakeTimers();
     const worker = new EndlessBotWorker(null, 5, true);

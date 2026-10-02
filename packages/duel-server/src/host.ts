@@ -48,6 +48,7 @@ import { getPreset, multiCoreAvailable, multiCoreInfo, PRESETS, SCRIPTED_POLICY,
  * answers, and a random bot always ends it (the Decks run out). A bot that loops inside one turn is still caught.
  */
 const BOT_ADVANCE_LIMIT = 128;
+const BOT_REPLAN_LIMIT = 32;
 const BOT_ONLY_TURN_LIMIT = 200;
 const DEFAULT_ARCHIVE_AFTER_MS = 10 * 60 * 1000;
 const DEFAULT_IDLE_WORKER_MS = 5 * 60 * 1000;
@@ -578,6 +579,7 @@ export function createDuelHost(options: {
     // registry as it truly is and can start a fresh loop.
     loop.done = (async () => {
       let steps = 0;
+      let replans = 0;
       let lastTurn: number | null = null;
       let settle = 0;
       for (;;) {
@@ -607,14 +609,21 @@ export function createDuelHost(options: {
           return finish();
         }
         if (outcome.kind === "stop") return;
-        if (outcome.kind === "replan") continue;
-        steps += 1;
-        settle = outcome.visible ? plan.cost : 0;
-        if (steps >= BOT_ADVANCE_LIMIT) {
+        if (outcome.kind === "replan") {
+          replans += 1;
+          if (replans < BOT_REPLAN_LIMIT) continue;
+        } else {
+          replans = 0;
+          steps += 1;
+          settle = outcome.visible ? plan.cost : 0;
+        }
+        if (steps >= BOT_ADVANCE_LIMIT || replans >= BOT_REPLAN_LIMIT) {
           await enqueue(slug, async () => {
             if (loop.cancelled || stopped) return;
             finish();
-            await interruptBrokenBot(slug, guildId, "The practice bot failed to make progress.");
+            await interruptBrokenBot(slug, guildId, replans >= BOT_REPLAN_LIMIT
+              ? "The practice bot could not keep a valid plan."
+              : "The practice bot failed to make progress.");
           }).catch((error) => console.warn("[duel] practice bot interrupt failed", error));
           return;
         }
