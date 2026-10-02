@@ -191,3 +191,152 @@ npm run e2e:nobuild --workspace=packages/e2e -- \
 
 Manual mode derives a verified wrapper manifest in the isolated stack directory; the
 snapshot bytes stay unchanged. This command uses only 3300/3302/4302/4303.
+
+## Rules: three-seat opponent and chain browser proof (2026-10-02)
+
+This additive section uses the newest local ADR-0002, including the restored
+controller-damage rule and retired opponent-field ID. The earlier report remains
+historical evidence; notably Standard MR5 now skips the turn-1 draw.
+
+### Inventory before this task
+
+Every `R-FFA-*` and `R-COMMON-*` ID in the ADR is listed below. Partial means only
+the specific clauses in the earlier browser coverage table, not the whole rule.
+
+| Rule | Browser status before this task |
+| --- | --- |
+| R-COMMON-ALL-BOTH | Partial: Dark Hole clears all three fields. |
+| R-COMMON-CONT-NEG | Untested in dedicated FFA3 browser gameplay. |
+| R-COMMON-CTRL | Untested; restored owner rule, superseding the old report's obsolete-ID note. |
+| R-COMMON-EACH-PLAYER | Untested. |
+| R-COMMON-EMZ | Rendering only; Extra Deck placement untested. |
+| R-COMMON-FL-LIST | Per-deck banlist rule untested in this browser proof. |
+| R-COMMON-ONGOING | Untested. |
+| R-COMMON-OPP-FIELD | Retired; all-opponent field behavior is current-engine evidence only. |
+| R-COMMON-OPP-PICK | Partial: Mind Crush chooses one opponent's hand in FFA3/FFA4. |
+| R-COMMON-SEAT-STATE | Untested. |
+| R-COMMON-SEP-FIELDS | Partial: separate hands, field zones and Graveyards render and update. |
+| R-FFA-ACROSS-EMZ | Pending engine change; real shared placement untested. |
+| R-FFA-ACTIVATED-LOCK | Pending engine change; untested. |
+| R-FFA-ATTACK | Partial: rival monster targets and confirmed direct attacks. |
+| R-FFA-CHAIN | Partial: clockwise responses, turn-player priority, consecutive passes. |
+| R-FFA-ELIMINATION | Partial: own-card cleanup, skipped seats and persistent placings; remaining clauses untested. |
+| R-FFA-FIRST-DRAW | Standard MR5 first-draw browser test updated to hand 5/deck 35; other modes/MRs outside this proof. |
+| R-FFA-LP | Partial: separate starting LP and battle damage. |
+| R-FFA-NEGATE | Untested in a dedicated browser test. |
+| R-FFA-NO-ATTACK | Expected ADR failure for turns 3/4, with separate current-engine controls. |
+| R-FFA-OPP-ONE | FFA4 expected failure/current-engine pair; FFA3 absent. |
+| R-FFA-OPP-RESPONSE | Monster-attack Mirror Force expected failure/current-engine pair; direct-attack eligibility absent. |
+| R-FFA-ORDER | Partial: clockwise turns and eliminated-seat skipping. |
+| R-FFA-RESOURCE-ROTATION | Pending engine change; untested. |
+| R-FFA-RETURN-OWNED-CARDS | Pending engine change; untested. |
+| R-FFA-TRIGGERS | Untested in a dedicated browser test. |
+| R-FFA-WINNER | Partial: last living seat and persistent standings; simultaneous draw absent. |
+
+Implementation sequence: add deterministic dev presets and an isolated browser
+helper; assert supported rules through human UI actions and read-only prompt logs;
+pair each pending assertion with a current-engine control; run the new spec twice,
+without retries, under the exclusive stack lock; record evidence and clean artifacts.
+
+### Added rule evidence
+
+Only `duel-3p-ffa-rules.spec.ts`, its new helper, additive presets and preset
+registrations belong to this task. Human-seat decisions use browser controls;
+room and per-seat debug views are read-only evidence. Every room verifies the
+snapshot's real `ocgcore.multi.wasm` hash. No engine rules, core or Lua overlays
+are changed. The single FFA4 pair below is necessary to exercise the across-seat
+rule; the other thirteen tests use exactly three seats.
+
+| Rule | Engine and browser assertions | Status |
+| --- | --- | --- |
+| R-FFA-OPP-ONE | Raigeki's desired opponent-pick prompt is polled with the default timeout after `test.fail`; the intended follow-up chooses seat 2 and preserves seat 1. The separate current-engine control proves monster counts [1,0,0], exact per-seat GY identities/counts, LP and visible card identity. | Pending declaration; current-engine control only. |
+| R-COMMON-OPP-FIELD | The same Raigeki control labels the retired all-opponent-field behavior explicitly. | Retired ID, not active ADR proof. |
+| R-FFA-OPP-RESPONSE | A confirms a direct attack on B while both B and C hold Battle Fader and are scripted to activate it if offered. Every recorded Fader offer belongs to B; C keeps its Fader. The browser shows B's chain link and priority chips, then B summons Fader and stops the attack. All LP remain 8,000; GY and hand counts agree. | Direct-attack eligibility proven; the earlier Mirror Force effect-scope gap remains pending. |
+| R-COMMON-OPP-PICK | Hinotama offers both rival chips, excludes self, and damages only the chosen seat 2: engine and `[data-lp-value]` show [8000,8000,7500]. Only the spent spell enters GY. | LP clause proven, complementing the earlier Mind Crush hand proof. |
+| R-FFA-TRIGGERS | All three monsters leave together. On seat 0's turn, links form [0,1,2] and resolve [2,1,0]; on seat 1's turn, they form [1,2,0] and resolve [0,2,1]. Real chain events, prompt logs, visible three-link chains, choosing chips, human search selection, LP and GY counts agree. | Two turn origins proven. |
+| R-FFA-NEGATE | Seat 2's Solemn Judgment negates seat 0's Raigeki. A human counter-trap window holds links [0,2] for chip/chain inspection; the human declines. Engine records link 1 negated; both rival monsters survive in engine and UI, seat 2 pays to 4,000 LP, and Raigeki/Solemn enter their own GYs. | Third-seat spell activation negation proven. |
+| R-FFA-ACTIVATED-LOCK | Dweller's detach cost is proven before the expected failure at the missing declaration prompt. The current control resolves Dweller, destroys it and both rival trigger monsters with Dark Hole, and proves neither rival GY trigger activates; GY counts are [3,1,1], LP/fields agree. Desired follow-up permits the undeclared seat's trigger. | One-opponent lock pending; current all-opponent lock proven. |
+| R-FFA-RESOURCE-ROTATION | The human answers real selection/placement prompts before annotation. Intended monster order is [Silver Fang, Mystical Elf, Battle Ox]. Current engine gives [Battle Ox, Mystical Elf, Silver Fang]; per-card controller, browser art identity, LP and GY counts agree. | Three-seat rotation pending; current pair swap proven. |
+| R-COMMON-EMZ | Both rival left EMZ start occupied. The human really Link Summons Spider using Elf into its own left or right EMZ, then Imduk using Battle Ox into its own arrow-linked main zone 1 or 3. Both rivals' Spiders remain; the second own EMZ stays empty. Summon events, zones, art identity, Extra Deck count, LP and GY counts agree. | Real independence and local-arrow placement proven for both own EMZ. |
+| R-FFA-ACROSS-EMZ | A real FFA4 Link summon reaches placement before annotation. The intended assertion excludes seat 0's left EMZ because seat 2's right EMZ is occupied. Current engine offers both own EMZ and permits the left placement; engine/UI identity, LP and GY counts agree. | Across-seat blocking pending; current independent placement proven. |
+
+Expected failures establish an unresolved rule difference, not accepted ADR
+behavior. Their intended UI follow-ups are not reached while the engine assertion
+fails. Setup failures remain unexpected: detach cost and summon-placement state
+are validated before annotation. No pending case shortens the default assertion
+timeout. Synchronization uses prompt-log transitions, `expect.poll` and bounded
+UI-response loops, with no fixed sleeps.
+
+The direct-attack proof restricts **Battle Fader eligibility**, not every generic
+quick-effect window: the attacker can still use MST and all duelists retain their
+normal chain priority. The engine records B's trigger offer and activation choice
+separately; the assertion checks the set of offered seats rather than assuming one
+log entry.
+
+Remaining clauses outside this new proof: opponent Deck/Extra Deck/draw effects;
+the earlier Mirror Force effect scope; other trigger classes and negation types;
+resource rotation with full fields or eliminated seats; FFA4 shared columns and
+across-seat Link arrows; Extra Link permitting a second own EMZ; Domain/Tag and
+the full 1v1 regression. Untested rules in the inventory above are not promoted
+to proven by these additions.
+
+### Accepted runs for the new rules spec
+
+Both full runs used one Chromium worker, reduced motion at 1440×900, the same
+snapshot and the exact exclusive lock specified by the task. Each supervised
+stack stopped before releasing the lock. Both used `--retries=0`. Earlier focused
+diagnostic runs are excluded. The spec and presets were unchanged between the
+two accepted runs.
+
+| Run | UTC start | Duration | Ordinary passes | Expected failures | Skips | Unexpected/flaky |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| 1 | 2026-10-02T22:40:57.095Z | 133.678 s | 11 | 4 | 0 | 0 / 0 |
+| 2 | 2026-10-02T22:54:03.953Z | 203.173 s | 11 | 4 | 0 | 0 / 0 |
+
+The spec totals **22 ordinary passes and 8 expected failures**. Eight separate
+authentication setup passes give the two Playwright summaries **19 passed** each
+(38 accepted outcomes overall, including expected failures). Every result has
+retry 0. Expected failures are not counted as ordinary ADR passes.
+
+| Exact test name in `duel-3p-ffa-rules.spec.ts` | Run 1 | Run 2 |
+| --- | --- | --- |
+| current engine: R-COMMON-OPP-FIELD retired, three-seat Raigeki clears both opponent fields | Pass | Pass |
+| R-FFA-OPP-ONE: three seats declare one opponent before Raigeki clears only that field | Expected failure | Expected failure |
+| R-COMMON-OPP-PICK: Hinotama declares one rival and changes only that rival's LP | Pass | Pass |
+| R-FFA-OPP-RESPONSE: A attacks B directly, only B receives Battle Fader, C does not | Pass | Pass |
+| R-FFA-TRIGGERS: all three simultaneous triggers form [0,1,2] and resolve [2,1,0] | Pass | Pass |
+| R-FFA-NEGATE: third duelist's Solemn negates A's Raigeki, pays LP, and preserves B's field | Pass | Pass |
+| R-FFA-TRIGGERS: seat 1's turn forms [1,2,0] and resolves [0,2,1] | Pass | Pass |
+| current engine: Abyss Dweller locks both rivals' Graveyard triggers without an opponent declaration | Pass | Pass |
+| R-FFA-ACTIVATED-LOCK: Abyss Dweller declares one rival and leaves the other GY trigger available | Expected failure | Expected failure |
+| current engine: Creature Swap exchanges a pair and leaves the third monster alone | Pass | Pass |
+| R-FFA-RESOURCE-ROTATION: Creature Swap rotates monsters 0 to 1 to 2 to 0 | Expected failure | Expected failure |
+| R-COMMON-EMZ: real Link summons into own EMZ 5 ignore rival EMZ and use only the local arrow | Pass | Pass |
+| R-COMMON-EMZ: real Link summons into own EMZ 6 ignore rival EMZ and use only the local arrow | Pass | Pass |
+| current engine: FFA4 across EMZ remain independent during a real Link summon | Pass | Pass |
+| R-FFA-ACROSS-EMZ: FFA4 across seat 2 blocks seat 0's matching EMZ during a real Link summon | Expected failure | Expected failure |
+
+Expected failures occur at these engine assertions: Raigeki and Dweller return
+no opponent declaration; Creature Swap gives the pair-swap identities rather
+than the three-seat rotation; FFA4 offers both EMZ rather than excluding the
+blocked matching zone. None is accepted because of a UI timeout.
+
+Additional checks: E2E and duel-server typechecks passed; all 37 then-registered
+preset boards compiled in the focused unit run (39 unselected tests skipped);
+all ten new presets passed registration, uniqueness, bot-seat and checklist
+validation. Shared, websocket, duel-server and production web builds passed.
+The web build emitted its existing dynamic file-tracing warnings. Read-only
+code review found no important issues after the prompt-transition corrections.
+
+The package-wide registry check is not green: one pass and one failure at
+`ffa3-elimination-ongoing-loss`, a concurrent preset with a two-item checklist
+where the check requires more than two. It stops before the registry
+assertion that enumerates a fixed older preset list. This task does not edit
+that worker's preset or the existing unit-test file. This is separate from the
+ten successful validations of this task's new presets.
+
+The retained snapshot WASM SHA-256 is
+`896d6528b16227e1702088c42da8570a6c394be9c0dd93ad4f2aac9951e5c22e`.
+The WASM and the inspected Battle Fader/utility overlay hashes remained unchanged
+after both runs. No live stack, engine-owned worktree, engine rule logic, core or
+Lua overlay was changed by this task. No push, PR or main merge was performed.
