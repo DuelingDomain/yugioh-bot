@@ -11,7 +11,7 @@ const OX = "Battle Ox"; // 1700 ATK
 const ELF = "Mystical Elf"; // 800 ATK
 
 function rocks(format: Format, holder: Seat, vanquishBattled: boolean): Scenario {
-  const target = SEATS[format][(SEATS[format].indexOf(holder) + 1) % SEATS[format].length]!;
+  const target: Seat = format === "tag" ? "p2" : "p1";
   const untouched: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of SEATS[format]) untouched[seat] = { hand: seat === "p0" ? [] : [ELF], deckCount: seat === "p0" ? 20 : 19, extra: [] };
   return defineScenario({
