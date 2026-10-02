@@ -561,68 +561,58 @@
 .arena::after {
   content: "";
   position: absolute;
-  right: calc(var(--g) * -1);
-  left: calc(var(--g) * -1);
+  right: calc(var(--pile-col) + var(--g));
+  left: calc(var(--pile-col) + var(--g));
   height: 0;
   border-top: 1px solid var(--sheet);
   pointer-events: none;
 }
 
 .arena::before {
-  top: calc(2 * var(--z) + 1.5 * var(--gy));
+  top: calc(2 * var(--z) + 1.5 * var(--gy) + 4px);
 }
 
 .arena::after {
-  top: calc(3 * var(--z) + 2.5 * var(--gy));
+  top: calc(3 * var(--z) + 2.5 * var(--gy) - 4px);
 }
 
 .half {
   display: contents;
 }
 
-/* Two independent signals around the zones, behind cards and their usable-card glows.
-   Gold encloses the turn half; purple sits just outside its two vertical edges. The shared
-   Extra Monster Zone band belongs to neither half. Position follows the arena's fit variables. */
+/* The two outlines follow each player's zones and Banished pile, leaving the shared
+   Extra Monster Zone band clear. Non-scaling SVG strokes stay slim at every board size. */
 .halfSignals {
   position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: calc(2 * var(--z) + var(--gy));
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
   pointer-events: none;
 }
 
-.halfSignals[data-side="bottom"] {
-  top: calc(3 * var(--z) + 3 * var(--gy));
-}
-
-.halfSignals::before,
-.halfSignals::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-  border-radius: 4px;
+.turnEdge,
+.priorityEdge {
   opacity: 0;
+  stroke-linejoin: round;
 }
 
-.halfSignals::before {
-  inset: -2px;
-  border: 1px solid rgb(228 182 79 / 0.5);
-  background: linear-gradient(90deg, rgb(228 182 79 / 0.06), transparent 24%, transparent 76%, rgb(228 182 79 / 0.06));
-  box-shadow: 0 0 12px rgb(228 182 79 / 0.08);
+.turnEdge {
+  fill: rgb(228 182 79 / 0.025);
+  stroke: rgb(228 182 79 / 0.5);
+  stroke-width: 1px;
 }
 
-.half[data-turn="true"] .halfSignals::before {
-  opacity: 1;
+.half[data-turn="true"] .turnEdge { opacity: 1; }
+
+.priorityEdge {
+  fill: none;
+  stroke: var(--pen);
+  stroke-width: 2px;
+  filter: drop-shadow(0 0 3px rgb(155 126 255 / 0.25));
 }
 
-.halfSignals::after {
-  inset: -4px;
-  border-inline: 2px solid var(--pen);
-  box-shadow: -4px 0 10px -5px var(--pen), 4px 0 10px -5px var(--pen);
-}
-
-.half[data-priority="true"] .halfSignals::after {
+.half[data-priority="true"] .priorityEdge {
   opacity: 1;
   animation: priorityBreathe 2.8s ease-in-out infinite;
 }
@@ -632,12 +622,12 @@
   50% { opacity: 1; }
 }
 
-.felt[data-reduced-motion="true"] .halfSignals::after {
+.felt[data-reduced-motion="true"] .priorityEdge {
   animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .halfSignals::after { animation: none !important; }
+  .priorityEdge { animation: none !important; }
 }
 
 .emzBand {
