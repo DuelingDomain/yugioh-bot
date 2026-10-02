@@ -15,16 +15,16 @@ export function goToMatch(matchId: number) {
   node.focus({ preventScroll: true });
 }
 
-export function Crosstable({ tournament, currentUserPlayerId, ratings, narrow = false }: CrosstableProps & { narrow?: boolean }) {
+export function Crosstable({ tournament, currentUserPlayerId, ratings, narrow = false, final = false }: CrosstableProps & { narrow?: boolean; final?: boolean }) {
   const [showGrid, setShowGrid] = useState(false);
   const standings = buildStandings(tournament);
   const roundRobin = tournament.format === "round_robin";
   const gridVisible = roundRobin && (!narrow || showGrid);
 
   return (
-    <section id={SECTION_IDS.standings} aria-label="Standings">
+    <section id={SECTION_IDS.standings} aria-label={final ? "Final standings" : "Standings"}>
       <div className="sec-h">
-        <h2 className="sec-t">Standings</h2>
+        <h2 className="sec-t">{final ? "Final standings" : "Standings"}</h2>
         {narrow && roundRobin
           ? <button type="button" className="btn btn-quiet btn-sm" aria-pressed={showGrid} onClick={() => setShowGrid(!showGrid)}>{showGrid ? "Show list" : "Show grid"}</button>
           : <span className="sec-aux">{roundRobin ? "Wins, then fewest losses · columns are opponents in the same order" : "Placed by wins, then fewest losses. Equal records share a place."}</span>}

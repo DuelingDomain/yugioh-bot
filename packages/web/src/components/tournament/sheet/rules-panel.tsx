@@ -30,6 +30,7 @@ export function RulesPanel({
   const canEdit = isHost && open;
   const closes = formatWhen(tournament.deadlineAt) ?? "No deadline";
   const hours = tournament.reportConfirmWindowHours;
+  const started = formatWhen(tournament.startedAt);
   const format = `${formatLabel(tournament.format)}${summary ? ` · Best of ${summary.bestOf}` : ""}`;
   const done = () => {
     setEditing(null);
@@ -44,14 +45,16 @@ export function RulesPanel({
   return (
     <SheetPanel
       title="Rules"
-      aside={canEdit ? <button type="button" className="edit-cap" aria-expanded={editing === "rules"} onClick={() => setEditing(editing === "rules" ? null : "rules")}>Edit rules</button> : undefined}
-      footer={canEdit ? <><Pen className="ic sm" aria-hidden="true" />{tournament.rulesLocked ? "Rules are locked. A game has started." : "Every rule is open until the first online duel opens."}</> : undefined}
+      aside={!open ? <small>as played</small> : tournament.rulesLocked && tournament.status === "active" && !canEdit ? <small>locked since the first duel opened</small> : canEdit && !tournament.rulesLocked ? <button type="button" className="edit-cap" aria-expanded={editing === "rules"} onClick={() => setEditing(editing === "rules" ? null : "rules")}>Edit rules</button> : tournament.rulesLocked ? <small>locked since the first duel opened</small> : undefined}
+      footer={canEdit ? <><Pen className="ic sm" aria-hidden="true" />{tournament.rulesLocked ? "Only you can edit the last two. Duel rules stay locked once a duel has been opened." : "Every rule is open until the first online duel opens."}</> : undefined}
     >
       <dl className="rows">
         <div><dt>Format</dt><dd>{format}</dd></div>
         {summary?.rows.map((row) => <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}
-        <div><dt>Closes</dt><dd>{closes}{canEdit && edit("timing", "Edit deadline")}</dd></div>
-        <div><dt>Confirm window</dt><dd>{hours != null ? `${hours} hours` : "Default"}{canEdit && edit("timing", "Edit confirm window")}</dd></div>
+        {tournament.status === "pending" && <div className={canEdit ? "orgrow" : undefined}><dt>Closes</dt><dd>{closes}{canEdit && edit("timing", "Edit deadline")}</dd></div>}
+        {tournament.status === "active" && <div className={canEdit ? "orgrow" : undefined}><dt>Closes</dt><dd>{closes}{canEdit && edit("timing", "Edit deadline")}</dd></div>}
+        {open && <div className={canEdit ? "orgrow" : undefined}><dt>Confirm window</dt><dd>{hours != null ? `${hours} hours` : "Default"}{canEdit && edit("timing", "Edit confirm window")}</dd></div>}
+        {!open && started && <div><dt>Started</dt><dd>{started}</dd></div>}
       </dl>
       {canEdit && editing === "timing" && (
         <TournamentSettingsForm

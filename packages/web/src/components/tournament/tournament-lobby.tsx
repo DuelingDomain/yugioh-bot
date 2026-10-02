@@ -169,7 +169,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
                     </span>
                     {(rating || isCreator) && (
                       <span className="sub">
-                        {rating && rating.elo !== UNRATED_ELO && <span className="elo">{rating.elo}</span>}
+                        {rating && rating.rating !== UNRATED_ELO && <span className="elo">{rating.rating}</span>}
                         {isCreator && <DeckMarker participant={p} />}
                       </span>
                     )}

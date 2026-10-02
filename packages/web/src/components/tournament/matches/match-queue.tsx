@@ -28,10 +28,12 @@ export function MatchQueue(props: MatchQueueProps) {
   const featuredId = featuredMatch(props.tournament, props.currentUserPlayerId)?.id;
   const groups = groupMatches(props.tournament.matches.filter(match => match.id !== featuredId), props.currentUserPlayerId);
   const mine = (match: Match) => isMatchPlayer(match, props.currentUserPlayerId);
+  const closed = props.tournament.status !== "active";
+  if (closed) { groups.live = []; groups.pending = []; groups.open = []; }
   const decidedCount = groups.decided.length;
 
   // Decided matches, newest first, one day header per change of day.
-  const recent = groups.decided.slice(0, 3);
+  const recent = closed ? groups.decided : groups.decided.slice(0, 3);
   const days: Array<{ day: string; matches: Match[] }> = [];
   for (const match of recent) {
     const day = dayLabel(match.resolvedAt);
@@ -41,7 +43,7 @@ export function MatchQueue(props: MatchQueueProps) {
 
   return (
     <section id={SECTION_IDS.matches} aria-labelledby={titleId}>
-      <div className="sec-h"><h2 id={titleId} className="sec-t">Matches</h2><span className="sec-aux">Grouped by what each match is waiting on</span></div>
+      <div className="sec-h"><h2 id={titleId} className="sec-t">{closed ? "Results" : "Matches"}</h2>{!closed && <span className="sec-aux">Grouped by what each match is waiting on</span>}</div>
       {props.tournament.matches.length === 0 && <p className="small">No matches yet.</p>}
       <div className="q">
         {groups.live.length > 0 && (
@@ -66,8 +68,8 @@ export function MatchQueue(props: MatchQueueProps) {
           </div>
         )}
         {decidedCount > 0 && (
-          <div role="group" aria-label="Decided">
-            {expanded ? (
+          <div role="group" aria-label={closed ? "Results" : "Decided"}>
+            {expanded && !closed ? (
               <>
                 <h3 className="q-h">
                   <span className="lamp" data-s="done" />Decided <span className="n">{decidedCount}</span>
@@ -77,8 +79,8 @@ export function MatchQueue(props: MatchQueueProps) {
               </>
             ) : decidedCount > 0 && (
               <HistoryRail
-                title={`Decided · ${decidedCount}`}
-                aside={<button type="button" className="link" aria-expanded={false} onClick={() => setExpanded(true)}>Show all</button>}
+                title={`${closed ? "Results" : "Decided"} · ${decidedCount}`}
+                aside={closed ? undefined : <button type="button" className="link" aria-expanded={false} onClick={() => setExpanded(true)}>Show all</button>}
               >
                 {days.map(({ day, matches }) => [
                   <HistoryTurn key={`day-${day}`}>{day}</HistoryTurn>,
