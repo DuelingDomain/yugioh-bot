@@ -1,85 +1,102 @@
 "use client";
 
-import { useEffect } from "react";
-import Link from "next/link";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
-import { navItems } from "@/lib/nav-items";
+import { SheetPortal } from "@/components/sheet";
+import { AccountMenu } from "./account-menu";
+import { BrandMark } from "./brand-mark";
+import { NavList, SettingsLink } from "./nav-list";
+import { activeNavHref } from "./shell-model";
+import type { ShellAccount } from "./use-shell-account";
+import styles from "./shell.module.css";
 
 interface MobileDrawerProps {
   open: boolean;
   onClose: () => void;
+  account: ShellAccount;
 }
 
-export function MobileDrawer({ open, onClose }: MobileDrawerProps) {
-  const pathname = usePathname();
+const FOCUSABLE = 'a[href], button:not([disabled]), [role="menuitem"]:not([aria-disabled="true"]), [tabindex]:not([tabindex="-1"])';
 
+function DrawerDialog({ onClose, account }: Omit<MobileDrawerProps, "open">) {
+  const pathname = usePathname();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const activeHref = activeNavHref(pathname, account.playerId);
+
+  // Focus moves to Close when the dialog mounts.
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
+    closeRef.current?.focus();
+  }, []);
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Escape") {
+      // An open account menu handles its own Escape first.
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      onClose();
+      return;
     }
+    if (e.key !== "Tab") return;
+    const nodes = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
+    if (nodes.length === 0) return;
+    const first = nodes[0];
+    const last = nodes[nodes.length - 1];
+    const current = document.activeElement as HTMLElement | null;
+    if (e.shiftKey && (current === first || !dialogRef.current?.contains(current))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (current === last || !dialogRef.current?.contains(current))) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
+  return (
+    <div className={styles.layer}>
+      <div className={`ns-scrim ${styles.scrim}`} aria-hidden="true" onClick={onClose} />
+      <div
+        ref={dialogRef}
+        className={`ns-drawer ${styles.drawer}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation"
+        onKeyDown={onKeyDown}
+      >
+        <div className="ns-brand">
+          <BrandMark />
+          <span className="ns-word">YugiDraft</span>
+          <button ref={closeRef} className="ns-ib" type="button" aria-label="Close menu" onClick={onClose}>
+            <X className="ic" aria-hidden="true" />
+          </button>
+        </div>
+        <NavList activeHref={activeHref} label="Mobile navigation" onNavigate={onClose} />
+        <div className="ns-foot">
+          <SettingsLink activeHref={activeHref} onNavigate={onClose} />
+          <AccountMenu account={account} pathname={pathname} variant="side" onNavigate={onClose} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Phone menu: a real dialog, mounted only while open. */
+export function MobileDrawer({ open, onClose, account }: MobileDrawerProps) {
+  // Locks page scroll while open.
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = "";
+      document.body.style.overflow = prev;
     };
   }, [open]);
 
+  if (!open) return null;
   return (
-    <>
-      {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
-          onClick={onClose}
-          aria-hidden="true"
-        />
-      )}
-
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-bg-surface border-r border-border transform transition-transform duration-200 ease-out md:hidden ${
-          open ? "translate-x-0" : "-translate-x-full"
-        }`}
-        aria-label="Mobile navigation"
-      >
-        <div className="flex h-14 items-center justify-between border-b border-border px-4">
-          <span className="font-display text-lg text-accent-primary">YGO TM</span>
-          <button
-            type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-lg text-text-secondary hover:bg-bg-elevated hover:text-text-primary"
-            onClick={onClose}
-            aria-label="Close navigation menu"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <nav className="space-y-1 px-3 py-4" aria-label="Mobile navigation">
-          {navItems.map((item) => {
-            const isActive =
-              item.match === "exact"
-                ? pathname === item.href
-                : pathname.startsWith(item.href);
-            const Icon = item.icon;
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClose}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 font-body text-sm font-semibold motion-safe:transition-colors ${
-                  isActive
-                    ? "bg-accent-primary/10 text-accent-primary"
-                    : "text-text-secondary hover:bg-bg-elevated hover:text-text-primary"
-                }`}
-                aria-current={isActive ? "page" : undefined}
-              >
-                <Icon className="h-5 w-5 shrink-0" />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-      </aside>
-    </>
+    <SheetPortal>
+      <DrawerDialog onClose={onClose} account={account} />
+    </SheetPortal>
   );
 }
