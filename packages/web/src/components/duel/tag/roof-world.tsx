@@ -86,8 +86,8 @@ export function RoofDecor() {
             <circle
               key={i}
               className={styles.padLight}
-              cx={Math.cos(a) * 246}
-              cy={Math.sin(a) * 246}
+              cx={+(Math.cos(a) * 246).toFixed(2)}
+              cy={+(Math.sin(a) * 246).toFixed(2)}
               r={6}
               fill="rgb(255 214 150)"
               style={{ animationDelay: `${(i * 0.2).toFixed(1)}s` }}

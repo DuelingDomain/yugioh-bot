@@ -29,16 +29,16 @@ function reasonOf(event: DuelEvent): CameraLockReason | null {
 
 /** Lock for the events with an id above `afterId`: the strongest reason, the longest time. Null when none locks. */
 export function lockForEvents(events: readonly DuelEvent[], afterId: number): FxLock | null {
-  let best: FxLock | null = null;
+  let reason: CameraLockReason | null = null;
+  let ms = 0;
   let lastId = afterId;
   for (const event of events) {
     if (event.id <= afterId) continue;
     lastId = Math.max(lastId, event.id);
-    const reason = reasonOf(event);
-    if (!reason) continue;
-    const ms = TIMES[reason];
-    if (!best || PRIORITY[reason] > PRIORITY[best.reason]) best = { reason, ms: Math.max(ms, best?.ms ?? 0), lastId };
-    else best = { ...best, ms: Math.max(best.ms, ms), lastId };
+    const next = reasonOf(event);
+    if (!next) continue;
+    if (reason === null || PRIORITY[next] > PRIORITY[reason]) reason = next;
+    ms = Math.max(ms, TIMES[next]);
   }
-  return best ? { ...best, lastId } : null;
+  return reason === null ? null : { reason, ms, lastId };
 }

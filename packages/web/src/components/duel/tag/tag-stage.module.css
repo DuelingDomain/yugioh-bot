@@ -822,6 +822,7 @@
 
 /* ---------- helipad hub: chain rail, response line, bars ---------- */
 .hub {
+  position: absolute;
   left: 0;
   top: 0;
   z-index: 4;
@@ -1163,4 +1164,21 @@
 
 @media (prefers-reduced-motion: reduce) {
   .beam, .bond::after, .padLight, .neon, .blink, .tstate, .st2 { animation: none; }
+}
+
+.lockchip {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  top: calc(10 * var(--u));
+  translate: -50% 0;
+  padding: calc(3 * var(--u)) calc(11 * var(--u));
+  border-radius: 999px;
+  border: 1px solid rgb(217 141 82 / 0.7);
+  background: rgb(20 12 8 / 0.88);
+  color: #f1c49d;
+  font: 600 var(--fs-xs) / 1 var(--ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  pointer-events: none;
 }
