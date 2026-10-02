@@ -5281,6 +5281,15 @@
       "stockSha256": "0857b1661f3f66e3d5d6b43ce6ba2f9511e0b1122980d1f9012336d0a11fc16c"
     },
     {
+      "code": 94667532,
+      "file": "c94667532.lua",
+      "name": "Mecha-Dog Marron",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "a8a65252dfab6528cd2563d086627dd9e9bd11c2dffc534aa6d13c9e23a9bd43",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 94804055,
       "file": "c94804055.lua",
       "name": "Firewall",

@@ -37,3 +37,7 @@ Live proof: `tests/scenarios/multiplayer/all-player-decks.ts`. Seven of 12 stock
 Clear World (33900648) registered EARTH, WATER and FIRE effects only for raw seats 0 and 1. Its overlay adds each later living seat and reads Clear Wall by real opposing side. Battlewasp Hama (80949182) read a single damage flag tied to the first copy. Its overlay stores battle damage per FFA seat or Tag team.
 
 Live proof: `clear-world-seats.ts` and `hama-damage-state.ts`. The original scripts fail 11 of 17 cases. The fixed scripts pass all 17 on each core. The existing global flag, R2 seat and attack count checks pass 147 cases on Standard.
+
+## Damage to each side
+
+Mecha-Dog Marron (94667532) damaged only folded players 0 and 1 after battle destruction. It now damages each living FFA seat once. In Tag, each team loses LP once. Live proof: `mecha-dog-marron.ts`. Both stock FFA outcomes fail and both Tag controls pass. All four fixed cases pass on each core.
