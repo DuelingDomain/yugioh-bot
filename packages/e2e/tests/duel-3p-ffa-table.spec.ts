@@ -17,7 +17,7 @@ async function attackNext(page: Page, sequence: number): Promise<void> {
 }
 
 test.describe("FFA3 real-engine table rules", () => {
-  test("mounts three own-EMZ fields and follows clockwise turns with no first-round Battle Phase", async ({ player }, info) => {
+  test("current engine: mounts three own-EMZ fields, draws first, and has no BP on turns 1-3", async ({ player }, info) => {
     const alice = await player("p1");
     const errors = collectTableErrors(alice.page);
     const { slug } = await startTable([alice], "ffa3 first round", [{ main: withFiller([FILLER], 40) }], options);
@@ -35,37 +35,48 @@ test.describe("FFA3 real-engine table rules", () => {
       await expect(emz).toHaveCount(2);
       expect(await emz.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-zones")))).toEqual([`${seat}:4:5`, `${seat}:4:6`]);
     }
+    const first = (await readTableTrace(alice.page, slug)).promptLog.find((entry) => entry.turn === 1 && entry.promptType === "action");
+    expect(first, "first turn-1 action prompt must be recorded").toBeDefined();
+    expect(first!.seats[0]).toMatchObject({ handCount: 6, deckCount: 34 });
+    expect(room.engine!.seats[0]!.hand).toHaveLength(6);
+    expect(room.engine!.seats[0]!.deckCount).toBe(34);
+    await expect(alice.page.locator("[data-holo='0'] [title='Cards in hand']")).toHaveText("6");
+    await expect(alice.page.locator("[data-holo='0'] [title='Cards in Deck']")).toHaveText("34");
     await observeTable(alice.page);
     await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
     await pickLegalZone(alice.page, "mz");
     await expect(battle(alice.page)).toHaveCount(0);
-    const traces: DuelEngineView[] = [];
-    const collectRound = async () => {
-      const deadline = Date.now() + 30_000;
-      while (Date.now() < deadline) {
-        const trace = await readTableTrace(alice.page, slug);
-        const view = trace.seats.find((seat) => seat.prompt)?.view ?? trace.seats[0]!.view;
-        traces.push(view);
-        if (view.turn >= 4) return;
-        await alice.page.waitForTimeout(80);
-      }
-      throw new Error("The first three engine turns did not finish");
-    };
-    await Promise.all([collectRound(), endTurn(alice.page, 4)]);
+    await endTurn(alice.page, 4);
+    const traces = (await readTableTrace(alice.page, slug)).promptLog;
     await expectReadyToAct(alice.page);
     await expect(battle(alice.page)).toBeEnabled();
     const seen = await tableTurns(alice.page);
     await info.attach("clockwise-first-round", { body: JSON.stringify({ seen, traces }, null, 2), contentType: "application/json" });
     for (const [turn, seat] of [[1, 0], [2, 1], [3, 2], [4, 0]]) {
       const name = seat === 0 ? "Your turn" : `${room.session.seats[seat]!.displayName} (seat ${seat + 1})'s turn`;
-      expect(seen.some((entry) => entry.turn === turn && entry.seat === seat && entry.who === name), `browser indicators for turn ${turn}`).toBe(true);
-      const engineTurns = traces.filter((entry) => entry.turn === turn && entry.turnSeat === seat && entry.prompt?.context?.type === "action");
+      const painted = seen.filter((entry) => entry.turn === turn);
+      expect(painted.length, `browser painted turn ${turn}`).toBeGreaterThan(0);
+      expect(painted.every((entry) => entry.seat === seat && entry.who === name)).toBe(true);
+      const engineTurns = traces.filter((entry) => entry.turn === turn && entry.turnSeat === seat && entry.promptType === "action");
       expect(engineTurns.length, `engine action prompt on turn ${turn}`).toBeGreaterThan(0);
-      expect(engineTurns.every((entry) => entry.prompt!.options.some((option) => option.id === "to_bp") === (turn >= 4))).toBe(true);
+      expect(engineTurns.every((entry) => entry.options.some((option) => option.id === "to_bp") === (turn >= 4))).toBe(true);
     }
     expect(seen.filter((entry) => entry.turn <= 3).every((entry) => !entry.battleOffered)).toBe(true);
     await tableShot(alice.page, slug, info, "first-round-complete");
     expect(errors).toEqual([]);
+  });
+
+  test("R-FFA-NO-ATTACK: last duelist gets Battle Phase on turn 3", async ({ player }, info) => {
+    const alice = await player("p1");
+    const { slug } = await startTable([alice], "ffa3 ADR battle window", [{ main: withFiller([FILLER], 40) }], options);
+    await expectRealCore(alice.page, slug, "practice", info);
+    await endTurn(alice.page, 4);
+    const log = (await readTableTrace(alice.page, slug)).promptLog;
+    const actions = log.filter((entry) => entry.promptType === "action" && entry.turn <= 3);
+    expect(actions.map((entry) => entry.turn)).toEqual(expect.arrayContaining([1, 2, 3]));
+    for (const turn of [1, 2]) expect(actions.filter((entry) => entry.turn === turn).every((entry) => !entry.options.some((option) => option.id === "to_bp"))).toBe(true);
+    test.fail(true, "R-FFA-NO-ATTACK pending engine change");
+    expect(actions.filter((entry) => entry.turn === 3).some((entry) => entry.options.some((option) => option.id === "to_bp"))).toBe(true);
   });
 
   test("a practice-bot duel clears rivals, asks which duelist for a direct attack, damages only the pick, and reloads", async ({ player }, info) => {

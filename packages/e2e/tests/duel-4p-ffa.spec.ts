@@ -59,7 +59,7 @@ test.describe("4-player FFA", () => {
     await endTurn(alice.page, 5);
   });
 
-  test("nobody can attack before every duelist had a turn", async ({ player }) => {
+  test("current engine: no BP on turns 1-4", async ({ player }) => {
     const seats = await openSeats(player);
     await startTable(seats, "ffa4 no attack", decks([FILLER, FILLER]));
     const [alice, bob, carol, dave] = seats as [Seat, Seat, Seat, Seat];
@@ -80,6 +80,20 @@ test.describe("4-player FFA", () => {
     await expectTurnReady(alice, 5);
     await expect(toBattle(alice.page)).toBeEnabled();
     await expect(battlePlate(alice.page)).toHaveCount(1);
+  });
+
+  test("R-FFA-NO-ATTACK: last duelist gets Battle Phase on turn 4", async ({ player }) => {
+    const seats = await openSeats(player);
+    await startTable(seats, "ffa4 ADR battle window", decks([FILLER]));
+    for (const [index, seat] of seats.entries()) {
+      await expectTurnReady(seat, index + 1);
+      if (index < 3) {
+        await expect(toBattle(seat.page)).toHaveCount(0);
+        await endTurn(seat.page, index + 2);
+      }
+    }
+    test.fail(true, "R-FFA-NO-ATTACK pending engine change");
+    await expect(toBattle(seats[3]!.page)).toBeEnabled({ timeout: 1000 });
   });
 
   test("a spell that hits all opponents clears the monsters of all 3 opponents", async ({ player }) => {

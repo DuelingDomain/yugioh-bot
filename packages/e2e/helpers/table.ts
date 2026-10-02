@@ -5,10 +5,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { duelDataDir } from "../stack/env.mjs";
 import { enterDuelRoom } from "./duel";
+import type { PromptTraceEntry } from "../../duel-server/src/prompt-trace";
 
 export const tableField = (page: Page, seat: number) => page.locator(`[data-table-stage] [data-seat-field='${seat}']`);
 export const tableLp = (page: Page, seat: number) => page.locator(`[data-table-stage] [data-lp-seat='${seat}']`);
-
 export async function readTable(page: Page, slug: string): Promise<DuelRoom> {
   const response = await page.request.get(`/api/duels/${slug}`);
   expect(response.ok(), await response.text()).toBe(true);
@@ -20,6 +20,7 @@ export interface TableTrace {
   wasmSha: string;
   seats: Array<{ seat: number; view: DuelEngineView; prompt?: DuelPrompt }>;
   bot: { seats: Array<{ seat: number; policy: string }> };
+  promptLog: PromptTraceEntry[];
 }
 
 export async function readTableTrace(page: Page, slug: string): Promise<TableTrace> {
@@ -29,11 +30,11 @@ export async function readTableTrace(page: Page, slug: string): Promise<TableTra
 }
 
 /** Proves the running host loaded this snapshot's real n-seat wasm, rather than fixtures. */
-export async function expectRealCore(page: Page, slug: string, bots: "practice" | "scripted", info: TestInfo): Promise<void> {
+export async function expectRealCore(page: Page, slug: string, bots: "practice" | "scripted", info: TestInfo, botCount = 2): Promise<void> {
   const trace = await readTableTrace(page, slug);
   expect(trace.wasmFile).toBe("ocgcore.multi.wasm");
   expect(trace.wasmSha).toBe(createHash("sha256").update(readFileSync(join(duelDataDir, trace.wasmFile))).digest("hex"));
-  expect(trace.bot.seats.map((seat) => seat.policy)).toEqual([bots, bots]);
+  expect(trace.bot.seats.map((seat) => seat.policy)).toEqual(Array(botCount).fill(bots));
   await info.attach("real-core", { body: JSON.stringify(trace, null, 2), contentType: "application/json" });
 }
 
