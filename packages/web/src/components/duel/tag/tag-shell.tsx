@@ -22,7 +22,7 @@ import { duelFontClasses } from "../fonts";
 import { lockForEvents } from "./fx-lock";
 import { CameraDock } from "./roof-map";
 import { initialRoofCamera, roofKeyAction, roofReducer } from "./roof-camera";
-import { resultBanner, teamLp } from "./tag-logic";
+import { firstInspectCard, resultBanner, teamLp } from "./tag-logic";
 import { TagStage } from "./tag-stage";
 import styles from "./tag-shell.module.css";
 
@@ -110,7 +110,10 @@ export function TagShell({ controller, teamNames, initialCamera }: TagShellProps
 
   // ---------- inspector, piles ----------
   const [pane, setPane] = useState<SidePane>("card");
-  const [inspect, setInspect] = useState<InspectTarget | null>(null);
+  const [inspect, setInspect] = useState<InspectTarget | null>(() => {
+    const card = firstInspectCard(engine, viewerSeat);
+    return card ? { type: "card", card } : null;
+  });
   const [logUnread, setLogUnread] = useState(0);
   const [hideResult, setHideResult] = useState(false);
 

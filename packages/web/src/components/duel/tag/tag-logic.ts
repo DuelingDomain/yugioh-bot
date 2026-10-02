@@ -1,5 +1,6 @@
 import { opponentSeatsOf, seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
-import type { DuelChainLink, DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelChainLink, DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
+import { isFacedown } from "../constants";
 import { opponentPickOptions } from "../multi-seat";
 import { tagSeatCode } from "../table-format";
 
@@ -159,4 +160,15 @@ export function rivalPickOptions(engine: DuelEngineView, prompt: DuelPrompt | nu
     picks.set(option.controller!, option.id);
   }
   return picks;
+}
+
+/**
+ * The card the inspector shows before anything is hovered: the first face-up monster of the viewer (the turn player for
+ * a spectator), else the first known card of the same seat's hand. Null when nothing is known.
+ */
+export function firstInspectCard(engine: DuelEngineView, viewerSeat: number | null): DuelCard | null {
+  const view = engine.seats.find((seat) => seat.seat === (viewerSeat ?? engine.turnSeat));
+  if (!view) return null;
+  const monster = view.monsters.find((card) => card != null && card.code != null && !isFacedown(card.position));
+  return monster ?? view.hand.find((card) => card.code != null) ?? null;
 }

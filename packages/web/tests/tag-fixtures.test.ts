@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TABLE_STATE_IDS } from "@/components/duel/table/fixtures/common";
 import { TAG_FIXTURES } from "@/components/duel/tag/fixtures";
-import { responseWindow, teamLoss } from "@/components/duel/tag/tag-logic";
+import { firstInspectCard, responseWindow, teamLoss } from "@/components/duel/tag/tag-logic";
 
 describe("tag fixtures", () => {
   it("has the nine states and each has an engine view", () => {
@@ -66,5 +66,14 @@ describe("tag fixtures", () => {
     const ids = prompt.options.map((option) => option.id);
     expect(ids).toContain("to_bp");
     expect(ids).toContain("to_ep");
+  });
+
+  it("the inspector starts on your first face-up monster, a spectator gets the turn player's", () => {
+    const you = TAG_FIXTURES.states.main.room.engine!;
+    expect(firstInspectCard(you, 0)?.name).toBe("Dark Magician");
+    const watch = TAG_FIXTURES.states.spectator.room.engine!;
+    const seen = firstInspectCard(watch, null);
+    expect(seen).not.toBeNull();
+    expect(seen?.controller).toBe(watch.turnSeat);
   });
 });
