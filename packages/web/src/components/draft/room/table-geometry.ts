@@ -68,6 +68,11 @@ export function packSlots(g: Geometry, n: number, theme: boolean): Slot[] {
     avail = g.tw - lane - g.pad;
     big = Math.min(big, avail / Math.max(1, n * g.cw + (n - 1) * g.gap));
   }
+  if (big > 1) {
+    // an enlarged small pack stays one row, but never wider than the mat's inner width
+    const inner = avail - (lane ? 0 : g.pad * 2);
+    big = Math.max(1, Math.min(big, inner / Math.max(1, n * g.cw + (n - 1) * g.gap)));
+  }
   const cw = g.cw * big;
   const ch = g.ch * big;
   const gap = g.gap * big;
