@@ -23,10 +23,10 @@ function run(state: RoofCameraState, ...actions: CameraAction[]): RoofCameraStat
 describe("roofSlots", () => {
   it("puts the viewer and partner near, the two rivals far, in turn order", () => {
     const slots = roofSlots(0);
-    expect(slots[0]).toMatchObject({ near: true, x: -380 });
-    expect(slots[2]).toMatchObject({ near: true, x: 380 });
-    expect(slots[1]).toMatchObject({ near: false, x: -380 });
-    expect(slots[3]).toMatchObject({ near: false, x: 380 });
+    expect(slots[0]).toMatchObject({ near: true, x: -357 });
+    expect(slots[2]).toMatchObject({ near: true, x: 357 });
+    expect(slots[1]).toMatchObject({ near: false, x: -357 });
+    expect(slots[3]).toMatchObject({ near: false, x: 357 });
     expect(slots[0].y).toBeGreaterThan(0);
     expect(slots[1].y).toBeLessThan(0);
   });
@@ -34,10 +34,10 @@ describe("roofSlots", () => {
   it("keeps the viewer at near left for every anchor seat", () => {
     for (const anchor of [0, 1, 2, 3]) {
       const slots = roofSlots(anchor);
-      expect(slots[anchor]).toMatchObject({ near: true, x: -380 });
-      expect(slots[(anchor + 2) % 4]).toMatchObject({ near: true, x: 380 });
-      expect(slots[(anchor + 1) % 4]).toMatchObject({ near: false, x: -380 });
-      expect(slots[(anchor + 3) % 4]).toMatchObject({ near: false, x: 380 });
+      expect(slots[anchor]).toMatchObject({ near: true, x: -357 });
+      expect(slots[(anchor + 2) % 4]).toMatchObject({ near: true, x: 357 });
+      expect(slots[(anchor + 1) % 4]).toMatchObject({ near: false, x: -357 });
+      expect(slots[(anchor + 3) % 4]).toMatchObject({ near: false, x: 357 });
     }
   });
 });
@@ -70,8 +70,8 @@ describe("presets and seat poses", () => {
     expect(seatPose(0, 1).yaw).toBe(180);
     expect(seatPose(0, 3).yaw).toBe(180);
     expect(seatPose(0, 0).zoom).toBeCloseTo(1.76);
-    expect(seatPose(0, 0).fx).toBe(-380);
-    expect(seatPose(0, 2).fx).toBe(380);
+    expect(seatPose(0, 0).fx).toBe(-357);
+    expect(seatPose(0, 2).fx).toBe(357);
   });
 });
 

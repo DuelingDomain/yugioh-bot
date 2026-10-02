@@ -5,7 +5,7 @@ import type { CameraAction, CameraLockReason, CameraState } from "../table/types
  * table camera) and adds a few extra fields on top of CameraState: the target pose, a tween revision, and the pose to
  * restore after an FX lock. The "rival end" view rides on `look`; the fly-in intro rides on `toggleFly`.
  *
- * World units are the prototype's: a field is 710 x 344, the near team strip sits at +y, the rival strip at -y.
+ * World units are the prototype's: a field is the SeatField box, 653 x 380, the near team strip sits at +y, the rival strip at -y.
  */
 
 export interface RoofPose {
@@ -26,8 +26,8 @@ export const ROOF_PRESETS: Readonly<Record<"home" | "overview" | "rival" | "intr
   intro: { yaw: -150, tilt: 74, zoom: 0.17, fx: 0, fy: -500, oy: -150 },
 };
 
-/** Field plane size and strip offset in world units (from the prototype). */
-export const ROOF_FIELD = { width: 710, height: 344, offsetY: 190, centerX: 380 } as const;
+/** Field plane size (the SeatField box at z = 112 px) and strip offset in world units. Fields sit 61 units apart. */
+export const ROOF_FIELD = { width: 653, height: 380, offsetY: 190, centerX: 357 } as const;
 
 export interface RoofSlot {
   seat: number;
