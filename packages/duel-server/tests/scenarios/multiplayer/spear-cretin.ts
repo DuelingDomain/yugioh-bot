@@ -134,15 +134,16 @@ export const SPEAR_CRETIN_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "spear-cretin-tag-each-duelist-summons-from-its-own-graveyard",
-    title: "Tag: Spear Cretin: p0 and each of the two opposing duelists (p1 and p3) pick from their OWN Graveyard and Special Summon to their own field",
+    title: "Tag: Spear Cretin: all four duelists, including the partner p2, pick from their own Graveyard and summon to their own field",
     source: EACH,
     rules: ["R-COMMON-EACH-PLAYER"],
     tags: ["multiplayer", "chooser", "each-opponent", "spear-cretin", "tag", "card:58551308"],
-    // Team 0 is p0 and p2, team 1 is p1 and p3. The partner p2 has an empty Graveyard, as in the Shallow Grave scenario.
+    // Team 0 is p0 and p2; team 1 is p1 and p3. Each Graveyard has two choices.
     setup: {
       format: "tag",
       p0: { hand: [HOLE], monsters: [{ card: CRETIN, pos: "set" }], grave: [RAT, GUARDIAN] },
       p1: { grave: [OX, AXE] },
+      p2: { grave: [BUG, ELF] },
       p3: { grave: [FANG, BEAVER] },
     },
     steps: [
@@ -151,12 +152,14 @@ export const SPEAR_CRETIN_SCENARIOS: Scenario[] = [
       select(GUARDIAN),
       expectPickOptions([{ seat: "p1", card: OX }, { seat: "p1", card: AXE }], "p1"),
       select(AXE),
+      expectPickOptions([{ seat: "p2", card: BUG }, { seat: "p2", card: ELF }], "p2"),
+      select(ELF),
       expectPickOptions([{ seat: "p3", card: FANG }, { seat: "p3", card: BEAVER }], "p3"),
       select(BEAVER),
       expectBoard({
         p0: { lp: 16000, monsters: [GUARDIAN], spells: [], grave: [RAT, CRETIN, HOLE], banished: [] },
         p1: { lp: 16000, monsters: [AXE], spells: [], grave: [OX], banished: [] },
-        p2: { lp: 16000, monsters: [], spells: [], grave: [], banished: [] },
+        p2: { lp: 16000, monsters: [ELF], spells: [], grave: [BUG], banished: [] },
         p3: { lp: 16000, monsters: [BEAVER], spells: [], grave: [FANG], banished: [] },
       }),
     ],
