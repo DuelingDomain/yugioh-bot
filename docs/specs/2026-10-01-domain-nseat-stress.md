@@ -58,3 +58,8 @@ A final Tag loss ends the duel at once. The core preserves the final board;
 it does not remove cards or finish the active chain after that result. A Tag
 draw also has no individual elimination messages. The tests check this result
 and the LP of all four seats. These are the existing core termination rules.
+
+The fuzz driver now counts real Deck Master leaves and returns per seat. A live
+seed in each format proves that the report includes actual Deck Master play.
+The new tests failed before this report change and pass after it. Deck creation
+and the random answer policy already support Domain and need no change.

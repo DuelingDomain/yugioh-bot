@@ -202,6 +202,7 @@ interface Cell {
   known: Map<string, number>;
   hangs: number;
   steps: number;
+  domainStats: Map<string, number>;
 }
 
 async function runCore(core: CoreInfo, formats: DuelFormat[]): Promise<Map<DuelFormat, Cell>> {
@@ -211,7 +212,7 @@ async function runCore(core: CoreInfo, formats: DuelFormat[]): Promise<Map<DuelF
   const strict = flag("strict");
   const table = new Map<DuelFormat, Cell>();
   for (const format of formats) {
-    const cell: Cell = { seeds: 0, ended: 0, budget: 0, byCheck: new Map(), known: new Map(), hangs: 0, steps: 0 };
+    const cell: Cell = { seeds: 0, ended: 0, budget: 0, byCheck: new Map(), known: new Map(), hangs: 0, steps: 0, domainStats: new Map() };
     table.set(format, cell);
     const list = Array.from({ length: seeds }, (_, i) => start + i);
     await pool(list, num("jobs", 1), async (seed) => {
@@ -219,6 +220,9 @@ async function runCore(core: CoreInfo, formats: DuelFormat[]): Promise<Map<DuelF
       const outcome: NOutcome = await runIsolated(scenario, { dataDirectory, corePath: core.path, timeoutMs });
       cell.seeds++;
       cell.steps += outcome.steps;
+      for (const [key, value] of Object.entries(outcome.stats)) {
+        if (key.startsWith("domain-")) cell.domainStats.set(key, (cell.domainStats.get(key) ?? 0) + value);
+      }
       if (outcome.status === "ended") cell.ended++;
       else if (outcome.status === "budget") cell.budget++;
       const failure = outcome.failure;
@@ -260,6 +264,7 @@ for (const spec of coreSpecs) {
       ...[...cell.known].map(([id, count]) => `known ${id} x${count}`),
     ];
     rows.push(`${core.tag.padEnd(8)} ${format.padEnd(5)} pass ${String(pass).padStart(3)}/${cell.seeds} (ended ${cell.ended}, budget ${cell.budget})  fail ${newCount + knownCount} (new ${newCount}, known ${knownCount})  hang ${cell.hangs}  steps ${cell.steps}${detail.length ? `  [${detail.join("; ")}]` : ""}`);
+    if (cell.domainStats.size > 0) rows.push(`  Domain play: ${[...cell.domainStats].sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join(", ")}`);
   }
 }
 console.log(`\ncore     fmt   results\n${rows.join("\n")}`);
