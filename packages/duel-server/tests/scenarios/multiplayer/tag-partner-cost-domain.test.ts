@@ -9,7 +9,7 @@ import { TAG_PARTNER_COST_SCENARIOS } from "./tag-partner-cost.js";
 
 // R-TAG-PARTNER-COST (patch 0061) in a real Domain duel: every scenario of tag-partner-cost.ts runs again with mode "domain" and a Deck Master for
 // each seat, on the Domain multi core, with the same steps and the same end state of every seat. This checks that the Domain layer and patch
-// 0061 work together for Tribute Summon, Tribute Set, the release cost, and Fusion, Ritual and Xyz material, in Tag, FFA3 and FFA4.
+// 0061 work together for Tribute Summon, Tribute Set, the release cost, and Fusion, Ritual, Xyz and Link material, in Tag, FFA3 and FFA4.
 const variants = TAG_PARTNER_COST_SCENARIOS.map(domainVariant);
 
 describeWithCores("live Domain duel Tag partner cost scenarios (a Deck Master for each seat)", [liveNseat, ...needs.domainMulti()], () => {

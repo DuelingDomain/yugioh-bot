@@ -1,11 +1,11 @@
 // R-TAG-PARTNER-COST in Tag: a duelist may use the monsters of the partner as Tributes (Tribute Summon and Tribute Set, from team 0 and from team 1)
-// and as the release cost of an effect, and as Fusion, Ritual and Xyz material. The opposing members are never offered, and the partner never frees
+// and as the release cost of an effect, and as Fusion, Ritual, Xyz and Link material. The opposing members are never offered, and the partner never frees
 // a zone of the summoner. FFA3 and FFA4 are unchanged: there is no partner, and the monsters of the other seats are never Tribute material.
 // Plain data (scripts/rule-coverage.ts reads it); tag-partner-cost.test.ts runs it on a live core (NSEAT_LIVE=1). Every scenario ends with the
 // state of EVERY seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, pickOpponent, normalSummon, select, setCard, specialSummon,
+  activate, defineScenario, endTurn, expectBoard, expectEvents, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectRetry, pickOpponent, normalSummon, select, setCard, specialSummon, zone,
   type BoardExpect, type DuelistExpect, type OptionRef, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -25,6 +25,10 @@ const AXE = "Axe Raider";
 const BLS = 5405694; // Black Luster Soldier (Ritual, Level 8), by passcode: the name is shared with a Normal Monster
 const GUARDIAN = "Celtic Guardian";
 const FANG = "Silver Fang";
+const SECURITY = "Security Dragon"; // Link-2: 2 monsters
+const SPIDER = "Link Spider"; // Its down arrow in the left EMZ opens only m1 of its controller.
+const HIP = "Hip Hoshiningen"; // Link-2: 2 LIGHT monsters; the EARTH Spider cannot be its material.
+const ELF = "Mystical Elf";
 
 /** Option references of cards, for expectPickOptions. */
 const cards = (...names: string[]): OptionRef[] => names.map((card) => ({ card }));
@@ -199,6 +203,62 @@ export const TAG_PARTNER_COST_SCENARIOS: Scenario[] = [
     ],
   ),
   // Material
+  tag(
+    "link-material-with-an-own-monster-and-a-monster-of-the-partner",
+    "p0 Link Summons Security Dragon with its Battle Ox and the Beaver Warrior of p2: only the team materials and the own Extra Monster Zones are offered",
+    99111753,
+    { p0: { monsters: [OX], extra: [SECURITY] }, p1: { monsters: [AXE] }, p2: { monsters: [BEAVER] }, p3: { monsters: [GUARDIAN] } },
+    [
+      expectOffered("specialSummon", SECURITY, "p0"),
+      specialSummon(SECURITY, "p0"),
+      expectPrompt({ by: "p0", kind: "toggle" }),
+      expectPickOptions([{ seat: "p0", card: OX }, { seat: "p2", card: BEAVER }], "p0"),
+      expectRetry({ choice: "select:99" }, { error: "Invalid", by: "p0" }),
+      expectRetry({ finish: true }, { by: "p0" }),
+      select({ card: OX, owner: "p0" }),
+      expectPickOptions([{ seat: "p2", card: BEAVER }, { seat: "p0", card: OX }], "p0"),
+      select({ card: BEAVER, owner: "p2" }),
+      expectPickOptions([{ seat: "p0", label: "Extra Monster Zone (left)" }, { seat: "p0", label: "Extra Monster Zone (right)" }], "p0"),
+      expectRetry({ selected: ["place:99"] }, { error: "Invalid", by: "p0" }),
+      expectRetry({ selected: ["place:0"] }, { as: "p2", error: "Wrong seat", by: "p0" }),
+      zone("p0", "emz0", "p0"),
+      expectEvents({ kind: "summon", card: SECURITY, by: "p0", summonKind: "link" }),
+      everyTagSeat({ p0: { monsters: [SECURITY], extra: [], grave: [OX], zones: { emz0: SECURITY, emz1: null } }, p1: { monsters: [AXE] }, p2: { grave: [BEAVER] }, p3: { monsters: [GUARDIAN] } }),
+    ],
+  ),
+  tag(
+    "link-material-frees-only-the-own-linked-zone",
+    "p0 Link Summons Hip Hoshiningen with its Mystical Elf in its sole linked zone and the Blue-Eyes of p2: the partner Elf cannot replace the own material",
+    7778726,
+    { p0: { monsters: [null, ELF, null, null, null, SPIDER], extra: [HIP] }, p1: { monsters: [AXE] }, p2: { monsters: [BEWD, ELF] }, p3: { monsters: [GUARDIAN] } },
+    [
+      // GetLocationCountFromEx must remove the own Elf from m1. Neither material of p2 opens a zone on p0's separate field.
+      expectOffered("specialSummon", HIP, "p0"),
+      specialSummon(HIP, "p0"),
+      expectPickOptions([{ seat: "p0", card: ELF }, { seat: "p2", card: BEWD }, { seat: "p2", card: ELF }], "p0"),
+      select({ card: BEWD, owner: "p2" }),
+      // The partner Elf passes the LIGHT requirement but leaves p0 with no legal zone, so it is not offered.
+      expectPickOptions([{ seat: "p0", card: ELF }, { seat: "p2", card: BEWD }], "p0"),
+      expectRetry({ choice: "select:1" }, { error: "Invalid", by: "p0" }),
+      expectRetry({ finish: true }, { by: "p0" }),
+      select({ card: ELF, owner: "p0" }),
+      expectEvents({ kind: "summon", card: HIP, by: "p0", summonKind: "link" }),
+      // Only m1 is legal, so the core places Hip there without a place prompt. It keeps the Spider in the own EMZ.
+      everyTagSeat({ p0: { monsters: [HIP, SPIDER], extra: [], grave: [ELF], zones: { m1: HIP, emz0: SPIDER, emz1: null } }, p1: { monsters: [AXE] }, p2: { monsters: [ELF], grave: [BEWD], zones: { m1: ELF } }, p3: { monsters: [GUARDIAN] } }),
+    ],
+  ),
+  tag(
+    "link-partner-material-cannot-free-the-own-linked-zone",
+    "p0 has no free Extra Monster Zone or linked zone for Hip Hoshiningen: the two LIGHT materials of p2 cannot open a zone on p0's separate field",
+    7778726,
+    { p0: { monsters: [null, OX, null, null, null, SPIDER], extra: [HIP] }, p1: { monsters: [AXE] }, p2: { monsters: [BEWD, ELF] }, p3: { monsters: [GUARDIAN] } },
+    [
+      // The EARTH Ox and Spider are no Hip material. The partner has two valid LIGHT materials, but its free zones stay on its own field.
+      expectNotOffered("specialSummon", HIP, "p0"),
+      endTurn("p0"),
+      everyTagSeat({ p0: { monsters: [OX, SPIDER], extra: [HIP], zones: { m1: OX, emz0: SPIDER, emz1: null } }, p1: { monsters: [AXE] }, p2: { monsters: [BEWD, ELF], zones: { m1: ELF } }, p3: { monsters: [GUARDIAN] } }),
+    ],
+  ),
   tag(
     "ritual-material-with-a-monster-of-the-partner",
     "p0 Ritual Summons Black Luster Soldier with Black Luster Ritual and the Blue-Eyes White Dragon (Level 8) of the partner p2 (the opposing Axe Raider of p1 stays): the Dragon goes to the Graveyard of p2",
