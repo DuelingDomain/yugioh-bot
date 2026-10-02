@@ -23,7 +23,8 @@
 .lvChart { display: grid; grid-template-columns: 4fr 2fr 2fr; gap: 10px; }
 .band { display: grid; gap: 6px; min-width: 0; align-content: start; }
 .bars { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 3px; align-items: end; }
-.bars > span { position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; text-align: center; }
+/* Fixed height so the level labels line up across bands of different heights. */
+.bars > span { position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; height: 84px; text-align: center; }
 .bars > span::before { content: ""; order: 2; height: calc(var(--h) * 48px); min-height: 2px; border-radius: 2px 2px 0 0; background: var(--k-mon); opacity: 0.9; }
 .band[data-t="1"] .bars > span::before { background: color-mix(in srgb, var(--k-mon) 70%, var(--chain)); }
 .band[data-t="2"] .bars > span::before { background: color-mix(in srgb, var(--k-mon) 40%, var(--loss)); }
@@ -82,3 +83,4 @@
   .cards button:hover { translate: none; }
 }
 :global(.ms) .flush:global(.sheet-body) { padding: 0; }
+.rowsPad { padding: 14px 16px; }

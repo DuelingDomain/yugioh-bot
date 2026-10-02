@@ -79,7 +79,7 @@ export function CreateThemeDraftForm() {
   const unnamed = !name.trim();
 
   return (
-    <form className="mk" onSubmit={handleSubmit} noValidate>
+    <form className="mk" onSubmit={handleSubmit}>
       <div className="min-w-0">
         {error && (
           <div className={`banner banner-bad ${styles.banner}`} role="alert">
@@ -248,8 +248,17 @@ export function CreateThemeDraftForm() {
           </dl>
           <ol className="next" aria-label="What happens next">
             <li><span>You get a lobby. Add one theme cube per archetype there.</span></li>
-            <li><span>Players join and claim a theme.</span></li>
-            <li><span>You press Start. Everyone drafts at once, main deck first.</span></li>
+            {themeSelection === "random" ? (
+              <>
+                <li><span>Players join.</span></li>
+                <li><span>You press Start. Everyone gets a random theme and drafts at once, main deck first.</span></li>
+              </>
+            ) : (
+              <>
+                <li><span>Players join and claim a theme.</span></li>
+                <li><span>You press Start. Everyone drafts at once, main deck first.</span></li>
+              </>
+            )}
           </ol>
           <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={submitting} aria-busy={submitting || undefined}>
             Create theme draft

@@ -71,6 +71,12 @@ describe("startSummary", () => {
   it("says every theme is random in random mode", () => {
     expect(startSummary({ mode: "theme", themeSelection: "random" }, 3).before).toContain("a random theme");
   });
+
+  it("promises the host's own picks, not a random fallback, when the host assigns themes", () => {
+    const s = startSummary({ mode: "theme", themeSelection: "host_assigned" }, 3);
+    expect(s.before).toContain("the theme the host set for them");
+    expect(s.before).not.toContain("random");
+  });
 });
 
 describe("setupRows", () => {

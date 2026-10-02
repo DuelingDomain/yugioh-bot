@@ -142,7 +142,7 @@ describe("DraftSummaryView", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Your pool" })).toBeTruthy();
-    expect(screen.getByText(/3 cards · hover or focus/i)).toBeTruthy();
+    expect(screen.getByText(/3 cards · tap a card to read it/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Blue-Eyes White Dragon" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Dark Hole" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mirror Force" })).toBeTruthy();
@@ -387,6 +387,30 @@ describe("DraftSummaryView", () => {
     unmount();
     renderView({ ...baseDraft, participantPickCount: 15 });
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  it("backs out of the delete confirm with Escape and puts focus back on Delete", async () => {
+    const onDelete = vi.fn();
+    renderView({ ...baseDraft, participantPickCount: 15 }, { isCreator: true, onDelete });
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByRole("button", { name: "Go back" })).toHaveFocus();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Go back" }), { key: "Escape" });
+    expect(screen.queryByText("Delete Legendary Draft?")).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("opens a card's details on tap, so phones can read it too, and closes them", () => {
+    renderView(baseDraft, { myPool: samplePool });
+    fireEvent.click(screen.getByRole("button", { name: "Dark Hole" }));
+    expect(screen.getByText("Destroy all monsters on the field.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(screen.queryByText("Destroy all monsters on the field.")).toBeNull();
+  });
+
+  it("says the YDK holds the first 40 picks when there are more", () => {
+    renderView({ ...baseDraft, participantPickCount: 45, myDeckId: 3 });
+    expect(screen.getByText("Keep tuning it, or export your first 40 picks as a YDK file.")).toBeTruthy();
   });
 
   it("marks the viewer's seat and shows the duration", () => {

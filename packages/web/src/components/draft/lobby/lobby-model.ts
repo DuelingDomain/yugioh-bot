@@ -55,10 +55,12 @@ export function startSummary(config: LobbyConfig, playerCount: number): { before
   if (config.mode === "theme") {
     const main = config.cardsPerPlayer ?? 40;
     const extra = themeExtraOn(config) ? config.extraDeckSize ?? 15 : 0;
-    const random = config.themeSelection === "random";
-    const gives = random
-      ? `Gives each of the ${playerCount} players a random theme. Everyone then drafts `
-      : `Gives each of the ${playerCount} players a theme. Anyone without one gets one at random. Everyone then drafts `;
+    const gives =
+      config.themeSelection === "random"
+        ? `Gives each of the ${playerCount} players a random theme. Everyone then drafts `
+        : config.themeSelection === "host_assigned"
+          ? `Gives each of the ${playerCount} players the theme the host set for them. Everyone then drafts `
+          : `Gives each of the ${playerCount} players a theme. Anyone without one gets one at random. Everyone then drafts `;
     return {
       before: gives,
       strong: extra > 0 ? `${main} main deck and ${extra} Extra deck cards` : `${main} main deck cards`,
