@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ className: "font", variable: "font-var", style: {} });
@@ -10,10 +10,12 @@ vi.mock("next/font/google", () => {
 
 import { SheetRoot } from "@/components/sheet/sheet-root";
 import { MatchQueue } from "@/components/tournament/matches/match-queue";
-import { byeMatch, decidedMatch, matchProps, openMatch, tournament } from "../fixtures/matches";
+import type { MatchQueueProps } from "@/components/tournament/sheet-contracts";
+import { byeMatch, decidedMatch, matchProps, openMatch, pendingMatch, tournament } from "../fixtures/matches";
 
 const resultRows = (scope: HTMLElement) => Array.from(scope.querySelectorAll("li.hr-row"));
-function show(props = matchProps) { return render(<SheetRoot><MatchQueue {...props} /></SheetRoot>); }
+function show(props: MatchQueueProps = matchProps) { return render(<SheetRoot><MatchQueue {...props} /></SheetRoot>); }
+afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
 describe("Matches queue", () => {
   it("has the shared anchor and groups the board's matches in waiting order", () => {
@@ -78,5 +80,54 @@ describe("Matches queue", () => {
   it("hides empty groups and preserves the no-matches empty state", () => {
     show({ ...matchProps, tournament: tournament({ matches: [] }) });
     expect(screen.getByText("No matches yet.")).toBeInTheDocument(); expect(screen.queryAllByRole("group")).toHaveLength(0);
+  });
+
+  it.each(["approve", "deny"] as const)("lets the opponent %s a pending report after the event ends", async action => {
+    const fetchMock = vi.fn(async () => Response.json({ success: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onChanged = vi.fn();
+    show({ ...matchProps, currentUserPlayerId: 3, isHost: false, onChanged, tournament: tournament({ status: "completed", currentUserPlayerId: 3, matches: [pendingMatch, openMatch] }) });
+    const group = screen.getByRole("group", { name: "Owes a reply" });
+    expect(within(group).getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: "Deny" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Not started" })).toBeNull();
+    fireEvent.click(within(group).getByRole("button", { name: action === "approve" ? "Approve" : "Deny" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledWith(`/api/matches/104/${action}`, { method: "POST" });
+  });
+
+  it.each([6, 99, null])("keeps a closed report read-only for viewer %s who is not the opponent", currentUserPlayerId => {
+    show({ ...matchProps, currentUserPlayerId, tournament: tournament({ status: "completed", matches: [pendingMatch] }) });
+    const group = screen.getByRole("group", { name: "Owes a reply" });
+    expect(within(group).queryAllByRole("button")).toHaveLength(0);
+    expect(group).toHaveTextContent("Waiting on duelist.josh");
+  });
+
+  it("lets a round robin host expand closed results and reopen a match", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ success: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onChanged = vi.fn();
+    show({ ...matchProps, onChanged, tournament: tournament({ status: "completed", matches: [decidedMatch] }) });
+    expect(resultRows(document.body)).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Reopen" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    expect(resultRows(document.body)).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Reopen match" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/friday-night-duels-12/reopen", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tournamentMatchId: 7 }),
+    });
+  });
+
+  it.each([
+    ["round_robin", false],
+    ["single_elim", true],
+  ] as const)("keeps closed %s results read-only when isHost is %s", (format, isHost) => {
+    show({ ...matchProps, isHost, tournament: tournament({ status: "completed", format, matches: [decidedMatch] }) });
+    expect(resultRows(document.body)).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Show all" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reopen" })).toBeNull();
   });
 });

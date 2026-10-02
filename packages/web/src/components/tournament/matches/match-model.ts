@@ -35,12 +35,12 @@ export function matchView(match: Match, playerId: number | null, isHost: boolean
   const hasPlayers = !bye;
   return {
     state, lamp, player, seriesOpen,
-    // Reporting and confirmation remain available on retained terminal slots, as the APIs allow.
-    canReport: hasPlayers && player && match.status === "open" && !seriesOpen,
+    // Closed events keep opponent confirmation and the round robin host's Reopen.
+    canReport: tournament.status === "active" && hasPlayers && player && match.status === "open" && !seriesOpen,
     canStart: tournament.status === "active" && hasPlayers && match.status === "open" && !seriesOpen && (player || isHost),
     canConfirm: hasPlayers && match.status === "pending_approval" && confirm,
     canSetResult: tournament.status === "active" && isHost && hasPlayers && (match.status === "open" || match.status === "pending_approval"),
-    canOpen: hasPlayers && match.status !== "completed" && seriesOpen && !!match.series?.currentDuelSlug,
+    canOpen: tournament.status === "active" && hasPlayers && match.status !== "completed" && seriesOpen && !!match.series?.currentDuelSlug,
     canReopen: isHost && hasPlayers && match.status === "completed" && tournament.format === "round_robin",
   };
 }

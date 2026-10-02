@@ -81,7 +81,7 @@ export default function TournamentDetailPage() {
     onStarted: () => { void fetchTournament(); },
     onCancelled: () => { void fetchTournament(); },
     onCompleted: () => { void fetchTournament(); },
-    onMatchUpdated: () => { void fetchTournament(); },
+    onMatchUpdated: () => { void fetchTournament(); void fetchRatings(); },
   });
 
   if (!tournament) {

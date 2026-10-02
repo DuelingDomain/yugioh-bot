@@ -95,7 +95,7 @@ export function MatchRow({ match, tournament, tournamentSlug, currentUserPlayerI
         </div>
       )}
       <MatchError error={actions.error} />
-      {actions.resultOpen && <SetResultDialog match={match} ratings={ratings} bestOf={tournament.bestOf ?? 3} actions={actions} />}
+      {actions.resultOpen && view.canSetResult && <SetResultDialog match={match} ratings={ratings} bestOf={tournament.bestOf ?? 3} actions={actions} />}
     </div>
   );
 }

@@ -1,46 +1,16 @@
-// @vitest-environment jsdom
-import React from "react";
-import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-vi.mock("next/font/google", () => {
-  const font = () => ({ className: "font", variable: "font-var", style: {} });
-  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+const { redirect, redirectError } = vi.hoisted(() => {
+  const redirectError = new Error("NEXT_REDIRECT");
+  return { redirectError, redirect: vi.fn((_url: string): never => { throw redirectError; }) };
 });
-vi.mock("next/navigation", () => ({ useParams: () => ({ slug: "friday-night-12" }) }));
-vi.mock("@/components/tournament/standings/standings-section", () => ({
-  StandingsSection: ({ final }: { final?: boolean }) => <section aria-label={final ? "Final standings" : "Standings"} />,
-}));
+vi.mock("next/navigation", () => ({ redirect }));
 
-import StandingsPage from "../app/(app)/tournament/[slug]/standings/page";
-import { sheetTournament } from "./fixtures/tournament-sheet";
-
-afterEach(() => vi.unstubAllGlobals());
-
-function stub(status = 200, tournament = sheetTournament) {
-  const fetchMock = vi.fn(async (url: RequestInfo | URL) =>
-    String(url).startsWith("/api/leaderboard") ? Response.json({ rows: [] }) : status === 200 ? Response.json(tournament) : new Response("{}", { status }));
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
+import StandingsRedirect from "../app/(app)/tournament/[slug]/standings/page";
 
 describe("standings route", () => {
-  it("renders the same standings section the sheet shows, with no redirect", async () => {
-    const fetchMock = stub();
-    render(<StandingsPage />);
-    expect(await screen.findByRole("region", { name: "Standings" })).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/friday-night-12");
-  });
-
-  it("titles a completed tournament Final standings", async () => {
-    stub(200, { ...sheetTournament, status: "completed" });
-    render(<StandingsPage />);
-    expect(await screen.findByRole("region", { name: "Final standings" })).toBeInTheDocument();
-  });
-
-  it("shows an error when the tournament cannot load", async () => {
-    stub(404);
-    render(<StandingsPage />);
-    expect(await screen.findByText("Failed to load tournament")).toBeInTheDocument();
+  it("redirects to the live sheet's standings section after resolving params", async () => {
+    await expect(StandingsRedirect({ params: Promise.resolve({ slug: "friday-night-12" }) })).rejects.toBe(redirectError);
+    expect(redirect).toHaveBeenCalledWith("/tournament/friday-night-12?tab=standings");
   });
 });

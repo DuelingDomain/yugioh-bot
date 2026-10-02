@@ -25,11 +25,12 @@ export function MatchQueue(props: MatchQueueProps) {
   const titleId = useId();
   const resultsId = useId();
   const [expanded, setExpanded] = useState(false);
-  const featuredId = featuredMatch(props.tournament, props.currentUserPlayerId)?.id;
+  const closed = props.tournament.status !== "active";
+  const featuredId = closed ? undefined : featuredMatch(props.tournament, props.currentUserPlayerId)?.id;
   const groups = groupMatches(props.tournament.matches.filter(match => match.id !== featuredId), props.currentUserPlayerId);
   const mine = (match: Match) => isMatchPlayer(match, props.currentUserPlayerId);
-  const closed = props.tournament.status !== "active";
-  if (closed) { groups.live = []; groups.pending = []; groups.open = []; }
+  if (closed) { groups.live = []; groups.open = []; }
+  const canExpandResults = !closed || (props.isHost && props.tournament.format === "round_robin");
   const decidedCount = groups.decided.length;
 
   // Decided matches, newest first, one day header per change of day.
@@ -69,18 +70,18 @@ export function MatchQueue(props: MatchQueueProps) {
         )}
         {decidedCount > 0 && (
           <div role="group" aria-label={closed ? "Results" : "Decided"}>
-            {expanded && !closed ? (
+            {expanded && canExpandResults ? (
               <>
                 <h3 className="q-h">
-                  <span className="lamp" data-s="done" />Decided <span className="n">{decidedCount}</span>
-                  <button type="button" className="link" aria-expanded aria-controls={resultsId} onClick={() => setExpanded(false)}>Show recent</button>
+                  <span className="lamp" data-s="done" />{closed ? "Results" : "Decided"} <span className="n">{decidedCount}</span>
+                  <button type="button" className="link" aria-expanded aria-controls={resultsId} onClick={() => setExpanded(false)}>{closed ? "Show results" : "Show recent"}</button>
                 </h3>
                 <div id={resultsId} className="q-list">{[...groups.decided, ...groups.byes].map(match => <MatchRow key={match.id} {...props} match={match} />)}</div>
               </>
             ) : decidedCount > 0 && (
               <HistoryRail
                 title={`${closed ? "Results" : "Decided"} · ${decidedCount}`}
-                aside={closed ? undefined : <button type="button" className="link" aria-expanded={false} onClick={() => setExpanded(true)}>Show all</button>}
+                aside={canExpandResults ? <button type="button" className="link" aria-expanded={false} onClick={() => setExpanded(true)}>Show all</button> : undefined}
               >
                 {days.map(({ day, matches }) => [
                   <HistoryTurn key={`day-${day}`}>{day}</HistoryTurn>,

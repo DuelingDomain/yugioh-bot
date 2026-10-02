@@ -81,12 +81,24 @@ describe("match row presentation and permissions", () => {
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
-  it("retained terminal slots hide start/Set result while completed round robin keeps Reopen", () => {
+  it("retained terminal slots hide report/start/Set result while completed round robin keeps Reopen", () => {
     const { unmount } = renderRow(openMatch, { isHost: true, tournament: tournament({ status: "cancelled" }) });
+    expect(screen.queryByRole("button", { name: "Report" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Start duel" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Set result" })).toBeNull();
     unmount(); renderRow(decidedMatch, { isHost: true, tournament: tournament({ status: "completed" }) });
     expect(screen.getByRole("button", { name: "Reopen" })).toBeInTheDocument();
+  });
+
+  it("hides a result dialog already open when the event closes", () => {
+    const { rerender, props } = renderRow(pendingMatch, { isHost: true, currentUserPlayerId: 3 });
+    fireEvent.click(screen.getByRole("button", { name: "Set result" }));
+    expect(screen.getByRole("dialog", { name: "Set the result" })).toBeInTheDocument();
+    rerender(<SheetRoot><MatchRow {...props} tournament={tournament({ status: "completed" })} /></SheetRoot>);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set result" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
   });
 });
 

@@ -132,6 +132,29 @@ describe("TournamentDetailPage one sheet", () => {
     await waitFor(() => expect(detailFetches(fetchMock)).toHaveLength(2));
   });
 
+  it.each([
+    { reportConfirmWindowHours: 48 },
+    { deadlineAt: "2099-03-01T12:00:00.000Z" },
+  ])("refreshes an open timing editor when server settings change: %j", async patch => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Edit deadline" }))[0]);
+    fireEvent.change(screen.getByLabelText(/Deadline/), { target: { value: "2099-01-01T12:30" } });
+    fireEvent.change(screen.getByLabelText(/Confirm window/), { target: { value: "12" } });
+    const updated = { ...sheetTournament, ...patch };
+    fetchMock.mockResolvedValueOnce(Response.json(updated));
+    act(() => handlers.onMatchUpdated?.());
+    await waitFor(() => expect(screen.getByLabelText(/Confirm window/)).toHaveValue(updated.reportConfirmWindowHours));
+    expect(new Date((screen.getByLabelText(/Deadline/) as HTMLInputElement).value).toISOString()).toBe(new Date(updated.deadlineAt!).toISOString());
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(SLUG, expect.objectContaining({ method: "PUT" })));
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")!;
+    expect(JSON.parse(String(put[1]!.body))).toEqual({
+      deadlineAt: new Date(updated.deadlineAt!).toISOString(),
+      reportConfirmWindowHours: updated.reportConfirmWindowHours,
+    });
+  });
+
   it.each(["completed", "cancelled"])("renders the closed sheet with no organizer tools in the %s rail", async (status) => {
     setup({ ...sheetTournament, status });
     render(<TournamentDetailPage />);
@@ -187,7 +210,11 @@ describe("TournamentDetailPage one sheet", () => {
     render(<TournamentDetailPage />);
     await screen.findByRole("region", { name: "Matches" });
     const old = deferred(), latest = deferred();
-    fetchMock.mockImplementationOnce(() => old.promise).mockImplementationOnce(() => latest.promise);
+    const original = fetchMock.getMockImplementation()!;
+    let requests = 0;
+    fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method
+      ? (++requests === 1 ? old.promise : latest.promise)
+      : original(url, init));
     act(() => { handlers.onMatchUpdated?.(); handlers.onMatchUpdated?.(); });
     await act(async () => latest.resolve(Response.json({ ...sheetTournament, name: "Latest" })));
     await act(async () => old.resolve(Response.json({ ...sheetTournament, name: "Older" }, { status })));
@@ -203,19 +230,22 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.queryByRole("region", { name: "Matches" })).toBeNull();
   });
 
-  it("fetches ratings once at mount, then again on a status change but not an ordinary refresh", async () => {
+  it("refreshes ratings on match updates and status changes, keeping participant refreshes cheap", async () => {
     const fetchMock = setup();
     render(<TournamentDetailPage />);
     await screen.findByRole("region", { name: "Matches" });
     const ratingsCalls = () => fetchMock.mock.calls.filter(([url]) => String(url) === "/api/leaderboard?scope=all");
     expect(ratingsCalls()).toHaveLength(1);
-    act(() => handlers.onMatchUpdated?.());
+    act(() => handlers.onParticipantJoined?.({ playerId: 99, displayName: "New player" }));
     await act(async () => {});
     expect(ratingsCalls()).toHaveLength(1);
+    act(() => handlers.onMatchUpdated?.());
+    await act(async () => {});
+    expect(ratingsCalls()).toHaveLength(2);
     fetchMock.mockResolvedValueOnce(Response.json({ ...sheetTournament, status: "completed" }));
     act(() => handlers.onCompleted?.());
     await screen.findAllByText("Ended early"); // the fixture has unplayed matches
-    await waitFor(() => expect(ratingsCalls()).toHaveLength(2));
+    await waitFor(() => expect(ratingsCalls()).toHaveLength(3));
   });
 
   it.each(["onParticipantJoined", "onParticipantLeft", "onStarted", "onCancelled", "onCompleted", "onMatchUpdated"] as const)("refetches the tournament on %s", async (event) => {
