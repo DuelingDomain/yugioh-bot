@@ -1,3 +1,4 @@
+if not aux.MPForEachDuelist then return end
 -- Destiny HERO - Dark Angel: every living duelist chooses from its own Deck during the Standby Phase effect.
 function s.decktg(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then return Duel.IsExistingMatchingCard(s.filter,tp,LOCATION_DECK,0,1,nil)

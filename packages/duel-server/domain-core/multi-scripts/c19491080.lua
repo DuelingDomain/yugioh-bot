@@ -1,3 +1,4 @@
+if not aux.MPForEachDuelist then return end
 -- Clown Crew Cappello: include each living duelist's face-up Extra Deck.
 local function mp_all_pendulums()
 	local g=Group.CreateGroup()

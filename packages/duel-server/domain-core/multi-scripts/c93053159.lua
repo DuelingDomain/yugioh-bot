@@ -1,3 +1,4 @@
+if not aux.MPForEachDuelist then return end
 -- Alba System Dogmatikalamity: send each living duelist's Extra Deck to the GY.
 local function mp_all_extra()
 	local g=Group.CreateGroup()
