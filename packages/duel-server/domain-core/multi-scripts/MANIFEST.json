@@ -416,6 +416,15 @@
       ]
     },
     {
+      "code": 8964854,
+      "file": "c8964854.lua",
+      "name": "Combination Attack",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "c95a766e64851d34549aee11c97e6b8f4bc14c3644db0eb5bcbde53b476c0570",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 9074847,
       "file": "c9074847.lua",
       "name": "Major Riot",

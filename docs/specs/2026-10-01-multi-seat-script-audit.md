@@ -59,3 +59,7 @@ Iron Core Specimen Lab (53039326) raised upkeep events only for owners 0 and 1. 
 ## Black Dragon Ninja returns
 
 Black Dragon Ninja (56562619) returned a later owner's banished monster to the picked opponent. The overlay groups the banished cards by their real owners, checks each return field and completes the summons once. The Blue-Eyes Spirit limit stays in place. Live proof: `black-dragon-return.ts`. The stock wrong-field probe fails in all three formats. All three fixed cases pass on both cores.
+
+## Union controller returns
+
+Combination Attack (8964854) summoned an opposing Union Monster to a picked opponent instead of its controller. Its target checks and summon now bind the actual controller. Live proof: `combination-controller.ts`. The stock FFA probes return Y-Dragon Head to the wrong field; the three fixed cases pass on both cores.
