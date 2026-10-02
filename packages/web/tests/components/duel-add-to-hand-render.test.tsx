@@ -28,12 +28,12 @@ const addEvent = (extra: Partial<DuelEvent> = {}): DuelEvent =>
   }) as DuelEvent;
 
 /** A hand with one slot (the added card), the way field.tsx draws it, and the flight layer next to it. */
-function Board({ events, reduced = false, slotCode = 1234 }: { events: DuelEvent[]; reduced?: boolean; slotCode?: number }) {
+function Board({ events, reduced = false, slotCode = 1234, handId, sequence = 3 }: { events: DuelEvent[]; reduced?: boolean; slotCode?: number; handId?: string; sequence?: number }) {
   return (
     <div data-testid="board">
       <div data-hand-seat="0" data-side="you">
-        <div>
-          <div data-testid="slot" data-zones="0:2:3" data-side="you">
+        <div key={handId} data-hand-card="true" data-hand-id={handId}>
+          <div data-testid="slot" data-zones={`0:2:${sequence}`} data-side="you">
             {slotCode > 0 ? <span data-card-art><img src={`/api/cards/${slotCode}/image?size=small`} alt="" /></span> : <span data-card-art />}
           </div>
         </div>
@@ -80,6 +80,32 @@ function deliver(event: DuelEvent, props: { reduced?: boolean; slotCode?: number
 }
 
 describe("the Added to hand showcase on the board", () => {
+  it.each([true, false])("lands on the same hand card through an in-flight engine shuffle (known=%s)", (known) => {
+    const event = addEvent({ handId: "arrival", card: known ? info(1234) : undefined });
+    const props = { handId: "arrival", slotCode: known ? 1234 : 0 };
+    const view = render(<Board events={[]} {...props} />);
+    view.rerender(<Board events={[event]} {...props} />);
+    const slot = view.getByTestId("slot");
+    advance(200);
+    view.rerender(<Board events={[event]} {...props} sequence={0} />);
+    expect(view.getByTestId("slot")).toBe(slot);
+    expect(slot.style.visibility).toBe("hidden");
+    advance(showcasePhases(1, false).totalMs);
+    expect(slot.style.visibility).toBe("");
+    expect(slot.parentElement?.dataset.handArrived).toBe("true");
+    expect(view.getByTestId("added-ghost").getAttribute("data-known")).toBe(String(known));
+  });
+
+  it("does not hide or highlight a replacement if the arrival leaves before landing", () => {
+    const event = addEvent({ handId: "arrival" });
+    const view = render(<Board events={[]} handId="arrival" />);
+    view.rerender(<Board events={[event]} handId="arrival" />);
+    advance(200);
+    view.rerender(<Board events={[event]} handId="replacement" slotCode={777} />);
+    expect(view.getByTestId("slot").style.visibility).toBe("");
+    advance(showcasePhases(1, false).totalMs);
+    expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBeUndefined();
+  });
   it("shows the card large with the label and its source, then lands it in the hand: hidden until then", () => {
     const view = deliver(addEvent());
     const slot = view.getByTestId("slot");
@@ -97,11 +123,14 @@ describe("the Added to hand showcase on the board", () => {
     // It flies in, lands, and the real card takes over under the ring of light.
     advance(20 + phases.flyMs + 5);
     expect(slot.style.visibility).toBe("");
+    expect(slot.parentElement?.dataset.handArrived).toBe("true");
     expect(view.getByTestId("added-ring").style.width).toBe("70px");
 
     advance(ADD_TO_HAND.glowMs + 50);
     expect(view.queryByTestId("added-ghost")).toBeNull();
     expect(slot.style.visibility).toBe("");
+    advance(1250);
+    expect(slot.parentElement?.dataset.handArrived).toBeUndefined();
   });
 
   it("animates a rise, a hold and a flight with the face of the card", () => {
@@ -143,6 +172,7 @@ describe("the Added to hand showcase on the board", () => {
     expect(spots.size).toBe(1);
     advance(phases.riseMs + phases.holdMs + 5);
     expect(slot.style.visibility).toBe("");
+    expect(slot.parentElement?.dataset.handArrived).toBe("true");
     advance(phases.flyMs + 20);
     expect(view.queryByTestId("added-ghost")).toBeNull();
   });

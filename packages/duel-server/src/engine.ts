@@ -444,6 +444,11 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
           appendLog(`${cards.get(message.card)?.name ?? `Card ${message.card}`} moved`);
         }
         return;
+      case OcgMessageType.REMOVE_CARDS:
+        for (const card of [...message.cards].sort((a, b) => b.sequence - a.sequence)) {
+          moveReveals(reveals, card, { controller: card.controller, location: 0, sequence: 0 }, 0);
+        }
+        return;
       case OcgMessageType.TOSS_COIN:
         appendLog(`Coin toss: ${message.results.map((value) => (value ? "Heads" : "Tails")).join(", ")}`);
         return;
@@ -549,6 +554,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         events,
         result,
         reveals,
+        handOrder: eventContext.handOrder,
         mode: options.mode,
         domainState: readDomainState(),
       });

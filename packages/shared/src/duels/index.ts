@@ -155,6 +155,8 @@ export interface DuelCard {
   location: number;
   sequence: number;
   position: number;
+  /** Opaque hand display identity; sequence remains the current engine coordinate. */
+  handId?: string;
   code?: number;
   name?: string;
   description?: string;
@@ -326,6 +328,8 @@ export interface DuelEvent {
    * Deck then reads like a draw).
    */
   addedToHand?: true;
+  /** move into hand: opaque destination identity, stable across engine hand shuffles. */
+  handId?: string;
   /** attack: the attacked monster's zone; absent for a direct attack. equip: the monster it was equipped to. */
   target?: DuelZoneRef;
   /** damage: LP lost by `seat` (positive number). */

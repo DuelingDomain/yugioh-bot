@@ -17,7 +17,7 @@
  */
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { cardArtUrl, LOCATION_EXTRA } from "./constants";
-import { findZoneElement } from "./event-queue";
+import { findMoveDestination } from "./event-queue";
 import { artCodeOf } from "./destroy-hide";
 import { buildShowcaseFrames, showcaseBox, showcaseSourceLabel, ADDED_TITLE } from "./add-to-hand";
 import { CARD_FX } from "./duel-timing";
@@ -58,7 +58,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
   const source = showcaseSourceLabel(plan.event.from, plan.event.zone, side);
 
   useLayoutEffect(() => {
-    const dest = findZoneElement(plan.event.zone);
+    const dest = findMoveDestination(plan.event);
     const el = root.current;
     const o = overlay.getBoundingClientRect();
     const z = dest?.getBoundingClientRect();

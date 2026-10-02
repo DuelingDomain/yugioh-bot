@@ -777,6 +777,20 @@ const MOVES: LabScenario[] = [
       4800,
     );
   }),
+  moveScenario("move-hand-order", "Hand order: search through engine shuffles", "The added card stays on your right while its engine sequence changes. It gets a soft landing glow; the opponent adds on their own right.", () => {
+    const initial = board();
+    for (const seat of initial.seats) seat.hand.forEach((card, i) => { card.handId = `lab-${seat.seat}-${i}`; });
+    const arrival = "lab-added";
+    return script(initial, [
+      { at: 0, events: [{ ...ev.addToHand(ME, C.cyberDragon, DECK(ME), HAND(ME, 4)), handId: arrival }],
+        edits: [edit.addHand(ME, C.cyberDragon), (b) => {
+          b.seats[ME].hand.at(-1)!.handId = arrival;
+          b.seats[ME].hand.forEach((c, i) => { c.sequence = (i + 1) % 5; });
+        }] },
+      { at: 900, edits: [(b) => { b.seats[ME].hand.forEach((c, i) => { c.sequence = 4 - i; }); }] },
+      { at: 3200, events: [ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5))], edits: [edit.addHand(OPP, null)] },
+    ], 4000);
+  }),
   moveScenario("move-added-salvage", "Added to hand: salvage from the Graveyard", "A monster comes back from the Graveyard to the hand.", () => {
     const flow = chainFlow([{ info: C.potOfGreed, seat: ME, zone: SZ(ME, 2) }]);
     return script(

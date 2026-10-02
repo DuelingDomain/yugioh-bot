@@ -30,7 +30,7 @@ import { playsBigSummon } from "./big-summon";
 import { MOVE_PACE } from "./duel-timing";
 import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type ShowcaseOrigin, type ShowcasePhases } from "./add-to-hand";
 import { chainEffectAt } from "./chain-beats";
-import { findZoneElement } from "./event-queue";
+import { findZoneElement, findMoveDestination } from "./event-queue";
 
 export const MOVE_TIMING = {
   placeMin: MOVE_PACE.placeMinMs,
@@ -220,7 +220,7 @@ export function resolveSource(zone: DuelZoneRef): ZoneSnapshot | null {
 
 /** Distance between the source and destination anchors, from the live board. */
 export function measureGeometry(event: DuelEvent): MoveGeometry | null {
-  const to = findZoneElement(event.zone);
+  const to = findMoveDestination(event);
   if (!to) return null;
   const toRect = to.getBoundingClientRect();
   if (toRect.width < 4) return null;

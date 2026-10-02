@@ -24,7 +24,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
-import { collectFreshEvents, findZoneElement, maxEventId } from "./event-queue";
+import { collectFreshEvents, findMoveDestination, maxEventId } from "./event-queue";
 import {
   getMovePlan,
   planMoves,
@@ -318,7 +318,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const endAngle = card == null ? 0 : endUp ? 0 : 180;
 
   useLayoutEffect(() => {
-    const dest = findZoneElement(plan.event.zone);
+    const dest = findMoveDestination(plan.event);
     const el = root.current;
     if (!dest || !el) {
       landedRef.current();
@@ -572,7 +572,8 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
       for (const anim of card.getAnimations()) if (isFlipAnimation(anim)) anim.cancel();
     }
 
-    const keys = handCardKeys(cards.map((card) => card.querySelector("img")?.getAttribute("src") ?? null));
+    const fallbackKeys = handCardKeys(cards.map((card) => card.querySelector("img")?.getAttribute("src") ?? null));
+    const keys = cards.map((card, index) => card.dataset.handId ?? fallbackKeys[index]);
     const layout = new Map<string, FlipPoint>();
     cards.forEach((card, index) => {
       const r = card.getBoundingClientRect();
@@ -649,6 +650,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
   const keyRef = useRef(duelKey);
   const timersRef = useRef<Set<number>>(new Set());
   const releasesRef = useRef<Map<number, () => void>>(new Map());
+  const arrivalsRef = useRef<Set<HTMLElement>>(new Set());
   const reducedRef = useRef(reducedMotion);
   reducedRef.current = reducedMotion;
   const replayRef = useRef(replayFrom);
@@ -679,6 +681,8 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
     timersRef.current.clear();
     for (const release of releasesRef.current.values()) release();
     releasesRef.current.clear();
+    for (const card of arrivalsRef.current) delete card.dataset.handArrived;
+    arrivalsRef.current.clear();
   };
 
   useEffect(
@@ -715,7 +719,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
       // A big summon draws its own arrival (SummonFx): no ghost, and it hides the real card itself.
       if (!plan || plan.silent) continue;
       // The real card waits invisible at its destination until the ghost lands on it.
-      const dest = findZoneElement(plan.event.zone);
+      const dest = findMoveDestination(plan.event);
       const target = dest ? hideTargetOf(dest, plan) : null;
       const waitMs = Math.max(0, plan.landAt + plan.holdMs - now) + HIDE_FAILSAFE_MS;
       const releases: Array<() => void> = [];
@@ -761,15 +765,29 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
     release(id);
     setItems((current) => current.filter((item) => item.id !== id));
   };
+  const land = (plan: MovePlan) => {
+    release(plan.id);
+    if (plan.event.zone?.location !== LOCATION_HAND) return;
+    const card = findMoveDestination(plan.event)?.closest<HTMLElement>("[data-hand-card]");
+    if (!card) return;
+    card.dataset.handArrived = "true";
+    arrivalsRef.current.add(card);
+    const timer = window.setTimeout(() => {
+      delete card.dataset.handArrived;
+      arrivalsRef.current.delete(card);
+      timersRef.current.delete(timer);
+    }, 1250);
+    timersRef.current.add(timer);
+  };
 
   return (
     <div ref={overlayRef} className={styles.layer} aria-hidden="true">
       {overlay
         ? items.map((plan) => (
             plan.style === "add" ? (
-              <ShowcaseGhost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
+              <ShowcaseGhost key={plan.id} plan={plan} overlay={overlay} landed={() => land(plan)} done={() => finish(plan.id)} />
             ) : (
-              <Ghost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
+              <Ghost key={plan.id} plan={plan} overlay={overlay} landed={() => land(plan)} done={() => finish(plan.id)} />
             )
           ))
         : null}

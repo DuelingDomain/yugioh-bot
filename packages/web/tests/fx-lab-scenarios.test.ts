@@ -156,7 +156,9 @@ describe("fx lab scenarios", () => {
                 if (!card) return;
                 expect(card.controller).toBe(seatIndex);
                 expect(card.location).toBe(location);
-                expect(card.sequence).toBe(index);
+                if (location === LOCATION_HAND) {
+                  expect(list.map((c) => c!.sequence).sort((a, b) => a - b)).toEqual(list.map((_, i) => i));
+                } else expect(card.sequence).toBe(index);
               });
             }
             expect(seat.extraCount).toBe(seat.extra.length);

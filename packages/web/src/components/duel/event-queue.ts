@@ -197,6 +197,17 @@ export function findZoneElement(zone: DuelZoneRef | undefined | null): HTMLEleme
   );
 }
 
+/** Hand destinations use display identity because the core may shuffle before the flight finishes. */
+export function findMoveDestination(event: DuelEvent): HTMLElement | null {
+  if (event.handId && typeof document !== "undefined") {
+    const hand = document.querySelector(`[data-hand-seat="${event.zone?.controller}"]`);
+    const card = Array.from(hand?.querySelectorAll<HTMLElement>("[data-hand-id]") ?? [])
+      .find((el) => el.dataset.handId === event.handId);
+    return card?.querySelector<HTMLElement>("[data-zones]") ?? null;
+  }
+  return findZoneElement(event.zone);
+}
+
 /**
  * True when SummonFx/PositionFx will show this event on the board, so the centre toast stays out of
  * its way. Reduced motion keeps the toast: the board effect is only a short glow.
