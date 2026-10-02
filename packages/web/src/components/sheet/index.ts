@@ -6,4 +6,5 @@ export { LivePill, NewChip, ChainMedallion, Stamp, TierMeter, SummonCircle } fro
 export { StationTrack, type TrackStation } from "./station-track";
 export { LpTally, type LpTallyItem } from "./lp-tally";
 export { HistoryRail, HistoryTurn, HistoryRow } from "./history-rail";
-export { DangerZone, DangerRow, ConfirmPanel } from "./danger-zone";
+export { DangerZone, DangerRow } from "./danger-zone";
+export { ConfirmPanel } from "./confirm-panel";

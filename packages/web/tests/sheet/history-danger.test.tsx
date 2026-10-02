@@ -2,7 +2,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { HistoryRail, HistoryRow, HistoryTurn } from "@/components/sheet/history-rail";
-import { ConfirmPanel, DangerRow, DangerZone } from "@/components/sheet/danger-zone";
+import { DangerRow, DangerZone } from "@/components/sheet/danger-zone";
+import { ConfirmPanel } from "@/components/sheet/confirm-panel";
 
 describe("HistoryRail", () => {
   it("renders caption, list, turns and rows", () => {
