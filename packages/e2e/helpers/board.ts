@@ -137,6 +137,7 @@ export async function endTurn(page: Page, nextTurn: number): Promise<void> {
 export async function attackWithFirstMonster(page: Page): Promise<void> {
   await page.getByRole("button", { name: /^To Battle/ }).click();
   await expect(page.getByText(/Battle Phase/).first()).toBeVisible();
+  await expectReadyToAct(page);
   const ownField = page.locator('[data-table-stage] [data-seat-field][data-side="you"]');
   const monsters = await ownField.count() ? ownField.locator('[data-kind="mz"][data-occupied="true"] button')
     : page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"] button');
