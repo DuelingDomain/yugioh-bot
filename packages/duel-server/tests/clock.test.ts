@@ -328,6 +328,23 @@ describe("N-seat decision clock", () => {
     expect(next.remainingMs[2]).toBeGreaterThan(10_000);
   });
 
+  it("moves a due loss clock of a seat that has left to the next prompt seat", () => {
+    // Seat 1 timed out: its loss is pending and the window of seat 2 is open. The due clock of seat 1 must not stay.
+    const previous = { turn: 1, remainingMs: [60_000, 20_000, 60_000, 60_000], activeSeat: 1, startedAt: 0 };
+    const view = { turn: 1, promptSeat: 2, stoppedSeats: [1] };
+    const next = syncDecisionClock(previous, view, 60, 25_000, 25_000, "loss", 1)!;
+    expect(next).toEqual({ turn: 1, remainingMs: [60_000, 0, 60_000, 60_000], activeSeat: 2, startedAt: 25_000 });
+    // Seat 2 answers later while seat 1 is still pending and its old clock is still due: the clock still moves on.
+    const later = syncDecisionClock(previous, { turn: 1, promptSeat: 3, stoppedSeats: [1] }, 60, 30_000, 30_000, "loss", 2)!;
+    expect(later.activeSeat).toBe(3);
+    expect(later.startedAt).toBe(30_000);
+    expect(later.remainingMs[1]).toBe(0);
+    // A due clock of a seat that plays on is still kept for the loss.
+    const kept = syncDecisionClock(previous, { turn: 1, promptSeat: 2 }, 60, 25_000, 25_000, "loss", 1)!;
+    expect(kept.activeSeat).toBe(1);
+    expect(kept.startedAt).toBe(0);
+  });
+
   it("stops the clock of a seat that leaves the game", () => {
     const clock = { turn: 1, remainingMs: [5_000, 6_000, 7_000], activeSeat: 2, startedAt: 1_000 };
     expect(stopSeatClock(clock, 2, 3_000)).toEqual({ turn: 1, remainingMs: [5_000, 6_000, 5_000], activeSeat: null, startedAt: null });

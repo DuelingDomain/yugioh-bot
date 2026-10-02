@@ -408,7 +408,7 @@ export function createDuelHost(options: {
     await emitChange(slug, guildId);
   }
 
-  /** Who holds the open prompt, read from every seat's view. `stopped` seats do not get a running clock. */
+  /** Who holds the open prompt, read from every seat's view. `stopped` seats (surrendered, eliminated, loss pending) do not get a running clock. */
   async function readClockView(
     game: DuelGameWorker,
     seatCount: number,
@@ -422,7 +422,8 @@ export function createDuelHost(options: {
       const view = await game.view(seat);
       if (seat === 0) firstTurn = view.turn;
       if (view.result) return finish(firstTurn, null);
-      for (const entry of view.seats ?? []) if (entry.eliminated) stopped.add(entry.seat);
+      // A seat whose loss is only flagged (the core lands it at the next Adjust) has left already: its clock must not run.
+      for (const entry of view.seats ?? []) if (entry.eliminated || entry.pendingElimination) stopped.add(entry.seat);
       if (view.prompt && isSeatIndex(view.prompt.seat)) return finish(view.turn, view.prompt.seat);
     }
     return finish(firstTurn, null);
