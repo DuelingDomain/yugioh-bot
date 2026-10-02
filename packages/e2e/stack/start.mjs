@@ -94,7 +94,16 @@ mkdirSync(stackDir, { recursive: true });
 mkdirSync(dirname(stackLogFile), { recursive: true });
 stackLog = createWriteStream(stackLogFile, { flags: "w" });
 mkdirSync(cardImageDir, { recursive: true });
-await seedDatabase();
+let savedDecks = [];
+if (manualMode) {
+  // Reuse the host's legal EARTH Normal Monster decks; the core snapshot is read only.
+  const { buildPracticeBotDeck } = await import("../../duel-server/dist/practice-bot.js");
+  savedDecks = [
+    { name: "Manual Standard · EARTH normals", mode: "normal", deck: buildPracticeBotDeck("normal", duelDataDir) },
+    { name: "Manual Domain · Axe Raider", mode: "domain", deck: buildPracticeBotDeck("domain", duelDataDir) },
+  ];
+}
+await seedDatabase({ savedDecks });
 if (manualMode) {
   writeFileSync(manualInfoFile, JSON.stringify({ webUrl, authSecret: secrets.auth, supervisorPid: process.pid }), { mode: 0o600 });
 }
