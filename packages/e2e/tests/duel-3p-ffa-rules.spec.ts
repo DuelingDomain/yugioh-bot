@@ -195,13 +195,26 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
       const before = (await readTable(page, slug)).engine!.prompt!.id;
       await useCard(page, rulesZone(page, 0, 0).locator("button"), "Activate");
       await expect.poll(async () => (await readTableTrace(page, slug)).promptLog.at(-1)?.promptId).not.toBe(before);
-      const cost = (await readTable(page, slug)).engine!.prompt!;
-      if (cost.options.some((option) => option.card?.name === "Mystical Elf")) await pickRulesCard(page, slug, "Mystical Elf");
+      let declared = false;
+      for (let step = 0; step < 4; step += 1) {
+        const prompt = await waitRulesPrompt(page, slug, () => true);
+        const engine = (await readTable(page, slug)).engine!;
+        const detached = engine.seats[0]!.graveyard.some((card) => card.name === "Mystical Elf");
+        if (detached && (declared || ["action", "chain"].includes(prompt.context?.type ?? ""))) break;
+        if (prompt.context?.type === "opponent" && adr) {
+          await page.getByTestId("holo-pick-1").click();
+          declared = true;
+          await expect.poll(async () => (await readTableTrace(page, slug)).promptLog.at(-1)?.promptId).not.toBe(prompt.id);
+        } else if (prompt.options.some((option) => option.card?.name === "Mystical Elf")) {
+          await pickRulesCard(page, slug, "Mystical Elf");
+        } else {
+          throw new Error(`Unexpected Dweller setup prompt: ${JSON.stringify(prompt)}`);
+        }
+      }
       await expect.poll(async () => (await readTable(page, slug)).engine!.seats[0]!.graveyard.map((card) => card.name)).toContain("Mystical Elf");
       if (adr) {
         test.fail(true, "R-FFA-ACTIVATED-LOCK pending engine change");
-        await expect.poll(async () => (await readTable(page, slug)).engine!.prompt?.context?.type).toBe("opponent");
-        await page.getByTestId("holo-pick-1").click();
+        expect(declared).toBe(true);
       }
       await declineToAction(page, slug);
       await activateHand(page, "Dark Hole");
@@ -230,7 +243,7 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
         await page.getByTestId("holo-pick-1").click();
         await expect.poll(async () => (await readTableTrace(page, slug)).promptLog.at(-1)?.promptId).not.toBe(prompt.id);
       }
-      const selection = (await readTable(page, slug)).engine!.prompt;
+      const selection = await waitRulesPrompt(page, slug, () => true);
       if (selection?.options.some((option) => option.card?.name === "Mystical Elf")) await pickRulesCard(page, slug, "Mystical Elf");
       // Control transfers ask the human where to place the received monster.
       const placement = await waitRulesPrompt(page, slug, () => true);
