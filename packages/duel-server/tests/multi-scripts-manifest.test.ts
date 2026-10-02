@@ -59,7 +59,7 @@ describe("MANIFEST.json of the overlay", () => {
     const problems = checkLists(fewer, null).join("\n");
     expect(problems).toContain("COMPARE has 53 cards");
     expect(problems).toContain("6 whole files");
-    expect(problems).toContain("111 entries");
+    expect(problems).toContain(`${EXPECTED_COUNTS.entries - 1} entries`);
     const noFix = clone();
     noFix.cards.find((card) => card.code === MIRROR_GATE)!.kind = "expr";
     expect(checkLists(noFix, null).join("\n")).toContain("Mirror Gate");
@@ -200,10 +200,10 @@ describe("the R2 entries (state per seat: Q6, the key is the seat in FFA and the
     }
   });
 
-  it("count 102 suffixes (38 generated seat tables, 64 hand files) and 44 cards that work without change", () => {
-    expect(r2Cards).toHaveLength(102);
+  it("count 103 suffixes (38 generated seat tables, 65 hand files) and 44 cards that work without change", () => {
+    expect(r2Cards).toHaveLength(103);
     expect(seatCards).toHaveLength(38);
-    expect(handCards).toHaveLength(64);
+    expect(handCards).toHaveLength(65);
     expect(R2_NO_CHANGE).toHaveLength(44);
     expect(new Set(R2_NO_CHANGE).size).toBe(R2_NO_CHANGE.length);
   });
