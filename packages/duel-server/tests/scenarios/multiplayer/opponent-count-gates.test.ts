@@ -8,6 +8,7 @@ import { Session, domainNseatWasmBinary, nseatWasmBinary } from "../../support/s
 import { expectPrompt, select, type Scenario } from "../../support/dsl.js";
 import { OPPONENT_COUNT_GATES_SCENARIOS } from "./opponent-count-gates.js";
 import { domainVariant } from "./domain-variants.js";
+import { runScenarios } from "../../support/runner.js";
 // Keep the count fixture stable across cores with different first-turn draw flags.
 // This is the same one-phase fixture pattern used by compileBoard for turn:p1.
 const SKIP_OPENING_DRAW = `
@@ -45,10 +46,8 @@ async function runCountGateScenario(scenario: Scenario): Promise<void> {
   } finally { game.close(); }
 }
 describeWithCores("live opponent count gates", [liveNseat, ...needs.domainMulti()], () => {
-  const scenarios = [...OPPONENT_COUNT_GATES_SCENARIOS, ...OPPONENT_COUNT_GATES_SCENARIOS.map(domainVariant)];
-  for (const scenario of scenarios) it(scenario.id, async () => {
-    await runCountGateScenario(scenario);
-  });
+  runScenarios("Standard count gates", OPPONENT_COUNT_GATES_SCENARIOS, runCountGateScenario);
+  runScenarios("Domain count gates", OPPONENT_COUNT_GATES_SCENARIOS.map(domainVariant), runCountGateScenario);
   for (const domain of [false, true]) it(`rejects a card selection after the summon is complete${domain ? " (Domain)" : ""}`, async () => {
     const base = OPPONENT_COUNT_GATES_SCENARIOS.find((s) => s.id === "opponent-count-gates-linkerbell-ffa3-late-eligible-opponent")!;
     const scenario = domain ? domainVariant(base) : base;

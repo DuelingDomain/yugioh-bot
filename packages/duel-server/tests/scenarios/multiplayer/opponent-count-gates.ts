@@ -56,7 +56,7 @@ function countGate(kind: CountGate, format: "1v1" | "ffa3" | "ffa4" | "tag", noO
   }
   if (noOpponent) steps.push(expectNotOffered(kind === "linkerbell" ? "specialSummon" : "activate", NAMES[kind], "p0"));
   steps.push(expectBoard(board));
-  return defineScenario({ id: `opponent-count-gates-${kind}-${format}-${noOpponent ? "no-eligible-opponent" : "late-eligible-opponent"}`, title: `${format}: ${NAMES[kind]} ${noOpponent ? "has no eligible opponent" : "uses the eligible later opponent"}`, source: "docs/adr/0002-multiplayer-duel-rules.md [Q2]", rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-SHARED-CARDS"] : [])], tags: ["multiplayer", "compare", `card:${COUNT_GATE_CARDS[kind]}`, kind, ...(noOpponent ? ["negative-count"] : []), format], setup, steps });
+  return defineScenario({ id: `opponent-count-gates-${kind}-${format}-${noOpponent ? "no-eligible-opponent" : "late-eligible-opponent"}`, title: `${format}: ${NAMES[kind]} ${noOpponent ? "has no eligible opponent" : "uses the eligible later opponent"}`, source: "docs/adr/0002-multiplayer-duel-rules.md [Q2]", ...(noOpponent ? {} : { rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-SHARED-CARDS"] : [])] }), tags: ["multiplayer", "compare", `card:${COUNT_GATE_CARDS[kind]}`, kind, ...(noOpponent ? ["negative-count"] : []), format], setup, steps });
 }
 export const OPPONENT_COUNT_GATES_SCENARIOS: Scenario[] = Object.keys(COUNT_GATE_CARDS).flatMap((kind) => [
   ...(["1v1", "ffa3", "ffa4", "tag"] as const).map((format) => countGate(kind as CountGate, format)),

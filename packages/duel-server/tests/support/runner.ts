@@ -8,7 +8,7 @@ import { runScenario } from "./session.js";
  * while the engine bug exists and fail when it is fixed, so the marker gets removed.
  * Scenarios not chosen by the SCENARIO_* filters are skipped.
  */
-export function runScenarios(suite: string, scenarios: Scenario[]): void {
+export function runScenarios(suite: string, scenarios: Scenario[], run = runScenario): void {
   describe(suite, () => {
     for (const scenario of scenarios) {
       const name = `${scenario.id}: ${scenario.title}`;
@@ -23,11 +23,11 @@ export function runScenarios(suite: string, scenarios: Scenario[]): void {
         it.skip(name, () => undefined);
       } else if (scenario.knownBug) {
         it.fails(`${name} [known bug: ${scenario.knownBug}]`, async () => {
-          await runScenario(scenario);
+          await run(scenario);
         });
       } else {
         it(name, async () => {
-          await runScenario(scenario);
+          await run(scenario);
         });
       }
     }
