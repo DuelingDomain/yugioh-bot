@@ -1670,6 +1670,15 @@
       "note": "the global check compares the reason player with 1-previous controller; it compares the keys (seat in FFA, team in Tag) and writes the flag for the real previous controller."
     },
     {
+      "code": 28497830,
+      "file": "c28497830.lua",
+      "name": "Gold Pride - Pin Baller",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "46059a0ed50acf73a65bba6db3ccf61c304db2fda001c15e16fe02dbf83e4081",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 29307554,
       "file": "c29307554.lua",
       "name": "Lineage of Destruction",

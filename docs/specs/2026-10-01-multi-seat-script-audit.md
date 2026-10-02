@@ -87,3 +87,7 @@ Clown Crew Cappello (19491080), Destiny HERO - Dark Angel (26964762) and Alba Sy
 Mimighoul Fork (19338434) could offer a two-card draw when the real owner's Deck was empty. The picked chooser's Deck had two cards, so the folded owner check passed. Its filter and operation now rebind each FFA duelist to find the exact owner. In Tag, they bind the current controller for an unchanged owner/controller. Live proof: `fork-draw-legality.ts`. All three previous-overlay probes offered the wrong option; nine fixed legality and owner-action cases pass on both cores.
 
 Tag cards owned by a different duelist still need the real-owner API, including a transfer between partners whose folded owner/controller values are equal. That complete fix is exported with the core query and is not installed.
+
+## Pin Baller LP compare
+
+Gold Pride - Pin Baller (28497830) used folded players in a global protection callback. After Solemn Strike paid its cost, the callback could compare a number with nil for a later seat. Its overlay stores the real own and picked-opponent keys when the target is set, then reads current LP with those keys. Live proof: `pin-baller-lp.ts`. All six stock cases fail with the Lua error. All six fixed cases pass on both cores, for lower and higher LP after the cost.
