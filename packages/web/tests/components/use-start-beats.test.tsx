@@ -1,30 +1,38 @@
 // @vitest-environment jsdom
 import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, render, renderHook } from "@testing-library/react";
 import type { DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
 import { PHASE_TIMING } from "@/components/duel/duel-timing";
 import { resetPhaseBeats } from "@/components/duel/phase-beats";
 import { useStartBeats } from "@/components/duel/use-start-beats";
+import { MoveFx } from "@/components/duel/move-fx";
+import { resetMoveSchedule } from "@/components/duel/move-plan";
 
 const phase = (id: number, text: string): DuelEvent => ({ id, kind: "phase", text }) as DuelEvent;
 const draw = (id: number): DuelEvent => ({ id, kind: "move", reason: "draw", text: "draw" }) as unknown as DuelEvent;
 const view = (over: Partial<DuelEngineView>): DuelEngineView =>
   ({ revision: 0, turn: 1, phase: "main1", events: [], ...over }) as unknown as DuelEngineView;
 
+let duelKey: string;
+let game = 0;
 beforeEach(() => {
   vi.useFakeTimers();
-  resetPhaseBeats("duel");
+  duelKey = `duel-${game++}`;
+  resetPhaseBeats(duelKey);
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 const strict = ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>;
 
 describe("useStartBeats", () => {
   it("replays the opening: holds the player and walks the bar Draw, Standby, Main 1", () => {
     const events = [phase(1, "Draw Phase"), phase(2, "Standby Phase"), phase(3, "Main Phase 1")];
-    const { result } = renderHook(() => useStartBeats({ engine: view({ events }), duelKey: "duel", reducedMotion: false, ready: true }), { wrapper: strict });
-    expect(result.current.replayFrom).toBe(0);
+    const { result } = renderHook(() => useStartBeats({ engine: view({ events }), duelKey, reducedMotion: false, ready: true }), { wrapper: strict });
     expect(result.current.active).toBe(true);
     const seen: Array<string | null | undefined> = [];
     for (let step = 0; step < 40 && result.current.active; step += 1) {
@@ -44,7 +52,7 @@ describe("useStartBeats", () => {
   it("waits, with the hands hidden, until the card layers are ready, then plays the opening", () => {
     const events = [draw(1), phase(2, "Draw Phase"), phase(3, "Standby Phase"), phase(4, "Main Phase 1")];
     let ready = false;
-    const { result, rerender } = renderHook(() => useStartBeats({ engine: view({ events }), duelKey: "duel", reducedMotion: false, ready }));
+    const { result, rerender } = renderHook(() => useStartBeats({ engine: view({ events }), duelKey, reducedMotion: false, ready }));
     expect(result.current.waiting).toBe(true);
     expect(result.current.active).toBe(false);
     ready = true;
@@ -55,7 +63,7 @@ describe("useStartBeats", () => {
 
   it("does not replay or hold a duel that was joined later", () => {
     const events = [phase(1, "Draw Phase"), phase(2, "Standby Phase"), phase(3, "Main Phase 1")];
-    const { result } = renderHook(() => useStartBeats({ engine: view({ revision: 5, turn: 3, events }), duelKey: "duel", reducedMotion: false, ready: true }), { wrapper: strict });
+    const { result } = renderHook(() => useStartBeats({ engine: view({ revision: 5, turn: 3, events }), duelKey, reducedMotion: false, ready: true }), { wrapper: strict });
     expect(result.current.replayFrom).toBeNull();
     expect(result.current.active).toBe(false);
   });
@@ -63,7 +71,7 @@ describe("useStartBeats", () => {
   it("holds the player for the Draw and Standby Phase of a later turn", () => {
     const first = [phase(1, "Battle Phase"), phase(2, "End Phase")];
     let engine = view({ revision: 4, turn: 2, events: first });
-    const { result, rerender } = renderHook(() => useStartBeats({ engine, duelKey: "duel", reducedMotion: false, ready: true }));
+    const { result, rerender } = renderHook(() => useStartBeats({ engine, duelKey, reducedMotion: false, ready: true }));
     expect(result.current.active).toBe(false);
     engine = view({ revision: 5, turn: 3, events: [...first, draw(3), phase(4, "Draw Phase"), phase(5, "Standby Phase"), phase(6, "Main Phase 1")] });
     rerender();
@@ -72,5 +80,77 @@ describe("useStartBeats", () => {
       vi.advanceTimersByTime(PHASE_TIMING.capMs);
     });
     expect(result.current.active).toBe(false);
+  });
+
+  it("does not deal again when an opening snapshot recovers after the first interaction", () => {
+    const events = [draw(1), phase(2, "Draw Phase"), phase(3, "Standby Phase"), phase(4, "Main Phase 1")];
+    let ready = true;
+    let engine = view({ events });
+    const { result, rerender } = renderHook(() => useStartBeats({ engine, duelKey, reducedMotion: false, ready }));
+    act(() => vi.advanceTimersByTime(PHASE_TIMING.capMs + 1));
+    expect(result.current.active).toBe(false);
+    ready = false;
+    rerender();
+    expect(result.current.waiting).toBe(false);
+    // No command was accepted: revision is still zero, but the prompt/cards are new objects.
+    engine = view({ events: [...events], prompt: { id: "opening-prompt" } as DuelEngineView["prompt"] });
+    ready = true;
+    rerender();
+    expect(result.current.replayFrom).toBeNull();
+    expect(result.current.active).toBe(false);
+  });
+
+  it("remembers a presented opening across a room remount", () => {
+    const engine = view({ events: [draw(1), phase(2, "Draw Phase"), phase(3, "Standby Phase")] });
+    const first = renderHook(() => useStartBeats({ engine, duelKey, reducedMotion: false, ready: true }));
+    act(() => vi.advanceTimersByTime(PHASE_TIMING.capMs + 1));
+    first.unmount();
+    const second = renderHook(() => useStartBeats({ engine, duelKey, reducedMotion: false, ready: true }));
+    expect(second.result.current.replayFrom).toBeNull();
+    expect(second.result.current.active).toBe(false);
+  });
+
+  it("plays game 2 once after the between-games screen, even when event ids restart", () => {
+    const opening = view({ events: [draw(1), phase(2, "Draw Phase"), phase(3, "Standby Phase"), phase(4, "Main Phase 1")] });
+    let engine: DuelEngineView | null = opening;
+    let key = `${duelKey}-game1`;
+    const { result, rerender } = renderHook(() => useStartBeats({ engine, duelKey: key, reducedMotion: false, ready: true }));
+    act(() => vi.advanceTimersByTime(PHASE_TIMING.capMs + 1));
+    // The next game has a new duel slug and briefly has no engine in its lobby.
+    key = `${duelKey}-game2`;
+    engine = null;
+    rerender();
+    engine = opening;
+    rerender();
+    expect(result.current.active).toBe(true);
+    act(() => vi.advanceTimersByTime(PHASE_TIMING.capMs + 1));
+    engine = view({ ...opening, events: [...opening.events] });
+    rerender();
+    expect(result.current.active).toBe(false);
+    expect(result.current.replayFrom).toBeNull();
+  });
+
+  it("keeps landed cards visible when the card layer remounts in game 2", async () => {
+    resetMoveSchedule(duelKey);
+    const rect = { left: 0, top: 0, width: 70, height: 100, right: 70, bottom: 100, x: 0, y: 0, toJSON: () => ({}) };
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    const engine = view({ events: [{ ...draw(1), from: { controller: 0, location: 1, sequence: 0 }, zone: { controller: 0, location: 2, sequence: 0 } }, phase(2, "Draw Phase"), phase(3, "Standby Phase"), phase(4, "Main Phase 1")] });
+    function Board({ ready }: { ready: boolean }) {
+      const beats = useStartBeats({ engine, duelKey, reducedMotion: false, ready });
+      return <div>
+        <button data-testid="card" data-zones="0:2:0">Hand card</button>
+        {ready ? <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={false} replayFrom={beats.replayFrom} /> : null}
+      </div>;
+    }
+    const board = render(<StrictMode><Board ready /></StrictMode>);
+    expect(board.container.querySelectorAll('[data-style="draw"]')).toHaveLength(1);
+    expect(board.getByTestId("card").style.visibility).toBe("hidden");
+    await act(async () => { await vi.advanceTimersByTimeAsync(PHASE_TIMING.capMs + 1); });
+    expect(board.container.querySelectorAll('[data-style="draw"]')).toHaveLength(0);
+    expect(board.getByTestId("card").style.visibility).toBe("");
+    board.rerender(<StrictMode><Board ready={false} /></StrictMode>);
+    board.rerender(<StrictMode><Board ready /></StrictMode>);
+    expect(board.container.querySelectorAll('[data-style="draw"]')).toHaveLength(0);
+    expect(board.getByTestId("card").style.visibility).toBe("");
   });
 });

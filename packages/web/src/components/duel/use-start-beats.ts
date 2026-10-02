@@ -25,6 +25,10 @@ export type StartBeats = {
 type Shown = { active: boolean; phase: string | null };
 const IDLE: Shown = { active: false, phase: null };
 
+// Each series game has its own duel slug. Keep this outside the room/layers so a reconnect,
+// FX recovery or route remount cannot present an unchanged revision-zero opening twice.
+const presentedOpenings = new Set<string>();
+
 export function useStartBeats({
   engine,
   duelKey,
@@ -38,7 +42,7 @@ export function useStartBeats({
   ready: boolean;
 }): StartBeats {
   // A duel that is still at its very start replays its opening; one the player joins halfway does not.
-  const replayFrom = engine && isOpeningView(engine) ? 0 : null;
+  const replayFrom = engine && isOpeningView(engine) && !presentedOpenings.has(duelKey) ? 0 : null;
 
   const [shown, setShown] = useState<Shown>(IDLE);
   const cursorRef = useRef<number | null>(null);
@@ -78,11 +82,15 @@ export function useStartBeats({
     if (!ready) {
       // The layers are gone and will read the first events again when they return: so does this hook.
       cursorRef.current = null;
+      releaseAtRef.current = 0;
+      clearTimers();
+      setShown(IDLE);
       return;
     }
     if (cursorRef.current == null) {
       cursorRef.current = replayFrom ?? maxEventId(events) ?? 0;
       if (replayFrom == null) return;
+      presentedOpenings.add(duelKey);
     }
     const cursor = cursorRef.current;
     const { nextCursor, fresh } = collectFreshEvents(events, cursor);
