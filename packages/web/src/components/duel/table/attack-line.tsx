@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { ARENA_CENTER } from "./geometry";
 import { hexToRgbTriplet } from "./seat-angle";
+import { findShown } from "./zone-find";
 import { SEAT_TONE_HEX, type BattleAim, type SeatTone } from "./types";
 import styles from "./attack-line.module.css";
 
@@ -59,14 +60,7 @@ export function AttackLine({ aim, tone }: AttackLineProps) {
     if (!active || !svg || !fromKey) return;
     const root = svg.closest("[data-table-stage]") ?? document;
     let frame = 0;
-    const find = (selector: string): Element | null => {
-      const all = root.querySelectorAll(selector);
-      for (const node of all) {
-        const r = node.getBoundingClientRect();
-        if (r.width > 0 || r.height > 0) return node;
-      }
-      return all[0] ?? null;
-    };
+    const find = (selector: string): Element | null => findShown(root, selector);
     const point = (node: Element, origin: DOMRect, k: number): Pt => {
       const r = node.getBoundingClientRect();
       return { x: (r.left + r.width / 2 - origin.left) / k, y: (r.top + r.height / 2 - origin.top) / k, w: r.width / k };

@@ -6,7 +6,7 @@ import { Circle, Diamond, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { isCustomDomain } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
-import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName, zoneAnchor } from "../card-interactions";
+import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
 import { isBattlePhase, phaseTitle, zoneKey } from "../constants";
 import { DestroyFx } from "../destroy-fx";
@@ -45,6 +45,7 @@ import { OpponentBar } from "./opponent-bar";
 import { attackLockAt, placeLabel, placings, seatStrip, toneBySeat, trackOutOrder } from "./seat-state";
 import { TableSettings } from "./table-side";
 import { TableStage } from "./table-stage";
+import { tableZoneAnchor } from "./zone-find";
 import { useAimFlow } from "./use-aim-flow";
 import { useCamera } from "./use-camera";
 import { useTableUi } from "./use-table-ui";
@@ -177,7 +178,7 @@ export function TableShell({
 
   // The locked target of an attack: the confirm sits on the card. A locked seat keeps the opponent bar.
   const lockKey = flow.pointed?.zoneKey ?? null;
-  const lockAnchor = lockKey && flow.bar?.kind === "confirm" ? zoneAnchor(lockKey, rootRef.current ?? document) : null;
+  const lockAnchor = lockKey && flow.bar?.kind === "confirm" ? tableZoneAnchor(lockKey, rootRef.current ?? document) : null;
   const barShown = flow.bar != null && !(flow.bar.kind === "confirm" && lockAnchor);
   const lockedOption = flow.pointed && prompt ? prompt.options.find((option) => option.id === flow.pointed?.optionId) : undefined;
 
