@@ -154,6 +154,15 @@
   max-width: 260px;
   flex-wrap: wrap;
 }
+/*
+ * 4-way: a duelist choice (direct attack, choose an opponent) is made on the LP panels, and the arrow runs to them.
+ * The centre modal drops to the lower middle, over your own field, and is a little narrower than your field, so it
+ * covers neither a holo panel nor the arrow.
+ */
+.board[data-format="ffa4"] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
+  inset: auto 0 9% 0;
+  width: min(500px, calc(100% - 24px));
+}
 .slot[data-slot="fx"] :global([data-chain-panel]) {
   align-self: flex-start;
   margin-top: 17%;

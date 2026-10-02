@@ -121,4 +121,12 @@ describe("TableShell on the 4-way fixtures", () => {
     press("c");
     expect(container.querySelectorAll("[data-lp-seat]")).toHaveLength(4);
   });
+
+  it("marks the prompt slot of a duelist pick, so the centre modal can leave the LP panels clear", () => {
+    const pick = render(<Shell id="choose-opponent" />).container;
+    expect(pick.querySelector('[data-slot="prompt"][data-seat-pick="true"]')).not.toBeNull();
+    cleanup();
+    const plain = render(<Shell id="main" />).container;
+    expect(plain.querySelector('[data-slot="prompt"][data-seat-pick]')).toBeNull();
+  });
 });
