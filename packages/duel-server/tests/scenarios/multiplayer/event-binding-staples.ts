@@ -79,11 +79,12 @@ function zaloog(format: Format, attacker: Seat, target: Seat, effect: "hand" | "
 
 /**
  * Maxx "C" is a Quick Effect that opens a chain window for its holder in every phase, so the holder passes each window until the activator has the
- * turn: the first turn has 2 windows (Main Phase 1, End Phase), each full turn after it has 4 (Draw, Standby, Main 1, End) and the turn of the activator 3.
+ * turn: each turn transition has 5 windows (Main Phase 1 and End Phase of the seat that ends its turn, then Draw, Standby and Main Phase 1 of the next seat).
+ * When the holder ends its own turn, it has 4 windows: its own Main Phase 1 has no response window.
  */
 function windows(format: Format, activator: Seat, holder: Seat): Step[] {
-  const n = Number(process.env.WN ?? 5);
-  const own = Number(process.env.WO ?? 4);
+  const n = 5;
+  const own = 4;
   return turnsBefore(format, activator).flatMap((step) => [step, ...Array.from({ length: (step as { by: Seat }).by === holder ? own : n }, () => pass(holder))]);
 }
 
