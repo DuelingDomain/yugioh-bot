@@ -28,11 +28,12 @@ import { PositionFx } from "../position-fx";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { optionsForCard, PromptTray } from "../prompts";
 import { priorityOrder } from "../priority-chips";
+import { Sheet } from "@/components/ui/sheet";
 import { useResultGate } from "../result-reveal";
 import { firstInspectCard } from "../tag/tag-logic";
 import { DuelClockDisplay } from "../room-settings";
 import { SeriesBanner } from "../series-banner";
-import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs } from "../side-panel";
+import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
 import { SummonFx } from "../summon-fx";
 import { useDuelPreferences } from "../preferences";
@@ -121,6 +122,9 @@ export function TableShell({
   const preferences = useDuelPreferences();
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
+  // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
+  const narrow = useIsNarrow();
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const session = room.session;
   const domain = session.mode === "domain";
@@ -317,22 +321,24 @@ export function TableShell({
         />
       ) : null}
       <div className={roomStyles.layout}>
-        <aside className={roomStyles.inspector}>
-          <HistoryStrip
-            engine={engine}
-            mySeat={viewerSeat}
-            playerName={nameOf}
-            seatTones={seatTones}
-            onInspectCard={(card) => ui.inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
-            onOpenLog={() => ui.setPane("log")}
-          />
-          <SideTabs panes={DESKTOP_PANES} selected={desktopPane(ui.pane)} unread={logUnread} onSelect={ui.setPane} />
-          <div className={roomStyles.sideContent}>
-            <SidePanel pane="card" selected={desktopPane(ui.pane)}>{cardPanel}</SidePanel>
-            <SidePanel pane="log" selected={desktopPane(ui.pane)} keepMounted>{logPanel}</SidePanel>
-            <SidePanel pane="settings" selected={desktopPane(ui.pane)}><TableSettings controller={controller} preferences={preferences} /></SidePanel>
-          </div>
-        </aside>
+        {narrow ? null : (
+          <aside className={roomStyles.inspector}>
+            <HistoryStrip
+              engine={engine}
+              mySeat={viewerSeat}
+              playerName={nameOf}
+              seatTones={seatTones}
+              onInspectCard={(card) => ui.inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
+              onOpenLog={() => ui.setPane("log")}
+            />
+            <SideTabs panes={DESKTOP_PANES} selected={desktopPane(ui.pane)} unread={logUnread} onSelect={ui.setPane} />
+            <div className={roomStyles.sideContent}>
+              <SidePanel pane="card" selected={desktopPane(ui.pane)}>{cardPanel}</SidePanel>
+              <SidePanel pane="log" selected={desktopPane(ui.pane)} keepMounted>{logPanel}</SidePanel>
+              <SidePanel pane="settings" selected={desktopPane(ui.pane)}><TableSettings controller={controller} preferences={preferences} /></SidePanel>
+            </div>
+          </aside>
+        )}
         <div
           className={roomStyles.promptDock}
           data-mode={dockMode}
@@ -473,6 +479,24 @@ export function TableShell({
           attackLock={attackLockAt(format, engine.seats.length, engine.turn)}
         />
       </div>
+      {narrow ? (
+        <>
+          <div className={roomStyles.mobileBar}>
+            <SideTabs
+              mobile
+              panes={DESKTOP_PANES}
+              selected={desktopPane(ui.pane)}
+              unread={logUnread}
+              onSelect={(pane) => { ui.setPane(pane); setSheetOpen(true); }}
+            />
+          </div>
+          <Sheet open={sheetOpen} onClose={() => setSheetOpen(false)} title={ui.pane === "log" ? "Duel log" : ui.pane === "settings" ? "Settings" : "Card"}>
+            <SidePanel pane="card" selected={desktopPane(ui.pane)} semantic={false}>{cardPanel}</SidePanel>
+            <SidePanel pane="log" selected={desktopPane(ui.pane)} semantic={false} keepMounted>{logPanel}</SidePanel>
+            <SidePanel pane="settings" selected={desktopPane(ui.pane)} semantic={false}><TableSettings controller={controller} preferences={preferences} /></SidePanel>
+          </Sheet>
+        </>
+      ) : null}
       {ui.menu ? (
         <CardActionMenu
           anchor={ui.menu.anchor}

@@ -212,6 +212,31 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
         </span>
       </div>
 
+      <div className={styles.phoneSeats} data-seat-switcher role="group" aria-label="Switch seat view">
+        <button type="button" data-seat-switch="home" aria-pressed={camera.mode === "home"} disabled={locked} onClick={() => dispatch({ type: "home" })}>
+          <House size={12} aria-hidden="true" />
+          Home
+        </button>
+        {rivals.map((slot) => (
+          <button
+            key={`switch-${slot.seat}`}
+            type="button"
+            data-seat-switch={slot.seat}
+            aria-pressed={camera.mode === "focus" && camera.focusSeat === slot.seat}
+            disabled={locked}
+            style={toneVars(layout, slot.seat)}
+            onClick={() => dispatch({ type: "focus", seat: slot.seat })}
+          >
+            <i className={styles.dot} aria-hidden="true" />
+            {nameOf(slot.seat).split(" ")[0]}
+          </button>
+        ))}
+        <button type="button" data-seat-switch="overview" aria-pressed={camera.mode === "overview"} disabled={locked} onClick={() => dispatch({ type: "overview" })}>
+          <Orbit size={12} aria-hidden="true" />
+          All
+        </button>
+      </div>
+
       {cue ? (
         <div className={styles.cue} data-camera-cue style={toneVars(layout, cue.seat)} role="status">
           <span>

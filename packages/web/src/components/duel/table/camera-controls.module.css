@@ -274,6 +274,49 @@
   }
 }
 
+/* Phone width (under 640px): a seat switcher across the top of the stage, no key hints (there is no keyboard). */
+.phoneSeats { display: none; }
+
+@media (max-width: 640px) {
+  .phoneSeats {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    z-index: 70;
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    pointer-events: auto;
+    font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  }
+
+  .phoneSeats button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 4px 10px;
+    border: 1px solid rgb(var(--t, 181 153 99) / 0.5);
+    border-radius: 999px;
+    background: rgb(7 11 21 / 0.86);
+    color: #efe7d5;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+
+  .phoneSeats button[aria-pressed="true"] {
+    border-color: rgb(var(--t, 181 153 99));
+    background: rgb(var(--t, 181 153 99) / 0.2);
+    color: var(--tink, #efe7d5);
+  }
+
+  .phoneSeats button:disabled { opacity: 0.55; }
+
+  .hint { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cue {
     animation: none;

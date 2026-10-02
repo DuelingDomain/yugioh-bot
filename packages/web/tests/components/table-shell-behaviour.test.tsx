@@ -36,9 +36,42 @@ function Shell({ id }: { id: StateId }) {
 }
 
 /** The answers the fixture controller logged, oldest first. */
-function answers(spy: ReturnType<typeof vi.spyOn>): unknown[] {
+function answers(spy: { mock: { calls: unknown[][] } }): unknown[] {
   return spy.mock.calls.filter((call) => call[0] === "[table-preview] answer").map((call) => (call[1] as { answer: unknown }).answer);
 }
+
+const mediaStub = (narrow: boolean) => (query: string) => ({ matches: narrow && query.includes("max-width"), media: query, addEventListener: () => {}, removeEventListener: () => {} });
+
+describe("TableShell on the 3-way fixtures: phone width", () => {
+  it("swaps the left column for a Card/Log bar and a sheet, and keeps one seat switcher", () => {
+    vi.stubGlobal("matchMedia", mediaStub(true));
+    try {
+      const { container, getByRole } = render(<Shell id="main" />);
+      expect(container.querySelector("aside[class*='inspector']")).toBeNull();
+      expect(container.querySelector("[data-testid='history-strip']")).toBeNull();
+      const bar = container.querySelector("[aria-label='Mobile duel panels']") as HTMLElement;
+      expect(bar).not.toBeNull();
+      expect([...bar.querySelectorAll("button")].map((node) => node.textContent?.replace(/\d+\+?$/, ""))).toEqual(["Card", "Log", "Settings"]);
+      act(() => void fireEvent.click(getByRole("button", { name: /^Log/ })));
+      expect(document.body.querySelector("[role='dialog']")).not.toBeNull();
+      const switcher = container.querySelector("[data-seat-switcher]") as HTMLElement;
+      expect([...switcher.querySelectorAll("[data-seat-switch]")].map((node) => node.getAttribute("data-seat-switch"))).toEqual(["home", "1", "2", "overview"]);
+    } finally {
+      vi.stubGlobal("matchMedia", mediaStub(false));
+    }
+  });
+
+  it("switches the camera from the seat switcher", () => {
+    const { container } = render(<Shell id="main" />);
+    const stage = () => container.querySelector("[data-table-stage]") as HTMLElement;
+    act(() => void fireEvent.click(container.querySelector("[data-seat-switch='1']") as HTMLElement));
+    expect(stage().getAttribute("data-camera-mode")).toBe("focus");
+    act(() => void fireEvent.click(container.querySelector("[data-seat-switch='overview']") as HTMLElement));
+    expect(stage().getAttribute("data-camera-mode")).toMatch(/^(overview|fly)$/);
+    act(() => void fireEvent.click(container.querySelector("[data-seat-switch='home']") as HTMLElement));
+    expect(stage().getAttribute("data-camera-mode")).toBe("home");
+  });
+});
 
 describe("TableShell on the 3-way fixtures: what a click does", () => {
   it("main: a usable hand card opens its menu, and choosing an action answers {choice}", () => {
