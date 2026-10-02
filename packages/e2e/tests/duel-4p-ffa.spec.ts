@@ -233,6 +233,12 @@ test.describe("4-player FFA", () => {
     await endTurn(carol.page, 8);
     await expect(turnLabel(alice.page)).toHaveText("Turn 8");
 
+    // The first-turn draw makes Alice hold 7 cards on turn 8. Use her normal summon
+    // before ending the turn so the test does not stall at an unanswered discard prompt.
+    await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
+    await pickLegalZone(alice.page, "mz");
+    await expect(ownMonsters(alice.page)).toHaveCount(2);
+
     // Seat 1 surrenders in the turn of seat 0 and leaves when that turn is done. Then the turn goes to seat 2.
     await surrender(bob.page);
     await expect(alice.page.locator("[data-holo='1']")).toHaveAttribute("data-leaving", "true");
