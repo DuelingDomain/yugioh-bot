@@ -784,7 +784,7 @@ const evolution = (format: "ffa3" | "tag"): Scenario => {
   setup[holder] = { hand: [EVOLUTION, POLY, LEONIDAS, DM, ELF], pendulum: ["Stargazer Magician", "Timegazer Magician"], extra: [VENEMY], deck: [ELF, ELF, ELF, ELF] };
   const steps: Step[] = [
     activate(EVOLUTION, negative), expectNotOffered("activate", { card: EVOLUTION, effect: "Pendulum Summon" }, negative), ...first,
-    activate(EVOLUTION, holder), expectNotOffered("activate", { card: EVOLUTION, effect: "Pendulum Summon" }, holder), activate(POLY, holder), select(LEONIDAS, DM), expectOffered("activate", { card: EVOLUTION, effect: "Pendulum Summon" }, holder), activate({ card: EVOLUTION, effect: "Pendulum Summon" }, holder), pickOpponent("p0", holder), select(ELF),
+    activate(EVOLUTION, holder), expectNotOffered("activate", { card: EVOLUTION, effect: "Pendulum Summon" }, holder), activate(POLY, holder), select(LEONIDAS, DM), expectOffered("activate", { card: EVOLUTION, effect: "Pendulum Summon" }, holder), activate({ card: EVOLUTION, effect: "Pendulum Summon" }, holder), select(ELF),
   ];
   return probe(format, `pendulum-evolution-flag-of-${holder}-not-of-${negative}`, 55795155,
     `${label}: ${holder} Fusion Summons the Pendulum Monster Starving Venemy Dragon from the Extra Deck (flag of ${tag ? "team 1" : holder}): its Pendulum Summon effect of Pendulum Evolution is offered after the summon and not before; ${negative} has the same face-up Spell and no flag: not offered`,
