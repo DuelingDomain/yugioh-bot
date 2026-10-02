@@ -6,6 +6,7 @@ import {
   buildRows, collect, loadPending, loadScenarioLists, loadScenarios, outcomeAsserts, parseAdrRules, parseRuleDeclarations,
   partialListPath, pendingListPath, renderTable, runnerSources, scenarioRefs, staleEntries, stalePartial, uniqueScenarios, unknownRules, unrunLists, type RuleRef,
 } from "../scripts/rule-coverage.js";
+import { GRASS_DECK_COUNTS_SCENARIOS } from "./scenarios/multiplayer/grass-deck-counts.js";
 import { OPPONENT_COUNT_GATES_SCENARIOS } from "./scenarios/multiplayer/opponent-count-gates.js";
 
 describe("opponent count coverage", () => {
@@ -67,6 +68,12 @@ describe("rule coverage parser", () => {
 });
 
 describe("outcome marker", () => {
+  it("does not count Grass start checks as rule outcomes", () => {
+    const controls = GRASS_DECK_COUNTS_SCENARIOS.filter(scenario => scenario.id.includes("no-eligible-opponent"));
+    expect(controls).toHaveLength(3);
+    expect(scenarioRefs(controls)).toEqual([]);
+  });
+
   it("needs an expect step after an action step", () => {
     expect(outcomeAsserts([{ op: "endTurn" }, { op: "expectLp" }])).toBe(true);
     expect(outcomeAsserts([{ op: "attack" }, { op: "pickOpponent" }, { op: "expectResult" }])).toBe(true);
