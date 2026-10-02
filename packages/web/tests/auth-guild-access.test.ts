@@ -99,7 +99,7 @@ describe("web guild membership", () => {
 
   it.each([
     ["GuildMembershipRequired", /must be a member of the Discord server/i],
-    ["GuildMembershipUnavailable", /cannot verify.*membership/i],
+    ["GuildMembershipUnavailable", /check your Discord server membership/i],
   ] as const)("renders the %s error", async (error, message) => {
     const { default: LoginPage } = await import("../app/(auth)/login/page");
     const markup = renderToStaticMarkup(await LoginPage({ searchParams: Promise.resolve({ error }) }));
