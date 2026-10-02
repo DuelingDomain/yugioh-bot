@@ -2392,7 +2392,7 @@
       ],
       "r2Class": "FLAG-L0",
       "stockSha256": "4b1ec90bf891df6c655b60b39392757538ce569344ae5c453e51d0dfaeac3188",
-      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+      "note": "The global battle flag reaches every seat in FFA and every team in Tag. The Set and End Phase conditions read the flag of their own holder, so a Tag holder on team 1 does not pick an opponent."
     },
     {
       "code": 42517468,

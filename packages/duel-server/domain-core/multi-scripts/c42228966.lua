@@ -40,3 +40,11 @@ function s.initial_effect(c)
 	Duel.RegisterEffect=reg
 	if not ok then error(err,0) end
 end
+
+-- Read the global battle flag of the holder, including Tag team 1.
+function s.setcon(e,tp)
+	return Duel.IsPhase(PHASE_MAIN2) and Duel.GetFlagEffect(tp,id)==0
+end
+function s.tgcon(e,tp)
+	return Duel.GetFlagEffect(tp,id)>0
+end
