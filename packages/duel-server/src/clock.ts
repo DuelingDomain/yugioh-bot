@@ -117,7 +117,7 @@ export function syncDecisionClock(
   const nextSeat = isSeatIndex(view.promptSeat) ? view.promptSeat : null;
   // Reduced motion or a bot may answer during the opening grace. Keep its original end,
   // without granting another grace window on a prompt change or a reconnect.
-  const startAt = previous.turn === view.turn ? Math.max(resumeAt, previous.startedAt ?? resumeAt) : resumeAt;
+  const startAt = Math.max(resumeAt, previous.startedAt ?? resumeAt);
   return {
     turn: view.turn,
     remainingMs: remaining,

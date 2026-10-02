@@ -29,6 +29,15 @@ describe("decision clock", () => {
     expect(liveRemainingMs(next, 9_500)).toEqual([30_000, 29_500]);
   });
 
+  it("preserves opening grace when the bot finishes turn one before the hands have landed", () => {
+    const clock = startDecisionClock({ turn: 1, promptSeat: 1, opening: true }, 30, 1_000)!;
+    const humanTurn = syncDecisionClock(clock, { turn: 2, promptSeat: 0 }, 30, 2_000, 3_000)!;
+    expect(humanTurn.turn).toBe(2);
+    expect(humanTurn.startedAt).toBe(9_000);
+    expect(liveRemainingMs(humanTurn, 8_999)).toEqual([30_000, 30_000]);
+    expect(liveRemainingMs(humanTurn, 9_500)).toEqual([29_500, 30_000]);
+  });
+
   it("is absent when turnSeconds is unlimited", () => {
     expect(startDecisionClock({ turn: 1, promptSeat: 0 }, 0, 10_000)).toBeNull();
     expect(syncDecisionClock({ turn: 1, remainingMs: [1000, 1000] as [number, number], activeSeat: 0, startedAt: 1 }, { turn: 1, promptSeat: 0 }, 0, 10_000)).toBeNull();
