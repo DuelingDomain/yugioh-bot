@@ -33,6 +33,7 @@ import { usePickContinuation } from "../pick-continuation";
 import { useResultGate } from "../result-reveal";
 import { firstInspectCard } from "../tag/tag-logic";
 import { DuelClockDisplay } from "../room-settings";
+import { SeatStrip } from "../seat-strip";
 import { SeriesBanner } from "../series-banner";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
@@ -43,7 +44,7 @@ import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
 import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
-import { attackLockAt, placeLabel, placings, seatStrip, toneBySeat } from "./seat-state";
+import { attackLockAt, placeLabel, placings, toneBySeat } from "./seat-state";
 import { TableSettings, type TableConnection } from "./table-settings";
 import { TablePhonePanes } from "./table-phone-panes";
 import { TableStage } from "./table-stage";
@@ -449,7 +450,7 @@ export function TableShell({
                           <i aria-hidden="true" />
                           {entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
                           <b>{placeLabel(entry.place)}</b>
-                          {entry.seat === viewerSeat ? <em>You can keep watching.</em> : null}
+                          {entry.seat === viewerSeat ? <em data-testid="self-eliminated" role="status">You can keep watching.</em> : null}
                         </li>
                       ))}
                     </ul>
@@ -484,6 +485,9 @@ export function TableShell({
         ) : null}
       </div>
       <div className={roomStyles.track}>
+        <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
+          focusSeat={camera.state.focusSeat} onFocusSeat={(seat) => camera.dispatch({ type: "focus", seat })}
+          pick={canAct && controller.revealed ? controller.seatPick : null} />
         <StationTrack
           phase={engine.phase}
           battleStep={battleStep}
@@ -498,7 +502,6 @@ export function TableShell({
           clock={room.clock ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} /> : null}
           caption={trackCaption}
           reducedMotion={controller.reducedMotion}
-          seatStrip={seatStrip(layout, engine, controller.promptSeat, nameOf).map((entry) => ({ ...entry, tone: SEAT_TONE_HEX[entry.tone] }))}
           attackLock={attackLockAt(format, engine.seats.length, engine.turn)}
         />
       </div>

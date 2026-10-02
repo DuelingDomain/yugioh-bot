@@ -66,18 +66,18 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
   it("shows the side tabs, the station track with a seat strip and the Deck Master dock per seat", () => {
     const { container } = render(<Shell id="main" />);
     expect(container.querySelector("[role='tablist']")).not.toBeNull();
-    expect(container.querySelector("nav[aria-label='Duel phases'][data-seats='true']")).not.toBeNull();
+    expect(container.querySelector("nav[aria-label='Duel phases']")).not.toBeNull();
     expect(container.querySelectorAll("[aria-label='Turn order'] li")).toHaveLength(3);
     expect(container.querySelector("[aria-label='Deck Masters']")).not.toBeNull();
   });
 
-  it("writes a status word under each seat chip: choosing, next, waits", () => {
+  it("writes turn and prompt status words on the seat strip", () => {
     const { container } = render(<Shell id="main" />);
-    const words = [...container.querySelectorAll("[aria-label='Turn order'] [data-testid='chip-word']")].map((node) => node.textContent);
-    expect(words).toHaveLength(3);
-    expect(words).toContain("next");
-    expect(words).toContain("waits");
-    expect(words.some((word) => word === "choosing" || word === "turn")).toBe(true);
+    const strip = container.querySelector("[data-testid='seat-strip']")!;
+    expect(strip.querySelectorAll("li")).toHaveLength(3);
+    expect(strip.textContent).toContain("Next");
+    expect(strip.textContent).toContain("Choosing");
+    expect(strip.textContent).toContain("To play");
   });
 
   it("tints the who pill with the colour of the seat whose turn it is", () => {
