@@ -109,7 +109,7 @@ export default async function DashboardPage() {
                and winner_id not in (${ph})
              then 1 else 0 end) as losses
          from matches
-         where guild_id = ? and status = 'completed'
+         where guild_id = ? and status = 'approved'
            and (player_one_id in (${ph}) or player_two_id in (${ph}))`
       )
       .get(
