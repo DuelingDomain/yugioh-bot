@@ -1,5 +1,5 @@
 // A real Xyz cost checks the shared detach record with one and two Ahashima holders.
-import { activate, faceDown, pickOpponent, yes, type Scenario } from "../../support/dsl.js";
+import { activate, expectPrompt, faceDown, pickOpponent, yes, type Scenario } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -35,3 +35,25 @@ function detach(format: Format, two: boolean): Scenario {
 }
 
 export const BUJINKI_DETACH_STATE_SCENARIOS: Scenario[] = (["ffa3", "ffa4", "tag"] as Format[]).flatMap((format) => [detach(format, false), detach(format, true)]);
+BUJINKI_DETACH_STATE_SCENARIOS.push(defineScenario({
+  id: "bujinki-detach-state-tag-partner-zone-is-not-linked",
+  title: "Tag: Ahashima does not point to its partner's same Main Monster Zone",
+  source: `${SOURCE} [R-COMMON-SEP-FIELDS] Link arrows use the holder's own field`,
+  rules: ["R-COMMON-SEP-FIELDS"],
+  tags: ["multiplayer", "tag", "card:71095768"],
+  setup: baseSetup("tag", {
+    p0: { spells: [faceDown("Raigeki")] },
+    p1: { monsters: [null, null, null, null, null, AHASHIMA] },
+    p3: { monsters: [null, null, { card: COWBOY, pos: "def", materials: [ELF] }] },
+  }),
+  steps: [
+    ...turnsBefore("tag", "p3"), activate(COWBOY, "p3"),
+    expectPrompt({ by: "p3", context: "action" }),
+    everySeat("tag", {
+      p0: { hand: [], spells: ["Raigeki"], lp: 15200 },
+      p1: { hand: [ELF], monsters: [AHASHIMA] },
+      p2: { hand: [ELF], lp: 15200 },
+      p3: { hand: [ELF], monsters: [COWBOY], grave: [ELF] },
+    }),
+  ],
+}));

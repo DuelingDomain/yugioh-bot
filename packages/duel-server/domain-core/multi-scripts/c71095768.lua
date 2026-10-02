@@ -15,7 +15,7 @@ function s.descon(e,tp,eg,ep,ev,re,r,rp)
 	local c=e:GetHandler()
 	local loc,seq=s[1],s[2]
 	if c:IsStatus(STATUS_BATTLE_DESTROYED) or not seq then return false end
-	if aux.MPKeyOfSeat(s.mp_detach_seat)~=aux.MPKeyOfSeat(Duel.MPSeatOf(c)) then seq=seq+16 end
+	if s.mp_detach_seat~=Duel.MPSeatOf(c) then seq=seq+16 end
 	return Duel.GetChainInfo(ev,CHAININFO_CHAIN_ID)==s[0]
 		and re:IsActiveType(TYPE_XYZ) and (loc&LOCATION_MZONE)~=0 and bit.extract(c:GetLinkedZone(),seq)~=0
 end
