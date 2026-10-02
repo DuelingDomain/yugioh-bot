@@ -579,6 +579,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   }
   if (liveTable && liveController) {
     return <TableShell key={slug} controller={liveController} boardRef={boardRef}
+      inputSuspended={confirmSurrender || sidePanelOpen}
       fxActive={!error && !realtime.recovering} busy={busy || Boolean(error) || catchingUp}
       initialOutOrder={eliminationOrder(liveController.engine)}
       connection={{ ...realtime, stale: roomStale, error: Boolean(error) }}

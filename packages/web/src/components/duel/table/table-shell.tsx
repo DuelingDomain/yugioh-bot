@@ -90,6 +90,8 @@ export interface TableShellProps {
   notices?: ReactNode;
   settingsTools?: ReactNode;
   connection?: TableConnection;
+  /** A room modal owns keyboard input while open. */
+  inputSuspended?: boolean;
   /** The room's prompt reveal gate must wait on this shell's board effects. */
   boardRef?: RefObject<HTMLDivElement | null>;
 }
@@ -112,6 +114,7 @@ export function TableShell({
   notices,
   settingsTools,
   connection,
+  inputSuspended = false,
   boardRef: roomBoardRef,
 }: TableShellProps) {
   // Field clicks use the same reveal gate as the centered prompt; hidden decisions must not answer early.
@@ -141,7 +144,7 @@ export function TableShell({
   const boardRef = roomBoardRef ?? ownBoardRef;
   const narrow = useIsNarrow();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const suspended = ui.suspended || (narrow && sheetOpen);
+  const suspended = inputSuspended || ui.suspended || (narrow && sheetOpen);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended });
@@ -379,11 +382,11 @@ export function TableShell({
             busy={controller.busy}
             draft={controller.draft}
             onSubmit={controller.onAnswer}
-            menuOpen={ui.menu != null}
+            menuOpen={suspended}
             active={!terminal}
             aim={flow.promptAim ?? undefined}
             headless={centered}
-            suspended={centered && !controller.revealed}
+            suspended={suspended || flow.seatKeys || (centered && !controller.revealed)}
             waitingName={prompt ? nameOf(prompt.seat) : null}
           />
         </div>
@@ -419,7 +422,7 @@ export function TableShell({
                   busy={controller.busy || (prompt == null && pick.waiting != null)}
                   draft={controller.draft}
                   onSubmit={controller.onAnswer}
-                  menuOpen={ui.menu != null}
+                  menuOpen={suspended}
                   chain={engine.chain}
                   aim={flow.promptAim ?? undefined}
                   aimLocked={flow.locked}

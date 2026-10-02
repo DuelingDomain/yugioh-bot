@@ -42,6 +42,30 @@ describe("table compatibility with live multiplayer selectors", () => {
     expect(info.mock.calls.filter((call) => call[0] === "[table-preview] answer")).toHaveLength(1);
   });
 
+  it("uses the displayed seat hotkey order for a nonzero viewer and sends one answer", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const source = FFA4_FIXTURES.states["choose-opponent"].room;
+    const room = { ...source, mySeat: 2, engine: { ...source.engine!, prompt: { ...source.engine!.prompt!, seat: 2,
+      options: [0, 1, 3].map((seat) => ({ id: `opponent:${seat}`, label: `Player ${seat + 1}`, controller: seat })) } } };
+    const view = render(<Shell room={room} />);
+    const pick = [...view.container.querySelectorAll("[data-testid^='holo-pick-']")].find((node) => node.textContent?.includes("1"))!;
+    expect(pick).toHaveAttribute("data-testid", "holo-pick-3");
+    fireEvent.keyDown(window, { key: "1" });
+    const answers = info.mock.calls.filter((call) => call[0] === "[table-preview] answer");
+    expect(answers).toHaveLength(1);
+    expect(answers[0][1]).toMatchObject({ answer: { choice: "opponent:3" } });
+  });
+
+  it("a direct-attack hotkey aims first and waits for confirmation", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const view = render(<Shell room={FFA3_FIXTURES.states["direct-attack"].room} />);
+    fireEvent.keyDown(window, { key: "1" });
+    expect(info.mock.calls.filter((call) => call[0] === "[table-preview] answer")).toHaveLength(0);
+    expect(view.container.querySelector("[data-testid='aim-confirm']")).not.toBeNull();
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(info.mock.calls.filter((call) => call[0] === "[table-preview] answer")).toHaveLength(1);
+  });
+
   it("withholds seat-pick buttons while busy", () => {
     render(<Shell room={FFA3_FIXTURES.states["choose-opponent"].room} busy />);
     expect(screen.queryByTestId("seat-strip-pick-2")).toBeNull();

@@ -138,6 +138,14 @@ describe("live room table mount", () => {
     expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
   });
 
+  it("does not answer seat hotkeys behind the room's surrender modal", async () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
+    await act(async () => { fireEvent.keyDown(screen.getByRole("dialog", { name: "Surrender" }), { key: "1" }); });
+    expect(state.send).not.toHaveBeenCalled();
+  });
+
   it("restores ordered placings from the live log on a completed room", () => {
     room(FFA3_FIXTURES.states.result.room);
     state.room!.engine!.log = [{ id: 10, text: "Player 3 is eliminated (surrender)" }, { id: 20, text: "Player 2 is eliminated (LP reached 0)" }];
