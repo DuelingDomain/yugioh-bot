@@ -132,6 +132,15 @@ describe("stopAtEveryWindow", () => {
     expect(parseStoredDuelSettings(null).stopAtEveryWindow).toBe(true);
   });
 
+  it.each(["tag", "ffa3", "ffa4"] as const)("keeps response windows open by default at %s tables", (format) => {
+    for (const mode of ["normal", "domain"] as const) {
+      expect(defaultDuelSettings(mode, format).stopAtEveryWindow).toBe(true);
+      expect(normalizeDuelSettings(mode, undefined, format).stopAtEveryWindow).toBe(true);
+      expect(normalizeDuelSettings(mode, { turnSeconds: 60 }, format).stopAtEveryWindow).toBe(true);
+      expect(normalizeDuelSettings(mode, { stopAtEveryWindow: false }, format).stopAtEveryWindow).toBe(false);
+    }
+  });
+
   it("accepts a boolean and rejects anything else", () => {
     expect(normalizeDuelSettings("normal", { stopAtEveryWindow: true }).stopAtEveryWindow).toBe(true);
     expect(parseStoredDuelSettings(JSON.stringify({ stopAtEveryWindow: false })).stopAtEveryWindow).toBe(false);

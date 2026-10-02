@@ -137,4 +137,18 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
     const rebuilt = await Promise.all([0, 1, 2, 3].map((seat) => t.view(host3, seat)));
     expect(rebuilt).toEqual(after);
   }, 60_000);
+
+  it("ends the duel at once when the surrenders leave one living seat that still holds the open prompt", async () => {
+    const t = await table("ffa3", 3);
+    expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
+    const holder = await holderOf(t, 3);
+    const others = [0, 1, 2].filter((seat) => seat !== holder);
+    expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[others[0]!] })).status).toBe(200);
+    expect(t.duels.get(t.slug, "g1").status).toBe("active");
+    expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[others[1]!] })).status).toBe(200);
+    // The holder never answered: the loss of the two other seats is only flagged, but the holder has already won.
+    const session = t.duels.get(t.slug, "g1");
+    expect(session.status).toBe("completed");
+    expect(session.winnerSeat).toBe(holder);
+  }, 60_000);
 });

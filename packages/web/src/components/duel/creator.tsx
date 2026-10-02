@@ -62,10 +62,14 @@ const SERIES_LENGTHS: readonly Choice<DuelBestOf>[] = [
 const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label: `Banlist: ${label}` }));
 
 /**
- * `focusOpponent` opens the page with the opponent search focused (the "Challenge a player" entry).
- * `multiplayerTables` is the MULTIPLAYER_TABLES flag, read on the server and passed down. Off (the default): the form offers 1v1 only.
+ * `focusOpponent` focuses the opponent search for the challenge entry.
+ * Server capabilities control the available table formats and Domain mode.
  */
-export function DuelCreator({ focusOpponent = false, multiplayerTables = false }: { focusOpponent?: boolean; multiplayerTables?: boolean } = {}) {
+export function DuelCreator({ focusOpponent = false, multiplayerTables = false, multiDomainCoreReady = false }: {
+  focusOpponent?: boolean;
+  multiplayerTables?: boolean;
+  multiDomainCoreReady?: boolean;
+} = {}) {
   const router = useRouter();
   const [name, setName] = useState("Table");
   const [mode, setMode] = useState<DuelMode>("normal");
@@ -87,7 +91,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false }
   const visibility = challenge ? "private" : settings.visibility;
   const customDomain = mode === "domain" && isCustomDomain(masterRule, settings);
   // Domain is offered only where its core exists (see multiDomainBlockReason).
-  const domainBlocked = multiDomainBlockReason("domain", format);
+  const domainBlocked = multiDomainBlockReason("domain", format, multiDomainCoreReady);
   const duelTypes = domainBlocked ? FORMATS.filter((choice) => choice.value !== "domain") : FORMATS;
 
   function update<K extends keyof DuelSettings>(key: K, value: DuelSettings[K]) {
@@ -216,7 +220,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false }
               <div className={styles.side}>
                 <h2 id="creator-format" className={ui.sectionTitle}>Format</h2>
                 <p className={ui.hint}>
-                  {multiplayerTables ? "Table size and rules. Standard allows every table type. Domain is for 1v1 tables for now." : "Standard or Domain, one against one."}
+                  {multiplayerTables ? "Table size and rules. Each duelist has a separate field and, in Domain, a separate Deck Master." : "Standard or Domain, one against one."}
                 </p>
               </div>
               <div className={styles.fields}>
@@ -224,16 +228,17 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false }
                 <div className={styles.wide}>
                   <SheetSelect label="Table type" value={format} choices={TABLE_FORMATS} onChange={(value) => {
                     setFormat(value);
+                    setSettings((current) => ({ ...current, stopAtEveryWindow: defaultDuelSettings(mode, value).stopAtEveryWindow }));
                     // A challenge, Best of 3 and Ranked need a 1v1 table.
                     if (value !== "1v1") {
                       setOpponent(null);
                       setBestOf(1);
                       setRanked(false);
                     }
-                    // Domain has no core for 3 or more seats yet: go back to Standard and its preset.
-                    if (mode === "domain" && multiDomainBlockReason("domain", value)) {
+                    // Use the host status when changing the table format.
+                    if (mode === "domain" && multiDomainBlockReason("domain", value, multiDomainCoreReady)) {
                       setMode("normal");
-                      setSettings((current) => ({ ...defaultDuelSettings("normal"), visibility: current.visibility }));
+                      setSettings((current) => ({ ...defaultDuelSettings("normal", value), visibility: current.visibility }));
                     }
                     // Tag and free-for-all tables run on Master Rule 5 only.
                     if (value !== "1v1") setMasterRule(5);
@@ -248,7 +253,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false }
                     setMode(value);
                     setMasterRule(5);
                     // Visibility is the organizer's choice, not part of a format preset.
-                    setSettings((current) => ({ ...defaultDuelSettings(value), visibility: current.visibility }));
+                    setSettings((current) => ({ ...defaultDuelSettings(value, format), visibility: current.visibility }));
                   }} />
                   {domainBlocked ? (
                     <p className={cx(ui.hint, styles.below)} data-testid="domain-blocked">{domainBlocked}</p>

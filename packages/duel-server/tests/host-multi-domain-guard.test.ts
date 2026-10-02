@@ -2,10 +2,10 @@ import { createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
-import { MULTI_DOMAIN_UNAVAILABLE_MESSAGE, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
+import { MULTIPLAYER_TABLES_OFF_MESSAGE, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { MULTI_CORE_MISSING_MESSAGE } from "../src/multi-domain-guard.js";
@@ -15,9 +15,11 @@ const SECRET = "multi-domain-guard-secret";
 
 const hosts: DuelHost[] = [];
 const dirs: string[] = [];
+beforeEach(() => vi.stubEnv("MULTIPLAYER_TABLES", "1"));
 afterEach(async () => {
   while (hosts.length > 0) await hosts.pop()!.close();
   while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 /** A lobby with one organizer in a table of `mode` (Domain by default). The data directory holds only the files named in `files`. */
@@ -45,8 +47,8 @@ function lobby(format: DuelFormat, files: string[], mode: DuelMode = "domain") {
     },
   });
   hosts.push(host);
-  const start = async () => {
-    const raw = JSON.stringify({ op: "start", slug: session.slug, guildId: "g1", playerId });
+  const post = async (op = "start", extra: Record<string, unknown> = {}) => {
+    const raw = JSON.stringify({ op, ...(op === "capabilities" ? {} : { slug: session.slug }), guildId: "g1", playerId, ...extra });
     const signature = "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex");
     const response = await host.handle(
       new Request("http://localhost/internal/duel", {
@@ -57,7 +59,7 @@ function lobby(format: DuelFormat, files: string[], mode: DuelMode = "domain") {
     );
     return { status: response.status, data: (await response.json()) as Record<string, unknown> };
   };
-  return { start, workersCreated: () => workersCreated };
+  return { start: post, workersCreated: () => workersCreated };
 }
 
 describe("host start of a Domain table with 3 or more seats", () => {
@@ -75,6 +77,44 @@ describe("host start of a Domain table with 3 or more seats", () => {
     const started = await t.start();
     expect(started.status).toBe(409);
     expect(started.data.error).toMatch(/3 players must submit valid decks/);
+    expect(t.workersCreated()).toBe(0);
+  });
+
+  it.each(["ffa3", "ffa4", "tag"] as const)("blocks %s when multiplayer tables are off, even with the core", async (format) => {
+    vi.stubEnv("MULTIPLAYER_TABLES", "0");
+    const t = lobby(format, ["ocgcore.multi-domain.wasm"]);
+    const started = await t.start();
+    expect(started.status).toBe(403);
+    expect(started.data.error).toBe(MULTIPLAYER_TABLES_OFF_MESSAGE);
+    expect(t.workersCreated()).toBe(0);
+  });
+
+  it.each([false, true])("reports the installed Domain multi core to the creator: %s", async (ready) => {
+    const t = lobby("ffa3", ready ? ["ocgcore.multi-domain.wasm"] : []);
+    const result = await t.start("capabilities");
+    expect(result.status).toBe(200);
+    expect(result.data).toEqual({ multiplayerTables: true, multiDomainCoreReady: ready });
+    expect(t.workersCreated()).toBe(0);
+  });
+
+  it.each(["normal", "domain"] as const)("blocks %s bot fill and start when the flag is off", async (mode) => {
+    vi.stubEnv("MULTIPLAYER_TABLES", "0");
+    const t = lobby("ffa4", ["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"], mode);
+    for (const op of ["add-bot", "start"]) {
+      const result = await t.start(op);
+      expect(result.status).toBe(403);
+      expect(result.data.error).toBe(MULTIPLAYER_TABLES_OFF_MESSAGE);
+    }
+    expect(t.workersCreated()).toBe(0);
+  });
+
+  it("also blocks a multiplayer preset before it makes a table when the flag is off", async () => {
+    vi.stubEnv("MULTIPLAYER_TABLES", "0");
+    vi.stubEnv("DUEL_SCENARIOS", "1");
+    const t = lobby("ffa4", ["ocgcore.multi.wasm"]);
+    const result = await t.start("start-preset", { presetId: "ffa4-chain-order-heavy-storm" });
+    expect(result.status).toBe(403);
+    expect(result.data.error).toBe(MULTIPLAYER_TABLES_OFF_MESSAGE);
     expect(t.workersCreated()).toBe(0);
   });
 });

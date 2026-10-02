@@ -923,6 +923,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       if (!multi) throw new Error("Only duels with more than two seats can eliminate a duelist");
       if (!Number.isInteger(seat) || seat < 0 || seat >= seatCount) throw new Error("Invalid seat");
       if (eliminated.has(seat) || leaving.has(seat)) throw new EngineAnswerError("Seat is already eliminated");
+      // Check before the core is touched, so a throw cannot leave the duel half changed.
+      if (!pending) throw new Error("The core waits for an answer but the engine has no open prompt");
       if (!lib.loadScript(handle, "duel-probe-eliminate.lua", "assert(Debug.EliminateDuelist~=nil)")) {
         errors.length = 0;
         throw new Error("This duel core has no Debug.EliminateDuelist");
@@ -935,16 +937,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       diagnose("eliminate", seat, `reason ${Math.trunc(reason)}`);
       // The loss is only flagged in the core. It lands at the next Adjust, which runs after the open prompt is answered.
       for (const gone of format === "tag" ? seatsOfTeam(format, teamOfSeat(format, seat)) : [seat]) leaving.add(gone);
-      const previous = pending;
-      sawRetry = false;
-      pending = null;
-      processUntilWait();
-      if (sawRetry) {
-        // No new response was given, so the core only answered MSG_RETRY: it still waits on the old prompt. Keep it.
-        sawRetry = false;
-        if (!previous) throw new Error("The core waits for an answer but the engine has no open prompt");
-        pending = previous;
-      }
+      // Do not run the core here. A call with no new response is no no-op: the core takes the old response buffer as the answer
+      // of the open prompt (a chain window gets a pass), so the prompt of ANOTHER seat would be answered without that seat.
+      // The open prompt stays. If its seat is the one that leaves, answerForLeavingSeats answers it with a real response.
       answerForLeavingSeats();
       revision += 1;
     },

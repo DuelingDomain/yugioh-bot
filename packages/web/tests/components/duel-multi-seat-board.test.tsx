@@ -39,7 +39,11 @@ function seatView(seat: number, extra: Partial<DuelSeatView> = {}): DuelSeatView
 function fixture(format: DuelFormat, count: number, seatExtra: Record<number, Partial<DuelSeatView>> = {}, extra: Partial<DuelEngineView> = {}): DuelEngineView {
   return {
     revision: 1, format, turn: 1, turnSeat: 0, phase: "main1",
-    seats: Array.from({ length: count }, (_, seat) => seatView(seat, { team: format === "tag" ? seat % 2 : seat, ...seatExtra[seat] })),
+    seats: Array.from({ length: count }, (_, seat) => seatView(seat, {
+      team: format === "tag" ? seat % 2 : seat,
+      sharedExtraWith: format === "ffa4" && !seatExtra[seat]?.eliminated && !seatExtra[(seat + 2) % 4]?.eliminated ? (seat + 2) % 4 : null,
+      ...seatExtra[seat],
+    })),
     prompt: null, chain: [], events: [], log: [], result: null, ...extra,
   };
 }
@@ -157,13 +161,13 @@ describe("board fixtures", () => {
 });
 
 describe("Extra Monster Zones and Deck Masters", () => {
-  const engine = fixture("ffa4", 4, {
+  const engine = fixture("tag", 4, {
     1: { monsters: [null, null, null, null, null, monster(1, 5, 501), null] },
     2: { monsters: [null, null, null, null, null, null, monster(2, 6, 602)], deckMaster: master },
     3: { monsters: [null, null, null, null, null, monster(3, 5, 701), monster(3, 6, 702)] },
   });
 
-  it("every compact board has its own two EMZ with its own cards", () => {
+  it("every compact Tag board has its own two EMZ with its own cards", () => {
     show(engine, 0, 3);
     expect(within(screen.getByTestId("seat-emz-1-1")).getByRole("button").getAttribute("aria-label")).toBe("Bo extra monster zone 1");
     expect(screen.getByTestId("seat-emz-1-1").getAttribute("data-occupied")).toBe("true");

@@ -1,0 +1,13 @@
+core: in Tag a monster of the partner is a Synchro material of the team, at n > 2
+
+Owner rule [R-TAG-PARTNER-COST] (ADR-0002): "You may use your partner's cards for costs, Tributes, materials and summon conditions."
+card::is_can_be_synchro_material refused a monster on the field when its controller was not the controller of the Synchro Monster
+(raw compare, the stock rule that only the own monsters are material, unless EFFECT_SYNCHRO_MATERIAL). The Lua filter of the stock
+procedure (proc_synchro.lua synchmatfilter) accepts `mc:IsControler(tp) or mc:IsCanBeSynchroMaterial(c)`, so a Tuner or a
+non-Tuner of the partner was never a material. With more than two duelists the test is now "same team" (both are duelists and
+share a team). Free for all has no partner: same_team is false for two different duelists, so nothing changes there. With two
+duelists the stock compare is kept. EFFECT_SYNCHRO_MATERIAL (any field) is unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+

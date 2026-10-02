@@ -1,5 +1,5 @@
-// Multiplayer card scenario catalog (Layer 1 sketches). Every entry is pending.
-// The sketches become real Layer 1 scenarios when the multiplayer core supports p2/p3 and teams.
+// Multiplayer card scenario catalog (Layer 1 sketches). The sketch data stays as written (`pending: true`).
+// LIVE_PROOF at the end of this file lists the cards whose multiplayer result a live scenario already proves on the real core.
 // Rules: docs/adr/0002-multiplayer-duel-rules.md. Spec: docs/specs/2026-09-30-multiplayer-core-design.md.
 // Doc: docs/specs/2026-09-30-multiplayer-card-scenarios.md (generated tables use this data).
 // Seats: P0 is the activator. In Tag, P0 and P2 are one team, P1 and P3 are the other team.
@@ -189,12 +189,12 @@ export const GROUP_ALL: CatalogScenario[] = [
   }),
   all({
     card: "Book of Eclipse", code: 35480699, ruleClass: "O",
-    oneVsOne: "Changes all face-up monsters to face-down. The opponent draws one card for each face-down monster.",
-    results: { ffa3: "Field part uses all opponents. The draw part goes to ONE bound opponent (lazy prompt).", ffa4: "Same as 3-FFA: one bound opponent draws.", tag: "Field part uses both opposing members. The draw goes to one bound opposing member." },
+    oneVsOne: "Changes all face-up monsters to face-down. In the End Phase of the turn, the opponent flips its face-down monsters face-up and draws one card for each.",
+    results: { ffa3: "The field part reaches the monsters of every seat. In the End Phase each opponent flips its OWN face-down monsters and draws for them (script fix, overlay c35480699.lua).", ffa4: "Same as 3-FFA.", tag: "Same, for each opposing member: the member flips and draws for the monsters it controls." },
     evidence: [ev(35480699, 17, "LOCATION_MZONE,LOCATION_MZONE"), ev(35480699, 38, "IsFacedown,tp,0,LOCATION_MZONE"), ev(35480699, 40, "Duel.Draw(1-tp,ct")],
     setup: "Each seat controls one face-up monster.",
-    action: "P0 activates Book of Eclipse. P0 picks the draw target when asked.",
-    expected: "All face-up monsters become face-down. The picked opponent draws the count of face-down opponent monsters.",
+    action: "P0 activates Book of Eclipse. The turn ends.",
+    expected: "All face-up monsters become face-down. In the End Phase each opponent flips its own monster face-up and draws 1 card. The partner of P0 and P0 draw nothing.",
   }),
   all({
     card: "Cyber Dragon", code: 70095154, ruleClass: "U",
@@ -814,6 +814,647 @@ export const CARD_RULE_EVIDENCE: Record<number, Evidence[]> = {
   72405967: [ev(72405967, 22, "GetMatchingGroup(Card.IsMonster,tp,LOCATION_HAND,LOCATION_HAND")],
   68005187: [ev(68005187, 35, "IsControler(1-tp)"), ev(68005187, 45, "EFFECT_EXTRA_RELEASE")],
   45986603: [ev(45986603, 33, "IsTurnPlayer(1-tp)"), ev(45986603, 37, "SetTargetPlayer(1-tp)")],
+  // Cards that compare the field with the opponents, or roll against one opponent.
+  76375976: [
+    ev(76375976, 53, "GetFieldGroupCount(tp,LOCATION_MZONE,0)>"),
+    ev(76375976, 57, "GetFieldGroupCount(tp,LOCATION_MZONE,0)<"),
+    ev(76375976, 63, "GetFieldGroupCount(tp,LOCATION_MZONE,0)=="),
+  ],
+  57314798: [ev(57314798, 98, "Duel.GetAttacker():IsControler(1-tp)")],
+  38817295: [
+    ev(38817295, 15, "GetFieldGroupCount(tp,0,LOCATION_MZONE)>"),
+    ev(38817295, 30, "GetMatchingGroupCount(Card.IsFaceup,tp,0,LOCATION_MZONE"),
+  ],
+  3549275: [ev(3549275, 22, "Duel.TossDice(tp,1,1)"), ev(3549275, 26, "Duel.Damage(tp,6000"), ev(3549275, 32, "Duel.Damage(1-tp,6000")],
 };
 
 export const SCENARIOS: CatalogScenario[] = [...GROUP_ALL, ...GROUP_ONE];
+
+/**
+ * Live scenarios (tests/scenarios/multiplayer/*.ts, run on the real core) that prove the multiplayer result of ONE card, by
+ * passcode. List a card only when the outcome asserts of the scenario show the rule of that card. A card that only appears
+ * in a scenario as a helper (a chain link, a cost, a fodder monster) is not listed. The table of each scenario is its
+ * setup.format. catalog.test.ts checks that every id exists, and that the formats here equal CARD_RULE_PROOF in
+ * src/banlists/multiplayer.ts for the cards of the rule list. A sketch in SCENARIOS whose card is listed runs as a test.
+ * Not claimed (no scenario shows it yet): the Tag result of most cards, the FFA result of Solemn Judgment, and the
+ * target cap of Ultimate Sky.
+ */
+export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
+  // Group (a) and (b) sketches.
+  12580477: ["compare-ffa3-window-closes-after-evenly-matched"], // Raigeki (FFA3: both opponents lose their monsters)
+  53129443: [
+    "seats-r2-ffa3-fatal-abacus-damages-each-real-controller-of-the-destroyed-monsters",
+    "seats-r2-tag-fatal-abacus-damages-the-team-of-each-real-controller",
+  ], // Dark Hole (every seat, the partner included)
+  15800838: ["nseat-ffa3-mind-crush-pick", "nseat-ffa4-mind-crush-pick-after-elimination"], // Mind Crush
+  41420027: ["nseat-tag-partner-trap-does-not-answer", "nseat-tag-opponent-trap-answers"], // Solemn Judgment (Tag)
+  46130346: [
+    "nseat-ffa3-effect-elimination-last-wins",
+    "nseat-ffa4-effect-elimination-skips-turn",
+    "nseat-tag-burn-spares-partner",
+  ], // Hinotama
+  // Sketches that are also on the rule list.
+  55063751: [
+    "procedures-ffa3-kaiju-tribute-goes-to-tributed-field",
+    "procedures-ffa4-kaiju-tribute-goes-to-tributed-field",
+    "procedures-tag-kaiju-tribute-goes-to-opposing-member",
+    "procedures-ffa3-kaiju-bound-seat-eliminated-no-widening",
+    "procedures-ffa4-kaiju-bound-seat-eliminated-no-widening",
+  ], // Gameciel
+  102380: [
+    "procedures-ffa3-lava-golem-split-rejected",
+    "procedures-ffa3-lava-golem-one-opponent-accepted",
+    "procedures-ffa4-lava-golem-picked-opponent",
+    "procedures-tag-lava-golem-split-rejected",
+    "procedures-tag-lava-golem-one-opposing-member-accepted",
+    "procedures-tag-lava-golem-partner-monsters-do-not-pay",
+  ], // Lava Golem
+  90669991: [
+    "compare-ffa3-pineapple-blast-pick-and-choice",
+    "compare-ffa3-first-opponent-fails-second-passes",
+    "compare-ffa3-sum-passes-no-single-opponent",
+    "compare-ffa4-pineapple-blast-three-opponents",
+    "compare-tag-pineapple-blast-joined-field-picked-duelist-chooses",
+  ], // Pineapple Blast
+  15693423: [
+    "compare-ffa3-window-closes-after-evenly-matched",
+    "compare-ffa4-evenly-matched-three-opponents",
+    "compare-tag-evenly-matched-joined-field-picked-duelist-banishes",
+  ], // Evenly Matched
+  29843091: [
+    "w9-ffa3-opponent-pick-and-place-refuse-wrong-answers",
+    "w9-tag-opponent-pick-and-place-refuse-wrong-answers",
+    "opponent-field-effects-ffa3-ojama-trio-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-ojama-trio-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-ojama-trio-goes-to-an-opposing-member",
+  ], // Ojama Trio
+  72405967: [
+    "late-ffa3-royal-tribute-every-duelist-discards-its-monsters",
+    "late-ffa4-royal-tribute-every-duelist-discards-its-monsters",
+    "late-tag-royal-tribute-every-duelist-discards-its-monsters",
+  ], // Royal Tribute
+  // Rule list only.
+  63014935: ["procedures-ffa3-volcanic-queen-goes-to-tributed-field"], // Volcanic Queen
+  10000080: [
+    "procedures-ffa3-ra-sphere-mode-split-rejected",
+    "procedures-ffa3-ra-sphere-mode-one-opponent-accepted",
+    "procedures-ffa3-ra-sphere-mode-picked-opponent",
+  ], // The Winged Dragon of Ra - Sphere Mode
+  71645242: [
+    "seats-r2-ffa3-black-garden-token-goes-to-one-picked-opponent-or-to-the-controller",
+    "seats-r2-tag-black-garden-token-goes-to-one-picked-opponent-or-to-the-controller",
+  ], // Black Garden
+  80551022: ["compare-gaps-ffa3-mimighoul-slime-picked-opponent-does-not-pass"], // Mimighoul Slime
+  83778600: [
+    "late-ffa3-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked",
+    "late-tag-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked",
+    "opponent-field-effects-ffa3-foolish-revival-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-foolish-revival-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-foolish-revival-goes-to-an-opposing-member",
+  ], // Foolish Revival
+  76375976: [
+    "compare-gaps-ffa3-mystic-mine-only-the-opponent-with-more-monsters-is-locked",
+    "compare-gaps-ffa3-mystic-mine-no-opponent-has-more-nobody-is-locked",
+    "compare-ffa3-mystic-mine-destroys-itself-on-any-equal-opponent",
+  ], // Mystic Mine
+  57314798: [
+    "compare-extra-ffa3-numeron-dragon-summons-itself-when-p0-is-attacked-directly",
+    "compare-extra-ffa3-numeron-dragon-not-offered-when-the-direct-attack-may-go-to-another-seat",
+    "compare-extra-ffa3-numeron-dragon-offered-when-the-direct-attack-is-picked-at-p0",
+    "compare-gaps-ffa3-numeron-dragon-every-seat-sets-its-own-card",
+  ], // Number 100: Numeron Dragon
+  38817295: [
+    "compare-ffa3-activation-condition-one-opponent",
+    "compare-extra-ffa3-w10-sky-and-evenly-matched-chain",
+    "compare-ffa3-chain-of-three-each-link-its-own-opponent",
+  ], // Ultimate Sky
+  3549275: [
+    "late-ffa3-dice-jar-owner-wins-picked-opponent-takes-the-damage",
+    "late-ffa4-dice-jar-owner-wins-picked-opponent-takes-the-damage",
+    "late-tag-dice-jar-owner-wins-picked-opponent-takes-the-damage",
+    "late-ffa3-dice-jar-owner-loses-and-takes-the-damage",
+    "late-ffa4-dice-jar-owner-loses-and-takes-the-damage",
+    "late-tag-dice-jar-owner-loses-and-takes-the-damage",
+  ], // Dice Jar
+  44656491: [
+    "late-ffa3-messenger-of-peace-limit-for-all-and-payment-only-in-own-standby",
+    "late-ffa4-messenger-of-peace-limit-for-all-and-payment-only-in-own-standby",
+    "late-tag-messenger-of-peace-limit-for-all-and-payment-only-in-own-standby",
+  ], // Messenger of Peace
+  28674152: [
+    "summon-procedures-ffa3-radian-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-radian-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-radian-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-radian-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-radian-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-radian-no-tribute-with-kaiju-on-opposing-member",
+  ], // Radian
+  29726552: [
+    "summon-procedures-ffa3-kumongous-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-kumongous-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-kumongous-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-kumongous-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-kumongous-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-kumongous-no-tribute-with-kaiju-on-opposing-member",
+  ], // Kumongous
+  36956512: [
+    "summon-procedures-ffa3-gadarla-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-gadarla-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-gadarla-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-gadarla-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-gadarla-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-gadarla-no-tribute-with-kaiju-on-opposing-member",
+  ], // Gadarla
+  48770333: [
+    "summon-procedures-ffa3-thunder-king-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-thunder-king-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-thunder-king-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-thunder-king-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-thunder-king-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-thunder-king-no-tribute-with-kaiju-on-opposing-member",
+  ], // Thunder King
+  63941210: [
+    "summon-procedures-ffa3-jizukiru-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-jizukiru-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-jizukiru-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-jizukiru-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-jizukiru-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-jizukiru-no-tribute-with-kaiju-on-opposing-member",
+  ], // Jizukiru
+  93332803: [
+    "summon-procedures-ffa3-dogoran-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-dogoran-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-dogoran-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-dogoran-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-dogoran-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-dogoran-no-tribute-with-kaiju-on-opposing-member",
+  ], // Dogoran
+  25920413: [
+    "summon-procedures-ffa3-alien-skull-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-alien-skull-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-alien-skull-tribute-goes-to-opposing-member",
+  ], // Alien Skull (Lava procedure)
+  46565218: [
+    "summon-procedures-ffa3-santa-claws-tribute-goes-to-tributed-field-and-it-draws",
+    "summon-procedures-ffa4-santa-claws-tribute-goes-to-tributed-field-and-it-draws",
+    "summon-procedures-tag-santa-claws-tribute-goes-to-opposing-member-and-it-draws",
+  ], // Santa Claws (Lava procedure)
+  33331231: [
+    "summon-procedures-ffa3-hamp-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-hamp-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-hamp-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-hamp-own-field-tributes-own-monster",
+    "summon-procedures-ffa4-hamp-own-field-tributes-own-monster",
+    "summon-procedures-tag-hamp-own-field-tributes-own-monster",
+  ], // H.A.M.P. (Lava procedure, both fields)
+  64203620: [
+    "summon-procedures-ffa3-jormungardr-goes-to-picked-opponent",
+    "summon-procedures-ffa4-jormungardr-opponent-with-full-field-is-not-offered",
+    "summon-procedures-tag-jormungardr-goes-to-opposing-member-not-partner",
+  ], // Jormungardr (Nordic)
+  91697229: [
+    "summon-procedures-ffa3-fenrir-goes-to-picked-opponent",
+    "summon-procedures-ffa4-fenrir-opponent-with-full-field-is-not-offered",
+    "summon-procedures-tag-fenrir-goes-to-opposing-member-not-partner",
+  ], // Fenrir (Nordic)
+  75732622: [
+    "summon-procedures-ffa3-grinder-golem-goes-to-picked-opponent-and-tokens-to-the-own-field",
+    "summon-procedures-ffa4-grinder-golem-opponent-with-full-field-is-not-offered",
+    "summon-procedures-tag-grinder-golem-goes-to-opposing-member-not-partner",
+  ], // Grinder Golem
+  82090807: [
+    "summon-procedures-ffa3-fallen-of-argyros-opponent-field-goes-to-picked-opponent",
+    "summon-procedures-ffa4-fallen-of-argyros-opponent-field-goes-to-picked-opponent",
+    "summon-procedures-tag-fallen-of-argyros-opponent-field-goes-to-opposing-member",
+    "summon-procedures-ffa3-fallen-of-argyros-own-field-asks-no-opponent",
+    "summon-procedures-ffa4-fallen-of-argyros-own-field-asks-no-opponent",
+    "summon-procedures-tag-fallen-of-argyros-own-field-asks-no-opponent",
+  ], // Fallen of Argyros
+  11654067: [
+    "opponent-field-effects-ffa3-fire-ejection-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-fire-ejection-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-fire-ejection-goes-to-an-opposing-member",
+  ], // Fire Ejection
+  14470845: [
+    "opponent-field-effects-ffa3-ojama-duo-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-ojama-duo-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-ojama-duo-goes-to-an-opposing-member",
+  ], // Ojama Duo
+  28062325: [
+    "opponent-field-effects-ffa3-bamboo-scrap-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-bamboo-scrap-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-bamboo-scrap-goes-to-an-opposing-member",
+  ], // Bamboo Scrap
+  42956963: [
+    "opponent-field-effects-ffa3-nightmare-archfiends-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-nightmare-archfiends-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-nightmare-archfiends-goes-to-an-opposing-member",
+  ], // Nightmare Archfiends
+  55465441: [
+    "opponent-field-effects-ffa3-give-and-take-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-give-and-take-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-give-and-take-goes-to-an-opposing-member",
+  ], // Give and Take
+  6203182: [
+    "opponent-field-effects-ffa3-two-toads-with-one-sting-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-two-toads-with-one-sting-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-two-toads-with-one-sting-goes-to-an-opposing-member",
+  ], // Two Toads with One Sting
+  17228908: [
+    "opponent-field-effects-ffa3-lost-world-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-lost-world-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-lost-world-goes-to-an-opposing-member",
+  ], // Lost World
+  33970665: [
+    "opponent-field-effects-ffa3-guts-of-steel-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-guts-of-steel-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-guts-of-steel-goes-to-an-opposing-member",
+  ], // Guts of Steel
+  36890111: [
+    "opponent-field-effects-ffa3-mansion-of-the-dreadful-dolls-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mansion-of-the-dreadful-dolls-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mansion-of-the-dreadful-dolls-goes-to-an-opposing-member",
+  ], // Mansion of the Dreadful Dolls
+  52782439: [
+    "opponent-field-effects-ffa3-exceptional-schedule-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-exceptional-schedule-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-exceptional-schedule-goes-to-an-opposing-member",
+  ], // Exceptional Schedule
+  62767644: [
+    "opponent-field-effects-ffa3-inferno-of-the-ashened-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-inferno-of-the-ashened-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-inferno-of-the-ashened-goes-to-an-opposing-member",
+  ], // Inferno of the Ashened
+  72554664: [
+    "opponent-field-effects-ffa3-light-of-the-branded-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-light-of-the-branded-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-light-of-the-branded-goes-to-an-opposing-member",
+  ], // Light of the Branded
+  73355951: [
+    "opponent-field-effects-ffa3-alpha-summon-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-alpha-summon-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-alpha-summon-goes-to-an-opposing-member",
+  ], // Alpha Summon
+  76384284: [
+    "opponent-field-effects-ffa3-trojan-gladiator-beast-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-trojan-gladiator-beast-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-trojan-gladiator-beast-goes-to-an-opposing-member",
+  ], // Trojan Gladiator Beast
+  78610936: [
+    "opponent-field-effects-ffa3-xyz-encore-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-xyz-encore-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-xyz-encore-goes-to-an-opposing-member",
+  ], // Xyz Encore
+  80044027: [
+    "opponent-field-effects-ffa3-mikanko-fire-dance-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mikanko-fire-dance-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mikanko-fire-dance-goes-to-an-opposing-member",
+  ], // Mikanko Fire Dance
+  93775296: [
+    "opponent-field-effects-ffa3-reverse-reuse-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-reverse-reuse-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-reverse-reuse-goes-to-an-opposing-member",
+  ], // Reverse Reuse
+  93912845: [
+    "opponent-field-effects-ffa3-revival-gift-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-revival-gift-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-revival-gift-goes-to-an-opposing-member",
+  ], // Revival Gift
+  99330325: [
+    "opponent-field-effects-ffa3-interrupted-kaiju-slumber-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-interrupted-kaiju-slumber-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-interrupted-kaiju-slumber-goes-to-an-opposing-member",
+  ], // Interrupted Kaiju Slumber
+  1041278: [
+    "opponent-field-effects-ffa3-branded-expulsion-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-branded-expulsion-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-branded-expulsion-goes-to-an-opposing-member",
+  ], // Branded Expulsion
+  8837932: [
+    "opponent-field-effects-ffa3-cubic-mandala-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-cubic-mandala-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-cubic-mandala-goes-to-an-opposing-member",
+  ], // Cubic Mandala
+  13204145: [
+    "opponent-field-effects-ffa3-mimighoul-maker-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-maker-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-maker-goes-to-an-opposing-member",
+  ], // Mimighoul Maker
+  13935001: [
+    "opponent-field-effects-ffa3-lunalight-serenade-dance-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-lunalight-serenade-dance-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-lunalight-serenade-dance-goes-to-an-opposing-member",
+  ], // Lunalight Serenade Dance
+  14283055: [
+    "opponent-field-effects-ffa3-concours-de-cuisine-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-concours-de-cuisine-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-concours-de-cuisine-goes-to-an-opposing-member",
+  ], // Concours de Cuisine
+  49966595: [
+    "opponent-field-effects-ffa3-graydle-parasite-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-graydle-parasite-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-graydle-parasite-goes-to-an-opposing-member",
+  ], // Graydle Parasite
+  63086455: [
+    "opponent-field-effects-ffa3-terrors-of-the-overroot-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-terrors-of-the-overroot-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-terrors-of-the-overroot-goes-to-an-opposing-member",
+  ], // Terrors of the Overroot
+  85698115: [
+    "opponent-field-effects-ffa3-terrors-of-the-afterroot-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-terrors-of-the-afterroot-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-terrors-of-the-afterroot-goes-to-an-opposing-member",
+  ], // Terrors of the Afterroot
+  93983867: [
+    "opponent-field-effects-ffa3-trick-box-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-trick-box-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-trick-box-goes-to-an-opposing-member",
+  ], // Trick Box
+  96857854: [
+    "opponent-field-effects-ffa3-diamond-duston-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-diamond-duston-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-diamond-duston-goes-to-an-opposing-member",
+  ], // Diamond Duston
+  561300: [
+    "opponent-field-effects-ffa3-poisonous-viper-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-poisonous-viper-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-poisonous-viper-goes-to-an-opposing-member",
+  ], // Poisonous Viper
+  7392745: [
+    "opponent-field-effects-ffa3-chewbone-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-chewbone-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-chewbone-goes-to-an-opposing-member",
+  ], // Chewbone
+  7623640: [
+    "opponent-field-effects-ffa3-ceruli-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-ceruli-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-ceruli-goes-to-an-opposing-member",
+  ], // Ceruli, Guru of Dark World
+  11677278: [
+    "opponent-field-effects-ffa3-mimighoul-armor-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-armor-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-armor-goes-to-an-opposing-member",
+  ], // Mimighoul Armor
+  22404675: [
+    "opponent-field-effects-ffa3-mithra-the-thunder-vassal-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mithra-the-thunder-vassal-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mithra-the-thunder-vassal-goes-to-an-opposing-member",
+  ], // Mithra the Thunder Vassal
+  22411609: [
+    "opponent-field-effects-ffa3-volcanic-trooper-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-volcanic-trooper-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-volcanic-trooper-goes-to-an-opposing-member",
+  ], // Volcanic Trooper
+  23920796: [
+    "opponent-field-effects-ffa3-mimighoul-cerberus-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-cerberus-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-cerberus-goes-to-an-opposing-member",
+  ], // Mimighoul Cerberus
+  25131968: [
+    "opponent-field-effects-ffa3-ken-the-warrior-dragon-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-ken-the-warrior-dragon-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-ken-the-warrior-dragon-goes-to-an-opposing-member",
+  ], // Ken the Warrior Dragon
+  26964762: [
+    "opponent-field-effects-ffa3-destiny-hero-dark-angel-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-destiny-hero-dark-angel-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-destiny-hero-dark-angel-goes-to-an-opposing-member",
+  ], // Destiny HERO - Dark Angel
+  30069398: [
+    "opponent-field-effects-ffa3-wall-of-ivy-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-wall-of-ivy-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-wall-of-ivy-goes-to-an-opposing-member",
+  ], // Wall of Ivy
+  37129797: [
+    "opponent-field-effects-ffa3-vampire-sucker-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-vampire-sucker-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-vampire-sucker-goes-to-an-opposing-member",
+  ], // Vampire Sucker
+  38041940: [
+    "opponent-field-effects-ffa3-seed-of-flame-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-seed-of-flame-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-seed-of-flame-goes-to-an-opposing-member",
+  ], // Seed of Flame
+  39829561: [
+    "opponent-field-effects-ffa3-destiny-hero-departed-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-destiny-hero-departed-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-destiny-hero-departed-goes-to-an-opposing-member",
+  ], // Destiny HERO - Departed
+  41141943: [
+    "opponent-field-effects-ffa3-superheavy-samurai-transporter-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-superheavy-samurai-transporter-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-superheavy-samurai-transporter-goes-to-an-opposing-member",
+  ], // Superheavy Samurai Transporter
+  43066927: [
+    "opponent-field-effects-ffa3-mimighoul-fairy-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-fairy-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-fairy-goes-to-an-opposing-member",
+  ], // Mimighoul Fairy
+  44689688: [
+    "opponent-field-effects-ffa3-jurrac-spinos-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-jurrac-spinos-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-jurrac-spinos-goes-to-an-opposing-member",
+  ], // Jurrac Spinos
+  48228390: [
+    "opponent-field-effects-ffa3-pyrite-knight-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-pyrite-knight-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-pyrite-knight-goes-to-an-opposing-member",
+  ], // Pyrite Knight
+  50415441: [
+    "opponent-field-effects-ffa3-mimighoul-archfiend-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-archfiend-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-archfiend-goes-to-an-opposing-member",
+  ], // Mimighoul Archfiend
+  52126602: [
+    "opponent-field-effects-ffa3-gen-the-diamond-tiger-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-gen-the-diamond-tiger-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-gen-the-diamond-tiger-goes-to-an-opposing-member",
+  ], // Gen the Diamond Tiger
+  54191698: [
+    "opponent-field-effects-ffa3-number-29-mannequin-cat-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-number-29-mannequin-cat-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-number-29-mannequin-cat-goes-to-an-opposing-member",
+  ], // Number 29: Mannequin Cat
+  74440055: [
+    "opponent-field-effects-ffa3-cactus-fighter-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-cactus-fighter-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-cactus-fighter-goes-to-an-opposing-member",
+  ], // Cactus Fighter
+  81522098: [
+    "opponent-field-effects-ffa3-mimighoul-dragon-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-dragon-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-dragon-goes-to-an-opposing-member",
+  ], // Mimighoul Dragon
+  82933935: [
+    "opponent-field-effects-ffa3-mimighoul-flower-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-flower-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-flower-goes-to-an-opposing-member",
+  ], // Mimighoul Flower
+  69811710: [
+    "opponent-field-effects-ffa3-girsu-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-girsu-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-girsu-goes-to-an-opposing-member",
+  ], // Girsu, the Orcust Mekk-Knight
+  82012319: [
+    "opponent-field-effects-ffa3-scrap-golem-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-scrap-golem-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-scrap-golem-goes-to-an-opposing-member",
+  ], // Scrap Golem
+  9400127: [
+    "opponent-field-effects-ffa3-flogos-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-flogos-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-flogos-goes-to-an-opposing-member",
+  ], // Flogos, the Wind Warrior
+  78783557: [
+    "opponent-field-effects-ffa3-veidos-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-veidos-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-veidos-goes-to-an-opposing-member",
+  ], // Veidos the Eruption Dragon of Extinction
+  82773292: [
+    "opponent-field-effects-ffa3-indulged-darklord-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-indulged-darklord-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-indulged-darklord-goes-to-an-opposing-member",
+  ], // Indulged Darklord
+  88124568: [
+    "opponent-field-effects-ffa3-spyral-double-agent-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-spyral-double-agent-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-spyral-double-agent-goes-to-an-opposing-member",
+  ], // SPYRAL Double Agent
+  71015787: [
+    "opponent-field-effects-ffa3-silent-wobby-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-silent-wobby-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-silent-wobby-goes-to-an-opposing-member",
+  ], // Silent Wobby
+  68378605: [
+    "opponent-field-effects-ffa3-vodnika-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-vodnika-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-vodnika-goes-to-an-opposing-member",
+  ], // Vodnika the Water Dragon
+  26913989: [
+    "opponent-field-effects-ffa3-geistgrinder-golem-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-geistgrinder-golem-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-geistgrinder-golem-goes-to-an-opposing-member",
+  ], // Geistgrinder Golem
+  82994509: [
+    "opponent-field-effects-ffa3-horseytail-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-horseytail-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-horseytail-goes-to-an-opposing-member",
+  ], // Horseytail
+  81003500: [
+    "opponent-field-effects-ffa3-elemental-hero-necroid-shaman-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-elemental-hero-necroid-shaman-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-elemental-hero-necroid-shaman-goes-to-an-opposing-member",
+  ], // Necroid Shaman
+  66661678: [
+    "opponent-field-effects-ffa3-royal-knight-of-the-ice-barrier-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-royal-knight-of-the-ice-barrier-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-royal-knight-of-the-ice-barrier-goes-to-an-opposing-member",
+  ], // Royal Knight of the Ice Barrier
+  57844634: [
+    "opponent-field-effects-ffa3-nimble-musasabi-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-nimble-musasabi-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-nimble-musasabi-goes-to-an-opposing-member",
+  ], // Nimble Musasabi
+  65676461: [
+    "opponent-field-effects-ffa3-number-32-shark-drake-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-number-32-shark-drake-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-number-32-shark-drake-goes-to-an-opposing-member",
+  ], // Number 32: Shark Drake
+  59900655: [
+    "opponent-field-effects-ffa3-gold-pride-nytro-head-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-gold-pride-nytro-head-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-gold-pride-nytro-head-goes-to-an-opposing-member",
+  ], // Gold Pride - Nytro Head
+  63013339: [
+    "opponent-field-effects-ffa3-sky-striker-ace-camellia-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-sky-striker-ace-camellia-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-sky-striker-ace-camellia-goes-to-an-opposing-member",
+  ], // Sky Striker Ace - Camellia
+  65477143: [
+    "opponent-field-effects-ffa3-abyss-actor-liberty-dramatist-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-abyss-actor-liberty-dramatist-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-abyss-actor-liberty-dramatist-goes-to-an-opposing-member",
+  ], // Abyss Actor - Liberty Dramatist
+  40343749: [
+    "opponent-field-effects-ffa3-house-duston-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-house-duston-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-house-duston-goes-to-an-opposing-member",
+  ], // House Duston
+  3685372: [
+    "opponent-field-effects-ffa3-gimmick-puppet-fanatix-machinix-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-gimmick-puppet-fanatix-machinix-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-gimmick-puppet-fanatix-machinix-goes-to-an-opposing-member",
+  ], // CXyz Gimmick Puppet Fanatix Machinix
+  47126872: [
+    "opponent-field-effects-ffa3-space-time-police-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-space-time-police-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-space-time-police-goes-to-an-opposing-member",
+  ], // Space-Time Police
+  // Cross-seat staples proven live (the event binding and the delayed draw), all three tables.
+  35480699: [
+    "book-of-eclipse-ffa3-p0-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa3-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa4-p0-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa4-p2-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-tag-p0-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-tag-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa3-p0-activates-in-the-turn-of-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
+  ], // Book of Eclipse
+  76922029: [
+    "don-zaloog-ffa3-p1-damages-p2-deck-effect-hits-only-p2",
+    "don-zaloog-ffa3-p1-damages-p0-hand-effect-hits-only-p0",
+    "don-zaloog-ffa4-p3-damages-p1-deck-effect-hits-only-p1",
+    "don-zaloog-ffa4-p2-damages-p0-hand-effect-hits-only-p0",
+    "don-zaloog-tag-p1-damages-p2-deck-effect-hits-only-p2",
+    "don-zaloog-tag-p0-damages-p3-hand-effect-hits-only-p3",
+    "don-zaloog-tag-p2-damages-p1-hand-effect-hits-only-p1",
+    "don-zaloog-tag-p3-damages-p0-deck-effect-hits-only-p0",
+  ], // Don Zaloog
+  77538567: [
+    "dark-bribe-ffa3-p1-pot-negated-by-p2-only-p1-draws",
+    "dark-bribe-ffa3-p1-pot-negated-by-p0-only-p1-draws",
+    "dark-bribe-ffa4-p2-pot-negated-by-p0-only-p2-draws",
+    "dark-bribe-ffa4-p2-pot-negated-by-p3-only-p2-draws",
+    "dark-bribe-tag-p1-pot-negated-by-p0-only-p1-draws",
+    "dark-bribe-tag-p1-pot-negated-by-p2-only-p1-draws",
+    "dark-bribe-tag-p0-pot-negated-by-p3-only-p0-draws",
+    "dark-bribe-tag-p0-pot-negated-by-p1-only-p0-draws",
+  ], // Dark Bribe
+  81510157: [
+    "soul-taker-ffa3-p1-destroys-monster-of-p2-p2-gains-1000",
+    "soul-taker-ffa3-p1-destroys-monster-of-p0-p0-gains-1000",
+    "soul-taker-ffa4-p2-destroys-monster-of-p3-p3-gains-1000",
+    "soul-taker-ffa4-p3-destroys-monster-of-p1-p1-gains-1000",
+    "soul-taker-tag-p1-destroys-monster-of-p0-p0-gains-1000",
+    "soul-taker-tag-p1-destroys-monster-of-p2-p2-gains-1000",
+    "soul-taker-tag-p0-destroys-monster-of-p3-p3-gains-1000",
+  ], // Soul Taker
+  10045474: [
+    "infinite-impermanence-ffa3-p1-turn-p2-negates-calculator-of-p1",
+    "infinite-impermanence-ffa4-p2-turn-p0-negates-calculator-of-p2",
+    "infinite-impermanence-tag-p0-turn-p1-negates-calculator-of-p0",
+    "infinite-impermanence-tag-p0-turn-p3-negates-calculator-of-p2",
+    "infinite-impermanence-tag-p1-turn-p2-negates-calculator-of-p3",
+  ], // Infinite Impermanence
+  97268402: [
+    "effect-veiler-ffa3-p1-turn-p2-negates-calculator-of-p1",
+    "effect-veiler-ffa3-p1-turn-p0-negates-calculator-of-p1",
+    "effect-veiler-ffa4-p2-turn-p3-negates-calculator-of-p2",
+    "effect-veiler-ffa4-p1-turn-p0-negates-calculator-of-p1",
+    "effect-veiler-tag-p0-turn-p1-negates-calculator-of-p0",
+    "effect-veiler-tag-p0-turn-p1-negates-calculator-of-p2",
+    "effect-veiler-tag-p1-turn-p0-negates-calculator-of-p1",
+    "effect-veiler-tag-p1-turn-p2-negates-calculator-of-p3",
+    "effect-veiler-tag-p0-turn-partner-p2-is-never-offered",
+  ], // Effect Veiler
+  23434538: [
+    "maxx-c-ffa3-p1-special-summons-p2-draws",
+    "maxx-c-ffa3-p1-special-summons-p0-draws",
+    "maxx-c-ffa4-p2-special-summons-p0-draws",
+    "maxx-c-ffa4-p2-special-summons-p3-draws",
+    "maxx-c-tag-p1-special-summons-p0-draws",
+    "maxx-c-tag-p1-special-summons-p2-draws",
+    "maxx-c-tag-p1-special-summons-p3-no-draw",
+    "maxx-c-tag-p0-special-summons-p2-no-draw",
+  ], // Maxx "C"
+};

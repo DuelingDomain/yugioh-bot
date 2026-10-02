@@ -101,6 +101,8 @@ inline int read_script(void*, OCG_Duel duel, const char* name) {
 			else if(!text.empty()) text += (text.back() == '\n' ? "" : "\n") + card->second;
 		}
 	}
+	// A suffix for a card without an original script is no script (the TS reader and nduel give none either).
+	if(text.empty()) return 0;
 	return OCG_LoadScript(duel, text.data(), static_cast<uint32_t>(text.size()), name);
 }
 
@@ -145,6 +147,7 @@ inline OCG_Duel create(const std::string& setup, uint32_t seed = 1, bool overlay
 	options.scriptReader = read_script;
 	options.logHandler = on_log;
 	OCG_Duel d = nullptr;
+	overlay_on = false;   // every duel decides for itself: an earlier create(..., true) must not leak into this one
 	if(OCG_CreateDuel(&d, &options) != OCG_DUEL_CREATION_SUCCESS) {
 		std::printf("FAIL: OCG_CreateDuel\n");
 		std::exit(2);

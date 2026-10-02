@@ -58,6 +58,13 @@ export function partnerSeatOf(format: DuelFormat, seat: number): number | null {
   return (seat + 2) % 4;
 }
 
+/** The living across seat that shares this seat's EMZ in FFA4; null in every other format. */
+export function sharedExtraSeatOf(format: DuelFormat, seat: number, eliminated?: ReadonlySet<number>): number | null {
+  if (format !== "ffa4" || !Number.isInteger(seat) || seat < 0 || seat >= 4 || eliminated?.has(seat)) return null;
+  const across = (seat + 2) % 4;
+  return eliminated?.has(across) ? null : across;
+}
+
 /**
  * Starting LP of one side. Tag: one shared total per team, the sum of its members' starting LP.
  * 1v1 and FFA: per duelist.
@@ -237,7 +244,7 @@ function parseSettingsObject(value: Record<string, unknown>, fallback: DuelSetti
   };
 }
 
-export function defaultDuelSettings(mode: DuelSettingsMode): DuelSettings {
+export function defaultDuelSettings(mode: DuelSettingsMode, format: DuelFormat = DEFAULT_DUEL_FORMAT): DuelSettings {
   return {
     visibility: "public",
     banlist: mode === "domain" ? NO_BANLIST_ID : PINNED_TCG_BANLIST_ID,
@@ -249,7 +256,7 @@ export function defaultDuelSettings(mode: DuelSettingsMode): DuelSettings {
     timeout: "loss",
     validateDeck: true,
     shuffleDeck: true,
-    stopAtEveryWindow: false,
+    stopAtEveryWindow: format !== "1v1",
   };
 }
 
@@ -270,13 +277,13 @@ export function legacyDuelSettings(): DuelSettings {
   };
 }
 
-export function normalizeDuelSettings(mode: DuelSettingsMode, input: unknown): DuelSettings {
+export function normalizeDuelSettings(mode: DuelSettingsMode, input: unknown, format: DuelFormat = DEFAULT_DUEL_FORMAT): DuelSettings {
   if (mode !== "normal" && mode !== "domain") fail("Duel mode must be normal or domain");
-  if (input === undefined || input === null) return defaultDuelSettings(mode);
+  if (input === undefined || input === null) return defaultDuelSettings(mode, format);
   if (!isObject(input)) fail("settings must be an object");
   const extra = firstUnknownKey(input, SETTINGS_KEYS);
   if (extra) fail(`Unknown duel setting: ${extra}`);
-  return parseSettingsObject(input, defaultDuelSettings(mode));
+  return parseSettingsObject(input, defaultDuelSettings(mode, format));
 }
 
 export function isCustomDomain(masterRule: DuelSettingsMasterRule, settings: DuelSettings): boolean {

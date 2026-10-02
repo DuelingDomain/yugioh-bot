@@ -26,6 +26,7 @@ Playwright `webServer` runs `stack/start.mjs`. It starts three processes on non-
 | duel host | 4303 | Uses `data/duel-engine-next` read-only. |
 
 - Database: a fresh SQLite file at `packages/e2e/.stack/e2e.sqlite`, seeded with one guild and 4 players. The live `data/bot.sqlite` is never used.
+- The duel and web services set `MULTIPLAYER_TABLES=1` to permit FFA3, FFA4 and 2v2 Tag tables and presets.
 - Secrets: new random values for each run (`stack/env.mjs`). The stack sets every variable the three servers read, so a value in a `.env` file cannot change the run. The duel host still loads the repo `.env` by a fixed path (dotenv never overrides a variable that is set). The ws server loads no `.env`.
 - Memory: the duel host keeps each unfinished duel's engine worker for 5 minutes after its last request (`DUEL_IDLE_WORKER_MS`). A long `--repeat-each` run can use several GB. The memory goes down when the idle workers close.
 - The web build is `next build` with the E2E ws URL, so `packages/web/.next` is overwritten. `stack/prepare.mjs` rebuilds only what is older than its sources.

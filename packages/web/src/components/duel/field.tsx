@@ -832,6 +832,7 @@ export function DuelField({
   topName,
   topSeat,
   topLabel: topLabelOverride,
+  showExtraZones = true,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -848,6 +849,8 @@ export function DuelField({
   topSeat?: number | null;
   /** 3 and 4 seat tables: owner name in the top half's aria labels (default "Opponent"). */
   topLabel?: string;
+  /** False when MultiSeatStage draws this seat's EMZ in an FFA4 shared row. */
+  showExtraZones?: boolean;
 }) {
   const bottomIndex = mySeat ?? 0;
   const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
@@ -920,7 +923,7 @@ export function DuelField({
             <PileColumn view={top} opponent side="right" callbacks={callbacks} ownerLabel={topLabel} masterRule={masterRule} />
           </div>
           <div className={styles.emzBand}>
-            {masterRule >= 4 ? (
+            {showExtraZones && masterRule >= 4 ? (
               <div className={styles.emzRow}>
                 <div />
                 <ZoneSlot

@@ -1,17 +1,9 @@
 {
-  "R-COMMON-SEP-FIELDS": "no DSL outcome scenario yet. Native check zones proves the zone layout at n > 2 (no Extra Monster Zone mirror, per duelist disabled zones). The table counts DSL outcome scenarios only, so a native check does not make it covered.",
-  "R-COMMON-OPP-FIELD": "no DSL outcome scenario yet (2 presets and 50 catalog sketches only). Native checks range-fold, absolute-range-unique and lua-prompts-range prove the core fold. The table counts DSL outcome scenarios only, so a native check does not make it covered.",
-  "R-COMMON-ONGOING": "no DSL outcome scenario yet (4 catalog sketches only). Native check range-fold proves the range fold, not a whole ongoing restriction. The table counts DSL outcome scenarios only, so a native check does not make it covered.",
-  "R-COMMON-EACH-PLAYER": "no DSL outcome scenario yet (4 catalog sketches only). No native check names this rule.",
-  "R-COMMON-ALL-BOTH": "no DSL outcome scenario yet (1 preset and 5 catalog sketches only). No native check names this rule.",
-  "R-COMMON-EMZ": "no DSL outcome scenario yet. Native checks zones and link-column-zones prove the zones at n > 2. The table counts DSL outcome scenarios only, so a native check does not make it covered.",
-  "R-COMMON-FL-LIST": "no DSL outcome scenario yet. tests/deck-legality-multiplayer.test.ts proves the forbidden list per table in deck validation; it is a unit test, not a duel scenario.",
-  "R-TAG-SHARED-CARDS": "no DSL outcome scenario yet (1 catalog sketch only). No native check names this rule.",
-  "R-TAG-PARTNER-COST": "no DSL outcome scenario yet. No sketch, no preset and no native check names this rule.",
-  "R-TAG-VISIBILITY": "no DSL outcome scenario yet. The unit tests in tests/engine-nseat.test.ts (the tests named shows a Tag partner hand and shows a Tag partner Set cards) prove the partner view of hands and Set cards in the seat projection; they are not duel scenarios. Native check confirm-hint-sort covers the ConfirmCards event players.",
-  "R-TAG-RESPONSE": "no DSL outcome scenario yet. Native check response-order proves the priority windows at n > 2. The table counts DSL outcome scenarios only, so a native check does not make it covered.",
-  "R-TAG-TURN-COUNT": "no DSL outcome scenario yet. No sketch, no preset and no native check names this rule.",
-  "R-FFA-TRIGGERS": "no DSL outcome scenario yet. Native check response-order proves the SEGOC order. The table counts DSL outcome scenarios only, so a native check does not make it covered.",
-  "R-FFA-NEGATE": "no DSL outcome scenario yet (2 presets and 2 catalog sketches only). Native check tag-partner covers the Tag case only; no test for FFA.",
-  "R-COMMON-CONT-NEG": "no DSL outcome scenario yet (2 presets and 4 catalog sketches only). Native check tag-partner uses Jinzo for the Tag partner case only."
+  "R-FFA-FIRST-DRAW": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
+  "R-FFA-OPP-ONE": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
+  "R-FFA-OPP-RESPONSE": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
+  "R-FFA-ACTIVATED-LOCK": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
+  "R-FFA-RESOURCE-ROTATION": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
+  "R-FFA-ACROSS-EMZ": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
+  "R-FFA-RETURN-OWNED-CARDS": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome."
 }

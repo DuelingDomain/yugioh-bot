@@ -1,10 +1,10 @@
-import { multiplayerTablesEnabled } from "@yugidraft/shared/duels";
 import { DuelCreator } from "@/components/duel/creator";
+import { duelCreatorCapabilities } from "@/lib/duel-table-capabilities";
 
-// The MULTIPLAYER_TABLES flag is read from the server environment on each request, not at build time.
+// The deployment flag and the installed host bundle can change after the web build.
 export const dynamic = "force-dynamic";
 
 export default async function NewDuelPage({ searchParams }: { searchParams: Promise<{ challenge?: string | string[] }> }) {
   const { challenge } = await searchParams;
-  return <DuelCreator focusOpponent={challenge != null} multiplayerTables={multiplayerTablesEnabled()} />;
+  return <DuelCreator focusOpponent={challenge != null} {...await duelCreatorCapabilities()} />;
 }

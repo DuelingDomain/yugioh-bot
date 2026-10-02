@@ -1,0 +1,125 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Mon, 6 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: a pick of an opponent skips a seat with a pending loss
+ and refuses an answer that names one, at n > 2
+
+A seat that surrenders (Debug.EliminateDuelist) is still alive until the next Adjust. The pick of one opponent (the chain-link
+pick, the lazy pick in a cost or target, the proc-condition pick) now builds its list with field::pick_opponents: the living
+opponents without a seat that is losing (alone or through its team), the full list when every opponent loses. A seat that
+surrenders while the prompt is open is still in the list the player sees, so the SelectOption answer that names a losing seat
+gives MSG_RETRY while another option is free. Guarded by n_duelists > 2: with two duelists nothing changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ effect.cpp      |  2 +-
+ field.h         | 28 ++++++++++++++++++++++++++++
+ interpreter.cpp |  4 ++--
+ playerop.cpp    | 19 +++++++++++++++++++
+ 4 files changed, 50 insertions(+), 3 deletions(-)
+
+diff --git a/effect.cpp b/effect.cpp
+index d0b750e..6bb8b94 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -438,7 +438,7 @@ int32_t effect::probe_bind(uint8_t playerid, const tevent& e, int32_t neglect_co
+ 	}
+ 	S()->touched = false;
+ 	uint8_t opp[MAX_DUELISTS];
+-	const auto n = f.living_opponents(playerid, opp);
++	const auto n = f.pick_opponents(playerid, opp);
+ 	for(uint8_t i = 0; i < n; ++i) {
+ 		S()->own_bound = opp[i];
+ 		if(is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target))
+diff --git a/field.h b/field.h
+index cb01b61..3616ec5 100644
+--- a/field.h
++++ b/field.h
+@@ -628,6 +628,34 @@ public:
+ 		}
+ 		return count;
+ 	}
++	// n > 2: p has a loss that lands at the next Adjust (Debug.EliminateDuelist: a surrender), alone or by a living member of
++	// its team (a team loses as a whole). The seat is still alive until then, but a pick must not offer it.
++	bool is_losing(uint8_t p) const {
++		if(n_duelists <= 2 || !is_alive(p))
++			return false;
++		for(uint8_t q = 0; q < n_duelists; ++q) {
++			if(is_alive(q) && player[q].pending_loss && same_team(p, q))
++				return true;
++		}
++		return false;
++	}
++	// n > 2: the seats that a pick of an opponent of P offers: living_opponents without a seat that is losing. When every
++	// living opponent is losing the full list stays (the duel ends at the next Adjust). Gives the count.
++	uint8_t pick_opponents(uint8_t P, uint8_t (&out)[MAX_DUELISTS]) const {
++		uint8_t all[MAX_DUELISTS];
++		const uint8_t n = living_opponents(P, all);
++		uint8_t count = 0;
++		for(uint8_t i = 0; i < n; ++i) {
++			if(!is_losing(all[i]))
++				out[count++] = all[i];
++		}
++		if(count == 0) {
++			for(uint8_t i = 0; i < n; ++i)
++				out[i] = all[i];
++			return n;
++		}
++		return count;
++	}
+ 	// F5: the pick of one opponent. ask_opponent puts one option per seat of `mask` (bit q = seat q, in seat
+ 	// order, desc 0xFFFE0000|seat) in core.select_options and queues the stock option prompt for P (no hint: the
+ 	// stock strings have none for "choose an opponent"; 0xFFFF0000|seat is the direct-attack pick of the TS layer).
+diff --git a/interpreter.cpp b/interpreter.cpp
+index 013e7a9..655b251 100644
+--- a/interpreter.cpp
++++ b/interpreter.cpp
+@@ -520,7 +520,7 @@ bool interpreter::lazy_bind(const char* fn) {
+ 	if(scope_raw_bound() != DUELIST_NONE)
+ 		return true;
+ 	uint8_t opp[MAX_DUELISTS];
+-	const auto n = gf->living_opponents(s->P, opp);
++	const auto n = gf->pick_opponents(s->P, opp);
+ 	if(n == 0)
+ 		return false;
+ 	uint8_t legal = 0;
+@@ -772,7 +772,7 @@ bool interpreter::check_condition(int32_t function, uint32_t param_count, effect
+ 		}
+ 		const uint8_t P = is_proc_effect(peff) ? scope_player_of(pduel->game_field, peff) : DUELIST_NONE;
+ 		uint8_t opp[MAX_DUELISTS];
+-		const auto n = pduel->game_field->living_opponents(P, opp);
++		const auto n = pduel->game_field->pick_opponents(P, opp);
+ 		if(n) {
+ 			const auto saved = params;
+ 			uint8_t mask = 0;
+diff --git a/playerop.cpp b/playerop.cpp
+index 34c769e..429ad51 100644
+--- a/playerop.cpp
++++ b/playerop.cpp
+@@ -249,6 +249,25 @@ bool field::process(Processors::SelectOption& arg) {
+ 			pduel->new_message(MSG_RETRY);
+ 			return FALSE;
+ 		}
++		// n > 2: the pick of an opponent (every option is 0xFFFE0000|seat) that names a seat with a pending loss (it
++		// surrendered while the prompt was open) is not accepted while another option is still free: MSG_RETRY
++		if(n_duelists > 2) {
++			bool all_picks = true;
++			bool free_option = false;
++			for(auto option : core.select_options) {
++				if((option & 0xFFFF0000ULL) != opponent_pick_desc) {
++					all_picks = false;
++					break;
++				}
++				if(!is_losing(static_cast<uint8_t>(option & 0xFF)))
++					free_option = true;
++			}
++			const auto chosen = static_cast<uint8_t>(core.select_options[returns.at<int32_t>(0)] & 0xFF);
++			if(all_picks && free_option && is_losing(chosen)) {
++				pduel->new_message(MSG_RETRY);
++				return FALSE;
++			}
++		}
+ 		return TRUE;
+ 	}
+ }

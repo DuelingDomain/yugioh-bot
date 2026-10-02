@@ -79,6 +79,15 @@ describe("core needs", () => {
     expect(need.ok).toBe(false);
   });
 
+  it("fails a core feature that a probe did not find in require mode (no silent skip)", () => {
+    const missing = needs.coreFeature("multi core with seats", false, "Use a newer build.", join(empty, "probed.wasm"));
+    expect(missing.ok).toBe(false);
+    expect(missing.where).toBe(join(empty, "probed.wasm"));
+    process.env.DUEL_REQUIRE_CORES = "1";
+    expect(() => failIfRequired("a part", missing)).toThrow(/multi core with seats at .*probed\.wasm/);
+    expect(needs.coreFeature("multi core with seats", true, "x", import.meta.filename).ok).toBe(true);
+  });
+
   it("picks the multi cores: the variable, else a file that the documented build makes or a local tagged build", () => {
     delete process.env.MULTI_WASM;
     delete process.env.DOMAIN_MULTI_WASM;

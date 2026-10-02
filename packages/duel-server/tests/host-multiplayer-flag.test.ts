@@ -68,7 +68,8 @@ async function table(format: DuelFormat) {
   hosts.push(host);
   const organizer = { slug: session.slug, guildId: "g1", playerId: player };
   for (let seat = 1; seat < seatCountFor(format); seat += 1) {
-    expect((await post(host, { op: "add-bot", ...organizer, seat })).status).toBe(200);
+    // Seed an existing lobby directly: bot fill through the host is itself gated when tables are off.
+    duels.addPracticeBot(session.slug, "g1", player, buildPracticeBotDeck("normal", DATA), seat);
   }
   duels.setDeck(session.slug, "g1", player, rotated(buildPracticeBotDeck("normal", DATA), 1));
   return { host, worker, organizer, duels };
@@ -78,7 +79,7 @@ describe("duel host with MULTIPLAYER_TABLES off", () => {
   it.each<DuelFormat>(["tag", "ffa3", "ffa4"])("refuses to start a %s table and makes no game", async (format) => {
     const t = await table(format);
     const started = await post(t.host, { op: "start", ...t.organizer });
-    expect(started.status).toBe(409);
+    expect(started.status).toBe(403);
     expect(started.data.error).toBe(MULTIPLAYER_TABLES_OFF_MESSAGE);
     expect(t.worker.created).toBeNull();
     expect(t.duels.get(t.organizer.slug, "g1").status).toBe("lobby");
@@ -94,7 +95,7 @@ describe("duel host with MULTIPLAYER_TABLES off", () => {
     for (const value of ["0", "off", "false", ""]) {
       process.env.MULTIPLAYER_TABLES = value;
       const t = await table("ffa3");
-      expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(409);
+      expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(403);
     }
   });
 });

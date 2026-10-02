@@ -15,6 +15,13 @@ const sources = {
 };
 const directory = resolve(process.env.DUEL_DATA_DIR ?? fileURLToPath(new URL("../../../data/duel-engine/", import.meta.url)));
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
+// integrity.multiScripts (the Lua overlay of duels with more than two seats) is not part of bundleVersion: the host pins
+// it for those duels only (pinnedEngineVersion), so an overlay edit never touches a 1v1 duel or its replay.
+// build-domain-core.sh and build-standard-core.sh compute the same value.
+const bundleVersionOf = (sources: Record<string, unknown>, integrity: Record<string, string>) => {
+  const { multiScripts: _overlay, ...engine } = integrity;
+  return hash(JSON.stringify({ sources, integrity: engine }));
+};
 
 type Manifest = {
   sources: Record<string, unknown>;
@@ -63,9 +70,11 @@ const previous = await readManifest(join(directory, "manifest.json"));
 // (this script replaces that folder), and it changes with the repo, so it is installed on every run.
 const multiScriptsHash = installMultiScripts(directory);
 if (previous && await catalogIsCurrent(previous)) {
-  if (previous.integrity.multiScripts !== multiScriptsHash) {
-    previous.integrity.multiScripts = multiScriptsHash;
-    previous.bundleVersion = hash(JSON.stringify({ sources: previous.sources, integrity: previous.integrity }));
+  const integrity = { ...previous.integrity, multiScripts: multiScriptsHash };
+  const bundleVersion = bundleVersionOf(previous.sources, integrity);
+  if (previous.integrity.multiScripts !== multiScriptsHash || previous.bundleVersion !== bundleVersion) {
+    previous.integrity = integrity;
+    previous.bundleVersion = bundleVersion;
     await writeFile(join(directory, "manifest.json"), JSON.stringify(previous, null, 2) + "\n");
   }
   console.log(JSON.stringify({ directory, skipped: true, ...previous }, null, 2));
@@ -129,7 +138,7 @@ try {
     mergedSources.standardCore = previous.sources.standardCore;
     integrity.standardWasm = hash(await readFile(standardWasmPath));
   }
-  const manifest = { sources: mergedSources, integrity, bundleVersion: hash(JSON.stringify({ sources: mergedSources, integrity })) };
+  const manifest = { sources: mergedSources, integrity, bundleVersion: bundleVersionOf(mergedSources, integrity) };
   await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   console.log(JSON.stringify({ directory, ...manifest }, null, 2));
 } finally {

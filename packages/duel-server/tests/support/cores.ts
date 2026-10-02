@@ -27,9 +27,11 @@ import { currentEngineDataDirectory } from "../engine-data-dir.js";
  * A developer's current local per-task build. It is used when the file exists and MULTI_WASM / DOMAIN_MULTI_WASM
  * are not set. A clean checkout and CI do not have it; they use the canonical build, which the documented build
  * (scripts/build-multi-core.sh, .github/workflows/test.yml) makes. Change the tags when the merged core is installed.
+ * P68 is the production build of patches 0001 to 0068 (OUT_NAME=ocgcore.multi-P68.sync.wasm and ocgcore.multi-domain-P68.sync.wasm); it is the build
+ * installed in data/duel-engine-next. The debug build for the Table test is ocgcore.multi-P68-trap.sync.wasm (see tests/multi-scripts-table.test.ts).
  */
-export const CURRENT_MULTI_TAG = "P2M";
-export const CURRENT_DOMAIN_MULTI_TAG = "D1";
+export const CURRENT_MULTI_TAG = "P68";
+export const CURRENT_DOMAIN_MULTI_TAG = "P68";
 
 export type CoreKind = "standard" | "domain" | "multi" | "domain-multi" | "native" | "data" | "live" | "local";
 
@@ -130,6 +132,14 @@ export const needs = {
   setupDuelists(probeOk: boolean, probedPath: string = currentNseatWasm()): CoreNeed {
     const where = probedPath;
     return { kind: "multi", label: "multi core with Debug.SetupDuelists", where, ok: exists(where) && probeOk, hint: `${BUILD_HINT} MULTI_WASM or NSEAT_WASM names another build.` };
+  },
+  /**
+   * A feature of the multi core that a probe found (a Lua function that a patch adds, for example Duel.MPSeat of patch 0053).
+   * A core without it FAILS in require mode: a probe gate must never hide a suite with `it.skip` (see failIfRequired).
+   * `probeOk` is true when the probe found the feature; pass true when NSEAT_LIVE is not set (the live gate names that case).
+   */
+  coreFeature(label: string, probeOk: boolean, hint: string, path: string = currentNseatWasm()): CoreNeed {
+    return { kind: "multi", label, where: path, ok: exists(path) && probeOk, hint };
   },
   /**
    * The live N-seat scenarios. They also need NSEAT_LIVE=1: the synchronous core cannot be stopped by a test timeout,

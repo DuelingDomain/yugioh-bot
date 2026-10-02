@@ -1,0 +1,7 @@
+core: keep the stock Synchro material effect query order
+
+Compare controllers or teams before the material effect query. Own material skips the query, as stock does. Extra Lua condition calls can change effect IDs and state.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+

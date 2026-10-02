@@ -102,7 +102,9 @@ export function syncDecisionClock(
   if (!previous) return null;
   const stopped = view.stoppedSeats ?? [];
   const decidedStopped = isSeatIndex(decidedSeat) && stopped.includes(decidedSeat);
-  if (timeout === "loss" && !decidedStopped && isClockDue(previous, decidedAt)) {
+  // A due clock of a seat that has left (its loss may still be pending) is not kept: the clock moves on to the next prompt.
+  const dueSeatStopped = previous.activeSeat !== null && stopped.includes(previous.activeSeat);
+  if (timeout === "loss" && !decidedStopped && !dueSeatStopped && isClockDue(previous, decidedAt)) {
     const remaining = liveRemainingMs(previous, decidedAt);
     return {
       turn: previous.turn,

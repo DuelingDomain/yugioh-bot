@@ -9,10 +9,10 @@ losses-team-lp	losses-team-lp	check	ready	losses, win, draw, team LP, Debug.Elim
 elimination	elimination	check	ready	field::eliminate: cards, turns, chain, attack
 elimination-guards	elimination-guards	-	ready	a seat that is not alive gets no prompt and no card
 zones	zones	-	ready	zones at n>2: no Extra Monster Zone mirror, disabled zones
-control-change	control-change	check	ready	control change and swap control at n>2
+control-change	control-change	check	ready	control change and swap control at n>2, by a global effect (real seats) and by an effect of a card (folded values)
 player-ids	player-ids	check	ready	seats 2 and 3 are real seats, PLAYER_NONE and PLAYER_ALL are not
 tag-partner	tag-partner	@DATA@/cards.tsv @SCRIPTS@ all	ready	Tag partner negation with real cards
-range-fold	range-fold	check	ready	core range fold in field.cpp and effect.cpp
+range-fold	range-fold	check	ready	core range fold in field.cpp and effect.cpp; the destroy part runs a card effect (folded), a global effect (real seats) and a global effect with a literal seat
 lua-scope-fold	lua-scope-fold	-	ready	F5 fallback pick (kind c, the operation step; the test card has no target or cost): the harness answers option k % options and the model expects that seat; silent bind with one living opponent; turn player bound on an opponent turn; no kind a records, one kind c record per pick (Lua perspective fold: scope, folded params, yield). The pick at activation is in opponent-pick; a bound opponent eliminated after the bind is in zone-seat-sset
 lua-duel-library-a	lua-duel-library-a	-	ready	F5 fallback pick (kind c): draw/move/send/confirm with 1-tp go to the picked opponent (option k % options), one pick prompt per firing, none with one living opponent, no kind a records (Duel library, top to GetChainEvent, under the fold). The pick at activation is in opponent-pick
 lua-duel-library-b	lua-duel-library-b	-	ready	F5 fallback pick (kind c): the IsPlayerCan* query is the first read of 1 and asks the pick; query and prompts with 1-tp go to the picked opponent (option k % options); one pick per firing (Duel library, SkipPhase to the end: choosers, zones, IsPlayerCan*). The pick at activation is in opponent-pick
@@ -29,7 +29,7 @@ simultaneous-loss	simultaneous-loss	s3	ready	simultaneous losses, FFA draw, batt
 simultaneous-loss	simultaneous-loss	s3n2	ready	simultaneous losses, FFA draw, battle defaults (s3n2)
 simultaneous-loss	simultaneous-loss	s4	ready	simultaneous losses, FFA draw, battle defaults (s4)
 simultaneous-loss	simultaneous-loss	s4n2	ready	simultaneous losses, FFA draw, battle defaults (s4n2)
-confirm-hint-sort	confirm-hint-sort	all	ready	ConfirmCards event players, HINT_OPSELECTED, card operation order
+confirm-hint-sort	confirm-hint-sort	all	ready	ConfirmCards event players (global observer: real seats; card observers: folded), HINT_OPSELECTED, card operation order
 link-column-zones	link-column-zones	zones 4	ready	Link and column zones (zones 4)
 link-column-zones	link-column-zones	zones 3	ready	Link and column zones (zones 3)
 link-column-zones	link-column-zones	zones 2	ready	Link and column zones (zones 2)
@@ -48,3 +48,19 @@ turn-handoff	turn-handoff	check	ready	F9: the turn player is eliminated at battl
 zone-seat-sset	zone-seat-sset	-	ready	F9: Duel.SSet toward the bound opponent at n>2; a bound opponent eliminated while the chain waits leaves no card on its field
 reset-self-turn	reset-self-turn	-	ready	F9: RESET_SELF_TURN alone counts the own turns, not the partner turns (Tag); OPPO alone counts the other team; both count every turn; SkipPhase toward the second opposing seat
 disfield-register	disfield-register	-	ready	F9: an EFFECT_DISABLE_FIELD effect made with Card.RegisterEffect or Duel.RegisterEffect keeps the opponent of its zone prompt (second opponent, not the next seat); an eliminated bound opponent gets no zone moved to another seat; SelectDisableField, SelectFieldZone and SSet toward a dead bound opponent give no prompt, zone or card
+mp-overlay	mp-overlay	-	ready	F7 P4: the Lua overlay of duels with more than two seats: replace, suffix, no script for an orphan suffix, and the overlay does not stay on in a later duel
+f7-window	f7-window	-	ready	F7 P1: the one-opponent window (Duel.MPWindow), Duel.MPBindOpponent, MPAssertBound, MPNeedPick at n>2: probe, nested scope, empty window, core lists, release lists, argument range. Core patch 0050
+f7-seats	f7-seats	-	ready	F7 P2: core seats at n>2: Duel.MPNthDuelist (order, dead seat, partner, restore on every path, prompt in fn), MPSeat, MPSeatOf, MPBindSeat (empty side), global effect with the real rp, Tag flag key = team, n == 2 unchanged. Core patch 0053
+turn-cut-short	turn-cut-short	-	ready	n > 2: a turn cut short by the loss of its turn player counts as an ended turn: the End Phase event of that turn is not skipped for the others, a count-2 RESET_OPPO_TURN effect ends as if the turn had reached its End Phase, nobody is asked (finding s3-turns-1; Tag partner turn does not count)
+proc-bound-seat	proc-bound-seat	-	ready	Procedure fix: a summon procedure with an opponent field binds one opponent for the Normal Summon codes too (Ra Sphere Mode: 3 Tributes of ONE opponent, Ra on that field, no mixed Tribute); a bound seat that loses before the summon ends gives no summon and the card stays in the hand (Ra, Kaiju). 1v1 unchanged
+turn-owns	turn-owns	-	ready	n > 2: Duel.MPTurnOwns(c) is true only in a Standby Phase of the real owner of c (alive), asks nothing, and binds that owner so that Recover(1) of the scope gains the LP of exactly that seat (FFA3 and Tag; dead owner)
+dead-bound-opponent	dead-bound-opponent	-	ready	OQ3: a bound opponent that is gone gives the empty VALUE of its type (0, false, nil, empty group), not "no value" (FFA3, FFA4: Duel.MPBindSeat of a dead seat; PLAYER_NONE and 2 duelists keep the stock no-value result). Core patches 0059 and 0060
+pending-loss-pick	pending-loss-pick	-	ready	n > 2: a pick of one opponent (the chain-link pick, the lazy pick in a target) skips a seat with a pending loss (Debug.EliminateDuelist); an answer that names such a seat gets MSG_RETRY while another option is free, then the other seat is hit; Tag has no pick; the lazy pick built when a seat already has a pending loss lists only the living seat. Core patch 0057
+attacked-seat	attacked-seat	-	ready	n > 2: Duel.MPAttackedSeat() gives the real seat that the current attack goes at (direct attack pick at FFA3 seats 1 and 2, one open opponent without a pick, attack on a monster, FFA4, Tag), nil otherwise; the value at each event and the LP of every seat when the attack is redirected to a monster of another opponent (FFA3, Tag), to nil (direct, damage to the controller of the old target), negated, chained (FFA3, FFA4) or the target leaves. Core patch 0058
+tag-team-loss	tag-team-loss	-	ready	Tag: a team at 0 LP or with a member that draws from an empty Deck loses; CANNOT_LOSE_LP and CANNOT_LOSE_DECK work per member (the team stays alive); both teams at 0 = draw
+tag-team-rules	tag-team-rules	-	ready	Tag: partner monsters are Synchro material on both teams; FFA and n == 2 keep their own-seat checks (core patches 0062 and 0068).
+tag-unique-review	tag-unique-review	-	ready	Tag: a unique-on-field limit counts one copy per team; FFA and n == 2 count one seat (core patch 0063).
+tag-xyz-attach-review	tag-xyz-attach-review	-	ready	Tag: an effect can attach a partner monster as Xyz material without a control-change check; opponent, token and n == 2 restrictions stay (core patch 0064).
+tag-grave-material-review	tag-grave-material-review	-	ready	Tag: extra Ritual and Fusion material effects include the partner Graveyard on both teams; FFA and n == 2 keep one seat (core patch 0065).
+tag-self-attack-review	tag-self-attack-review	-	ready	Tag: EFFECT_SELF_ATTACK permits attacks on own and partner monsters; the attacker stays excluded and EFFECT_ATTACK_ALL keeps its gate, with FFA and n == 2 controls (core patch 0066).
+hints-without-opponent-picks	hints-without-opponent-picks	-	ready	Duel.Hint recipients and unchanged scopes: 12 cases in FFA3, FFA4, Tag and stock two-seat duels; core patch 0067

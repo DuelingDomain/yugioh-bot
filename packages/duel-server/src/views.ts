@@ -15,9 +15,10 @@ import {
   type OcgMessage,
   type OcgQueryFlags as OcgQueryFlagsValue,
 } from "ocgcore-wasm";
-import { partnerSeatOf, seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
+import { partnerSeatOf, seatCountFor, sharedExtraSeatOf, teamOfSeat } from "@yugidraft/shared/duels";
 import { raceLabel, type CardDatabase } from "./cards.js";
 import { fillPlaceholders, locationLabel } from "./text.js";
+import type { CoreCapabilities } from "./core-capabilities.js";
 
 export const LOCATION_DECKMASTER = 0x4000;
 export const DOMAIN_LEAVE_TAX_STEP = 500;
@@ -1143,6 +1144,8 @@ function projectPrompt(
 
 export function projectView(args: {
   lib: OcgCoreSync;
+  /** Capabilities of the binary loaded by this duel. Missing metadata keeps separate EMZ. */
+  coreCapabilities?: CoreCapabilities;
   handle: OcgDuelHandle;
   cards: CardDatabase;
   viewer: number | null;
@@ -1236,6 +1239,7 @@ export function projectView(args: {
       if (info) view.deckMaster = { card: info, inZone: domain.inZone, returns: domain.returns, nextCost: domain.nextCost };
     }
     if (multi) {
+      view.sharedExtraWith = args.coreCapabilities?.ffa4SharedExtraZones ? sharedExtraSeatOf(format, seat, args.eliminated) : null;
       view.team = teamOfSeat(format, seat);
       view.eliminated = false;
       if (args.leaving?.has(seat)) view.pendingElimination = true;
@@ -1291,6 +1295,7 @@ function emptySeatView(
 ): DuelSeatView {
   const view: DuelSeatView = {
     seat,
+    sharedExtraWith: null,
     lp,
     hand: [],
     deckCount: 0,

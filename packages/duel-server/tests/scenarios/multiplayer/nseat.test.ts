@@ -3,10 +3,11 @@ import type { DuelEngineView, DuelPrompt, DuelSeatView } from "@yugidraft/shared
 import { seatCountFor, teamOfSeat, type DuelFormat } from "@yugidraft/shared/duels";
 import type { EngineGame } from "../../../src/engine.js";
 import {
-  defineScenario, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPickSeats, expectPrompt,
-  expectResponseOrder, expectTurn, expectResult, pass, pickOpponent, type Scenario, type Step,
+  defineScenario, eliminate, expectBoard, expectEliminated, expectLabel, expectLp, expectNoPrompt, expectPickOptions, expectPickSeats,
+  expectPrompt, expectResponseOrder, expectRetry, expectTurn, expectResult, pass, pickOpponent, surrender, type Scenario, type Step,
 } from "../../support/dsl.js";
-import { Session, probeSetupDuelists, ScenarioError } from "../../support/session.js";
+import { EngineAnswerError } from "../../../src/prompts.js";
+import { Session, isLuaScriptError, probeSetupDuelists, ScenarioError } from "../../support/session.js";
 import { runScenarios } from "../../support/runner.js";
 import { describeWithCores, needs } from "../../support/cores.js";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
@@ -40,9 +41,25 @@ function attackPrompt(seat: number, targets: number[]): DuelPrompt {
   } as unknown as DuelPrompt;
 }
 
+const RAIGEKI = 12580477;
+const DARK_HOLE = 53129443;
+const MIRROR_FORCE = 44095762;
+const ELF_CODE = 15025844;
+
+/** A card pick: the options are cards on seats. */
+function cardPrompt(seat: number, cards: Array<{ controller: number; code: number; label?: string }>): DuelPrompt {
+  return {
+    id: "cards", seat, kind: "cards", title: "Select the card to destroy", min: 1, max: 1,
+    options: cards.map((card, index) => ({
+      id: `card:${index}`, label: card.label ?? `Card ${card.code}`, controller: card.controller, card: { code: card.code, name: `Card ${card.code}` },
+    })),
+  } as unknown as DuelPrompt;
+}
+
 interface Fake {
   game: EngineGame;
   answers: Array<{ seat: number; id: string; answer: unknown }>;
+  eliminations: Array<{ seat: number; reason: number }>;
 }
 
 function fakeGame(options: {
@@ -50,23 +67,36 @@ function fakeGame(options: {
   seats?: Array<Partial<DuelSeatView>>;
   prompts?: DuelPrompt[];
   result?: DuelEngineView["result"];
+  /** Returns an error message to refuse an answer like the engine does (EngineAnswerError, state and prompt stay). */
+  refuse?: (seat: number, id: string, answer: unknown) => string | null;
+  /** Also changes the state when it refuses: a broken engine. */
+  dirtyRefusal?: boolean;
 }): Fake {
   const count = seatCountFor(options.format);
   const seats = Array.from({ length: count }, (_, seat) => seatView(seat, options.seats?.[seat]));
   const queue = [...(options.prompts ?? [])];
   const answers: Fake["answers"] = [];
+  const eliminations: Fake["eliminations"] = [];
   const game = {
     view: (seat: number) => ({
       turn: 1, turnSeat: 0, phase: "main1", seats, events: [], chain: [], result: options.result ?? null,
       prompt: queue[0]?.seat === seat ? queue[0] : null,
     }),
     answer: (seat: number, id: string, answer: unknown) => {
+      const refusal = options.refuse?.(seat, id, answer) ?? null;
+      if (refusal) {
+        if (options.dirtyRefusal) seats[0] = seatView(0, { lp: 1 });
+        throw new EngineAnswerError(refusal);
+      }
       answers.push({ seat, id, answer });
       queue.shift();
     },
+    eliminate: (seat: number, reason: number) => {
+      eliminations.push({ seat, reason });
+    },
     close: () => undefined,
   } as unknown as EngineGame;
-  return { game, answers };
+  return { game, answers, eliminations };
 }
 
 function scenarioOf(format: DuelFormat, steps: Step[] = []): Scenario {
@@ -177,6 +207,112 @@ describe("N-seat DSL steps (no core)", () => {
     run(s, expectPickSeats(["p1", "p2", "p3"], "p0"), expectPickSeats(["p3", ["p1", "p2"]], "p0"));
     expect(() => run(s, expectPickSeats(["p1", "p2"], "p0"))).toThrow(/offers seats p1, p2, p3, expected exactly p1, p2/);
     expect(() => run(s, expectPickSeats(["p1", "p2", "p3"], "p1"))).toThrow(/p1/);
+  });
+
+  it("eliminate sends the win-reason code to the engine and surrender sends 0", () => {
+    const fake = fakeGame({ format: "ffa3" });
+    const s = session("ffa3", fake);
+    run(s, surrender("p1"), eliminate("p2", 7), eliminate("p0"));
+    expect(fake.eliminations).toEqual([{ seat: 1, reason: 0 }, { seat: 2, reason: 7 }, { seat: 0, reason: 0 }]);
+  });
+
+  it("eliminate fails with the engine message, with no prompt dump when no prompt is open", () => {
+    const fake = fakeGame({ format: "ffa3" });
+    (fake.game as unknown as { eliminate: () => void }).eliminate = () => {
+      throw new EngineAnswerError("Seat is already eliminated");
+    };
+    expect(() => run(session("ffa3", fake), eliminate("p1", 3))).toThrow(/The engine refused the surrender: Seat is already eliminated/);
+  });
+
+  it("expectPickOptions with an array wants exactly these options, in any order, by seat, card or label", () => {
+    const fake = fakeGame({ format: "ffa4", prompts: [attackPrompt(0, [3, 1, 2])] });
+    const s = session("ffa4", fake);
+    run(s, expectPickOptions([{ seat: "p1" }, { seat: "p2" }, { seat: "p3" }], "p0"), expectPickOptions([{ label: "player 4" }, { seat: "p1" }, { id: "opt:2" }]));
+    expect(() => run(s, expectPickOptions([{ seat: "p1" }, { seat: "p2" }]))).toThrow(/unexpected option opt:0 "Attack Player 4 directly" \[p3\]/);
+    expect(() => run(s, expectPickOptions([{ seat: "p1" }, { seat: "p2" }, { seat: "p3" }, { seat: "p0" }]))).toThrow(/no option left for \{"seat":"p0"\}/);
+    expect(() => run(s, expectPickOptions([{ seat: "p1" }, { seat: "p1" }, { seat: "p2" }]))).toThrow(/no option left for/);
+    expect(() => run(s, expectPickOptions([{ seat: "p1" }, { seat: "p2" }, { seat: "p3" }], "p2"))).toThrow(/for p0/);
+  });
+
+  it("expectPickOptions matches overlapping refs without a greedy mistake", () => {
+    const fake = fakeGame({ format: "ffa3", prompts: [cardPrompt(0, [{ controller: 1, code: RAIGEKI }, { controller: 1, code: DARK_HOLE }])] });
+    // The first ref fits both options. A greedy match would give it option 0 and strand the second ref.
+    run(session("ffa3", fake), expectPickOptions([{ seat: "p1" }, { seat: "p1", card: RAIGEKI }]));
+  });
+
+  it("expectPickOptions include, exclude and count check cards of one opponent in a card pick", () => {
+    const fake = fakeGame({ format: "ffa3", prompts: [cardPrompt(0, [{ controller: 1, code: RAIGEKI }, { controller: 1, code: DARK_HOLE }, { controller: 1, code: MIRROR_FORCE }])] });
+    const s = session("ffa3", fake);
+    run(s, expectPickOptions({ include: [{ card: RAIGEKI }, { card: MIRROR_FORCE }], exclude: [{ seat: "p2" }], count: 3 }, "p0"));
+    expect(() => run(s, expectPickOptions({ exclude: [{ seat: "p1" }] }))).toThrow(/must not be offered, but card:0/);
+    expect(() => run(s, expectPickOptions({ count: 2 }))).toThrow(/expected 2 option\(s\), got 3/);
+    expect(() => run(s, expectPickOptions({ include: [{ card: ELF_CODE }] }))).toThrow(/no option left for/);
+  });
+
+  it("expectPickOptions fails with no open prompt", () => {
+    expect(() => run(session("ffa3", fakeGame({ format: "ffa3" })), expectPickOptions([]))).toThrow(/Expected an open prompt/);
+  });
+
+  it("expectLabel compares the label text of exactly one option", () => {
+    const fake = fakeGame({ format: "ffa4", prompts: [attackPrompt(0, [1, 2, 3])] });
+    const s = session("ffa4", fake);
+    run(s, expectLabel({ seat: "p2" }, "Attack Player 3 directly", "p0"), expectLabel({ seat: "p3" }, "PLAYER 4"), expectLabel({ id: "opt:0" }, "player 2"));
+    expect(() => run(s, expectLabel({ seat: "p2" }, "Player 2"))).toThrow(/label of option opt:1 is "Attack Player 3 directly"/);
+    expect(() => run(s, expectLabel({ label: "Player" }, "x"))).toThrow(/3 options match/);
+    expect(() => run(s, expectLabel({ seat: "p0" }, "x"))).toThrow(/No option matches \{"seat":"p0"\}/);
+  });
+
+  it("expectRetry passes when the engine refuses the answer and nothing changes", () => {
+    const fake = fakeGame({
+      format: "ffa4", prompts: [attackPrompt(0, [1, 2])],
+      refuse: (seat, _id, answer) => (seat !== 0 ? "Wrong seat" : (answer as { choice?: string }).choice === "opt:0" || (answer as { choice?: string }).choice === "opt:1" ? null : "Invalid answer"),
+    });
+    const s = session("ffa4", fake);
+    run(s, expectRetry({ choice: "opt:3" }, { error: "Invalid answer", by: "p0" }), expectRetry({ choice: "opt:0" }, { as: "p3", error: "Wrong seat" }));
+    expect(fake.answers).toEqual([]);
+    run(s, pickOpponent("p1", "p0"), expectNoPrompt());
+  });
+
+  it("expectRetry fails when the engine takes the answer", () => {
+    const fake = fakeGame({ format: "ffa3", prompts: [attackPrompt(0, [1, 2])] });
+    expect(() => run(session("ffa3", fake), expectRetry({ choice: "opt:0" }))).toThrow(/took the answer \{"choice":"opt:0"\} from p0\. It must refuse it/);
+  });
+
+  it("expectRetry fails on another error, on a wrong message and on a refusal that changes the state", () => {
+    const refused = (message: string, dirty = false) => fakeGame({ format: "ffa3", prompts: [attackPrompt(0, [1, 2])], refuse: () => message, dirtyRefusal: dirty });
+    expect(() => run(session("ffa3", refused("Invalid answer")), expectRetry({ choice: "x" }, { error: "Stale prompt" }))).toThrow(/error is "Invalid answer", expected it to contain "Stale prompt"/);
+    expect(() => run(session("ffa3", refused("Invalid answer", true)), expectRetry({ choice: "x" }))).toThrow(/state of the duel changed/);
+    const broken = fakeGame({ format: "ffa3", prompts: [attackPrompt(0, [1, 2])] });
+    (broken.game as unknown as { answer: () => void }).answer = () => {
+      throw new Error("core crashed");
+    };
+    expect(() => run(session("ffa3", broken), expectRetry({ choice: "x" }))).toThrow(/failed with Error: core crashed/);
+  });
+
+  it("expectRetry fails on a Lua script error unless the step names that script error", () => {
+    const refused = (message: string) => fakeGame({ format: "ffa3", prompts: [attackPrompt(0, [1, 2])], refuse: () => message });
+    const chunk = 'Invalid answer: [string "c42091632.lua"]:46: attempt to index a nil value (local \'tc\')';
+    const file = "Invalid answer: c42091632.lua:46: attempt to index a nil value";
+    // No expected error, and an expected error that the script error also contains: both are a failed scenario.
+    expect(() => run(session("ffa3", refused(chunk)), expectRetry({ choice: "x" }))).toThrow(/Lua script error/);
+    expect(() => run(session("ffa3", refused(file)), expectRetry({ choice: "x" }))).toThrow(/Lua script error/);
+    expect(() => run(session("ffa3", refused(file)), expectRetry({ choice: "x" }, { error: "Invalid answer" }))).toThrow(/Lua script error/);
+    // The step that expects the script error passes.
+    run(session("ffa3", refused(file)), expectRetry({ choice: "x" }, { error: "c42091632.lua:46" }));
+    // A plain refusal still passes.
+    run(session("ffa3", refused("Invalid answer")), expectRetry({ choice: "x" }, { error: "Invalid answer" }));
+    expect(isLuaScriptError("Invalid answer")).toBe(false);
+  });
+
+  it("the three prompt-inspection steps keep a routine zone prompt open", () => {
+    const zonePrompt = {
+      id: "zone", seat: 0, kind: "places", title: "Select a zone for Raigeki",
+      options: [{ id: "place:0", label: "Zone 1", controller: 1, location: 4, sequence: 0 }, { id: "place:1", label: "Zone 2", controller: 2, location: 4, sequence: 0 }],
+    } as unknown as DuelPrompt;
+    const fake = fakeGame({ format: "ffa3", prompts: [zonePrompt], refuse: (_seat, _id, answer) => ((answer as { selected?: string[] }).selected?.[0] === "place:9" ? "Invalid answer" : null) });
+    const s = session("ffa3", fake);
+    run(s, expectPickOptions([{ seat: "p1" }, { seat: "p2" }]), expectLabel({ seat: "p2" }, "Zone 2"), expectRetry({ selected: ["place:9"] }, { error: "Invalid answer" }));
+    expect(fake.answers).toEqual([]);
   });
 
   it("pickOpponent fails for a seat that is not offered, or for the wrong answering seat", () => {

@@ -145,12 +145,13 @@ static void mode_query() {
 static void mode_tribute() {
 	// Summoner: a card in the hand of duelist 0. One monster of another duelist T is the tribute, on the field of T.
 	// Expected (ADR-0002): the summon goes to T = any duelist that is not on the team of 0, so the monster is usable.
+	// In Tag the monster of the partner is usable as a plain Tribute too (R-TAG-PARTNER-COST), whatever T is.
 	struct Case { int layout; int toplayer; bool want; };
 	const Case cases[] = {
 		{0, 1, true}, {0, 0, false},
 		{1, 1, true}, {1, 2, true}, {1, 0, false},
 		{2, 1, true}, {2, 2, true}, {2, 3, true}, {2, 0, false},
-		{3, 1, true}, {3, 3, true}, {3, 2, false}, {3, 0, false},
+		{3, 1, true}, {3, 3, true}, {3, 2, true}, {3, 0, false}, // Tag: the monster of the partner (2) is a Tribute of the team (R-TAG-PARTNER-COST)
 	};
 	for(const auto& c : cases) {
 		OCG_Duel d = board(c.layout);
@@ -200,7 +201,8 @@ static void mode_unique(bool bad_values) {
 		pc->unique_location = LOCATION_MZONE;
 		f.add_unique_card(pc);
 		for(int p = 0; p < n; ++p) {
-			const bool want = p == con || !f.same_team(con, static_cast<uint8_t>(p));
+			// Both unique ranges cover every seat, including a Tag partner.
+			const bool want = true;
 			const bool has = f.core.unique_cards[p].count(pc) != 0;
 			EXPECT(has == want, "%s: unique_cards[%d] has card %d, want %d", layout_name[layout], p, has, want);
 		}

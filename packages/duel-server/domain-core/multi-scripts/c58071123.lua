@@ -1,0 +1,6 @@
+if not aux.MPForEachDuelist then return end
+-- Every duelist takes 800 damage (R1, Q3, Tag partner included).
+function s.damop(e,tp,eg,ep,ev,re,r,rp)
+	aux.MPForEachDuelist(function(tp_i) Duel.Damage(tp_i,800,REASON_EFFECT,true) end)
+	Duel.RDComplete()
+end

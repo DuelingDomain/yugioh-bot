@@ -44,6 +44,21 @@ export interface EventMatch {
   text?: string;
 }
 
+/**
+ * One option of the open prompt, by what a player sees. Every field given must match: `seat` the controller of the option (the
+ * seat of an opponent pick, the owner of a card or zone), `card` the card of the option, `label` a substring of the option
+ * label (ignores case), `id` the exact option id.
+ */
+export interface OptionRef {
+  seat?: DuelistId;
+  card?: CardRef;
+  label?: string;
+  id?: string;
+}
+
+/** The options of the open prompt: an array means exactly these options (each used once, any order). */
+export type OptionsExpect = OptionRef[] | { include?: OptionRef[]; exclude?: OptionRef[]; count?: number };
+
 export type ListExpect = CardRef[] | { include?: CardRef[]; exclude?: CardRef[]; count?: number };
 
 export type ZoneExpect =
@@ -53,6 +68,8 @@ export type ZoneExpect =
       card: CardRef;
       pos?: Stance | "faceup" | "facedown";
       materials?: number;
+      /** Current ATK, including continuous effects and negation. */
+      attack?: number;
       /** Exact counters on the card: counter type to count. {} means no counters. */
       counters?: Record<number, number>;
     };
@@ -89,6 +106,7 @@ export interface PromptExpect {
 }
 
 export type Step =
+  | { op: "expectPrivateCards"; cards: Array<{ owner: DuelistId; from: "hand" | "mzone" | "szone"; seq: number; card: CardRef; visibleTo: DuelistId[] }> }
   | { op: "activate"; sel: CardSel; by?: DuelistId }
   | { op: "normalSummon"; sel: CardSel; by?: DuelistId }
   | { op: "set"; sel: CardSel; by?: DuelistId }
@@ -97,7 +115,7 @@ export type Step =
   | { op: "attack"; attacker: CardSel; target: CardSel | "direct"; by?: DuelistId }
   | { op: "phase"; to: "battle" | "main2" | "end"; by?: DuelistId }
   | { op: "pass"; by?: DuelistId }
-  | { op: "surrender"; seat: DuelistId }
+  | { op: "surrender"; seat: DuelistId; reason?: number }
   | { op: "choose"; match: string; by?: DuelistId }
   | { op: "select"; sels: CardSel[]; by?: DuelistId }
   | { op: "auto"; by?: DuelistId }
@@ -112,19 +130,25 @@ export type Step =
   | { op: "expectBoard"; board: BoardExpect }
   | { op: "expectEvents"; events: EventMatch[] }
   | { op: "expectNoEvent"; event: EventMatch }
+  | { op: "expectLog"; lines: string[] }
+  | { op: "expectNoLog"; text: string }
   | { op: "expectResolved"; order: CardRef[] }
   | { op: "expectChain"; links: CardRef[] }
   | { op: "expectPrompt"; prompt: PromptExpect }
   | { op: "expectNoPrompt" }
   | { op: "expectOffered"; action: ActionKind | "choice"; sel: CardSel; by?: DuelistId }
   | { op: "expectNotOffered"; action: ActionKind | "choice"; sel: CardSel; by?: DuelistId }
+  | { op: "expectSeatNotOffered"; action: ActionKind | "choice"; sel: CardSel; by: DuelistId }
   | { op: "expectResult"; winner?: DuelistId | null; team?: number | null; reason?: string }
   | { op: "expectEliminated"; seats: DuelistId[] }
   | { op: "expectLp"; who: { seat: DuelistId } | { team: number }; value: number }
   | { op: "expectResponseOrder"; seats: DuelistId[] }
   | { op: "expectTurn"; seat: DuelistId; turn?: number }
   | { op: "expectPickSeats"; seats: DuelistId[]; by?: DuelistId }
-  | { op: "pickOpponent"; seat: DuelistId; by?: DuelistId };
+  | { op: "pickOpponent"; seat: DuelistId; by?: DuelistId }
+  | { op: "expectPickOptions"; options: OptionsExpect; by?: DuelistId }
+  | { op: "expectLabel"; option: OptionRef; text: string; by?: DuelistId }
+  | { op: "expectRetry"; answer: DuelAnswer; as?: DuelistId; error?: string; by?: DuelistId };
 
 // Actions -------------------------------------------------------------------------------------
 export const activate = (sel: CardSel, by?: DuelistId): Step => ({ op: "activate", sel, by });
@@ -146,9 +170,17 @@ export const pass = (by?: DuelistId): Step => ({ op: "pass", by });
 
 /**
  * The seat gives up (FFA surrender): `game.eliminate` runs `Debug.EliminateDuelist`. The core applies the loss at its next Adjust, so
- * with a prompt open for another seat the loss lands after that seat answers. Works at any time, no prompt is needed.
+ * with a prompt open for another seat that prompt stays open (the engine does not answer it) and the loss lands after that seat
+ * answers. A prompt of the seat that gives up is answered by the engine. A routine zone or position prompt stays open for this step.
+ * Works at any time, no prompt is needed.
  */
 export const surrender = (seat: DuelistId): Step => ({ op: "surrender", seat });
+/**
+ * Eliminate a duelist with a win-reason code (`Debug.EliminateDuelist(seat, reason)`). Same engine call and the same timing as
+ * `surrender`, which is `eliminate(seat, 0)`. Use it for a loss that is not a surrender, or between two other steps of a chain
+ * (the loss lands at the next Adjust, see `surrender`). Fails when the engine refuses: the seat is already out, or the duel has two seats.
+ */
+export const eliminate = (seat: DuelistId, reason = 0): Step => ({ op: "surrender", seat, reason });
 
 // Answers to the next prompt ----------------------------------------------------------------------
 /** Pick a choice by option id or label substring. */
@@ -169,9 +201,15 @@ export const raw = (answer: DuelAnswer, by?: DuelistId): Step => ({ op: "raw", a
 
 // Expectations ------------------------------------------------------------------------------------
 export const expectBoard = (board: BoardExpect): Step => ({ op: "expectBoard", board });
+/** Check the real projection of each private card for every seat and the spectator. Hidden cards have only their place and position. */
+export const expectPrivateCards = (cards: Extract<Step, { op: "expectPrivateCards" }>["cards"]): Step => ({ op: "expectPrivateCards", cards });
 /** These events happened in this order (other events may sit between them). */
 export const expectEvents = (...events: EventMatch[]): Step => ({ op: "expectEvents", events });
 export const expectNoEvent = (event: EventMatch): Step => ({ op: "expectNoEvent", event });
+/** The duel log (view.log: dice rolls, coin tosses and other lines that are no event) has these lines, each as a substring, in this order. */
+export const expectLog = (...lines: string[]): Step => ({ op: "expectLog", lines });
+/** No line of the duel log contains this text. */
+export const expectNoLog = (text: string): Step => ({ op: "expectNoLog", text });
 /** The chain links resolved in exactly this order (every chain-resolving event so far). */
 export const expectResolved = (...order: CardRef[]): Step => ({ op: "expectResolved", order });
 /** The chain stack now, from link 1 up. */
@@ -185,6 +223,14 @@ export const expectOffered = (action: ActionKind | "choice", sel: CardSel, by?: 
 /** The open prompt does NOT offer this action on this card. Fails if it does. */
 export const expectNotOffered = (action: ActionKind | "choice", sel: CardSel, by?: DuelistId): Step => ({
   op: "expectNotOffered", action, sel, by,
+});
+/**
+ * This seat's private view has no offer for the card. Passes when the seat has no open prompt,
+ * including when another seat has the prompt. This does not prove the card is illegal in a response window.
+ * To prove that a card is not offered in a real window, open that seat's prompt and use expectNotOffered.
+ */
+export const expectSeatNotOffered = (action: ActionKind | "choice", sel: CardSel, by: DuelistId): Step => ({
+  op: "expectSeatNotOffered", action, sel, by,
 });
 /** What the final result must be. `seat: null` or `team: null` means a draw. Omitted fields are not checked. */
 export interface ResultExpect {
@@ -219,6 +265,30 @@ export const expectTurn = (seat: DuelistId, turn?: number): Step => ({ op: "expe
 export const expectPickSeats = (seats: Array<DuelistId | DuelistId[]>, by?: DuelistId): Step => ({ op: "expectPickSeats", seats: seats.flat(), by });
 /** Answer the "pick one opponent" prompt of a direct attack (N-seat formats): attack this seat. */
 export const pickOpponent = (seat: DuelistId, by?: DuelistId): Step => ({ op: "pickOpponent", seat, by });
+
+/**
+ * The open prompt offers exactly these options (array), or the options that `include` / `exclude` name, with `count` in all.
+ * An option is named by its seat, card, label substring or id (see OptionRef). Use it for a pick: the seats of an opponent pick,
+ * the cards of one opponent in a card pick, the pool of a chooser. `by` also checks which duelist holds the prompt.
+ * Unlike `expectPickSeats` it can also check cards and labels, and it counts options.
+ */
+export const expectPickOptions = (options: OptionsExpect, by?: DuelistId): Step => ({ op: "expectPickOptions", options, by });
+/**
+ * The label that the player sees on one option of the open prompt contains `text` (ignores case). The option is named as in
+ * `expectPickOptions` and must be exactly one. It checks the text on screen, for example "Attack Player 3 directly" or "Player 2".
+ * It does NOT read Lua values: an effect label or a flag-effect label has no view in the engine.
+ */
+export const expectLabel = (option: OptionRef, text: string, by?: DuelistId): Step => ({ op: "expectLabel", option, text, by });
+/**
+ * Send an answer that the engine must refuse (the core reports MSG_RETRY, or the host rejects the option). The step passes when the
+ * answer throws an engine error, the same prompt is still open and every seat view is byte for byte the same as before.
+ * `as` is the seat that sends the answer (default: the seat that holds the prompt), so a wrong seat can answer. `error` is a
+ * substring of the error message ("Wrong seat", "Invalid answer", "Stale prompt"). `by` checks which duelist holds the prompt.
+ * Fails when the engine takes the answer.
+ */
+export const expectRetry = (answer: DuelAnswer, opts: { as?: DuelistId; error?: string; by?: DuelistId } = {}): Step => ({
+  op: "expectRetry", answer, as: opts.as, error: opts.error, by: opts.by,
+});
 
 // Scenario ------------------------------------------------------------------------------------------
 export interface Scenario {

@@ -79,6 +79,11 @@ export interface BoardSpec {
   format?: DuelFormat;
   /** Reserved. The format fixes the teams. */
   teams?: DuelistId[][];
+  /**
+   * Test only: names of `Duel.*` functions that the core adds for the multi-player formats (for example "MPAttackedSeat"). They are set to nil
+   * when the duel starts, so a scenario can run the fallback of the overlay that an older core without the function would take.
+   */
+  withoutCoreFunctions?: string[];
   p0?: DuelistSetup;
   p1?: DuelistSetup;
   p2?: DuelistSetup;
@@ -200,6 +205,10 @@ export function compileBoard(board: BoardSpec, dir?: string): CompiledBoard {
       "undo:SetOperation(function(e) skipDraw:Reset() e:Reset() end); Duel.RegisterEffect(undo,0)",
       "end",
     );
+  }
+  for (const name of board.withoutCoreFunctions ?? []) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`withoutCoreFunctions: "${name}" is not a function name`);
+    lua.push(`Duel.${name}=nil`);
   }
   if (board.attackFirstTurn) {
     lua.push(

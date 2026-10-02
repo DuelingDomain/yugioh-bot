@@ -1,3 +1,6 @@
 {
-  "R-COMMON-OPP-PICK": "the pick is proven for LP (Hinotama) and the hand (Mind Crush); no scenario uses an effect on the opponent's Deck or Extra Deck or one that makes an opponent draw."
+  "R-COMMON-OPP-PICK": "the pick is proven for LP (Hinotama) and the hand (Mind Crush); no scenario uses an effect on the opponent's Deck or Extra Deck or one that makes an opponent draw.",
+  "R-TAG-TURN-COUNT": "the only scenarios use Final Countdown, a card that the deck check forbids at 3 or more seats; the setup puts it in the hand. They prove the engine rule (the End Phase of every duelist counts, the partner of a Tag team too) but no legal card. The legal turn-count cards (Steelcage, RESET_OPPO_TURN) are in opponent-turns.ts, under other rules.",
+  "R-FFA-NO-ATTACK": "Old scenarios prove blocked early turns, but not the first Battle Phase on the last living duelist's first turn (pending engine change).",
+  "R-FFA-ELIMINATION": "The token exception on other fields has no live outcome proof (pending engine change). Return of other owners' cards is tracked by R-FFA-RETURN-OWNED-CARDS."
 }

@@ -1,0 +1,1395 @@
+[
+  {
+    "scenario": "player-all-lp-pair-26273196-ffa3-p0-green",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          24094653
+        ],
+        "monsters": [
+          [
+            "Time Wizard of Tomorrow"
+          ],
+          [
+            "Beaver Warrior"
+          ],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-26273196-ffa3-p0-red",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Select heads or tails",
+          "context": null,
+          "options": [
+            {
+              "label": "Heads",
+              "controller": null
+            },
+            {
+              "label": "Tails",
+              "controller": null
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          24094653,
+          26273196
+        ],
+        "monsters": [
+          [
+            "Time Wizard of Tomorrow"
+          ],
+          [
+            "Beaver Warrior"
+          ],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          24094653,
+          26273196
+        ],
+        "monsters": [
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-26273196-ffa4-p0-green",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            },
+            {
+              "label": "Player 4",
+              "controller": 3
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          24094653
+        ],
+        "monsters": [
+          [
+            "Time Wizard of Tomorrow"
+          ],
+          [
+            "Beaver Warrior"
+          ],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-26273196-ffa4-p0-red",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Select heads or tails",
+          "context": null,
+          "options": [
+            {
+              "label": "Heads",
+              "controller": null
+            },
+            {
+              "label": "Tails",
+              "controller": null
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          24094653,
+          26273196
+        ],
+        "monsters": [
+          [
+            "Time Wizard of Tomorrow"
+          ],
+          [
+            "Beaver Warrior"
+          ],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            },
+            {
+              "label": "Player 4",
+              "controller": 3
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          24094653,
+          26273196
+        ],
+        "monsters": [
+          [],
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-46918794-ffa3-p0-green",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-46918794-ffa3-p0-red",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "places",
+          "title": "Select a zone for Tremendous Fire",
+          "context": null,
+          "options": [
+            {
+              "label": "P1 Spell & Trap Zone 1",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 2",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 3",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 4",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 5",
+              "controller": 0
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "prompt": {
+          "kind": "places",
+          "title": "Select a zone for Tremendous Fire",
+          "context": null,
+          "options": [
+            {
+              "label": "P1 Spell & Trap Zone 1",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 2",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 3",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 4",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 5",
+              "controller": 0
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-46918794-ffa4-p0-green",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            },
+            {
+              "label": "Player 4",
+              "controller": 3
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-46918794-ffa4-p0-red",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "places",
+          "title": "Select a zone for Tremendous Fire",
+          "context": null,
+          "options": [
+            {
+              "label": "P1 Spell & Trap Zone 1",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 2",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 3",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 4",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 5",
+              "controller": 0
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "prompt": {
+          "kind": "places",
+          "title": "Select a zone for Tremendous Fire",
+          "context": null,
+          "options": [
+            {
+              "label": "P1 Spell & Trap Zone 1",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 2",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 3",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 4",
+              "controller": 0
+            },
+            {
+              "label": "P1 Spell & Trap Zone 5",
+              "controller": 0
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-6909330-ffa3-p0-green",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "places",
+          "title": "Select a zone for Beaver Warrior",
+          "context": null,
+          "options": [
+            {
+              "label": "P1 Monster Zone 1",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 2",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 3",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 4",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 5",
+              "controller": 0
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-6909330-ffa3-p0-red",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "places",
+          "title": "Select a zone for Beaver Warrior",
+          "context": null,
+          "options": [
+            {
+              "label": "P1 Monster Zone 1",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 2",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 3",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 4",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 5",
+              "controller": 0
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "prompt": {
+          "kind": "places",
+          "title": "Select a zone for Beaver Warrior",
+          "context": null,
+          "options": [
+            {
+              "label": "P1 Monster Zone 1",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 2",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 3",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 4",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 5",
+              "controller": 0
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-6909330-ffa4-p0-green",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "places",
+          "title": "Select a zone for Beaver Warrior",
+          "context": null,
+          "options": [
+            {
+              "label": "P1 Monster Zone 1",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 2",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 3",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 4",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 5",
+              "controller": 0
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-6909330-ffa4-p0-red",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "places",
+          "title": "Select a zone for Beaver Warrior",
+          "context": null,
+          "options": [
+            {
+              "label": "P1 Monster Zone 1",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 2",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 3",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 4",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 5",
+              "controller": 0
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "prompt": {
+          "kind": "places",
+          "title": "Select a zone for Beaver Warrior",
+          "context": null,
+          "options": [
+            {
+              "label": "P1 Monster Zone 1",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 2",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 3",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 4",
+              "controller": 0
+            },
+            {
+              "label": "P1 Monster Zone 5",
+              "controller": 0
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-76004142-ffa3-p0-green",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [
+            "Luster Dragon",
+            "Beaver Warrior"
+          ],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-76004142-ffa3-p0-red",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "cards",
+          "title": "Select a face-up card(s)",
+          "context": null,
+          "options": [
+            {
+              "label": "Luster Dragon",
+              "controller": 1
+            },
+            {
+              "label": "Beaver Warrior",
+              "controller": 1
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [
+            "Luster Dragon",
+            "Beaver Warrior"
+          ],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            }
+          ]
+        },
+        "lp": [
+          7050,
+          8000,
+          8000
+        ],
+        "resolving": [
+          76004142
+        ],
+        "monsters": [
+          [],
+          [
+            "Luster Dragon",
+            "Beaver Warrior"
+          ],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-76004142-ffa4-p0-green",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            },
+            {
+              "label": "Player 4",
+              "controller": 3
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [
+            "Luster Dragon",
+            "Beaver Warrior"
+          ],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-76004142-ffa4-p0-red",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "cards",
+          "title": "Select a face-up card(s)",
+          "context": null,
+          "options": [
+            {
+              "label": "Luster Dragon",
+              "controller": 1
+            },
+            {
+              "label": "Beaver Warrior",
+              "controller": 1
+            }
+          ]
+        },
+        "lp": [
+          8000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [],
+        "monsters": [
+          [],
+          [
+            "Luster Dragon",
+            "Beaver Warrior"
+          ],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            },
+            {
+              "label": "Player 4",
+              "controller": 3
+            }
+          ]
+        },
+        "lp": [
+          7050,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          76004142
+        ],
+        "monsters": [
+          [],
+          [
+            "Luster Dragon",
+            "Beaver Warrior"
+          ],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-83819309-ffa3-p0-green",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            }
+          ]
+        },
+        "lp": [
+          9000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          84257639
+        ],
+        "monsters": [
+          [
+            "Cooling Embers"
+          ],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-83819309-ffa3-p0-red",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Select an option",
+          "context": null,
+          "options": [
+            {
+              "label": "You gain 1000 LP",
+              "controller": null
+            },
+            {
+              "label": "Your opponent gains 1000 LP",
+              "controller": null
+            }
+          ]
+        },
+        "lp": [
+          9000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          84257639,
+          83819309
+        ],
+        "monsters": [
+          [
+            "Cooling Embers"
+          ],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            }
+          ]
+        },
+        "lp": [
+          9000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          84257639,
+          83819309
+        ],
+        "monsters": [
+          [
+            "Cooling Embers"
+          ],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-83819309-ffa4-p0-green",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            },
+            {
+              "label": "Player 4",
+              "controller": 3
+            }
+          ]
+        },
+        "lp": [
+          9000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          84257639
+        ],
+        "monsters": [
+          [
+            "Cooling Embers"
+          ],
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "player-all-lp-pair-83819309-ffa4-p0-red",
+    "checkpoints": [
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Select an option",
+          "context": null,
+          "options": [
+            {
+              "label": "You gain 1000 LP",
+              "controller": null
+            },
+            {
+              "label": "Your opponent gains 1000 LP",
+              "controller": null
+            }
+          ]
+        },
+        "lp": [
+          9000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          84257639,
+          83819309
+        ],
+        "monsters": [
+          [
+            "Cooling Embers"
+          ],
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "prompt": {
+          "kind": "choice",
+          "title": "Choose an opponent",
+          "context": {
+            "type": "opponent"
+          },
+          "options": [
+            {
+              "label": "Player 2",
+              "controller": 1
+            },
+            {
+              "label": "Player 3",
+              "controller": 2
+            },
+            {
+              "label": "Player 4",
+              "controller": 3
+            }
+          ]
+        },
+        "lp": [
+          9000,
+          8000,
+          8000,
+          8000
+        ],
+        "resolving": [
+          84257639,
+          83819309
+        ],
+        "monsters": [
+          [
+            "Cooling Embers"
+          ],
+          [],
+          [],
+          []
+        ],
+        "grave": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  }
+]

@@ -2,6 +2,7 @@ import {
   opponentSeatsOf,
   partnerSeatOf,
   seatCountFor,
+  sharedExtraSeatOf,
   teamOfSeat,
   type DuelEngineView,
   type DuelFormat,
@@ -101,6 +102,22 @@ export function seatNamer(seats: ReadonlyArray<{ seat: number; displayName: stri
 
 export function isEliminated(view: DuelSeatView | undefined): boolean {
   return view?.eliminated === true;
+}
+
+/** Each reciprocal living FFA4 across pair once, in seat order. Older views keep separate EMZ rows. */
+export function sharedExtraPairs(engine: Pick<DuelEngineView, "format" | "seats">): Array<[DuelSeatView, DuelSeatView]> {
+  if (engineFormat(engine) !== "ffa4") return [];
+  const bySeat = new Map(engine.seats.map((view) => [view.seat, view]));
+  const pairs: Array<[DuelSeatView, DuelSeatView]> = [];
+  for (const view of engine.seats) {
+    const across = view.sharedExtraWith;
+    if (across == null || across <= view.seat || across !== sharedExtraSeatOf("ffa4", view.seat) || isEliminated(view)) continue;
+    const other = bySeat.get(across);
+    // Older cores can occupy both mirrored cells. Keep both rows so neither card is hidden.
+    if (other && ((view.monsters[5] && other.monsters[6]) || (view.monsters[6] && other.monsters[5]))) continue;
+    if (other && !isEliminated(other) && other.sharedExtraWith === view.seat) pairs.push([view, other]);
+  }
+  return pairs.sort(([a], [b]) => a.seat - b.seat);
 }
 
 /** The seat that plays after `seat`, skipping eliminated seats. Null when no other seat is alive. */
@@ -239,25 +256,23 @@ export function disabledZoneNames(view: object | null | undefined): string[] {
 }
 
 /**
- * The shared DuelField mirrors the two Extra Monster Zones of both halves into one band (1v1 rule). With
- * three or more seats every seat owns its zones, so the focused opponent's EMZ cards leave the view given to
- * DuelField and show in their own row.
+ * DuelField mirrors the two halves into one EMZ band (1v1). At multi-seat tables, the focused opponent's
+ * separate EMZ and any FFA4 shared pairs are drawn outside that field, so remove their cards from its view.
  */
-export function withoutSeatExtraZones(engine: DuelEngineView, seat: number | null): DuelEngineView {
-  if (seat == null) return engine;
+export function withoutSeatExtraZones(engine: DuelEngineView, seat: number | null, sharedSeats: ReadonlySet<number> = new Set()): DuelEngineView {
+  if (seat == null && sharedSeats.size === 0) return engine;
   return {
     ...engine,
-    seats: engine.seats.map((view) => (view.seat === seat ? { ...view, monsters: view.monsters.slice(0, 5) } : view)),
+    seats: engine.seats.map((view) => (view.seat === seat || sharedSeats.has(view.seat) ? { ...view, monsters: view.monsters.slice(0, 5) } : view)),
   };
 }
 
-/** Matching filter for legal and selected keys: the zones of `seat` at sequence 5 and 6 belong to its own row. */
-export function withoutSeatExtraKeys(keys: ReadonlySet<string>, seat: number | null): Set<string> {
-  if (seat == null) return new Set(keys);
+/** Remove EMZ keys whose cells are outside DuelField, in a separate or shared row. */
+export function withoutSeatExtraKeys(keys: ReadonlySet<string>, seat: number | null, sharedSeats: ReadonlySet<number> = new Set()): Set<string> {
   const out = new Set<string>();
   for (const key of keys) {
     const [controller, location, sequence] = key.split(":");
-    if (Number(controller) === seat && Number(location) === LOCATION_MZONE && (sequence === "5" || sequence === "6")) continue;
+    if ((Number(controller) === seat || sharedSeats.has(Number(controller))) && Number(location) === LOCATION_MZONE && (sequence === "5" || sequence === "6")) continue;
     out.add(key);
   }
   return out;

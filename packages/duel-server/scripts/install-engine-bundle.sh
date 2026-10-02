@@ -62,11 +62,15 @@ multi_scripts_hash() {
 # The Lua overlay of duels with more than two seats ships as <bundle>/multi-scripts. Its hash must match the manifest.
 multi_scripts_ok() {
   root="$1"
-  [ -f "$root/multi-scripts/mp-utility.lua" ] || return 1
-  [ -f "$root/multi-scripts/MANIFEST.json" ] || return 1
+  if [ ! -f "$root/multi-scripts/mp-utility.lua" ] || [ ! -f "$root/multi-scripts/MANIFEST.json" ]; then
+    echo "multi-scripts folder is missing or incomplete: $root/multi-scripts" >&2
+    return 1
+  fi
   expected=$(sed -n 's/.*"multiScripts": *"\([0-9a-f]*\)".*/\1/p' "$root/manifest.json" | head -n 1)
-  [ -n "$expected" ] || return 1
-  [ "$(multi_scripts_hash "$root/multi-scripts")" = "$expected" ]
+  if [ -z "$expected" ] || [ "$(multi_scripts_hash "$root/multi-scripts")" != "$expected" ]; then
+    echo "multi-scripts hash does not match manifest integrity.multiScripts: $root/multi-scripts" >&2
+    return 1
+  fi
 }
 
 # The files of the legacy 1v1 engine (the Domain wasm and Domain Lua that production ran before the n-seat work) are part of the

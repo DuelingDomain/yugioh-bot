@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,7 +17,7 @@ export const MP_UTILITY_FILE = "mp-utility.lua";
 export const MULTI_MANIFEST_FILE = "MANIFEST.json";
 export const REPLACE_MARKER = "--@replace";
 
-const MANIFEST_KINDS = new Set(["whole", "expr", "trig", "hand", "chooser", "fix"]);
+const MANIFEST_KINDS = new Set(["whole", "expr", "trig", "hand", "chooser", "fix", "seat"]);
 const CARD_FILE = /^c(\d+)\.lua$/;
 
 export interface MultiScriptsCard {
@@ -54,9 +54,10 @@ function isDirectory(path: string): boolean {
 }
 
 /**
- * Where the overlay folder is, in this order: (1) env DUEL_MULTI_SCRIPTS_DIR, (2) `<data>/multi-scripts`
- * (the deployed bundle), (3) the repo folder, outside production only. Production uses (2) only; (1) is a
- * test and tooling hook that production must not honour either.
+ * Where the overlay folder is, in this order: (1) env DUEL_MULTI_SCRIPTS_DIR, (2) the repo folder, outside
+ * production only, (3) `<data>/multi-scripts` (the deployed bundle). Outside production the repo folder comes
+ * before `<data>`: an older copy that `duel:prepare` left in the data folder must not hide an edit of the repo.
+ * Production uses (3) only; (1) is a test and tooling hook that production must not honour either.
  * Returns null when no folder exists. Throws when (1) is set and names a missing folder.
  */
 export function resolveMultiScriptsDirectory(
@@ -71,11 +72,12 @@ export function resolveMultiScriptsDirectory(
     if (!isDirectory(directory)) throw new Error(`${MULTI_SCRIPTS_ENV} names ${directory}, which is not a directory`);
     return directory;
   }
+  if (!production) {
+    const repo = options.repoDirectory ?? repoMultiScriptsDirectory();
+    if (isDirectory(repo)) return repo;
+  }
   const bundled = join(resolve(dataDirectory), MULTI_SCRIPTS_DIRECTORY_NAME);
-  if (isDirectory(bundled)) return bundled;
-  if (production) return null;
-  const repo = options.repoDirectory ?? repoMultiScriptsDirectory();
-  return isDirectory(repo) ? repo : null;
+  return isDirectory(bundled) ? bundled : null;
 }
 
 function listFiles(root: string): string[] {
@@ -103,6 +105,30 @@ export function multiScriptsFolderHash(directory: string): string {
     hash.update(`${file}\0${digest}\n`);
   }
   return hash.digest("hex");
+}
+
+/**
+ * Hash of the overlay folder a duel with more than two seats would load from this data directory, or null when
+ * there is none (or it cannot be read). The host pins this value for such duels, so an edit of the overlay
+ * interrupts only duels that used it. Resolves the folder the same way as the engine does.
+ */
+export function activeMultiScriptsHash(dataDirectory: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  try {
+    const directory = resolveMultiScriptsDirectory(dataDirectory, { env });
+    return directory ? multiScriptsFolderHash(directory) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The engine version a duel pins when it starts, and recovery and replay compare. A duel of two seats pins the
+ * bundle alone. A duel with more than two seats also pins the Lua overlay it loads (`overlayHash`, null when
+ * there is none), so an edit of the overlay interrupts only the duels that used it and never a 1v1 duel.
+ */
+export function pinnedEngineVersion(bundleVersion: string, seatCount: number, overlayHash: string | null): string {
+  if (seatCount <= 2) return bundleVersion;
+  return createHash("sha256").update(`${bundleVersion}\0multi-scripts:${overlayHash ?? "none"}`).digest("hex");
 }
 
 /** Reads and checks `MANIFEST.json`. Throws one error that names the folder and the fault. */
@@ -187,18 +213,28 @@ export function loadMultiScriptsFor(dataDirectory: string, explicitDirectory?: s
 
 /**
  * Copies the repo overlay folder to `<data>/multi-scripts` (replacing what is there) and returns the folder hash
- * for manifest.integrity.multiScripts. The copy goes through a sibling folder so a failed copy leaves the old one.
+ * for manifest.integrity.multiScripts. The copy goes through a sibling folder and two renames. The old folder
+ * is moved aside, not deleted, so a failed swap puts it back and a reader never finds no folder for long.
  */
 export function installMultiScripts(dataDirectory: string, source: string = repoMultiScriptsDirectory()): string {
   const from = resolve(source);
   loadMultiScripts(from); // refuses a broken folder before anything is replaced
   const target = join(resolve(dataDirectory), MULTI_SCRIPTS_DIRECTORY_NAME);
   const staging = `${target}.new`;
+  const aside = `${target}.old`;
   mkdirSync(dirname(target), { recursive: true });
   rmSync(staging, { recursive: true, force: true });
+  rmSync(aside, { recursive: true, force: true });
   cpSync(from, staging, { recursive: true });
-  rmSync(target, { recursive: true, force: true });
-  cpSync(staging, target, { recursive: true });
-  rmSync(staging, { recursive: true, force: true });
+  const hadOld = existsSync(target);
+  if (hadOld) renameSync(target, aside);
+  try {
+    renameSync(staging, target);
+  } catch (error) {
+    if (hadOld) renameSync(aside, target);
+    rmSync(staging, { recursive: true, force: true });
+    throw error;
+  }
+  rmSync(aside, { recursive: true, force: true });
   return multiScriptsFolderHash(target);
 }

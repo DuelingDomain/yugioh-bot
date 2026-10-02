@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, seatCountFor, type DuelAnswer, type DuelDeck, type DuelFormat, type DuelMasterRule, type DuelMode } from "@yugidraft/shared/duels";
 import { engineDataDirectory } from "../tests/fuzz/config.js";
 import { createEngineGame, eliminationCodeOf } from "../src/engine.js";
+import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 
 interface JournalFile {
   format?: string;
@@ -36,6 +37,8 @@ interface JournalFile {
   tableFormat?: DuelFormat;
   masterRule: DuelMasterRule;
   bundleVersion: string | null;
+  /** Hash of the Lua overlay folder (duels with more than two seats). Absent in an older journal. */
+  multiScriptsHash?: string | null;
   seed: string[] | null;
   settings: unknown;
   decks: Array<DuelDeck | null>;
@@ -67,14 +70,19 @@ if (journal.decks.some((deck) => !deck)) throw new Error("The journal has an emp
 const dataDirectory = arg("data") ?? engineDataDirectory();
 const manifest = JSON.parse(readFileSync(join(dataDirectory, "manifest.json"), "utf8")) as { bundleVersion?: string };
 log(`journal ${journal.slug ?? file}: ${journal.mode}, master rule ${journal.masterRule}, ${journal.commands.length} answers, data ${dataDirectory}`);
-if (manifest.bundleVersion !== journal.bundleVersion) {
-  log(`warning: engine bundle ${manifest.bundleVersion} differs from the journal bundle ${journal.bundleVersion}`);
-}
-
 // The table format decides the seat count. An old journal has no format: read it from the deck count.
 const format: DuelFormat = isDuelFormat(journal.tableFormat) ? journal.tableFormat : journal.decks.length === 3 ? "ffa3" : journal.decks.length >= 4 ? "ffa4" : "1v1";
 if (journal.decks.length !== seatCountFor(format)) throw new Error(`The journal has ${journal.decks.length} decks but format ${format} has ${seatCountFor(format)} seats`);
 if (!isDuelFormat(journal.tableFormat) && format !== "1v1") log(`warning: the journal has no format; assuming ${format} from ${journal.decks.length} decks`);
+// A duel with more than two seats pins the Lua overlay with the bundle (see pinnedEngineVersion).
+const overlayHash = seatCountFor(format) > 2 ? activeMultiScriptsHash(dataDirectory) : null;
+const pinnedVersion = manifest.bundleVersion ? pinnedEngineVersion(manifest.bundleVersion, seatCountFor(format), overlayHash) : undefined;
+if (pinnedVersion !== journal.bundleVersion) {
+  log(`warning: engine bundle ${pinnedVersion} differs from the journal bundle ${journal.bundleVersion}`);
+}
+if (seatCountFor(format) > 2 && journal.multiScriptsHash && journal.multiScriptsHash !== overlayHash) {
+  log(`warning: the Lua overlay ${overlayHash ?? "(none)"} differs from the journal overlay ${journal.multiScriptsHash}`);
+}
 const wasmFile = arg("wasm");
 const wasmBinary = wasmFile ? (() => { const bytes = readFileSync(wasmFile); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer; })() : undefined;
 
@@ -163,7 +171,8 @@ try {
         total: journal.commands.length,
         seatCount,
         format,
-        bundleVersion: manifest.bundleVersion ?? null,
+        bundleVersion: pinnedVersion ?? null,
+        multiScriptsHash: overlayHash,
         decks: journal.decks.map((deck) => codes(deck)),
         deckMasters: journal.decks.flatMap((deck) => (deck?.deckMaster ? [deck.deckMaster] : [])),
         knownStep: Object.fromEntries(viewers.map((viewer) => [viewer === null ? "spectator" : String(viewer), Object.fromEntries(knownStep.get(viewer)!)])),

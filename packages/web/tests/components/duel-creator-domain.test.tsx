@@ -45,12 +45,33 @@ describe("DuelCreator Domain rule", () => {
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.format).toBe("ffa3");
     expect(body.mode).toBe("normal");
+    expect(body.settings.stopAtEveryWindow).toBe(true);
   });
 
   it("brings Domain back when the table type is 1v1 again", () => {
     render(<DuelCreator multiplayerTables />);
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "tag" } });
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "1v1" } });
+    expect(screen.getByLabelText("Domain")).toBeTruthy();
+  });
+
+  it.each(["ffa3", "ffa4", "tag"])("offers Domain at %s when the host has its core", async (format) => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ session: { slug: "abc" } }, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<DuelCreator multiplayerTables multiDomainCoreReady />);
+    fireEvent.click(screen.getByLabelText("Domain"));
+    fireEvent.change(screen.getByLabelText("Table type"), { target: { value: format } });
+    expect(screen.getByLabelText("Domain")).toBeTruthy();
+    expect(screen.queryByTestId("domain-blocked")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Create game/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ format, mode: "domain", settings: { validateDeck: true, startingLP: 8000, stopAtEveryWindow: true } });
+  });
+
+  it("offers only 1v1 when multiplayer tables are off, even if the core is present", () => {
+    render(<DuelCreator multiDomainCoreReady />);
+    expect(screen.queryByLabelText("Table type")).toBeNull();
+    expect(screen.queryByTestId("format-rule")).toBeNull();
     expect(screen.getByLabelText("Domain")).toBeTruthy();
   });
 });

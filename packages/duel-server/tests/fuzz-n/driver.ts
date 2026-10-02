@@ -186,7 +186,25 @@ export async function playDuel(scenario: NScenario, options: PlayOptions): Promi
   let scriptAt = 0;
 
   let diagSnapshot: DiagnosticEntry[] = [];
+  let previousMasters: Array<{ inZone: boolean; returns: number } | null> = [];
   const check = (step: number, views: NViews): boolean => {
+    if (scenario.mode === "domain") {
+      const currentMasters = views.spectator.seats.map((seat) => seat.deckMaster ?? null);
+      if (step === 0) outcome.stats["domain-masters"] = currentMasters.filter(Boolean).length;
+      currentMasters.forEach((master, seat) => {
+        const previous = previousMasters[seat];
+        if (!master || !previous || views.spectator.seats[seat]!.eliminated) return;
+        if (previous.inZone && !master.inZone) {
+          const key = `domain-leaves-seat-${seat}`;
+          outcome.stats[key] = (outcome.stats[key] ?? 0) + 1;
+        }
+        if (master.returns > previous.returns) {
+          const key = `domain-returns-seat-${seat}`;
+          outcome.stats[key] = (outcome.stats[key] ?? 0) + master.returns - previous.returns;
+        }
+      });
+      previousMasters = currentMasters.map((master) => master ? { inZone: master.inZone, returns: master.returns } : null);
+    }
     let fresh: DiagnosticEntry[] | undefined;
     if (typeof game.diagnostics === "function") {
       const current = game.diagnostics();
@@ -273,8 +291,16 @@ export async function playDuel(scenario: NScenario, options: PlayOptions): Promi
         continue;
       }
 
+      // A legal optional effect may resolve with no change and remain usable
+      // in the next chain. At n > 2, let all seats pass before classifying this
+      // as a stalled engine. Replay and the legacy two-seat policy stay exact.
+      const passRepeatedChain = !scripted && seatCount > 2 && consecutive >= 8 &&
+        prompt.context?.type === "chain" && !prompt.context.forced && prompt.cancelable;
+      if (passRepeatedChain) outcome.stats["chain-stall-passes"] = (outcome.stats["chain-stall-passes"] ?? 0) + 1;
       const plan = scripted
         ? { candidates: [scripted.answer], exact: false, note: "journal" }
+        : passRepeatedChain
+          ? { candidates: [{ cancel: true }], exact: true, note: "chain-stall-pass" }
         : planAnswer(prompt, {
             rng,
             turnActions,

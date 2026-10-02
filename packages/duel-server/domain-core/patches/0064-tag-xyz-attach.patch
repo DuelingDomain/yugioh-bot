@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Mon, 13 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: permit Xyz attach by effect for a Tag partner monster
+
+For REASON_EFFECT at more than two duelists, a monster on the same team does not need permission to change control to become Xyz material. Opponent monsters keep the control check. FFA and two duelist rules stay the same.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ card.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index fd2d62f..d8f4f33 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -4063,8 +4063,12 @@ int32_t card::is_can_be_xyz_material(card* scard, uint8_t playerid, uint32_t rea
+ 		return FALSE;
+ 	if((!(current.location & LOCATION_ONFIELD) || (reason & REASON_MATERIAL)) && is_status(STATUS_FORBIDDEN))
+ 		return FALSE;
+-	if(reason & REASON_EFFECT)
+-		return (current.controler == playerid) || is_capable_change_control();
++	if(reason & REASON_EFFECT) {
++		const auto& gf = *pduel->game_field;
++		const bool own_side = gf.n_duelists == 2 ? current.controler == playerid
++		    : (gf.is_duelist(current.controler) && gf.is_duelist(playerid) && gf.same_team(current.controler, playerid));
++		return own_side || is_capable_change_control();
++	}
+ 	if(!(get_type(scard, SUMMON_TYPE_XYZ, playerid) & TYPE_MONSTER))
+ 		return FALSE;
+ 	if(reason & REASON_MATERIAL) {

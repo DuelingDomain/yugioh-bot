@@ -3,9 +3,9 @@
 import type { DuelEngineView, DuelMasterRule } from "@yugidraft/shared/duels";
 import { DuelField, type DuelActivateHandler, type DuelHoverHandler } from "./field";
 import type { InspectTarget } from "./inspector";
-import { FocusedSeatPick, SeatBoard, SeatExtras, type SeatBoardCallbacks } from "./opponent-board";
+import { FocusedSeatPick, SeatBoard, SeatExtras, SharedExtraZones, type SeatBoardCallbacks } from "./opponent-board";
 import { SeatStrip } from "./seat-strip";
-import { engineFormat, isEliminated, railGroups, seatDisabledMask, seatRelation, withoutSeatExtraKeys, withoutSeatExtraZones, type SeatPick } from "./multi-seat";
+import { engineFormat, isEliminated, railGroups, seatDisabledMask, seatRelation, sharedExtraPairs, withoutSeatExtraKeys, withoutSeatExtraZones, type SeatPick } from "./multi-seat";
 import styles from "./opponent-board.module.css";
 
 /**
@@ -53,10 +53,12 @@ export function MultiSeatStage({
   const focusView = effectiveFocus != null ? engine.seats.find((view) => view.seat === effectiveFocus) : undefined;
   const selfView = mySeat != null ? engine.seats.find((view) => view.seat === mySeat) : undefined;
   const selfOut = isEliminated(selfView);
-  // Three or more seats: no mirrored Extra Monster Zones. The focused opponent's own zones get their own row.
-  const fieldEngine = withoutSeatExtraZones(engine, effectiveFocus);
-  const fieldLegal = withoutSeatExtraKeys(legalKeys, effectiveFocus);
-  const fieldSelected = withoutSeatExtraKeys(selectedKeys, effectiveFocus);
+  const extraPairs = masterRule >= 4 ? sharedExtraPairs(engine) : [];
+  const sharedSeats = new Set(extraPairs.flatMap((pair) => pair.map((view) => view.seat)));
+  // The focused opponent's separate EMZ and FFA4 shared EMZ have rows outside the main field.
+  const fieldEngine = withoutSeatExtraZones(engine, effectiveFocus, sharedSeats);
+  const fieldLegal = withoutSeatExtraKeys(legalKeys, effectiveFocus, sharedSeats);
+  const fieldSelected = withoutSeatExtraKeys(selectedKeys, effectiveFocus, sharedSeats);
   return (
     <div className={styles.stage} data-testid="multi-seat-stage" data-format={format} data-spectator={spectator ? "true" : "false"}
       data-self-eliminated={selfOut ? "true" : "false"} data-picking={seatPick ? "true" : undefined}>
@@ -74,15 +76,21 @@ export function MultiSeatStage({
                   active={engine.turnSeat === view.seat} answering={promptSeat === view.seat}
                   callbacks={callbacks} reducedMotion={reducedMotion}
                   focusable={!spectator} onFocusSeat={onFocusSeat} masterRule={masterRule} format={format}
+                  showExtraZones={!sharedSeats.has(view.seat)}
                   pick={seatPick} />
               ))}
             </div>
           ))}
         </div>
       ) : null}
+      {extraPairs.length > 0 ? (
+        <div className={styles.sharedExtras}>
+          {extraPairs.map((pair) => <SharedExtraZones key={pair[0].seat} pair={pair} viewerSeat={mySeat} nameOf={nameOf} callbacks={callbacks} />)}
+        </div>
+      ) : null}
       {focusView ? <FocusedSeatPick view={focusView} name={nameOf(focusView.seat)} pick={seatPick} /> : null}
       {focusView ? (
-        <SeatExtras view={focusView} name={nameOf(focusView.seat)} masterRule={masterRule} showExtraZones callbacks={callbacks} />
+        <SeatExtras view={focusView} name={nameOf(focusView.seat)} masterRule={masterRule} showExtraZones={!sharedSeats.has(focusView.seat)} callbacks={callbacks} />
       ) : null}
       {selfView && seatDisabledMask(selfView) !== 0 ? (
         <SeatExtras view={selfView} name={nameOf(selfView.seat)} masterRule={masterRule} showExtraZones={false} callbacks={callbacks} />
@@ -93,6 +101,7 @@ export function MultiSeatStage({
             legalKeys={fieldLegal} selectedKeys={fieldSelected} onActivate={onActivate}
             onHoverCard={onHoverCard} onInspect={onInspect}
             bottomName={nameOf(mySeat)} topName={focusSeat != null ? nameOf(focusSeat) : "Opponent"}
+            showExtraZones={!sharedSeats.has(mySeat)}
             topSeat={focusSeat} topLabel={focusSeat != null ? nameOf(focusSeat) : undefined} />
         </div>
       )}

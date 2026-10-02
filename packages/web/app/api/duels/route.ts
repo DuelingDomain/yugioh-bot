@@ -1,9 +1,9 @@
-import { isDuelFormat, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled } from "@yugidraft/shared/duels";
+import { isDuelFormat, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
 import { sendDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
-import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
 import { playerIdentity } from "@/lib/player-lookup";
 
@@ -60,14 +60,17 @@ export async function POST(request: NextRequest) {
   if (!isDuelFormat(format)) {
     return NextResponse.json({ error: "Duel format must be 1v1, tag, ffa3, or ffa4" }, { status: 400 });
   }
-  // Read on every request: a restart with another MULTIPLAYER_TABLES value switches it, no build.
+  // Read the shared deployment flag on every request.
   const tablesBlocked = multiplayerTablesBlockReason(format, multiplayerTablesEnabled());
-  if (tablesBlocked) {
-    return NextResponse.json({ error: tablesBlocked }, { status: 403 });
-  }
-  const blocked = multiDomainBlockReason(mode, format);
-  if (blocked) {
-    return NextResponse.json({ error: blocked }, { status: 400 });
+  if (tablesBlocked) return NextResponse.json({ error: tablesBlocked }, { status: 403 });
+  if (format !== "1v1") {
+    const result = await callDuelHost({ op: "capabilities", guildId: actor.guildId, playerId: actor.playerId });
+    if (!result.ok) return result.response;
+    const data = result.data as Partial<DuelTableCapabilities> | null;
+    const hostBlocked = multiplayerTablesBlockReason(format, data?.multiplayerTables === true);
+    if (hostBlocked) return NextResponse.json({ error: hostBlocked }, { status: 403 });
+    const domainBlocked = multiDomainBlockReason(mode, format, data?.multiDomainCoreReady === true);
+    if (domainBlocked) return NextResponse.json({ error: domainBlocked }, { status: 400 });
   }
   const bestOf = body.bestOf ?? 1;
   if (bestOf !== 1 && bestOf !== 3) {

@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   MULTI_SCRIPTS_ENV,
   REPLACE_MARKER,
+  activeMultiScriptsHash,
   cardCodeOfScript,
   installMultiScripts,
   loadMultiScripts,
@@ -32,19 +33,22 @@ afterEach(() => {
 describe("the overlay folder of the repo", () => {
   const repo = repoMultiScriptsDirectory();
 
-  it("is a stub: MP_OVERLAY_ACTIVE first, then the guard, and an empty card list", () => {
+  it("keeps the two stub statements first (the flag, then the guard) and defines the helpers after them", () => {
     const lines = readFileSync(join(repo, "mp-utility.lua"), "utf8").split("\n").filter((line) => line.trim() !== "");
     expect(lines[0]).toBe("MP_OVERLAY_ACTIVE = true");
     expect(lines[1]).toBe("if not Duel.MPBindOpponent then return end");
-    // P3a replaces the stub with the helpers. Until then nothing may come after the guard.
-    expect(lines).toHaveLength(2);
-    expect(JSON.parse(readFileSync(join(repo, "MANIFEST.json"), "utf8"))).toEqual({ version: 1, cards: [] });
+    const text = lines.slice(2).join("\n");
+    for (const helper of ["MPAny", "MPValue", "MPOne", "MPPick", "MPTarget", "MPEachOpponent"]) {
+      expect(text).toContain(`function aux.${helper}(fn)`);
+    }
+    for (const helper of ["MPForEachDuelist(fn)", "MPKey(p)", "MPForEachController(g,fn)"]) {
+      expect(text).toContain(`function aux.${helper}`);
+    }
   });
 
   it("loads and passes the checks", () => {
     const overlay = loadMultiScripts(repo);
-    expect(overlay.cards).toEqual([]);
-    expect(overlay.utility).toBe(STUB_UTILITY);
+    expect(overlay.utility.startsWith(STUB_UTILITY)).toBe(true);
     expect(overlay.hash).toMatch(/^[0-9a-f]{64}$/);
   });
 });
@@ -178,16 +182,20 @@ describe("finding the folder", () => {
     expect(() => resolveMultiScriptsDirectory(empty("ms-data-"), { env: { [MULTI_SCRIPTS_ENV]: "/no/such/folder" } })).toThrow(/is not a directory/);
   });
 
-  it("takes <data>/multi-scripts second", () => {
+  it("takes the repo folder second, outside production, before an older copy in <data>", () => {
+    const repo = empty("ms-repo-");
     const data = empty("ms-data-");
     mkdirSync(join(data, "multi-scripts"));
-    expect(resolveMultiScriptsDirectory(data, { env: {}, repoDirectory: empty("ms-repo-") })).toBe(join(data, "multi-scripts"));
+    expect(resolveMultiScriptsDirectory(data, { env: {}, repoDirectory: repo })).toBe(repo);
+    expect(resolveMultiScriptsDirectory(data, { env: { NODE_ENV: "test" }, repoDirectory: repo })).toBe(repo);
+    expect(resolveMultiScriptsDirectory(empty("ms-data-"), { env: {}, repoDirectory: repo })).toBe(repo);
   });
 
-  it("takes the repo folder last, outside production", () => {
-    const repo = empty("ms-repo-");
-    expect(resolveMultiScriptsDirectory(empty("ms-data-"), { env: {}, repoDirectory: repo })).toBe(repo);
-    expect(resolveMultiScriptsDirectory(empty("ms-data-"), { env: { NODE_ENV: "test" }, repoDirectory: repo })).toBe(repo);
+  it("takes <data>/multi-scripts when the repo folder is missing", () => {
+    const data = empty("ms-data-");
+    mkdirSync(join(data, "multi-scripts"));
+    expect(resolveMultiScriptsDirectory(data, { env: {}, repoDirectory: join(data, "no-repo") })).toBe(join(data, "multi-scripts"));
+    expect(resolveMultiScriptsDirectory(empty("ms-data-"), { env: {}, repoDirectory: join(data, "no-repo") })).toBeNull();
   });
 
   it("in production uses <data>/multi-scripts only: no repo folder, no env folder", () => {
@@ -198,6 +206,21 @@ describe("finding the folder", () => {
     expect(resolveMultiScriptsDirectory(data, { env: { NODE_ENV: "production", [MULTI_SCRIPTS_ENV]: named }, repoDirectory: repo })).toBeNull();
     mkdirSync(join(data, "multi-scripts"));
     expect(resolveMultiScriptsDirectory(data, { env: { NODE_ENV: "production", [MULTI_SCRIPTS_ENV]: named }, repoDirectory: repo })).toBe(join(data, "multi-scripts"));
+  });
+});
+
+describe("the hash of the folder a duel would load", () => {
+  it("is the hash of the resolved folder, and null when there is none", () => {
+    const named = makeOverlay([{ code: 1, text: "A" }]);
+    expect(activeMultiScriptsHash(temp("ms-data-"), { [MULTI_SCRIPTS_ENV]: named })).toBe(multiScriptsFolderHash(named));
+    const data = temp("ms-data-");
+    expect(activeMultiScriptsHash(data, { NODE_ENV: "production" })).toBeNull();
+    installMultiScripts(data, named);
+    expect(activeMultiScriptsHash(data, { NODE_ENV: "production" })).toBe(multiScriptsFolderHash(named));
+  });
+
+  it("is null, not a throw, when the env folder does not exist", () => {
+    expect(activeMultiScriptsHash(temp("ms-data-"), { [MULTI_SCRIPTS_ENV]: "/no/such/folder" })).toBeNull();
   });
 });
 
@@ -219,6 +242,13 @@ describe("installing the folder into a data directory", () => {
     const hash = installMultiScripts(data, good);
     expect(() => installMultiScripts(data, makeOverlay([], { utility: null }))).toThrow(/has no mp-utility\.lua/);
     expect(multiScriptsFolderHash(join(data, "multi-scripts"))).toBe(hash);
+  });
+
+  it("leaves no sibling folders behind and swaps in one step", () => {
+    const data = temp("ms-install-");
+    installMultiScripts(data, makeOverlay([{ code: 1, text: "A" }]));
+    installMultiScripts(data, makeOverlay([{ code: 2, text: "B" }]));
+    expect(readdirSync(data).sort()).toEqual(["multi-scripts"]);
   });
 
   it("installs the repo folder by default", () => {

@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 12 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: count unique cards across the Tag team
+
+At more than two duelists, own-side unique limits include every living team member. Register and remove the limit in each team member list. Search both team fields for matching cards. FFA keeps one seat per team. Two duelists keep the stock paths.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ card.cpp  |  6 ++----
+ field.cpp | 24 ++++++++++++++++++++----
+ 2 files changed, 22 insertions(+), 8 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index 7d43f4e..fd2d62f 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -3129,18 +3129,16 @@ void card::get_unique_target(card_set* cset, uint8_t controler, card* icard) {
+ 	for(uint8_t p = 0; p < 2; ++p) {
+ 		if(!unique_pos[p])
+ 			continue;
+-		// The own side is the field of controler. The other side is every living duelist of another
++		// The own side includes the fields of the living team members. The other side is every living duelist of another
+ 		// team (ADR-0002: "opponent" on the field means all opponents). With 2 duelists it is the
+ 		// field of controler ^ 1.
+ 		uint8_t sides[MAX_DUELISTS]{};
+ 		uint8_t n_sides = 0;
+ 		if(gf.n_duelists == 2)
+ 			sides[n_sides++] = controler ^ p;
+-		else if(p == 0)
+-			sides[n_sides++] = controler;
+ 		else {
+ 			for(uint8_t q = 0; q < gf.n_duelists; ++q)
+-				if(gf.is_alive(q) && !gf.same_team(controler, q))
++				if(gf.is_alive(q) && (gf.same_team(controler, q) == (p == 0)))
+ 					sides[n_sides++] = q;
+ 		}
+ 		for(uint8_t i = 0; i < n_sides; ++i) {
+diff --git a/field.cpp b/field.cpp
+index a08099f..65579df 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -2721,8 +2721,15 @@ int32_t field::adjust_grant_effect() {
+ }
+ void field::add_unique_card(card* pcard) {
+ 	uint8_t con = pcard->current.controler;
+-	if(pcard->unique_pos[0])
+-		core.unique_cards[con].insert(pcard);
++	if(pcard->unique_pos[0]) {
++		if(n_duelists == 2)
++			core.unique_cards[con].insert(pcard);
++		else {
++			for(uint8_t q = 0; q < n_duelists; ++q)
++				if(is_alive(q) && same_team(con, q))
++					core.unique_cards[q].insert(pcard);
++		}
++	}
+ 	if(pcard->unique_pos[1]) {
+ 		if(n_duelists == 2) {
+ 			core.unique_cards[opponent_of(con)].insert(pcard);
+@@ -2738,8 +2745,16 @@ void field::remove_unique_card(card* pcard) {
+ 	uint8_t con = pcard->current.controler;
+ 	if(con == none_id())
+ 		return;
+-	if(pcard->unique_pos[0])
+-		core.unique_cards[con].erase(pcard);
++	if(pcard->unique_pos[0]) {
++		if(n_duelists == 2)
++			core.unique_cards[con].erase(pcard);
++		else {
++			// Remove the entry from every team member, including a member whose loss is pending.
++			for(uint8_t q = 0; q < n_duelists; ++q)
++				if(same_team(con, q))
++					core.unique_cards[q].erase(pcard);
++		}
++	}
+ 	if(pcard->unique_pos[1]) {
+ 		if(n_duelists == 2) {
+ 			core.unique_cards[opponent_of(con)].erase(pcard);
+@@ -2755,6 +2770,7 @@ effect* field::check_unique_onfield(card* pcard, uint8_t controler, uint8_t loca
+ 	// Card.CheckUniqueOnField passes a Lua value; a value that is no duelist has no unique cards.
+ 	if(!is_duelist(controler))
+ 		return nullptr;
++	// At n > 2, add_unique_card registers own-side limits for each living team member.
+ 	for(auto& ucard : core.unique_cards[controler]) {
+ 		if((ucard != pcard) && (ucard != icard) && ucard->is_position(POS_FACEUP) && ucard->get_status(STATUS_EFFECT_ENABLED)
+ 			&& !ucard->get_status(STATUS_DISABLED | STATUS_FORBIDDEN)

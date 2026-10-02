@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MULTIPLAYER_TABLES_OFF_MESSAGE } from "@yugidraft/shared/duels";
 
 const create = vi.fn();
+const callDuelHost = vi.fn();
 vi.mock("@/lib/duel-host", () => ({
   requireDuelActor: vi.fn(async () => ({ ok: true, guildId: "g1", playerId: 1, duels: { create } })),
   duelErrorResponse: vi.fn(),
+  callDuelHost: (...args: unknown[]) => callDuelHost(...args),
 }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: vi.fn() }));
 
@@ -16,6 +18,7 @@ function request(body: unknown): NextRequest {
 }
 
 beforeEach(() => {
+  callDuelHost.mockReset().mockResolvedValue({ ok: true, data: { multiplayerTables: true, multiDomainCoreReady: true } });
   create.mockReset();
   create.mockReturnValue({ slug: "abc" });
 });

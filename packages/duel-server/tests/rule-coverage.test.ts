@@ -6,6 +6,28 @@ import {
   buildRows, collect, loadPending, loadScenarioLists, loadScenarios, outcomeAsserts, parseAdrRules, parseRuleDeclarations,
   partialListPath, pendingListPath, renderTable, runnerSources, scenarioRefs, staleEntries, stalePartial, uniqueScenarios, unknownRules, unrunLists, type RuleRef,
 } from "../scripts/rule-coverage.js";
+import { OPPONENT_COUNT_GATES_SCENARIOS } from "./scenarios/multiplayer/opponent-count-gates.js";
+
+describe("opponent count coverage", () => {
+  it("does not mark unchanged negative controls as rule outcomes", () => {
+    const controls = OPPONENT_COUNT_GATES_SCENARIOS.filter((scenario) => scenario.tags.includes("negative-count"));
+    expect(controls).toHaveLength(12);
+    expect(scenarioRefs(controls)).toEqual([]);
+  });
+
+  it("registers the count-gate list with the scenario runner", () => {
+    const lists = [{ file: "tests/scenarios/multiplayer/opponent-count-gates.ts", name: "OPPONENT_COUNT_GATES_SCENARIOS", scenarios: OPPONENT_COUNT_GATES_SCENARIOS }];
+    const source = readFileSync(new URL("./scenarios/multiplayer/opponent-count-gates.test.ts", import.meta.url), "utf8");
+    expect(unrunLists(lists, [source])).toEqual([]);
+  });
+});
+
+it("counts the real host start proof for the forbidden list", async () => {
+  const { refs } = await collect();
+  const proof = refs.find((entry) => entry.rule === "R-COMMON-FL-LIST" && entry.ref.kind === "host-outcome");
+  expect(proof?.ref.test).toBe("tests/host-rule-forbidden.test.ts");
+  expect(buildRows([{ id: "R-COMMON-FL-LIST", title: "Forbidden list" }], refs)[0]?.status).toBe("covered");
+});
 
 const adr = [
   "## Common",

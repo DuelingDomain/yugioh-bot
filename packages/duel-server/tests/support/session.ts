@@ -5,12 +5,13 @@ import { candidates as matchCandidates, matchesSel as matchSel, pickOne as match
 import { compileBoard, seatOf, type DuelistId, DUELIST_IDS } from "./board.js";
 import { cardLabel, resolveCard, type CardRef } from "./card-catalog.js";
 import type {
-  ActionKind, BoardExpect, CardSel, DuelistExpect, EventMatch, ListExpect, PromptExpect, Scenario, Step, Zone, ZoneExpect,
+  ActionKind, BoardExpect, CardSel, DuelistExpect, EventMatch, ListExpect, OptionRef, OptionsExpect, PromptExpect, Scenario, Step, Zone, ZoneExpect,
 } from "./dsl.js";
 import { readFileSync } from "node:fs";
 import createCore, { type OcgCardData } from "ocgcore-wasm";
 import { engineDataDirectory } from "../engine-data-dir.js";
-import { currentNseatWasm } from "./cores.js";
+import { currentDomainMultiWasm, currentNseatWasm } from "./cores.js";
+import { EngineAnswerError } from "../../src/prompts.js";
 
 
 /** Failure of a scenario step, with the state of the duel at that moment. */
@@ -88,6 +89,16 @@ export function nseatWasmBinary(): ArrayBuffer | undefined {
   }
 }
 
+/** Multi-duelist Domain core for N-seat scenarios with `mode: "domain"`: DOMAIN_MULTI_WASM, else the current Domain multi core. */
+export function domainNseatWasmBinary(): ArrayBuffer | undefined {
+  try {
+    const bytes = readFileSync(currentDomainMultiWasm());
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  } catch {
+    return undefined;
+  }
+}
+
 /** True when the N-seat core has Debug.SetupDuelists. Live N-seat tests pass it to needs.setupDuelists / needs.liveNseat (tests/support/cores.ts). */
 export async function probeSetupDuelists(): Promise<boolean> {
   try {
@@ -125,7 +136,7 @@ export async function runScenario(scenario: Scenario): Promise<void> {
     ...compiled.options,
     seed: scenario.seed ?? ["1", "2", "3", "4"],
     dataDirectory: engineDataDirectory,
-    ...((scenario.setup.format ?? "1v1") !== "1v1" ? { multiWasmBinary: nseatWasmBinary() } : {}),
+    ...((scenario.setup.format ?? "1v1") !== "1v1" ? { multiWasmBinary: scenario.setup.mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary() } : {}),
   });
   try {
     const session = new Session(scenario, game);
@@ -135,6 +146,11 @@ export async function runScenario(scenario: Scenario): Promise<void> {
   } finally {
     game.close();
   }
+}
+
+/** A Lua script error of the core: the message names a chunk (`[string "c123.lua"]`) or a script file line (`c123.lua:46:`). */
+export function isLuaScriptError(message: string): boolean {
+  return message.includes('[string "c') || message.includes(".lua:");
 }
 
 export class Session {
@@ -246,7 +262,9 @@ export class Session {
    * the choice itself uses zone(), position() or expectPrompt().
    */
   private settle(next: Step, stepNo: number): void {
-    if (["zone", "position", "raw", "auto", "choose"].includes(next.op)) return;
+    // A surrender keeps the routine prompt open too: giving up while a zone prompt is open is a case of its own.
+    // expectPickOptions, expectLabel and expectRetry inspect the open prompt as it is, also a routine zone or position prompt.
+    if (["zone", "position", "raw", "auto", "choose", "surrender", "expectPickOptions", "expectLabel", "expectRetry"].includes(next.op)) return;
     if (next.op === "expectPrompt") {
       const want = next.prompt;
       // Inspecting the routine prompt itself keeps it open; any other inspection settles it first.
@@ -269,6 +287,28 @@ export class Session {
   run(step: Step, stepNo: number): void {
     this.settle(step, stepNo);
     switch (step.op) {
+      case "expectPrivateCards": {
+        const problems: string[] = [];
+        for (const viewer of [...this.seats, null]) {
+          const view = this.game.view(viewer);
+          for (const ref of step.cards) {
+            const state = view.seats[seatOf(ref.owner)];
+            const list = ref.from === "hand" ? state.hand : ref.from === "mzone" ? state.monsters : state.spells;
+            const card = list[ref.seq];
+            const label = `${viewer === null ? "spectator" : `p${viewer}`} sees ${ref.owner}.${ref.from}[${ref.seq}]`;
+            if (!card) { problems.push(`${label}: missing card`); continue; }
+            const visible = viewer !== null && ref.visibleTo.some((id) => seatOf(id) === viewer);
+            if (visible) {
+              if (card.code !== codeOf(ref.card) || !card.name) problems.push(`${label}: expected ${cardLabel(codeOf(ref.card))}, got ${cardLabel(card.code)}`);
+            } else {
+              const leaked = Object.keys(card).filter((key) => !["controller", "location", "sequence", "position"].includes(key));
+              if (leaked.length) problems.push(`${label}: private fields leaked: ${leaked.join(", ")}`);
+            }
+          }
+        }
+        if (problems.length) this.fail(stepNo, step, problems.join("\n"), false);
+        return;
+      }
       case "activate":
       case "normalSummon":
       case "specialSummon":
@@ -355,7 +395,7 @@ export class Session {
       }
       case "surrender": {
         try {
-          this.game.eliminate(seatOf(step.seat), 0);
+          this.game.eliminate(seatOf(step.seat), step.reason ?? 0);
         } catch (error) {
           this.fail(stepNo, step, `The engine refused the surrender: ${(error as Error).message}`, false);
         }
@@ -368,6 +408,21 @@ export class Session {
       case "expectNoEvent": {
         const hit = this.events().find((event) => this.eventMatches(event, step.event));
         if (hit) this.fail(stepNo, step, `Unexpected event: #${hit.id} ${hit.kind} "${hit.text}".`, false);
+        return;
+      }
+      case "expectLog": {
+        const log = this.game.view(0).log;
+        let cursor = 0;
+        for (const [index, line] of step.lines.entries()) {
+          const at = log.findIndex((entry, i) => i >= cursor && entry.text.includes(line));
+          if (at < 0) this.fail(stepNo, step, `Log line ${index + 1} of ${step.lines.length} not found in order: "${line}".\nLog:\n${log.slice(-15).map((e) => `  #${e.id} ${e.text}`).join("\n")}`, false);
+          cursor = at + 1;
+        }
+        return;
+      }
+      case "expectNoLog": {
+        const hit = this.game.view(0).log.find((entry) => entry.text.includes(step.text));
+        if (hit) this.fail(stepNo, step, `Unexpected log line: #${hit.id} "${hit.text}".`, false);
         return;
       }
       case "expectResolved": {
@@ -392,6 +447,12 @@ export class Session {
       case "expectNoPrompt": {
         const open = this.openPrompt();
         if (open) this.fail(stepNo, step, "Expected no open prompt.");
+        return;
+      }
+      case "expectSeatNotOffered": {
+        const prompt = this.game.view(seatOf(step.by)).prompt;
+        const hits = prompt ? this.candidates(prompt, ACTION_PREFIX[step.action as ActionKind] ?? [""], step.sel) : [];
+        if (hits.length > 0) this.fail(stepNo, step, `Expected ${step.by} not to be offered ${step.action} ${describeSel(step.sel)}, but it is.`);
         return;
       }
       case "expectOffered":
@@ -430,6 +491,12 @@ export class Session {
         }
         return;
       }
+      case "expectPickOptions":
+        return this.expectPickOptions(step, stepNo);
+      case "expectLabel":
+        return this.expectLabel(step, stepNo);
+      case "expectRetry":
+        return this.expectRetry(step, stepNo);
       case "pickOpponent": {
         const open = this.need(stepNo, step, step.by);
         const want = seatOf(step.seat);
@@ -439,6 +506,111 @@ export class Session {
         }
         return this.send(stepNo, step, open, { choice: picks[0].id });
       }
+    }
+  }
+
+  private optionMatches(option: DuelPromptOption, ref: OptionRef): boolean {
+    if (ref.seat != null && option.controller !== seatOf(ref.seat)) return false;
+    if (ref.card != null && option.card?.code !== codeOf(ref.card)) return false;
+    if (ref.label != null && !option.label.toLowerCase().includes(ref.label.toLowerCase())) return false;
+    if (ref.id != null && option.id !== ref.id) return false;
+    return true;
+  }
+
+  /**
+   * Gives every ref its own option (a bipartite matching, so equal refs and overlapping refs cannot fool it).
+   * Returns the option index of each ref, or -1 when the ref has no option left.
+   */
+  private assignOptions(refs: OptionRef[], options: DuelPromptOption[]): number[] {
+    const owner = options.map(() => -1);
+    const augment = (ref: number, seen: boolean[]): boolean => {
+      for (let at = 0; at < options.length; at++) {
+        if (seen[at] || !this.optionMatches(options[at], refs[ref])) continue;
+        seen[at] = true;
+        if (owner[at] < 0 || augment(owner[at], seen)) {
+          owner[at] = ref;
+          return true;
+        }
+      }
+      return false;
+    };
+    refs.forEach((_, ref) => augment(ref, options.map(() => false)));
+    return refs.map((_, ref) => owner.indexOf(ref));
+  }
+
+  private describeOptions(options: DuelPromptOption[]): string {
+    return options.map((o) => `  ${o.id.padEnd(12)} "${o.label}"${o.controller != null ? ` [p${o.controller}]` : ""}`).join("\n") || "  (no options)";
+  }
+
+  private expectPickOptions(step: Extract<Step, { op: "expectPickOptions" }>, stepNo: number): void {
+    const open = this.need(stepNo, step, step.by);
+    const options = open.prompt.options;
+    const want: OptionsExpect = step.options;
+    const problems: string[] = [];
+    const exact = Array.isArray(want);
+    const refs = exact ? want : want.include ?? [];
+    const placed = this.assignOptions(refs, options);
+    refs.forEach((ref, index) => {
+      if (placed[index] < 0) problems.push(`no option left for ${JSON.stringify(ref)}`);
+    });
+    if (exact) {
+      const used = new Set(placed);
+      options.forEach((option, index) => {
+        if (!used.has(index)) problems.push(`unexpected option ${option.id} "${option.label}"${option.controller != null ? ` [p${option.controller}]` : ""}`);
+      });
+    } else {
+      for (const ref of want.exclude ?? []) {
+        const hit = options.find((option) => this.optionMatches(option, ref));
+        if (hit) problems.push(`${JSON.stringify(ref)} must not be offered, but ${hit.id} "${hit.label}" is`);
+      }
+      if (want.count != null && options.length !== want.count) problems.push(`expected ${want.count} option(s), got ${options.length}`);
+    }
+    if (problems.length > 0) this.fail(stepNo, step, `Options differ:\n  ${problems.join("\n  ")}\nOffered:\n${this.describeOptions(options)}`, false);
+  }
+
+  private expectLabel(step: Extract<Step, { op: "expectLabel" }>, stepNo: number): void {
+    const open = this.need(stepNo, step, step.by);
+    const hits = open.prompt.options.filter((option) => this.optionMatches(option, step.option));
+    if (hits.length !== 1) {
+      this.fail(stepNo, step, `${hits.length === 0 ? "No option matches" : `${hits.length} options match`} ${JSON.stringify(step.option)}.\nOffered:\n${this.describeOptions(open.prompt.options)}`, false);
+    }
+    if (!hits[0].label.toLowerCase().includes(step.text.toLowerCase())) {
+      this.fail(stepNo, step, `The label of option ${hits[0].id} is "${hits[0].label}", expected it to contain "${step.text}".`, false);
+    }
+  }
+
+  /** Every seat view in one string: a change in the duel state or in the open prompt changes it. */
+  private fingerprint(): string {
+    return JSON.stringify(this.seats.map((seat) => this.game.view(seat)));
+  }
+
+  private expectRetry(step: Extract<Step, { op: "expectRetry" }>, stepNo: number): void {
+    const open = this.need(stepNo, step, step.by);
+    const sender = step.as ? seatOf(step.as) : open.seat;
+    const before = this.fingerprint();
+    let refused: Error | null = null;
+    try {
+      this.game.answer(sender, open.prompt.id, step.answer);
+    } catch (error) {
+      refused = error as Error;
+    }
+    if (!refused) this.fail(stepNo, step, `The engine took the answer ${JSON.stringify(step.answer)} from p${sender}. It must refuse it.`);
+    if (!(refused instanceof EngineAnswerError)) {
+      this.fail(stepNo, step, `The answer failed with ${refused.name}: ${refused.message}. A refused answer is an EngineAnswerError.`, false);
+    }
+    if (step.error && !refused.message.includes(step.error)) {
+      this.fail(stepNo, step, `The error is "${refused.message}", expected it to contain "${step.error}".`);
+    }
+    // A Lua script error is a bug in a card script, not a refused answer: it passes only when the step names that error.
+    if (isLuaScriptError(refused.message) && !(step.error && isLuaScriptError(step.error))) {
+      this.fail(stepNo, step, `The refusal is a Lua script error ("${refused.message}"), not a refused answer. Fix the script, or name the script error in the step.`);
+    }
+    if (this.fingerprint() !== before) {
+      this.fail(stepNo, step, `The engine refused the answer ("${refused.message}") but the state of the duel changed.`);
+    }
+    const after = this.openPrompt();
+    if (!after || after.seat !== open.seat || after.prompt.id !== open.prompt.id) {
+      this.fail(stepNo, step, `The engine refused the answer ("${refused.message}") but the open prompt is not the same one any more.`);
     }
   }
 
@@ -718,6 +890,9 @@ export class Session {
     }
     if (card.code !== want) problems.push(`${label}: expected ${cardLabel(want)}, got ${cardLabel(card.code)}`);
     if (typeof expect === "object") {
+      if (expect.attack != null && card.attack !== expect.attack) {
+        problems.push(`${label}: expected ATK ${expect.attack}, got ${card.attack}`);
+      }
       const faceDown = (card.position & (0x02 | 0x08)) !== 0;
       if (expect.pos === "atk" && card.position !== 0x01) problems.push(`${label}: expected face-up attack, position is ${card.position}`);
       if (expect.pos === "def" && card.position !== 0x04) problems.push(`${label}: expected face-up defense, position is ${card.position}`);

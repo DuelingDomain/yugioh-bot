@@ -23,6 +23,7 @@ export {
   partnerSeatOf,
   seatCountFor,
   seatsOfTeam,
+  sharedExtraSeatOf,
   startingLpFor,
   teamCountFor,
   teamOfSeat,
@@ -50,6 +51,7 @@ export {
   multiplayerTablesEnabled,
 } from "./multiplayer-tables.js";
 export { MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "./multi-domain.js";
+export type { DuelTableCapabilities } from "./multi-domain.js";
 export type { DuelBanlistOption } from "./banlist-options.js";
 export type { DeckPoolIssue } from "./pool.js";
 export { checkDeckAgainstPool, deckCardCounts } from "./pool.js";
@@ -264,6 +266,11 @@ export interface DuelSeatView {
   deckMaster?: { card: DuelCardInfo; inZone: boolean; returns: number; nextCost: number };
   /** Team of this seat (`teamOfSeat(format, seat)`). Absent in 1v1 views made before multi-player formats. */
   team?: number;
+  /**
+   * Living across seat sharing these Extra Monster Zones in FFA4 (0/2, 1/3). Null in other formats or
+   * when either seat is eliminated. Sequences 5/6 mirror to 6/5. Absent in older views.
+   */
+  sharedExtraWith?: number | null;
   /** True after this seat (FFA) or its team (Tag) lost while the duel goes on. Its fields are empty. */
   eliminated?: boolean;
   /**

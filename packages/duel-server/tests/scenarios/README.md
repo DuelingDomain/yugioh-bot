@@ -82,6 +82,12 @@ If an action matches no legal option, the error lists all legal options.
 `expectPrompt` (kind, title, context, `offers`, `notOffers`), `expectNoPrompt`,
 `expectOffered` / `expectNotOffered`, `expectResult`.
 
+N-seat tables (FFA3, FFA4, Tag) add `expectEliminated`, `expectLp`, `expectTurn`, `expectResponseOrder`, `expectPickSeats`, `pickOpponent`,
+`surrender` / `eliminate(seat, reason?)`, and three steps that inspect or probe the open prompt (they never auto-answer a routine zone prompt):
+`expectPickOptions` (exactly these options, or `include` / `exclude` / `count`; an option is named by `seat`, `card`, `label` or `id`),
+`expectLabel(option, text)` (the label the player sees, not a Lua label) and `expectRetry(answer, { as, error, by })` (the engine must
+refuse the answer: same prompt, same state).
+
 ### Known engine bugs
 
 Set `knownBug: "why"`. The scenario runs as `it.fails`: it must fail now, and it turns red when the bug is fixed. Then remove the field.

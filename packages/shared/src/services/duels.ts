@@ -690,7 +690,7 @@ export function createDuelService(db: Database.Database): DuelService {
       if (!isDuelMode(input.mode)) throw new DuelServiceError("Duel mode must be normal or domain", 400);
       assertPlayerGuild(input.organizerPlayerId, input.guildId);
       const masterRule = resolveMasterRule(input.mode, input.masterRule, format);
-      const settings = wrapSettingsError(() => normalizeDuelSettings(input.mode, input.settings));
+      const settings = wrapSettingsError(() => normalizeDuelSettings(input.mode, input.settings, format));
       const inviteCode = settings.visibility === "private" ? generateInviteCode() : null;
       const bestOf = input.bestOf === undefined ? 1 : input.bestOf;
       if (bestOf !== 1 && bestOf !== 3) throw new DuelServiceError("Best of must be 1 or 3", 400);

@@ -44,7 +44,6 @@ check passes. Logs are in `$NATIVE_CHECKS_OUT/logs`.
 
 - `ready`: must pass on the merged core (core `5edcc84`, which has F5 and F8).
 - `pending`: needs core work that is not merged, or a check that does not match the merged core yet. Skipped unless you pass `--pending`.
-  No check has this status now.
 - `domain`: needs a core tree with the Domain layer (`domain_master.cpp`). The merged tree has no Domain layer, so
   `domain-multi` does not compile there. Use `--domain`: the runner copies the tree, runs the build-time Domain layer
   (`apply-domain-multi.mjs pre`, the Domain patch, `post`) on the copy, and runs the `domain` rows only (they count as
@@ -84,4 +83,5 @@ HEAD, the Lua pin or the flags change, and makes `cards.tsv` again when `DUEL_DA
 | `opponent-pick` | one opponent bound at activation (F5) |
 | `place-seat-hint` | seat hint of a place prompt (F8 with F5) |
 | `turn-handoff`, `zone-seat-sset` | turn hand-off after an elimination, SSet toward the bound opponent (F9) |
+| `mp-overlay` | Lua overlay of duels with more than two seats: replace, suffix, orphan suffix, flag off at n=2 and with the overlay off (F7 P4) |
 | `domain-multi` | Domain layer (status `domain`, see below) |
