@@ -291,8 +291,16 @@ export async function playDuel(scenario: NScenario, options: PlayOptions): Promi
         continue;
       }
 
+      // A legal optional effect may resolve with no change and remain usable
+      // in the next chain. At n > 2, let all seats pass before classifying this
+      // as a stalled engine. Replay and the legacy two-seat policy stay exact.
+      const passRepeatedChain = !scripted && seatCount > 2 && consecutive >= 8 &&
+        prompt.context?.type === "chain" && !prompt.context.forced && prompt.cancelable;
+      if (passRepeatedChain) outcome.stats["chain-stall-passes"] = (outcome.stats["chain-stall-passes"] ?? 0) + 1;
       const plan = scripted
         ? { candidates: [scripted.answer], exact: false, note: "journal" }
+        : passRepeatedChain
+          ? { candidates: [{ cancel: true }], exact: true, note: "chain-stall-pass" }
         : planAnswer(prompt, {
             rng,
             turnActions,

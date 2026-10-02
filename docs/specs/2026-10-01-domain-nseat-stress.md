@@ -77,3 +77,15 @@ empty-Deck losses, LP recovery, all-seat simultaneous losses, and the first
 battle window after a seat loses before its first turn. A lost FFA thief sends
 the living owner's master to that owner's Graveyard. Tag count effects use
 the joined opposing field. LP recovery reaches both views of the same team.
+
+The first full fuzz run used P61 and the overlay at commit `a3297e3`. FFA3
+and FFA4 each passed 150 seeds. Tag passed 149 seeds. Seed 60 found a driver
+loop: Borreload Liberator Dragon repeatedly tried to destroy the partner's
+Metaion. Metaion cannot be destroyed. The legal action had no result and its
+chain limit reset after each chain. Two passes advanced the phase to Main 1.
+
+The driver now passes optional chain prompts after eight consecutive answers
+with the same board. It still fails if the engine does not advance. Replay
+and the two-seat answer policy stay unchanged. The live seed test failed at
+step 287 before the fix and reaches a final result after it. Seven live and
+checker tests pass. No engine or Lua patch is needed for this driver defect.
