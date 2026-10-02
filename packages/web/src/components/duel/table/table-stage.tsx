@@ -61,13 +61,16 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     };
   }, []);
 
-  const k = stageFit(box);
+  // The seat poses measure fields. Their hand rows extend below the 860px field canvas.
+  const canvasHeight = STAGE.height + 96;
+  const fitBox = useMemo(() => ({ ...box, height: box.height * STAGE.height / canvasHeight }), [box, canvasHeight]);
+  const k = stageFit(fitBox);
   const threeWay = slotPlan(layout, { mode: "home" }) != null;
   const fly = camera.mode === "fly" && threeWay;
   // The city is heavy: it mounts the first time the fly-in shows and stays (the fade out needs it).
   const [cityOn, setCityOn] = useState(fly);
   if (fly && !cityOn) setCityOn(true);
-  const rawPoses = useMemo(() => seatPoses(layout, camera, box), [layout, camera, box]);
+  const rawPoses = useMemo(() => seatPoses(layout, camera, fitBox), [layout, camera, fitBox]);
 
   // A seat turns by the short way between two places: the angle it draws is the previous one plus the smallest turn.
   const turned = useRef(new Map<number, number>());
@@ -121,8 +124,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
 
   const canvas: CSSProperties = {
     width: STAGE.width,
-    height: STAGE.height,
-    transform: `translate(${(box.width - STAGE.width * k) / 2}px, ${(box.height - STAGE.height * k) / 2}px) scale(${k})`,
+    height: canvasHeight,
+    transform: `translate(${(box.width - STAGE.width * k) / 2}px, ${(box.height - canvasHeight * k) / 2}px) scale(${k})`,
   };
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";

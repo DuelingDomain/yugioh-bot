@@ -2038,6 +2038,11 @@
   translate: -50% 0;
 }
 
+/* Enlarged hand art can overlap the back row; clicks there belong to its zone button. */
+.sfHand .frame {
+  pointer-events: none;
+}
+
 /* A seat that cannot use cards for the viewer (a partner, a spectator's view): the legal ring only. */
 .seatField[data-usable="false"] .glow,
 .seatField[data-usable="false"] .mark {
