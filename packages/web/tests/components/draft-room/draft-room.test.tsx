@@ -113,6 +113,40 @@ describe("DraftRoom", () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  it("picks the selected card once when the clock reaches 2s", async () => {
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    fireEvent.click(card(2));
+    act(() => useDraftStore.setState({ timerSeconds: 3 }));
+    expect(global.fetch).not.toHaveBeenCalled();
+    act(() => useDraftStore.setState({ timerSeconds: 2 }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toEqual({ cardId: 2 });
+    act(() => useDraftStore.setState({ timerSeconds: 1 }));
+    act(() => useDraftStore.setState({ timerSeconds: 0 }));
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends no pick at 2s with nothing selected, even when hovering", async () => {
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    fireEvent.mouseEnter(card(1));
+    fireEvent.mouseOver(card(1));
+    act(() => useDraftStore.setState({ timerSeconds: 2 }));
+    act(() => useDraftStore.setState({ timerSeconds: 0 }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-pick when it is not your turn", async () => {
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    fireEvent.click(card(1));
+    act(() => useDraftStore.setState({ isMyTurn: false, timerSeconds: 1 }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it("saves the animations setting", async () => {
     renderRoom();
     await waitFor(() => expect(card(1)).toBeTruthy());

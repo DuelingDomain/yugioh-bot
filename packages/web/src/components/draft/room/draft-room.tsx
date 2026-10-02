@@ -53,6 +53,8 @@ export interface DraftRoomProps {
 
 const PHONE = "(max-width: 900px)";
 const DRAWER = "(max-width: 1359px) and (min-width: 901px)";
+// seconds left on the store clock at which a selected card is picked; early enough for the POST to beat the server sweep
+const AUTO_PICK_AT = 2;
 
 const parseNumberKey = (key: string): number | null => {
   if (key >= "1" && key <= "9") return Number(key);
@@ -270,6 +272,16 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   useEffect(() => {
     if (rs.completed) setPending(new Set());
   }, [rs.completed]);
+
+  /* ---------- time's nearly up: a selected card is the pick (hover alone never counts) ---------- */
+  const lastCall = useDraftStore((s) => s.timerSeconds <= AUTO_PICK_AT);
+  const autoPicked = useRef(-1);
+  useEffect(() => {
+    if (!lastCall || turn !== "picking" || rs.completed || selectedId == null) return;
+    if (autoPicked.current === deal.seq || !deal.dealt.some((c) => c.id === selectedId)) return;
+    autoPicked.current = deal.seq;
+    doPick(selectedId);
+  }, [lastCall, turn, rs.completed, selectedId, deal.seq, deal.dealt, doPick]);
 
   /* ---------- selecting ---------- */
   const select = useCallback(
