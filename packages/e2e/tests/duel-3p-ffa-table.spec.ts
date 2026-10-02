@@ -227,10 +227,11 @@ test.describe("FFA3 real-engine table rules", () => {
   test("LP elimination clears cards, survives reload, skips the out seat, and restores all three placings", async ({ player }, info) => {
     const alice = await player("p1");
     const errors = collectTableErrors(alice.page);
-    const slug = await startTablePreset(alice.page, "ffa3-table-battle");
+    const slug = await startTablePreset(alice.page, "ffa3-table-direct");
+    await expectRealCore(alice.page, slug, "scripted", info);
+    await expect(tableField(alice.page, 1).locator("[data-kind='st'][data-occupied='true']")).toHaveCount(1);
+    await expect(tableGrave(alice.page, 1)).toHaveAccessibleName(/ (GY|Graveyard) \(1\)$/);
     await endTurn(alice.page, 4);
-    await useCard(alice.page, handCard(alice.page, "Raigeki"), "Activate");
-    await pickLegalZone(alice.page, "st");
     await attackWithFirstMonster(alice.page);
     await alice.page.getByTestId("holo-pick-1").click();
     await alice.page.getByTestId("aim-confirm").click();
@@ -244,6 +245,8 @@ test.describe("FFA3 real-engine table rules", () => {
     await alice.page.reload();
     await expect(alice.page.locator("[data-holo='1']")).toHaveAttribute("data-elim", "true");
     await expect(occupied(alice.page, 1)).toHaveCount(0);
+    await expect(tableField(alice.page, 1).locator("[data-kind='st'][data-occupied='true']")).toHaveCount(0);
+    await expect(tableGrave(alice.page, 1)).toHaveAccessibleName(/ (GY|Graveyard) \(0\)$/);
     await expect(alice.page.getByTestId("seat-out")).toContainText("3rd");
     await expect(alice.page.locator("[data-ring-seat='1']")).toHaveAttribute("data-status", "eliminated");
     await tableShot(alice.page, slug, info, "reload-after-elimination");
@@ -254,16 +257,21 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(turns.some((turn) => turn.turn > 4 && turn.seat === 1)).toBe(false);
     await attackWithFirstMonster(alice.page);
     // Only one rival remains: the core attacks it directly without a seat-choice prompt.
-    await expect(tableLp(alice.page, 2)).toContainText("3,000");
+    await expect(tableLpValue(alice.page, 2)).toHaveText("3,000");
     await attackNext(alice.page, 1);
     const result = alice.page.getByTestId("duel-result");
     await expect(result).toHaveAttribute("data-outcome", "win");
+    const rows = result.getByRole("list", { name: "Final standings" }).getByRole("listitem");
+    await expect(rows).toHaveCount(3);
+    expect(await rows.evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute("data-seat"))))).toEqual([0, 2, 1]);
     await expect(result.locator("[data-place]")).toHaveText(["1st", "2nd", "3rd"]);
     const final = (await readTable(alice.page, slug)).engine!;
     expect(final.result!.winnerSeat).toBe(0);
     expect(final.eliminationOrder).toEqual([[1], [2]]);
     await tableShot(alice.page, slug, info, "final-placings");
     await alice.page.reload();
+    await expect(rows).toHaveCount(3);
+    expect(await rows.evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute("data-seat"))))).toEqual([0, 2, 1]);
     await expect(result.locator("[data-place]")).toHaveText(["1st", "2nd", "3rd"]);
     expect((await readTable(alice.page, slug)).engine!.eliminationOrder).toEqual([[1], [2]]);
     expect(errors).toEqual([]);

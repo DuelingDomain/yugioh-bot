@@ -2,7 +2,7 @@ import { chainWith, target } from "../scripted-bot.js";
 import { onChain, type Preset } from "./types.js";
 
 // Small deterministic boards for browser checks. No first-turn battle override:
-// all three duelists must take a turn before the human can attack.
+// current engine blocks turns 1-3; ADR R-FFA-NO-ATTACK requires turn 3 (pending).
 export const presets: Preset[] = [
   {
     id: "ffa3-table-battle",
@@ -19,9 +19,9 @@ export const presets: Preset[] = [
     },
     bots: { 1: [], 2: [] },
     checklist: [
-      "Pass the first round. Battle is available only on turn 4.",
+      "Current engine: pass to turn 4 for Battle. ADR turn 3 is pending engine change.",
       "Attack a monster: targets from both rivals are offered.",
-      "Alternatively activate Raigeki, then choose a rival for each direct attack.",
+      "Current engine: Raigeki clears both rivals. This does not prove pending R-FFA-OPP-ONE.",
       "Three direct attacks eliminate seat 1 then seat 2; seat 0 wins with three distinct placings.",
     ],
   },
