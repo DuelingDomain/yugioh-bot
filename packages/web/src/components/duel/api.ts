@@ -163,7 +163,7 @@ export async function validateDuelDeck(
   deck: DuelDeck,
   signal: AbortSignal,
 ): Promise<DuelDeckValidation> {
-  return parseBody(
+  const report = await parseBody<DuelDeckValidation | { locked: true; error: string }>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/deck/validate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -171,6 +171,8 @@ export async function validateDuelDeck(
       signal,
     }),
   );
+  if ("locked" in report && report.locked) throw new DuelRequestError(report.error, 409);
+  return report as DuelDeckValidation;
 }
 
 /** A seated player clicks Ready in a series game lobby (tournament games use the registered deck). */
