@@ -99,6 +99,11 @@ export interface DuelSeriesService {
     deck: DuelDeck,
   ): { series: DuelSeriesSummary; readyCleared: boolean };
   setSideReady(seriesId: number, guildId: string, playerId: number): DuelSeriesSummary;
+  /**
+   * Takes back the player's Ready between games, e.g. when they start editing their side deck.
+   * `readyCleared` is false when they were not ready.
+   */
+  clearSideReady(seriesId: number, guildId: string, playerId: number): { series: DuelSeriesSummary; readyCleared: boolean };
   /** between_games series whose deadline passed or whose players are both ready. */
   dueNextGames(nowMs: number, limit: number): Array<{ seriesId: number; guildId: string }>;
   /** Series games in lobby with two ready seats (auto-start recovery after a host restart). */
@@ -1004,6 +1009,17 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
     return store.summarize(store.requireSeries(row.id));
   });
 
+  const clearSideReadyTx = db.transaction(
+    (seriesId: number, guildId: string, playerId: number): { series: DuelSeriesSummary; readyCleared: boolean } => {
+      const row = store.requireSeries(seriesId, guildId);
+      const index = store.requirePlayerIndex(row, playerId);
+      if (row.status !== "between_games") throw new DuelServiceError("The series is not between games", 409);
+      const wasReady = (index === 0 ? row.side_ready0 : row.side_ready1) === 1;
+      if (wasReady) (index === 0 ? clearSideReady0 : clearSideReady1).run(row.id);
+      return { series: store.summarize(store.requireSeries(row.id)), readyCleared: wasReady };
+    },
+  );
+
   /** Null when the series was closed because its tournament is no longer active (the caller throws after the commit). */
   const createNextGameTx = db.transaction((seriesId: number, guildId: string): DuelSession | null => {
     const row = store.requireSeries(seriesId, guildId);
@@ -1094,6 +1110,9 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
     },
     setSideReady(seriesId, guildId, playerId) {
       return setSideReadyTx(seriesId, guildId, playerId);
+    },
+    clearSideReady(seriesId, guildId, playerId) {
+      return clearSideReadyTx(seriesId, guildId, playerId);
     },
     dueNextGames(nowMs, limit) {
       const cap = Math.min(Math.max(1, Math.floor(limit)), DUE_CAP);

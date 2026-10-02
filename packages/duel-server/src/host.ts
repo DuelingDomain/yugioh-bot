@@ -1032,7 +1032,7 @@ export function createDuelHost(options: {
       return project(slug, guildId, actor);
     }
     if (op === "replay") return replay(slug, guildId, room);
-    if (op === "series-side" || op === "series-ready") {
+    if (op === "series-side" || op === "series-ready" || op === "series-unready") {
       const seriesId = room.session.seriesId ?? null;
       if (seriesId === null) throw new RequestError("This duel is not part of a series", 409);
       const info = series.get(seriesId, guildId);
@@ -1056,6 +1056,13 @@ export function createDuelHost(options: {
           return { series: info, nextSlug: info.currentDuelSlug };
         }
         throw new RequestError("The series is not between games", 409);
+      }
+      if (op === "series-unready") {
+        // The player started editing their side deck: take Ready back at once, before anything is saved,
+        // so the opponent's Ready cannot start the next game on a deck they are still changing.
+        const cleared = series.clearSideReady(seriesId, guildId, actor);
+        if (cleared.readyCleared) await emitChange(cleared.series.currentDuelSlug ?? slug, guildId);
+        return { series: cleared.series, nextSlug: null };
       }
       const updated = series.setSideReady(seriesId, guildId, actor);
       await emitChange(updated.currentDuelSlug ?? slug, guildId);

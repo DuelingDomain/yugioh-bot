@@ -395,6 +395,51 @@ describe("series advance", () => {
     expect(app.series.get(series.id, GUILD).gameNumber).toBe(2);
   });
 
+  it("series-unready: a swap after Ready (no save) keeps the next game from starting when the opponent readies", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const changes: string[] = [];
+    const { host, workers } = openHost(app, { onChange: (slug) => void changes.push(slug) });
+    const { duel, series } = await startChallenge(app, host, 3);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    const p1Index = app.series.get(series.id, GUILD).playerIds.indexOf(app.p1);
+
+    const ready = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    expect(ready.data.series.sideReady[p1Index]).toBe(true);
+
+    // The side deck panel sends this on the player's first swap, before anything is saved.
+    const stranger = await post(host, { op: "series-unready", slug: duel.slug, playerId: app.p3 });
+    expect(stranger.status).toBe(403);
+    changes.length = 0;
+    const unready = await post(host, { op: "series-unready", slug: duel.slug, playerId: app.p1 });
+    expect(unready.status).toBe(200);
+    expect(unready.data.series.sideReady[p1Index]).toBe(false);
+    expect(unready.data.nextSlug).toBeNull();
+    expect(changes).toContain(duel.slug);
+
+    const other = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
+    expect(other.status).toBe(200);
+    expect(other.data.nextSlug).toBeNull();
+    await settle();
+    expect(workers).toHaveLength(1);
+    expect(app.series.get(series.id, GUILD)).toMatchObject({ status: "between_games", gameNumber: 1 });
+
+    // Not ready already: nothing changes and no refresh goes out.
+    changes.length = 0;
+    const again = await post(host, { op: "series-unready", slug: duel.slug, playerId: app.p1 });
+    expect(again.status).toBe(200);
+    expect(changes).toEqual([]);
+
+    const back = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    expect(typeof back.data.nextSlug).toBe("string");
+    expect(workers).toHaveLength(2);
+
+    // Too late: the next game exists, so the caller is pointed at it instead.
+    const late = await post(host, { op: "series-unready", slug: duel.slug, playerId: app.p1 });
+    expect(late.status).toBe(200);
+    expect(late.data.nextSlug).toBe(back.data.nextSlug);
+  });
+
   it("un-readies a player who sides after Ready, so the next game waits for their new deck", async () => {
     vi.useFakeTimers();
     const app = setup();

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DuelDeck, DuelSeriesSideState, DuelSeriesSummary } from "@yugidraft/shared/duels";
-import { getDuelCards, readySeries, saveSeriesSideDeck } from "./api";
+import { getDuelCards, readySeries, saveSeriesSideDeck, unreadySeries } from "./api";
 import { cardArtUrl } from "./constants";
 import { cx, sheetRoot, SheetButton } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -54,8 +54,9 @@ function Group({ title, count, children }: { title: string; count: number; child
 /**
  * Side deck window between games of a Best of 3. Pick one card from the Main or Extra Deck and one
  * from the Side Deck to swap them; the Side Deck size never changes. Save stores the deck for the
- * next game, Ready saves first when needed. Saving a changed deck clears the player's Ready on the
- * server, so they must click Ready again.
+ * next game, Ready saves first when needed. A ready player who starts editing is un-readied on the
+ * server at once (before anything is saved), so the opponent's Ready cannot start the next game while
+ * they are still swapping; they click Ready again when done. Saving a changed deck also clears Ready.
  */
 export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged, onNavigate }: {
   slug: string;
@@ -74,8 +75,10 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  /** A save cleared this player's Ready; shown until they are ready again. */
+  /** This player's Ready was taken back (by editing or a save); shown until they are ready again. */
   const [unreadied, setUnreadied] = useState(false);
+  /** The un-ready request in flight; Ready waits for it so the two cannot land out of order. */
+  const unreadying = useRef<Promise<void> | null>(null);
   const [meta, setMeta] = useState<ReadonlyMap<number, CardMeta>>(new Map());
   const rootRef = useRef<HTMLDivElement>(null);
   const seconds = useSecondsUntil(series.nextGameAt);
@@ -117,7 +120,23 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   const dirty = !sameDeck(draft, side.currentDeck);
   const atBase = sameDeck(draft, base);
   const swaps = swapCount(base, draft);
-  const imReady = series.sideReady[myIndex];
+  const imReady = series.sideReady[myIndex] && !unreadied;
+
+  /** Any edit while ready takes Ready back on the server straight away. */
+  function leaveReady() {
+    if (!imReady || unreadying.current) return;
+    setUnreadied(true);
+    unreadying.current = unreadySeries(slug).then(
+      (result) => {
+        if (result.nextSlug) onNavigate(result.nextSlug);
+        else onChanged();
+      },
+      (cause: unknown) => {
+        setUnreadied(false);
+        setError(cause instanceof Error ? cause.message : "Could not take back your Ready. Try again.");
+      },
+    ).finally(() => { unreadying.current = null; });
+  }
 
   function tryApply(source: SwapSource, sideIndex: number) {
     const why = swapProblem(draft, source, sideIndex, types);
@@ -138,6 +157,7 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   }
 
   function pickDeckCard(section: SwapSection, index: number) {
+    leaveReady();
     setProblem(null);
     if (out?.section === section && out.index === index) {
       setOut(null);
@@ -149,6 +169,7 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   }
 
   function pickSideCard(index: number) {
+    leaveReady();
     setProblem(null);
     if (inIndex === index) {
       setInIndex(null);
@@ -173,12 +194,14 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
 
   const save = () => work(async () => {
     const result = await saveSeriesSideDeck(slug, draft);
-    setUnreadied(imReady && !result.series.sideReady[myIndex]);
+    if (imReady && !result.series.sideReady[myIndex]) setUnreadied(true);
     onChanged();
   });
   const ready = () => work(async () => {
+    await unreadying.current;
     if (dirty) await saveSeriesSideDeck(slug, draft);
     const result = await readySeries(slug);
+    setUnreadied(false);
     if (result.nextSlug) onNavigate(result.nextSlug);
     else {
       onChanged();
@@ -208,6 +231,9 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
           <div className={styles.badges}>
             <span className={styles.badge} data-tone="accent">Game {series.gameNumber + 1} of {series.bestOf}</span>
             {seconds != null ? <span className={styles.badge} data-tone="gold" role="timer">Starts in {formatCountdown(seconds)}</span> : null}
+            {series.sideReady[myIndex] || unreadied
+              ? <span className={styles.badge} data-tone={imReady ? "accent" : undefined}>{imReady ? "You are ready" : "Not ready"}</span>
+              : null}
             <span className={styles.badge}>Main {counts.main}</span>
             <span className={styles.badge}>Extra {counts.extra}</span>
             <span className={styles.badge}>Side {counts.side}</span>
@@ -233,11 +259,11 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
         {error ? <p className={styles.problem} role="alert">{error}</p> : null}
         {imReady && dirty ? (
           <p className={styles.hintLine} role="status">Saving these swaps clears your Ready. Click Ready again when you are done.</p>
-        ) : unreadied && !imReady ? (
-          <p className={styles.hintLine} role="status">Swaps saved. You are no longer ready: click Ready for next game.</p>
+        ) : unreadied ? (
+          <p className={styles.hintLine} role="status">You are no longer ready. Finish your swaps, then click Ready for next game.</p>
         ) : null}
         <footer className={styles.sideFoot}>
-          <SheetButton kind="secondary" disabled={busy || atBase} onClick={() => { setDraft(base); setOut(null); setInIndex(null); setProblem(null); }}>
+          <SheetButton kind="secondary" disabled={busy || atBase} onClick={() => { leaveReady(); setDraft(base); setOut(null); setInIndex(null); setProblem(null); }}>
             Reset to registered deck
           </SheetButton>
           <SheetButton kind="secondary" loading={busy} disabled={busy || !dirty} onClick={() => void save()}>Save</SheetButton>

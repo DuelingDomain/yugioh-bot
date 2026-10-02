@@ -16,6 +16,7 @@ vi.mock("next/link", () => ({
 
 const api = vi.hoisted(() => ({
   readySeries: vi.fn(),
+  unreadySeries: vi.fn(),
   saveSeriesSideDeck: vi.fn(),
   cancelSeries: vi.fn(),
   getDuelCards: vi.fn(),
@@ -35,6 +36,7 @@ const soon = () => new Date(Date.now() + 42_000).toISOString();
 
 beforeEach(() => {
   api.readySeries.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
+  api.unreadySeries.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.saveSeriesSideDeck.mockReset().mockResolvedValue({ series: makeSeries() });
   api.cancelSeries.mockReset().mockResolvedValue(undefined);
   api.getDuelCards.mockReset().mockImplementation(async (codes: number[]) => ({
@@ -208,11 +210,45 @@ describe("SideDeckPanel", () => {
     expect(api.saveSeriesSideDeck.mock.invocationCallOrder[0]).toBeLessThan(api.readySeries.mock.invocationCallOrder[0]);
   });
 
-  it("tells a ready player that saving swaps clears Ready, then offers Ready again", async () => {
+  it("un-readies a ready player on the server as soon as they start a swap, before any save", async () => {
+    const props = panel({ sideReady: [true, true] });
+    expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/no longer ready/)).toBeNull();
+
+    fireEvent.click(await tile("Card 2"));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
+    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
+    expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
+    expect(screen.getByText(/You are no longer ready/).getAttribute("role")).toBe("status");
+    expect((screen.getByRole("button", { name: "Ready for next game" }) as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
+
+    // Finishing the swap does not send a second un-ready.
+    fireEvent.click(await tile("Card 10"));
+    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends Ready only after a pending un-ready has landed", async () => {
+    let finish!: (value: unknown) => void;
+    api.unreadySeries.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    panel({ sideReady: [true, false] });
+    fireEvent.click(await tile("Card 2"));
+    fireEvent.click(await tile("Card 10"));
+    fireEvent.click(screen.getByRole("button", { name: "Ready for next game" }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
+    expect(api.readySeries).not.toHaveBeenCalled();
+    finish({ series: makeSeries(), nextSlug: null });
+    await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
+    expect(api.saveSeriesSideDeck.mock.invocationCallOrder[0]).toBeLessThan(api.readySeries.mock.invocationCallOrder[0]);
+  });
+
+  it("falls back to the save clearing Ready when the un-ready request fails", async () => {
     const base = makeDeck();
     const swapped = { main: [1, 10, 3], extra: [100, 101], side: [2, 11] };
     const between = { status: "between_games" as const, nextGameAt: soon(), hasSide: [true, false] as [boolean, boolean] };
     api.saveSeriesSideDeck.mockResolvedValue({ series: makeSeries({ ...between, sideReady: [false, true] }) });
+    api.unreadySeries.mockRejectedValue(new Error("Network down"));
     const element = (sideReady: [boolean, boolean], current: typeof base) => (
       <SideDeckPanel slug="game-1" series={makeSeries({ ...between, sideReady })} myIndex={0}
         side={{ baseDeck: base, currentDeck: current }} onClose={vi.fn()} onChanged={vi.fn()} onNavigate={vi.fn()} />
@@ -222,8 +258,11 @@ describe("SideDeckPanel", () => {
     expect(screen.queryByText(/clears your Ready|no longer ready/)).toBeNull();
 
     fireEvent.click(await tile("Card 2"));
+    expect(await screen.findByText("Network down")).toBeTruthy();
+    // The next edit retries the un-ready, which fails again: the save is the backstop.
     fireEvent.click(await tile("Card 10"));
-    expect(screen.getByText(/Saving these swaps clears your Ready/).getAttribute("role")).toBe("status");
+    expect((await screen.findByText(/Saving these swaps clears your Ready/)).getAttribute("role")).toBe("status");
+    expect(api.unreadySeries).toHaveBeenCalledTimes(2);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", swapped));
 

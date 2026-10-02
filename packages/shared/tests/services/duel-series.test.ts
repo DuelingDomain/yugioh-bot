@@ -684,6 +684,24 @@ describe("side decking", () => {
     expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
   });
 
+  it("clears Ready on request while the player edits, before anything is saved", () => {
+    const app = setup();
+    expectStatus(() => app.series.clearSideReady(challenge(app, 3).series.id, "g1", app.p1), 409);
+    const series = betweenGames(app);
+    const index = series.playerIds.indexOf(app.p1);
+    expectStatus(() => app.series.clearSideReady(series.id, "g1", app.p3), 403);
+    app.series.setSideReady(series.id, "g1", app.p1);
+    app.series.setSideReady(series.id, "g1", app.p2);
+    expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
+
+    const cleared = app.series.clearSideReady(series.id, "g1", app.p1);
+    expect(cleared.readyCleared).toBe(true);
+    expect(cleared.series.sideReady[index]).toBe(false);
+    expect(cleared.series.sideReady[index === 0 ? 1 : 0]).toBe(true);
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    expect(app.series.clearSideReady(series.id, "g1", app.p1).readyCleared).toBe(false);
+  });
+
   it("reports whether a save cleared Ready, read inside the save", () => {
     const app = setup();
     const series = betweenGames(app);
