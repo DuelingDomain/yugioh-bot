@@ -90,4 +90,23 @@ describe("DuelRoomView: a spectator between games of a series", () => {
     view.rerender(<DuelRoomView slug="game-1" />);
     expect(replace).toHaveBeenCalledWith("/duels/game-2");
   });
+
+  it.each(["public", "private"])("moves a %s spectator of a practice-bot series to the next game", (visibility) => {
+    const replace = vi.fn();
+    state.replace = replace;
+    const bot = { vsBot: true, playerIds: [1, 0] as [number, number], displayNames: ["Sulman", "Practice Bot"] as [string, string] };
+    const room = (series: Parameters<typeof makeSeries>[0], status: DuelRoom["session"]["status"]) => {
+      const data = spectatorRoom({ ...bot, ...series }, { status, visibility });
+      data.session.seats[1] = { seat: 1, playerId: null, displayName: "Practice Bot", ready: true, isBot: true };
+      return data;
+    };
+    state.data = room({ status: "active" }, "active");
+    const view = render(<DuelRoomView slug="game-1" />);
+    state.data = room({ status: "between_games", wins: [0, 1], firstChooser: 0, nextGameAt: new Date(Date.now() + 60_000).toISOString(), sideReady: [false, true] }, "completed");
+    view.rerender(<DuelRoomView slug="game-1" />);
+    expect(replace).not.toHaveBeenCalled();
+    state.data = room({ status: "active", wins: [0, 1], gameNumber: 2, currentDuelSlug: "game-2" }, "completed");
+    view.rerender(<DuelRoomView slug="game-1" />);
+    expect(replace).toHaveBeenCalledWith("/duels/game-2");
+  });
 });

@@ -17,10 +17,9 @@ import { defaultDuelSettings, type DuelRoom, type DuelSeriesSummary } from "@yug
  *   PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs PROOF_DIR=/tmp/proof \
  *     node --import tsx packages/web/e2e/spectator-series.playwright.ts
  * ROOM_SRC points the build at another copy of packages/web/src (e.g. an older commit) to compare.
+ * BUILD_ONLY=1 builds the browser bundle without importing Playwright or launching Chromium.
  */
 
-const playwrightModule = process.env.PLAYWRIGHT_MODULE ?? "playwright";
-const { chromium } = await import(playwrightModule.startsWith("/") ? pathToFileURL(playwrightModule).href : playwrightModule);
 const here = fileURLToPath(new URL(".", import.meta.url));
 const webRoot = resolve(here, "..");
 const src = resolve(process.env.ROOM_SRC ?? resolve(webRoot, "src"));
@@ -108,6 +107,12 @@ await build({
     },
   }, react()],
 });
+if (process.env.BUILD_ONLY === "1") {
+  console.log(`Spectator series browser bundle built: ${bundle}`);
+  process.exit(0);
+}
+const playwrightModule = process.env.PLAYWRIGHT_MODULE ?? "playwright";
+const { chromium } = await import(playwrightModule.startsWith("/") ? pathToFileURL(playwrightModule).href : playwrightModule);
 const indexHtml = `<!doctype html><html lang="en" class="dark"><head><meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1"><title>Duel room</title>
   <link rel="stylesheet" href="/__harness/browser.css"></head>
@@ -116,7 +121,7 @@ const indexHtml = `<!doctype html><html lang="en" class="dark"><head><meta chars
 // ---- The mocked server state -----------------------------------------------------------------------------
 
 type Viewer = "spectator" | "player";
-type Game = { slug: string; number: number; status: "active" | "completed"; winnerSeat: 0 | 1 | null };
+type Game = { slug: string; number: number; status: "active" | "completed"; winnerSeat: 0 | 1 | null; firstIndex?: 0 | 1 };
 type World = {
   viewer: Viewer;
   visibility: "public" | "private";
@@ -132,6 +137,7 @@ function seriesState(overrides: Partial<DuelSeriesSummary>): DuelSeriesSummary {
     id: 7, bestOf: 3, ranked: false, status: "active", playerIds: [1, 2], displayNames: NAMES, wins: [0, 0],
     gameNumber: 1, currentDuelSlug: "game-1", winnerPlayerId: null, tournamentId: null, tournamentSlug: null,
     tournamentMatchId: null, nextGameAt: null, sideReady: [false, false], hasSide: [false, false],
+    firstChooser: null, firstChoice: null, vsBot: false,
     ...overrides,
   };
 }
@@ -150,22 +156,21 @@ function roomFor(world: World, slug: string): DuelRoom | null {
   const done = game.status === "completed";
   const winner = done ? game.winnerSeat : null;
   const result = done ? { winnerSeat: winner, reason: "Life points reached 0" } : null;
+  const firstIndex = game.firstIndex ?? 0;
+  const order = firstIndex === 0 ? [0, 1] as const : [1, 0] as const;
   return {
     session: {
       id: game.number, slug, name: "Table", guildId: "g", organizerPlayerId: 1, mode: "normal", masterRule: 5,
       status: game.status,
       settings: { ...defaultDuelSettings("normal"), visibility: world.visibility },
-      seats: [
-        { seat: 0, playerId: 1, displayName: NAMES[0], ready: true, isBot: false },
-        { seat: 1, playerId: 2, displayName: NAMES[1], ready: true, isBot: false },
-      ],
+      seats: order.map((index, seat) => ({ seat, playerId: index + 1, displayName: NAMES[index], ready: true, isBot: false })),
       createdAt: "", endedAt: done ? new Date().toISOString() : null, archivedAt: null,
-      winnerPlayerId: winner == null ? null : winner + 1, winnerSeat: winner,
+      winnerPlayerId: winner == null ? null : order[winner] + 1, winnerSeat: winner,
       resultReason: done ? "Life points reached 0" : null,
       bestOf: 3, seriesId: 7, gameNumber: game.number,
     },
     role: world.viewer,
-    mySeat: world.viewer === "player" ? 0 : null,
+    mySeat: world.viewer === "player" ? (firstIndex === 0 ? 0 : 1) : null,
     myDeck: null,
     clock: null,
     metadataOnly: false,
@@ -304,10 +309,12 @@ function gameOneLive(viewer: Viewer, visibility: World["visibility"]): World {
 }
 const endGameOne = (world: World) => {
   world.games.set("game-1", { slug: "game-1", number: 1, status: "completed", winnerSeat: 0 });
-  world.series = seriesState({ status: "between_games", wins: [1, 0], nextGameAt: new Date(Date.now() + 90_000).toISOString() });
+  world.series = seriesState({ status: "between_games", wins: [1, 0], firstChooser: 1, nextGameAt: new Date(Date.now() + 90_000).toISOString() });
 };
 const startGameTwo = (world: World) => {
-  world.games.set("game-2", { slug: "game-2", number: 2, status: "active", winnerSeat: null });
+  const chooser = world.series.firstChooser ?? 1;
+  const firstIndex = world.series.firstChoice === "second" ? (chooser === 0 ? 1 : 0) : chooser;
+  world.games.set("game-2", { slug: "game-2", number: 2, status: "active", winnerSeat: null, firstIndex });
   world.series = seriesState({ status: "active", wins: [1, 0], gameNumber: 2, currentDuelSlug: "game-2" });
 };
 const readyRow = (page: any, name: string) => page.locator('[data-testid="series-ready-row"]').filter({ hasText: name });
@@ -348,6 +355,13 @@ await scenarioBlock("spectator-public", async (scenario) => {
     await visible(room.result(), "end screen");
     await visible(room.result().getByText("Side decking in progress"), "\"Side decking in progress\"");
   });
+  await check(scenario, "2. Imran is choosing first or second; no first player announced yet", async () => {
+    const choice = room.result().getByTestId("opponent-first-status");
+    await visible(choice, "Imran's pending choice");
+    expectEqual(await choice.textContent(), "Imran is choosing to go first or second…", "choice status");
+    const info = await room.result().getByTestId("between-games-info").textContent();
+    expectEqual(info.includes("goes first"), false, "order announced before the choice");
+  });
   await check(scenario, "2. both players' Ready rows show, neither ready", async () => {
     await visible(readyRow(room.page, "Sulman"), "Sulman's Ready row", 2000);
     expectEqual(await room.page.locator('[data-testid="series-ready-row"]').count(), 2, "Ready rows");
@@ -357,11 +371,15 @@ await scenarioBlock("spectator-public", async (scenario) => {
   await check(scenario, "2. URL is still /duels/game-1", async () => expectEqual(room.path(), "/duels/game-1", "URL"));
   await room.screenshot("game1-ended-siding");
 
-  advance(world, (w) => { w.series = { ...w.series, sideReady: [false, true] }; });
+  advance(world, (w) => { w.series = { ...w.series, sideReady: [false, true], firstChoice: "second" }; });
   await check(scenario, "3. Imran clicks Ready: his row turns Ready on the next poll (no socket push)", async () => {
     await visible(readyRow(room.page, "Imran").and(room.page.locator('[data-ready="true"]')), "Imran's row marked Ready", POLL_WINDOW);
     expectEqual((await readyRow(room.page, "Imran").textContent())?.includes("Ready"), true, "Imran row says Ready");
     expectEqual(await readyRow(room.page, "Sulman").getAttribute("data-ready"), "false", "Sulman still siding");
+  });
+  await check(scenario, "3. Imran chose second: Sulman goes first in game 2", async () => {
+    await visible(room.result().getByText("Sulman goes first (Imran chose to go second)"), "chosen order", POLL_WINDOW);
+    expectEqual(await room.result().getByTestId("opponent-first-status").textContent(), "Imran chose to go second", "choice status");
   });
   await room.screenshot("imran-ready");
 
@@ -494,8 +512,11 @@ await scenarioBlock("player", async (scenario) => {
   const room = await openRoom(scenario, world, "game-1");
   advance(world, endGameOne);
   await room.invalidate();
-  await check(scenario, "game 1 ends: the player gets the Ready button", async () => {
-    await visible(room.result().getByRole("button", { name: "Ready for next game" }), "Ready button");
+  await check(scenario, "game 1 ends: the player gets the Between games screen and Ready button", async () => {
+    const between = room.page.getByTestId("between-games");
+    await visible(between, "Between games screen");
+    await visible(between.getByRole("button", { name: "Ready", exact: true }), "Ready button");
+    expectEqual(await between.getByTestId("opponent-first-status").textContent(), "Opponent is choosing to go first or second…", "opponent's pending choice");
     expectEqual(await room.page.locator('[data-testid="series-ready-row"]').count(), 0, "spectator Ready rows");
   });
   await room.screenshot("game1-ended");

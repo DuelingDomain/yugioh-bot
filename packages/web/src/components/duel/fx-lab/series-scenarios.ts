@@ -1,4 +1,4 @@
-import { newBoard, type LabScenario, type LabScript, type LabSeries, type SeatOptions } from "./board";
+import { newBoard, type LabOpening, type LabScenario, type LabScript, type LabSeries, type SeatOptions } from "./board";
 import { CARDS as C } from "./cards";
 
 /**
@@ -14,7 +14,74 @@ function seriesScript(series: LabSeries): LabScript {
   return { initial: newBoard(myHand, oppHand, "main1", 0), steps: [], tailMs: 1800, series };
 }
 
+function openingScript(opening: LabOpening): LabScript {
+  return { initial: newBoard(myHand, oppHand, "main1", 0), steps: [], tailMs: 1800, opening };
+}
+
 export const SERIES_SCENARIOS: LabScenario[] = [
+  {
+    id: "rps-choosing",
+    category: "Match",
+    name: "Rock-paper-scissors: choosing",
+    description: "Before the duel: pick rock, paper or scissors. The opponent is still choosing and a 30 second countdown runs. Clicks call the real API, which fails in the lab.",
+    build: () => openingScript({ stage: "pick" }),
+  },
+  {
+    id: "rps-waiting",
+    category: "Match",
+    name: "Rock-paper-scissors: waiting",
+    description: "You already chose. Your move is locked and you wait for the opponent. The pick stays hidden from both sides until both are in.",
+    build: () => openingScript({ stage: "pick-chosen" }),
+  },
+  {
+    id: "rps-opponent-chose",
+    category: "Match",
+    name: "Rock-paper-scissors: opponent chose",
+    description: "The opponent has played and you have not. The chip says Opponent chose, not what.",
+    build: () => openingScript({ stage: "pick", opponentChose: true }),
+  },
+  {
+    id: "rps-reveal-win",
+    category: "Match",
+    name: "Rock-paper-scissors: you win",
+    description: "Both moves show for a moment: your paper beats the opponent's rock. You win.",
+    build: () => openingScript({ stage: "reveal-win" }),
+  },
+  {
+    id: "rps-reveal-lose",
+    category: "Match",
+    name: "Rock-paper-scissors: you lose",
+    description: "Your rock loses to the opponent's paper. You lose.",
+    build: () => openingScript({ stage: "reveal-lose" }),
+  },
+  {
+    id: "rps-reveal-tie",
+    category: "Match",
+    name: "Rock-paper-scissors: tie",
+    description: "Both played scissors. Tie, again: the next round starts at once.",
+    build: () => openingScript({ stage: "reveal-tie" }),
+  },
+  {
+    id: "rps-choose-order",
+    category: "Match",
+    name: "Rock-paper-scissors: go first or second",
+    description: "The winner's choice: Go first or Go second. If the 30 seconds run out, the winner goes first.",
+    build: () => openingScript({ stage: "choose" }),
+  },
+  {
+    id: "rps-opponent-choosing",
+    category: "Match",
+    name: "Rock-paper-scissors: opponent chooses order",
+    description: "You lost the game. The opponent is choosing to go first or second.",
+    build: () => openingScript({ stage: "wait-choose" }),
+  },
+  {
+    id: "rps-start",
+    category: "Match",
+    name: "Rock-paper-scissors: order settled",
+    description: "The order is settled and the duel is about to start.",
+    build: () => openingScript({ stage: "start" }),
+  },
   {
     id: "match-label-game-2",
     category: "Match",
@@ -33,22 +100,106 @@ export const SERIES_SCENARIOS: LabScenario[] = [
     id: "match-side-deck",
     category: "Match",
     name: "Between games: side deck",
-    description: "The side deck screen after game 1: swap a Main or Extra card with a Side card, then Ready. Buttons that save or ready call the real API, which fails in the lab.",
+    description: "The Between games screen after game 1: your Main, Extra and Side Deck like the deck editor, no changes yet. Click a Main or Extra card to take it out and a Side card to bring it in. Ready calls the real API, which fails in the lab.",
     build: () => seriesScript({ wins: [1, 0], game: 1, screen: "side", secondsLeft: 48, opponentReady: false }),
+  },
+  {
+    id: "match-side-even",
+    category: "Match",
+    name: "Between games: siding, counts match",
+    description: "Siding in progress: 2 cards out (a Main card and an Extra card) and 2 in (a Main card and an Extra monster). The counter says 2 out · 2 in, the Side Deck keeps its size and Ready is on.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "side", secondsLeft: 40, opponentReady: false, marks: "even" }),
+  },
+  {
+    id: "match-side-uneven",
+    category: "Match",
+    name: "Between games: siding, counts differ",
+    description: "2 cards out and only 1 in. The counter turns red, the Side count shows it changed, and Ready is off with the reason under it. Bring in 1 more card, or put 1 back.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "side", secondsLeft: 40, opponentReady: false, marks: "uneven" }),
+  },
+  {
+    id: "match-side-none",
+    category: "Match",
+    name: "Between games: no side deck",
+    description: "The player's deck has no Side Deck, so there is nothing to swap. The deck shows as it is, the player is ready at once and waits for the opponent.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "side", secondsLeft: 40, opponentReady: false, noSide: true }),
+  },
+  {
+    id: "match-side-opponent-ready",
+    category: "Match",
+    name: "Between games: opponent ready while you side",
+    description: "The opponent clicked Ready and you are still siding. The chip says Opponent ready; the countdown still runs.",
+    build: () => seriesScript({ wins: [1, 1], game: 2, screen: "side", secondsLeft: 27, opponentReady: true, marks: "even" }),
   },
   {
     id: "match-ready",
     category: "Match",
     name: "Between games: ready",
-    description: "The screen after game 1 with the score, the next game, who goes first, the countdown and both Ready states. The opponent is still siding.",
+    description: "The screen after game 1 with the score, the next game, the first/second choice and the countdown. The opponent is still siding and is choosing to go first or second.",
     build: () => seriesScript({ wins: [1, 0], game: 1, screen: "ready", secondsLeft: 48, opponentReady: false }),
   },
   {
     id: "match-ready-opponent",
     category: "Match",
-    name: "Between games: opponent ready",
-    description: "The same screen after you lost game 1 and the opponent clicked Ready. You go first in game 2.",
+    name: "Between games: opponent ready, you choose",
+    description: "The same screen after you lost game 1 and the opponent clicked Ready. You choose to go first or second; Go first is the default.",
     build: () => seriesScript({ wins: [0, 1], game: 1, screen: "ready", secondsLeft: 31, opponentReady: true }),
+  },
+  {
+    id: "match-choose-first-second",
+    category: "Match",
+    name: "Between games: you choose first or second",
+    description: "You lost game 1, so you choose Go first or Go second for game 2. Go first is selected and applies when the countdown ends or you click Ready.",
+    build: () => seriesScript({ wins: [0, 1], game: 1, screen: "ready", secondsLeft: 44, opponentReady: false }),
+  },
+  {
+    id: "match-choose-second",
+    category: "Match",
+    name: "Between games: you chose second",
+    description: "You lost game 1 and chose Go second. The result line says the opponent goes first. You can still change the choice until game 2 starts.",
+    build: () => seriesScript({ wins: [0, 1], game: 1, screen: "ready", secondsLeft: 38, opponentReady: false, choice: "second" }),
+  },
+  {
+    id: "match-opponent-choosing",
+    category: "Match",
+    name: "Between games: opponent chooses first or second",
+    description: "You won game 1. The chip says Opponent is choosing to go first or second…",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "ready", secondsLeft: 44, opponentReady: false }),
+  },
+  {
+    id: "match-opponent-chose",
+    category: "Match",
+    name: "Between games: opponent chose",
+    description: "You won game 1 and the opponent chose to go second, so you go first in game 2.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "ready", secondsLeft: 36, opponentReady: false, choice: "second" }),
+  },
+  {
+    id: "match-bot-lost-game",
+    category: "Match",
+    name: "Between games vs the bot: you lost",
+    description: "Best of 3 against the practice bot. You lost game 1 and choose Go first or Go second. The bot is ready at once; you can side deck before game 2.",
+    build: () => seriesScript({ wins: [0, 1], game: 1, screen: "ready", secondsLeft: 44, vsBot: true }),
+  },
+  {
+    id: "match-bot-won-game",
+    category: "Match",
+    name: "Between games vs the bot: you won",
+    description: "You won game 1 against the practice bot. The bot lost, so it chose to go first by itself and is ready. You can side deck before game 2.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "ready", secondsLeft: 44, vsBot: true }),
+  },
+  {
+    id: "match-bot-side",
+    category: "Match",
+    name: "Side decking vs the bot",
+    description: "The Between games screen in a match against the practice bot. The bot is ready at once and never changes its deck; you side your deck and click Ready.",
+    build: () => seriesScript({ wins: [1, 1], game: 2, screen: "side", secondsLeft: 40, vsBot: true }),
+  },
+  {
+    id: "match-bot-won",
+    category: "Match",
+    name: "Match won vs the bot",
+    description: "The end of a Best of 3 against the practice bot, 2–1. The result says it was a practice match and nothing is recorded.",
+    build: () => seriesScript({ wins: [2, 1], game: 3, screen: "won", vsBot: true }),
   },
   {
     id: "match-won",
@@ -84,6 +235,34 @@ export const SERIES_SCENARIOS: LabScenario[] = [
     name: "Private spectator: next game live",
     description: "An admitted spectator opens the finished private game 1 after game 2 has started: Watch game 2 opens the live game with admission carried over.",
     build: () => seriesScript({ wins: [1, 0], game: 1, screen: "next-live", viewer: "spectator", visibility: "private" }),
+  },
+  {
+    id: "match-spectator-chose-second",
+    category: "Match",
+    name: "Spectator: loser chose second",
+    description: "Imran lost game 1 and chose to go second. Sulman goes first in game 2; both Ready states and the countdown still show.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "ready", secondsLeft: 38, opponentReady: true, viewer: "spectator", choice: "second" }),
+  },
+  {
+    id: "match-spectator-bot-human-choosing",
+    category: "Match",
+    name: "Spectator vs the bot: human choosing",
+    description: "Sulman lost game 1 to the practice bot and is choosing to go first or second. The bot is ready while Sulman sides; the spectator follows game 2 when it starts.",
+    build: () => seriesScript({ wins: [0, 1], game: 1, screen: "ready", secondsLeft: 44, viewer: "spectator", vsBot: true }),
+  },
+  {
+    id: "match-spectator-bot-chose-first",
+    category: "Match",
+    name: "Spectator vs the bot: bot chose first",
+    description: "The practice bot lost game 1, chose to go first by itself and is ready. Sulman is siding before game 2.",
+    build: () => seriesScript({ wins: [1, 0], game: 1, screen: "ready", secondsLeft: 44, viewer: "spectator", vsBot: true }),
+  },
+  {
+    id: "match-spectator-bot-won",
+    category: "Match",
+    name: "Spectator: bot won the match",
+    description: "The practice bot won the Best of 3, 2–1. The spectator sees the bot as the series winner and that no result was recorded.",
+    build: () => seriesScript({ wins: [1, 2], game: 3, screen: "won", viewer: "spectator", vsBot: true }),
   },
   {
     id: "match-spectator-won",

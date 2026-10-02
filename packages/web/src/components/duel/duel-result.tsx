@@ -36,8 +36,6 @@ export type DuelResultScreenProps = {
   onClose: () => void;
   /** Leave the duel (closes the duel window, or returns to the tables list). */
   onExit?: () => void;
-  /** Series only: open the side deck panel between games. */
-  onOpenSide?: () => void;
   /** Series only: the series changed (Ready, Cancel series); reload the room. */
   onSeriesChanged?: () => void;
   /** Series only: go to the next game's room. */
@@ -247,10 +245,9 @@ function wordmarkTier(text: string): "xl" | "lg" | "md" | "sm" {
 }
 
 /** Series score, the series result at the end, and the between-games controls. */
-function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
+function SeriesResult({ room, slug, onChanged, onNavigate }: {
   room: DuelRoom;
   slug: string;
-  onOpenSide?: () => void;
   onChanged?: () => void;
   onNavigate?: (slug: string) => void;
 }) {
@@ -294,7 +291,7 @@ function SeriesResult({ room, slug, onOpenSide, onChanged, onNavigate }: {
       )}
       {between ? (
         <SeriesNextControls room={room} slug={slug} tone="result" onChanged={onChanged ?? noop}
-          onNavigate={onNavigate ?? noop} onOpenSide={onOpenSide} />
+          onNavigate={onNavigate ?? noop} />
       ) : null}
     </section>
   );
@@ -306,7 +303,7 @@ const subscribeNever = () => () => undefined;
 const readBody = () => document.body;
 const readNoBody = () => null;
 
-export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, onOpenSide, onSeriesChanged, onNavigate }: DuelResultScreenProps) {
+export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, onSeriesChanged, onNavigate }: DuelResultScreenProps) {
   const model = useMemo(() => describeDuelResult(room), [room]);
   const { outcome } = model;
   // A spectator whose next game is already live gets "Watch game N" as the main button; leaving steps back.
@@ -477,7 +474,7 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
           ) : null}
 
           {room.series ? (
-            <SeriesResult room={room} slug={slug} onOpenSide={onOpenSide} onChanged={onSeriesChanged} onNavigate={onNavigate} />
+            <SeriesResult room={room} slug={slug} onChanged={onSeriesChanged} onNavigate={onNavigate} />
           ) : null}
 
           <div className={styles.actions}>

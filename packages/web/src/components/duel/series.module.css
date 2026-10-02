@@ -58,6 +58,22 @@
   .readyRows { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* the loser of the last game chooses to go first or second */
+.first { display: grid; justify-items: center; gap: 6px; margin-top: 2px; }
+.firstHead { color: var(--s-ink-2); font-size: 0.9em; }
+.firstRow { display: inline-flex; gap: 6px; padding: 3px; border: 1px solid var(--s-rule); border-radius: 8px; }
+.firstBtn {
+  min-height: 36px; min-width: 104px; padding: 0 14px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--s-ink-2); font: inherit; font-size: 0.95em; cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.firstBtn:hover:not(:disabled) { color: var(--s-ink); border-color: var(--s-rule-hi); }
+.firstBtn[aria-pressed="true"] { color: var(--s-gold); border-color: var(--s-rule-hi); background: rgb(244 214 144 / 0.08); }
+.firstBtn:focus-visible { outline: 2px solid var(--s-gold); outline-offset: 2px; }
+.firstBtn:disabled { opacity: 0.6; cursor: default; }
+.firstNote { color: var(--s-ink-3); font-size: 0.82em; }
+.next[data-tone="sheet"] .first { justify-items: start; }
+
 /* ---------- game label (duel room header, top right) ---------- */
 .gameLabel {
   display: inline-flex; align-items: baseline; gap: 0.5em; padding: 0 calc(9 * var(--duel-unit, 1px));
@@ -150,6 +166,7 @@ a.badge:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .opp i, .readyState i { animation: none; }
+  .firstBtn { transition: none; }
   .tile { transition: none; }
   .tile:hover, .tile[aria-pressed="true"] { translate: none; }
 }
