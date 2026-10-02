@@ -6,6 +6,7 @@ const worktreeRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  ...(process.env.E2E_NEXT_DIST_DIR ? { distDir: process.env.E2E_NEXT_DIST_DIR } : {}),
   // Parent-repo lockfile made Next trace standalone under
   // .next/standalone/.worktrees/domain-multiplayer/... so Docker
   // `node packages/web/server.js` would miss the emitted server.

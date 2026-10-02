@@ -10,7 +10,7 @@
     "e2e": "node stack/prepare.mjs && playwright test",
     "e2e:nobuild": "playwright test",
     "e2e:ui": "node stack/prepare.mjs && playwright test --ui",
-    "e2e:report": "playwright show-report",
+    "e2e:report": "node stack/report.mjs",
     "typecheck": "tsc --noEmit",
     "test:unit": "node --test tests-unit/*.test.ts",
     "e2e:index": "node tools/build-index.mjs"
