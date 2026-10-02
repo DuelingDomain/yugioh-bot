@@ -165,7 +165,10 @@
 }
 .slot[data-slot="fx"] :global([data-chain-panel]) {
   align-self: flex-start;
-  margin-top: 17%;
+  /* Percentage margins resolve against the narrow dock's width, not the board height. */
+  position: relative;
+  top: 23%;
+  margin-top: 0;
   max-height: 46%;
 }
 .slot[data-slot="fx"] :global([data-chain-panel][data-priority="true"]) {
