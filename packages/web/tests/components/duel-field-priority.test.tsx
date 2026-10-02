@@ -52,6 +52,25 @@ describe("field turn and priority", () => {
     expect(half(container, 0).getAttribute("data-turn")).toBe("false");
   });
 
+  it.each([false, true])("holds gold until the new turn's first phase beat starts (reduced %s)", async (reduced) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date", "performance"] });
+    const previous: DuelEngineView["events"] = [{ id: 20, kind: "phase", text: "End Phase" }];
+    const { container, rerender } = render(field(view({ turn: 1, turnSeat: 0, events: previous }), 0, 5, reduced));
+    const events: DuelEngineView["events"] = [...previous,
+      { id: 21, kind: "phase", text: "Draw Phase" },
+      { id: 22, kind: "phase", text: "Standby Phase" },
+      { id: 23, kind: "phase", text: "Main Phase 1" },
+    ];
+    planPhaseBeats(events, 20, { now: performance.now() + 1600, reduced, duelKey: "turn-edge-test" });
+    rerender(field(view({ revision: 2, turn: 2, turnSeat: 1, events }), 0, 5, reduced));
+    expect(half(container, 0).getAttribute("data-turn")).toBe("true");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1599); });
+    expect(half(container, 0).getAttribute("data-turn")).toBe("true");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(half(container, 1).getAttribute("data-turn")).toBe("true");
+    expect(screen.getByText("Turn").closest("[data-lp-seat]")?.getAttribute("data-lp-seat")).toBe("1");
+  });
+
   it("orients both states for a player in seat 1", () => {
     const { container } = render(field(view({ turnSeat: 0, prioritySeat: 1 }), 1));
     expect(half(container, 1).getAttribute("data-side")).toBe("bottom");

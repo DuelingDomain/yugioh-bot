@@ -11,6 +11,7 @@ import { equipSentence, resolveEquipLinks } from "./equip-links";
 import { duelFontClasses } from "./fonts";
 import { deriveFieldActivity } from "./field-activity";
 import { useFieldPriorityReady } from "./field-priority";
+import { useFieldTurnSeat } from "./field-turn";
 import { LifePoints } from "./life-points";
 import { zoneMarkLook } from "./pick-glow";
 import { pileSummonTone } from "./summon-circle-model";
@@ -857,7 +858,8 @@ export function DuelField({
     reducedMotion,
   });
   const priorityShown = priorityLive !== false && priorityReady;
-  const activity = deriveFieldActivity(engine, !priorityShown);
+  const turnSeat = useFieldTurnSeat(engine, pending.turnSeat);
+  const activity = { ...deriveFieldActivity(engine, !priorityShown), turnSeat };
   const priorityLabel = (seat: number, name: string) => activity.prioritySeat !== seat ? null
     : mySeat == null ? `${name} to act` : mySeat === seat ? "Your move" : "Opponent to act";
 
