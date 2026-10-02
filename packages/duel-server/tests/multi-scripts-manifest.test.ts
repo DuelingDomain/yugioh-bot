@@ -7,7 +7,7 @@ import {
   COMPARE_EXTRA, COMPARE_FALSE_POSITIVES, EXPECTED_COUNTS, MIRROR_GATE, OVERLAY_DIRECTORY, R1_COMPLETE, R1_NO_CHANGE, R2_NO_CHANGE, TRIAGE_FILE,
   cardName, checkLists, fillMissingNames, r1Codes, r1Entry, readManifest, readTriage, registerR1, run, wholeFileText, type Manifest, type ManifestCard, type Triage,
 } from "../scripts/generate-multi-scripts.js";
-import { scanCorpus } from "../scripts/scan-multiplayer-scripts.js";
+import { makeSource, scanCorpus } from "../scripts/scan-multiplayer-scripts.js";
 import { currentEngineDataDirectory } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
@@ -25,6 +25,15 @@ const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(currentEngineDataDir
 const stock = needs.file("official script corpus", stockDirectory, "Set DUEL_SCRIPTS_DIR, or set DUEL_DATA_DIR to an engine data directory with card-scripts/official.");
 const triageNeed = needs.localFile("multiplayer triage", TRIAGE_FILE, "Run scripts/scan-multiplayer-scripts.ts to write .status/multiplayer-triage.json.");
 const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.lua`), "utf8");
+
+function isActivationCheck(body: string, name: string): boolean {
+  const source = makeSource(body);
+  const unit = source.units.find(unit => unit.name === `s.${name}`);
+  if (!unit) return false;
+  const callback = source.clean.slice(unit.start - 1, unit.end).join("\n");
+  const parameters = new RegExp(`function s\\.${name}\\(([^)]*)\\)`).exec(callback)?.[1]?.split(",").map(parameter => parameter.trim());
+  return Boolean(parameters?.includes("chk") && /\bif\s+chk\s*==\s*0\s+then\b/.test(callback));
+}
 
 describe("MANIFEST.json of the overlay", () => {
   it("lists 112 cards with a valid kind, a file named after the code and a name", () => {
@@ -333,18 +342,29 @@ describe("the overlay files", () => {
     }
   });
 
-  // MPAny is for boolean checks only (it returns true or false, or asks for a pick). A number or a group in it would be wrong.
-  it("lint: MPAny wraps only condition-like names and boolean expressions", () => {
+  // MPAny is for boolean checks only. A number or a group in it would be wrong.
+  it("lint: MPAny wraps only conditions, target or cost checks, and boolean expressions", () => {
     const conditionLike = /^(condition|\w*con|\w*cond|\w*chk|\w*check|\w*filter)$/i;
     for (const card of cards) {
-      for (const [, name] of text(card).matchAll(/^s\.(\w+)=aux\.MPAny\(s\.\1\)\s*$/gm)) {
-        expect(conditionLike.test(name), `${card.file}: s.${name} is not a condition name`).toBe(true);
+      const body = text(card);
+      for (const [, name] of body.matchAll(/^s\.(\w+)=aux\.MPAny\(s\.\1\)\s*$/gm)) {
+        // A target/cost callback returns a boolean for chk==0, even when its name is "target" (Cannons).
+        expect(conditionLike.test(name) || isActivationCheck(body, name), `${card.file}: s.${name} is not a condition or activation check`).toBe(true);
       }
       for (const [, expr] of text(card).matchAll(/aux\.MPAny\(function\(\) return (.+?) end\)\(\)/g)) {
-        expect(/(<=|>=|<|>|==|~=|\bnot\b|\band\b|\bor\b|Is\w+\(|Check\w+\(|^base_\w+\()/.test(expr), `${card.file}: ${expr}`).toBe(true);
+        const called = /^(\w+)\(/.exec(expr)?.[1];
+        const alias = called ? new RegExp(`\\blocal\\s+${called}\\s*=\\s*s\\.(\\w+)\\b`).exec(body)?.[1] : undefined;
+        const booleanAlias = alias !== undefined && (conditionLike.test(alias) || /^\w*cost$/i.test(alias));
+        expect(booleanAlias || /(<=|>=|<|>|==|~=|\bnot\b|\band\b|\bor\b|Is\w+\(|Check\w+\(|^base_\w+\()/.test(expr), `${card.file}: ${expr}`).toBe(true);
         expect(/^Duel\.GetFieldGroupCount\([^()]*\)$/.test(expr.trim()), `${card.file}: a bare count ${expr}`).toBe(false);
       }
     }
+  });
+
+  it("lint keeps a chk branch in its own callback", () => {
+    const body = "function s.operation(e,tp,chk)\n return 4\nend\nfunction s.target(e,tp,chk)\n if chk==0 then return true end\nend\n";
+    expect(isActivationCheck(body, "operation")).toBe(false);
+    expect(isActivationCheck(body, "target")).toBe(true);
   });
 
   it("lint catches a bare count in MPAny", () => {
