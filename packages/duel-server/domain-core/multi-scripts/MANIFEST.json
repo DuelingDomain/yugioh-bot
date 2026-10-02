@@ -2720,7 +2720,7 @@
       ],
       "r2Class": "LOOP",
       "stockSha256": "611b4b5c805ad61d5bcb0e23a9492a995dc6ecc0d0871b0d8bb182ef343aafc2",
-      "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
+      "note": "the global check loops over the players 0 and 1 and reads the previous controller at EVENT_DESTROY (it reads the first seat for every seat); it writes the flag for the real controller seat of each destroyed monster (Duel.MPSeatOf)."
     },
     {
       "code": 50470982,
@@ -3525,7 +3525,7 @@
       ],
       "r2Class": "LOOP",
       "stockSha256": "8ac1774afa7caa2887764c12b80b5f4176b07359ae4d8bbe87406285eef0bef4",
-      "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
+      "note": "the global check loops over the players 0 and 1 and reads the previous controller at EVENT_DESTROY (it reads the first seat for every seat); it writes the flag for the real controller seat of each destroyed monster (Duel.MPSeatOf)."
     },
     {
       "code": 66719324,
