@@ -94,6 +94,33 @@ describe("live room table mount", () => {
     expect(state.send).toHaveBeenCalledWith("live", { promptId: state.room!.engine!.prompt!.id, revision: state.room!.engine!.revision, answer: { choice: expect.any(String) } });
   });
 
+  it("submits a live material toggle exactly once", async () => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.engine!.prompt = { id: "materials", seat: 0, kind: "toggle", title: "Select Synchro Material",
+      options: [{ id: "select:0", label: "Material", controller: 0, location: 4, sequence: 0 }] };
+    const { container } = mount();
+    const card = container.querySelector("[data-zones='0:4:0']")!;
+    await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "materials", revision: state.room!.engine!.revision, answer: { choice: "select:0" },
+    });
+  });
+
+  it("waits for the reveal gate before a material card can answer", async () => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.engine!.prompt = { id: "materials", seat: 0, kind: "toggle", title: "Select Synchro Material",
+      options: [{ id: "select:0", label: "Material", controller: 0, location: 4, sequence: 0 }] };
+    state.revealed = false;
+    const view = mount();
+    const card = view.container.querySelector("[data-zones='0:4:0']")!;
+    await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
+    expect(state.send).not.toHaveBeenCalled();
+    state.revealed = true;
+    view.rerender(<DuelRoomView slug="live" windowed />);
+    await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
+    expect(state.send).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["error", "syncing", "recovering"] as const)("blocks actions during %s", (gate) => {
     room(FFA3_FIXTURES.states.main.room);
     if (gate === "error") state.error = new Error("offline"); else state[gate] = true;

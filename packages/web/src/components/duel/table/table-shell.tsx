@@ -114,8 +114,11 @@ export function TableShell({
   connection,
   boardRef: roomBoardRef,
 }: TableShellProps) {
-  // The room's own busy state joins the controller's: no answer goes out while either is set.
-  const given = useMemo(() => (roomBusy && !supplied.busy ? { ...supplied, busy: true, canAct: false } : supplied), [roomBusy, supplied]);
+  // Field clicks use the same reveal gate as the centered prompt; hidden decisions must not answer early.
+  const given = useMemo(() => {
+    const blocked = roomBusy || supplied.busy || (centerKind(supplied.prompt) != null && !supplied.revealed);
+    return blocked ? { ...supplied, busy: true, canAct: false, seatPick: null } : supplied;
+  }, [roomBusy, supplied]);
   const pick = usePickContinuation(given.prompt);
   const onAnswer = useCallback<TableController["onAnswer"]>((answer) => {
     if (given.busy || !given.canAct || !given.prompt) return;
