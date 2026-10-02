@@ -138,7 +138,7 @@ export function ProfileView({ profile: initialProfile, leaderboardRank: initialR
               achievements={profile.achievements}
               careerWinnings={profile.careerWinnings}
             />
-            <ProfileWinnings recent={recent} careerWinnings={profile.careerWinnings} />
+            <ProfileWinnings recent={recent} />
           </div>
 
           <aside className="stack" style={{ gap: 18 }} aria-label="How Elo moves">
