@@ -94,6 +94,9 @@ NATIVE="$DIR/native"
 BIN="$DIR/nduel"
 BIN_DOMAIN="$DIR/nduel-domain"
 DTREE="$DIR/domain-tree"; DNATIVE="$DIR/domain-native"
+# LeakSanitizer: one known leak of the stock core (field::check_chain_counter, a duel destroyed while a chain is open) is suppressed,
+# see scripts/native/lsan.supp. Any other leak still fails the run.
+export LSAN_OPTIONS="suppressions=$PKG/scripts/native/lsan.supp${LSAN_OPTIONS:+:$LSAN_OPTIONS}"
 RUNS="$DIR/runs"
 GOLDEN="$PKG/scripts/native/golden.tsv"
 STATUS_DIR="${NDUEL_STATUS_DIR:-$REPO/.status}"

@@ -61,6 +61,14 @@ build lock `phase1/run-locked.sh` only when that file exists (it is not in the r
 Reads `cards.cdb` with `better-sqlite3` (the machine has no sqlite headers) and writes `cards.tsv` and `pool.txt`.
 `run-nduel.sh` calls it when the files are missing.
 
+## Known leak (LeakSanitizer)
+
+`run-nduel.sh` runs the driver with `detect_leaks=1`. One leak of the stock ygopro-core is known and suppressed in
+`scripts/native/lsan.supp` (`leak:field::check_chain_counter`): a duel that is destroyed while a chain is open leaks the applied chain
+counter entry that `field::check_chain_counter` allocates (n4 seed 10: 28 bytes in 2 allocations). The leak is not part of the patch
+series and does not change any game state. The suppression names that one function only, so any other leak still fails a run as
+`sanitizer`. Set `LSAN_OPTIONS=suppressions=/dev/null` to see it again.
+
 ## Census mode
 
 `NDUEL_CENSUS=1 bash packages/duel-server/scripts/run-nduel.sh` lists every missed two-player
