@@ -1,4 +1,5 @@
 import { Worker } from "node:worker_threads";
+import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
 import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 
@@ -43,6 +44,8 @@ export interface DuelGameWorker {
   diagnostics?(): Promise<EngineDiagnostic[]>;
   /** Worker state for debug-trace, reports and the stall watchdog. Optional so that test doubles may omit it. */
   debugState?(): WorkerDebugState;
+  /** Scenario-only prompt history, captured before any next answer. */
+  promptLog?(): readonly PromptTraceEntry[];
   close(): Promise<void>;
 }
 
@@ -55,6 +58,7 @@ export class GameWorker implements DuelGameWorker {
   private lastOp: string | null = null;
   private lastOpAt: number | null = null;
   private info: EngineCoreInfo | null = null;
+  private readonly prompts: PromptTraceEntry[] = [];
 
   constructor() {
     const development = import.meta.url.endsWith(".ts");
@@ -62,8 +66,9 @@ export class GameWorker implements DuelGameWorker {
     this.worker = development
       ? new Worker(`import('tsx/esm/api').then(({ tsImport }) => tsImport(${JSON.stringify(module.href)}, ${JSON.stringify(import.meta.url)}))`, { eval: true })
       : new Worker(module);
-    this.worker.on("message", (message: { id: number; ok: boolean; value?: unknown; error?: string; info?: EngineCoreInfo }) => {
+    this.worker.on("message", (message: { id: number; ok: boolean; value?: unknown; error?: string; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry }) => {
       if (message.info) this.info = message.info;
+      if (message.promptTrace && this.prompts.at(-1)?.promptId !== message.promptTrace.promptId) this.prompts.push(message.promptTrace);
       const request = this.pending.get(message.id);
       if (!request) return;
       this.pending.delete(message.id);
@@ -82,6 +87,10 @@ export class GameWorker implements DuelGameWorker {
 
   get running(): boolean {
     return !this.stopped;
+  }
+
+  promptLog(): readonly PromptTraceEntry[] {
+    return this.prompts;
   }
 
   debugState(): WorkerDebugState {

@@ -1385,6 +1385,7 @@ export function createDuelHost(options: {
       wasmSha: worker.wasmSha,
       wasmFile: worker.wasmFile,
       seats,
+      promptLog: game?.promptLog?.() ?? [],
       spectator,
       bot: { seats: botSeats },
       worker: {
