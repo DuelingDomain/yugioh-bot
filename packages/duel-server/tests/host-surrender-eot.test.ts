@@ -165,7 +165,7 @@ for (const mode of ["normal", "domain"] as const) {
       expect(queuedFrame.seats.flatMap((seat) => seat.hand).every((card) => card.code == null)).toBe(true);
     }, 60_000);
 
-    it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s keeps the open-chain loss rule", async (format) => {
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s keeps the open-chain loss rule", async (format) => {
       const t = await table(mode, format, true);
       await reachMain(t);
       const start = await t.view();
@@ -178,7 +178,7 @@ for (const mode of ["normal", "domain"] as const) {
       expect(before.prompt).not.toBeNull();
       const queued = await t.post("surrender", 0);
       expect(queued.session.status).toBe("active");
-      expect(states(queued.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 || (format === "tag" && seat === 2) ? "pending" : "in"));
+      expect(states(queued.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 ? "pending" : "in"));
       expect((await t.view(1)).prompt?.id).toBe(before.prompt?.id);
       expect(t.source().commands.at(-1)?.promptId).toBe("eliminate:0");
       const live = await t.view(1);
@@ -186,7 +186,7 @@ for (const mode of ["normal", "domain"] as const) {
       expect(await t.view(1)).toEqual(live);
       for (let step = 0; step < 20 && (await t.view(1)).chain?.length; step++) await passPrompt(t);
       const final = await t.view(1);
-      expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 || (format === "tag" && seat === 2) ? "out" : "in"));
+      expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 ? "out" : "in"));
       const deckCount = t.service.privateState(t.session.slug, "g").decks[0]!.main.length;
       // Pot of Greed must not draw two cards after its owner has flagged a loss.
       expect(final.log.some((line) => line.text.includes("drew 2"))).toBe(false);
@@ -197,6 +197,31 @@ for (const mode of ["normal", "domain"] as const) {
       }
       const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
       expect(states(replayed.spectator)).toEqual(states(final));
+    }, 60_000);
+
+    it.each([0, 3])("R-COMMON-SURRENDER-EOT: Tag seat %s ends an open chain at once", async (leaver) => {
+      const t = await table(mode, "tag", true);
+      await reachMain(t);
+      const start = await t.view();
+      const activate = start.prompt!.options.find((option) => option.card?.code === 55144522 && option.id.startsWith("activate:"));
+      await t.answer(0, { choice: activate!.id });
+      for (let step = 0; step < 5 && !(await t.view()).chain?.length; step++) await passPrompt(t);
+      const before = await t.view(1);
+      expect(before.chain).toHaveLength(1);
+      expect(before.prompt).not.toBeNull();
+      const commands = t.source().commands;
+      const room = await t.post("surrender", leaver);
+      expect(room.session).toMatchObject({ status: "completed", winnerSeat: leaver === 0 ? 1 : 0, resultReason: "Surrender" });
+      expect(room.engine).toMatchObject({ turn: before.turn, phase: before.phase, prompt: null });
+      expect(room.engine!.chain).toEqual(before.chain);
+      expect(t.source().commands).toEqual(commands);
+      for (const seat of room.engine!.seats) {
+        expect(seat.eliminated).toBe(false);
+        expect(seat.hand).toHaveLength(seat.seat === 0 ? 0 : 1);
+        expect(seat.monsters.filter(Boolean)).toHaveLength(1);
+      }
+      await t.recover();
+      expect((await t.post("view", leaver)).engine).toEqual(room.engine);
     }, 60_000);
 
     it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s passes for the turn player until the turn ends", async (format) => {

@@ -923,7 +923,7 @@ export function createDuelHost(options: {
   /**
    * A seat gives up (surrender or time limit).
    * 1v1 surrender and Tag time losses end the duel at once. A multiplayer surrender with no
-   * open chain is queued until the turn ends. An open-chain surrender uses the current core loss rule.
+   * open chain is queued until the turn ends. Tag surrender with an open chain ends the duel at once.
    */
   async function forfeitSeat(
     slug: string,
@@ -950,6 +950,12 @@ export function createDuelHost(options: {
     if (entry.surrendered.has(seat)) return;
     const before = await game.view(seat);
     if (before.seats?.find((view) => view.seat === seat)?.eliminated) return;
+    if (format === "tag" && (before.chain?.length ?? 0) > 0) {
+      const winner = opponentSeatsOf(format, seat)[0];
+      if (winner === undefined) throw new RequestError("Opponent is missing", 409);
+      await persistComplete(slug, guildId, game, winner, reason);
+      return;
+    }
     const atTurnEnd = reason !== TIME_LIMIT_REASON && (before.chain?.length ?? 0) === 0;
     if (atTurnEnd) {
       entry.surrendered.add(seat);
