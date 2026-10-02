@@ -17,7 +17,7 @@
   :global(.ms) .prog :global(.trk-cap) { text-align: left; }
   :global(.ms) .row .side:global(.tl-side) { justify-content: flex-end; }
   :global(.ms) .row .count, :global(.ms) .row .waitingSide, .chevron { display: none; }
-  .joined { position: static; display: inline-flex; align-items: center; gap: 11px; width: auto; height: auto; overflow: visible; clip-path: none; }
+  .joined { position: static; display: inline-flex; align-items: center; gap: 0; width: auto; height: auto; overflow: visible; clip-path: none; }
   :global(.ms) .ledger .kindColumn { display: none; }
   /* Beat the shared ledger rule that hides its fourth column on small screens. */
   :global(.ms) .ledger:global(.ledger) th:nth-child(4),

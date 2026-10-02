@@ -92,6 +92,16 @@ describe("DraftManageView — header, players, start", () => {
     expect(screen.getByText("Cube draft")).toBeInTheDocument();
     expect(screen.getByText("Hosted by you")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rename draft" })).toBeInTheDocument();
+    const meta = screen.getByText("Waiting to start").closest(".t-meta")!;
+    const items = Array.from(meta.firstElementChild!.children);
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Waiting to start", "Cube draft", "Hosted by you", "Created Wed, May 6",
+    ]);
+    for (const item of items) {
+      expect(item.firstElementChild).toHaveClass("dot");
+      expect(item.firstElementChild).toHaveAttribute("aria-hidden", "true");
+    }
+    expect(meta.querySelector(".lamp")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("hides rename and 'Hosted by you' from a non-host", () => {

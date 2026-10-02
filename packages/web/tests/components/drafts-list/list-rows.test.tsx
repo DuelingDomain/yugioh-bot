@@ -24,24 +24,38 @@ describe("draft list rows", () => {
     expect(row.children[2]).toHaveTextContent("Open draft room");
     expect(row.children[2].querySelector("svg")).toHaveClass(styles.chevron);
     expect(row).toHaveTextContent("10 min a pick");
+    const meta = row.querySelector(".tl-meta")!;
+    expect(Array.from(meta.firstElementChild!.children, (item) => item.textContent)).toEqual([
+      "Drafting", "Cube draft", "3 players", "10 min a pick",
+    ]);
     expect(within(track).getByText("Draft").parentElement).toHaveAttribute("aria-current", "step");
     expect(row.querySelector(".trk-cap")).toHaveTextContent("Pack 1 of 3·pick 2");
   });
 
-  it.each([1, 3])("puts %i joined after the created date and hides the duplicate from assistive technology", (count) => {
+  it.each([1, 3])("puts %i joined immediately after the status and hides the duplicate from assistive technology", (count) => {
     render(<SheetRoot><WaitingDraftRow draft={{ ...draft, status: "pending", playerCount: count }} /></SheetRoot>);
     const row = screen.getByRole("link");
     const meta = row.querySelector(".tl-meta")!;
     const joined = within(meta as HTMLElement).getByLabelText(`${count} ${count === 1 ? "player" : "players"} joined`);
     expect(joined).toHaveTextContent(`${count} joined`);
     expect(joined.parentElement).toHaveClass(styles.joined);
-    expect(meta.textContent).toContain(`Created Fri, Oct 2${count} joined`);
+    expect(Array.from(meta.firstElementChild!.children, (item) => item.textContent)).toEqual([
+      "Waiting to start", `${count} joined`, "Cube draft", "Created Fri, Oct 2",
+    ]);
     expect(joined.previousElementSibling).toHaveClass("dot");
     expect(joined.previousElementSibling).toHaveAttribute("aria-hidden", "true");
     const bigCount = row.querySelector(".seats-mini")!;
     expect(bigCount).toHaveAttribute("aria-hidden", "true");
     expect(bigCount).toHaveTextContent(`${count}joined`);
-    expect(row).toHaveAccessibleName(new RegExp(`${count} ${count === 1 ? "player" : "players"} joined$`));
+    expect(row).toHaveAccessibleName(new RegExp(`Waiting to start.*${count} ${count === 1 ? "player" : "players"} joined.*Cube draft.*Created Fri, Oct 2$`));
+  });
+
+  it("puts the joined count before the theme kind and omits an unavailable created date", () => {
+    render(<SheetRoot><WaitingDraftRow draft={{ ...draft, status: "pending", createdAt: undefined, config: parseDraftConfig('{"mode":"theme"}') }} /></SheetRoot>);
+    const meta = screen.getByRole("link").querySelector(".tl-meta")!;
+    expect(Array.from(meta.firstElementChild!.children, (item) => item.textContent)).toEqual([
+      "Waiting to start", "3 joined", "Theme draft",
+    ]);
   });
 
   it("keeps cancelled status in Ended and adds a responsive kind line under the name", () => {

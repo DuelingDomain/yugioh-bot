@@ -435,5 +435,15 @@ describe("DraftSummaryView", () => {
     expect(screen.getByText("you")).toBeTruthy();
     expect(screen.getByText(/Took 30 min/)).toBeTruthy();
     expect(screen.getByText(/everyone has 15 cards/)).toBeTruthy();
+    const meta = screen.getByText("Finished").closest(".t-meta")!;
+    const items = Array.from(meta.firstElementChild!.children);
+    expect(items.slice(0, 3).map((item) => item.textContent)).toEqual(["Finished", "Cube draft", "1 player"]);
+    expect(items[3]).toHaveTextContent(/^Ended /);
+    expect(items[4]).toHaveTextContent("Took 30 min");
+    expect(items).toHaveLength(5);
+    for (const item of items) {
+      expect(item.firstElementChild).toHaveClass("dot");
+      expect(item.firstElementChild).toHaveAttribute("aria-hidden", "true");
+    }
   });
 });

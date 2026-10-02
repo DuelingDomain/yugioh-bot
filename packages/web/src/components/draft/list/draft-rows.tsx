@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { StationTrack } from "@/components/sheet";
+import { MetaLine } from "../meta-line";
 import {
   draftHref,
   formatDay,
@@ -12,10 +13,6 @@ import {
   type DraftListItem,
 } from "./drafts-list-model";
 import styles from "./drafts-list.module.css";
-
-function Dot() {
-  return <span className="dot" aria-hidden="true" />;
-}
 
 function Row({ draft, you, children }: { draft: DraftListItem; you?: boolean; children: ReactNode }) {
   const href = draftHref(draft);
@@ -43,19 +40,12 @@ export function LiveDraftRow({ draft }: { draft: DraftListItem }) {
     <Row draft={draft} you>
       <div className={styles.details}>
         <p className="tl-name">{draft.name}</p>
-        <p className="tl-meta">
-          <span className="live-pill">Drafting</span>
-          <Dot />
-          {kindLabel(draft.config)}
-          <Dot />
-          {playersLabel(draft.playerCount)}
-          {pick && (
-            <>
-              <Dot />
-              {pick}
-            </>
-          )}
-        </p>
+        <MetaLine className="tl-meta" items={[
+          { content: <span className="live-pill">Drafting</span> },
+          { content: kindLabel(draft.config) },
+          { content: playersLabel(draft.playerCount) },
+          ...(pick ? [{ content: pick }] : []),
+        ]} />
       </div>
       <div className={`tl-prog ${styles.prog}`}>
         <StationTrack
@@ -91,24 +81,18 @@ export function WaitingDraftRow({ draft }: { draft: DraftListItem }) {
     <Row draft={draft}>
       <div className={styles.details}>
         <p className="tl-name">{draft.name}</p>
-        <p className="tl-meta">
-          <span className="status">
+        <MetaLine className="tl-meta" items={[
+          { content: <span className="status">
             <span className="lamp" data-s="open" aria-hidden="true" />
             Waiting to start
-          </span>
-          <Dot />
-          {kindLabel(draft.config)}
-          {created && (
-            <>
-              <Dot />
-              Created {created}
-            </>
-          )}
-          <span className={styles.joined}>
-            <Dot />
-            <span aria-label={`${playersLabel(draft.playerCount)} joined`}>{draft.playerCount} joined</span>
-          </span>
-        </p>
+          </span> },
+          {
+            className: styles.joined,
+            content: <span aria-label={`${playersLabel(draft.playerCount)} joined`}>{draft.playerCount} joined</span>,
+          },
+          { content: kindLabel(draft.config) },
+          ...(created ? [{ content: `Created ${created}` }] : []),
+        ]} />
       </div>
       <div className={`seats-mini ${styles.count}`} aria-hidden="true">
         <b>{draft.playerCount}</b>

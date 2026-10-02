@@ -291,14 +291,14 @@ function CardPoolGridBase({
               placeholder="Search cards"
             />
           </span>
-          <div className="seg" role="group" aria-label="Kind">
+          <div className={`seg ${sheetStyles.kindSeg}`} role="group" aria-label="Kind">
             {SHEET_FILTER_BUTTONS.map((fb) => (
               <button key={fb.value} type="button" aria-pressed={activeFilter === fb.value} onClick={() => setActiveFilter(fb.value)}>
                 {fb.label}
               </button>
             ))}
           </div>
-          <div className="seg" role="group" aria-label="Tributes">
+          <div className={`seg ${sheetStyles.tributeSeg}`} role="group" aria-label="Tributes">
             {SHEET_TRIBUTE_BUTTONS.map((tb) => (
               <button key={tb.value} type="button" aria-pressed={activeTribute === tb.value} aria-label={tb.label} onClick={() => setActiveTribute(tb.value)}>
                 {tb.label}

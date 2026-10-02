@@ -3,6 +3,7 @@ import React from "react";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CardPoolGrid, getPopupPosition } from "../../src/components/cards/card-pool-grid";
+import sheetStyles from "../../src/components/cards/card-pool-sheet.module.css";
 import { installVirtualizerJsdomEnv } from "../helpers/virtualizer-jsdom";
 
 const imageRenders = vi.hoisted(() => ({ count: 0 }));
@@ -377,6 +378,10 @@ describe('CardPoolGrid variant="sheet"', () => {
   it("keeps search, labelled filter groups and aria-pressed", () => {
     render(<CardPoolGrid cards={cards} variant="sheet" />);
     const kind = screen.getByRole("group", { name: "Kind" });
+    expect([kind.className, screen.getByRole("group", { name: "Tributes" }).className]).toEqual([
+      `seg ${sheetStyles.kindSeg}`,
+      `seg ${sheetStyles.tributeSeg}`,
+    ]);
     expect(within(kind).getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.change(screen.getByLabelText(/search cards/i), { target: { value: "mirror" } });
     expect(screen.queryByRole("button", { name: /preview bujingi crane/i })).toBeNull();

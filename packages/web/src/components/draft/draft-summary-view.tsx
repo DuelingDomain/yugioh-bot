@@ -24,6 +24,7 @@ import { groupPool, kindTally, type PoolGroup } from "./summary/groups";
 import { formatDuration, formatEnded, formatStamp, plural } from "./summary/format";
 import styles from "./summary/summary.module.css";
 import { useInlineConfirm } from "./use-inline-confirm";
+import { MetaLine } from "./meta-line";
 
 interface DraftSummaryViewProps {
   draft: {
@@ -356,28 +357,16 @@ export function DraftSummaryView({
       <header className={`t-head sheet-head ${styles.head}`} style={{ marginTop: 4 }}>
         <div>
           <h1 className="t-title">{draft.name}</h1>
-          <p className="t-meta">
-            <span className="status">
+          <MetaLine className="t-meta" items={[
+            { content: <span className="status">
               <span className="lamp" data-s={isCompleted ? "done" : "off"} />
               {isCompleted ? "Finished" : "Cancelled"}
-            </span>
-            <span className="dot" />
-            {isTheme ? "Theme draft" : "Cube draft"}
-            <span className="dot" />
-            {plural(draft.playerCount, "player")}
-            {draft.endedAt && (
-              <>
-                <span className="dot" />
-                Ended {formatEnded(draft.endedAt)}
-              </>
-            )}
-            {duration && (
-              <>
-                <span className="dot" />
-                Took {duration}
-              </>
-            )}
-          </p>
+            </span> },
+            { content: isTheme ? "Theme draft" : "Cube draft" },
+            { content: plural(draft.playerCount, "player") },
+            ...(draft.endedAt ? [{ content: `Ended ${formatEnded(draft.endedAt)}` }] : []),
+            ...(duration ? [{ content: `Took ${duration}` }] : []),
+          ]} />
         </div>
         {isCompleted && (
           <StationTrack stations={stations} current={stations.length - 1} tone="mine" caption={trackCaption} />
