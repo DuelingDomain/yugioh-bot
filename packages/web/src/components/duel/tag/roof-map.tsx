@@ -17,8 +17,9 @@ export interface CameraDockProps {
 
 /** Map scale: 1 map unit = 10 world units. The map keeps the roof's own proportions. */
 const K = 0.1;
+/** The map shows the roof with a margin round the four fields: they reach 570 units from the pad centre. */
 const MAP_W = ROOF_WORLD.width * K;
-const MAP_H = ROOF_WORLD.depth * K;
+const MAP_H = 2 * (ROOF_FIELD.offsetY + ROOF_FIELD.height + 40) * K;
 
 function mapX(x: number): number {
   return MAP_W / 2 + x * K;
@@ -98,14 +99,14 @@ export function CameraDock({ camera, layout, dispatch, nameOf, turnSeat, outSeat
         </g>
       </svg>
       <div className={styles.presets}>
-        <button type="button" disabled={locked} aria-pressed={camera.mode === "home"} onClick={() => dispatch({ type: "home" })}>
-          Home <kbd>H</kbd>
+        <button type="button" title="Home (H)" disabled={locked} aria-pressed={camera.mode === "home"} onClick={() => dispatch({ type: "home" })}>
+          Home
         </button>
-        <button type="button" disabled={locked} aria-pressed={camera.mode === "overview"} onClick={() => dispatch({ type: "overview" })}>
-          Overview <kbd>0</kbd>
+        <button type="button" title="Overview (0)" disabled={locked} aria-pressed={camera.mode === "overview"} onClick={() => dispatch({ type: "overview" })}>
+          Overview
         </button>
-        <button type="button" disabled={locked} aria-pressed={camera.mode === "look"} onClick={() => dispatch({ type: "look", seat: (camera.anchor + 1) % 4 })}>
-          Rival end <kbd>V</kbd>
+        <button type="button" title="Rival end (V)" disabled={locked} aria-pressed={camera.mode === "look"} onClick={() => dispatch({ type: "look", seat: (camera.anchor + 1) % 4 })}>
+          Rival end
         </button>
       </div>
       <p className={styles.dockLabel}>Focus a field <span>1-4</span></p>
