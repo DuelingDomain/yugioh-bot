@@ -133,6 +133,19 @@ the current mode or creation date alone. This change does not alter existing dat
 Rollback: an older server ignores the key and can drop it on its next setup write. Keep a backup of the
 saved flags; a later upgrade can again refuse an FFA record whose flag was lost.
 
+**Developers:** Local/test databases that ran `d4338a2..42e66c3` may hold Domain 1v1/Tag duels that drew on turn 1 with no saved flag; interrupt/delete those duels, or set the flag to `true` with this statement for each verified local/test row.
+
+```sql
+UPDATE duels
+SET setup_json = json_set(coalesce(setup_json, '{}'), '$.firstTurnDraw', json('true'))
+WHERE web_slug = '<verified-local-duel-slug>'
+  AND guild_id = '<verified-guild-id>'
+  AND mode = 'domain'
+  AND format IN ('1v1', 'tag')
+  AND seed_json IS NOT NULL
+  AND json_extract(setup_json, '$.firstTurnDraw') IS NULL;
+```
+
 - **Update staging to a newer commit.** Push the branch. Run the workflow again with `action` = `deploy`.
   The staging database is kept. Staging is stopped during a deploy, so a duel that is running in staging at that time
   is set to `interrupted` (the engine install refuses a new bundle while a duel is active).
