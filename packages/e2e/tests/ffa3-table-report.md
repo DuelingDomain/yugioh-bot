@@ -48,6 +48,27 @@ answered prompt, at the next adjustment/step, or at the end of the turn? The cur
 FFA3 and FFA4 tests record Leaving until a turn boundary; this report does not choose
 an ADR rule for that delay.
 
+## Opus re-check gaps and deferred decisions
+
+The re-check fixes test reliability and table layout; it does not extend engine-rule
+coverage. These gaps remain explicit:
+
+- There is no FFA3 pending `R-FFA-OPP-ONE` test; the pending Raigeki assertion is FFA4 only.
+- `R-FFA-OPP-RESPONSE` has no direct-attack case proving that only the attacked seat
+  receives a response. The third-duelist Mirror Force case covers a monster attack.
+- `R-COMMON-EMZ` checks rendered zones only; no Extra Deck summon proves independent placement.
+- Elimination sub-rules are untested: flagged duelists' Chain Links resolving without
+  effect, owned cards controlled by others leaving, ongoing effects ending, empty-Deck
+  draw loss, cut-short turns counting as ended, token exceptions, and return of others'
+  owned cards.
+- `R-FFA-TRIGGERS` and `R-FFA-NEGATE` have no dedicated browser tests.
+- Domain FFA3 and the full 1v1 regression are not rerun in this re-check.
+
+Surrender timing, the obsolete `R-COMMON-CTRL` scenario tag, full-UI match proof, and
+the "No attack until turn 4" chip remain with their product/engine owners. The chip
+currently matches the engine; changing it to the ADR rule is outside this re-check.
+The optional N6 cosmetic work is omitted.
+
 ## Scope of preset runs
 
 `duel-presets-multi.spec.ts` uses API decisions and browser render/evidence checks.
