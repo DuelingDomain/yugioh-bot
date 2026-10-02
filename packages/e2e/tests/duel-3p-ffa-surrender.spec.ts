@@ -243,6 +243,50 @@ test.describe("FFA surrender and spectators", () => {
     });
   }
 
+  for (const ownerRule of [false, true]) {
+    test(ownerRule
+      ? "R-FFA-SURRENDER: a Leaving seat's response in another seat's turn is answerable or automatically passed"
+      : "current engine: a Leaving seat retains an unanswered response while the UI blocks it", async ({ player }, info) => {
+      const [alice, bob, carol] = await humans(player, "ffa3") as [Seat, Seat, Seat];
+      const { slug } = await startTable([alice, bob, carol], "ffa3 leaving response", [
+        { main: withFiller(["Pot of Greed"], 40) },
+        { main: withFiller(["Ash Blossom & Joyous Spring"], 40) }, normalDeck(),
+      ], options);
+      await expectRealCore(alice.page, slug, "practice", info, 0);
+      await useCard(alice.page, handCard(alice.page, "Pot of Greed"), "Activate");
+      await pickLegalZone(alice.page, "st");
+      await expect.poll(async () => (await readTable(bob.page, slug)).engine!.prompt?.context?.type).toBe("chain");
+      const before = await readTable(bob.page, slug);
+      expect(before.engine!.prompt?.seat).toBe(1);
+      expect(before.engine!.turnSeat).toBe(0);
+      await surrender(bob.page);
+      const pending = await readTable(bob.page, slug);
+      await evidence(alice.page, slug, info, "leaving-response-policy", [before, pending]);
+      if (ownerRule) {
+        test.fail(true, "R-FFA-SURRENDER pending engine change: Leaving responses must remain answerable or auto-pass; Q1 policy unresolved");
+        // Accept either owner policy; never require an activation by the Leaving seat.
+        await expect.poll(async () => {
+          const prompt = (await readTable(bob.page, slug)).engine!.prompt;
+          return prompt?.id !== before.engine!.prompt!.id
+            || await bob.page.locator("[data-table-shell]").getAttribute("data-can-act") === "true";
+        }).toBe(true);
+        if ((await readTable(bob.page, slug)).engine!.prompt?.id === before.engine!.prompt!.id) {
+          await bob.page.locator("[data-prompt-panel]").getByRole("button", { name: "No", exact: true }).click();
+        }
+        await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("action");
+        await endTurn(alice.page, 2);
+        const after = await readTable(carol.page, slug);
+        expect(after.engine!.turnSeat).toBe(2);
+        expect(viewSeat(after, 1).eliminated).toBe(true);
+      } else {
+        expect(pending.engine!.prompt?.id).toBe(before.engine!.prompt!.id);
+        expect(viewSeat(pending, 1)).toMatchObject({ eliminated: false, pendingElimination: true });
+        await expect(bob.page.locator("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
+        await expect(bob.page.locator("[data-prompt-panel]")).toHaveCount(0);
+      }
+    });
+  }
+
   for (const format of ["ffa3", "ffa4"] as const) {
     test(`${format}: R-FFA-ELIMINATION: surrender during an open chain suppresses the flagged duelist's link and eliminates after the chain`, async ({ player }, info) => {
       const seats = await humans(player, format);
