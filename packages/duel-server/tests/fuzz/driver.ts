@@ -5,6 +5,7 @@ import { buildDecks, loadCatalog } from "./card-pool.js";
 import type { Scenario } from "./config.js";
 import { InvariantChecker, stateHash, viewsHash, type Views, type Violation } from "./invariants.js";
 import { Rng, engineSeed } from "./rng.js";
+import { firstTurnDrawFor } from "../../src/first-turn-draw.js";
 
 export interface JournalEntry {
   seat: number;
@@ -24,6 +25,7 @@ export interface FuzzFailure {
 
 export interface DuelOutcome {
   scenario: Scenario;
+  firstTurnDraw: boolean;
   decks: [DuelDeck, DuelDeck];
   deckNotes: [string, string];
   disjoint: boolean;
@@ -67,12 +69,13 @@ function errorText(error: unknown): string {
 }
 
 /** Play one seeded self-play duel, checking invariants after every step. */
-export async function runDuel(scenario: Scenario, dataDirectory: string, options: { collectHashes?: boolean } = {}): Promise<DuelOutcome> {
+export async function runDuel(scenario: Scenario, dataDirectory: string, options: { collectHashes?: boolean; firstTurnDraw?: boolean } = {}): Promise<DuelOutcome> {
   const catalog = loadCatalog(dataDirectory);
   const setup = setupScenario(scenario, dataDirectory);
   const rng = new Rng(scenario.seed).fork(2);
   const outcome: DuelOutcome = {
     scenario,
+    firstTurnDraw: options.firstTurnDraw ?? firstTurnDrawFor(scenario.mode, scenario.masterRule),
     decks: setup.decks,
     deckNotes: setup.deckNotes,
     disjoint: setup.disjoint,
@@ -100,6 +103,7 @@ export async function runDuel(scenario: Scenario, dataDirectory: string, options
   try {
     game = await createEngineGame({
       mode: scenario.mode,
+      firstTurnDraw: outcome.firstTurnDraw,
       masterRule: scenario.masterRule,
       decks: setup.decks,
       seed: setup.engineSeed,

@@ -22,6 +22,7 @@ import { captureBoard, renderPresetDraft, renderScenario, type Capture, type Car
 import { loadSource, replaySource, type DuelSource } from "./lib/replay-source.js";
 import { createEngineGame, eliminationCodeOf } from "../src/engine.js";
 import { engineSeed } from "../tests/fuzz/rng.js";
+import { savedFuzzFirstTurnDraw } from "./lib/fuzz-draw-rule.js";
 import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, seatCountFor, type DuelDeck, type DuelEngineView, type DuelFormat } from "@yugidraft/shared/duels";
 
 const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -115,6 +116,7 @@ export function loadNSource(file: string): NSource {
       label: `fuzz-n ${format} seed ${scenario.seed} core ${raw.wasm?.tag ?? "?"}`,
       mode: scenario.mode,
       masterRule: scenario.masterRule,
+      firstTurnDraw: savedFuzzFirstTurnDraw(raw.engine?.firstTurnDraw, scenario.mode, scenario.masterRule),
       decks: raw.decks,
       seed: engineSeed(scenario.seed),
       commands,

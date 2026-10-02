@@ -5,6 +5,9 @@ import type { DuelDeck } from "@yugidraft/shared/duels";
 import type { CoreInfo } from "./core.js";
 import type { JournalItem, NFailure, NOutcome, NScenario } from "./driver.js";
 import { knownIssueFor } from "./known-issues.js";
+import { engineSeed } from "../fuzz/rng.js";
+import { savedFuzzFirstTurnDraw } from "../../scripts/lib/fuzz-draw-rule.js";
+import type { EngineGameOptions } from "../../src/engine.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const N_FAILURE_DIR = resolve(HERE, "failures");
@@ -15,6 +18,7 @@ export interface FailureFile {
   format: string;
   seed: number;
   scenario: NScenario;
+  engine?: Partial<Pick<EngineGameOptions, "mode" | "masterRule" | "format" | "decks" | "seed">> & { firstTurnDraw: boolean };
   wasm: { tag: string; sha256: string; path: string };
   /** Decks are rebuilt from `seed` (deck RNG fork 1, engine seed from the same seed); they are stored as well. */
   deckSeed: number;
@@ -46,6 +50,8 @@ export function buildFailureFile(outcome: NOutcome, core: CoreInfo, failure: NFa
     format: outcome.scenario.format,
     seed: outcome.scenario.seed,
     scenario: outcome.scenario,
+    engine: { mode: outcome.scenario.mode, masterRule: outcome.scenario.masterRule, format: outcome.scenario.format,
+      decks: outcome.decks, seed: engineSeed(outcome.scenario.seed), firstTurnDraw: outcome.firstTurnDraw },
     wasm: { tag: core.tag, sha256: core.sha256, path: core.path },
     deckSeed: outcome.scenario.seed,
     decks: outcome.decks,
@@ -68,7 +74,9 @@ export function writeFailureFile(file: FailureFile, directory = N_FAILURE_DIR): 
 }
 
 export function readFailureFile(path: string): FailureFile {
-  return JSON.parse(readFileSync(path, "utf8")) as FailureFile;
+  const file = JSON.parse(readFileSync(path, "utf8")) as FailureFile;
+  file.engine = { ...file.engine, firstTurnDraw: savedFuzzFirstTurnDraw(file.engine?.firstTurnDraw, file.scenario.mode, file.scenario.masterRule) };
+  return file;
 }
 
 export function describeFailure(file: Pick<FailureFile, "format" | "seed" | "wasm" | "check" | "lastPrompt" | "knownIssue" | "repro">): string {

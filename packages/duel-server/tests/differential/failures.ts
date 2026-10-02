@@ -5,6 +5,7 @@ import type { DuelDeck, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } fro
 import type { Scenario } from "../fuzz/config.js";
 import type { JournalEntry } from "../fuzz/driver.js";
 import { describeDiff, type Diff } from "./harness.js";
+import { firstTurnDrawFor } from "../../src/first-turn-draw.js";
 
 export const DIFFERENTIAL_FAILURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "failures");
 
@@ -29,6 +30,7 @@ export interface EngineSpec {
   settings?: DuelSettings;
   startupScripts?: Array<{ name: string; content: string }>;
   format?: DuelFormat;
+  firstTurnDraw?: boolean;
 }
 
 /** A duel recorded on the reference core: how it started and every answer. */
@@ -94,7 +96,7 @@ export function writeDifferentialFailure(input: DifferentialFailureInput, direct
         disjointDecks: recorded.disjoint,
         steps: recorded.journal.length,
         journal: recorded.journal,
-        engine: recorded.engine,
+        engine: { ...recorded.engine, firstTurnDraw: recorded.engine.firstTurnDraw ?? firstTurnDrawFor(recorded.engine.mode, recorded.engine.masterRule) },
         differential: {
           mode: input.mode,
           seed: input.seed,

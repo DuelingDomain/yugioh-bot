@@ -12,6 +12,7 @@ import { createDomainCore } from "../../src/domain-core.js";
 import { createEngineGame, eliminationCodeOf, registerDomainCoreFactory } from "../../src/engine.js";
 import { engineSeed } from "../../tests/fuzz/rng.js";
 import { savedFirstTurnDraw } from "../../src/first-turn-draw.js";
+import { savedFuzzFirstTurnDraw } from "./fuzz-draw-rule.js";
 
 export interface SourceCommand {
   seat: number;
@@ -68,7 +69,7 @@ export function loadSource(file: string): DuelSource {
     // A differential file has an `engine` block: the exact options of the run (board decks, seed, settings, scripts).
     // Without it (old files and plain fuzz files) the duel is rebuilt from the scenario seed.
     const engine = json.engine as
-      | { mode?: DuelMode; masterRule?: DuelMasterRule; decks?: DuelDeck[]; seed?: string[]; settings?: DuelSettings; startupScripts?: Array<{ name: string; content: string }>; format?: DuelFormat }
+      | { mode?: DuelMode; masterRule?: DuelMasterRule; decks?: DuelDeck[]; seed?: string[]; settings?: DuelSettings; startupScripts?: Array<{ name: string; content: string }>; format?: DuelFormat; firstTurnDraw?: boolean }
       | undefined;
     const differential = json.differential as { mode?: string; seed?: number; scenarioId?: string; found?: string; multiWasm?: string; referenceWasm?: string } | undefined;
     const wasmPath = differential ? (differential.found === "reference-self-check" ? differential.referenceWasm : differential.multiWasm) : undefined;
@@ -79,6 +80,7 @@ export function loadSource(file: string): DuelSource {
         : `fuzz seed ${scenario.seed} ${scenario.mode} MR${scenario.masterRule}`,
       mode: engine?.mode ?? scenario.mode,
       masterRule: engine?.masterRule ?? scenario.masterRule,
+      firstTurnDraw: savedFuzzFirstTurnDraw(engine?.firstTurnDraw, engine?.mode ?? scenario.mode, engine?.masterRule ?? scenario.masterRule),
       decks: engine?.decks ?? json.decks,
       seed: engine?.seed ?? engineSeed(scenario.seed),
       ...(engine?.settings ? { settings: engine.settings } : {}),

@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DuelOutcome } from "./driver.js";
 import { knownIssueFor } from "./known-issues.js";
+import { engineSeed } from "./rng.js";
 
 export const FAILURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "failures");
 const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -49,6 +50,8 @@ export function writeFailure(outcome: DuelOutcome, dataDirectory: string, direct
     JSON.stringify(
       {
         scenario: outcome.scenario,
+        engine: { mode: outcome.scenario.mode, masterRule: outcome.scenario.masterRule,
+          decks: outcome.decks, seed: engineSeed(outcome.scenario.seed), firstTurnDraw: outcome.firstTurnDraw },
         failure: f,
         knownIssue: f ? (knownIssueFor(f)?.id ?? null) : null,
         repro: reproCommand(outcome, dataDirectory),

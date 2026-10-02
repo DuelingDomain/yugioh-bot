@@ -88,6 +88,7 @@ if (reproFile) {
     dataDirectory: engineDataDirectory(),
     corePath: core.info.path,
     timeoutMs: num("timeout", 90_000),
+    firstTurnDraw: file.engine!.firstTurnDraw,
     script: { journal: file.answers, ...(file.pending ? { pending: file.pending } : {}) },
   });
   if (flag("trace")) for (const [i, item] of outcome.journal.entries()) console.log(`  ${i}: ${JSON.stringify(item)}`);
@@ -115,6 +116,7 @@ if (shrinkFile) {
       dataDirectory: engineDataDirectory(),
       corePath: core.info.path,
       timeoutMs,
+      firstTurnDraw: file.engine!.firstTurnDraw,
       script: { journal: file.answers.slice(0, length), ...(withPending && file.pending ? { pending: file.pending } : {}) },
     });
   };
