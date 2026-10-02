@@ -210,6 +210,38 @@ describe("live room table mount", () => {
     expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
   });
 
+  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("offers watch or leave only after $format elimination", async (fixtures) => {
+    room(fixtures.states.main.room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, pendingElimination: true } : seat);
+    const view = mount();
+    expect(screen.queryByRole("button", { name: "Surrender" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "You are eliminated" })).toBeNull();
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, pendingElimination: false, eliminated: true } : seat);
+    view.rerender(<DuelRoomView slug="live" windowed />);
+    const choice = screen.getByRole("region", { name: "You are eliminated" });
+    fireEvent.click(within(choice).getByRole("button", { name: "Stay and watch" }));
+    expect(state.replace).toHaveBeenCalledWith("/duels/live?spectate=1&window=1");
+  });
+
+  it("leaves an eliminated seat without another surrender", async () => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, eliminated: true } : seat);
+    mount(false);
+    fireEvent.click(screen.getByRole("button", { name: "Open here instead" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leave room" }));
+    expect(state.replace).toHaveBeenCalledWith("/duels");
+    expect(state.surrender).not.toHaveBeenCalled();
+  });
+
+  it("explains a multiplayer surrender without promising to end everyone's duel", () => {
+    room(FFA3_FIXTURES.states.main.room);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
+    expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("Leaving");
+    expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("watch");
+    expect(screen.getByRole("dialog", { name: "Surrender" })).not.toHaveTextContent("This ends the duel.");
+  });
+
   it("keeps manual catch-up available while recovering", async () => {
     room(FFA3_FIXTURES.states.main.room);
     state.recovering = true;

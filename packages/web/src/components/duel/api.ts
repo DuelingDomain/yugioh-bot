@@ -55,8 +55,8 @@ async function parseBody<T>(res: Response): Promise<T> {
 
 export const DUEL_LIST_KEY = "/api/duels";
 
-export function duelRoomKey(slug: string): string {
-  return `/api/duels/${slug}`;
+export function duelRoomKey(slug: string, spectate = false): string {
+  return `/api/duels/${slug}${spectate ? "?spectate=1" : ""}`;
 }
 
 export async function listDuels(
@@ -117,8 +117,8 @@ export async function searchPlayers(q: string, signal?: AbortSignal): Promise<{ 
   return parseBody(await fetch(`/api/players?${new URLSearchParams({ q }).toString()}`, { cache: "no-store", signal }));
 }
 
-export async function getDuelRoom(slug: string): Promise<DuelRoom> {
-  return parseBody(await fetch(duelRoomKey(slug), { cache: "no-store" }));
+export async function getDuelRoom(slug: string, spectate = false): Promise<DuelRoom> {
+  return parseBody(await fetch(duelRoomKey(slug, spectate), { cache: "no-store" }));
 }
 
 export async function acceptDuelInvite(slug: string, inviteCode: string): Promise<DuelRoom> {

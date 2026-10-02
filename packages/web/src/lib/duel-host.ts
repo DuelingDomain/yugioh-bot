@@ -96,6 +96,8 @@ export async function callDuelHost(input: {
   slug?: string;
   guildId: string;
   playerId: number;
+  /** view only: an eliminated FFA player watches through the public view. */
+  spectate?: boolean;
   command?: DuelCommand;
   deck?: DuelDeck;
   query?: string;
@@ -127,6 +129,7 @@ export async function callDuelHost(input: {
     playerId: input.playerId,
   };
   if (input.slug) payload.slug = input.slug;
+  if (input.op === "view" && input.spectate === true) payload.spectate = true;
   if (input.command) payload.command = input.command;
   if (input.deck) payload.deck = input.deck;
   if (input.query !== undefined) payload.query = input.query;

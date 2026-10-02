@@ -90,13 +90,13 @@ import {
 /** The attack target the player pointed at; only the confirm submits it. */
 type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLElement; name: string };
 
-export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false }: {
-  slug: string; inviteCode?: string; windowed?: boolean; legacyStage?: boolean;
+export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false, spectate = false }: {
+  slug: string; inviteCode?: string; windowed?: boolean; legacyStage?: boolean; spectate?: boolean;
 }) {
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   const { data, error, isLoading, mutate } = useSWR(
-    slug ? duelRoomKey(slug) : null,
+    slug ? duelRoomKey(slug, spectate) : null,
     async () => {
       let admitError: unknown = null;
       if (inviteCode && (admitted.current?.slug !== slug || admitted.current.inviteCode !== inviteCode)) {
@@ -113,7 +113,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         }
       }
       try {
-        return await getDuelRoom(slug);
+        return await getDuelRoom(slug, spectate);
       } catch (err) {
         throw admitError ?? err;
       }
@@ -121,8 +121,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     { revalidateOnFocus: false, revalidateOnReconnect: false },
   );
   const refreshRoom = useCallback(
-    () => mutate(() => getDuelRoom(slug), { revalidate: false }),
-    [mutate, slug],
+    () => mutate(() => getDuelRoom(slug, spectate), { revalidate: false }),
+    [mutate, slug, spectate],
   );
   // The duel host answers with the last view it built when its queue is blocked (stale). Ask again until it is fresh.
   const roomStale = data?.stale === true;
@@ -131,14 +131,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     const timer = setInterval(() => void refreshRoom(), 2000);
     return () => clearInterval(timer);
   }, [roomStale, refreshRoom]);
-  const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom);
+  const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom, spectate);
   const catchingUp = realtime.syncing || realtime.recovering;
   const liveFormat = engineFormat(data?.engine);
   const liveTable = isMultiSeat(data?.engine) && (liveFormat === "ffa3" || liveFormat === "ffa4") && !legacyStage;
   const playerName = seatNamer(data?.session.seats ?? []);
   useDuelLeaveGuard({
     slug,
-    active: data?.session.status === "active" && !data.engine?.result,
+    active: data?.session.status === "active" && !data.engine?.result &&
+      (!isMultiSeat(data?.engine) || !data.engine?.seats.some((seat) => seat.seat === data.mySeat && (seat.eliminated || seat.pendingElimination))),
     role: data?.mySeat == null ? "spectator" : "player",
   });
   const [busy, setBusy] = useState(false);
@@ -547,7 +548,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active" && !viewerOut;
   // An opponent pick also answers by tapping the offered seat on the table (after the same human beat as the panel).
   const seatPick = multi && canAct && revealed ? seatPickFor(prompt, engine, onSubmitAnswer) : null;
-  const canSurrender = data.session.status === "active" && data.mySeat != null && !engine?.result;
+  const canSurrender = data.session.status === "active" && data.mySeat != null && !engine?.result && !viewerOut;
   const terminal = data.session.status !== "active";
   const isOrganizer = data.session.seats.some((seat) =>
     seat.seat === data.mySeat && seat.playerId === data.session.organizerPlayerId);
@@ -561,7 +562,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
     else router.replace("/duels");
   };
-  const surrenderModal = <SurrenderModal open={confirmSurrender && !hasResult} busy={busy}
+  const surrenderModal = <SurrenderModal open={confirmSurrender && !hasResult} busy={busy} multiplayer={liveTable}
     onClose={() => setConfirmSurrender(false)} onConfirm={() => {
       setConfirmSurrender(false);
       void run(() => surrenderDuel(slug));
@@ -600,6 +601,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       settingsTools={canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
       notices={<>
+        {data.mySeat != null && !hasResult && engine?.seats.some((seat) => seat.seat === data.mySeat && seat.eliminated) ? (
+          <section aria-label="You are eliminated" className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+            <p>You are eliminated. Stay to watch the remaining duel, or leave the room.</p>
+            <Button type="button" size="sm" disabled={busy} onClick={() => {
+              const query = new URLSearchParams(window.location.search);
+              query.set("spectate", "1");
+              if (inDuelWindow) query.set("window", "1");
+              router.replace(`/duels/${encodeURIComponent(slug)}?${query}`);
+            }}>Stay and watch</Button>
+            <Button type="button" size="sm" variant="secondary" onClick={exitDuel}>Leave room</Button>
+          </section>
+        ) : null}
         {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
           <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
         {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}

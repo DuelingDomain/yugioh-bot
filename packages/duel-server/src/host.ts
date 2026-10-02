@@ -1125,7 +1125,7 @@ export function createDuelHost(options: {
     await forfeitSeat(slug, guildId, live, expired, TIME_LIMIT_REASON);
   }
 
-  async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker): Promise<DuelRoom> {
+  async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker, spectate = false): Promise<DuelRoom> {
     const room = stampRoomClock(service.room(slug, guildId, playerId), now());
     if (game && game.running && room.session.status === "active") {
       room.engine = await game.view(room.mySeat);
@@ -1137,8 +1137,29 @@ export function createDuelHost(options: {
       }
       if (room.engine.result) {
         await persistComplete(slug, guildId, game, room.engine.result.winnerSeat, room.engine.result.reason);
-        return stampRoomClock(service.room(slug, guildId, playerId), now());
+        return project(slug, guildId, playerId, undefined, spectate);
       }
+    }
+    if (spectate) {
+      if ((room.session.format !== "ffa3" && room.session.format !== "ffa4") ||
+          (room.mySeat !== null && !room.engine?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated))) {
+        throw new RequestError("You can watch after your seat is eliminated", 409);
+      }
+      if (game?.running && room.session.status === "active") {
+        room.engine = await game.view(null);
+        rememberView(slug, null, room.engine);
+      } else {
+        // Keep the seat record for standings; the saved public view has spectator privacy.
+        const saved = options.db.prepare<[string, string], { snapshot_public_json: string | null }>(
+          "select snapshot_public_json from duels where web_slug = ? and guild_id = ?",
+        ).get(slug, guildId);
+        room.engine = saved?.snapshot_public_json ? JSON.parse(saved.snapshot_public_json) as DuelEngineView : null;
+      }
+      room.role = "spectator";
+      room.mySeat = null;
+      room.myDeck = null;
+      room.mySide = null;
+      if (room.engine) room.engine.prompt = null;
     }
     return room;
   }
@@ -1705,6 +1726,8 @@ export function createDuelHost(options: {
       ctl.abandoned = true;
       return writePartialReport(slug, guildId, playerId as number, body.note);
     }
+    // A spectator switch must never fall back to this player's private cached view.
+    if (body.spectate === true) return queued;
     return staleRoom(slug, guildId, playerId as number) ?? queued;
   }
 
@@ -1906,9 +1929,9 @@ export function createDuelHost(options: {
       if (room.session.status === "active") {
         const game = await recover(slug, guildId);
         await settleClock(slug, guildId, game);
-        return project(slug, guildId, actor, games.get(slug)?.game);
+        return project(slug, guildId, actor, games.get(slug)?.game, body.spectate === true);
       }
-      return project(slug, guildId, actor, games.get(slug)?.game);
+      return project(slug, guildId, actor, games.get(slug)?.game, body.spectate === true);
     }
     if (op === "add-bot") {
       if (actor !== room.session.organizerPlayerId) throw new RequestError("Only the organizer can add a practice bot", 403);
