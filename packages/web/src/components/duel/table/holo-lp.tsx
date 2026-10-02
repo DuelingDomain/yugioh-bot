@@ -28,6 +28,8 @@ export interface HoloLpProps {
   hotkey?: number | null;
   onPick?: () => void;
   onHover?: (hover: boolean) => void;
+  /** The fly-in pump places this panel with `style.transform`: the anchor translate is zero. */
+  floating?: boolean;
   reducedMotion: boolean;
 }
 
@@ -82,6 +84,7 @@ export function HoloLp({
   hotkey = null,
   onPick,
   onHover,
+  floating = false,
   reducedMotion,
 }: HoloLpProps) {
   const hex = SEAT_TONE_HEX[tone];
@@ -92,7 +95,7 @@ export function HoloLp({
   const style: CSSProperties & Record<string, string | number> = {
     "--t": hexToRgbTriplet(hex.main),
     "--tink": hex.ink,
-    translate: `${x}px ${y}px`,
+    translate: floating ? "0px 0px" : `${x}px ${y}px`,
   };
   const body = (
     <>
@@ -133,6 +136,7 @@ export function HoloLp({
       data-leaving={status === "leaving" ? "true" : undefined}
       data-legal={legal ? "true" : undefined}
       data-beam={beam}
+      data-floating={floating ? "true" : undefined}
       data-status={status}
       onMouseEnter={legal ? () => onHover?.(true) : undefined}
       onMouseLeave={legal ? () => onHover?.(false) : undefined}

@@ -14,7 +14,17 @@
   --loss-ink: #ff9489;
   --ink-3: #958f81;
   --ink-4: #6e6a62;
+  transition: opacity 0.35s, translate 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* The fly-in pump moves the panel every frame: no glide, and it fades when its seat is off screen. */
+.holo[data-floating="true"] {
   transition: opacity 0.35s;
+}
+
+.holo[data-offcam="true"] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .holo[data-me="true"] {

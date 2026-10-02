@@ -6,6 +6,13 @@
   width: max-content;
   transform-origin: 50% 50%;
   will-change: transform;
+  transition: transform 0.76s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat {
+    transition: none;
+  }
 }
 
 .seat[hidden] {

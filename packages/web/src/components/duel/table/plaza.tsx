@@ -9,9 +9,9 @@ import styles from "./plaza.module.css";
  * the seat tone under each field, and a faint skyline with the arena sign at the top. Pure decoration:
  * it takes no pointer events and carries no game state. Drawn flat; the fly-in camera tilts it later.
  */
-export function Plaza({ layout, poses }: { layout: TableLayout; poses: ReadonlyMap<number, SeatPose> }) {
+export function Plaza({ layout, poses, fly = false }: { layout: TableLayout; poses: ReadonlyMap<number, SeatPose>; fly?: boolean }) {
   return (
-    <div className={styles.plaza} data-plaza aria-hidden="true">
+    <div className={styles.plaza} data-plaza data-fly={fly ? "true" : undefined} aria-hidden="true">
       <svg className={styles.skyline} viewBox="0 0 1100 170" preserveAspectRatio="none" aria-hidden="true">
         <defs>
           <linearGradient id="plaza-sky" x1="0" y1="0" x2="0" y2="1">
