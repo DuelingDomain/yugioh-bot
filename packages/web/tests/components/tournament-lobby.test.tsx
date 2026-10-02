@@ -10,7 +10,7 @@ vi.mock("next/font/google", () => {
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
 
 import { SheetRoot } from "@/components/sheet";
-import { TournamentLobby } from "../../src/components/tournament/tournament-lobby";
+import { TournamentLobby, firstRoundNote } from "../../src/components/tournament/tournament-lobby";
 import type { TournamentDetail } from "../../src/components/tournament/types";
 
 const pending: TournamentDetail = {
@@ -113,5 +113,16 @@ describe("TournamentLobby", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     fireEvent.click(await screen.findByRole("button", { name: /Yes, cancel/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/slug1", { method: "DELETE" }));
+  });
+});
+
+describe("firstRoundNote", () => {
+  it("names the bye and the pairings the engine makes", () => {
+    expect(firstRoundNote(1)).toBe("");
+    expect(firstRoundNote(2)).toBe("Round 1 pairs 1 with 2.");
+    expect(firstRoundNote(3)).toBe("Seat 1 gets a bye. Round 1 pairs 2 with 3.");
+    expect(firstRoundNote(4)).toBe("Round 1 pairs 1 with 4 and 2 with 3.");
+    expect(firstRoundNote(5)).toBe("Seat 1 gets a bye. Round 1 pairs 2 with 5 and 3 with 4.");
+    expect(firstRoundNote(8)).toBe("Round 1 pairs 1 with 8, 2 with 7 and so on.");
   });
 });

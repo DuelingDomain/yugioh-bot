@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check, Copy, LogOut, Megaphone, UserPlus, X } from "lucide-react";
 import { RankGem, SheetPanel, DangerZone, DangerRow, ConfirmPanel } from "@/components/sheet";
 import { Link as LinkIcon } from "lucide-react";
+import { generateSingleElimFirstRound } from "@yugidraft/shared/tournaments";
 import { MyDeckPanel } from "./my-deck-panel";
 import { DeckMarker } from "./deck-marker";
 import { RulesPanel } from "./sheet/rules-panel";
@@ -32,6 +33,15 @@ function roundsOf(format: string, players: number) {
     return r;
   }
   return players % 2 === 0 ? Math.max(0, players - 1) : players;
+}
+
+/** Seats are in join order, which is the order start() hands the engine, so seat numbers stand in for players. */
+export function firstRoundNote(players: number) {
+  if (players < 2) return "";
+  const { byes, pairings } = generateSingleElimFirstRound(Array.from({ length: players }, (_, i) => i + 1));
+  const shown = pairings.slice(0, 2).map((p) => `${p.playerOneId} with ${p.playerTwoId}`);
+  const list = pairings.length > 2 ? `${shown.join(", ")} and so on` : shown.join(" and ");
+  return `${byes.length ? `Seat ${byes[0]} gets a bye. ` : ""}Round 1 pairs ${list}.`;
 }
 
 export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChanged, ratings }: TournamentLobbyProps) {
@@ -192,7 +202,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
               <li key={`open-${i}`} className="seat open"><UserPlus className="ic" aria-hidden="true" /><span>Open seat · needed to start</span></li>
             ))}
           </ul>
-          {single && count > 1 && <p className="small">Round 1 pairs 1 with {count % 2 === 0 ? count : count - 1}{count >= 4 ? " and 2 with " + (count % 2 === 0 ? count - 1 : count - 2) : ""}. With an odd count, seat 1 gets the bye.</p>}
+          {single && count > 1 && <p className="small">{firstRoundNote(count)}</p>}
           {isParticipant && isCreator && (
             <div className="inline-note">
               <p>Hosting and playing in this tournament.</p>
