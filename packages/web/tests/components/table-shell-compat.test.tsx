@@ -80,6 +80,6 @@ describe("table compatibility with live multiplayer selectors", () => {
     view.rerender(<Shell room={{ ...FFA3_FIXTURES.states.elimination.room, mySeat: 2 }} />);
     expect(screen.getByTestId("seat-strip-2")).toHaveAttribute("data-eliminated", "true");
     expect(screen.getByTestId("self-eliminated")).toBeVisible();
-    expect(screen.getByTestId("self-eliminated")).toHaveTextContent("keep watching");
+    expect(screen.getByTestId("self-eliminated")).toHaveTextContent(/^You are eliminated\.$/);
   });
 });

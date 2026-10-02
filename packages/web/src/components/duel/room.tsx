@@ -601,8 +601,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       settingsTools={canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
       notices={<>
+        {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
+          <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
+        {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
+        {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
+      </>}
+      modals={<>
         {data.mySeat != null && !hasResult && engine?.seats.some((seat) => seat.seat === data.mySeat && seat.eliminated) ? (
-          <section aria-label="You are eliminated" className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+          <section aria-label="You are eliminated" className={styles.eliminatedChoice}>
             <p>You are eliminated. Stay to watch the remaining duel, or leave the room.</p>
             <Button type="button" size="sm" disabled={busy} onClick={() => {
               const query = new URLSearchParams(window.location.search);
@@ -613,12 +619,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
             <Button type="button" size="sm" variant="secondary" onClick={exitDuel}>Leave room</Button>
           </section>
         ) : null}
-        {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
-          <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
-        {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
-        {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
-      </>}
-      modals={<>
         {surrenderModal}
         {sidePanelOpen && series && myIndex != null && data.mySide ?
           <SideDeckPanel slug={slug} series={series} myIndex={myIndex} side={data.mySide}

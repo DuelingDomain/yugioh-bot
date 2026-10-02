@@ -466,7 +466,7 @@ export function TableShell({
                           <i aria-hidden="true" />
                           {entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
                           <b>{placeLabel(entry.place)}</b>
-                          {entry.seat === viewerSeat ? <em data-testid="self-eliminated" role="status">You can keep watching.</em> : null}
+                          {entry.seat === viewerSeat ? <em data-testid="self-eliminated" role="status">You are eliminated.</em> : null}
                         </li>
                       ))}
                     </ul>
