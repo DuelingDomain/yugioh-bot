@@ -15,7 +15,6 @@ import {
   lockLabel,
   poseAt,
   ROOF_FIELD,
-  ROOF_PRESETS,
   roofFit,
   roofSlots,
   roofTransform,
@@ -29,7 +28,12 @@ import { batonOrder, responseWindow, rivalPickOptions, teamGlyph, teamLoss, team
 import { plateState, TeamLpPlate, type PlateMember } from "./team-lp-plate";
 import styles from "./tag-stage.module.css";
 
-export interface TagBoardProps extends TagStageProps {
+export interface TagBoardProps extends Omit<TagStageProps, "camera"> {
+  /**
+   * The roof camera (`roofReducer`), not the table camera: it carries the pose the world eases to. A plain `CameraState`
+   * has no pose, so the room drives this stage with `roofReducer` plus `lockForEvents`.
+   */
+  camera: RoofCameraState;
   /** Team names are not part of the engine view: the room passes them when it knows them. */
   teamNames?: readonly [string, string];
 }
@@ -60,8 +64,7 @@ function toneHex(tone: SeatTone | undefined): HubSeatTone {
  */
 export function TagStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, teamNames }: TagBoardProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion, prompt, promptSeat } = controller;
-  const roof = camera as Partial<RoofCameraState> & typeof camera;
-  const target = roof.pose ?? ROOF_PRESETS.home;
+  const target = camera.pose;
   const anchor = layout.anchorSeat;
   const anchorTeam = teamOfSeat(TAG, anchor);
   const slotsOf = useMemo(() => roofSlots(anchor), [anchor]);
@@ -157,10 +160,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
     if (tweenRef.current) rafRef.current = requestAnimationFrame(step);
   }, [apply]);
 
-  const rev = roof.rev ?? 0;
-  const dur = roof.dur ?? 0;
-  const intro = roof.intro ?? false;
-  const from = roof.from ?? null;
+  const { rev, dur, intro, from } = camera;
   useEffect(() => {
     if (reducedMotion || dur <= 0) {
       tweenRef.current = null;
@@ -189,7 +189,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   }, [apply]);
 
   // End of an FX lock: the reducer restores the saved view on the first tick after the time.
-  const lockUntil = roof.lock?.untilMs ?? null;
+  const lockUntil = camera.lock?.untilMs ?? null;
   useEffect(() => {
     if (lockUntil == null) return;
     const wait = Math.max(0, lockUntil - performance.now()) + 8;
