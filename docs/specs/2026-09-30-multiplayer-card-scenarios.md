@@ -392,7 +392,21 @@ Decision 7: cards that were legal but gave a wrong result at 3 or more duelists 
 | Chaos Archfiend, Chaos Beast, Sangen Kaiho, Dragions, True Draco Heritage, Utopia the Envoy of Light | n/a | Proven. | `flag-atk-cards.ts`, `attack-flag-cards.ts`, `true-draco-heritage.ts`, `utopia-envoy.ts` |
 | Dark Bribe, Don Zaloog, Maxx "C", Effect Veiler, Infinite Impermanence | 77538567, 76922029, 23434538, 97268402, 10045474 | Proven: the core binds the event player, only the duelist of the event is hit. | `event-binding-staples.ts` |
 
-Not live-tested (same wrapper overlay as a proven card): Monster Rebirth, Kairo Ryu-Ge Emva, Kyoro Ryu-Ge Kaiva, Battlefield Tragedy, Superconductive Plasma Blast, Flame Wingman, Red-Eyes Exceed, Swiftwind Panther Warrior, Token Support, Penetration Fusion, Divine Arsenal AA-ZEUS - Sky Thunder, Red Nova, Vanquish Soul Rocks. Artifact Lancea has no overlay.
+The following cards also have live proofs in FFA3, FFA4 and Tag. Each listed scenario id has a Domain variant with the `-domain` suffix. Each proof answers real prompts and checks every seat.
+
+| Card | Proof file | Scenario ids |
+|---|---|---|
+| Monster Rebirth | `monster-rebirth.ts` | `monster-rebirth-ffa3-p2-revives-after-p1-battle-destruction`, `monster-rebirth-ffa4-p3-revives-after-p1-battle-destruction`, `monster-rebirth-tag-p3-revives-after-p1-battle-destruction` |
+| Favorite HERO Flame Wingman | `flame-wingman.ts` | `flame-wingman-ffa3-late-seat-fusion-after-battle-kill`, `flame-wingman-ffa4-late-seat-fusion-after-battle-kill`, `flame-wingman-tag-late-seat-fusion-after-battle-kill` |
+| Token Support | `token-support.ts` | `token-support-ffa3-late-seat-replaces-two-battle-destroyed-tokens`, `token-support-ffa4-late-seat-replaces-two-battle-destroyed-tokens`, `token-support-tag-late-seat-replaces-two-battle-destroyed-tokens` |
+| Penetration Fusion | `penetration-fusion.ts` | `penetration-fusion-ffa3-late-seat-fusion-and-tribute-after-battle-kill`, `penetration-fusion-ffa4-late-seat-fusion-and-tribute-after-battle-kill`, `penetration-fusion-tag-late-seat-fusion-and-tribute-after-battle-kill` |
+| Divine Arsenal AA-ZEUS - Sky Thunder | `aa-zeus.ts` | `aa-zeus-ffa3-p2-xyz-battle-permits-summon`, `aa-zeus-ffa4-p3-xyz-battle-permits-summon`, `aa-zeus-tag-p3-xyz-battle-permits-summon` |
+| Red Nova Dragon - Burning Soul | `red-nova-burning-soul.ts` | `red-nova-burning-soul-ffa3-p2-own-synchro-gives-recovery-and-bonus`, `red-nova-burning-soul-ffa4-p3-own-synchro-gives-recovery-and-bonus`, `red-nova-burning-soul-tag-p3-own-synchro-gives-recovery-and-bonus` |
+| Vanquish Soul Rocks | `vanquish-soul-rocks.ts` | `vanquish-soul-rocks-ffa3-p2-vanquish-battle-permits-one-summon`, `vanquish-soul-rocks-ffa4-p3-vanquish-battle-permits-one-summon`, `vanquish-soul-rocks-tag-p3-vanquish-battle-permits-one-summon` |
+
+The Vanquish Soul Rocks scenarios prove an Xyz Summon after Razen battles. Seat 0 is in each battle. A proof of the `regop` fix with seat 0 absent from the battle is still required.
+
+Not live-tested (same wrapper overlay as a proven card): Kairo Ryu-Ge Emva, Kyoro Ryu-Ge Kaiva, Battlefield Tragedy, Superconductive Plasma Blast, Red-Eyes Exceed, Swiftwind Panther Warrior. Artifact Lancea has no overlay.
 
 The Domain n-seat Deck Master rules (summon, Link material, recall) are proven in `domain-nseat-gaps.ts` and `domain-ffa4-deck-master.ts`.
 
