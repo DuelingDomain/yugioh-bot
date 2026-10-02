@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 import { analyzeCube, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
+import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 
 export const runtime = "nodejs";
 
@@ -136,6 +137,13 @@ export async function PUT(
 
     const body = await request.json();
     const { name, config } = body as { name?: string; config?: unknown };
+    const drafts = createDraftService(db);
+    const draftModel = drafts.findById(draft.id);
+    const mergedConfig = config === undefined ? undefined : { ...draftModel.config, ...(config as object) };
+    const assignmentError = hostThemeAssignmentError(db, draftModel.guildId, mergedConfig ?? draftModel.config, drafts.players(draft.id).map((p) => p.playerId));
+    if (assignmentError) {
+      return NextResponse.json({ error: assignmentError }, { status: 400 });
+    }
 
     if (name !== undefined) {
       if (!name.trim()) {
@@ -146,7 +154,7 @@ export async function PUT(
         .prepare(
           "select id from drafts where guild_id = (select guild_id from drafts where id = ?) and name = ? and status in ('pending', 'active') and id != ?"
         )
-        .get(draft.id, name) as { id: number } | undefined;
+        .get(draft.id, name, draft.id) as { id: number } | undefined;
 
       if (existing) {
         return NextResponse.json({ error: "A draft with that name already exists" }, { status: 400 });
@@ -157,57 +165,55 @@ export async function PUT(
 
     let analysisWarnings: ReturnType<typeof analyzeCube> | undefined;
 
-    if (config !== undefined) {
-      const drafts = createDraftService(db);
-      const existing = drafts.findById(draft.id);
-      const mergedConfig = { ...existing.config, ...(config as object) };
+    if (mergedConfig) {
+      if (mergedConfig.mode !== "theme") {
+        // The submitted config redefines the pool (sets + custom passcodes), so
+        // any previously materialized ids are stale. Drop them before resolving —
+        // otherwise resolveCubeCardIds returns the old snapshot and edits like
+        // removing a card never take effect in the saved pool.
+        delete (mergedConfig as { cubeCardIds?: number[] }).cubeCardIds;
+        delete (mergedConfig as { poolCardIds?: number[] }).poolCardIds;
 
-      // The submitted config redefines the pool (sets + custom passcodes), so
-      // any previously materialized ids are stale. Drop them before resolving —
-      // otherwise resolveCubeCardIds returns the old snapshot and edits like
-      // removing a card never take effect in the saved pool.
-      delete (mergedConfig as { cubeCardIds?: number[] }).cubeCardIds;
-      delete (mergedConfig as { poolCardIds?: number[] }).poolCardIds;
+        const clampedPacks = Math.min(10, Math.max(1, Number((mergedConfig as any).packsPerPlayer) || 5));
+        (mergedConfig as any).packsPerPlayer = clampedPacks;
+        (mergedConfig as any).packSize = Math.ceil(40 / clampedPacks);
 
-      const clampedPacks = Math.min(10, Math.max(1, Number((mergedConfig as any).packsPerPlayer) || 5));
-      (mergedConfig as any).packsPerPlayer = clampedPacks;
-      (mergedConfig as any).packSize = Math.ceil(40 / clampedPacks);
+        const hasPool =
+          ((mergedConfig as any).setNames?.length ?? 0) > 0 ||
+          ((mergedConfig as any).customCardIds?.length ?? 0) > 0;
+        if (!hasPool) {
+          return NextResponse.json(
+            { error: "Select at least one set or paste custom card IDs" },
+            { status: 400 }
+          );
+        }
 
-      const hasPool =
-        ((mergedConfig as any).setNames?.length ?? 0) > 0 ||
-        ((mergedConfig as any).customCardIds?.length ?? 0) > 0;
-      if (!hasPool) {
-        return NextResponse.json(
-          { error: "Select at least one set or paste custom card IDs" },
-          { status: 400 }
+        const cards = createCardCatalogService(db);
+        await cards.syncDraftPool({
+          setNames: (mergedConfig as any).setNames ?? [],
+          customCardIds: (mergedConfig as any).customCardIds ?? [],
+          includeNames: (mergedConfig as any).includeNames ?? [],
+          excludeNames: (mergedConfig as any).excludeNames ?? [],
+        });
+        const cubeCardIds = drafts.resolveCubeCardIds(mergedConfig as any);
+        if (cubeCardIds.length === 0) {
+          return NextResponse.json(
+            { error: "No cards matched the selected sets / passcodes" },
+            { status: 400 }
+          );
+        }
+
+        // Advisory feasibility check at edit time (min start count = 2 players).
+        // Non-blocking: startDraft is the authoritative gate.
+        analysisWarnings = analyzeCube(
+          cubeCardIds,
+          2,
+          (mergedConfig as any).packsPerPlayer ?? 5,
+          (mergedConfig as any).packSize ?? 8,
         );
+
+        (mergedConfig as any).cubeCardIds = cubeCardIds;
       }
-
-      const cards = createCardCatalogService(db);
-      await cards.syncDraftPool({
-        setNames: (mergedConfig as any).setNames ?? [],
-        customCardIds: (mergedConfig as any).customCardIds ?? [],
-        includeNames: (mergedConfig as any).includeNames ?? [],
-        excludeNames: (mergedConfig as any).excludeNames ?? [],
-      });
-      const cubeCardIds = drafts.resolveCubeCardIds(mergedConfig as any);
-      if (cubeCardIds.length === 0) {
-        return NextResponse.json(
-          { error: "No cards matched the selected sets / passcodes" },
-          { status: 400 }
-        );
-      }
-
-      // Advisory feasibility check at edit time (min start count = 2 players).
-      // Non-blocking: startDraft is the authoritative gate.
-      analysisWarnings = analyzeCube(
-        cubeCardIds,
-        2,
-        (mergedConfig as any).packsPerPlayer ?? 5,
-        (mergedConfig as any).packSize ?? 8,
-      );
-
-      (mergedConfig as any).cubeCardIds = cubeCardIds;
 
       db.prepare("update drafts set config_json = ? where id = ?").run(
         JSON.stringify(mergedConfig),

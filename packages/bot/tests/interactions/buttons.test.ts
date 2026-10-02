@@ -283,6 +283,37 @@ describe("button interactions", () => {
     expect(replies[0].ephemeral).toBe(true);
   });
 
+  it.each(["foreign-guild", "duplicate"])("surfaces an error for %s host assignments from the Start button and leaves the draft pending", async (invalidAssignment) => {
+    const app = setup();
+    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
+    seedDraftCatalog(app, 42);
+    const cubeIds = ["Theme 1", "Theme 2"].map((name) => {
+      const cubeId = Number(app.db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', ?, 'user-7')").run(name).lastInsertRowid);
+      for (let cardId = 1; cardId <= 42; cardId++) {
+        app.db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, ?, 'main', 1)").run(cubeId, cardId);
+      }
+      return cubeId;
+    });
+    const draft = app.drafts.create("guild-1", "channel-1", "theme night", {
+      mode: "theme", themeSelection: "host_assigned", allowedCubeIds: cubeIds, uniqueThemes: true, extraDeckEnabled: false,
+      themeAssignments: { [yugi.id]: cubeIds[0], [kaiba.id]: invalidAssignment === "duplicate" ? cubeIds[0] : cubeIds[1] },
+    }, "user-7", yugi.id);
+    app.drafts.join(draft.id, kaiba.id);
+    if (invalidAssignment === "foreign-guild") app.db.prepare("update cubes set guild_id = 'guild-2' where id = ?").run(cubeIds[1]);
+    const { interaction, replies } = fakeButton({
+      customId: `draft_start:${draft.id}`, user: { id: "user-7", username: "Yugi" },
+    });
+    vi.spyOn(app.cards, "syncDraftPool").mockResolvedValue([]);
+
+    await expect(handleButton(interaction, app)).rejects.toThrow(
+      invalidAssignment === "foreign-guild" ? /exist.*draft.*guild/i : /distinct.*uniqueThemes/i,
+    );
+    expect(app.drafts.findById(draft.id).status).toBe("pending");
+    expect(app.db.prepare("select * from draft_player_cube where draft_id = ?").all(draft.id)).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
   it("rejects non-creators starting drafts from the dashboard", async () => {
     const app = setup();
     const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
