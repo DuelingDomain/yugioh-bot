@@ -40,8 +40,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   const errors: string[] = [];
   const warnings: string[] = [];
   for (const cubeId of draft.config.allowedCubeIds ?? []) {
+    const cube = db.prepare("select name, guild_id from cubes where id = ?")
+      .get(cubeId) as { name: string; guild_id: string } | undefined;
+    // Match assignThemes: deleted library cubes are dropped at start.
+    if (!cube) continue;
+    if (cube.guild_id !== draft.guildId) {
+      errors.push(`Cube ${cubeId}: Cube not found`);
+      continue;
+    }
     const analysis = cubes.analyzeCubePools(cubeId, cfg);
-    const name = (db.prepare("select name from cubes where id = ?").get(cubeId) as { name: string } | undefined)?.name ?? `Cube ${cubeId}`;
+    const name = cube.name;
     for (const e of analysis.errors) errors.push(`${name}: ${e}`);
     for (const w of analysis.warnings) warnings.push(`${name}: ${w}`);
   }

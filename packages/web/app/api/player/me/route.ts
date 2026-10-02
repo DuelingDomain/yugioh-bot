@@ -1,3 +1,4 @@
+import { env } from "@/lib/env";
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -10,8 +11,8 @@ export async function GET() {
 
   const db = getDb();
   const row = db
-    .prepare("select id from players where discord_user_id = ? limit 1")
-    .get(session.user.id) as { id: number } | undefined;
+    .prepare("select id from players where discord_user_id = ? and guild_id = ? limit 1")
+    .get(session.user.id, env.discordGuildId) as { id: number } | undefined;
 
   if (!row) return NextResponse.json(null, { status: 404 });
   return NextResponse.json({ playerId: row.id });

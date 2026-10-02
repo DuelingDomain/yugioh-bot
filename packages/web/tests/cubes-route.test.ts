@@ -2,9 +2,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mockDiscordAccess } from "./fixtures/discord-access";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
+let discord: ReturnType<typeof mockDiscordAccess>;
 
 vi.mock("@/lib/auth", () => ({ auth }));
 
@@ -41,9 +43,13 @@ describe("cube API routes", () => {
     vi.resetModules();
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: "creator", name: "Yugi" } });
+    discord = mockDiscordAccess();
+    discord.permissions = "0";
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     delete process.env.DATABASE_PATH;
     delete process.env.DISCORD_GUILD_ID;
     while (tempDirs.length > 0) {
@@ -159,5 +165,70 @@ describe("cube API routes", () => {
     expect(ok.status).toBe(200);
     const gone = await DELETE(new Request(`http://x/api/cubes/${id}`, { method: "DELETE" }) as any, { params: Promise.resolve({ id: String(id) }) });
     expect(gone.status).toBe(404);
+  });
+
+  it.each(["PUT", "DELETE", "cards"])("%s rejects non-owners and leaves the cube intact", async (method) => {
+    await setupDb();
+    const { POST } = await import("../app/api/cubes/route");
+    const created = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Owned" }) }));
+    const { cube } = await created.json();
+    auth.mockResolvedValue({ user: { id: "other-member" } });
+    const route = await import("../app/api/cubes/[id]/route");
+    const { POST: cards } = await import("../app/api/cubes/[id]/cards/route");
+    const handler = method === "cards" ? cards : method === "PUT" ? route.PUT : route.DELETE;
+    const res = await handler(new Request("http://x", {
+      method: method === "cards" ? "POST" : method,
+      body: method === "DELETE" ? undefined : JSON.stringify({ name: "Stolen", op: "add", catalogCardId: 1, pool: "main" }),
+    }), { params: Promise.resolve({ id: String(cube.id) }) });
+    expect(res.status).toBe(403);
+    expect(await cubeIdOf("Owned")).toBe(cube.id);
+    const { getDb } = await import("../src/lib/db");
+    expect(getDb().prepare("select count(*) as n from cube_cards where cube_id = ?").get(cube.id)).toEqual({ n: 0 });
+  });
+
+  it.each(["PUT", "DELETE", "cards"])("%s allows a guild admin who is not the owner", async (method) => {
+    await setupDb();
+    const { POST } = await import("../app/api/cubes/route");
+    const created = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Owned" }) }));
+    const { cube } = await created.json();
+    auth.mockResolvedValue({ user: { id: "admin" } });
+    discord.permissions = "32";
+    const route = await import("../app/api/cubes/[id]/route");
+    const { POST: cards } = await import("../app/api/cubes/[id]/cards/route");
+    const handler = method === "cards" ? cards : method === "PUT" ? route.PUT : route.DELETE;
+    const res = await handler(new Request("http://x", {
+      method: method === "cards" ? "POST" : method,
+      body: method === "DELETE" ? undefined : JSON.stringify({ name: "Admin edit", op: "add", catalogCardId: 1, pool: "main" }),
+    }), { params: Promise.resolve({ id: String(cube.id) }) });
+    expect(res.status).toBe(200);
+  });
+
+  it.each(["PUT", "DELETE", "cards"])("%s rejects even an owner who is no longer a member", async (method) => {
+    await setupDb();
+    const { getDb } = await import("../src/lib/db");
+    const cubeId = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Owned','creator')").run().lastInsertRowid);
+    discord.memberStatus = 404;
+    const route = await import("../app/api/cubes/[id]/route");
+    const { POST: cards } = await import("../app/api/cubes/[id]/cards/route");
+    const handler = method === "cards" ? cards : method === "PUT" ? route.PUT : route.DELETE;
+    const res = await handler(new Request("http://x", {
+      method: method === "cards" ? "POST" : method,
+      body: method === "DELETE" ? undefined : JSON.stringify({ name: "Stolen", op: "add", catalogCardId: 1, pool: "main" }),
+    }), { params: Promise.resolve({ id: String(cubeId) }) });
+    expect(res.status).toBe(403);
+  });
+
+  it.each(["PUT", "DELETE", "cards"])("%s cannot mutate a cube in another guild", async (method) => {
+    await setupDb();
+    const { getDb } = await import("../src/lib/db");
+    const cubeId = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','creator')").run().lastInsertRowid);
+    const route = await import("../app/api/cubes/[id]/route");
+    const { POST: cards } = await import("../app/api/cubes/[id]/cards/route");
+    const handler = method === "cards" ? cards : method === "PUT" ? route.PUT : route.DELETE;
+    const res = await handler(new Request("http://x", {
+      method: method === "cards" ? "POST" : method,
+      body: method === "DELETE" ? undefined : JSON.stringify({ name: "Stolen", op: "add", catalogCardId: 1, pool: "main" }),
+    }), { params: Promise.resolve({ id: String(cubeId) }) });
+    expect(res.status).toBe(404);
   });
 });

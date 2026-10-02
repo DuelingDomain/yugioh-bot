@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { env } from "@/lib/env";
 import { auth } from "@/lib/auth";
 import { createMatchService, createPlayerService } from "@yugidraft/shared/services";
 import { broadcaster, announcer } from "@/lib/notify";
@@ -29,9 +30,9 @@ export async function POST(
         select m.guild_id, m.tournament_id, t.web_slug as tournament_slug
         from matches m
         left join tournaments t on t.id = m.tournament_id
-        where m.id = ?
+        where m.id = ? and m.guild_id = ?
       `)
-      .get(matchId) as { guild_id: string; tournament_id: number | null; tournament_slug: string | null } | undefined;
+      .get(matchId, env.discordGuildId) as { guild_id: string; tournament_id: number | null; tournament_slug: string | null } | undefined;
 
     if (!match) {
       return NextResponse.json({ error: "Match not found" }, { status: 404 });

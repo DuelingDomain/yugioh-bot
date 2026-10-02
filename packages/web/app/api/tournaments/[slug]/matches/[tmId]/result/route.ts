@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createMatchService, createTournamentDuelService, TournamentDuelError } from "@yugidraft/shared/services";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { env } from "@/lib/env";
 import { announcer, broadcaster } from "@/lib/notify";
 import { notifyDuelChange } from "@/lib/notify-duel";
 
@@ -33,8 +34,8 @@ export async function POST(
 
     const db = getDb();
     const tournament = db
-      .prepare("select id, guild_id from tournaments where web_slug = ?")
-      .get(slug) as { id: number; guild_id: string } | undefined;
+      .prepare("select id, guild_id from tournaments where web_slug = ? and guild_id = ?")
+      .get(slug, env.discordGuildId) as { id: number; guild_id: string } | undefined;
     if (!tournament) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const slot = Number.isInteger(tournamentMatchId)
       ? (db.prepare("select tournament_id from tournament_matches where id = ?").get(tournamentMatchId) as

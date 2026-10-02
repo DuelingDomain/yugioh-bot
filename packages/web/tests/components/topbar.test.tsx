@@ -20,15 +20,15 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-vi.mock("@/lib/actions", () => ({
-  handleSignOut: vi.fn(),
+vi.mock("next-auth/react", () => ({
+  signOut: vi.fn(),
 }));
 
 import { usePathname } from "next/navigation";
-import { handleSignOut } from "@/lib/actions";
+import { signOut } from "next-auth/react";
 
 const mockUsePathname = vi.mocked(usePathname);
-const mockHandleSignOut = vi.mocked(handleSignOut);
+const mockSignOut = vi.mocked(signOut);
 
 const defaultProps = {
   onMenuClick: vi.fn(),
@@ -130,14 +130,14 @@ describe("TopBar — sign out", () => {
     expect(screen.getByRole("button", { name: /sign out/i })).toBeTruthy();
   });
 
-  it("clicking Sign out calls handleSignOut", async () => {
+  it("clicking Sign out calls signOut", async () => {
     render(<TopBar {...defaultProps} />);
     await waitFor(() => screen.getByText("imran443"));
 
     fireEvent.click(screen.getByRole("button", { name: /imran443/i }));
     fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
 
-    expect(mockHandleSignOut).toHaveBeenCalledOnce();
+    expect(mockSignOut).toHaveBeenCalledWith({ redirectTo: "/login" });
   });
 
   it("clicking Sign out closes the dropdown", async () => {

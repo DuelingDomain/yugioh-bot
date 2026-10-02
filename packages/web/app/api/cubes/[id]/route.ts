@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
+import { cubeWriteAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
@@ -9,11 +10,9 @@ export const runtime = "nodejs";
 
 async function authCubeId(
   params: Promise<{ id: string }>,
-): Promise<{ cubeId: number; guildId: string } | NextResponse> {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+): Promise<{ cubeId: number; guildId: string; userId: string } | NextResponse> {
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
   if (!env.discordGuildId) {
     return NextResponse.json({ error: "Server not configured for cubes" }, { status: 500 });
   }
@@ -22,7 +21,7 @@ async function authCubeId(
   if (!Number.isInteger(cubeId)) {
     return NextResponse.json({ error: "Invalid cube id" }, { status: 400 });
   }
-  return { cubeId, guildId: env.discordGuildId };
+  return { cubeId, guildId: env.discordGuildId, userId: actor.userId };
 }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -58,9 +57,10 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const ctx = await authCubeId(params);
   if (ctx instanceof NextResponse) return ctx;
 
-  const body = (await request.json().catch(() => ({}))) as { name?: string };
-
   const db = getDb();
+  const denied = await cubeWriteAccess(db, ctx.cubeId, ctx.userId);
+  if (denied) return denied;
+  const body = (await request.json().catch(() => ({}))) as { name?: string };
   const cubes = createCubeService(db, createCardCatalogService(db));
   const result = cubes.renameCube(ctx.cubeId, body.name ?? "");
   if ("error" in result) {
@@ -75,10 +75,8 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (ctx instanceof NextResponse) return ctx;
 
   const db = getDb();
-  const exists = db.prepare("select id from cubes where id = ? and guild_id = ?").get(ctx.cubeId, ctx.guildId);
-  if (!exists) {
-    return NextResponse.json({ error: "Cube not found" }, { status: 404 });
-  }
+  const denied = await cubeWriteAccess(db, ctx.cubeId, ctx.userId);
+  if (denied) return denied;
   createCubeService(db, createCardCatalogService(db)).deleteCube(ctx.cubeId);
   return NextResponse.json({ ok: true });
 }
