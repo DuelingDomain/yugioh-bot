@@ -12,6 +12,15 @@
       "stockSha256": "24af78f302fb21b11791837992c5bc005212d7f9eb03fffab0df3eac22a55fff"
     },
     {
+      "code": 164710,
+      "file": "c164710.lua",
+      "name": "Mischief of the Gnomes",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "2af3694ece08773d3716f1b31eb4bc485dfcf96fc98b700d2363b3c2e2d8763e",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 1804528,
       "file": "c1804528.lua",
       "name": "Dark Coffin",
@@ -3829,6 +3838,15 @@
       "stockSha256": "3693e2446758134c6e861dff80d9490027144da1606540e815640ae227af499d"
     },
     {
+      "code": 69120785,
+      "file": "c69120785.lua",
+      "name": "The Bystial Alba Los",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "d6785008d991cb712a5e8c815a1dfaf08d2b2bd508c8cd611c19a7a0e3481480",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 69181753,
       "file": "c69181753.lua",
       "name": "Performapal Kuribohble",
@@ -4129,6 +4147,15 @@
       "note": "the global battle check asks Duel.GetBattleMonster(0), which gives the monsters only when the seat 0 duelist is in the battle; it asks for every real seat and writes the flag of the seat of each battle monster (flag keyed by seat in FFA, team in Tag)."
     },
     {
+      "code": 72892473,
+      "file": "c72892473.lua",
+      "name": "Card Destruction",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "087e5964a6158051bb44fa0685192c9d9ed6a029005bd0a2536d5b9177be340e",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 73082255,
       "file": "c73082255.lua",
       "name": "The Zombie Vampire",
@@ -4137,6 +4164,15 @@
         "R1"
       ],
       "stockSha256": "d1e2fc4b90bfa3ef0971260803a0ef11fa4d98f6a7cd457e6527e68b67d9f27e"
+    },
+    {
+      "code": 73443672,
+      "file": "c73443672.lua",
+      "name": "Underworld Circle",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "a50729536e1e88c68807d9bf912fa282f38280dc7276e2ef9ea9cbf926c2c1ab",
+      "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
       "code": 73507661,
@@ -4167,6 +4203,15 @@
         "R1"
       ],
       "stockSha256": "3410cb544be050a766afb918cb576344d3da9e24df72691c8afbba9d095424ab"
+    },
+    {
+      "code": 74519184,
+      "file": "c74519184.lua",
+      "name": "Hand Destruction",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "33446081eef2e3150316717b8ec860ec4f2cb899370a748f84a87aca371afb1c",
+      "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
       "code": 74733322,

@@ -67,3 +67,9 @@ Combination Attack (8964854) summoned an opposing Union Monster to a picked oppo
 ## Hydor owner field
 
 Hydor (30339825) offered WATER monsters from other FFA owners as its destruction choice. Its filter and operation now bind the Graveyard target's real owner and restrict the FFA field query to that seat. The Tag query retains the joined own team field. Live proof: `hydor-owner.ts`. The original FFA3/FFA4 choice probes show an extra wrong-owner monster. All four fixed outcomes pass on both cores.
+
+## More all-duelist zones
+
+Mischief of the Gnomes (164710), Underworld Circle (73443672), The Bystial Alba Los (69120785), Card Destruction (72892473) and Hand Destruction (74519184) skipped later or partner hands, Decks, Extra Decks or Standby summons. Their overlays now collect or visit each living duelist. Card Destruction and Hand Destruction keep their FFA ban and use the change only in Tag.
+
+Live proof: `all-player-zone-gaps.ts` and `underworld-circle-standby.ts`. Seven of 11 stock zone probes fail. All three stock multiplayer Standby probes fail. The 16 fixed zone cases and four fixed Standby cases pass on both cores; 1v1 controls keep the stock scripts.
