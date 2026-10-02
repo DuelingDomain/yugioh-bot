@@ -218,6 +218,19 @@
       "stockSha256": "5a3ddd2c47a81b56bd7f72dac0e8bed15cc9c0012a98afe868583eaf645a3985"
     },
     {
+      "code": 5010422,
+      "file": "c5010422.lua",
+      "name": "Prediction Princess Astromorrigan",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+CONTINUOUS",
+      "redefined": [
+        "desop"
+      ],
+      "stockSha256": "b8df5407add8ab402b6b87d9eda2313afb1bb99fd05540d0dcbf25765224e660",
+      "note": "Script fix (R1 each opponent, R-COMMON-EACH-PLAYER, lead decision 2026-10-01): the flip effect registers an End Phase effect (Duel.RegisterEffect) that destroys the Defense Position monsters of the opponents and the stock operation lets ONE opponent (Duel.Damage(1-tp,ct*500)) take the damage for all of them. The operation groups the monsters by real controller seat (aux.MPForEachController): each opponent takes 500 for each of its OWN monsters destroyed. In Tag the opposing members share one LP pool, so the sum is the stock value. The flip effect is stock. Not part of R1 or R2 (a script fix, as Book of Eclipse)."
+    },
+    {
       "code": 5611760,
       "file": "c5611760.lua",
       "name": "Rainbow Bridge of Salvation",

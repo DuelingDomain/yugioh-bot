@@ -377,6 +377,7 @@ Decision 4: the other cards use the defaults.
 | Soul Exchange | 68005187 | You may target 1 monster of any opponent. This turn, a Tribute may use it as if you controlled it. | `c68005187.lua:35`, `c68005187.lua:45` |
 | Snatch Steal | 45986603 | The owner of the monster gains the 1000 LP, in the own Standby Phase of that owner. In Tag, the Standby Phase of the own duelist turn counts, and the team LP gains. | `c45986603.lua:33`, `c45986603.lua:37` |
 | Book of Eclipse | 35480699 | In your End Phase, each opponent changes its OWN face-down monsters to face-up Defense Position and draws 1 card for each of its own (R-COMMON-EACH-PLAYER, lead decision 2026-10-01). In Tag, each opposing member does the same for the monsters it controls. The stock script lets one opponent draw for all of them (script fix, overlay `c35480699.lua`). | `c35480699.lua:37` |
+| Prediction Princess Astromorrigan | 5010422 | In the End Phase of the turn you flip it, each opponent takes 500 damage for each of its OWN Defense Position monsters destroyed this way (R-COMMON-EACH-PLAYER, lead decision 2026-10-01). In Tag the opposing members share one LP pool, so the sum is the stock value. The stock script lets one opponent take the damage for all of them (script fix, overlay `c5010422.lua`). | `c5010422.lua:25`, `c5010422.lua:30` |
 
 ## Open questions for the product owner
 
