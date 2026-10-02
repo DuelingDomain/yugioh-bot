@@ -1,5 +1,4 @@
 {
   "R-COMMON-EMZ": "no DSL outcome scenario yet. Native checks zones and link-column-zones prove the zones at n > 2. The table counts DSL outcome scenarios only, so a native check does not make it covered.",
-  "R-COMMON-FL-LIST": "no DSL outcome scenario yet. tests/deck-legality-multiplayer.test.ts proves the forbidden list per table in deck validation; it is a unit test, not a duel scenario.",
   "R-TAG-VISIBILITY": "no DSL outcome scenario yet. The unit tests in tests/engine-nseat.test.ts (the tests named shows a Tag partner hand and shows a Tag partner Set cards) prove the partner view of hands and Set cards in the seat projection; they are not duel scenarios. Native check confirm-hint-sort covers the ConfirmCards event players."
 }

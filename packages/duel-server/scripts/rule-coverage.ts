@@ -15,6 +15,9 @@
 // from the table this script makes. Without --strict the exit code is always 0.
 // One tested clause is enough to mark the whole rule id as covered: the marker cannot see which clauses of a rule a scenario checks.
 // A covered rule with clauses that no scenario proves is listed in scripts/rule-coverage-partial.json (rule id -> what is not proven).
+// R-COMMON-FL-LIST has one explicit host exception. tests/host-rule-forbidden.test.ts uses real deck validation, refuses a start
+// with a forbidden deck at EVERY seat in each format, then starts the repaired table on the real Standard or Domain engine.
+// A duel DSL setup cannot prove this rule: its decks deliberately skip lobby validation. No other host or unit test counts.
 // The table shows it as "covered (partial: ...)". --strict fails on a partial entry for a rule that is not covered or not in the ADR.
 // Usage: npx tsx scripts/rule-coverage.ts [--strict] [--check]   (--check: write nothing, compare the doc with the table)
 
@@ -25,7 +28,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 /** covered = outcome scenario; pending = no outcome scenario but in the allow-list; none = neither (strict fails). */
 export type Status = "covered" | "pending" | "none";
 /** outcome = counts. The others are listed only: preset (smoke run), sketch (pending catalog entry), weak (rules but no outcome assert). */
-export type RefKind = "outcome" | "preset" | "sketch" | "weak";
+export type RefKind = "outcome" | "host-outcome" | "preset" | "sketch" | "weak";
 export interface RuleRef {
   /** Test id: a scenario or catalog id, or the file path of a preset. */
   test: string;
@@ -99,7 +102,7 @@ export function buildRows(
 ): RuleRow[] {
   return rules.map((rule) => {
     const tests = refs.filter((r) => r.rule === rule.id).map((r) => r.ref);
-    if (tests.some((t) => t.kind === "outcome")) {
+    if (tests.some((t) => t.kind === "outcome" || t.kind === "host-outcome")) {
       return partial[rule.id] ? { ...rule, status: "covered", partial: partial[rule.id], tests } : { ...rule, status: "covered", tests };
     }
     const reason = pending[rule.id];
@@ -143,7 +146,7 @@ export function renderTable(rows: RuleRow[], sketchEntries: number): string {
     return shown.join(", ") + (refs.length > 6 ? `, and ${refs.length - 6} more` : "");
   };
   const outcomeCell = (row: RuleRow) => {
-    const outcome = row.tests.filter((t) => t.kind === "outcome");
+    const outcome = row.tests.filter((t) => t.kind === "outcome" || t.kind === "host-outcome");
     return outcome.length === 0 ? "-" : list(outcome, (t) => `\`${t.test}\``);
   };
   const otherCell = (row: RuleRow) => {
@@ -170,6 +173,8 @@ export function renderTable(rows: RuleRow[], sketchEntries: number): string {
     "listed but never counted. A rule with no outcome scenario must be in `scripts/rule-coverage-pending.json` (rule id and reason);",
     "each part that adds an outcome scenario removes its entries. `--strict` fails on a rule with no outcome scenario and no entry,",
     "on a stale entry, and on a scenario that declares `rules` with no outcome assert.",
+    "The forbidden-list rule has one host exception: `tests/host-rule-forbidden.test.ts`. It checks a forbidden deck at every seat",
+    "through real lobby validation and start, then starts the legal table on the real Standard and Domain engine in all three formats.",
     "",
     "A rule id is one unit: if a rule has several clauses, one tested clause is enough to mark it covered. The marker does not check",
     "which clauses a scenario proves, so read the scenario before you trust a rule that has more than one clause. When a covered rule",
@@ -286,6 +291,11 @@ export function unrunLists(lists: ScenarioList[], sources: string[]): string[] {
 
 export async function collect(root = packageRoot) {
   const refs = scenarioRefs(await loadScenarios(root));
+  const hostProof = "tests/host-rule-forbidden.test.ts";
+  const hostPath = join(root, hostProof);
+  if (existsSync(hostPath) && readFileSync(hostPath, "utf8").includes("R-COMMON-FL-LIST: $mode $format refuses seat $seat and starts after repair")) {
+    refs.push({ rule: "R-COMMON-FL-LIST", ref: { test: hostProof, kind: "host-outcome" } });
+  }
   for (const file of presetFiles(root)) {
     const name = relative(root, file);
     for (const rule of parseRuleDeclarations(readFileSync(file, "utf8"))) refs.push({ rule, ref: { test: name, kind: "preset" } });

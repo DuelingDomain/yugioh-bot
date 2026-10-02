@@ -7,6 +7,13 @@ import {
   partialListPath, pendingListPath, renderTable, runnerSources, scenarioRefs, staleEntries, stalePartial, uniqueScenarios, unknownRules, unrunLists, type RuleRef,
 } from "../scripts/rule-coverage.js";
 
+it("counts the real host start proof for the forbidden list", async () => {
+  const { refs } = await collect();
+  const proof = refs.find((entry) => entry.rule === "R-COMMON-FL-LIST" && entry.ref.kind === "host-outcome");
+  expect(proof?.ref.test).toBe("tests/host-rule-forbidden.test.ts");
+  expect(buildRows([{ id: "R-COMMON-FL-LIST", title: "Forbidden list" }], refs)[0]?.status).toBe("covered");
+});
+
 const adr = [
   "## Common",
   "",
