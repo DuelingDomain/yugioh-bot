@@ -31,3 +31,9 @@ Live proof: `tests/scenarios/multiplayer/all-player-zones.ts`. The 20 cases chec
 Nobleman of Extermination (17449108), Nobleman of Crossout (71044499) and Inferno Tempest (14391920) missed later Decks after a scoped query. Crossout failed in Tag; the other two failed in all three formats. Each overlay now collects each living duelist's Deck before the action. The Noblemen reveal the collected Decks to each duelist and shuffle each Deck.
 
 Live proof: `tests/scenarios/multiplayer/all-player-decks.ts`. Seven of 12 stock cases fail. All 12 fixed cases, including 1v1 controls, pass on Standard and Domain.
+
+## Global player state
+
+Clear World (33900648) registered EARTH, WATER and FIRE effects only for raw seats 0 and 1. Its overlay adds each later living seat and reads Clear Wall by real opposing side. Battlewasp Hama (80949182) read a single damage flag tied to the first copy. Its overlay stores battle damage per FFA seat or Tag team.
+
+Live proof: `clear-world-seats.ts` and `hama-damage-state.ts`. The original scripts fail 11 of 17 cases. The fixed scripts pass all 17 on each core. The existing global flag, R2 seat and attack count checks pass 147 cases on Standard.

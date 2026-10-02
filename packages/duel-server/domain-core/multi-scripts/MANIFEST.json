@@ -1872,6 +1872,15 @@
       "stockSha256": "4be782dd7f9beb1a4dea5875f3adfff3a9b2928ef57eed22c9bc710d8b4abc9f"
     },
     {
+      "code": 33900648,
+      "file": "c33900648.lua",
+      "name": "Clear World",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "f320c55fe74719a12dc3cb9b5d81b0a37778b0a83ca6d630180b1fca14f72a97",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 34004470,
       "file": "c34004470.lua",
       "name": "The Big Saturn",
@@ -4401,6 +4410,15 @@
         "selfspop"
       ],
       "stockSha256": "e41f6ee4fe55bfcc9d1c439c8032a1890405d25770021a725a72ce573323b878"
+    },
+    {
+      "code": 80949182,
+      "file": "c80949182.lua",
+      "name": "Battlewasp - Hama the Conquering Bow",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "44d4bb2b91587576700f78bf5afb4f85f682242aaaefb1069da3eaa5b6ca7210",
+      "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
       "code": 81167171,
