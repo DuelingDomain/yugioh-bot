@@ -4562,6 +4562,20 @@
       "stockSha256": "720a56596b8015cdb5b0fba6bae7f46f2434e58991569b4a056e774047239085"
     },
     {
+      "code": 76004142,
+      "file": "c76004142.lua",
+      "name": "Bad Luck Blast",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "a7753e806650629acb5e5d70083ececf36600fa8edfb60689d5212a6ab21f74a",
+      "note": "Declare one FFA opponent before resolution. Restrict the monster target and the damage recipient to that opponent. Tag keeps the joined opposing field and team LP.",
+      "wrap": {
+        "MPTarget": [
+          "target"
+        ]
+      }
+    },
+    {
       "code": 76224717,
       "file": "c76224717.lua",
       "name": "Advance Zone",
