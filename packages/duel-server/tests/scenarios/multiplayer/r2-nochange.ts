@@ -5,7 +5,7 @@
 
 import {
   activate, attack, auto, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, no,
-  expectNoPrompt, changePosition, normalSummon, pass, pickOpponent, setCard, select, finish, specialSummon, yes, zone,
+  expectNoPrompt, changePosition, xyz, normalSummon, pass, pickOpponent, setCard, select, finish, specialSummon, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -94,6 +94,16 @@ const GADGET = "Cyberse Gadget";
 const SOUL = "Successor Soul";
 const LEONIDAS = "D/D/D Rebel King Leonidas";
 const OOKAZI = "Ookazi";
+const HEART = "Heart of the Blue-Eyes";
+const ANKH = "Millennium Ankh";
+const INCARNATE = "The Unstoppable Exodia Incarnate";
+const BEWD = "Blue-Eyes White Dragon";
+const FORBIDDEN = ["Exodia the Forbidden One", "Left Arm of the Forbidden One", "Right Arm of the Forbidden One", "Left Leg of the Forbidden One", "Right Leg of the Forbidden One"];
+const LEGACY = "Legacy of the Duelist";
+const WHISKER = "Whisker Blitzclique";
+const SURGE = "Surge Blitzclique";
+const GRAIN = "Grain Blitzclique"; // a Thunder monster
+const TELL = "D/D/D Marksman King Tell";
 const POLY = "Polymerization";
 const MANIPULATOR = "Flame Manipulator";
 const MASAKI = "Masaki the Legendary Swordsman";
@@ -603,6 +613,83 @@ const leonidas = (format: "ffa3" | "tag"): Scenario => {
 };
 
 /**
+ * D/D/D Marksman King Tell 71612253: a global check keeps a flag for ep (the duelist that took effect damage); the Quick Effect needs
+ * Duel.GetFlagEffect(tp,id)~=0. Ookazi of p0 burns one duelist: the Tell of that duelist is offered, detaches a material, shrinks a monster and burns an opponent;
+ * the same Tell of a second duelist that took no damage (in Tag a duelist of team 0) is not offered it.
+ */
+const tell = (format: "ffa3" | "tag"): Scenario => {
+  const tag = format === "tag";
+  const holder: Seat = tag ? "p1" : "p2";
+  const other: Seat = tag ? "p2" : "p1";
+  const setup: Record<string, unknown> = { p0: { hand: [OOKAZI], deck: [ELF] }, p1: { deck: [ELF] }, p2: { deck: [ELF] } };
+  if (tag) setup.p3 = { deck: [ELF] };
+  setup[holder] = { monsters: [xyz(TELL, [ELF, ELF])], deck: [ELF] };
+  setup[other] = { monsters: [xyz(TELL, [ELF, ELF])], deck: [ELF] };
+  return probe(format, `d-d-d-marksman-king-tell-damage-flag-of-${holder}-only`, 71612253,
+    `${tag ? "Tag" : "FFA3"}: Ookazi of p0 burns ${holder} (flag kept for ${tag ? "team 1" : holder}); the Tell of ${holder} is offered and used (detaches a material, shrinks the Tell of ${other}, burns ${tag ? "team 0" : "p0"} for 1000), the Tell of ${other} (no damage taken) is not offered`,
+    setup,
+    [activate(OOKAZI, "p0"), ...(tag ? [] : [pickOpponent(holder, "p0")]), expectOffered("activate", TELL, holder), activate(TELL, holder), select(ELF), select({ card: TELL, owner: other }), ...(tag ? [] : [pickOpponent("p0", holder)])],
+    tag
+      ? { p0: { lp: 15000, grave: [OOKAZI] }, p1: { lp: 15200, grave: [ELF], monsters: [TELL] }, p2: { lp: 15000, monsters: [TELL] }, p3: { lp: 15200 } }
+      : { p0: { lp: 7000, grave: [OOKAZI] }, p1: { monsters: [TELL] }, p2: { lp: 7200, grave: [ELF], monsters: [TELL] } });
+};
+
+/**
+ * Whisker Blitzclique 85523502: a global check keeps a flag for rp (the duelist whose "Blitzclique" card destroyed a card by effect); the Quick Effect from the hand
+ * needs Duel.HasFlagEffect(tp,id). The holder reveals Surge Blitzclique to destroy the Dark Magician of p0 (flag of the holder, in Tag of team 1), then its Whisker
+ * Blitzclique is offered and Special Summons a Thunder monster from the hand. A second duelist with the same Whisker and a Thunder monster in the hand is not offered it.
+ */
+const whisker = (format: "ffa3" | "tag"): Scenario => {
+  const { holder, first, setup, label, tag } = holderOf(format, false);
+  const other: Seat = holder === "p1" ? "p2" : "p1";
+  setup[holder] = { hand: [SURGE, WHISKER, GRAIN, GRAIN], deck: [ELF, ELF, ELF] };
+  setup[other] = { ...(setup[other] as object), hand: [WHISKER, GRAIN] };
+  setup.p0 = { monsters: [DM], deck: [ELF, ELF, ELF, ELF] };
+  return probe(format, `whisker-blitzclique-destroy-flag-of-${holder}-only`, 85523502,
+    `${label}: ${holder} reveals Surge Blitzclique to destroy the Dark Magician of p0 (flag of ${tag ? "team 1" : holder}); the Whisker Blitzclique in the hand of ${holder} is offered and Special Summons a Thunder monster, the Whisker in the hand of ${other} (no flag) is not offered`,
+    setup,
+    [...first, activate(SURGE, holder), select(GRAIN), expectOffered("activate", WHISKER, holder), activate(WHISKER, holder), select(GRAIN), no(holder)],
+    { p0: { grave: [DM] }, [other]: { hand: [WHISKER, GRAIN] }, [holder]: { monsters: [GRAIN, GRAIN], hand: [SURGE, WHISKER, ELF] } });
+};
+
+/**
+ * Legacy of the Duelist 88851326 (accepted deviation, see R2_ACCEPTED_DEVIATIONS: in FFA the Set flag of one opponent locks every opponent for the rest of the turn,
+ * which cannot be seen because a duelist Sets in its own turn): a global check keeps a flag for rp on a Set from the hand; the Set lock of the controller reads the own
+ * flag, the Set lock of the opponents reads the flag of 1-controller. Legacy is on the field of p0. A duelist (p0 itself, or the opponent) Sets one card from the
+ * hand and is then not offered a second Set; the first Set is allowed (so the lock is the flag of the one that Set).
+ */
+const legacy = (format: "ffa3" | "tag", own: boolean): Scenario => {
+  const { holder: opp, first, setup, label, tag } = holderOf(format, true);
+  const holder: Seat = own ? "p0" : opp;
+  setup.p0 = { spells: [LEGACY], deck: [ELF, ELF, ELF, ELF], ...(own ? { hand: [POT, POT] } : {}) };
+  if (!own) setup[opp] = { hand: [POT, POT], deck: [ELF, ELF, ELF, ELF] };
+  const steps: Step[] = [...(own ? [] : first), setCard(POT, holder), expectNotOffered("set", POT, holder)];
+  return probe(format, `legacy-of-the-duelist-second-set-of-${own ? "the-controller" : "an-opponent"}-${holder}-is-locked`, 88851326,
+    `${label}: Legacy of the Duelist on the field of p0; ${own ? "p0 (the controller)" : `${holder} (an opponent${tag ? ", team 1" : ""})`} Sets one card from the hand (flag of ${tag && holder !== "p0" ? "team 1" : holder}) and is not offered a second Set`,
+    setup, steps, { p0: { spells: own ? [LEGACY, POT] : [LEGACY] }, ...(own ? {} : { [holder]: { spells: [POT], hand: tag ? [ELF, POT] : [ELF, ELF, POT] } }) });
+};
+
+/**
+ * Heart of the Blue-Eyes 54475145: a global check keeps a flag for rp (the duelist that activated Millennium Ankh, once per Duel, reset 0); the Graveyard effect needs
+ * Duel.HasFlagEffect(tp,id) and a Level 8 or higher monster that the opponent summons. The holder activates Millennium Ankh in its turn; later the next seat
+ * Tribute Summons Blue-Eyes White Dragon: the Dragon goes to the Graveyard and the Heart of the holder is Special Summoned. In FFA3 a second Heart in the
+ * Graveyard of p0 (no Ankh, so no flag) is not offered; in Tag the flag is the one of team 1.
+ */
+const heart = (format: "ffa3" | "tag"): Scenario => {
+  const { holder, first, setup, label, tag } = holderOf(format, false);
+  const summoner: Seat = "p2";
+  setup[holder] = { hand: [ANKH, FORBIDDEN[0]], monsters: FORBIDDEN.slice(1), extra: [INCARNATE], grave: [HEART], deck: [ELF, ELF, ELF] };
+  setup[summoner] = { hand: [BEWD], monsters: [ELF, ELF], deck: [ELF, ELF, ELF] };
+  if (!tag) setup.p0 = { ...(setup.p0 as object), grave: [HEART] };
+  return probe(format, `heart-of-the-blue-eyes-ankh-flag-of-${holder}${tag ? "" : "-only"}`, 54475145,
+    `${label}: ${holder} activates Millennium Ankh (flag of ${tag ? "team 1" : holder}); ${summoner} Tribute Summons Blue-Eyes White Dragon: the Heart in the Graveyard of ${holder} sends the Dragon to the Graveyard and is Special Summoned${tag ? "" : "; the Heart in the Graveyard of p0 (no Ankh) is not offered"}`,
+    setup,
+    [...first, activate(ANKH, holder), endTurn(holder), normalSummon(BEWD, summoner), select({ card: ELF, nth: 0 }, { card: ELF, nth: 0 }),
+      yes(holder)],
+    { [holder]: { monsters: [HEART, INCARNATE] }, [summoner]: { grave: [ELF, ELF, BEWD] }, ...(tag ? {} : { p0: { grave: [HEART] } }) });
+};
+
+/**
  * Evolution Burst 52875873: a global check keeps a flag for the controller of an attacking Cyber Dragon; the cost needs Duel.GetFlagEffect(tp,id)==0. The holder is
  * offered the Spell before its Cyber Dragon attacks and is not offered it in the Main Phase 2 after the attack.
  */
@@ -689,5 +776,5 @@ export const R2_NOCHANGE_SCENARIOS: Scenario[] = [
   screams("ffa3"),
   screams("tag"),
   burst("ffa3"),
-  burst("tag"), sacrifice("ffa3", false), sacrifice("ffa3", true), sacrifice("tag", false), sacrifice("tag", true), beacon("ffa3"), beacon("tag"), soul("ffa3", 1), soul("ffa3", 2), soul("tag", 1), soul("tag", 2), leonidas("ffa3"), leonidas("tag"),
+  burst("tag"), sacrifice("ffa3", false), sacrifice("ffa3", true), sacrifice("tag", false), sacrifice("tag", true), beacon("ffa3"), beacon("tag"), soul("ffa3", 1), soul("ffa3", 2), soul("tag", 1), soul("tag", 2), leonidas("ffa3"), leonidas("tag"), tell("ffa3"), tell("tag"), whisker("ffa3"), whisker("tag"), legacy("ffa3", true), legacy("ffa3", false), legacy("tag", true), legacy("tag", false), heart("ffa3"), heart("tag"),
 ];
