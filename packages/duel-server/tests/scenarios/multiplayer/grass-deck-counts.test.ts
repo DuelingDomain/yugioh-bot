@@ -6,8 +6,8 @@ import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
-import { expectPrompt, pickOpponent, type DuelistId } from "../../support/dsl.js";
-import { GRASS_DECK_COUNTS_SCENARIOS } from "./grass-deck-counts.js";
+import { expectPrompt, type DuelistId } from "../../support/dsl.js";
+import { GRASS_DECK_COUNTS_SCENARIOS, GRASS_TAG_DECLARED_DECK_SCENARIOS } from "./grass-deck-counts.js";
 // Keep the count fixture stable across cores with different first-turn draw flags.
 // This is the same one-phase fixture pattern used by compileBoard for turn:p1.
 const SKIP_OPENING_DRAW = `
@@ -16,7 +16,7 @@ skip:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skip:SetTargetRange(1,1); Duel.Regi
 local undo=Effect.GlobalEffect(); undo:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS); undo:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
 undo:SetOperation(function(e) skip:Reset() e:Reset() end); Duel.RegisterEffect(undo,0) end`;
 describeWithCores("live Grass Deck comparisons", liveNseat, () => {
-  runScenarios("multiplayer/grass-deck-counts", GRASS_DECK_COUNTS_SCENARIOS, async (scenario) => {
+  runScenarios("multiplayer/grass-deck-counts", [...GRASS_DECK_COUNTS_SCENARIOS, ...GRASS_TAG_DECLARED_DECK_SCENARIOS], async (scenario) => {
     const compiled = compileBoard(scenario.setup);
     compiled.options.startupScripts![0].content += SKIP_OPENING_DRAW;
     {
@@ -33,11 +33,6 @@ describeWithCores("live Grass Deck comparisons", liveNseat, () => {
       let at = 1;
       for (const step of scenario.steps) {
         session.run(expectPrompt({}), at++);
-        const prompt = Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean);
-        if (prompt?.context?.type === "opponent") {
-          session.run(pickOpponent(`p${count - 1}` as DuelistId, `p${prompt.seat}` as DuelistId), at++);
-          session.run(expectPrompt({}), at++);
-        }
         if (step.op === "select" && Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean)?.context?.type === "action") continue;
         session.run(step, at++);
       }

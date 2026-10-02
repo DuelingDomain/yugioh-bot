@@ -1,7 +1,8 @@
 // Battlefield Tragedy (42228966): a battle between two monsters disables the
 // Main Phase 2 Set effect and makes the turn player mill five at the End Phase.
 // With no such battle the holder can discard and Set its second copy instead.
-import { activate, attack, changePhase, defineScenario, endTurn, expectNotOffered, expectPrompt, expectTurn, select, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePhase, endTurn, expectNotOffered, expectPrompt, expectTurn, select, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, PARTNER, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

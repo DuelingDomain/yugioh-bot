@@ -6,9 +6,10 @@
 // the overlay. A card whose effect is not a choice (a continuous trigger) has a `forced` result instead of the offer. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, attack, changePhase, defineScenario, endTurn, expectBoard, expectOffered, expectPrompt, faceDown, no, normalSummon, pass, pickOpponent, select, specialSummon, yes,
+  activate, attack, changePhase, endTurn, expectBoard, expectOffered, expectPrompt, faceDown, no, normalSummon, pass, pickOpponent, select, specialSummon, yes,
   type BoardExpect, type CardRef, type DuelistExpect, type DuelistSetup, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

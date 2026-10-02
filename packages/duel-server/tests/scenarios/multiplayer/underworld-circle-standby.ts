@@ -1,4 +1,5 @@
-import { defineScenario, expectBoard, select, yes, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { expectBoard, select, yes, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 const SEATS: DuelistId[] = ["p0", "p1", "p2", "p3"];
 export const UNDERWORLD_CIRCLE_STANDBY_SCENARIOS: Scenario[] = (["1v1", "ffa3", "ffa4", "tag"] as const).map((format) => {
   const count = format === "1v1" ? 2 : format === "ffa3" ? 3 : 4;

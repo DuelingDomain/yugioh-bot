@@ -4,7 +4,8 @@
 // (the first return is free), a no keeps it in the Graveyard. The Deck Masters in the zones of the other seats (in Tag the partner too) never change.
 // Plain data (scripts/rule-coverage.ts reads it); domain-nseat-gaps.test.ts runs it on a live Domain core.
 
-import { defineScenario, expectOffered, expectPrompt, no, normalSummon, select, specialSummon, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { expectOffered, expectPrompt, no, normalSummon, select, specialSummon, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

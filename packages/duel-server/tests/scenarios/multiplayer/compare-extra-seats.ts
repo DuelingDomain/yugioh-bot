@@ -4,8 +4,9 @@
 // Every scenario ends with the state of every seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, changePosition, defineScenario, endTurn, expectBoard, select, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+  activate, changePosition, endTurn, expectBoard, select, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

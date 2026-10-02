@@ -1,5 +1,6 @@
 // Hama keeps the battle damage of each seat (team in Tag). Copies at two seats must not share the flag of the first holder.
-import { attack, changePhase, defineScenario, expectPrompt, pickOpponent, yes, type Scenario } from "../../support/dsl.js";
+import { attack, changePhase, expectPrompt, pickOpponent, yes, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseLp, baseSetup, everySeat, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 

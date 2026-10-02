@@ -2,7 +2,8 @@
 // own effect. In a duel with more than 2 duelists the opponent is the duelist of the event (the one who activated, took the damage or summoned) or the
 // controller of the target. Each scenario asserts the final state of every seat: the duelist of the event is the only one that is affected.
 
-import { activate, attack, auto, pass, choose, select, endTurn, expectPrompt, expectTurn, defineScenario, expectOffered, faceDown, yes, pickOpponent, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, auto, pass, choose, select, endTurn, expectPrompt, expectTurn, expectOffered, faceDown, yes, pickOpponent, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

@@ -13,9 +13,10 @@
 // Another seat has Urgent Tuning and makes the first two links of the same chain (Kagemusha + Flame Viper, then Hop Ear Squadron + Armory Arm).
 
 import {
-  activate, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, normalSummon, pass, select, specialSummon,
+  activate, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, normalSummon, pass, select, specialSummon,
   type BoardExpect, type DuelistExpect, type DuelistSetup, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

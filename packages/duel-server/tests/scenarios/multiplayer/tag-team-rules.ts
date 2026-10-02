@@ -1,9 +1,10 @@
 // Tag Synchro material includes a partner monster. Both teams and FFA3/FFA4 controls run on Standard and Domain cores.
 // Every scenario checks the state of every seat after real core prompts. Core patch: gap-tag2/0001.
 import {
-  defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickOptions,
+  endTurn, expectBoard, expectNotOffered, expectOffered, expectPickOptions,
   select, specialSummon, type BoardExpect, type DuelistExpect, type OptionRef, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

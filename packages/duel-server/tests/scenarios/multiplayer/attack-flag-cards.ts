@@ -5,7 +5,8 @@
 // (one read per team in Tag) without a read that can ask for an opponent. The turn player declares 3 direct attacks
 // (a Mystical Elf each) and the holder is offered the card after the third; with 2 attacks it is not offered. Tag: both partners.
 
-import { activate, attack, changePhase, defineScenario, expectSeatNotOffered, expectOffered, pickOpponent, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePhase, expectSeatNotOffered, expectOffered, pickOpponent, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -22,7 +23,7 @@ function kaiho(format: Format, attacker: Seat, target: Seat, holder: Seat, attac
     ...Array.from({ length: attacks }, () => [attack({ card: ELF, nth: 0 }, "direct", attacker), pickOpponent(target, attacker)]).flat(),
     ...(offered ? [expectOffered("activate", { card: KAIHO, from: "grave" }, holder), activate({ card: KAIHO, from: "grave" }, holder)] : [expectSeatNotOffered("activate", { card: KAIHO, from: "grave" }, holder), changePhase("main2", attacker), expectSeatNotOffered("activate", { card: KAIHO, from: "grave" }, holder)]),
   ];
-  // Each seat that had its turn until now drew 1 card for it (p0 does not draw in the first turn); the holder draws 1 more with the card.
+  // Each seat that had its turn until now drew 1 card for it (the FFA first-draw fixture adds the draw of p0 in turn 1; Tag skips it); the holder draws 1 more with the card.
   const handCount = (seat: Seat): number => (seat !== "p0" && Number(seat[1]) <= Number(attacker[1]) ? 1 : 0) + (offered && seat === holder ? 1 : 0);
   const spec: Partial<Record<Seat, object>> = {};
   for (const seat of SEATS[format]) spec[seat] = { hand: { count: handCount(seat) } };

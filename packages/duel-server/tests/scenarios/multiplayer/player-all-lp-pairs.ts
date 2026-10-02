@@ -86,9 +86,16 @@ export function lpPairScenario(format: Format, actor: 0 | 1, [code, card]: typeo
     (board[seat(enemy)]!.hand as string[]).push("Mystical Elf"); board[seat(actor)]!.grave = [card, "Gagaga Cowboy", "Beaver Warrior", "Mystical Elf"]; board[seat(enemy)]!.grave = ["Gem-Knight Pearl", "Battle Ox", "Celtic Guardian"]; ownDelta = enemyDelta = -4100;
   } else {
     setup[seat(actor)]!.hand = ["Polymerization"]; setup[seat(actor)]!.monsters = ["Time Wizard", "Penguin Soldier"]; setup[seat(actor)]!.extra = [card]; setup[seat(enemy)]!.monsters = ["Beaver Warrior"];
+    let damage = 1600;
+    // All fields count, including unpicked opponents and the Tag partner.
+    for (let i = 0; i < n; i++) if (i !== actor && i !== enemy) {
+      setup[seat(i)]!.monsters = ["Battle Ox"];
+      board[seat(i)]!.grave = ["Battle Ox"];
+      damage += 850;
+    }
     if (actor === 1) { steps.push(endTurn("p0")); (board.p1!.hand as string[]).push("Mystical Elf"); }
     steps.push(activate("Polymerization", seat(actor)), select("Time Wizard", "Penguin Soldier"), activate(card, seat(actor)), ...((format === "tag" || format === "1v1") ? [] : beforePick()), choose(coinRight ? "Tails" : "Heads", seat(actor)));
-    board[seat(actor)]!.grave = ["Polymerization", "Time Wizard", "Penguin Soldier", card]; board[seat(enemy)]!.grave = ["Beaver Warrior"]; if (coinRight) enemyDelta = -1600; else ownDelta = -1600;
+    board[seat(actor)]!.grave = ["Polymerization", "Time Wizard", "Penguin Soldier", card]; board[seat(enemy)]!.grave = ["Beaver Warrior"]; if (coinRight) enemyDelta = -damage; else ownDelta = -damage;
   }
   for (let i = 0; i < n; i++) {
     if (i === actor || (format === "tag" && i % 2 === actor % 2)) board[seat(i)]!.lp! += ownDelta;
@@ -104,7 +111,7 @@ export function lpPairScenario(format: Format, actor: 0 | 1, [code, card]: typeo
     board[seat(enemy)]!.deckCount! -= 3;
   }
   steps.push(expectBoard(board));
-  return defineScenario({ id: `player-all-lp-pair-${code}-${format}-p${actor}${coinRight ? "-coin-right" : ""}${laterEvent ? "-later-event" : ""}${laterRecipient ? "-later-recipient" : ""}`, title: `${card}: the stated pair or single-player result leaves the other FFA LP totals unchanged`, source: `${SOURCE} [R-COMMON-OPP-PICK] [Q4]`, rules: ["R-COMMON-OPP-PICK"], tags: ["multiplayer", "player-all-lp-pair", format, `card:${code}`], setup, steps });
+  return defineScenario({ id: `player-all-lp-pair-${code}-${format}-p${actor}${coinRight ? "-coin-right" : ""}${laterEvent ? "-later-event" : ""}${laterRecipient ? "-later-recipient" : ""}`, title: `${card}: the stated pair or single-player result leaves the other FFA LP totals unchanged`, source: `${SOURCE} [R-COMMON-OPP-PICK] [Q4]`, rules: ["R-COMMON-OPP-PICK", ...(code === 26273196 ? ["R-COMMON-ALL-BOTH"] : [])], tags: ["multiplayer", "player-all-lp-pair", format, `card:${code}`], setup, steps });
 }
 export const PLAYER_ALL_LP_PAIR_SCENARIOS = CARDS.flatMap(card => ([ ["ffa3", 0], ["ffa4", 0], ["tag", 0], ["tag", 1] ] as const).filter(([format]) => card[0] !== 83555666 || format === "tag").map(([format, actor]) => lpPairScenario(format, actor, card)));
 
@@ -128,9 +135,11 @@ export function lpPairProofs(code: number): Scenario[] {
   return scenarios;
 }
 
-/** The first Draw Phase is skipped so the card proof is independent of the host draw flag. */
-export async function runLpPairScenario(scenario: Scenario): Promise<void> {
+// The opening-draw skip is intentional: keep the card fixture hand and Deck counts fixed.
+// rule-proof-ffa-order.test.ts checks the first draw without this skip in the default test:engine gate.
+export async function runLpPairScenario(scenario: Scenario, prepare?: (script: string) => string): Promise<void> {
   const compiled = compileBoard(scenario.setup);
+  if (prepare) compiled.options.startupScripts![0].content = prepare(compiled.options.startupScripts![0].content);
   compiled.options.startupScripts![0].content += `
   do local skip=Effect.GlobalEffect(); skip:SetType(EFFECT_TYPE_FIELD); skip:SetCode(EFFECT_SKIP_DP)
   skip:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skip:SetTargetRange(1,1); Duel.RegisterEffect(skip,0)

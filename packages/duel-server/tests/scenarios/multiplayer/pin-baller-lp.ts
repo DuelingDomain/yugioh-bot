@@ -1,5 +1,6 @@
 // A real Fusion Summon tests the global negation protection with a later activating seat.
-import { activate, defineScenario, expectPrompt, faceDown, pickOpponent, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, expectPrompt, faceDown, pickOpponent, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
@@ -39,7 +40,7 @@ function pin(format: Format, lower: boolean): Scenario {
       yes(actor),
       ...(format === "tag" ? [] : [pickOpponent("p0", actor)]),
       activate(STRIKE, "p0"),
-      ...(lower ? [{ op: "select", sels: [{ card: ELF, owner: "p0" }], by: actor } as Step] : []),
+      ...(lower ? [{ op: "select", sels: [{ card: ELF, owner: "p0" }], by: actor } satisfies Step] : []),
       expectPrompt({ by: actor, context: "action" }),
       everySeat(format, spec),
     ],

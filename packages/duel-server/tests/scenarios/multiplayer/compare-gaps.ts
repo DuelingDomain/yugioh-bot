@@ -7,9 +7,10 @@
 // Decisions: docs/adr/0002-multiplayer-duel-rules.md (question 2): FFA, the activator compares with ONE opponent.
 
 import {
-  activate, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard, expectEliminated, expectNoPrompt, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectRetry, expectTurn,
+  activate, changePhase, changePosition, choose, endTurn, expectBoard, expectEliminated, expectNoPrompt, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectRetry, expectTurn,
   normalSummon, pass, pickOpponent, position, select, surrender, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
@@ -171,14 +172,14 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "compare-gaps-ffa3-three-in-one-one-opponent-has-more",
-    title: "FFA3: p1 holds 4 cards in its own End Phase, more than p0 (3), and p2 holds 3: Three in One is offered and Special Summons 3 Normal Monsters from the Graveyard of p0",
+    title: "FFA3: p1 holds 5 cards in its own End Phase, more than p0 (4), and p2 holds 3: Three in One is offered and Special Summons 3 Normal Monsters from the Graveyard of p0",
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "compare", "ffa3", "card:50838440"],
     setup: {
       format: "ffa3",
       p0: { hand: [FANG, BEAVER], spells: [{ card: TIO, pos: "set" }], grave: [OX, GUARDIAN, AXE] },
-      p1: { hand: [RAT, FANG, OX] },
+      p1: { hand: [RAT, FANG, OX, AXE] },
       p2: { hand: [RAT, OX, GUARDIAN] },
     },
     steps: [
@@ -190,7 +191,7 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       expectTurn("p2", 3),
       everySeat("ffa3", {
         p0: { hand: [FANG, BEAVER], monsters: [OX, GUARDIAN, AXE], grave: [TIO] },
-        p1: { hand: [RAT, FANG, OX, ELF] },
+        p1: { hand: [RAT, FANG, OX, AXE, ELF] },
         p2: { hand: [RAT, OX, GUARDIAN, ELF] },
       }),
     ],
@@ -299,7 +300,7 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "compare-gaps-ffa3-exciton-knight-one-opponent-has-more",
-    title: "FFA3: p2 holds 2 cards, more than p0 (1): Evilswarm Exciton Knight is offered and destroys the other cards on the field",
+    title: "FFA3: p2 holds 3 cards, more than p0 (2): Evilswarm Exciton Knight is offered and destroys the other cards on the field",
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "compare", "ffa3", "card:46772449"],
@@ -307,13 +308,13 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       format: "ffa3",
       p0: { monsters: [{ card: EXCITON, materials: [AXE, BEAVER] }] },
       p1: { monsters: [RAT] },
-      p2: { monsters: [OX, GUARDIAN] },
+      p2: { hand: [ELF], monsters: [OX, GUARDIAN] },
     },
     steps: [
       expectOffered("activate", EXCITON, "p0"),
       activate(EXCITON, "p0"),
       select(AXE),
-      everySeat("ffa3", { p0: { monsters: [EXCITON], grave: [AXE] }, p1: { grave: [RAT] }, p2: { grave: [OX, GUARDIAN] } }),
+      everySeat("ffa3", { p0: { monsters: [EXCITON], grave: [AXE] }, p1: { grave: [RAT] }, p2: { hand: [ELF], grave: [OX, GUARDIAN] } }),
     ],
   }),
   // Mimighoul Slime: ignition effect from the hand. It is summoned face-down to the field of an opponent, or face-up to your own when

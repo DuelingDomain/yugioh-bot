@@ -3,10 +3,11 @@
 // live core (NSEAT_LIVE=1) with the real card scripts and the overlay. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, attack, auto, changePhase, changePosition, choose, defineScenario, endTurn, expectBoard, expectLp, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, no,
+  activate, attack, auto, changePhase, changePosition, choose, endTurn, expectBoard, expectLp, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, no,
   normalSummon, pickOpponent, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
@@ -240,7 +241,7 @@ const probe = (format: Format, slug: string, card: number | number[], title: str
     tags: ["multiplayer", "r2-checks", "no-change", format, ...(Array.isArray(card) ? card : [card]).map((c) => `card:${c}`)],
     setup: { format, ...setup } as unknown as Scenario["setup"],
     steps: [...steps, everySeat(format, spec)],
-  });
+  }, slug === "left-arm-offering-locks-only-the-set-of-its-own-seat" ? { destination: "banished" } : {});
 
 const turns = (upTo: Seat[]): Step[] => upTo.map((seat) => endTurn(seat));
 

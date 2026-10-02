@@ -63,7 +63,7 @@ function eclipse(format: Format, actor: Seat): Scenario {
   }
   // The seats before the actor take their turns first: each one makes its normal draw at the start of its turn.
   const steps: Step[] = seats.slice(0, actorIndex).map((seat) => endTurn(seat));
-  const normalDraws = (seat: Seat) => (seats.indexOf(seat) >= 1 && seats.indexOf(seat) <= actorIndex ? 1 : 0);
+  const normalDraws = (seat: Seat) => (seats.indexOf(seat) >= (tag ? 1 : 0) && seats.indexOf(seat) <= actorIndex ? 1 : 0);
   const handNow = (seat: Seat, extra = 0) => [HAND[seat], ...Array.from({ length: normalDraws(seat) + extra }, () => DECK[seat])];
   const faceDown = (seat: Seat) =>
     Object.fromEntries(field[seat].map((card, index) => [`m${index}`, { card, pos: "set" as const }]));
@@ -132,19 +132,19 @@ function eclipseOffTurn(): Scenario {
   const faceUpDefense = (seat: Seat) => Object.fromEntries(field[seat].map((card, index) => [`m${index}`, { card, pos: "def" as const }]));
   const draws = (seat: Seat, count: number) => Array.from({ length: count }, () => DECK[seat]);
 
-  // p0 ends its turn and declines the window of its End Phase; p1 makes its normal draw; Book of Eclipse is activated in the turn of p1.
+  // p0 and p1 each make their first draw. p0 declines its End Phase window, then activates Book in p1 turn.
   const afterActivation: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of seats) {
     afterActivation[seat] = {
       monsters: field[seat],
       zones: faceDown(seat),
-      hand: [HAND[seat], ...draws(seat, seat === "p1" ? 1 : 0)],
+      hand: [HAND[seat], ...draws(seat, seat === "p0" || seat === "p1" ? 1 : 0)],
       grave: seat === actor ? [BOOK] : [],
     };
   }
   // End Phase of p1: p1 flips 2 monsters and draws 2, p2 flips 3 and draws 3 (and then its normal card), p0 keeps its face-down monster.
   const afterEndPhase: Partial<Record<Seat, DuelistExpect>> = {
-    p0: { monsters: field.p0, zones: faceDown("p0"), hand: [HAND.p0], grave: [BOOK] },
+    p0: { monsters: field.p0, zones: faceDown("p0"), hand: [HAND.p0, DECK.p0], grave: [BOOK] },
     p1: { monsters: field.p1, zones: faceUpDefense("p1"), hand: [HAND.p1, ...draws("p1", 1 + 2)] },
     p2: { monsters: field.p2, zones: faceUpDefense("p2"), hand: [HAND.p2, ...draws("p2", 3 + 1)] },
   };

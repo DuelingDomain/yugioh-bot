@@ -8,9 +8,10 @@
 // wrong answer and keep the state. The card is Ojama Trio: it asks for an opponent, then for the zone on that opponent's field.
 
 import {
-  activate, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectPickOptions, expectPrompt, expectRetry,
+  activate, endTurn, expectBoard, expectEliminated, expectLp, expectPickOptions, expectPrompt, expectRetry,
   expectTurn, pickOpponent, surrender, zone, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 const STEELCAGE = "Nightmare's Steelcage";

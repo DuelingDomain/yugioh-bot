@@ -1,4 +1,5 @@
-import { activate, attack, changePhase, choose, defineScenario, no, yes, zone, type Scenario } from "../../support/dsl.js";
+import { activate, attack, changePhase, choose, no, yes, zone, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, SEATS, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 const FIEND = "Arcana Force XV - The Fiend";

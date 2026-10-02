@@ -1,4 +1,5 @@
 -- Grass checks each eligible opponent, then mills against the bound Deck.
+-- Tag also uses ONE declared opposing duelist and only the acting Deck (owner answer 2026-10-02).
 local mp_condition,mp_target=s.condition,s.target
 local function mp_tag_counts(tp)
 	local own=Duel.GetFieldGroupCount(tp,LOCATION_DECK,0)

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, it, type TestContext } from "vitest";
+import { expect, it } from "vitest";
 import { seatCountFor, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
 import { OcgLocation } from "ocgcore-wasm";
 import { readCoreCapabilities } from "../src/core-capabilities.js";
@@ -24,13 +24,6 @@ function core(mode: DuelMode) {
   } catch {
     return { path, sha: "", binary: undefined, c6: false };
   }
-}
-
-function requireC6(context: TestContext, available: boolean, path: string): void {
-  if (available) return;
-  const reason = `C6 shared zones are absent or unmarked in ${path}. Install C6 with capabilities=ffa4-shared-extra-zones and its matching sha256 in SOURCE.`;
-  console.warn(`SKIPPED: ${reason}`);
-  context.skip(reason);
 }
 
 function viewers(format: DuelFormat): Array<number | null> {
@@ -63,15 +56,15 @@ for (const mode of ["normal", "domain"] as const) {
   const loaded = core(mode);
   describeWithCores(`${mode} live shared EMZ view`, [needs.file(`${mode} multi core`, loaded.path), needs.cards(dataDirectory),
     needs.scripts(dataDirectory), needs.liveNseat(true), mode === "domain" ? [needs.domain(dataDirectory), needs.domainScript(dataDirectory)] : needs.standard(dataDirectory)], () => {
-    it("keeps the pair pending and clears it after real MSG 200 [requires C6]", async (context) => {
-      requireC6(context, loaded.c6, loaded.path);
+    it("keeps the pair pending and clears it after real MSG 200", async () => {
       const { game } = await start(mode, "ffa4", loaded.binary);
       try {
         expect(game.coreInfo().wasmSha).toBe(loaded.sha);
-        expectPairing(game, [2, 3, 0, 1]);
+        const pairs = loaded.c6 ? [2, 3, 0, 1] : [null, null, null, null];
+        expectPairing(game, pairs);
         game.eliminate(2, 0);
         expect(game.view(null).seats[2]).toMatchObject({ pendingElimination: true, eliminated: false });
-        expectPairing(game, [2, 3, 0, 1]);
+        expectPairing(game, pairs);
         for (let guard = 0; guard < 12 && !game.diagnostics().some((entry) => entry.kind === "msg200" && entry.seat === 2); guard++) {
           const holder = viewers("ffa4").find((seat) => seat != null && game.view(seat).prompt);
           expect(holder).toBeTypeOf("number");
@@ -79,7 +72,7 @@ for (const mode of ["normal", "domain"] as const) {
           game.answer(holder!, prompt.id, chooseSurrenderedAnswer(prompt));
         }
         expect(game.diagnostics().some((entry) => entry.kind === "msg200" && entry.seat === 2)).toBe(true);
-        expectPairing(game, [null, 3, null, 1]);
+        expectPairing(game, loaded.c6 ? [null, 3, null, 1] : [null, null, null, null]);
         for (const viewer of viewers("ffa4")) {
           const view = game.view(viewer);
           expect(view.result).toBeNull();
@@ -97,26 +90,30 @@ for (const mode of ["normal", "domain"] as const) {
       } finally { game.close(); }
     });
 
-    it("projects seat 0's EMZ card and excludes its mirror from seat 2's real place prompt [requires C6]", async (context) => {
-      requireC6(context, loaded.c6, loaded.path);
+    it("checks the C6 flag against seat 2's real place prompt and projects seat 0's EMZ card", async () => {
       const { game, session } = await start(mode, "ffa4", loaded.binary, {
         p0: { monsters: [null, null, null, null, null, "Imduk the World Chalice Dragon"] },
         p2: { monsters: ["Mystical Elf"], extra: ["Link Spider"] },
       });
       try {
-        expectPairing(game, [2, 3, 0, 1]);
         const steps: Step[] = [endTurn("p0"), endTurn("p1"), specialSummon("Link Spider", "p2"),
           select({ card: "Mystical Elf", owner: "p2", from: "mzone", seq: 0 })];
         steps.forEach((step, index) => session.run(step, index + 1));
         const prompt = game.view(2).prompt!;
         expect(prompt.kind).toBe("places");
+        const shared = prompt.options[0]?.sequence === 3;
         expect(prompt.options.map((option) => [option.controller, option.location, option.sequence]))
-          .toEqual([[2, OcgLocation.MZONE, 3], [2, OcgLocation.MZONE, 5]]);
-        session.run(zone("p2", "m3", "p2"), 5);
+          .toEqual(shared
+            ? [[2, OcgLocation.MZONE, 3], [2, OcgLocation.MZONE, 5]]
+            : [[2, OcgLocation.MZONE, 5], [2, OcgLocation.MZONE, 6]]);
+        expect(loaded.c6, "The SOURCE C6 flag must match the real core geometry").toBe(shared);
+        expectPairing(game, shared ? [2, 3, 0, 1] : [null, null, null, null]);
+        session.run(zone("p2", shared ? "m3" : "emz0", "p2"), 5);
         for (const viewer of viewers("ffa4")) {
           const view = game.view(viewer);
           expect(view.seats[0]!.monsters[5]).toMatchObject({ name: "Imduk the World Chalice Dragon", controller: 0, sequence: 5 });
-          expect(view.seats[2]!.monsters[3]).toMatchObject({ name: "Link Spider", controller: 2, sequence: 3 });
+          const sequence = shared ? 3 : 5;
+          expect(view.seats[2]!.monsters[sequence]).toMatchObject({ name: "Link Spider", controller: 2, sequence });
           for (const seat of view.seats) {
             expect(seat.eliminated).toBe(false);
             expect(seat.lp).toBe(8000);
@@ -138,8 +135,9 @@ for (const mode of ["normal", "domain"] as const) {
       try {
         for (const viewer of viewers(format)) {
           const view = game.view(viewer);
-          expect(view.seats.map((seat) => seat.sharedExtraWith ?? null)).toEqual(Array(seatCountFor(format)).fill(null));
           for (const seat of view.seats) {
+            if (format === "1v1") expect(seat).not.toHaveProperty("sharedExtraWith");
+            else expect(seat.sharedExtraWith).toBeNull();
             expect(seat.lp).toBe(format === "tag" ? 16000 : 8000);
             expect(seat.deckCount).toBe(20);
             expect([seat.hand, seat.extra, seat.graveyard, seat.banished]).toEqual([[], [], [], []]);

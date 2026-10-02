@@ -5,7 +5,7 @@ import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
-import { expectPrompt, pickOpponent, type DuelistId } from "../../support/dsl.js";
+import { expectPrompt, type DuelistId } from "../../support/dsl.js";
 import { BANQUET_RETURN_OWNER_SCENARIOS } from "./banquet-return-owner.js";
 // Keep the count fixture stable across cores with different first-turn draw flags.
 // This is the same one-phase fixture pattern used by compileBoard for turn:p1.
@@ -26,11 +26,6 @@ describeWithCores("live Banquet temporary return", liveNseat, () => {
       let at = 1;
       for (const step of scenario.steps) {
         session.run(expectPrompt({}), at++);
-        const prompt = Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean);
-        if (prompt?.context?.type === "opponent") {
-          session.run(pickOpponent(`p${count - 1}` as DuelistId, `p${prompt.seat}` as DuelistId), at++);
-          session.run(expectPrompt({}), at++);
-        }
         if (step.op === "select" && Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean)?.context?.type === "action") continue;
         session.run(step, at++);
       }

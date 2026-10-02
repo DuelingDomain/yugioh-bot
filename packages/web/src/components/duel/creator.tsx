@@ -320,7 +320,12 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                   ) : (
                     <p className={styles.note}>
                       <Info size={16} strokeWidth={1.6} aria-hidden />
-                      <span>Master Rules use the current card catalog, not a historical card pool. First-turn draws follow the selected Master Rule.</span>
+                      <span>
+                        Master Rules use the current card catalog, not a historical card pool.{" "}
+                        {format === "ffa3" || format === "ffa4"
+                          ? "In free-for-all, every duelist draws on their first turn."
+                          : "First-turn draws follow the selected Master Rule."}
+                      </span>
                     </p>
                   )}
                   {!settings.validateDeck ? (

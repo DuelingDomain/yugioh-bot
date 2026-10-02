@@ -1,8 +1,9 @@
 import {
-  activate, attack, defineScenario, endTurn, expectEliminated, expectNotOffered,
+  activate, attack, endTurn, expectEliminated, expectNotOffered,
   expectOffered, expectPrompt, expectResult, expectTurn, faceDown, no, normalSummon,
   pickOpponent, select, specialSummon, surrender, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { everySeat, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
 const SOURCE = "docs/specs/2026-10-01-domain-nseat-stress.md; docs/adr/0002-multiplayer-duel-rules.md";

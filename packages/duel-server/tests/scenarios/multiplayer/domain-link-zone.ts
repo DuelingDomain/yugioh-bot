@@ -1,4 +1,5 @@
-import { activate, defineScenario, expectNotOffered, expectOffered, expectPrompt, no, specialSummon, yes, type Scenario } from "../../support/dsl.js";
+import { activate, expectNotOffered, expectOffered, expectPrompt, no, specialSummon, yes, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -14,7 +15,7 @@ function summon(format: Format, actor: Seat, recall: boolean): Scenario {
     id: `domain-${format}-link-master-from-zone-${actor}-${recall ? "recall" : "refuse"}`,
     title: `Domain ${label(format)}: ${actor} Link Summons its Deck Master from its zone, then ${recall ? "recalls it" : "refuses recall"} after Dark Hole`,
     source: `${SOURCE} [R-COMMON-SEP-FIELDS]: a Link Deck Master uses its proper summon and its owner receives the recall`,
-    rules: ["R-COMMON-SEP-FIELDS", "R-COMMON-EMZ"],
+    rules: ["R-COMMON-SEP-FIELDS"],
     tags: ["multiplayer", "domain", "deck-master", "link", format, "card:98978921"],
     setup,
     steps: [

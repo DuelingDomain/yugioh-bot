@@ -14,8 +14,14 @@ function s.activate(e,tp,eg,ep,ev,re,r,rp)
 		end
 		aux.MPForEachDuelist(function(tp_i) Duel.Recover(tp_i,2000,REASON_EFFECT) end)
 	else
+		-- The duelist who declined supplies the destroyed monster, also in Tag.
 		Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_DESTROY)
-		local g=Duel.SelectMatchingCard(tp,nil,tp,0,LOCATION_MZONE,1,1,nil)
+		local pool=Group.CreateGroup()
+		for seq=0,6 do
+			local tc=Duel.GetFieldCard(opp,LOCATION_MZONE,seq)
+			if tc then pool:AddCard(tc) end
+		end
+		local g=pool:Select(tp,1,1,nil)
 		if #g>0 then
 			Duel.HintSelection(g)
 			Duel.Destroy(g,REASON_EFFECT)

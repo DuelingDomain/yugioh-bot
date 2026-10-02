@@ -12,7 +12,8 @@
 //   - Elf of an opponent: Shleepy is not offered (the monster was not controlled by the holder);
 //   - Tag, Elf of the partner: see the scenario.
 
-import { activate, auto, choose, defineScenario, expectNotOffered, expectOffered, faceDown, select, zone, type Scenario } from "../../support/dsl.js";
+import { activate, auto, choose, expectNotOffered, expectOffered, faceDown, select, zone, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, PARTNER, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

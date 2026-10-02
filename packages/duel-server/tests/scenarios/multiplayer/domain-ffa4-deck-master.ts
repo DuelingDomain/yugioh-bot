@@ -5,9 +5,10 @@
 // domain-ffa4-deck-master.test.ts runs it on a live Domain core. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, defineScenario, endTurn, expectBoard, expectPrompt, no, normalSummon, yes,
+  activate, endTurn, expectBoard, expectPrompt, no, normalSummon, yes,
   type Scenario,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 const RULE = `${SOURCE} [R-COMMON-SEP-FIELDS]: in Domain each duelist has their own Deck Master and Deck Master zone`;

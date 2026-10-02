@@ -1,4 +1,5 @@
-import { activate, defineScenario, endTurn, expectBoard, select, specialSummon, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, endTurn, expectBoard, select, specialSummon, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 type Format="ffa3"|"ffa4"|"tag"; const seat=(i:number)=>`p${i}` as DuelistId;
 const CARDS=[[2139640,"Amabie"],[32835363,"Cracking"],[38522377,"Meklord Astro Dragon Asterisk"],[89405199,"Greed"],[93671934,"Morale Boost"]] as const;

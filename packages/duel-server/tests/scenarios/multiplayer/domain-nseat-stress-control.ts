@@ -41,10 +41,10 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
     scenario(format, "drawing-empty-deck-loses-seat-or-team", {
       setup: { ...setup(format), deckSize: 1 },
       rules: [format === "tag" ? "R-TAG-LOSS" : "R-FFA-ELIMINATION"],
-      steps: [...SEATS[format].map((seat) => endTurn(seat)), endTurn("p0"),
-        expectEliminated(format === "tag" ? ["p1", "p3"] : SEATS[format].slice(1)),
-        expectResult({ team: 0, reason: "drawn" }),
-        board(format, Object.fromEntries((format === "tag" ? ["p1", "p3"] : SEATS[format].slice(1)).map((s) => [s, { deckMaster: OUT, hand: [], deckCount: 0 }])) )],
+      steps: [...SEATS[format].map((seat) => endTurn(seat)), ...(format === "tag" ? [endTurn("p0")] : []),
+        expectEliminated(format === "tag" ? ["p1", "p3"] : SEATS[format].slice(0, -1)),
+        expectResult({ team: format === "tag" ? 0 : SEATS[format].length - 1, reason: "drawn" }),
+        board(format, Object.fromEntries((format === "tag" ? ["p1", "p3"] : SEATS[format].slice(0, -1)).map((s) => [s, { deckMaster: OUT, hand: [], deckCount: 0 }])) )],
     }),
     scenario(format, "all-sides-lose-together-with-masters-in-their-zones", {
       setup: setup(format, Object.fromEntries(SEATS[format].map((seat) => [seat, { lp: 100, ...(seat === "p0" ? { hand: ["Dark Snake Syndrome"] } : {}) }]))),

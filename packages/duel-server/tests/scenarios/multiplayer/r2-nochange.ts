@@ -4,10 +4,11 @@
 // least once), and ends with the state of EVERY seat. Plain data (scripts/rule-coverage.ts reads it); r2-nochange.test.ts runs it live.
 
 import {
-  activate, attack, auto, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, no,
+  activate, attack, auto, changePhase, choose, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, no,
   expectNoPrompt, changePosition, xyz, normalSummon, pass, pickOpponent, setCard, select, finish, specialSummon, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

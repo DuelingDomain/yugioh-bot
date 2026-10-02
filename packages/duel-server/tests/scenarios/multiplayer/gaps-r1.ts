@@ -4,9 +4,10 @@
 // the real card scripts plus the overlay, and ends with the state of EVERY seat (LP, field, hand, GY, banished zone).
 
 import {
-  activate, choose, defineScenario, endTurn, expectBoard, expectLog, expectNoLog, expectPickSeats, no, pickOpponent, select, specialSummon, xyz, yes, zone,
+  activate, choose, endTurn, expectBoard, expectLog, expectNoLog, expectPickSeats, no, pickOpponent, select, specialSummon, xyz, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
@@ -262,6 +263,7 @@ function darkScheme(format: Format, negate: boolean): Scenario {
   const steps: Step[] = [activate(SCHEME, "p0"), expectPickSeats(picks, "p0"), pickOpponent(picked, "p0")];
   steps.push(negate ? yes(picked) : no(picked));
   if (negate) steps.push(select({ card: SCHEME_HAND[picked][0], owner: picked }));
+  if (!negate && !tag) steps.push(select(RAT, OX));
   steps.push(everySeat(format, spec));
   return defineScenario({
     id: `gaps-r1-${format}-dark-scheme-${negate ? "the-picked-opponent-discards-1-and-negates" : "the-picked-opponent-declines-everyone-discards-2-and-draws-2"}`,

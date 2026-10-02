@@ -1,6 +1,7 @@
 // Artifact Lancea (34267821): after one copy resolves, a second holder at another seat cannot activate it that turn.
 // Waboku keeps a real response prompt open for the second holder, so the absence of Lancea is checked in that holder's prompt.
-import { activate, defineScenario, endTurn, expectNotOffered, expectOffered, expectResolved, faceDown, pass, pickOpponent, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, expectNotOffered, expectOffered, expectResolved, faceDown, pass, pickOpponent, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, type Format, type Seat } from "./seat-kit.js";
 

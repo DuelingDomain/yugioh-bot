@@ -4,9 +4,10 @@
 // card scripts and the overlay, on the Standard multi core and again on the Domain multi core. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectEliminated, expectTurn, expectNotOffered, expectOffered, expectPickSeats, expectPrompt, faceDown, no, pickOpponent, select, surrender, yes, zone,
+  activate, attack, changePhase, changePosition, endTurn, expectBoard, expectEliminated, expectTurn, expectNotOffered, expectOffered, expectPickSeats, expectPrompt, faceDown, no, pickOpponent, select, surrender, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
@@ -63,7 +64,7 @@ function royalTribute(format: Format): Scenario {
     tags: ["multiplayer", "late-cards", "each-player", "handes", format, "card:72405967", "card:47355498"],
     setup,
     steps: [activate(ROYAL, "p0"), zone("p0", "s0", "p0"), everySeat(format, spec)],
-  });
+  }, { destination: "grave" });
 }
 
 // --- Messenger of Peace ------------------------------------------------------------------------------------------------------------
@@ -201,7 +202,7 @@ function cupOfAce(format: Format, heads = false): Scenario {
     seed: heads ? SEED_HEADS : SEED_TAILS,
     setup,
     steps,
-  });
+  }, heads ? { card: ELF } : {});
 }
 
 // --- Ante (a duel-style card: you and ONE picked opponent) -------------------------------------------------------------------------
@@ -241,6 +242,7 @@ function ante(format: Format, ownerWins: boolean): Scenario {
       activate(ANTE, "p0"),
       expectPickSeats(PICKS[format], "p0"),
       pickOpponent(picked, "p0"),
+      ...(format === "tag" ? [] : [select(ownerCard)]),
       everySeat(format, spec, lp),
     ],
   });
@@ -275,8 +277,8 @@ function anteEmptyHand(format: Format): Scenario {
   }
   // After the activation: a pick prompt that lists exactly the opponents with a hand card (FFA4), or the main phase of p0 (one legal opponent).
   const steps: Step[] = format === "ffa4"
-    ? [activate(ANTE, "p0"), expectPickSeats(["p2", "p3"], "p0"), pickOpponent(picked, "p0"), everySeat(format, spec, lp)]
-    : [activate(ANTE, "p0"), expectPrompt({ by: "p0", context: "action" }), everySeat(format, spec, lp)];
+    ? [activate(ANTE, "p0"), expectPickSeats(["p2", "p3"], "p0"), pickOpponent(picked, "p0"), select(ownerCard), everySeat(format, spec, lp)]
+    : [activate(ANTE, "p0"), ...(format === "tag" ? [] : [select(ownerCard)]), expectPrompt({ by: "p0", context: "action" }), everySeat(format, spec, lp)];
   return defineScenario({
     id: `late-${format}-ante-an-opponent-with-no-hand-is-not-offered`,
     title: `${label}: p0 activates Ante while p1 has no hand card: ${format === "ffa4" ? "the pick lists only p2 and p3 (they have a hand card), p0 picks p3" : `p1 is not offered, ${picked} is the only opponent left and is bound with no pick prompt`}; ${ownerWins ? `p0 shows the higher Level, only ${format === "tag" ? "the team of p3" : picked} takes 1000 and ${picked} loses its shown card` : `p3 shows the higher Level, only p0 takes 1000 and loses its shown card`}; the opponent with no hand${format === "tag" ? " and the partner p2 are" : " is"} unchanged`,

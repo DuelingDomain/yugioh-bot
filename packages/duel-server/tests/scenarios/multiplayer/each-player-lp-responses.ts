@@ -1,4 +1,5 @@
-import { activate, attack, changePhase, defineScenario, endTurn, expectBoard, pickOpponent, select, yes, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePhase, endTurn, expectBoard, pickOpponent, select, yes, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 type Format = "ffa3" | "ffa4" | "tag";
 const seat = (i: number) => `p${i}` as DuelistId;

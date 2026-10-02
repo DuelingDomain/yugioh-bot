@@ -15,7 +15,7 @@ function countGate(kind: CountGate, format: "1v1" | "ffa3" | "ffa4" | "tag", noO
     board[SEATS[i]] = { lp, hand: [HANDS[i]], monsters: ["Mystical Elf"], spells: [], grave: [], banished: [], extra: [], deckCount: 3 };
   }
   if (kind === "cannons") {
-    const xyz = format === "tag" ? "Number 17: Leviathan Dragon" : count === 3 ? "Gachi Gachi Gantetsu" : "Number 39: Utopia Roots";
+    const xyz = format === "1v1" ? "Number 39: Utopia Roots" : "Number 39: Utopia";
     setup.p0!.spells = [{ card: NAMES[kind], pos: "set" }];
     setup.p0!.extra = [xyz, xyz, noOpponent ? "Giltia the D. Knight" : "Karbonala Warrior"];
     for (let i = 0; i < count; i++) {
@@ -56,7 +56,7 @@ function countGate(kind: CountGate, format: "1v1" | "ffa3" | "ffa4" | "tag", noO
   }
   if (noOpponent) steps.push(expectNotOffered(kind === "linkerbell" ? "specialSummon" : "activate", NAMES[kind], "p0"));
   steps.push(expectBoard(board));
-  return defineScenario({ id: `opponent-count-gates-${kind}-${format}-${noOpponent ? "no-eligible-opponent" : "late-eligible-opponent"}`, title: `${format}: ${NAMES[kind]} ${noOpponent ? "has no eligible opponent" : "uses the eligible later opponent"}`, source: "docs/adr/0002-multiplayer-duel-rules.md [Q2]", ...(noOpponent ? {} : { rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-SHARED-CARDS"] : [])] }), tags: ["multiplayer", "compare", `card:${COUNT_GATE_CARDS[kind]}`, kind, ...(noOpponent ? ["negative-count"] : []), format], setup, steps });
+  return defineScenario({ id: `opponent-count-gates-${kind}-${format}-${noOpponent ? "no-eligible-opponent" : "late-eligible-opponent"}`, title: `${format}: ${NAMES[kind]} ${noOpponent ? "has no eligible opponent" : "uses the eligible later opponent"}`, source: "docs/adr/0002-multiplayer-duel-rules.md [Q2] [R-COMMON-EACH-PLAYER]", ...(noOpponent ? {} : { rules: ["R-COMMON-OPP-PICK", ...(kind === "cannons" ? ["R-COMMON-EACH-PLAYER"] : []), ...(format === "tag" ? ["R-TAG-SHARED-CARDS"] : [])] }), tags: ["multiplayer", "compare", `card:${COUNT_GATE_CARDS[kind]}`, kind, ...(noOpponent ? ["negative-count"] : []), format], setup, steps });
 }
 export const OPPONENT_COUNT_GATES_SCENARIOS: Scenario[] = Object.keys(COUNT_GATE_CARDS).flatMap((kind) => [
   ...(["1v1", "ffa3", "ffa4", "tag"] as const).map((format) => countGate(kind as CountGate, format)),

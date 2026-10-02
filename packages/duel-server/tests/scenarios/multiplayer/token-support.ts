@@ -1,7 +1,8 @@
 // Two Tokens are destroyed in p0's Battle Phase. Token Support of a later opposing seat makes exactly two new Tokens.
 // The count flag reaches that seat in FFA and its team in Tag.
 
-import { attack, changePhase, defense, defineScenario, number, pickOpponent, yes, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { attack, changePhase, defense, number, pickOpponent, yes, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, type Format, type Seat } from "./seat-kit.js";
 

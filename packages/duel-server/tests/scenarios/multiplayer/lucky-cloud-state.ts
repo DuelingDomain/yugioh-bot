@@ -1,5 +1,6 @@
 // Real Trap activations summon two Cloudians. The draw belongs to the side that summoned them.
-import { activate, defineScenario, endTurn, faceDown, normalSummon, pass, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, faceDown, normalSummon, pass, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, SEATS, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 

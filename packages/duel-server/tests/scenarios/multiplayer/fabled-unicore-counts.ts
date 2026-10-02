@@ -1,4 +1,5 @@
-import { activate, attack, defineScenario, expectBoard, type BoardExpect, type DuelistId, type Scenario } from "../../support/dsl.js";
+import { activate, attack, expectBoard, type BoardExpect, type DuelistId, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 const SEATS: DuelistId[] = ["p0", "p1", "p2", "p3"];
 const HANDS = ["Giant Rat", "Battle Ox", "Axe Raider", "Silver Fang"];
 function unicore(format: "1v1" | "ffa3" | "ffa4" | "tag", unequal = false): Scenario {
@@ -18,9 +19,9 @@ function unicore(format: "1v1" | "ffa3" | "ffa4" | "tag", unequal = false): Scen
   board[last]!.grave = ["Mirror Force", "Mystical Elf"];
   if (format === "tag") {
     setup.p3!.hand = unequal ? [HANDS[3]] : [];
-    board.p3!.hand = setup.p3!.hand as string[];
+    board.p3!.hand = unequal ? [HANDS[3]] : [];
     setup.p2!.hand = [HANDS[2], HANDS[2], HANDS[2]];
-    board.p2!.hand = setup.p2!.hand as string[];
+    board.p2!.hand = [HANDS[2], HANDS[2], HANDS[2]];
     if (unequal) {
       board.p0!.monsters = []; board.p0!.grave = ["The Fabled Unicore"];
       board.p2!.monsters = []; board.p2!.grave = ["Mystical Elf"];
@@ -29,8 +30,12 @@ function unicore(format: "1v1" | "ffa3" | "ffa4" | "tag", unequal = false): Scen
   } else {
     for (let i = 1; i < count - 1; i++) {
       setup[SEATS[i]]!.hand = [HANDS[i], HANDS[i], HANDS[i]];
-      board[SEATS[i]]!.hand = setup[SEATS[i]]!.hand as string[];
+      board[SEATS[i]]!.hand = [HANDS[i], HANDS[i], HANDS[i]];
     }
+  }
+  if (format === "ffa3" || format === "ffa4") {
+    setup[last]!.hand = [HANDS[count - 1], HANDS[count - 1]];
+    board[last]!.hand = [HANDS[count - 1], HANDS[count - 1]];
   }
   return defineScenario({
     id: `fabled-unicore-counts-${format}-${unequal ? "unequal-team-total" : "matching-count"}`,

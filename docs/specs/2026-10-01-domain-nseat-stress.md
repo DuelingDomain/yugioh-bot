@@ -38,6 +38,11 @@ a result ends the duel; continuing FFA elimination removes real cards.
 | Opponent field effects include all opponents; compare effects pick one in FFA | Master on field counts for its controller | Compare joined team fields; partner is not an opponent | PASS: Raigeki, Cyber Dragon, Pineapple Blast, and battle |
 | Domain does not change Standard or 1v1 rules | N-seat changes require n > 2 | Same | PASS: guarded patches, Standard raw regressions, seven two-seat Domain controls, five driver comparisons |
 
+The owner decision of 2026-10-02 replaces the first-draw rule in the table above.
+Every FFA duelist draws on their first turn, the first duelist too, in Standard
+and Domain. Tag and 1v1 keep their first-draw rules. The table records the
+earlier P61 proof.
+
 Deck construction also uses these rules per seat in all three formats: one
 playable monster as Deck Master, exactly 60 Main Deck cards, at most 15 Extra
 Deck cards, no Side Deck, one copy per card identity across Main and Extra,

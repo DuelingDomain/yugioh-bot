@@ -4,9 +4,10 @@
 // A Spell is activated from the hand in the own Main Phase of p0: it asks for a Spell/Trap Zone first.
 
 import {
-  activate, changePosition, defineScenario, eliminate, expectBoard, expectEliminated, expectNoPrompt, faceDown, finish, no, pass, select, yes, zone,
+  activate, changePosition, eliminate, expectBoard, expectEliminated, expectNoPrompt, faceDown, finish, no, pass, select, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
@@ -167,6 +168,7 @@ export const SEATS_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate(TWO_FOR_ONE, "p0"),
+      select(HOLE),
       everySeat("ffa3", {
         p0: { hand: [HOLE, RAT, OX], monsters: [TWO_FOR_ONE] },
         p1: { hand: [RAIGEKI, AXE, FANG] },
@@ -188,6 +190,7 @@ export const SEATS_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate(TWO_FOR_ONE, "p0"),
+      select(RAT),
       yes("p0"),
       no("p1"),
       yes("p2"),

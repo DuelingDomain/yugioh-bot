@@ -1,6 +1,7 @@
 // Vanquish Soul Rocks (77894049): a Vanquish Soul battle at later seats must set the global alternative-Xyz flag.
 // A battle that involves no Vanquish Soul monster does not permit that summon. The procedure can be used only once per turn.
-import { attack, changePhase, defineScenario, expectNotOffered, expectOffered, specialSummon, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { attack, changePhase, expectNotOffered, expectOffered, specialSummon, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -10,7 +11,7 @@ const OX = "Battle Ox"; // 1700 ATK
 const ELF = "Mystical Elf"; // 800 ATK
 
 function rocks(format: Format, holder: Seat, vanquishBattled: boolean): Scenario {
-  const target = SEATS[format][(SEATS[format].indexOf(holder) + 1) % SEATS[format].length]!;
+  const target: Seat = format === "tag" ? "p2" : "p1";
   const untouched: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of SEATS[format]) untouched[seat] = { hand: seat === "p0" ? [] : [ELF], deckCount: seat === "p0" ? 20 : 19, extra: [] };
   return defineScenario({

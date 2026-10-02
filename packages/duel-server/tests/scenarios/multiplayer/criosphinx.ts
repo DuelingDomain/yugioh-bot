@@ -1,7 +1,8 @@
 import {
-  changePosition, defineScenario, endTurn, expectBoard, expectPickOptions, select, yes,
+  changePosition, endTurn, expectBoard, expectPickOptions, select, yes,
   type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Format = "ffa3" | "ffa4" | "tag";

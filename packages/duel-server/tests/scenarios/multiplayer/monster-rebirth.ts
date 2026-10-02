@@ -1,7 +1,8 @@
 // Monster Rebirth (54564198): a battle destruction enables the Trap at every seat.
 // The holder sends its own Monster Reborn to the GY and revives the destroyed
 // monster on its own field. Check every seat, including both Tag LP entries.
-import { activate, attack, defineScenario, endTurn, expectOffered, expectPrompt, expectTurn, faceDown, pass, select, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, attack, endTurn, expectOffered, expectPrompt, expectTurn, faceDown, pass, select, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, PARTNER, SEATS, type Format, type Seat } from "./seat-kit.js";
 
@@ -55,12 +56,13 @@ function noBattle(format: Format, holder: Seat): Scenario {
 function reset(): Scenario {
   const first = rebirth("ffa3", "p2");
   return defineScenario({
-    ...first,
+    ...first, tags: first.tags.filter(tag => tag !== "ffa-first-draw-included"),
     id: "monster-rebirth-ffa3-p2-battle-flag-clears-next-turn",
     title: "FFA3: Monster Rebirth is offered after battle and cannot activate in the next turn",
     steps: [
       attack(DRAGON, { card: ELF, owner: "p1" }, "p0"), endTurn("p0"),
-      expectOffered("activate", CARD, "p2"), pass("p2"), pass("p2"), pass("p2"), pass("p2"),
+      expectOffered("activate", CARD, "p2"), pass("p2"), pass("p2"), pass("p2"),
+      expectTurn("p0", 1), pass("p2"), expectTurn("p1", 2),
       expectPrompt({ by: "p1", context: "action" }),
       everySeat("ffa3", {
         p0: { hand: [], deckCount: 20, monsters: [DRAGON], grave: ["Battle Ox"] },

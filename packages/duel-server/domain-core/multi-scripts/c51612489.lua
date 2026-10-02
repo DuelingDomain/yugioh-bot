@@ -17,3 +17,12 @@ function s.rthop(e,tp,eg,ep,ev,re,r,rp)
   end
  end)
 end
+
+-- An owner hint must not request an opponent for this both-field target.
+function s.rthtg(e,tp,eg,ep,ev,re,r,rp,chk)
+	if chk==0 then return Duel.IsExistingTarget(s.rthfilter,tp,LOCATION_MZONE,LOCATION_MZONE,1,nil) end
+	Duel.Hint(HINT_SELECTMSG,tp,HINTMSG_RTOHAND)
+	local tc=Duel.SelectTarget(tp,s.rthfilter,tp,LOCATION_MZONE,LOCATION_MZONE,1,1,nil):GetFirst()
+	Duel.SetOperationInfo(0,CATEGORY_TOHAND,tc,1,tp,0)
+	Duel.SetPossibleOperationInfo(0,CATEGORY_SPECIAL_SUMMON,nil,1,PLAYER_ALL,LOCATION_HAND)
+end

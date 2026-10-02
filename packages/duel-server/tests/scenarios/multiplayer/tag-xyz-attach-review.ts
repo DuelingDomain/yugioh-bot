@@ -2,9 +2,10 @@
 // Cowboy detaches real material. The real EVENT_DETACH_MATERIAL trigger of Gabonga then selects a target.
 // Blindly Loyal Goblin and Mataza the Zapper have EFFECT_CANNOT_CHANGE_CONTROL in their official scripts.
 import {
-  activate, defineScenario, endTurn, expectBoard, expectPickOptions, expectPrompt, select, yes,
+  activate, endTurn, expectBoard, expectPickOptions, expectPrompt, select, yes,
   type BoardExpect, type DuelistExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 const GABONGA = "Goblin Biker Big Gabonga";

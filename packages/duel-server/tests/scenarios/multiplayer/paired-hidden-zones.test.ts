@@ -8,8 +8,8 @@ import { runScenarios } from "../../support/runner.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
 import { expectPrompt, expectNoEvent, pickOpponent, type DuelistId } from "../../support/dsl.js";
 import { PAIRED_HIDDEN_ZONES_SCENARIOS } from "./paired-hidden-zones.js";
-// Keep the count fixture stable across cores with different first-turn draw flags.
-// This is the same one-phase fixture pattern used by compileBoard for turn:p1.
+// The opening-draw skip is intentional: keep the card fixture hand and Deck counts fixed.
+// rule-proof-ffa-order.test.ts checks the first draw without this skip in the default test:engine gate.
 const SKIP_OPENING_DRAW = `
 do local skip=Effect.GlobalEffect(); skip:SetType(EFFECT_TYPE_FIELD); skip:SetCode(EFFECT_SKIP_DP)
 skip:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skip:SetTargetRange(1,1); Duel.RegisterEffect(skip,0)

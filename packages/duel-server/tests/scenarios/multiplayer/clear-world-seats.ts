@@ -1,5 +1,6 @@
 // Clear World's EARTH, WATER and FIRE effects must run for seats 2 and 3. The stock script registers only players 0 and 1.
-import { choose, defineScenario, defense, endTurn, normalSummon, type Scenario, type Step } from "../../support/dsl.js";
+import { choose, defense, endTurn, normalSummon, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseLp, baseSetup, everySeat, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 

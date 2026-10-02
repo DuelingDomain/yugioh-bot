@@ -5,8 +5,9 @@
 // Tag: team 0 is p0 and p2, team 1 is p1 and p3. Turn order is p0, p1, p2, p3.
 
 import {
-  activate, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectResponseOrder, normalSummon, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+  activate, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectResponseOrder, normalSummon, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

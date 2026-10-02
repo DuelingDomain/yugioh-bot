@@ -17,9 +17,10 @@
 // scenarios prove the engine rule, not a legal deck.
 
 import {
-  activate, attack, auto, changePhase, defineScenario, eliminate, endTurn, expectBoard, expectEliminated, expectPrompt, yes,
+  activate, attack, auto, changePhase, eliminate, endTurn, expectBoard, expectEliminated, expectPrompt, yes,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

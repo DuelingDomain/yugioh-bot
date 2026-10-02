@@ -1,4 +1,5 @@
-import { activate, defineScenario, expectPrompt, specialSummon, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, expectPrompt, specialSummon, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

@@ -6,7 +6,7 @@ import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
-import { expectPrompt, pickOpponent, type DuelistId } from "../../support/dsl.js";
+import { expectPickOptions, expectPrompt, pickOpponent, type DuelistId } from "../../support/dsl.js";
 import { GUMBLAR_HAND_BINDING_SCENARIOS } from "./gumblar-hand-binding.js";
 // Keep the count fixture stable across cores with different first-turn draw flags.
 // This is the same one-phase fixture pattern used by compileBoard for turn:p1.
@@ -37,10 +37,11 @@ describeWithCores("live Gumblar hand binding", liveNseat, () => {
           if (step.op !== "zone") session.run(expectPrompt({}), at++);
         }
         if (step.op === "select" && Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean)?.context?.type === "action") continue;
-        if (step.op === "raw" && !scenario.tags.includes("picker-timing")) {
-          const selection = Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean);
-          // card:0 is a real legal choice. Without binding, it is the unpicked first opponent's card.
-          expect(selection?.options[0]?.controller).toBe(count - 1);
+        if (step.op === "raw") {
+          const recipient = `p${count - 1}` as DuelistId;
+          const entry = scenario.setup[recipient]!.hand![0];
+          const card = typeof entry === "object" ? entry.card : entry;
+          session.run(expectPickOptions([{seat:recipient,card},{seat:recipient,card}],recipient),at++);
         }
         session.run(step, at++);
       }

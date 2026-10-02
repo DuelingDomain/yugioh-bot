@@ -3,9 +3,10 @@ import type { DuelEngineView, DuelPrompt, DuelSeatView } from "@yugidraft/shared
 import { seatCountFor, teamOfSeat, type DuelFormat } from "@yugidraft/shared/duels";
 import type { EngineGame } from "../../../src/engine.js";
 import {
-  defineScenario, eliminate, expectBoard, expectEliminated, expectLabel, expectLp, expectNoPrompt, expectPickOptions, expectPickSeats,
+  eliminate, expectBoard, expectEliminated, expectLabel, expectLp, expectNoPrompt, expectPickOptions, expectPickSeats,
   expectPrompt, expectResponseOrder, expectRetry, expectTurn, expectResult, pass, pickOpponent, surrender, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { EngineAnswerError } from "../../../src/prompts.js";
 import { Session, isLuaScriptError, probeSetupDuelists, ScenarioError } from "../../support/session.js";
 import { runScenarios } from "../../support/runner.js";

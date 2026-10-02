@@ -5,8 +5,9 @@
 // summons every target for the controller value 0 or 1, so the target of a second opponent went to the wrong field.
 
 import {
-  activate, changePosition, defineScenario, expectBoard, expectPickOptions, select, zone, type Scenario, type Step,
+  activate, changePosition, expectBoard, expectPickOptions, select, zone, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 const CRETIN = "Spear Cretin";

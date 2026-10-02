@@ -1,7 +1,8 @@
 // A battle kill enables Penetration Fusion at a later seat. The summoned monster uses its added Tribute effect.
 // The next battle proves the 500 ATK increase through the damage and the destroyed opposing monster.
 
-import { activate, attack, defineScenario, expectNotOffered, expectOffered, pickOpponent, select, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, attack, expectNotOffered, expectOffered, pickOpponent, select, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

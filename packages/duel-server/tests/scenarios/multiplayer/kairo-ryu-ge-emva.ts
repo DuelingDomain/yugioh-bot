@@ -1,6 +1,7 @@
 // Kairo Ryu-Ge Emva (20904475): two monsters sent from hand or Deck to the
 // GY enable its GY summon. The global counter must work at later seats too.
-import { activate, defineScenario, endTurn, expectNotOffered, expectOffered, expectPrompt, select, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, endTurn, expectNotOffered, expectOffered, expectPrompt, select, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -40,7 +41,7 @@ function summon(format: Format, actor: Seat, count: 1 | 2): Scenario {
 function reset(): Scenario {
   const first = summon("ffa3", "p2", 2);
   return defineScenario({
-    ...first,
+    ...first, tags: first.tags.filter(tag => tag !== "ffa-first-draw-included"),
     id: "kairo-ryu-ge-emva-ffa3-p2-counter-clears-before-next-own-turn",
     title: "FFA3: Emva is offered after two sends and stays in the GY on its next turn",
     steps: [

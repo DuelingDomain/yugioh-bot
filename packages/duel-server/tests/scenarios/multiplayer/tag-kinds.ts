@@ -4,8 +4,9 @@
 // duelist is the joined field of the other team, and the picked opposing duelist chooses (docs/adr/0002-multiplayer-duel-rules.md, R-COMMON-OPP-PICK).
 
 import {
-  activate, defineScenario, expectBoard, expectPickSeats, pickOpponent, select, yes, type Scenario,
+  activate, expectBoard, expectPickSeats, pickOpponent, select, yes, type Scenario,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 const WITCH = "Witch of the Black Forest";

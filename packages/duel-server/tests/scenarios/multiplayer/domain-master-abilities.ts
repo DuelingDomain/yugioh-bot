@@ -1,4 +1,5 @@
-import { activate, defineScenario, expectNotOffered, expectOffered, normalSummon, type Scenario } from "../../support/dsl.js";
+import { activate, expectNotOffered, expectOffered, normalSummon, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -13,7 +14,7 @@ function ability(format: Format, actor: Seat, target: Seat): Scenario {
     id: `domain-${format}-breaker-master-${actor}-destroys-only-${target}-spell`,
     title: `Domain ${label(format)}: the Deck Master of ${actor} uses its Spell Counter to destroy the Spell of ${target}; the other seats keep their cards`,
     source: `${SOURCE} [R-COMMON-SEP-FIELDS]: a summoned Deck Master has its real card effects`,
-    rules: ["R-COMMON-SEP-FIELDS", "R-COMMON-OPP-FIELD"],
+    rules: ["R-COMMON-SEP-FIELDS"],
     tags: ["multiplayer", "domain", "deck-master", format, "card:71413901"],
     setup,
     steps: [

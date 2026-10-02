@@ -12,7 +12,8 @@
 //   - only an Elf was destroyed (the Lord is in the hand): the Lord has its printed 1300 ATK, loses the battle and the holder takes 1700 more;
 //   - a Lord was destroyed (the control, the Lord comes back from the Graveyard): the Lord has 3000 ATK and both monsters are destroyed.
 
-import { attack, defineScenario, endTurn, no, yes, type Scenario } from "../../support/dsl.js";
+import { attack, endTurn, no, yes, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
