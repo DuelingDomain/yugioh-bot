@@ -24,7 +24,7 @@ import { duelFontClasses } from "../fonts";
 import { lockForEvents } from "./fx-lock";
 import { CameraDock } from "./roof-map";
 import { initialRoofCamera, roofKeyAction, roofReducer } from "./roof-camera";
-import { firstInspectCard, resultBanner, teamLp } from "./tag-logic";
+import { batonOrder, firstInspectCard, resultBanner, teamLp } from "./tag-logic";
 import { TagStage } from "./tag-stage";
 import styles from "./tag-shell.module.css";
 
@@ -356,6 +356,21 @@ export function TagShell({ controller, teamNames, initialCamera }: TagShellProps
       </div>
 
       <div className={styles.track}>
+        <ol className={styles.baton} aria-label="Turn order" data-baton-strip>
+          {batonOrder(turnSeat).map((stop, index) => {
+            const hex = SEAT_TONE_HEX[layout.slots.find((slot) => slot.seat === stop.seat)?.tone ?? "violet"];
+            const style = { ["--seat" as string]: hexToRgbTriplet(hex.main), ["--seat-ink" as string]: hex.ink } as CSSProperties;
+            return (
+              <li key={stop.seat} style={style} data-now={stop.now ? "true" : undefined} data-next={stop.next ? "true" : undefined}
+                data-out={outSeats.includes(stop.seat) ? "true" : undefined} aria-current={stop.now ? "step" : undefined}>
+                {index > 0 ? <span className={styles.batonArrow} aria-hidden="true">&rarr;</span> : null}
+                <b>{stop.code}</b>
+                <span>{nameOf(stop.seat).split(" ")[0]}</span>
+                {stop.now ? <em>now</em> : stop.next ? <em>next</em> : null}
+              </li>
+            );
+          })}
+        </ol>
         <StationTrack
           phase={engine.phase}
           battleStep={engine.battleStep}
