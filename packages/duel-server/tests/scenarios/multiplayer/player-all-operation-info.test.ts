@@ -42,7 +42,7 @@ end
 `);
   vi.stubEnv("DUEL_MULTI_SCRIPTS_DIR",path);
   const grave=Array.from({length:c.count},()=>"Celtic Guardian");
-  const board:BoardExpect={};for(let i=0;i<(format==="ffa3"?3:4);i++)board[`p${i}` as DuelistId]={lp:format==="tag"?16000:8000,hand:i===0?(format==="tag"?["Mystical Elf"]:["Mystical Elf","Mystical Elf"]):[],monsters:[],spells:[],grave:i===0?[...grave,"Pot of Greed"]:[],banished:[]};
+  const board:BoardExpect={};for(let i=0;i<(format==="ffa3"?3:4);i++)board[`p${i}` as DuelistId]={lp:format==="tag"?16000:8000,hand:i===0?(format==="tag"?["Mystical Elf"]:["Mystical Elf","Mystical Elf"]):[],monsters:[],spells:[],grave:i===0?[...grave,"Pot of Greed"]:[],banished:[],extra:[],deckCount:i===0?(format==="tag"?19:18):20};
   const scenario={id:`player-all-operation-info-${format}-${c.name}`,title:"Real PLAYER_ALL boundary",source:"P68 SetOperationInfo",tags:["multiplayer","player-all-operation-info",format],setup:{format,p0:{hand:["Pot of Greed"],grave}},steps:[activate("Pot of Greed","p0"),expectBoard(board)]};
   if(c.bad)await expect(runScenario(scenario)).rejects.toThrow("group size wasn't exactly 2");else await runScenario(scenario);
 });
