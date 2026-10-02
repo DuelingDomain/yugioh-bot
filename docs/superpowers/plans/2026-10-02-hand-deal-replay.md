@@ -11,7 +11,7 @@ Constraints: Work only in `hand-deal-replay`; borrow dependencies with symlinks,
 - [x] Validate the replay fix with Vitest and web typecheck; commit it separately.
 - [x] Add failing server clock tests for opening grace, preserved grace across prompt changes, and unchanged reconnect deadlines. Add web tests for late snapshots and presentation duration.
 - [x] Apply bounded opening grace at game creation, gate late presentations against the available grace, and verify the clock/display arithmetic. Commit the timer fix separately.
-- [ ] Add failing hand-entry timing tests; scale draw and add-to-hand durations/staggers by 0.9 while preserving reduced-motion behavior. Commit the pace change separately.
+- [x] Add failing hand-entry timing tests; scale draw and add-to-hand durations/staggers by 0.9 while preserving reduced-motion behavior. Commit the pace change separately.
 - [ ] Run touched web tests with `packages/web/vitest.config.ts`, web typecheck, relevant server tests, and review the final diff.
 - [ ] Remove generated shared build output, TypeScript caches, `.next` and `test-results` created by this task. Report causes, commits, checks, and limitations.
 

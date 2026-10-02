@@ -7,9 +7,9 @@
  * memoised per event id, so whichever layer sees a batch first plans it and the others read it.
  *
  * Human pacing (the numbers live in duel-timing.ts): a card placed from the hand takes 700-860 ms,
- * a toss into a pile 680-840 ms, a draw about 740 ms. A card that an effect adds to a hand (a search,
+ * a toss into a pile 680-840 ms, a draw about 667 ms. A card that an effect adds to a hand (a search,
  * Painful Choice, a salvage, a bounce) is shown: it rises to the middle of the board, is held there
- * (about 800 ms), then flies into the hand (add-to-hand.ts). Moves queue one after another; the next
+ * (about 720 ms), then flies into the hand (add-to-hand.ts). Moves queue one after another; the next
  * one starts when the previous one is 70% through (never less than minGapMs later, so two draws stay
  * two cards). The next move after a showcase starts when the showcase card sets off for the hand, and
  * the showcases of one effect go first. A long burst is compressed, never skipped, so the whole queue
@@ -43,6 +43,8 @@ export const MOVE_TIMING = {
   overlap: MOVE_PACE.overlap,
   /** The next move never starts sooner than this after the previous one (a sped-up burst still reads as separate cards). */
   minGapMs: MOVE_PACE.minGapMs,
+  handMinGapMs: MOVE_PACE.handMinGapMs,
+  handQueueCapMs: MOVE_PACE.handQueueCapMs,
   /** The whole queue should finish within this many ms of the newest batch arriving. */
   queueCapMs: MOVE_PACE.queueCapMs,
   /** Never speed a burst up by more than this factor (1 / minSpeed). */
@@ -369,7 +371,8 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       const start = Math.max(cursor + item.lead, item.notBefore);
       out.push({ start, dur, phases });
       // The next card of the effect starts as the showcase card sets off for the hand.
-      const gate = phases ? showcaseGateMs(phases, candidates[index + 1]?.style === "add") : Math.max(dur * MOVE_TIMING.overlap, MOVE_TIMING.minGapMs);
+      const minGap = item.event.zone?.location === LOCATION_HAND ? MOVE_TIMING.handMinGapMs : MOVE_TIMING.minGapMs;
+      const gate = phases ? showcaseGateMs(phases, candidates[index + 1]?.style === "add") : Math.max(dur * MOVE_TIMING.overlap, minGap);
       cursor = start + gate;
     });
     return { out, cursor };
@@ -378,13 +381,14 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
   let layout = place(speed);
   // Time spent waiting for a battle is not a backlog to squeeze: measure from the latest hold.
   const queued = candidates.filter((item) => !item.takeover);
+  const queueCap = queued.every((item) => item.event.zone?.location === LOCATION_HAND) ? MOVE_TIMING.handQueueCapMs : MOVE_TIMING.queueCapMs;
   const floor = queued.reduce((max, item) => Math.max(max, item.notBefore), now);
   const finishQueued = (l: ReturnType<typeof place>) => l.out.reduce((max, o, i) => (candidates[i].takeover ? max : Math.max(max, o.start + o.dur)), 0);
   const span = finishQueued(layout) - floor;
-  if (span > MOVE_TIMING.queueCapMs) {
+  if (span > queueCap) {
     const fixed = queued.reduce((sum, item) => sum + item.lead, 0);
     const variable = span - fixed;
-    speed = clamp((MOVE_TIMING.queueCapMs - fixed) / Math.max(1, variable), MOVE_TIMING.minSpeed, 1);
+    speed = clamp((queueCap - fixed) / Math.max(1, variable), MOVE_TIMING.minSpeed, 1);
     layout = place(speed);
   }
 

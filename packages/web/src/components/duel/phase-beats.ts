@@ -103,8 +103,8 @@ export function openingPresentationMs(events: readonly DuelEvent[], reduced: boo
   if (moves.some((event) => event.reason !== "draw")) return Infinity;
   const duration = reduced ? MOVE_PACE.reducedMs : MOVE_PACE.drawMs;
   const spanAt = (speed: number) => moves.length === 0 ? 0 : duration * speed
-    + (moves.length - 1) * Math.max(duration * speed * MOVE_PACE.overlap, MOVE_PACE.minGapMs);
-  const speed = Math.max(MOVE_PACE.minSpeed, Math.min(1, MOVE_PACE.queueCapMs / Math.max(1, spanAt(1))));
+    + (moves.length - 1) * Math.max(duration * speed * MOVE_PACE.overlap, MOVE_PACE.handMinGapMs);
+  const speed = Math.max(MOVE_PACE.minSpeed, Math.min(1, MOVE_PACE.handQueueCapMs / Math.max(1, spanAt(1))));
   const flights = spanAt(speed);
   const phases = events.filter((event) => event.kind === "phase" && ["draw", "standby", "main1"].includes(phaseKeyOfText(event.text) ?? ""));
   const endsAtMain = phases.length > 0 && phaseKeyOfText(phases[phases.length - 1].text) === "main1";

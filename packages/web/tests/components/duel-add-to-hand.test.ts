@@ -66,6 +66,13 @@ describe("isAddToHand: which moves get the showcase", () => {
 });
 
 describe("showcase timing", () => {
+  it("shortens each add-to-hand leg by 10%, including reduced-motion fades", () => {
+    const normal = showcasePhases(1, false);
+    expect([normal.riseMs, normal.holdMs, normal.flyMs, normal.glowMs]).toEqual([414, 720, 504, 468]);
+    const reduced = showcasePhases(1, true);
+    expect([reduced.riseMs, reduced.holdMs, reduced.flyMs, reduced.glowMs]).toEqual([144, 720, 180, 0]);
+  });
+
   it("rises, holds 700-900 ms, then flies; the plan lasts the sum", () => {
     const phases = showcasePhases(1, false);
     expect(phases.riseMs).toBe(ADD_TO_HAND.riseMs);

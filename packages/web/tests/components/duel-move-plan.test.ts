@@ -35,15 +35,30 @@ describe("baseDuration", () => {
     expect(baseDuration("place", 200)).toBeGreaterThan(700);
     expect(baseDuration("place", 5000)).toBe(860);
   });
-  it("keeps tosses between 680 and 840 ms and draws at 740 ms", () => {
+  it("keeps tosses between 680 and 840 ms and makes draws about 10% quicker", () => {
     expect(baseDuration("toss", 0)).toBe(680);
     expect(baseDuration("toss", 5000)).toBe(840);
-    expect(baseDuration("draw", 300)).toBe(740);
+    // Round up by 1 ms to preserve the 400 ms floor at the maximum queue compression.
+    expect(baseDuration("draw", 300)).toBe(667);
     expect(baseDuration("fade", 300)).toBe(150);
   });
 });
 
 describe("planMoves", () => {
+  it("makes the whole opening deal about 10% quicker, including a compressed queue", () => {
+    const opening = Array.from({ length: 10 }, (_, i) => move(i + 1, z(Math.floor(i / 5), DECK, 0), z(Math.floor(i / 5), HAND, i % 5), { reason: "draw" }));
+    const plans = planMoves(opening, { now: 0, reduced: false, duelKey: "t", geometry });
+    expect(plans[plans.length - 1].landAt).toBeCloseTo(4400 * 0.9, 0);
+  });
+
+  it("shortens the hand-entry stagger under reduced motion and keeps plain fades", () => {
+    const draws = [move(1, z(0, DECK, 0), z(0, HAND, 0), { reason: "draw" }), move(2, z(0, DECK, 0), z(0, HAND, 1), { reason: "draw" })];
+    const [a, b] = planMoves(draws, { now: 0, reduced: true, duelKey: "t", geometry });
+    expect(a.style).toBe("fade");
+    expect(b.startAt - a.startAt).toBe(280 * 0.9);
+    expect(a.durationMs).toBe(150);
+  });
+
   it("styles moves by destination and pairs a summon with its flight", () => {
     const events: DuelEvent[] = [
       move(1, z(0, HAND, 2), z(0, MZONE, 1)),
