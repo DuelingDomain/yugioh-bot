@@ -149,10 +149,12 @@ test.describe("FFA surrender and spectators", () => {
         expect(viewSeat(pending, leavingSeat)).toMatchObject({ eliminated: false, pendingElimination: true });
         await expect(leaver.page.locator(`[data-holo='${leavingSeat}']`)).toHaveAttribute("data-leaving", "true");
         await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
+        await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.kind).toBe("places");
         const placement = await readTable(alice.page, slug);
         expect(placement.engine!.prompt?.kind).toBe("places");
         expect(viewSeat(placement, leavingSeat)).toMatchObject({ eliminated: false, pendingElimination: true });
         await pickLegalZone(alice.page, "mz");
+        await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("action");
         const adjusted = await readTable(alice.page, slug);
         const log = await evidence(alice.page, slug, info, "no-chain-surrender-adjustment", [before, pending, placement, adjusted]);
         expect(adjusted.engine).toMatchObject({ turn: 1, turnSeat: 0, phase: "main1" });
