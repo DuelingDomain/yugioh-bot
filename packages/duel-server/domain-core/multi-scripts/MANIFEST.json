@@ -5082,6 +5082,20 @@
       }
     },
     {
+      "code": 83819309,
+      "file": "c83819309.lua",
+      "name": "Cooling Embers",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "21b7c1d792a1a6112f18bb6bb5b9fa358e2aea445f4647194d4a9574b8e7aeff",
+      "note": "Pick the FFA LP opponent at activation, before resolution. Keep all opposing fields available; Tag keeps the stock team result.",
+      "wrap": {
+        "MPPick": [
+          "lptg"
+        ]
+      }
+    },
+    {
       "code": 83888009,
       "file": "c83888009.lua",
       "name": "Rebirth of the Seventh Emperors",
