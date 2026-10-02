@@ -42,6 +42,11 @@ import { setCatalogDirectory } from "./presets/catalog.js";
 import { multiDomainStartProblem } from "./multi-domain-guard.js";
 import { getPreset, multiCoreAvailable, multiCoreInfo, PRESETS, SCRIPTED_POLICY, summarizePreset, type PresetIssue } from "./presets/index.js";
 
+/**
+ * Most bot answers in one turn before the table counts as stuck. The count restarts when the turn number changes, so a table that
+ * only bots are left in (every human gave up at an N-seat table) can play to the end: a duel with 3 bots needs far more than 128
+ * answers, and a random bot always ends it (the Decks run out). A bot that loops inside one turn is still caught.
+ */
 const BOT_ADVANCE_LIMIT = 128;
 const DEFAULT_ARCHIVE_AFTER_MS = 10 * 60 * 1000;
 const DEFAULT_IDLE_WORKER_MS = 5 * 60 * 1000;
@@ -126,6 +131,8 @@ interface BotPlan {
   delayMs: number;
   /** Relative weight of what the bot is about to do, used to size the pause after a visible action. */
   cost: number;
+  /** The turn number of the duel when the step was planned (the stuck-bot count restarts with a new turn). */
+  turn: number;
 }
 
 /** Relative pause weights. The base delay is the pause before a summon, set or activation. */
@@ -454,7 +461,10 @@ export function createDuelHost(options: {
   }
 
   async function advancePracticeBot(slug: string, guildId: string, game: DuelGameWorker): Promise<void> {
-    for (let step = 0; step < BOT_ADVANCE_LIMIT; step++) {
+    let stepsInTurn = 0;
+    let lastTurn: number | null = null;
+    while (stepsInTurn < BOT_ADVANCE_LIMIT) {
+      stepsInTurn += 1;
       const session = service.get(slug, guildId);
       if (session.status !== "active") return;
       const entry = games.get(slug);
@@ -464,6 +474,10 @@ export function createDuelHost(options: {
       if (!found || found.kind === "result") return;
       const { seat, view } = found;
       const prompt = view.prompt!;
+      if (view.turn !== lastTurn) {
+        lastTurn = view.turn;
+        stepsInTurn = 1;
+      }
 
       let answer: DuelAnswer;
       let note: string | undefined;
@@ -549,6 +563,7 @@ export function createDuelHost(options: {
     // registry as it truly is and can start a fresh loop.
     loop.done = (async () => {
       let steps = 0;
+      let lastTurn: number | null = null;
       let settle = 0;
       for (;;) {
         if (loop.cancelled || stopped) return finish();
@@ -560,6 +575,10 @@ export function createDuelHost(options: {
           return finish();
         }
         if (!plan) return;
+        if (plan.turn !== lastTurn) {
+          lastTurn = plan.turn;
+          steps = 0;
+        }
         const startedAt = now();
         loop.timer = { seat: plan.seat, delayMs: plan.delayMs, startedAt, dueAt: startedAt + plan.delayMs };
         await botPause(loop, plan.delayMs);
@@ -660,6 +679,7 @@ export function createDuelHost(options: {
       note,
       cost,
       delayMs: botDelayFor(prompt, cost, settle),
+      turn: view.turn,
     };
   }
 
