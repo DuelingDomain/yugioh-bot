@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 
-const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined) }));
+const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, reportEnabled: vi.fn().mockResolvedValue(false), mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
@@ -14,7 +14,8 @@ vi.mock("swr", () => ({ default: () => ({ data: state.room, error: state.error, 
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ connected: true, syncing: state.syncing, recovering: state.recovering, presence: null, resync: state.resync }) }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
 vi.mock("@/components/duel/prompt-reveal", async (original) => ({ ...await original<object>(), usePromptReveal: () => state.revealed, usePromptAnswerable: () => true }));
-vi.mock("@/components/duel/api", async (original) => ({ ...await original<object>(), sendDuelAction: state.send, surrenderDuel: state.surrender }));
+vi.mock("@/components/duel/api", async (original) => ({ ...await original<object>(), sendDuelAction: state.send, surrenderDuel: state.surrender,
+  reportEnabled: state.reportEnabled, getDuelRoom: async () => state.room, listDuelPresets: async () => ({ presets: [] }) }));
 import { DuelRoomView } from "@/components/duel/room";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
@@ -31,6 +32,7 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   state.error = undefined; state.syncing = false; state.recovering = false; state.revealed = true;
+  state.reportEnabled.mockResolvedValue(false);
   window.history.replaceState(null, "", "/duels/live");
 });
 afterEach(cleanup);
@@ -156,6 +158,29 @@ describe("live room table mount", () => {
     fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
     await act(async () => { fireEvent.keyDown(screen.getByRole("dialog", { name: "Surrender" }), { key: "1" }); });
     expect(state.send).not.toHaveBeenCalled();
+  });
+
+  it.each(["dialog button", "window"])("pauses seat and camera keys while Report is open (%s)", async (target) => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.reportEnabled.mockResolvedValue(true);
+    const { container } = mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Report" }));
+    const dialog = screen.getByRole("dialog", { name: "Report a problem" });
+    const camera = container.querySelector("[data-camera-mode]")!;
+    const mode = camera.getAttribute("data-camera-mode");
+    const keyTarget = target === "window" ? window : within(dialog).getByRole("button", { name: "Save report" });
+    await act(async () => {
+      fireEvent.keyDown(keyTarget, { key: "1" });
+      fireEvent.keyDown(keyTarget, { key: "o" });
+    });
+    expect(state.send).not.toHaveBeenCalled();
+    expect(camera).toHaveAttribute("data-camera-mode", mode);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Report a problem" })).toBeNull());
+    fireEvent.keyDown(window, { key: "o" });
+    expect(camera).toHaveAttribute("data-camera-mode", "fly");
+    await act(async () => { fireEvent.keyDown(window, { key: "1" }); });
+    expect(state.send).toHaveBeenCalledTimes(1);
   });
 
   it("restores ordered placings from the live log on a completed room", () => {

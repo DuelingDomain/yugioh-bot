@@ -122,6 +122,7 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
     const onKey = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target) || keyRef.current.suspended) return;
       const target = event.target as HTMLElement | null;
+      if (target?.closest?.('[role="dialog"][aria-modal="true"]') || document.querySelector('[aria-modal="true"]')) return;
       if (event.key === "Tab" && target?.closest?.("[data-slot='prompt'], [role='dialog']")) return;
       if (/^[1-9]$/.test(event.key) && keyRef.current.seatKeys) return;
       const action = cameraActionForKey(event, env.current.layout, keyRef.current.state, env.current.ctx);

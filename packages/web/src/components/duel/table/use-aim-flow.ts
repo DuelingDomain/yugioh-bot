@@ -204,6 +204,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     const onKey = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target) || suspendedRef.current) return;
       const target = event.target as HTMLElement | null;
+      if (target?.closest?.('[role="dialog"][aria-modal="true"]') || document.querySelector('[aria-modal="true"]')) return;
       if (/^[1-9]$/.test(event.key) && pickRef.current) {
         const seat = orderRef.current[Number(event.key) - 1];
         if (seat != null) {
