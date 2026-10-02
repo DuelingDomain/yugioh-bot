@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   ARENA_CENTER,
+  flyWorld,
+  flyYawFor,
   holoAnchor,
+  ringAngles,
+  ringPose,
   seatNormal,
   seatPoses,
   stageFit,
+  slotPlan,
+  slotZIndex,
   tableLayout,
 } from "@/components/duel/table/geometry";
 import type { CameraState } from "@/components/duel/table/types";
@@ -156,5 +162,112 @@ describe("holoAnchor", () => {
   });
   it("exports the arena centre", () => {
     expect(ARENA_CENTER).toEqual({ x: 550, y: 410 });
+  });
+});
+
+describe("3-way camera places", () => {
+  const layout = tableLayout("ffa3", engine("ffa3", 3), 0); // places: 0 you, 1 Ryo (left), 2 Mika (right)
+  const slots = (cam: Parameters<typeof camera>[0]) => [...seatPoses(layout, camera(cam)).values()].map((pose) => pose.slot);
+
+  it("home keeps you at the bottom and the rivals up in the corners", () => {
+    expect(slots({})).toEqual(["home", "vL", "vR"]);
+    const poses = seatPoses(layout, camera());
+    expect(poses.get(1)).toMatchObject({ x: 298, y: 222, scale: 0.66, rotateDeg: 158, tiltDeg: 12 });
+    expect(poses.get(0)).toMatchObject({ x: 550, y: 582, scale: 1, rotateDeg: 0, tiltDeg: 0 });
+  });
+
+  it("focus puts the rival across and docks the other one at its side", () => {
+    expect(slots({ mode: "focus", focusSeat: 1 })).toEqual(["home", "focus", "dockR"]);
+    expect(slots({ mode: "focus", focusSeat: 2 })).toEqual(["home", "dockL", "focus"]);
+    const poses = seatPoses(layout, camera({ mode: "focus", focusSeat: 2 }));
+    expect(poses.get(2)).toMatchObject({ x: 550, y: 206, scale: 0.9, rotateDeg: 180, docked: false });
+    expect(poses.get(1)).toMatchObject({ x: 110, y: 272, scale: 0.46, rotateDeg: 90, docked: true });
+    expect(poses.get(0)?.slot).toBe("home");
+  });
+
+  it("focus with no seat, or on you, stays at home", () => {
+    expect(slots({ mode: "focus", focusSeat: null })).toEqual(["home", "vL", "vR"]);
+    expect(slots({ mode: "focus", focusSeat: 0 })).toEqual(["home", "vL", "vR"]);
+  });
+
+  it("look turns the table so the rival you look from takes the home place", () => {
+    expect(slots({ mode: "look", lookSeat: 1 })).toEqual(["vR", "home", "vL"]);
+    expect(slots({ mode: "look", lookSeat: 2 })).toEqual(["vL", "vR", "home"]);
+    expect(seatPoses(layout, camera({ mode: "look", lookSeat: 1 })).get(1)).toMatchObject({ x: 550, y: 582, rotateDeg: 0 });
+  });
+
+  it("overview and fly place the three fields evenly, 120 degrees apart", () => {
+    for (const mode of ["overview", "fly"] as const) {
+      expect(slots({ mode })).toEqual(["oHome", "oL", "oR"]);
+    }
+    const poses = seatPoses(layout, camera({ mode: "overview" }));
+    expect([0, 1, 2].map((seat) => poses.get(seat)?.rotateDeg)).toEqual([0, 120, 240]);
+    expect(poses.get(1)).toMatchObject({ x: 327, y: 301, scale: 0.58 });
+  });
+
+  it("the plan is null for 4-way and tag, which keep their home poses in every mode", () => {
+    const l4 = tableLayout("ffa4", engine("ffa4", 4), 0);
+    expect(slotPlan(l4, { mode: "focus", focusSeat: 1 })).toBeNull();
+    const home = seatPoses(l4, camera());
+    const focus = seatPoses(l4, camera({ mode: "focus", focusSeat: 1 }));
+    expect([...focus.values()].map((p) => [p.x, p.y])).toEqual([...home.values()].map((p) => [p.x, p.y]));
+  });
+
+  it("slotZIndex ranks home above the rest and falls back to scale", () => {
+    expect(slotZIndex("home", 1)).toBeGreaterThan(slotZIndex("focus", 0.9));
+    expect(slotZIndex("focus", 0.9)).toBeGreaterThan(slotZIndex("dockL", 0.46));
+    expect(slotZIndex(undefined, 1)).toBe(5);
+  });
+
+  it("holo panels follow their seat to the corner of its place", () => {
+    const at = (seat: number, cam: Parameters<typeof camera>[0]) => holoAnchor(layout, seat, camera(cam));
+    expect(at(0, {})).toMatchObject({ x: 882, y: 686, me: true, beam: "none" });
+    expect(at(1, {})).toMatchObject({ x: 8, y: 8, me: false, beam: "down" });
+    expect(at(1, { mode: "focus", focusSeat: 1 })).toMatchObject({ x: 8, y: 10 });
+    expect(at(2, { mode: "focus", focusSeat: 2 })).toMatchObject({ x: 896, y: 10 });
+    expect(at(2, { mode: "focus", focusSeat: 1 })).toMatchObject({ x: 896, y: 8, beam: "none" });
+    expect(at(0, { mode: "overview" })).toMatchObject({ x: 764, y: 690 });
+    expect(at(1, { mode: "overview" })).toMatchObject({ x: 14, y: 548, beam: "up" });
+    expect(at(2, { mode: "overview" })).toMatchObject({ x: 896, y: 548, beam: "up" });
+  });
+
+  it("the panel of the viewer is not 'me' while looking from a rival's seat", () => {
+    expect(holoAnchor(layout, 0, camera({ mode: "look", lookSeat: 1 })).me).toBe(false);
+    expect(holoAnchor(layout, 1, camera({ mode: "look", lookSeat: 1 })).me).toBe(false);
+  });
+
+  it("without a camera the holo anchors are the home ones", () => {
+    expect(holoAnchor(layout, 0)).toMatchObject({ x: 882, y: 686, me: true });
+    expect(holoAnchor(layout, 2)).toMatchObject({ x: 896, y: 8 });
+  });
+
+  it("ringPose keeps the turn ring clear of the fields in each mode", () => {
+    expect(ringPose(layout, camera())).toEqual({ x: 550, y: 322, scale: 1 });
+    expect(ringPose(layout, camera({ mode: "focus", focusSeat: 1 }))).toEqual({ x: 150, y: 404, scale: 0.62 });
+    expect(ringPose(layout, camera({ mode: "focus", focusSeat: 2 }))).toEqual({ x: 950, y: 404, scale: 0.62 });
+    expect(ringPose(layout, camera({ mode: "overview" }))).toEqual({ x: 550, y: 98, scale: 0.9 });
+    expect(ringPose(layout, camera({ mode: "fly" }))).toEqual({ x: 550, y: 430, scale: 1 });
+  });
+
+  it("ringAngles puts every seat on the ring where its place is", () => {
+    const angles = (cam: Parameters<typeof camera>[0]) => Object.fromEntries(ringAngles(layout, camera(cam)));
+    expect(angles({})).toEqual({ 0: 90, 1: 210, 2: 330 });
+    expect(angles({ mode: "focus", focusSeat: 1 })).toEqual({ 0: 90, 1: 270, 2: 0 });
+    expect(angles({ mode: "look", lookSeat: 1 })).toEqual({ 0: 330, 1: 90, 2: 210 });
+    expect(angles({ mode: "overview" })).toEqual({ 0: 90, 1: 210, 2: 330 });
+  });
+
+  it("flyYawFor turns the plaza so that a seat's field reads upright", () => {
+    expect(flyYawFor(layout, 0)).toBeCloseTo(0, 5);
+    expect(flyYawFor(layout, 1)).toBeCloseTo(-120, 5);
+    expect(flyYawFor(layout, 2)).toBeCloseTo(120, 5);
+    expect(flyYawFor(tableLayout("ffa4", engine("ffa4", 4), 0), 1)).toBe(0);
+  });
+
+  it("flyWorld looks at the arena with no target and at the seat's place with one", () => {
+    const fly = { yawDeg: 12, tiltDeg: 40, zoom: 0.9, targetSeat: null };
+    expect(flyWorld(layout, fly)).toEqual({ yawDeg: 12, tiltDeg: 40, zoom: 0.9, fx: 0, fy: 6, oy: -6 });
+    const target = flyWorld(layout, { ...fly, targetSeat: 1, zoom: 1.8 });
+    expect(target).toMatchObject({ zoom: 1.8, fx: 327 - ARENA_CENTER.x, fy: 301 - ARENA_CENTER.y, oy: 36 });
   });
 });

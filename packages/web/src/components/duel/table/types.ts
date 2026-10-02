@@ -46,11 +46,14 @@ export interface SeatPose {
   scale: number;
   rotateDeg: number; // effective rotation (text counter-rotates when upright)
   tiltDeg?: number; // perspective tilt of a far field (rotateX), default 0
+  slot?: PoseSlot; // named place of the pose (3-way): the ring, the holo panels and the docks read it
   z: number;
   docked: boolean;
   compact: boolean;
   hidden: boolean;
 }
+
+export type PoseSlot = "home" | "vL" | "vR" | "focus" | "dockL" | "dockR" | "oHome" | "oL" | "oR";
 
 export type CameraMode = "home" | "focus" | "look" | "overview" | "fly";
 export type CameraLockReason = "chain" | "battle" | "direct" | "destroy" | "elimination";
@@ -59,6 +62,7 @@ export interface FlyPose {
   tiltDeg: number;
   zoom: number;
   targetSeat: number | null;
+  free?: boolean; // the player orbited or zoomed: the pose is no longer the preset
 }
 export interface CameraState {
   mode: CameraMode;
@@ -71,6 +75,8 @@ export interface CameraState {
   aiming: boolean;
   fly: FlyPose;
   lock: { reason: CameraLockReason; untilMs: number } | null;
+  autoMoved?: boolean; // the last move came from the auto camera (the cue shows, Keep can pin it)
+  flyIn?: boolean; // Overview is the fly-in plaza (default true); false is the flat triangle
 }
 export type CameraAction =
   | { type: "home" }
