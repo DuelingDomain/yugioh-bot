@@ -30,6 +30,13 @@ describe("priorityOrder", () => {
 });
 
 describe("PriorityChips", () => {
+  it("keeps the seat number visible for duplicate compact responder names", () => {
+    const { getByTestId } = render(<PriorityChips order={priorityOrder(seats, 0, [{ seat: 2 }], 1)}
+      mySeat={0} nameOf={(seat) => seat === 0 ? "Alice" : `Practice Bot (seat ${seat + 1})`} compact />);
+    const chips = [...getByTestId("priority-chips").querySelectorAll("[data-seat]")];
+    expect(chips.map((chip) => chip.textContent)).toEqual(["You", "Practice Bot (seat 2)", "Practice Bot (seat 3)"]);
+  });
+
   it("names each seat in order, says You for the viewer and marks who is choosing", () => {
     const names = ["Ren", "Mika", "Ryo"];
     const { getByTestId } = render(

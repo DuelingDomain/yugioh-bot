@@ -58,7 +58,7 @@ export function PriorityChips({
             {at > 0 ? <ArrowRight size={11} strokeWidth={1.75} aria-hidden /> : null}
             <span className={styles.chip} data-now={slot.choosing ? "true" : undefined} data-seat={slot.seat} style={style} title={slot.choosing ? `${nameOf(slot.seat)} is choosing` : undefined}>
               <i aria-hidden="true" />
-              {slot.seat === mySeat ? "You" : compact ? nameOf(slot.seat).split(" ")[0] : nameOf(slot.seat)}
+              {slot.seat === mySeat ? "You" : nameOf(slot.seat)}
               {slot.choosing && !compact ? <em> · choosing</em> : null}
             </span>
           </span>
