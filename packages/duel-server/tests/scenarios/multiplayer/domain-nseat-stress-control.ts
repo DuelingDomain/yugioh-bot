@@ -49,7 +49,10 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
     scenario(format, "all-sides-lose-together-with-masters-in-their-zones", {
       setup: setup(format, Object.fromEntries(SEATS[format].map((seat) => [seat, { lp: 100, ...(seat === "p0" ? { hand: ["Dark Snake Syndrome"] } : {}) }]))),
       rules: ["R-COMMON-EACH-PLAYER", format === "tag" ? "R-TAG-LOSS" : "R-FFA-ELIMINATION"],
-      steps: [activate("Dark Snake Syndrome", "p0"), ...(format === "tag" ? SEATS[format].slice(0, 2) : SEATS[format]).map((seat) => endTurn(seat)),
+      // Dark Snake Syndrome uses the owner's Standby Phase, not the Tag partner's.
+      steps: [activate("Dark Snake Syndrome", "p0"), ...SEATS[format].flatMap((seat) => [endTurn(seat),
+        ...(format === "tag" && seat === "p1" ? [expectPrompt({ by: "p2", context: "action" }),
+          board("tag", { p0: { lp: 100, spells: ["Dark Snake Syndrome"] }, p1: { lp: 100 } })] : [])]),
         expectResult({ team: null, reason: "lp" }),
         ...(format === "tag" ? [] : [expectEliminated(SEATS[format])]),
         board(format, Object.fromEntries(SEATS[format].map((seat) => [seat, { lp: 0,
