@@ -61,6 +61,7 @@ function board(viewer: 0 | 1 | null): DuelEngineView {
         banished: [],
       },
     ],
+    prioritySeat: 0,
     prompt: { id: "strip-me", seat: 0, kind: "choice", title: "Go", options: [] },
     chain: [],
     events: [],
@@ -507,6 +508,12 @@ describe("duel snapshots archive and cancel", () => {
     expect(p1.role).toBe("player");
     expect(p1.metadataOnly).toBe(false);
     expect(p1.engine?.prompt).toBeNull();
+    for (const playerId of [app.p1, app.p2, app.p3]) {
+      expect(app.duels.room(session.slug, "g1", playerId).engine?.prioritySeat).toBeNull();
+    }
+    const stored = app.db.prepare("select snapshot_public_json, snapshot_seat0_json, snapshot_seat1_json from duels where web_slug = ?")
+      .get(session.slug) as Record<string, string>;
+    for (const raw of Object.values(stored)) expect(JSON.parse(raw).prioritySeat).toBeNull();
     expect(p1.engine?.result).toEqual({ winnerSeat: 1, reason: "Surrender" });
     expect(p1.engine?.seats[0]?.hand[0]?.code).toBe(111);
     expect(p1.engine?.seats[1]?.hand[0]?.code).toBeUndefined();
@@ -530,6 +537,20 @@ describe("duel snapshots archive and cancel", () => {
     });
     expect(overwritten.winnerSeat).toBe(1);
     expect(app.duels.room(session.slug, "g1", app.p1).engine?.result?.reason).toBe("Surrender");
+  });
+
+  it("clears stale priority when reading legacy saved snapshots", () => {
+    const app = setup();
+    const session = readyDuel(app);
+    start(app, session.slug);
+    app.duels.complete(session.slug, "g1", 1, "Surrender", { public: board(null), seat0: board(0), seat1: board(1) });
+    // A previously saved snapshot may still have public priority metadata after its prompt was stripped.
+    const legacy = JSON.stringify({ ...board(null), prompt: null, prioritySeat: 1 });
+    app.db.prepare("update duels set snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ? where web_slug = ?")
+      .run(legacy, legacy, legacy, session.slug);
+    for (const playerId of [app.p1, app.p2, app.p3]) {
+      expect(app.duels.room(session.slug, "g1", playerId).engine?.prioritySeat).toBeNull();
+    }
   });
 
   it("keeps live listing separate from archived history and forbids active archive", () => {

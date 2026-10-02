@@ -306,14 +306,14 @@ function parseEngineView(raw: string | null): DuelEngineView | null {
   try {
     const parsed = JSON.parse(raw) as DuelEngineView;
     if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.seats)) return null;
-    return { ...parsed, prompt: null };
+    return { ...parsed, prompt: null, prioritySeat: null };
   } catch {
     return null;
   }
 }
 
 function freezeSnapshot(view: DuelEngineView, result: { winnerSeat: number | null; reason: string }): string {
-  const frozen: DuelEngineView = { ...view, prompt: null, result };
+  const frozen: DuelEngineView = { ...view, prompt: null, prioritySeat: null, result };
   return JSON.stringify(frozen);
 }
 
