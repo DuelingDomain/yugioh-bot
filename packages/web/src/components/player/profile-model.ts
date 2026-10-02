@@ -102,8 +102,8 @@ const CRITERIA: Record<string, string> = {
   first_tournament_win: "Finish first in a tournament that runs to the end.",
   streak_10: "Win 10 matches in a row inside one season.",
   giant_slayer: "Beat the server's highest-rated player while rated below them.",
-  winnings_1000: "Earn 1,000 winnings over your career.",
-  winnings_5000: "Earn 5,000 winnings over your career.",
+  winnings_1000: "Earn 1,000 winnings across all seasons.",
+  winnings_5000: "Earn 5,000 winnings across all seasons.",
   champion_x3: "Finish first in three tournaments.",
 };
 
