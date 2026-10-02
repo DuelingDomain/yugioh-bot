@@ -10,6 +10,7 @@ import {
   cardImageDir, dbPath, duelDataDir, ensureSecrets, guildId, livePorts, manualInfoFile, manualMode, players, ports, repoRoot, stackDir, stackLogFile, webUrl, wsUrl,
 } from "./env.mjs";
 import { seedDatabase } from "./seed.mjs";
+import { prepareManualData } from "./manual-data.mjs";
 
 const secrets = ensureSecrets();
 const children = [];
@@ -94,6 +95,7 @@ mkdirSync(stackDir, { recursive: true });
 mkdirSync(dirname(stackLogFile), { recursive: true });
 stackLog = createWriteStream(stackLogFile, { flags: "w" });
 mkdirSync(cardImageDir, { recursive: true });
+const runtimeDuelDataDir = manualMode ? prepareManualData(duelDataDir) : duelDataDir;
 let savedDecks = [];
 if (manualMode) {
   // Reuse the host's legal EARTH Normal Monster decks; the core snapshot is read only.
@@ -130,7 +132,7 @@ run("duel", process.execPath, ["packages/duel-server/dist/server.js"], {
   cwd: repoRoot,
   env: {
     ...base,
-    DUEL_DATA_DIR: duelDataDir,
+    DUEL_DATA_DIR: runtimeDuelDataDir,
     DUEL_INTERNAL_PORT: String(ports.duel),
     DUEL_INTERNAL_HOST: "127.0.0.1",
     DUEL_INTERNAL_SECRET: secrets.duel,
