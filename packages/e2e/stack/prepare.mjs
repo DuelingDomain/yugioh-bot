@@ -4,7 +4,7 @@
 //  - web standalone     (next build with the E2E NEXT_PUBLIC_WS_URL baked in)
 // Set E2E_FORCE_BUILD=1 to rebuild all. Set E2E_SKIP_BUILD=1 to skip all builds.
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { buildStampFile, e2eRoot, e2eSlot, nextDistDir, repoRoot, standaloneBuildDir, wsUrl } from "./env.mjs";
 import { isBuildFresh, newest, withBuildLock, withPreservedFiles } from "./build.mjs";
@@ -35,9 +35,17 @@ const prepareWeb = async () => {
   let stamped = { wsUrl: "", builtAt: 0 };
   try { stamped = JSON.parse(readFileSync(buildStampFile, "utf8")); } catch { /* No stamp: build. */ }
   if (force || !existsSync(resolve(standaloneBuildDir, "server.js")) || stamped.wsUrl !== wsUrl || stamped.builtAt < newest(webInputs)) {
-    const build = () => sh(`build web (${nextDistDir}, production standalone)`, ["run", "build", "--workspace=packages/web"], {
-        env: { ...process.env, E2E_NEXT_DIST_DIR: nextDistDir, NEXT_PUBLIC_WS_URL: wsUrl, NEXT_TELEMETRY_DISABLED: "1" },
-      });
+    // Turbopack refuses dependency symlinks outside its filesystem root. Webpack supports borrowed
+    // dependencies in isolated worktrees without widening the root into another worker's checkout.
+    const borrowedDependencies = e2eSlot !== undefined && [at("node_modules"), at("packages/web/node_modules")]
+      .some((path) => existsSync(path) && lstatSync(path).isSymbolicLink());
+    const build = () => {
+      const options = { env: { ...process.env, E2E_NEXT_DIST_DIR: nextDistDir, NEXT_PUBLIC_WS_URL: wsUrl, NEXT_TELEMETRY_DISABLED: "1" } };
+      if (borrowedDependencies) {
+        sh(`build web (${nextDistDir}, webpack with symlinked dependencies)`, ["exec", "--workspace=packages/web", "--", "next", "build", "--webpack"], options);
+        sh("package web standalone", ["run", "package:standalone", "--workspace=packages/web"], options);
+      } else sh(`build web (${nextDistDir}, production standalone)`, ["run", "build", "--workspace=packages/web"], options);
+    };
     if (e2eSlot === undefined) build();
     else await withPreservedFiles([at("packages/web/next-env.d.ts"), at("packages/web/tsconfig.json")], build);
     writeFileSync(buildStampFile, JSON.stringify({ wsUrl, builtAt: Date.now() }));
