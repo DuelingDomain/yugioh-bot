@@ -1,21 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import type { DuelDeck, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
+import { useMemo, useState } from "react";
+import type { DuelDeck, DuelOpeningView, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { SeriesGameLabel } from "../series-banner";
 import { DuelResultScreen } from "../duel-result";
-import { SideDeckPanel } from "../side-deck-panel";
+import { BetweenGamesScreen, type CardMeta } from "../between-games";
+import { NO_MARKS, type SideMarks } from "../side-deck-model";
 import styles from "../room.module.css";
-import type { LabBoard, LabSeries } from "./board";
+import { OpeningScreen } from "../opening";
+import type { LabBoard, LabOpening, LabSeries } from "./board";
 import { CARDS as C } from "./cards";
 
 /**
  * The Best of 3 part of the FX lab: a room for the series scenarios, the real header label and the
- * real between-games and match screens. The buttons that save or ready call the real API, which
+ * real Between games and match screens. The buttons that save or ready call the real API, which
  * answers with an error in the lab; that is the only part that is not live.
  */
 
 const NAMES: [string, string] = ["Sulman", "Imran"];
+const BOT_NAMES: [string, string] = ["Sulman", "Practice Bot"];
+const namesOf = (spec: LabSeries) => (spec.vsBot ? BOT_NAMES : NAMES);
 
 /** A side deck with a few real cards: swap a Main card with a Side card, or an Extra card with a Side Extra monster. */
 const SIDE_DECK: DuelDeck = {
@@ -23,6 +27,20 @@ const SIDE_DECK: DuelDeck = {
   extra: [C.darkPaladin.code, C.stardust.code],
   side: [C.cyberDragon.code, C.summonedSkull.code, C.utopia.code],
 };
+
+const NO_SIDE_DECK: DuelDeck = { ...SIDE_DECK, side: [] };
+
+/** Names and types of the lab cards, so the screen routes Extra Deck monsters without a card database. */
+const KNOWN_CARDS: ReadonlyMap<number, CardMeta> = new Map(
+  Object.values(C).map((card) => [card.code, { name: card.name, type: card.type }] as const),
+);
+
+/** Siding in progress: a Main card and an Extra card out, a Main card and an Extra monster in (or one fewer in). */
+function labMarks(spec: LabSeries): SideMarks {
+  if (spec.marks === "even") return { out: [{ section: "main", index: 1 }, { section: "extra", index: 0 }], inn: [0, 2] };
+  if (spec.marks === "uneven") return { out: [{ section: "main", index: 1 }, { section: "main", index: 2 }], inn: [0] };
+  return NO_MARKS;
+}
 
 function summary(spec: LabSeries): DuelSeriesSummary {
   const over = spec.screen === "won";
@@ -32,18 +50,25 @@ function summary(spec: LabSeries): DuelSeriesSummary {
     bestOf: 3,
     ranked: false,
     status: over ? "completed" : between ? "between_games" : "active",
-    playerIds: [1, 2],
-    displayNames: NAMES,
+    playerIds: [1, spec.vsBot ? 0 : 2],
+    displayNames: namesOf(spec),
     wins: spec.wins,
     gameNumber: spec.game,
     currentDuelSlug: "fx-lab",
-    winnerPlayerId: over ? (spec.wins[0] > spec.wins[1] ? 1 : 2) : null,
+    winnerPlayerId: over ? (spec.wins[0] > spec.wins[1] ? 1 : spec.vsBot ? null : 2) : null,
     tournamentId: null,
     tournamentSlug: null,
     tournamentMatchId: null,
     nextGameAt: between ? new Date(Date.now() + (spec.secondsLeft ?? 45) * 1000).toISOString() : null,
-    sideReady: [false, spec.opponentReady === true],
-    hasSide: [true, true],
+    // The practice bot is ready at once and never sides.
+    // A player with no Side Deck is ready at once, like the practice bot.
+    sideReady: [spec.noSide === true, spec.vsBot ? true : spec.opponentReady === true],
+    hasSide: [spec.noSide !== true, !spec.vsBot],
+    // The loser of the game on screen chooses: you when the opponent leads, the opponent when you lead.
+    firstChooser: between ? (spec.wins[0] > spec.wins[1] ? 1 : 0) : null,
+    // The bot chooses to go first by itself when it lost the game.
+    firstChoice: between ? (spec.vsBot && spec.wins[0] > spec.wins[1] ? "first" : spec.choice ?? null) : null,
+    vsBot: spec.vsBot === true,
   };
 }
 
@@ -65,12 +90,12 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       settings: {} as DuelRoom["session"]["settings"],
       seats: [
         { seat: 0, playerId: 1, displayName: NAMES[0], ready: true, isBot: false },
-        { seat: 1, playerId: 2, displayName: NAMES[1], ready: true, isBot: false },
+        { seat: 1, playerId: spec.vsBot ? null : 2, displayName: namesOf(spec)[1], ready: true, isBot: spec.vsBot === true },
       ],
       createdAt: "",
       endedAt: null,
       archivedAt: null,
-      winnerPlayerId: finished ? (winnerSeat === 0 ? 1 : 2) : null,
+      winnerPlayerId: finished ? (winnerSeat === 0 ? 1 : spec.vsBot ? null : 2) : null,
       winnerSeat: finished ? winnerSeat : null,
       resultReason: finished ? "Life points reached 0" : null,
       bestOf: 3,
@@ -95,7 +120,7 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       result,
     },
     series: summary(spec),
-    mySide: { baseDeck: SIDE_DECK, currentDeck: SIDE_DECK },
+    mySide: spec.noSide ? { baseDeck: NO_SIDE_DECK, currentDeck: NO_SIDE_DECK } : { baseDeck: SIDE_DECK, currentDeck: SIDE_DECK },
   };
 }
 
@@ -118,16 +143,13 @@ export function SeriesLabHeader({ room }: { room: DuelRoom }) {
   );
 }
 
-/** The screen a scenario opens: the result screen (ready, won) with the Side deck button wired to the real panel. */
+/** The screen a scenario opens: the real Between games screen (ready, side) or the match result (won). */
 export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom; spec: LabSeries; reduced: boolean; sound: boolean }) {
   const [closed, setClosed] = useState(false);
-  const [side, setSide] = useState(spec.screen === "side");
-  const series = room.series;
-  if (spec.screen === "label" || !series) return null;
-  if (side && room.mySide) {
+  if (spec.screen === "label" || !room.series) return null;
+  if (spec.screen === "ready" || spec.screen === "side") {
     return (
-      <SideDeckPanel slug="fx-lab" series={series} myIndex={0} side={room.mySide}
-        onClose={() => { setSide(false); if (spec.screen === "side") setClosed(true); }}
+      <BetweenGamesScreen room={room} slug="fx-lab" knownCards={KNOWN_CARDS} initialMarks={labMarks(spec)}
         onChanged={() => undefined} onNavigate={() => undefined} />
     );
   }
@@ -135,6 +157,35 @@ export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom
   return (
     <DuelResultScreen room={room} slug="fx-lab" reducedMotion={reduced} soundEnabled={sound}
       onClose={() => setClosed(true)} onExit={() => setClosed(true)}
-      onOpenSide={() => setSide(true)} onSeriesChanged={() => undefined} onNavigate={() => undefined} />
+      onSeriesChanged={() => undefined} onNavigate={() => undefined} />
   );
+}
+
+/** The opening view a lab scenario stands for. You are seat 0; the deadline is set when the scenario plays. */
+export function labOpeningView(spec: LabOpening, now = Date.now()): DuelOpeningView {
+  const base: DuelOpeningView = {
+    phase: "rps", round: 1, deadlineAt: new Date(now + 30_000).toISOString(), picked: [false, spec.opponentChose === true],
+    myPick: null, reveal: null, winnerSeat: null, choice: null, choiceByTimeout: false,
+  };
+  // A reveal is on screen for 3 s: the deadline carries that time plus the next 30 s step.
+  const afterReveal = new Date(now + 33_000).toISOString();
+  switch (spec.stage) {
+    case "pick": return base;
+    case "pick-chosen": return { ...base, picked: [true, spec.opponentChose === true], myPick: "paper" };
+    case "reveal-win": return { ...base, phase: "choose", deadlineAt: afterReveal, winnerSeat: 0, picked: [true, true], reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } };
+    case "reveal-lose": return { ...base, phase: "choose", deadlineAt: afterReveal, winnerSeat: 1, picked: [true, true], reveal: { round: 1, picks: ["rock", "paper"], winnerSeat: 1 } };
+    case "reveal-tie": return { ...base, round: 2, deadlineAt: afterReveal, reveal: { round: 1, picks: ["scissors", "scissors"], winnerSeat: null } };
+    case "choose": return { ...base, phase: "choose", winnerSeat: 0, picked: [true, true], reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } };
+    case "wait-choose": return { ...base, phase: "choose", winnerSeat: 1, picked: [true, true], reveal: { round: 1, picks: ["rock", "paper"], winnerSeat: 1 } };
+    case "start": return { ...base, phase: "start", winnerSeat: 0, choice: "first", picked: [true, true], reveal: { round: 1, picks: ["paper", "rock"], winnerSeat: 0 } };
+  }
+}
+
+/** The real opening screen over the lab board. The reveal and the choice are on a fresh deadline each run. */
+export function OpeningLabScreen({ spec }: { spec: LabOpening }) {
+  // A reveal stage opens with its 3 s reveal still to play; the other stages open after it.
+  const opening = useMemo(() => labOpeningView(spec), [spec]);
+  const [error, setError] = useState<string | null>(null);
+  const fail = () => setError("The lab has no server: this button calls the real API.");
+  return <OpeningScreen opening={opening} mySeat={0} names={NAMES} error={error} onPick={fail} onChoose={fail} />;
 }
