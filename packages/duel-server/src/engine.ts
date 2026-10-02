@@ -20,6 +20,7 @@ import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
   clearRevealsAt,
+  confirmationAudience,
   createEventContext,
   createRevealMap,
   DESTROY_NOTE_SCRIPT,
@@ -30,6 +31,7 @@ import {
   noteReveal,
   observeDuelEvent,
   observeMoveEvents,
+  observeConfirmEvents,
   phaseName,
   projectView,
   resetEventBatch,
@@ -307,6 +309,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   const recordEvent = (message: OcgMessage) => {
     // Moves first: a card's move precedes the summon/set/activate/destroy event it belongs to.
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
+    for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
     const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
     if (stored) pushEvent(stored);
   };
@@ -428,8 +431,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       case OcgMessageType.CONFIRM_CARDS:
         for (const card of message.cards) {
           noteReveal(reveals, message.player, card.controller, card.location, card.sequence, card.code);
+          appendLog(`Confirmed ${cards.get(card.code)?.name ?? `Card ${card.code}`}`, confirmationAudience(card.location, message.player));
         }
-        appendLog(`Confirmed ${message.cards.map((card) => cards.get(card.code)?.name ?? `Card ${card.code}`).join(", ")}`, message.player);
         return;
       case OcgMessageType.CONFIRM_DECKTOP:
       case OcgMessageType.CONFIRM_EXTRATOP:

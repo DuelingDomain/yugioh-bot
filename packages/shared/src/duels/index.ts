@@ -247,7 +247,7 @@ export interface DuelZoneRef {
 }
 
 export type DuelMoveReason =
-  | "summon" | "set" | "activate" | "destroy" | "send" | "return" | "banish" | "draw" | "discard" | "other";
+  | "summon" | "set" | "activate" | "destroy" | "send" | "return" | "banish" | "draw" | "add" | "discard" | "other";
 
 /**
  * How a monster arrived on the field. "tribute" is a Normal Summon that used Tributes. The Extra
@@ -271,18 +271,21 @@ export interface DuelEvent {
   id: number;
   kind:
     | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "phase" | "damage" | "destroy" | "move" | "position" | "equip";
+    | "attack" | "phase" | "damage" | "destroy" | "move" | "position" | "equip" | "confirm";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
   text: string;
   description?: string;
+  /** confirm: the preceding move of this card, when known. Identity belongs to this confirmation only. */
+  moveId?: number;
   /**
    * summon / set / activate: the zone the card is in.
    * attack: the attacking monster's zone.
    * destroy: the zone the card left.
    * move: the destination zone (the card's controller after the move is `seat`).
    * equip: the zone of the card that was equipped (it has no `card`; read it from the board).
+   * confirm: where the confirmed card was at confirmation time. Does not expose its live slot.
    */
   zone?: DuelZoneRef;
   /** move: the zone the card left. Board positions are public even when the card is hidden. */

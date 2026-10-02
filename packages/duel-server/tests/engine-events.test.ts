@@ -12,6 +12,7 @@ import {
   noteDestroyLog,
   observeDuelEvent,
   observeMoveEvents,
+  observeConfirmEvents,
   projectStoredEvent,
   resetEventBatch,
 } from "../src/views.js";
@@ -609,6 +610,35 @@ describe("event observer messages", () => {
   });
 
   describe("move events", () => {
+    it("broadcasts hand/field confirmations but keeps deck/extra identities recipient-only, including mixed groups", () => {
+      const ctx = createEventContext();
+      const locations = [OcgLocation.HAND, OcgLocation.MZONE, OcgLocation.SZONE, OcgLocation.DECK, OcgLocation.EXTRA];
+      const events = observeConfirmEvents({ type: OcgMessageType.CONFIRM_CARDS, player: 0,
+        cards: locations.map((location, sequence) => ({ code: sequence + 1, controller: 1, location, sequence })),
+      }, cards, ctx, 20);
+      expect(events).toHaveLength(5);
+      for (const viewer of [0, 1, null]) {
+        expect(events.map((event) => projectStoredEvent(event, viewer).card?.code)).toEqual(viewer === 0 ? [1, 2, 3, 4, 5] : [1, 2, 3, undefined, undefined]);
+        if (viewer !== 0) expect(events.slice(3).map((event) => projectStoredEvent(event, viewer).text)).toEqual(["A card was confirmed", "A card was confirmed"]);
+      }
+    });
+
+    it("captures confirmation identity separately without widening or mutating the preceding hidden move", () => {
+      const ctx = createEventContext();
+      const [move] = observeMoveEvents({ type: OcgMessageType.MOVE, card: 4,
+        from: at(0, OcgLocation.DECK, 0), to: at(0, OcgLocation.HAND, 3),
+      }, cards, ctx, 10);
+      const before = projectStoredEvent(move!, 1);
+      const [confirm] = observeConfirmEvents({ type: OcgMessageType.CONFIRM_CARDS, player: 1,
+        cards: [{ code: 4, controller: 0, location: OcgLocation.HAND, sequence: 3 }],
+      }, cards, ctx, 11);
+      expect(projectStoredEvent(confirm!, null)).toMatchObject({ kind: "confirm", moveId: 10, card: { code: 4 } });
+      resetEventBatch(ctx);
+      expect(projectStoredEvent(confirm!, null).card?.code).toBe(4);
+      expect(projectStoredEvent(move!, 1)).toEqual(before);
+      expect(before.card).toBeUndefined();
+    });
+
     const run = (message: OcgMessage, ctx = createEventContext(), first = 1) => observeMoveEvents(message, cards, ctx, first);
     const move = (code: number, from: ReturnType<typeof at>, to: ReturnType<typeof at>): OcgMessage => ({ type: OcgMessageType.MOVE, card: code, from, to });
 
@@ -667,7 +697,7 @@ describe("event observer messages", () => {
       expect(reasonOf(OcgLocation.MZONE, OcgLocation.REMOVED)).toBe("banish");
       expect(reasonOf(OcgLocation.MZONE, OcgLocation.HAND)).toBe("return");
       expect(reasonOf(OcgLocation.SZONE, OcgLocation.DECK)).toBe("return");
-      expect(reasonOf(OcgLocation.DECK, OcgLocation.HAND)).toBe("draw");
+      expect(reasonOf(OcgLocation.DECK, OcgLocation.HAND)).toBe("add");
       expect(reasonOf(OcgLocation.EXTRA, OcgLocation.MZONE)).toBe("other");
     });
 

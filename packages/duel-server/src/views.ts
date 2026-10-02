@@ -287,6 +287,7 @@ export interface StoredDuelEvent {
   reason?: DuelMoveReason;
   faceDown?: boolean;
   addedToHand?: true;
+  moveId?: number;
   target?: DuelZoneRef;
   amount?: number;
   cause?: DuelEvent["cause"];
@@ -585,6 +586,7 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.reason) projected.reason = event.reason;
   if (event.faceDown != null) projected.faceDown = event.faceDown;
   if (event.addedToHand) projected.addedToHand = true;
+  if (event.moveId != null) projected.moveId = event.moveId;
   if (event.amount != null) projected.amount = event.amount;
   if (event.cause) projected.cause = event.cause;
   if (event.sourceCode != null) projected.sourceCode = event.sourceCode;
@@ -632,6 +634,32 @@ function sameZone(a: DuelZoneRef, b: DuelZoneRef): boolean {
   return a.controller === b.controller && a.location === b.location && a.sequence === b.sequence;
 }
 
+/** EDOPro broadcasts hand/field confirmations; deck and extra inspection stays recipient-only. */
+export function confirmationAudience(location: number, recipient: number): "all" | number {
+  return (location & (OcgLocation.HAND | OcgLocation.ONFIELD)) !== 0 ? "all" : recipient;
+}
+
+/** Capture one immutable identity per confirmed card, independently of the live RevealMap. */
+export function observeConfirmEvents(message: OcgMessage, cards: CardDatabase, ctx: EventContext, firstId: number): StoredDuelEvent[] {
+  if (message.type !== OcgMessageType.CONFIRM_CARDS) return [];
+  return message.cards.map((card, index) => {
+    const info = cards.get(card.code);
+    const zone = zoneOf(card);
+    const move = [...ctx.moves].reverse().find((move) => sameZone(move.to, zone) && move.event.card?.code === card.code);
+    return {
+      id: firstId + index,
+      kind: "confirm",
+      seat: card.controller,
+      card: info ? { ...info } : undefined,
+      zone,
+      moveId: move?.event.id,
+      text: `Confirmed ${info?.name ?? `Card ${card.code}`}`,
+      publicText: "A card was confirmed",
+      revealCardTo: confirmationAudience(card.location, message.player),
+    };
+  });
+}
+
 /** Fix the reason of the most recent still-unsettled move this batch that matches `test`. */
 function settleMove(ctx: EventContext, test: (move: TrackedMove) => boolean, reason: DuelMoveReason): StoredDuelEvent | undefined {
   for (let index = ctx.moves.length - 1; index >= 0; index -= 1) {
@@ -668,7 +696,8 @@ function moveAudience(from: PendingMove["from"], to: { controller: number; locat
 function defaultMoveReason(from: number, to: number): DuelMoveReason {
   if (to === OcgLocation.GRAVE) return from === OcgLocation.HAND ? "discard" : "send";
   if (to === OcgLocation.REMOVED) return "banish";
-  if (to === OcgLocation.HAND) return from === OcgLocation.DECK ? "draw" : "return";
+  // This default is for MSG_MOVE. Actual draws arrive through MSG_DRAW below.
+  if (to === OcgLocation.HAND) return from === OcgLocation.DECK ? "add" : "return";
   if (to === OcgLocation.DECK || to === OcgLocation.EXTRA) return "return";
   return "other";
 }

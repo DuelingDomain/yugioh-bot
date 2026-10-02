@@ -225,6 +225,7 @@ function thumbFor(tile: HistoryTile, card: HistoryCard | null | undefined, role:
 }
 
 function destVerb(dest: MoveDest, reason: string, count: number, cause: string | undefined): string {
+  if (reason === "add") return "Add to hand";
   if (reason === "draw") return count > 1 ? `Draw ${count}` : "Draw";
   if (cause === "tribute") return "Tributed";
   if (cause === "material") return "Used as material";
@@ -268,6 +269,8 @@ export function iconFor(tile: HistoryTile): HistoryIconKind {
   switch (tile.kind) {
     case "summon":
       return tile.summonKind ?? "normal";
+    case "confirm":
+      return "hand";
     case "set":
       return "set";
     case "activate":
@@ -303,6 +306,8 @@ function verbFor(tile: HistoryTile): string {
   switch (tile.kind) {
     case "summon":
       return SUMMON_VERB[tile.summonKind ?? "normal"];
+    case "confirm":
+      return "Confirmed";
     case "set":
       return "Set";
     case "activate":
@@ -358,6 +363,9 @@ function sentenceFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: 
     case "summon":
       parts.push(`${actor} ${SUMMON_PAST[tile.summonKind ?? "normal"]} ${name ?? "a face-down monster"}.`);
       break;
+    case "confirm":
+      parts.push(`${actor} confirmed ${name ?? "a card"}.`);
+      break;
     case "set":
       parts.push(name ? `${actor} Set ${name}.` : `${actor} Set a card.`);
       break;
@@ -380,7 +388,9 @@ function sentenceFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: 
     case "move": {
       const move = tile.move;
       const what = name ?? "a card";
-      if (move?.reason === "draw") {
+      if (move?.reason === "add") {
+        parts.push(`${actor} added ${what} to the hand.`);
+      } else if (move?.reason === "draw") {
         parts.push(move.count > 1 ? `${actor} drew ${move.count} cards.` : name ? `${actor} drew ${name}.` : `${actor} drew a card.`);
       } else if (move?.cause === "tribute") {
         parts.push(`${actor} Tributed ${what}.`);
