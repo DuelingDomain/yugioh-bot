@@ -576,3 +576,30 @@ directory. The core snapshot is retained. No live stack, engine-owned worktree,
 push, PR or main merge was used.
 
 Review correction: `R-FFA-SURRENDER` now records the confirmed owner timing in ADR-0002. Its no-chain FFA3/FFA4 expected failures use that ID. Leaving-seat prompt handling and immediate own-turn handoff are still owner questions.
+
+## Review finding 7: baseline investigation
+
+An isolated source copy of `ae1453bb` inside this worktree ran
+`duel-domain.spec.ts` and `duel-prompts.spec.ts` once, with one worker,
+`--retries=0`, the immutable `data/duel-engine-snap`, and the exclusive stack lock.
+The only source instrumentation collected read-only `readTableTrace` views.
+Result: **1 ordinary pass, 2 unexpected failures**, plus four authentication passes.
+
+- Domain: Turn 3, phase `end`, hand count 7, prompt `p10-12`, kind `cards`,
+  title `Select the card(s) to discard`, min/max 1/1. The trace records the
+  initial five-card hand and one-card draws on turns 1 and 3. The Deck Master
+  summon does not consume a hand card. `firstTurnDrawFor("domain", 5)` returns
+  true; the extra first-turn draw therefore creates the unanswered hand-limit
+  discard. Domain core SHA-256:
+  `16f60edf2c1e246886d1962fad32238fde0dd969c36bc959251df488c83aefc7`.
+- Number/order: Turn 1 Main Phase, prompt `p2-4`, kind `order`, title
+  `Choose the card order`, min/max 3/3, three options. The UI uses
+  `0 of 3 ordered`, while the spec asks for `0 of 3 selected`.
+  This is a stale text assertion, not a missing engine prompt. The separate
+  card-name/card-pick test passes. Standard core SHA-256:
+  `00b4b9e79da85ccf06042877247af25e82ff1493525f8af8f47ca8b5b2614ab1`.
+
+Neither 1v1 specs, creator text, draw policy nor host startup flags were changed.
+The HEAD comparison and final verification totals follow below. The new optional
+`E2E_PROMPT_TRACE=1` evidence collection only reads the debug endpoint; it has no
+prompt-answer or rule side effects. Q3 still requires the engine owner's decision.

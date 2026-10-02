@@ -384,6 +384,15 @@ async function collect(testInfo: TestInfo, recorders: PlayerEvidence[], extras: 
     const slug = recorder.currentSlug();
     const room = slug ? await recorder.room(slug) : { error: "this player never opened a duel" };
     const body = roomBody(room);
+    // Opt-in read-only diagnostics for owner-rule investigations; never answer a prompt.
+    const page = recorder.context.pages()[0];
+    if (slug && page && process.env.E2E_PROMPT_TRACE === "1") {
+      try {
+        const { readTableTrace } = await import("./table");
+        await save(`prompt-trace-${recorder.key}.json`, json(await readTableTrace(page, slug)), "application/json");
+      } catch { /* Keep the original test failure if the debug endpoint is unavailable. */ }
+    }
+
     const prompt = body?.engine?.prompt ?? null;
     if (slug && body && !duels.has(slug)) duels.set(slug, { session: body.session, log: body.engine?.log });
     players.push({
