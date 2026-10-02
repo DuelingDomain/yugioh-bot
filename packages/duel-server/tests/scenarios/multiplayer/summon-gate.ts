@@ -156,9 +156,10 @@ export const SUMMON_GATE_SCENARIOS: Scenario[] = [
       specialSummon(AA, "p1"), select(K, FV),
       specialSummon(MW, "p1"), select(HE, AA),
       changePhase("battle", "p1"),
-      activate(URGENT, "p2"), pass("p3"), pass("p0"), select(K, FV),
+      // Partner materials make another Synchro legal; select the intended monster first.
+      activate(URGENT, "p2"), pass("p3"), pass("p0"), select(AA), select({ card: K, owner: "p2" }, { card: FV, owner: "p2" }),
       pass("p0"), activate(URGENT, "p3"), pass("p0"), pass("p3"), select(K, FV),
-      activate(URGENT, "p0"), select(K, FV),
+      activate(URGENT, "p0"), select(AA), select({ card: K, owner: "p0" }, { card: FV, owner: "p0" }),
       expectPrompt({ by: "p1", offers: ["to_m2", "to_ep"] }),
       everySeat("tag", { p0: responderEnd(1, 1, true), p1: { ...responderEnd(0, 2), hand: [ELF] }, p2: responderEnd(1, 1), p3: responderEnd(2, 1) }),
     ],
