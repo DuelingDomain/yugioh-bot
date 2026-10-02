@@ -582,7 +582,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       inputSuspended={confirmSurrender || sidePanelOpen}
       fxActive={!error && !realtime.recovering} busy={busy || Boolean(error) || catchingUp}
       initialOutOrder={eliminationOrder(liveController.engine)}
-      connection={{ ...realtime, stale: roomStale, error: Boolean(error) }}
+      connection={{ ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy }}
       actions={{ onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame,
         onOpenSide: () => setSideOpen(true) }}
       headerTools={<>

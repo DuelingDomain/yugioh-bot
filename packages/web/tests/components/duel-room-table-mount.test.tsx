@@ -138,6 +138,18 @@ describe("live room table mount", () => {
     expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
   });
 
+  it("keeps manual catch-up available while recovering", async () => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.recovering = true;
+    mount();
+    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    const retry = screen.getByRole("button", { name: "Catch up now" });
+    expect(retry).not.toBeDisabled();
+    await act(async () => { fireEvent.click(retry); });
+    expect(state.resync).toHaveBeenCalledTimes(1);
+    expect(state.send).not.toHaveBeenCalled();
+  });
+
   it("does not answer seat hotkeys behind the room's surrender modal", async () => {
     room(FFA3_FIXTURES.states["choose-opponent"].room);
     mount();

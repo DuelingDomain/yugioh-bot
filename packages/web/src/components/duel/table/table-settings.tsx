@@ -16,6 +16,8 @@ import type { TableController } from "./types";
 export type TableConnection = Pick<DuelWebsocketState, "connected" | "syncing" | "recovering" | "presence" | "resync"> & {
   stale?: boolean;
   error?: boolean;
+  /** HTTP action in flight, distinct from the connection gate that blocks duel answers. */
+  actionBusy?: boolean;
 };
 
 export function TableSettings({ controller, preferences, connection, tools }: {
@@ -68,7 +70,7 @@ export function TableSettings({ controller, preferences, connection, tools }: {
             ? "Catching up to the current duel. Actions resume when the latest state arrives."
             : connection.connected && !connection.recovering && !connection.error ? "Live updates connected."
               : "Reconnecting live updates; polling for the latest state."}</p>
-          {!terminal ? <Button type="button" size="sm" variant="secondary" disabled={controller.busy || connection.syncing}
+          {!terminal ? <Button type="button" size="sm" variant="secondary" disabled={(connection.actionBusy ?? controller.busy) || connection.syncing}
             onClick={() => {
               setResyncError(null);
               void connection.resync().catch(() => setResyncError("Could not catch up. Check your connection and retry."));
