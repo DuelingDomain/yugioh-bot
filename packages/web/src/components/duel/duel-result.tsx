@@ -41,6 +41,11 @@ export type DuelResultScreenProps = {
   onSeriesChanged?: () => void;
   /** Series only: go to the next game's room. */
   onNavigate?: (slug: string) => void;
+  /**
+   * Tables of 3 or more seats: the final standing. The scoreboard becomes a list in this order, each row with its
+   * place. `label` is the place in words ("1st"). Absent: the two-column scoreboard of a duel of two.
+   */
+  placings?: ReadonlyArray<{ seat: number; place: number; label: string }>;
 };
 
 // ---------------------------------------------------------------------------
@@ -301,8 +306,15 @@ const subscribeNever = () => () => undefined;
 const readBody = () => document.body;
 const readNoBody = () => null;
 
-export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, onOpenSide, onSeriesChanged, onNavigate }: DuelResultScreenProps) {
-  const model = useMemo(() => describeDuelResult(room), [room]);
+export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, onOpenSide, onSeriesChanged, onNavigate, placings }: DuelResultScreenProps) {
+  const described = useMemo(() => describeDuelResult(room), [room]);
+  const model = useMemo(() => {
+    if (!placings || placings.length === 0) return described;
+    const order = new Map(placings.map((entry, index) => [entry.seat, index]));
+    const scores = [...described.scores].sort((a, b) => (order.get(a.seat) ?? 99) - (order.get(b.seat) ?? 99));
+    return { ...described, scores };
+  }, [described, placings]);
+  const placeOf = useMemo(() => new Map((placings ?? []).map((entry) => [entry.seat, entry])), [placings]);
   const { outcome } = model;
   const host = useSyncExternalStore(subscribeNever, readBody, readNoBody);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -435,9 +447,12 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
         {model.reason ? <p id={reasonId} className={styles.reason}>{model.reason}</p> : null}
 
         {model.scores.length > 0 ? (
-          <ul className={styles.scoreboard} aria-label="Final Life Points">
+          <ul className={styles.scoreboard} aria-label={placings ? "Final standings" : "Final Life Points"} data-placings={placings ? "true" : undefined}>
             {model.scores.map((score) => (
-              <li key={score.seat} className={styles.score} data-winner={score.isWinner ? "true" : "false"} data-out={score.lp <= 0 ? "true" : "false"}>
+              <li key={score.seat} className={styles.score} data-winner={score.isWinner ? "true" : "false"} data-out={score.lp <= 0 ? "true" : "false"} data-seat={score.seat}>
+                {placeOf.has(score.seat) ? (
+                  <span className={styles.place} data-place={placeOf.get(score.seat)?.place}>{placeOf.get(score.seat)?.label}</span>
+                ) : null}
                 {score.deckMaster ? (
                   <img
                     className={styles.dmArt}
