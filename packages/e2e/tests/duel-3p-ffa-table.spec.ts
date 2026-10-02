@@ -303,7 +303,7 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(errors).toEqual([]);
   });
 
-  test("a queued surrender shows Leaving before out and rebuilds the out chip on reload", async ({ player }, info) => {
+  test("current engine: queued surrender without an open chain shows Leaving until the turn ends", async ({ player }, info) => {
     const alice = await player("p1");
     const bob = await player("p2");
     const errors = collectTableErrors(alice.page, [bob.page]);
@@ -312,11 +312,13 @@ test.describe("FFA3 real-engine table rules", () => {
     const { slug } = await startTable([alice, bob], "ffa3 leaving", [
       { main: withFiller([FILLER], 40) }, { main: withFiller([FILLER], 40) },
     ], { ...options, bots: [2] });
+    await expectRealCore(alice.page, slug, "practice", info, 1);
     await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
     await pickLegalZone(alice.page, "mz");
     await openOptions(alice.page);
     await endTurn(alice.page, 2);
     const response = alice.page.waitForResponse((reply) => reply.url().endsWith(`/api/duels/${slug}/surrender`) && reply.request().method() === "POST");
+    expect((await readTable(alice.page, slug)).engine!.chain).toHaveLength(0);
     await surrender(alice.page);
     const pending = await (await response).json();
     expect(pending.engine.seats[0].pendingElimination).toBe(true);
@@ -333,7 +335,7 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(errors).toEqual([]);
   });
 
-  test("a complete practice-bot versus practice-bot versus human simulation ends with a winner and engine placings", async ({ player }, info) => {
+  test("an API-driven human auto-pass simulation ends with a loss screen and engine placings", async ({ player }, info) => {
     test.setTimeout(240_000);
     const alice = await player("p1");
     const errors = collectTableErrors(alice.page);
@@ -342,10 +344,14 @@ test.describe("FFA3 real-engine table rules", () => {
     let engine = (await readTable(alice.page, slug)).engine!;
     const deadline = Date.now() + 200_000;
     const views: DuelEngineView[] = [];
-    while (!engine.result && Date.now() < deadline) {
+    // The human is driven through HTTP; only the result/standings are browser proof here.
+    for (let step = 0; step < 500 && !engine.result && Date.now() < deadline; step += 1) {
+      const revision = engine.revision;
       if (engine.prompt?.seat === 0) await answerTable(alice.page, slug, engine, decide(engine.prompt, { wants: [] }).answer);
-      await alice.page.waitForTimeout(100);
-      engine = (await readTable(alice.page, slug)).engine!;
+      await expect.poll(async () => {
+        engine = (await readTable(alice.page, slug)).engine!;
+        return Boolean(engine.result || engine.revision !== revision);
+      }, { timeout: 20_000 }).toBe(true);
       if (views.at(-1)?.revision !== engine.revision) views.push(engine);
     }
     expect(engine.result, `last state: ${JSON.stringify(engine)}`).not.toBeNull();
@@ -354,11 +360,13 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(losers).toHaveLength(2);
     expect(new Set([...losers, engine.result!.winnerSeat]).size).toBe(3);
     const result = alice.page.getByTestId("duel-result");
-    await expect(result).toBeVisible();
+    await expect(result).toHaveAttribute("data-outcome", "lose");
     await expect(result.locator("[data-place]")).toHaveText(["1st", "2nd", "3rd"]);
     const order = [engine.result!.winnerSeat!, ...[...engine.eliminationOrder!].reverse().flat()];
     const room = await readTable(alice.page, slug);
     const rows = result.getByRole("list", { name: "Final standings" }).getByRole("listitem");
+    await expect(rows).toHaveCount(3);
+    expect(await rows.evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute("data-seat"))))).toEqual(order);
     for (const [index, seat] of order.entries()) await expect(rows.nth(index)).toContainText(room.session.seats[seat]!.displayName);
     await info.attach("complete-simulation-engine-views", { body: JSON.stringify(views, null, 2), contentType: "application/json" });
     await tableShot(alice.page, slug, info, "simulation-result");

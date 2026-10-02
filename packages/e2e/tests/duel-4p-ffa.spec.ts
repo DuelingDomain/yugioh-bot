@@ -176,7 +176,7 @@ test.describe("4-player FFA", () => {
     }
   });
 
-  test("a direct attack asks which duelist, a surrender removes one seat, the last duelist wins", async ({ player }) => {
+  test("current engine: direct attack picks one rival, queued surrenders land at turn boundaries, last duelist wins", async ({ player }) => {
     const seats = await openSeats(player);
     await startTable(seats, "ffa4 pick surrender", decks([FILLER, FILLER]));
     const [alice, bob, carol, dave] = seats as [Seat, Seat, Seat, Seat];
