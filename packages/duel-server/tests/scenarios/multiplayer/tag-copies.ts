@@ -18,6 +18,7 @@ const GUARDIAN = "Celtic Guardian";
 const AXE = "Axe Raider";
 const FANG = "Silver Fang";
 const BEAVER = "Beaver Warrior";
+const SKULL = "Summoned Skull";
 const RAT = "Giant Rat";
 const SANGAN = "Sangan";
 const WITCH = "Witch of the Black Forest";
@@ -278,6 +279,57 @@ export const TAG_COPY_SCENARIOS: Scenario[] = [
         p1: { hand: [RAT, FANG, ELF] },
         p2: { hand: [ELF] },
         p3: { hand: [RAT, OX], monsters: [SANGAN] },
+      }),
+    ],
+  }),
+  // Kaiser Colosseum: "neither player can control more monsters than their opponent". In Tag the limit counts the JOINED field of the summoning team.
+  // p1 uses Soul Exchange on a monster of the team of p0, then Tribute Summons Summoned Skull with it.
+  defineScenario({
+    id: "tag-copies-kaiser-colosseum-summoning-team-stays-within-the-limit",
+    title: "Tag: the team of p0 controls 2 monsters and Kaiser Colosseum, the team of p1 controls none: Soul Exchange and the Tribute Summon of Summoned Skull by p1 are allowed (1 monster is not more than the 1 left)",
+    source: TAG_PARTNER,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "compare", "tag", "card:35059553", "card:68005187"],
+    setup: {
+      format: "tag",
+      p0: { monsters: [OX, GUARDIAN], spells: ["Kaiser Colosseum"] },
+      p1: { hand: [SKULL, "Soul Exchange"] },
+    },
+    steps: [
+      endTurn("p0"),
+      activate("Soul Exchange", "p1"),
+      select(OX),
+      expectOffered("tributeSummon", SKULL, "p1"),
+      normalSummon(SKULL, "p1"),
+      select(OX),
+      everyTagSeat({
+        p0: { monsters: [GUARDIAN], spells: ["Kaiser Colosseum"], grave: [OX] },
+        p1: { monsters: [SKULL], grave: ["Soul Exchange"], hand: [ELF] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "tag-copies-kaiser-colosseum-partner-monster-counts-for-the-limit",
+    title: "Tag: as above, but the partner p3 controls a monster: with the Skull the team of p1 would hold 2 monsters against 1, so the Tribute Summon is not offered",
+    source: TAG_PARTNER,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "compare", "tag", "card:35059553", "card:68005187"],
+    setup: {
+      format: "tag",
+      p0: { monsters: [OX, GUARDIAN], spells: ["Kaiser Colosseum"] },
+      p1: { hand: [SKULL, "Soul Exchange"] },
+      p3: { monsters: [BEAVER] },
+    },
+    steps: [
+      endTurn("p0"),
+      activate("Soul Exchange", "p1"),
+      select(OX),
+      expectNotOffered("tributeSummon", SKULL, "p1"),
+      // The Tribute of Soul Exchange is paid by the summon, which never starts: the monsters of p0 stay.
+      everyTagSeat({
+        p0: { monsters: [OX, GUARDIAN], spells: ["Kaiser Colosseum"] },
+        p1: { hand: [SKULL, ELF], grave: ["Soul Exchange"] },
+        p3: { monsters: [BEAVER] },
       }),
     ],
   }),
