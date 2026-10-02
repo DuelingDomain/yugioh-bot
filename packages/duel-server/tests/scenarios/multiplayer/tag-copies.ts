@@ -204,4 +204,81 @@ export const TAG_COPY_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
+  // Three in One: Quick-Play Spell, End Phase of an opponent turn, "your opponent has more cards in the hand and on the field".
+  // p0 holds 3 cards (the set Three in One and 2 in the hand). p1 draws in its turn.
+  defineScenario({
+    id: "tag-copies-three-in-one-opposing-member-has-more",
+    title: "Tag: p1 holds 4 cards in its own End Phase, more than p0 (3): Three in One is offered and Special Summons 3 Normal Monsters from the Graveyard of p0",
+    source: TAG_PARTNER,
+    rules: ["R-TAG-PARTNER"],
+    tags: ["multiplayer", "compare", "tag", "card:50838440"],
+    setup: {
+      format: "tag",
+      p0: { hand: [FANG, BEAVER], spells: [{ card: TIO, pos: "set" }], grave: [OX, GUARDIAN, AXE] },
+      p1: { hand: [RAT, FANG, OX] },
+    },
+    steps: [
+      endTurn("p0"),
+      changePhase("end", "p1"),
+      expectOffered("activate", TIO, "p0"),
+      activate(TIO, "p0"),
+      expectTurn("p2", 3),
+      everyTagSeat({
+        p0: { hand: [FANG, BEAVER], monsters: [OX, GUARDIAN, AXE], grave: [TIO] },
+        p1: { hand: [RAT, FANG, OX, ELF] },
+        p2: { hand: [ELF] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "tag-copies-three-in-one-hand-of-the-partner-does-not-count",
+    title: "Tag: p1 holds 3 cards in its End Phase (as many as p0) and the partner p3 holds 2 more: Three in One is not offered, the hand is the own hand only [R-TAG-SHARED-CARDS]",
+    source: `${SOURCE} [R-TAG-SHARED-CARDS]`,
+    rules: ["R-TAG-SHARED-CARDS"],
+    tags: ["multiplayer", "compare", "tag", "card:50838440"],
+    setup: {
+      format: "tag",
+      p0: { hand: [FANG, BEAVER], spells: [{ card: TIO, pos: "set" }], grave: [OX, GUARDIAN, AXE] },
+      p1: { hand: [RAT, FANG] },
+      p3: { hand: [RAT, OX] },
+    },
+    steps: [
+      endTurn("p0"),
+      // p0 gets no window in the End Phase of p1 (nothing of p0 can be activated): the turn goes on to p2.
+      endTurn("p1"),
+      expectTurn("p2", 3),
+      everyTagSeat({
+        p0: { hand: [FANG, BEAVER], spells: [TIO], grave: [OX, GUARDIAN, AXE] },
+        p1: { hand: [RAT, FANG, ELF] },
+        p2: { hand: [ELF] },
+        p3: { hand: [RAT, OX] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "tag-copies-three-in-one-monster-of-the-partner-counts",
+    title: "Tag: p1 holds 3 cards in its End Phase and the partner p3 controls a monster (the field is joined): the opposing team has 4 against 3 of p0 and Three in One is offered",
+    source: `${SOURCE} [R-TAG-SHARED-CARDS]`,
+    rules: ["R-TAG-SHARED-CARDS"],
+    tags: ["multiplayer", "compare", "tag", "card:50838440"],
+    setup: {
+      format: "tag",
+      p0: { hand: [FANG, BEAVER], spells: [{ card: TIO, pos: "set" }], grave: [OX, GUARDIAN, AXE] },
+      p1: { hand: [RAT, FANG] },
+      p3: { hand: [RAT, OX], monsters: [SANGAN] },
+    },
+    steps: [
+      endTurn("p0"),
+      changePhase("end", "p1"),
+      expectOffered("activate", TIO, "p0"),
+      activate(TIO, "p0"),
+      expectTurn("p2", 3),
+      everyTagSeat({
+        p0: { hand: [FANG, BEAVER], monsters: [OX, GUARDIAN, AXE], grave: [TIO] },
+        p1: { hand: [RAT, FANG, ELF] },
+        p2: { hand: [ELF] },
+        p3: { hand: [RAT, OX], monsters: [SANGAN] },
+      }),
+    ],
+  }),
 ];
