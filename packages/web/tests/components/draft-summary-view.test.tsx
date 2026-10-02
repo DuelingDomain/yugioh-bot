@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 vi.mock("next/font/google", () => {
   const font = () => ({ className: "font-class", variable: "font-var", style: {} });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
@@ -252,7 +252,7 @@ describe("DraftSummaryView", () => {
     expect(screen.queryByText(/your pool/i)).toBeNull();
   });
 
-  it("renders an attribute/type breakdown of the pool", () => {
+  it("renders labelled attributes and short monster types below the tally, beside the levels chart", () => {
     render(
       <DraftSummaryView
         draft={baseDraft as any}
@@ -264,11 +264,18 @@ describe("DraftSummaryView", () => {
         myPool={samplePool}
       />,
     );
-    const attrs = screen.getByLabelText("Attributes drafted");
-    expect(attrs.textContent).toContain("LIGHT");
-    const types = screen.getByLabelText("Types drafted");
-    expect(types.textContent).toContain("Normal Monster");
-    expect(types.textContent).toContain("Spell Card");
+    const attrs = screen.getByRole("list", { name: "Attributes drafted" });
+    expect(attrs).toHaveTextContent("Light 1");
+    const types = screen.getByRole("list", { name: "Monster kinds drafted" });
+    expect(types).toHaveTextContent("Normal 1");
+    expect(types).not.toHaveTextContent(/Spell|Trap|Monster/);
+    expect(screen.getByText("Attribute")).toBeInTheDocument();
+    expect(types.previousElementSibling).toHaveTextContent("Monsters");
+    const chipRows = attrs.parentElement!.parentElement!;
+    const header = chipRows.parentElement!;
+    expect(header.children[0]).toHaveTextContent("1Monsters1Spells1Traps0Extra deck");
+    expect(header.children[1]).toBe(chipRows);
+    expect(within(header.children[2] as HTMLElement).getByText("Monster levels")).toBeInTheDocument();
   });
 
   it("lazily loads and shows the full pool when expanded", async () => {
@@ -309,6 +316,14 @@ describe("DraftSummaryView", () => {
         {...props}
       />,
     );
+
+  it.each([
+    [45, "45 s"], [60, "1 min"], [90, "1 min 30 s"], [600, "10 min"],
+  ])("formats a %i-second pick in the finished Setup panel as %s", (seconds, text) => {
+    renderView({ ...baseDraft, config: { ...baseDraft.config, pickSeconds: seconds } });
+    const setup = screen.getByRole("heading", { name: "Setup" }).closest("section")!;
+    expect(within(setup).getByText("Pick duration").nextElementSibling).toHaveTextContent(text);
+  });
 
   it("shows Build your deck as a link to the draft deck editor", () => {
     renderView({ ...baseDraft, participantPickCount: 15 });

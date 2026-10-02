@@ -41,7 +41,7 @@ export function LiveDraftRow({ draft }: { draft: DraftListItem }) {
   const linked = Boolean(draftHref(draft));
   return (
     <Row draft={draft} you>
-      <div>
+      <div className={styles.details}>
         <p className="tl-name">{draft.name}</p>
         <p className="tl-meta">
           <span className="live-pill">Drafting</span>
@@ -74,9 +74,9 @@ export function LiveDraftRow({ draft }: { draft: DraftListItem }) {
         />
       </div>
       {linked && (
-        <div className="tl-side">
+        <div className={`tl-side ${styles.side}`}>
           <span className="chip chip-pen">Open draft room</span>
-          <ChevronRight className="ic" aria-hidden="true" />
+          <ChevronRight className={`ic ${styles.chevron}`} aria-hidden="true" />
         </div>
       )}
     </Row>
@@ -89,7 +89,7 @@ export function WaitingDraftRow({ draft }: { draft: DraftListItem }) {
   const linked = Boolean(draftHref(draft));
   return (
     <Row draft={draft}>
-      <div>
+      <div className={styles.details}>
         <p className="tl-name">{draft.name}</p>
         <p className="tl-meta">
           <span className="status">
@@ -104,15 +104,19 @@ export function WaitingDraftRow({ draft }: { draft: DraftListItem }) {
               Created {created}
             </>
           )}
+          <span className={styles.joined}>
+            <Dot />
+            <span aria-label={`${playersLabel(draft.playerCount)} joined`}>{draft.playerCount} joined</span>
+          </span>
         </p>
       </div>
-      <div className={`seats-mini ${styles.count}`} aria-label={`${playersLabel(draft.playerCount)} joined`}>
+      <div className={`seats-mini ${styles.count}`} aria-hidden="true">
         <b>{draft.playerCount}</b>
         <small>joined</small>
       </div>
       {linked && (
-        <div className="tl-side">
-          <ChevronRight className="ic" aria-hidden="true" />
+        <div className={`tl-side ${styles.waitingSide}`}>
+          <ChevronRight className={`ic ${styles.chevron}`} aria-hidden="true" />
         </div>
       )}
     </Row>

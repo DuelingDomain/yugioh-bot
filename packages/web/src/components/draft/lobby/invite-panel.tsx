@@ -41,7 +41,7 @@ export function InvitePanel({ slug }: { slug: string }) {
           </button>
         </div>
       </div>
-      <p className="small">Players can also join from Discord with <code className="cmd">/draft join</code>.</p>
+      <p className="small">Players can also join from Discord with <code className={`cmd ${styles.joinCommand}`}>/draft join</code>.</p>
     </section>
   );
 }

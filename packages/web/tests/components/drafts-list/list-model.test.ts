@@ -45,6 +45,9 @@ describe("labels", () => {
   });
   it("formats the pick time", () => {
     expect(pickLabel(45)).toBe("45 s a pick");
+    expect(pickLabel(60)).toBe("1 min a pick");
+    expect(pickLabel(90)).toBe("1 min 30 s a pick");
+    expect(pickLabel(600)).toBe("10 min a pick");
     expect(pickLabel(0)).toBeNull();
   });
 });
@@ -53,7 +56,7 @@ describe("liveTrack", () => {
   it("cube draft: pack and pick are one-based", () => {
     const t = liveTrack(item());
     expect(t.stations.map((s) => s.code)).toEqual(["LB", "DR", "DK"]);
-    expect(t.stations[1].name).toBe("Pack 2 of 3");
+    expect(t.stations[1].name).toBe("Draft");
     expect(t.current).toBe(1);
     expect(t.caption).toEqual(["Pack 2 of 3", "pick 4"]);
   });

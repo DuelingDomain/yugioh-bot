@@ -1,4 +1,5 @@
 import { isMonster, isSpell, isTrap, type CardSummary } from "@/lib/card-types";
+import { formatPickSeconds } from "../pick-time";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -38,4 +39,4 @@ export function themeSelectionText(selection: "player_pick" | "random", unique: 
   return `${selection === "random" ? "Random" : "Players pick"}, ${unique ? "all different" : "can repeat"}`;
 }
 
-export const secondsText = (s: number) => `${s} s`;
+export const secondsText = (s: number) => formatPickSeconds(s);

@@ -18,6 +18,13 @@ describe("CreateThemeDraftForm", () => {
     render(<CreateThemeDraftForm />);
 
     await screen.findByRole("option", { name: "#drafts" });
+    expect(screen.getByLabelText(/draft name/i)).toHaveAttribute("placeholder", "Theme night");
+    expect(screen.getByLabelText(/draft name/i).closest(".mk-secs")?.className).toMatch(/sections/);
+    expect(screen.getByLabelText(/main deck size/i)).toHaveValue(40);
+    expect(screen.getByLabelText(/extra deck size/i)).toHaveValue(15);
+    expect(screen.getByRole("checkbox", { name: /draft an extra deck/i })).toBeChecked();
+    expect(screen.getByLabelText(/choices per pick/i)).toHaveValue(3);
+    expect(screen.getByLabelText(/pick duration/i)).toHaveValue(45);
 
     const selection = screen.getByRole("group", { name: /theme selection/i });
     expect(selection.tagName).toBe("FIELDSET");

@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { packsSentence, poolRowText, tallyPool, themeSelectionText } from "../src/components/draft/create/format";
+import { packsSentence, poolRowText, secondsText, tallyPool, themeSelectionText } from "../src/components/draft/create/format";
 import type { CardSummary } from "../src/lib/card-types";
 
 const card = (type: string, qty?: number) => ({ id: 1, name: "x", type, frameType: "normal", qty }) as CardSummary;
 
 describe("new draft summary helpers", () => {
+  it.each([
+    [600, "10 min"], [90, "1 min 30 s"],
+  ])("formats a %i-second pick clock as %s", (seconds, text) => {
+    expect(secondsText(seconds)).toBe(text);
+  });
+
   it("describes the pool from live counts", () => {
     expect(poolRowText(2, 36)).toBe("2 sets, 36 passcodes");
     expect(poolRowText(1, 0)).toBe("1 set");

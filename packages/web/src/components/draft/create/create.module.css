@@ -1,28 +1,33 @@
 /* Board-only df-* styles for the new draft screens (b21), under local names. */
 
 /* chooser */
-.choose { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 16px; max-width: 920px; }
-.kind { position: relative; display: grid; align-content: start; gap: 10px; padding: 24px 24px 22px; border: 1px solid var(--rule-lo); border-radius: 6px; background: linear-gradient(180deg, rgb(19 32 55 / 0.5), rgb(10 17 32 / 0.86)); color: var(--ink); text-decoration: none; transition: border-color 160ms var(--ease), translate 160ms var(--ease); }
+.choose { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 16px; }
+.kind { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 24px 24px 22px; border: 1px solid var(--rule-lo); border-radius: 6px; background: linear-gradient(180deg, rgb(19 32 55 / 0.5), rgb(10 17 32 / 0.86)); color: var(--ink); text-decoration: none; transition: translate 160ms var(--ease); }
 .kind:hover { border-color: rgb(155 126 255 / 0.55); translate: 0 -2px; }
 .kind:focus-visible { outline: 2px solid var(--pen); outline-offset: 3px; }
-.kind .fan { justify-self: start; margin: -4px 0 6px -8px; }
-.kt { font: 400 26px/1.1 var(--f-disp); letter-spacing: -0.01em; }
+.kind .fan { align-self: flex-start; margin: -4px 0 6px -8px; }
+.kt { color: var(--pen-ink); font: 400 26px/1.1 var(--f-disp); letter-spacing: -0.01em; }
 .kind[data-k="theme"] .kt { color: var(--chain-ink); }
 .kp { color: var(--ink-2); font-size: 14.5px; line-height: 1.55; max-width: 44ch; }
 .facts { display: grid; gap: 6px; margin: 4px 0 6px; padding: 0; list-style: none; }
 .facts li { position: relative; padding-left: 16px; color: var(--ink-3); font-size: 13px; line-height: 1.45; }
 .facts li::before { content: ""; position: absolute; left: 2px; top: 0.6em; width: 6px; height: 1px; background: var(--ink-3); }
-.go { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--pen-ink); font-size: 14px; font-weight: 450; }
-.kind[data-k="theme"] .go { color: var(--chain-ink); }
+.defaults { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 13px; line-height: 1.5; }
+:global(.ms) .kind .go:global(.btn) { align-self: flex-start; justify-content: flex-start; max-width: 100%; margin-top: 4px; border-color: var(--pen); color: var(--pen-ink); transition: none; }
+:global(.ms) .kind[data-k="theme"] .go { border-color: var(--chain); color: var(--chain-ink); }
+:global(.ms) .kind:hover .go, :global(.ms) .kind:focus-visible .go { background: var(--pen-soft); }
+:global(.ms) .kind[data-k="theme"]:hover .go, :global(.ms) .kind[data-k="theme"]:focus-visible .go { background: var(--chain-soft); }
+:global(.ms) .kind .go:active { translate: none; }
 
 /* card fan */
-.fan { position: relative; display: inline-flex; align-items: flex-end; height: 104px; padding-inline: 10px; }
-.fan img { width: 70px; height: auto; aspect-ratio: 421 / 614; border-radius: 4px; object-fit: cover; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.12), 0 14px 22px -14px #000; }
-.fan img + img { margin-left: -38px; }
+.fan { position: relative; display: inline-flex; align-items: flex-end; height: 125px; padding-inline: 10px; }
+.fan img { width: 84px; height: auto; aspect-ratio: 421 / 614; border-radius: 4px; object-fit: cover; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.12), 0 14px 22px -14px #000; }
+.fan img + img { margin-left: -46px; }
 .fan img:nth-child(1) { rotate: -9deg; translate: 0 4px; }
 .fan img:nth-child(3) { rotate: 9deg; translate: 0 4px; }
 
 /* form pieces */
+:global(.ms) .sections:global(.mk-secs) { border-top: 0; }
 .load { display: grid; gap: 0; }
 .search { display: flex; flex-wrap: wrap; gap: 8px; }
 .in { position: relative; flex: 1 1 200px; min-width: 0; }
@@ -84,8 +89,13 @@
   :global(.ms) .browseBtn { width: 42px; padding: 0; justify-content: center; }
 }
 @container (max-width: 760px) {
+  .choose { grid-template-columns: minmax(0, 1fr); }
   .kt { font-size: 22px; }
   .kind { padding: 20px 18px 18px; }
+  :global(.ms) .kind .go:global(.btn) { width: 100%; }
+  .fan { height: 104px; }
+  .fan img { width: 70px; }
+  .fan img + img { margin-left: -38px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .kind { transition: none; }

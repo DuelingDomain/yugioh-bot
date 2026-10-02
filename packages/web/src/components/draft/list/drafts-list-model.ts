@@ -1,4 +1,5 @@
 /** Row model for the drafts list (/drafts). Pure, so it is easy to test. */
+import { formatPickSeconds } from "../pick-time";
 
 export interface DraftListConfig {
   mode: "booster" | "theme";
@@ -76,7 +77,7 @@ export function playersLabel(count: number): string {
 }
 
 export function pickLabel(seconds: number): string | null {
-  return seconds > 0 ? `${seconds} s a pick` : null;
+  return seconds > 0 ? `${formatPickSeconds(seconds)} a pick` : null;
 }
 
 export function draftHref(d: Pick<DraftListItem, "webSlug">): string | null {
@@ -142,7 +143,7 @@ export function liveTrack(d: DraftListItem): LiveTrack {
   return {
     stations: [
       { code: "LB", name: "Lobby" },
-      { code: "DR", name: `Pack ${pack} of ${packs}` },
+      { code: "DR", name: "Draft" },
       { code: "DK", name: "Decks" },
     ],
     current: 1,

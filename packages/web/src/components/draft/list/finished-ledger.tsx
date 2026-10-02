@@ -11,12 +11,12 @@ export function FinishedLedger({ items }: { items: DraftListItem[] }) {
   const shown = all ? items : items.slice(0, FINISHED_PREVIEW);
   const hidden = items.length - shown.length;
   return (
-    <div className="ledger fin hr-frame">
+    <div className={`ledger fin hr-frame ${styles.ledger}`}>
       <table style={{ minWidth: 0 }}>
         <thead>
           <tr>
             <th style={{ paddingLeft: 18 }}>Draft</th>
-            <th>Kind</th>
+            <th className={styles.kindColumn}>Kind</th>
             <th className="r">Players</th>
             <th className="r" style={{ paddingRight: 18 }}>
               Ended
@@ -30,8 +30,9 @@ export function FinishedLedger({ items }: { items: DraftListItem[] }) {
               <tr key={d.id}>
                 <td className="t" style={{ paddingLeft: 18 }}>
                   {href ? <Link href={href}>{d.name}</Link> : d.name}
+                  <span className={styles.mobileKind}>{kindLabel(d.config)}</span>
                 </td>
-                <td>{kindLabel(d.config)}</td>
+                <td className={styles.kindColumn}>{kindLabel(d.config)}</td>
                 <td className="r v">{d.playerCount}</td>
                 <td className="r" style={{ paddingRight: 18 }}>
                   {d.status === "cancelled" ? (

@@ -3,6 +3,8 @@
  * and the setup rows. Kept free of React so the rules can be tested on their own.
  */
 
+import { formatPickSeconds } from "../pick-time";
+
 export interface LobbyConfig {
   mode?: "booster" | "theme";
   cardsPerPlayer?: number;
@@ -81,7 +83,7 @@ export interface SetupRow {
 }
 
 export function setupRows(config: LobbyConfig): SetupRow[] {
-  const seconds = config.pickSeconds ? `${config.pickSeconds} s` : "—";
+  const seconds = config.pickSeconds ? formatPickSeconds(config.pickSeconds) : "—";
   if (config.mode === "theme") {
     const unique = config.uniqueThemes ?? true;
     const selection = config.themeSelection ?? "player_pick";
@@ -130,4 +132,40 @@ export function splitPreflight(message: string, cubeNames: string[]): { name: st
   }
   const m = /^([^:]{1,80}):\s+(.*)$/s.exec(message);
   return m ? { name: m[1], rest: m[2] } : { name: null, rest: message };
+}
+
+export interface PreflightIssue {
+  name: string | null;
+  shortfall: { kind: "main" | "extra"; have: number; need: number } | null;
+  raw: string;
+}
+
+/** Keep unknown server messages intact so new preflight checks remain visible. */
+export function parsePreflight(message: string, cubeNames: string[]): PreflightIssue {
+  const { name, rest } = splitPreflight(message, cubeNames);
+  const main = /^Main pool has (\d+) cards? but needs at least (\d+)/.exec(rest);
+  const extra = /^Extra pool has (\d+) cards? but needs (\d+)/.exec(rest);
+  const match = main ?? extra;
+  return {
+    name,
+    shortfall: name && match ? { kind: main ? "main" : "extra", have: Number(match[1]), need: Number(match[2]) } : null,
+    raw: message,
+  };
+}
+
+export function mainShortfallSummary(names: string[]): string | null {
+  if (names.length === 0) return null;
+  const joined = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `${joined} can't be drafted yet. ${names.length === 1 ? "Its main pool is" : "Their main pools are"} too small.`;
+}
+
+export function mainShortfallFix(count: number): string {
+  return count > 1
+    ? "Add cards to those cubes, or remove those themes."
+    : "Add cards to the cube, or remove the theme.";
+}
+
+export function extraShortfallSummary(count: number): string | null {
+  if (count === 0) return null;
+  return `${plural(count, "theme")} may run short on Extra deck cards, so ${count === 1 ? "that player" : "those players"} could end with fewer. You can start anyway.`;
 }

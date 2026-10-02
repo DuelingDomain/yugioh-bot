@@ -1,11 +1,17 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { SheetRoot } from "@/components/sheet";
+import { SheetRoot, StationTrack } from "@/components/sheet";
 import styles from "@/components/draft/create/create.module.css";
 
 /** Fixed, well-known cards for the fans. They load through the existing card image route. */
 const CUBE_FAN = [55144522, 77585513, 44095762];
 const THEME_FAN = [62962630, 44362883, 87746184];
+const STATIONS = [
+  { code: "NW", name: "Create" },
+  { code: "LB", name: "Lobby" },
+  { code: "DR", name: "Draft" },
+  { code: "DK", name: "Decks" },
+];
 
 function Fan({ ids }: { ids: number[] }) {
   return (
@@ -30,6 +36,18 @@ export default function NewDraftPage() {
           <h1 className="t-title">New draft</h1>
           <p className="page-sub">Pick how cards reach the players. You can&apos;t switch after the draft is made.</p>
         </div>
+        <StationTrack
+          stations={STATIONS}
+          current={0}
+          tone="mine"
+          label="Where creating leads"
+          caption={
+            <>
+              <span className="at">Pick a kind</span>
+              <span className="sep">·</span>then set it up
+            </>
+          }
+        />
       </header>
       <div className={styles.choose}>
         <Link className={styles.kind} href="/drafts/new/cube">
@@ -43,7 +61,8 @@ export default function NewDraftPage() {
             <li>Packs pass left, then right</li>
             <li>40 to 60 cards each</li>
           </ul>
-          <span className={styles.go}>
+          <span className={styles.defaults}>Starts at 40 cards each, 3 packs of 15, 45 s a pick</span>
+          <span className={`btn ${styles.go}`}>
             Set up a cube draft
             <ChevronRight className="ic sm" aria-hidden="true" />
           </span>
@@ -60,7 +79,8 @@ export default function NewDraftPage() {
             <li>No passing, everyone picks at once</li>
             <li>Main deck first, then the Extra deck</li>
           </ul>
-          <span className={styles.go}>
+          <span className={styles.defaults}>Starts at 40 main and 15 Extra deck picks, 3 choices a pick, 45 s a pick</span>
+          <span className={`btn ${styles.go}`}>
             Set up a theme draft
             <ChevronRight className="ic sm" aria-hidden="true" />
           </span>
