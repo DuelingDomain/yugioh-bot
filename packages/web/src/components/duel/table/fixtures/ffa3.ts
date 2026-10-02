@@ -1,33 +1,210 @@
-import { newSeat, putMonster, putSpell, skeletonFixtureSet, TABLE_CARDS as C, type TableFixtureSet } from "./common";
+import type { DuelChainLink, DuelEngineView, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import { LOCATION_HAND, LOCATION_MZONE, zoneKey } from "../../constants";
+import {
+  fixtureEngine,
+  fixtureRoom,
+  link,
+  newSeat,
+  putMonster,
+  putSpell,
+  TABLE_CARDS as C,
+  withHiddenHands,
+  type TableFixtureSet,
+  type TableFixtureState,
+  type TableStateId,
+} from "./common";
 
 /**
- * 3-way free-for-all, "3way-final" mock: Ren Arata (you, Violet), Ryo Sato (Ice, 5400 LP), Mika Hana (Verdant, 2100 LP).
- * Scaffold skeleton: one board, the nine states derived from it. Step 3w-1 hand-makes the states as the stage lands.
+ * 3-way free-for-all, the "3way-final" mock. Ren Arata is you (seat 0, Violet, 8000 LP), Ryo Sato is Ice (seat 1, 5400 LP),
+ * Mika Hana is Verdant (seat 2, 2100 LP). It is turn 5 and Ren plays; attacks have been open since turn 3, so the
+ * battle states are real. Hand-made for the table stage: every state edits one shared board.
  */
 const NAMES = ["Ren Arata", "Ryo Sato", "Mika Hana"] as const;
+const CLOCK_MS = [192_000, 240_000, 205_000] as const;
+const REN = 0;
+const RYO = 1;
+const MIKA = 2;
 
-function makeSeats() {
-  const ren = newSeat(0, { lp: 8000, hand: [C.raigeki, C.potOfGreed, C.celtic, C.solemn, C.heavyStorm], deck: 29, extra: [C.darkPaladin, C.stardust] });
+function board(): DuelSeatView[] {
+  const ren = newSeat(REN, { lp: 8000, hand: [C.raigeki, C.potOfGreed, C.celtic, C.solemn, C.heavyStorm], deck: 29, extra: [C.darkPaladin, C.stardust] });
   putMonster(ren, 0, C.darkMagician);
   putMonster(ren, 1, C.celtic);
+  putMonster(ren, 5, C.jinzo);
   putSpell(ren, 0, null);
-  const ryo = newSeat(1, { lp: 5400, hand: [null, null, null, null], deck: 30, extra: [null, null] });
+  putSpell(ren, 1, null);
+  const ryo = newSeat(RYO, { lp: 5400, hand: [null, null, null, null], deck: 30, extra: [null, null] });
   putMonster(ryo, 1, C.blueEyes);
+  putMonster(ryo, 3, C.envoy);
   putSpell(ryo, 0, null);
-  putSpell(ryo, 1, C.mirrorForce);
-  const mika = newSeat(2, { lp: 2100, hand: [null, null, null], deck: 27, extra: [null] });
+  putSpell(ryo, 1, null);
+  putSpell(ryo, 2, null);
+  const mika = newSeat(MIKA, { lp: 2100, hand: [null, null, null], deck: 27, extra: [null] });
   putMonster(mika, 0, C.redEyes);
   putMonster(mika, 2, C.gaia);
-  putSpell(mika, 0, C.callOfTheHaunted);
+  putSpell(mika, 0, null);
   putSpell(mika, 1, null);
   return [ren, ryo, mika];
 }
 
-export const FFA3_FIXTURES: TableFixtureSet = skeletonFixtureSet({
-  format: "ffa3",
-  title: "3-way free-for-all",
-  names: NAMES,
-  makeSeats,
-  turn: 5,
-  clockMs: [192_000, 240_000, 205_000],
+const monsterOption = (seat: number, sequence: number, label: string): DuelPromptOption => ({
+  id: `m${seat}-${sequence}`,
+  label,
+  controller: seat,
+  location: LOCATION_MZONE,
+  sequence,
 });
+
+const handOption = (sequence: number, label: string): DuelPromptOption => ({
+  id: `h${sequence}`,
+  label: `Activate ${label}`,
+  controller: REN,
+  location: LOCATION_HAND,
+  sequence,
+});
+
+function foeMonsterOptions(seats: DuelSeatView[]): DuelPromptOption[] {
+  return [RYO, MIKA].flatMap((seat) =>
+    seats[seat].monsters.flatMap((card, sequence) => (card && sequence < 7 ? [monsterOption(seat, sequence, card.name ?? "Monster")] : [])),
+  );
+}
+
+interface Spec {
+  viewerSeat?: number | null;
+  turnSeat?: number;
+  phase?: string;
+  battleStep?: DuelEngineView["battleStep"];
+  edit?: (seats: DuelSeatView[]) => void;
+  prompt?: (seats: DuelSeatView[]) => DuelPrompt | null;
+  chain?: DuelChainLink[];
+  result?: DuelEngineView["result"];
+  ui?: TableFixtureState["ui"];
+}
+
+function make(id: TableStateId, label: string, spec: Spec = {}): TableFixtureState {
+  const viewerSeat = spec.viewerSeat === undefined ? REN : spec.viewerSeat;
+  let seats = board();
+  spec.edit?.(seats);
+  // A rival, or a spectator, never sees a hand: the engine sends hidden cards. Only the viewer's own hand stays face up.
+  seats = viewerSeat == null ? withHiddenHands(seats) : seats;
+  const engine = fixtureEngine({
+    format: "ffa3",
+    seats,
+    turn: 5,
+    turnSeat: spec.turnSeat ?? REN,
+    phase: spec.phase ?? "main1",
+    battleStep: spec.battleStep,
+    prompt: spec.prompt?.(seats) ?? null,
+    chain: spec.chain,
+    result: spec.result,
+  });
+  return { id, label, room: fixtureRoom({ format: "ffa3", names: NAMES, viewerSeat, engine, clockMs: CLOCK_MS }), ui: spec.ui };
+}
+
+const attackerKey = zoneKey(REN, LOCATION_MZONE, 0);
+
+const states = {
+  main: make("main", "Main Phase", {
+    prompt: () => ({
+      id: "main-action",
+      seat: REN,
+      kind: "choice",
+      title: "Main Phase 1",
+      context: { type: "action", phase: "main" },
+      options: [handOption(0, C.raigeki.name), handOption(2, C.celtic.name), handOption(4, C.heavyStorm.name)],
+    }),
+  }),
+  "battle-aim": make("battle-aim", "Battle: aim an attack", {
+    phase: "battle",
+    battleStep: "battle",
+    prompt: (seats) => ({
+      id: "attack-target",
+      seat: REN,
+      kind: "cards",
+      title: "Select an attack target",
+      min: 1,
+      max: 1,
+      options: foeMonsterOptions(seats),
+    }),
+    ui: { aim: { mode: "aim", from: attackerKey, to: { zones: [zoneKey(RYO, LOCATION_MZONE, 1)] } } },
+  }),
+  "chain-2": make("chain-2", "Chain link 2: respond", {
+    phase: "battle",
+    battleStep: "battle",
+    edit: (seats) => {
+      putSpell(seats[RYO], 1, C.mirrorForce);
+      putSpell(seats[MIKA], 0, C.callOfTheHaunted);
+    },
+    chain: [link(1, RYO, C.mirrorForce), link(2, MIKA, C.callOfTheHaunted)],
+    prompt: () => ({
+      id: "chain-2",
+      seat: REN,
+      kind: "choice",
+      title: `${NAMES[MIKA]} activated ${C.callOfTheHaunted.name}. Respond?`,
+      context: { type: "chain", forced: false },
+      options: [
+        { id: "activate", label: `Activate ${C.solemn.name}`, card: C.solemn },
+        { id: "pass", label: "Pass" },
+      ],
+    }),
+  }),
+  "target-pick": make("target-pick", "Pick a target", {
+    prompt: (seats) => ({
+      id: "target-pick",
+      seat: REN,
+      kind: "cards",
+      title: "Select 1 monster to destroy",
+      min: 1,
+      max: 1,
+      options: foeMonsterOptions(seats),
+    }),
+  }),
+  "choose-opponent": make("choose-opponent", "Choose an opponent", {
+    prompt: () => ({
+      id: "choose-opponent",
+      seat: REN,
+      kind: "choice",
+      title: "Choose an opponent",
+      context: { type: "opponent" },
+      options: [RYO, MIKA].map((seat) => ({ id: `opp-${seat}`, label: `Choose ${NAMES[seat]} as the opponent`, controller: seat })),
+    }),
+  }),
+  "direct-attack": make("direct-attack", "Direct attack", {
+    phase: "battle",
+    battleStep: "battle",
+    edit: (seats) => {
+      seats[RYO].monsters = seats[RYO].monsters.map(() => null);
+    },
+    prompt: () => ({
+      id: "direct-attack",
+      seat: REN,
+      kind: "choice",
+      title: "Select a duelist to attack",
+      options: [{ id: `direct-${RYO}`, label: `Attack ${NAMES[RYO]} directly`, controller: RYO }],
+    }),
+    ui: { aim: { mode: "aim", from: attackerKey, to: { lpSeat: RYO } } },
+  }),
+  elimination: make("elimination", "Elimination", {
+    phase: "battle",
+    battleStep: "damage",
+    edit: (seats) => {
+      const mika = seats[MIKA];
+      mika.lp = 0;
+      mika.eliminated = true;
+      mika.hand = [];
+      mika.monsters = mika.monsters.map(() => null);
+      mika.spells = mika.spells.map(() => null);
+    },
+  }),
+  spectator: make("spectator", "Spectator", { viewerSeat: null }),
+  result: make("result", "Result", {
+    edit: (seats) => {
+      for (const seat of [RYO, MIKA]) {
+        seats[seat].lp = 0;
+        seats[seat].eliminated = true;
+      }
+    },
+    result: { winnerSeat: REN, winnerTeam: null, reason: "Last duelist standing" },
+  }),
+} satisfies Record<TableStateId, TableFixtureState>;
+
+export const FFA3_FIXTURES: TableFixtureSet = { format: "ffa3", title: "3-way free-for-all", states };
