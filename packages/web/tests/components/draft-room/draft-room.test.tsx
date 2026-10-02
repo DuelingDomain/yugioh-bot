@@ -37,8 +37,8 @@ const seats = [
   { seatIndex: 1, playerId: 2, displayName: "Bo", hasPicked: false, isCurrentPlayer: false },
 ];
 
-function load(over: Record<string, unknown> = {}) {
-  useDraftStore.setState({
+function serverState(over: Record<string, unknown> = {}) {
+  return {
     slug: "d",
     packRound: 1,
     pickStep: 1,
@@ -50,8 +50,30 @@ function load(over: Record<string, unknown> = {}) {
     completed: false,
     pickSeconds: 60,
     ...over,
-  } as never);
+  };
 }
+
+function load(over: Record<string, unknown> = {}) {
+  useDraftStore.setState(serverState(over) as never);
+}
+
+const response = (over: Record<string, unknown> = {}) =>
+  ({ ok: true, json: async () => serverState(over) }) as Response;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+const resolvedStep = (id: number) => ({
+  currentPack: [],
+  myPool: [serverState().currentPack.find((c) => c.id === id)!],
+  isMyTurn: false,
+  seats: seats.map((s) => ({ ...s, hasPicked: s.isCurrentPlayer })),
+});
+
+const reader = () => within(screen.getByRole("complementary", { name: "Card reader" }));
 
 const config = { packSize: 3, packsPerPlayer: 2, cardsPerPlayer: 6, pickSeconds: 60 };
 const renderRoom = (cfg: Record<string, unknown> = config) =>
@@ -125,6 +147,151 @@ describe("DraftRoom", () => {
     act(() => useDraftStore.setState({ timerSeconds: 1 }));
     act(() => useDraftStore.setState({ timerSeconds: 0 }));
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries the selected deadline pick after an earlier request clears", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const firstPick = deferred<Response>();
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(firstPick.promise)
+      .mockResolvedValueOnce(response({ timerSeconds: 2 }))
+      .mockResolvedValueOnce(response(resolvedStep(2)));
+    global.fetch = fetchMock;
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    fireEvent.click(card(1));
+    fireEvent.click(card(1));
+
+    // A poll from before the first request restores the open step.
+    act(() => load({ timerSeconds: 2 }));
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    fireEvent.click(card(2));
+    expect(card(2).getAttribute("data-sel")).not.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => firstPick.resolve({ ok: false, status: 400 } as Response));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/drafts/d/pick", "/api/drafts/d", "/api/drafts/d/pick",
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ cardId: 2 });
+    expect(useDraftStore.getState().myPool.map((c) => c.id)).toEqual([2]);
+  });
+
+  it("submits a selection made inside the last 2s immediately", async () => {
+    load({ timerSeconds: 1 });
+    renderRoom();
+    await waitFor(() => expect(card(2)).toBeTruthy());
+    expect(global.fetch).not.toHaveBeenCalled();
+    fireEvent.click(card(2));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toEqual({ cardId: 2 });
+  });
+
+  it("shows the real pick when a successful response replaces the sent card", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    global.fetch = vi.fn().mockResolvedValue(response(resolvedStep(1)));
+    renderRoom();
+    await waitFor(() => expect(card(2)).toBeTruthy());
+    fireEvent.click(card(2));
+    fireEvent.click(card(2));
+
+    await waitFor(() => expect(reader().getByText("Time ran out. You got Card 1.")).toBeTruthy());
+    expect(reader().getByText("Your pick")).toBeTruthy();
+    expect(reader().queryAllByRole("heading", { name: "Spell Two" })).toHaveLength(0);
+    expect(reader().getAllByRole("heading", { name: "Card 1" }).length).toBeGreaterThan(0);
+    expect(card(1)).toBeNull();
+    expect(card(2)).toBeTruthy();
+
+    act(() => load({ pickStep: 2, currentPack: [mk(4), mk(5)], myPool: [mk(1)] }));
+    await waitFor(() => expect(card(4)).toBeTruthy());
+    expect(reader().queryByText(/Time ran out/)).toBeNull();
+  });
+
+  it("reconciles a rejected pick with the card in the refetched pool", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValueOnce(response(resolvedStep(1)));
+    renderRoom();
+    await waitFor(() => expect(card(2)).toBeTruthy());
+    fireEvent.click(card(2));
+    fireEvent.click(card(2));
+
+    await waitFor(() => expect(reader().getByText("Time ran out. You got Card 1.")).toBeTruthy());
+    expect(reader().queryAllByRole("heading", { name: "Spell Two" })).toHaveLength(0);
+    expect(card(1)).toBeNull();
+    expect(card(2)).toBeTruthy();
+    expect(useDraftStore.getState().myPool.map((c) => c.id)).toEqual([1]);
+  });
+
+  it("clears the last pick when a rejection refetch leaves the step open", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValueOnce(response());
+    renderRoom();
+    await waitFor(() => expect(card(2)).toBeTruthy());
+    fireEvent.click(card(2));
+    fireEvent.click(card(2));
+    await waitFor(() => expect(useDraftStore.getState().isMyTurn).toBe(true));
+    await waitFor(() => expect(card(2)).toBeTruthy());
+
+    act(() => useDraftStore.setState({ isMyTurn: false, currentPack: [] }));
+    expect(reader().queryByText("Your pick")).toBeNull();
+    expect(reader().queryByText(/Time ran out/)).toBeNull();
+    expect(reader().queryAllByRole("heading", { name: "Spell Two" })).toHaveLength(0);
+  });
+
+  it("shows a pick made in another tab without submitting locally", async () => {
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    act(() => useDraftStore.getState().setFromServer(serverState(resolvedStep(1)) as never));
+
+    await waitFor(() => expect(reader().getByText("Time ran out. You got Card 1.")).toBeTruthy());
+    expect(card(1)).toBeNull();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("shows no timeout note for a card this client sent", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    global.fetch = vi.fn().mockResolvedValue(response(resolvedStep(2)));
+    renderRoom();
+    await waitFor(() => expect(card(2)).toBeTruthy());
+    fireEvent.click(card(2));
+    fireEvent.click(card(2));
+
+    await waitFor(() => expect(useDraftStore.getState().currentPack).toEqual([]));
+    expect(reader().getByText("Your pick")).toBeTruthy();
+    expect(reader().getAllByRole("heading", { name: "Spell Two" }).length).toBeGreaterThan(0);
+    expect(reader().queryByText(/Time ran out/)).toBeNull();
+  });
+
+  it("remembers every card sent in this step when reconciling the real pick", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(response(resolvedStep(2)));
+    renderRoom();
+    await waitFor(() => expect(card(2)).toBeTruthy());
+    fireEvent.click(card(2));
+    fireEvent.click(card(2));
+    await waitFor(() => expect(useDraftStore.getState().isMyTurn).toBe(true));
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    fireEvent.click(card(1));
+    fireEvent.click(card(1));
+
+    await waitFor(() => expect(useDraftStore.getState().myPool.map((c) => c.id)).toEqual([2]));
+    expect(reader().getByText("Your pick")).toBeTruthy();
+    expect(reader().getAllByRole("heading", { name: "Spell Two" }).length).toBeGreaterThan(0);
+    expect(reader().queryByText(/Time ran out/)).toBeNull();
+    expect(card(2)).toBeNull();
+    expect(card(1)).toBeTruthy();
   });
 
   it("sends no pick at 2s with nothing selected, even when hovering", async () => {

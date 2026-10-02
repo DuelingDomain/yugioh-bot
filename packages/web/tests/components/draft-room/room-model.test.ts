@@ -117,8 +117,8 @@ describe("seats", () => {
 });
 
 describe("deal reducer", () => {
-  const server = (stepKey: string, pack: RoomCard[], isMyTurn = true) =>
-    ({ type: "server", stepKey, pack, isMyTurn, completed: false, theme: false }) as const;
+  const server = (stepKey: string, pack: RoomCard[], isMyTurn = true, poolIds: number[] = []) =>
+    ({ type: "server", stepKey, pack, isMyTurn, poolIds: new Set(poolIds), completed: false, theme: false }) as const;
 
   it("deals a pack, then ignores a stale poll after your pick", () => {
     let s = dealReducer(INITIAL_DEAL, server("1:1", [card(1), card(2)]));
@@ -135,6 +135,45 @@ describe("deal reducer", () => {
     s = dealReducer(s, { type: "picked", cardId: 1 });
     s = dealReducer(s, server("1:1", [card(1), card(2)]));
     expect(s.pickedId).toBeNull();
+  });
+
+  it("removes the taken card after a stale full-pack poll and a resolved step", () => {
+    let s = dealReducer(INITIAL_DEAL, server("1:1", [card(1), card(2)]));
+    s = dealReducer(s, { type: "picked", cardId: 1 });
+    s = dealReducer(s, server("1:1", [card(1), card(2)]));
+    expect(s.pickedId).toBeNull();
+
+    s = dealReducer(s, server("1:1", [], false, [1]));
+    expect(s.pickedId).toBe(1);
+    expect(tableCards(s).map((c) => c.id)).toEqual([2]);
+    expect(s.seq).toBe(1);
+  });
+
+  it("removes a card picked in another tab from the waiting table", () => {
+    let s = dealReducer(INITIAL_DEAL, server("1:1", [card(1), card(2)]));
+    s = dealReducer(s, server("1:1", [], false, [1]));
+    expect(s.pickedId).toBe(1);
+    expect(tableCards(s).map((c) => c.id)).toEqual([2]);
+  });
+
+  it("corrects the optimistic pick when the pool contains a different dealt card", () => {
+    let s = dealReducer(INITIAL_DEAL, server("1:1", [card(1), card(2)]));
+    s = dealReducer(s, { type: "picked", cardId: 2 });
+    s = dealReducer(s, server("1:1", [], false, [1]));
+    expect(s.pickedId).toBe(1);
+    expect(tableCards(s).map((c) => c.id)).toEqual([2]);
+  });
+
+  it("keeps a pool-confirmed pick off the table even when the full pack is offered", () => {
+    let s = dealReducer(INITIAL_DEAL, server("1:1", [card(1), card(2)]));
+    s = dealReducer(s, { type: "picked", cardId: 1 });
+    expect(dealReducer(s, server("1:1", [card(1), card(2)], true, [1]))).toBe(s);
+  });
+
+  it("keeps the local pick while waiting for a pool update", () => {
+    let s = dealReducer(INITIAL_DEAL, server("1:1", [card(1), card(2)]));
+    s = dealReducer(s, { type: "picked", cardId: 1 });
+    expect(dealReducer(s, server("1:1", [], false))).toBe(s);
   });
 
   it("passes a new pack on the next step", () => {

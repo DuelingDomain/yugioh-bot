@@ -59,10 +59,12 @@ export function useRoomState(slug: string, config: RoomConfigLike, isParticipant
   const sizes = useMemo(() => roomSizes(config), [config]);
   const stepKey = stepKeyOf(packRound, pickStep);
   const [deal, dispatch] = useReducer(dealReducer, INITIAL_DEAL);
+  const poolIds = useRef<ReadonlySet<number>>(new Set());
+  poolIds.current = new Set(myPool.map((c) => c.id));
 
   useEffect(() => {
-    dispatch({ type: "server", stepKey, pack: currentPack, isMyTurn, completed, theme: sizes.theme });
-  }, [stepKey, currentPack, isMyTurn, completed, sizes.theme]);
+    dispatch({ type: "server", stepKey, pack: currentPack, poolIds: poolIds.current, isMyTurn, completed, theme: sizes.theme });
+  }, [stepKey, currentPack, myPool, isMyTurn, completed, sizes.theme]);
 
   const direction = passDirection(packRound, config.alternatePassDirection);
   const turn = turnState({
@@ -87,8 +89,6 @@ export function useRoomState(slug: string, config: RoomConfigLike, isParticipant
   /* the wheel: packs you held this round, what came back around, what left */
   const [wheelState, setWheelState] = useState<WheelState>(() => loadWheel(slug));
   const [wheel, setWheel] = useState<Wheel | null>(null);
-  const poolIds = useRef<ReadonlySet<number>>(new Set());
-  poolIds.current = new Set(myPool.map((c) => c.id));
   const tracked = useRef(0);
   const stateRef = useRef(wheelState);
   stateRef.current = wheelState;

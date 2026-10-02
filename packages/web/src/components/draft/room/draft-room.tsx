@@ -41,7 +41,7 @@ import { measureTable } from "./table-geometry";
 import { Table } from "./table";
 import { Tray } from "./tray";
 import { useMedia } from "./use-media";
-import { usePick } from "./use-pick";
+import { usePick, type PickAttempt } from "./use-pick";
 import { useRoomState } from "./use-room-state";
 
 export interface DraftRoomProps {
@@ -82,6 +82,10 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const [hoverId, setHoverId] = useState<number | null>(null);
   const [peek, setPeek] = useState<{ card: RoomCard; tag: string } | null>(null);
   const [lastPick, setLastPick] = useState<RoomCard | null>(null);
+  const [pickNote, setPickNote] = useState<string | null>(null);
+  const sentPicks = useRef<{ stepKey: string | null; ids: Set<number> }>({ stepKey: null, ids: new Set() });
+  const currentDeal = useRef(deal);
+  currentDeal.current = deal;
   const [tab, setTab] = useState<Tab>("mine");
   const [filter, setFilter] = useState<RoomFilter>(EMPTY_FILTER);
   const [sheet, setSheet] = useState<"card" | "binder" | null>(null);
@@ -182,6 +186,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     setSelectedId(null);
     setHoverId(null);
     setPeek(null);
+    setPickNote(null);
     setPassing(false);
     closeCardSheet();
   }, [deal.seq, closeCardSheet]);
@@ -194,6 +199,25 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
 
   /* ---------- picking ---------- */
   const flightRef = useRef<{ card: RoomCard; from: DOMRect | null; to: DOMRect | null } | null>(null);
+  const reconcilePick = useCallback((attempt: PickAttempt, pool: RoomCard[]) => {
+    const card = pool.find((c) => attempt.packIds.has(c.id)) ?? null;
+    setLastPick(card);
+    if (currentDeal.current.stepKey !== attempt.stepKey) return;
+    if (card) rs.picked(card.id);
+    else rs.unpicked();
+    const sentHere = sentPicks.current.stepKey === attempt.stepKey && card && sentPicks.current.ids.has(card.id);
+    setPickNote(card && !sentHere ? `Time ran out. You got ${card.name}.` : null);
+  }, [rs.picked, rs.unpicked]);
+
+  // Polls also resolve picks made by the timer or another tab.
+  useEffect(() => {
+    if (deal.stepKey == null || deal.stepKey !== rs.stepKey || !deal.dealt.length) return;
+    const packIds = new Set(deal.dealt.map((c) => c.id));
+    if (rs.pool.some((c) => packIds.has(c.id))) {
+      reconcilePick({ stepKey: deal.stepKey, packIds }, rs.pool);
+    }
+  }, [deal.stepKey, deal.dealt, rs.stepKey, rs.pool, reconcilePick]);
+
   const landCard = useCallback((card: RoomCard) => {
     setPending((cur) => {
       const next = new Set(cur);
@@ -205,7 +229,11 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   }, []);
   const hooks = useMemo(
     () => ({
-      onSent: (cardId: number) => {
+      onSent: (cardId: number, attempt: PickAttempt) => {
+        if (sentPicks.current.stepKey !== attempt.stepKey) {
+          sentPicks.current = { stepKey: attempt.stepKey, ids: new Set() };
+        }
+        sentPicks.current.ids.add(cardId);
         const f = flightRef.current;
         flightRef.current = null;
         const card = f?.card ?? useDraftStore.getState().myPool.find((c) => c.id === cardId);
@@ -215,6 +243,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         setHoverId(null);
         setPeek(null);
         setLastPick(card);
+        setPickNote(null);
         closeCardSheet();
         if (!f || !f.from || !f.to || motionOff()) {
           landCard(card);
@@ -241,20 +270,23 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
       },
       onRejected: () => {
         rs.unpicked();
+        setLastPick(null);
+        setPickNote(null);
         setPending(new Set());
       },
+      onReconciled: reconcilePick,
     }),
     // rs.picked / rs.unpicked are stable callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rs.picked, rs.unpicked, closeCardSheet, landCard],
+    [rs.picked, rs.unpicked, closeCardSheet, landCard, reconcilePick],
   );
-  const pick = usePick(slug, hooks);
+  const { pick, pending: pickPending } = usePick(slug, hooks);
 
   const doPick = useCallback(
-    (cardId: number) => {
+    (cardId: number): Promise<boolean> => {
       const root = rootRef.current;
       const card = deal.dealt.find((c) => c.id === cardId);
-      if (!root || !card) return;
+      if (!root || !card) return Promise.resolve(false);
       const el = root.querySelector<HTMLElement>(`.tcard[data-id="${cardId}"] .face`);
       const win = root.querySelector<HTMLElement>(`.slot[data-kind="${kindOf(card)}"] .win`);
       flightRef.current = {
@@ -262,8 +294,9 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         from: el ? el.getBoundingClientRect() : null,
         to: win ? win.getBoundingClientRect() : null,
       };
-      void pick(cardId).then((sent) => {
+      return pick(cardId).then((sent) => {
         if (!sent) flightRef.current = null;
+        return sent;
       });
     },
     [deal.dealt, pick],
@@ -277,11 +310,13 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const lastCall = useDraftStore((s) => s.timerSeconds <= AUTO_PICK_AT);
   const autoPicked = useRef(-1);
   useEffect(() => {
-    if (!lastCall || turn !== "picking" || rs.completed || selectedId == null) return;
+    if (!lastCall || pickPending || turn !== "picking" || rs.completed || selectedId == null) return;
     if (autoPicked.current === deal.seq || !deal.dealt.some((c) => c.id === selectedId)) return;
-    autoPicked.current = deal.seq;
-    doPick(selectedId);
-  }, [lastCall, turn, rs.completed, selectedId, deal.seq, deal.dealt, doPick]);
+    const seq = deal.seq;
+    void doPick(selectedId).then((sent) => {
+      if (sent) autoPicked.current = seq;
+    });
+  }, [lastCall, pickPending, turn, rs.completed, selectedId, deal.seq, deal.dealt, doPick]);
 
   /* ---------- selecting ---------- */
   const select = useCallback(
@@ -639,6 +674,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           <CardReader
             card={readerCard}
             tag={readerTag}
+            pickNote={showLast && !peeking ? pickNote : null}
             buttonHidden={!!peeking || turn === "done"}
             pickable={pickable}
             myTurn={turn === "picking"}

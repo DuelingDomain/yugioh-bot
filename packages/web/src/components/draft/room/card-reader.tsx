@@ -7,6 +7,7 @@ import { cardText, joinNames, statParts, tint, typeParts, type RoomCard } from "
 export interface ReaderProps {
   card: RoomCard | null;
   tag: string;
+  pickNote?: string | null;
   /** The pick button: hidden while reading a pick from the binder, or when the draft is done. */
   buttonHidden: boolean;
   pickable: boolean;
@@ -84,6 +85,9 @@ export const CardReader = memo(function CardReader(p: ReaderProps) {
             Point at a card to read it. Click it to stand it up, then click it again or press Enter to pick.
           </p>
         )}
+        {p.pickNote ? (
+          <p className="insp-note" style={{ marginTop: 10 }}>{p.pickNote}</p>
+        ) : null}
         {p.showWaiting && p.waitingOn.length ? (
           <p className="insp-note" style={{ marginTop: 10 }}>
             Waiting on <em>{joinNames(p.waitingOn)}</em>.
