@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { Clock, Layers, Package, Pencil, User, Users, X } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { ChevronLeft, Pencil, UserPlus, X } from "lucide-react";
+import { ConfirmPanel, DangerRow, DangerZone, SheetPanel, SheetRoot, StationTrack } from "@/components/sheet";
+import { CubeDraftBuilder } from "@/components/cubes/cube-draft-builder";
+import { CubeLobbyPanel } from "@/components/cubes/cube-lobby-panel";
 import {
   DraftConfigFields,
   type DraftConfigFieldsValue,
@@ -14,6 +16,18 @@ import {
 import { CardPoolPanel } from "@/components/cards/card-pool-panel";
 import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
+import { InvitePanel } from "./lobby/invite-panel";
+import { LobbySeats } from "./lobby/lobby-seats";
+import {
+  plural,
+  poolSources,
+  setupRows,
+  startBlocker,
+  startSummary,
+  themeExtraOn,
+  packsOf,
+} from "./lobby/lobby-model";
+import styles from "./lobby/lobby.module.css";
 
 interface DraftManageViewProps {
   draft: {
@@ -32,7 +46,22 @@ interface DraftManageViewProps {
       alternatePassDirection?: boolean;
       randomizeSeats?: boolean;
       mode?: "booster" | "theme";
+      themeSelection?: "host_assigned" | "random" | "player_pick";
+      uniqueThemes?: boolean;
+      themePackSize?: number;
+      extraDeckEnabled?: boolean;
+      extraDeckSize?: number;
+      burnUnpicked?: boolean;
     };
+    seats?: Array<{ playerId: number; isCurrentPlayer: boolean }>;
+    allowedCubes?: Array<{
+      id: number;
+      name: string;
+      archetype: string | null;
+      mainCount: number;
+      extraCount: number;
+      sampleImages: string[];
+    }>;
     players: Array<{
       playerId: number;
       displayName: string;
@@ -52,16 +81,14 @@ interface DraftManageViewProps {
   onAddBot?: () => Promise<void>;
   isDev?: boolean;
   slug?: string;
+  /** Called after a theme is added, detached, deleted or claimed, so the page can refetch the draft. */
+  onChanged?: () => void;
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function formatCreated(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
 export function DraftManageView({
@@ -75,6 +102,7 @@ export function DraftManageView({
   onAddBot,
   isDev,
   slug,
+  onChanged,
 }: DraftManageViewProps) {
   const [editing, setEditing] = React.useState(false);
   const [nameValue, setNameValue] = React.useState(draft.name);
@@ -250,348 +278,306 @@ export function DraftManageView({
     }
   };
 
-  function getActionSection() {
-    if (isCreator) {
-      return (
-        <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-6 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold text-text-primary">Ready to begin?</p>
-            <p className="text-sm text-text-secondary">
-              Start the draft once all players have joined.
-            </p>
-          </div>
-          <div className="flex gap-3">
-            {showCancelConfirm ? (
-              <>
-                <span className="flex items-center text-sm text-text-secondary">
-                  Are you sure?
-                </span>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  loading={cancelling}
-                  onClick={handleCancel}
-                >
-                  Yes, Cancel
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowCancelConfirm(false)}
-                >
-                  No, Go Back
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  variant="primary"
-                  loading={starting}
-                  onClick={handleStart}
-                >
-                  Start Draft
-                </Button>
-                {isDev && onAddBot && (
-                  <Button
-                    variant="secondary"
-                    loading={addingBot}
-                    onClick={handleAddBot}
-                  >
-                    Add Bot
-                  </Button>
-                )}
-                <Button
-                  variant="secondary"
-                  onClick={() => setShowCancelConfirm(true)}
-                >
-                  Cancel Draft
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      );
-    }
 
-    if (isParticipant) {
-      return (
-        <div className="rounded-xl border border-border bg-surface p-6 text-center">
-          <p className="text-text-secondary">
-            You have joined this draft. Waiting for the creator to start.
-          </p>
-        </div>
-      );
-    }
+  const playerCount = draft.players.length;
+  const youIds = React.useMemo(
+    () => new Set((draft.seats ?? []).filter((s) => s.isCurrentPlayer).map((s) => s.playerId)),
+    [draft.seats],
+  );
+  const allowedCubes = draft.allowedCubes ?? [];
+  const uniqueThemes = draft.config.uniqueThemes ?? true;
+  const themeSelection = draft.config.themeSelection ?? "player_pick";
+  const created = formatCreated(draft.createdAt);
+  const blocker = startBlocker({ playerCount, isTheme, themeCount: allowedCubes.length, uniqueThemes });
+  const summary = startSummary(draft.config, playerCount);
+  const rows = setupRows(draft.config);
+  const sets = !isTheme ? draft.config.setNames ?? [] : [];
+  const reasonId = "lobby-start-reason";
+  const playersAux = [
+    `${playerCount} joined`,
+    "at least 2 to start",
+    !isTheme && draft.config.randomizeSeats !== false ? "seats are shuffled at the start" : null,
+  ].filter(Boolean).join(" · ");
 
-    return (
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-6 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="font-semibold text-text-primary">Want to play?</p>
-          <p className="text-sm text-text-secondary">
-            Join this draft to participate when it starts.
-          </p>
-        </div>
-        <Button
-          variant="primary"
-          loading={joining}
-          onClick={handleJoin}
-        >
-          Join Draft
-        </Button>
-      </div>
-    );
-  }
+  const stations = isTheme
+    ? [
+        { code: "LB", name: "Lobby" },
+        { code: "MN", name: "Main deck" },
+        ...(themeExtraOn(draft.config) ? [{ code: "EX", name: "Extra deck" }] : []),
+        { code: "DK", name: "Decks" },
+      ]
+    : [
+        { code: "LB", name: "Lobby" },
+        { code: "DR", name: plural(packsOf(draft.config), "pack") },
+        { code: "DK", name: "Decks" },
+      ];
+
+  const poolDetail = isEditingConfig
+    ? poolSources(editFields.setNames.length, parseCustomCardIds(editFields.customCardText).cardIds.length)
+    : poolSources(draft.config.setNames?.length ?? 0, draft.config.customCardIds?.length ?? 0);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      {/* Action at top (full width) */}
-      {getActionSection()}
+    <SheetRoot>
+      <Link href="/drafts" className="crumb"><ChevronLeft className="ic sm" aria-hidden="true" />All drafts</Link>
 
-      {error && (
-        <div className="rounded-lg border border-accent-cta/50 bg-accent-cta/10 px-4 py-2 text-sm text-accent-cta">
-          {error}
-        </div>
-      )}
-
-      <div className={isTheme ? "space-y-6" : "grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]"}>
-        {/* Left — sticky card pool (booster only; theme drafts have per-player
-            cubes). While editing the config it mirrors the in-progress pool and
-            lets the creator click a card to remove a copy. */}
-        {!isTheme && (
-          <aside className="lg:sticky lg:top-6 lg:self-start">
-            {isEditingConfig ? (
-              <CardPoolPanel
-                title="Card pool"
-                cards={editPoolCards}
-                unknownIds={editPoolUnknownIds}
-                loading={editPoolLoading}
-                emptyMessage="Add sets or card IDs to build the pool."
-                countMode="copies"
-                heightClassName="h-[calc(100vh-16rem)]"
-                onCardClick={removeOneFromEditPool}
-                cardActionLabel={editCardActionLabel}
+      <header className="t-head sheet-head">
+        <div>
+          {editing && isCreator ? (
+            <div className={styles.rename}>
+              <input
+                type="text"
+                className="input"
+                aria-label="Draft name"
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSaveName();
+                  if (e.key === "Escape") {
+                    setNameValue(draft.name);
+                    setEditing(false);
+                  }
+                }}
               />
-            ) : (
-              slug && (
-                <CardPoolPanel
-                  title="Card pool"
-                  cards={poolCards ?? []}
-                  loading={poolCards === null && !poolError}
-                  error={poolError ? "Couldn't load the pool." : null}
-                  emptyMessage="This draft's pool hasn't been resolved yet."
-                  countMode="copies"
-                  heightClassName="h-[calc(100vh-16rem)]"
-                />
-              )
-            )}
-          </aside>
-        )}
-
-        {/* Right — name, players, configuration */}
-        <div className="space-y-6">
-          <div className="rounded-xl border border-border bg-surface p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0 flex-1">
-                {editing && isCreator ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={nameValue}
-                      onChange={(e) => setNameValue(e.target.value)}
-                      className="w-full rounded-lg border border-border bg-bg-deep px-3 py-1.5 text-lg font-semibold text-text-primary focus:border-accent-primary focus:outline-none"
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleSaveName();
-                        if (e.key === "Escape") {
-                          setNameValue(draft.name);
-                          setEditing(false);
-                        }
-                      }}
-                    />
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      loading={saving}
-                      onClick={handleSaveName}
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setNameValue(draft.name);
-                        setEditing(false);
-                      }}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <h1
-                      className="font-display text-xl text-text-primary sm:text-2xl"
-                      onClick={() => isCreator && setEditing(true)}
-                      role={isCreator ? "button" : undefined}
-                      tabIndex={isCreator ? 0 : undefined}
-                      onKeyDown={
-                        isCreator
-                          ? (e) => {
-                              if (e.key === "Enter") setEditing(true);
-                            }
-                          : undefined
-                      }
-                      style={isCreator ? { cursor: "text" } : undefined}
-                    >
-                      {draft.name}
-                    </h1>
-                    {isCreator && (
-                      <button
-                        type="button"
-                        onClick={() => setEditing(true)}
-                        title="Rename draft"
-                        aria-label="Rename draft"
-                        className="shrink-0 rounded-lg border border-border p-1.5 text-text-secondary transition-colors hover:text-text-primary motion-safe:active:translate-y-px"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                )}
-                <div className="mt-2 flex items-center gap-3">
-                  <Badge variant="warning">Pending</Badge>
-                  <span className="flex items-center gap-1 text-sm text-text-secondary">
-                    <Clock className="h-3.5 w-3.5" />
-                    {formatDate(draft.createdAt)}
-                  </span>
-                </div>
-              </div>
+              <button type="button" className="btn btn-primary btn-sm" disabled={saving} aria-busy={saving || undefined} onClick={handleSaveName}>
+                Save
+              </button>
+              <button
+                type="button"
+                className="btn btn-quiet btn-sm"
+                onClick={() => {
+                  setNameValue(draft.name);
+                  setEditing(false);
+                }}
+              >
+                Cancel
+              </button>
             </div>
-          </div>
-
-          <div className="rounded-xl border border-border bg-surface p-6">
-            <h2 className="mb-4 font-display text-lg text-text-primary">
-              <Users className="mr-2 inline h-5 w-5 text-accent-primary" />
-              Players ({draft.playerCount})
-            </h2>
-            {draft.players.length === 0 ? (
-              <p className="text-sm text-text-secondary">No players have joined yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-2" role="list">
-                {draft.players.map((player) => (
-                  <li
-                    key={player.playerId}
-                    className="flex items-center gap-3 rounded-lg border border-border bg-bg-elevated/50 p-3"
-                  >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-bg-elevated text-text-secondary">
-                      <User className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <span className="text-sm font-semibold text-text-primary">
-                        {player.displayName}
-                      </span>
-                      {player.seatIndex !== undefined && player.seatIndex !== null && (
-                        <span className="ml-2 text-xs text-text-muted">
-                          Seat {player.seatIndex + 1}
-                        </span>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-xs text-text-muted">
-                      {formatDate(player.joinedAt)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="rounded-xl border border-border bg-surface p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="font-display text-lg text-text-primary">
-                <Layers className="mr-2 inline h-5 w-5 text-accent-primary" />
-                Configuration
-              </h2>
-              {isCreator && !isEditingConfig && (
-                <Button variant="secondary" size="sm" onClick={handleStartEditConfig}>
-                  <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                  Edit Configuration
-                </Button>
+          ) : (
+            <h1 className={`t-title ${styles.title}`}>
+              {draft.name}
+              {isCreator && (
+                <button type="button" className={styles.ren} onClick={() => setEditing(true)} aria-label="Rename draft" title="Rename draft">
+                  <Pencil className="ic sm" aria-hidden="true" />
+                </button>
               )}
-            </div>
+            </h1>
+          )}
+          <p className="t-meta">
+            <span className="status"><span className="lamp" data-s="open" aria-hidden="true" />Waiting to start</span>
+            <span className="dot" aria-hidden="true" />
+            <span>{isTheme ? "Theme draft" : "Cube draft"}</span>
+            {isCreator && <><span className="dot" aria-hidden="true" /><span>Hosted by you</span></>}
+            {created && <><span className="dot" aria-hidden="true" /><span>Created {created}</span></>}
+          </p>
+        </div>
+        <StationTrack
+          stations={stations}
+          current={0}
+          tone={isCreator ? "mine" : "theirs"}
+          label="Draft progress"
+          caption={
+            <>
+              <span className="at">Lobby</span>
+              <span className="sep">·</span>
+              {playerCount} joined
+              <span className="sep">·</span>
+              {isCreator ? "starts when you press Start" : "waiting on the host"}
+            </>
+          }
+        />
+      </header>
 
-            {isEditingConfig ? (
-              <div className="space-y-5">
-                {editError && (
-                  <div className="rounded-lg border border-accent-cta/50 bg-accent-cta/10 px-4 py-2 text-sm text-accent-cta">
-                    {editError}
-                  </div>
-                )}
+      <div className="t-grid">
+        <div className="t-main">
+          {error && <div className="banner banner-bad" role="alert"><p>{error}</p></div>}
+
+          {!isCreator && !isParticipant && (
+            <div className="join">
+              <div>
+                <h2>Join {draft.name}</h2>
+                <p>
+                  {isTheme ? "Theme draft" : "Cube draft"}
+                  {isTheme
+                    ? ` · ${draft.config.cardsPerPlayer ?? 40} main deck picks${themeExtraOn(draft.config) ? ` and ${draft.config.extraDeckSize ?? 15} Extra deck` : ""}`
+                    : ` · ${plural(packsOf(draft.config), "pack")} of ${draft.config.packSize ?? "—"}`}
+                  {draft.config.pickSeconds ? ` · ${draft.config.pickSeconds} s a pick` : ""}. {plural(playerCount, "player")} so far.
+                </p>
+              </div>
+              <button type="button" className="btn btn-primary btn-lg" disabled={joining} aria-busy={joining || undefined} onClick={handleJoin}>
+                <UserPlus className="ic" aria-hidden="true" />Join draft
+              </button>
+            </div>
+          )}
+
+          {!isCreator && isParticipant && (
+            <div className="inline-note">
+              <p>
+                {isTheme && themeSelection === "player_pick"
+                  ? "You're in. Claim a theme before the host starts."
+                  : "You're in. Waiting for the host to start."}
+              </p>
+            </div>
+          )}
+
+          {(isCreator || isParticipant) && slug && <InvitePanel slug={slug} />}
+
+          <LobbySeats players={draft.players} youIds={youIds} isCreator={isCreator} aux={playersAux} />
+
+          {isEditingConfig && !isTheme && (
+            <section className="panel panel-pad" aria-labelledby="lobby-edit-t">
+              <div className={styles.edit}>
+                <h3 className="panel-t"><span id="lobby-edit-t">Edit setup</span><small>the pool below updates as you go</small></h3>
+                {editError && <div className="banner banner-bad" role="alert"><p>{editError}</p></div>}
                 <DraftConfigFields
                   value={editFields}
                   onChange={setEditFields}
                   poolBuilderShowPreview={false}
                   onPool={handleEditPool}
                 />
-                <div className="flex gap-3">
-                  <Button variant="primary" size="sm" loading={configSaving} onClick={handleSaveConfig}>
-                    Save Configuration
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={handleCancelEditConfig} disabled={configSaving}>
+                <div className={styles.editActs}>
+                  <button type="button" className="btn btn-primary btn-sm" disabled={configSaving} aria-busy={configSaving || undefined} onClick={handleSaveConfig}>
+                    Save setup
+                  </button>
+                  <button type="button" className="btn btn-quiet btn-sm" onClick={handleCancelEditConfig} disabled={configSaving}>
                     Cancel
-                  </Button>
+                  </button>
                 </div>
               </div>
+            </section>
+          )}
+
+          {!isTheme &&
+            (isEditingConfig ? (
+              <CardPoolPanel
+                variant="sheet"
+                title="Card pool"
+                cards={editPoolCards}
+                unknownIds={editPoolUnknownIds}
+                loading={editPoolLoading}
+                emptyMessage="Add sets or card IDs to build the pool."
+                countMode="copies"
+                detail={poolDetail}
+                onCardClick={removeOneFromEditPool}
+                cardActionLabel={editCardActionLabel}
+              />
             ) : (
-              <>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="rounded-lg border border-border bg-bg-elevated/50 p-3">
-                    <span className="block text-xs text-text-muted">
-                      <Package className="mr-1 inline h-3.5 w-3.5" />
-                      Cards/Player
-                    </span>
-                    <span className="mt-1 block text-lg font-semibold text-text-primary">
-                      {draft.config.cardsPerPlayer ?? 40}
-                    </span>
-                  </div>
-                  <div className="rounded-lg border border-border bg-bg-elevated/50 p-3">
-                    <span className="block text-xs text-text-muted">
-                      <Package className="mr-1 inline h-3.5 w-3.5" />
-                      Cards/Pack
-                    </span>
-                    <span className="mt-1 block text-lg font-semibold text-text-primary">
-                      {draft.config.packSize ?? "—"}
-                    </span>
-                  </div>
-                  <div className="rounded-lg border border-border bg-bg-elevated/50 p-3">
-                    <span className="block text-xs text-text-muted">
-                      <Clock className="mr-1 inline h-3.5 w-3.5" />
-                      Pick Timer
-                    </span>
-                    <span className="mt-1 block text-lg font-semibold text-text-primary">
-                      {draft.config.pickSeconds ? `${draft.config.pickSeconds}s` : "—"}
-                    </span>
-                  </div>
-                </div>
-                {draft.config.setNames && draft.config.setNames.length > 0 && (
-                  <div className="mt-4">
-                    <span className="mb-2 block text-xs text-text-muted">Sets</span>
-                    <div className="flex flex-wrap gap-2">
-                      {draft.config.setNames.map((setName) => (
-                        <span
-                          key={setName}
-                          className="rounded-lg border border-border bg-bg-elevated/50 px-2.5 py-1 text-sm text-text-secondary"
-                        >
-                          {setName}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+              slug && (
+                <CardPoolPanel
+                  variant="sheet"
+                  title="Card pool"
+                  cards={poolCards ?? []}
+                  loading={poolCards === null && !poolError}
+                  error={poolError ? "Couldn't load the pool." : null}
+                  emptyMessage="This draft's pool hasn't been resolved yet."
+                  countMode="copies"
+                  detail={poolDetail}
+                />
+              )
+            ))}
+
+          {isTheme && slug && (
+            isCreator ? (
+              <CubeDraftBuilder
+                slug={slug}
+                allowedCubes={allowedCubes}
+                uniqueThemes={uniqueThemes}
+                themeSelection={themeSelection}
+                canClaim={isParticipant}
+                onChanged={() => onChanged?.()}
+              />
+            ) : (
+              <CubeLobbyPanel
+                slug={slug}
+                allowedCubes={allowedCubes}
+                themeSelection={themeSelection}
+                uniqueThemes={uniqueThemes}
+                canClaim={isParticipant}
+                onClaimed={() => onChanged?.()}
+              />
+            )
+          )}
         </div>
+
+        <aside className="t-rail" aria-label="Draft details">
+          {isCreator && (
+            <SheetPanel title="Start" aside="only you see this" bodyClassName="start">
+              <button
+                type="button"
+                className="btn btn-primary btn-lg btn-block"
+                disabled={blocker !== null || starting}
+                aria-busy={starting || undefined}
+                aria-describedby={reasonId}
+                onClick={handleStart}
+              >
+                Start draft
+              </button>
+              <p className="small" id={reasonId}>
+                {blocker ?? (
+                  <>
+                    {summary.before}<b>{summary.strong}</b>{summary.after}
+                  </>
+                )}
+              </p>
+              {isDev && onAddBot && (
+                <button type="button" className="btn btn-secondary btn-sm btn-block" disabled={addingBot} aria-busy={addingBot || undefined} onClick={handleAddBot}>
+                  <UserPlus className="ic sm" aria-hidden="true" />Add bot
+                </button>
+              )}
+            </SheetPanel>
+          )}
+
+          <SheetPanel
+            title="Setup"
+            aside={
+              isCreator && !isTheme && !isEditingConfig ? (
+                <button type="button" className="edit-cap" onClick={handleStartEditConfig}>Edit setup</button>
+              ) : isTheme ? (
+                "set when the draft was made"
+              ) : undefined
+            }
+          >
+            <dl className="rows">
+              {rows.map((row) => (
+                <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>
+              ))}
+            </dl>
+            {sets.length > 0 && (
+              <div className={styles.sets}>
+                <p>Sets</p>
+                <ul>{sets.map((name) => <li key={name} className="chip">{name}</li>)}</ul>
+              </div>
+            )}
+          </SheetPanel>
+
+          {isCreator && (
+            <DangerZone title="Ending early">
+              {showCancelConfirm ? (
+                <ConfirmPanel
+                  title="Cancel this draft?"
+                  confirmLabel="Yes, cancel"
+                  cancelLabel="Go back"
+                  busy={cancelling}
+                  onCancel={() => setShowCancelConfirm(false)}
+                  onConfirm={handleCancel}
+                >
+                  <p className="small">It is removed for the {plural(playerCount, "player")} who joined. Nothing has been dealt yet.</p>
+                </ConfirmPanel>
+              ) : (
+                <DangerRow
+                  title="Cancel draft"
+                  description={`Removes it for the ${plural(playerCount, "player")} who joined. Nothing has been dealt yet.`}
+                  action={
+                    <button type="button" className="btn btn-danger btn-sm" aria-label="Cancel draft" onClick={() => setShowCancelConfirm(true)}>
+                      <X className="ic sm" aria-hidden="true" />Cancel
+                    </button>
+                  }
+                />
+              )}
+            </DangerZone>
+          )}
+        </aside>
       </div>
-    </div>
+    </SheetRoot>
   );
 }

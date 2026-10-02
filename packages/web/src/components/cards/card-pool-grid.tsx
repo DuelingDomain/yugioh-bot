@@ -2,11 +2,13 @@
 
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CardHoverPopup } from "@/components/draft/card-hover-popup";
 import { CardArt } from "@/components/cards/card-art";
+import { SheetPortal } from "@/components/sheet";
+import sheetStyles from "@/components/cards/card-pool-sheet.module.css";
 import {
   isMonster, isSpell, isTrap, isEffectMonster, isNormalMonster, isExtraDeckMonster,
   getTypeBadgeClass, getTypeLabel,
@@ -89,6 +91,22 @@ const TRIBUTE_BUTTONS: Array<{ label: string; value: PoolTribute }> = [
   { label: "No Trib", value: "none" },
   { label: "1 Trib", value: "one" },
   { label: "2 Trib", value: "two" },
+];
+
+// Sheet variant (Match Sheet look): sentence-case labels from board b22.
+const SHEET_FILTER_BUTTONS: Array<{ label: string; value: PoolFilter }> = [
+  { label: "All", value: "all" },
+  { label: "Effect", value: "effect" },
+  { label: "Normal", value: "normal" },
+  { label: "Extra deck", value: "extra" },
+  { label: "Spells", value: "spell" },
+  { label: "Traps", value: "trap" },
+];
+const SHEET_TRIBUTE_BUTTONS: Array<{ label: string; value: PoolTribute }> = [
+  { label: "Any", value: "any" },
+  { label: "No tribute", value: "none" },
+  { label: "1 tribute", value: "one" },
+  { label: "2 tributes", value: "two" },
 ];
 
 function CardPoolGridBase({
@@ -181,9 +199,9 @@ function CardPoolGridBase({
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const GAP = 12; // gap-3
+    const GAP = variant === "sheet" ? 14 : 12; // gap-3
     // cube edit mode shows larger tiles (fewer, wider columns).
-    const TILE_MIN = tileMinPx ?? (cubeEditMode ? 200 : 120);
+    const TILE_MIN = tileMinPx ?? (variant === "sheet" ? 96 : cubeEditMode ? 200 : 120);
     const PAD_X = 24; // px-3 on each row, both sides
     const measure = (): void => {
       const inner = Math.max(0, el.clientWidth - PAD_X);
@@ -195,7 +213,7 @@ function CardPoolGridBase({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [cubeEditMode, tileMinPx]);
+  }, [cubeEditMode, tileMinPx, variant]);
 
   const entries = useMemo<GridEntry[]>(
     () => [
@@ -207,12 +225,13 @@ function CardPoolGridBase({
 
   const { columns, innerWidth } = layout;
   const estimatedRowHeight = useMemo(() => {
-    const GAP = 12;
+    const GAP = variant === "sheet" ? 14 : 12;
     const tileW = innerWidth > 0 ? (innerWidth - (columns - 1) * GAP) / columns : 120;
     const imageH = (tileW * 614) / 421;
     // image + img/label gap (8) + label block (~64) + button padding (16) + paddingBottom on row div (12)
+    if (variant === "sheet") return Math.round(imageH + 7 + 32 + GAP);
     return Math.round(imageH + 8 + 64 + 16 + GAP);
-  }, [columns, innerWidth]);
+  }, [columns, innerWidth, variant]);
 
   const rowCount = Math.ceil(entries.length / columns);
   const rowVirtualizer = useVirtualizer({
@@ -223,6 +242,186 @@ function CardPoolGridBase({
   });
 
   const virtualItems = rowVirtualizer.getVirtualItems();
+
+  if (variant === "sheet") {
+    const totalCards = cards.length;
+    const popups = (
+      <>
+        {hoveredCard && popupPosition && !tapped && (
+          <SheetPortal>
+            <CardHoverPopup
+              card={hoveredCard}
+              position={popupPosition}
+              imageError={imageErrors.has(hoveredCard.id)}
+              onImageError={() => handleImageError(hoveredCard.id)}
+            />
+          </SheetPortal>
+        )}
+        {previewEnabled && tapped && popupPosition && (
+          <SheetPortal>
+            <CardHoverPopup
+              card={tapped}
+              position={popupPosition}
+              imageError={imageErrors.has(tapped.id)}
+              onImageError={() => handleImageError(tapped.id)}
+              dismissible
+              onDismiss={() => setTapped(null)}
+            />
+          </SheetPortal>
+        )}
+      </>
+    );
+    return (
+      <div className={cn(sheetStyles.panel, className)}>
+        <p className={sheetStyles.tally}>
+          <span data-k="monster"><b>{monsterCount}</b>Monsters</span>
+          <span data-k="spell"><b>{spellCount}</b>Spells</span>
+          <span data-k="trap"><b>{trapCount}</b>Traps</span>
+        </p>
+
+        <div className={sheetStyles.tools}>
+          <span className={sheetStyles.in}>
+            <Search className="ic sm" aria-hidden="true" />
+            <input
+              type="text"
+              className="input"
+              aria-label="Search cards"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search cards"
+            />
+          </span>
+          <div className="seg" role="group" aria-label="Kind">
+            {SHEET_FILTER_BUTTONS.map((fb) => (
+              <button key={fb.value} type="button" aria-pressed={activeFilter === fb.value} onClick={() => setActiveFilter(fb.value)}>
+                {fb.label}
+              </button>
+            ))}
+          </div>
+          <div className="seg" role="group" aria-label="Tributes">
+            {SHEET_TRIBUTE_BUTTONS.map((tb) => (
+              <button key={tb.value} type="button" aria-pressed={activeTribute === tb.value} aria-label={tb.label} onClick={() => setActiveTribute(tb.value)}>
+                {tb.label}
+                {tb.value !== "any" && <span className="n">{tributeCounts[tb.value]}</span>}
+              </button>
+            ))}
+          </div>
+          <div className={sheetStyles.sortRow}>
+            <span className={sheetStyles.sortLabel}>Sort</span>
+            <div className="seg" role="group" aria-label="Sort">
+              {SORT_BUTTONS.map((sb) => (
+                <button key={sb.value} type="button" aria-pressed={activeSort === sb.value} onClick={() => setActiveSort(sb.value)}>
+                  {sb.label}
+                </button>
+              ))}
+            </div>
+            {filtersActive && (
+              <button type="button" className="btn btn-quiet btn-sm" onClick={clearFilters}>Clear filters</button>
+            )}
+          </div>
+        </div>
+
+        <div ref={scrollRef} className={cn(sheetStyles.scroll, heightClassName)}>
+          {loading && cards.length > 0 && <span className={sheetStyles.updating}>Updating…</span>}
+          {showSkeleton ? (
+            <div data-testid="card-pool-grid-skeleton" className={sheetStyles.skel}>
+              {Array.from({ length: 10 }).map((_, i) => <div key={i} />)}
+            </div>
+          ) : cards.length === 0 && unknownIds.length === 0 ? (
+            <p className={sheetStyles.status}>{emptyMessage}</p>
+          ) : visible.length === 0 && unknownIds.length === 0 ? (
+            <p className={sheetStyles.status}>No cards match.</p>
+          ) : (
+            <div data-testid="card-pool-grid" style={{ height: rowVirtualizer.getTotalSize() + 24, position: "relative" }}>
+              {virtualItems.map((vRow) => {
+                const start = vRow.index * columns;
+                const rowEntries = entries.slice(start, start + columns);
+                return (
+                  <div
+                    key={vRow.key}
+                    data-index={vRow.index}
+                    ref={rowVirtualizer.measureElement}
+                    className={sheetStyles.row}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${vRow.start + 12}px)`,
+                      paddingBottom: 14,
+                      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                    }}
+                  >
+                    {rowEntries.map((entry) =>
+                      entry.kind === "card" ? (
+                        <div key={entry.card.id} className={cn("ct", sheetStyles.tile)}>
+                          <button
+                            type="button"
+                            aria-label={
+                              onCardClick
+                                ? cardActionLabel?.(entry.card) ?? `Select ${entry.card.name}`
+                                : `Preview ${entry.card.name}`
+                            }
+                            onClick={(e) => {
+                              if (onCardClick) {
+                                onCardClick(entry.card);
+                                return;
+                              }
+                              if (!previewEnabled) return;
+                              setTapped(entry.card);
+                              setPopupPosition(getPopupPosition(e.currentTarget.getBoundingClientRect()));
+                            }}
+                            onMouseEnter={(e) => handleEnter(entry.card, e.currentTarget.getBoundingClientRect())}
+                            onMouseLeave={handleLeave}
+                            onFocus={(e) => handleEnter(entry.card, e.currentTarget.getBoundingClientRect())}
+                            onBlur={handleLeave}
+                          >
+                            <span className="ct-art">
+                              {imageErrors.has(entry.card.id) ? (
+                                <span className={sheetStyles.broken}>?</span>
+                              ) : (
+                                <CardArt
+                                  smallSrc={entry.card.imageUrlSmall || entry.card.imageUrl}
+                                  fullSrc={entry.card.imageUrl}
+                                  alt={entry.card.name}
+                                  sizes="(min-width: 1536px) 120px, 160px"
+                                  className="object-cover"
+                                  onError={() => handleImageError(entry.card.id)}
+                                />
+                              )}
+                              {(entry.card.qty ?? 1) > 1 && (
+                                <span className={cn("ct-x", entry.card.qty !== 3 && "lo")} aria-hidden="true">×{entry.card.qty}</span>
+                              )}
+                            </span>
+                            <span className="ct-n">{entry.card.name}</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          key={`unknown-${entry.id}`}
+                          data-testid="card-pool-grid-unknown"
+                          title={`Passcode ${entry.id} is not in the catalog yet`}
+                          aria-label={`Passcode ${entry.id} not in catalog yet`}
+                          className={sheetStyles.miss}
+                        >
+                          <div className={sheetStyles.missArt}>{entry.id}</div>
+                          <p className={sheetStyles.missNote}>not in catalog yet</p>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {filtersActive && totalCards > 0 && (
+          <p className="small" role="status">Showing {visible.length} of {totalCards} cards.</p>
+        )}
+        {popups}
+      </div>
+    );
+  }
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
