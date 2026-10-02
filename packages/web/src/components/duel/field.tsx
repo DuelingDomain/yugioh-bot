@@ -1267,6 +1267,7 @@ export function DeckMasterRail({
   onHoverCard,
   topSeat,
   rivals,
+  selfTitle,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -1285,6 +1286,8 @@ export function DeckMasterRail({
    * top dock. `title` is the dock heading, for example "Ryo's Master".
    */
   rivals?: ReadonlyArray<{ seat: number; title: string }>;
+  /** The heading of the bottom dock, for example "Mika's Master" to a spectator of a table of 3. Default: "Your Master" / "Seat 1 Master". */
+  selfTitle?: string;
 }) {
   const bottomIndex = mySeat ?? 0;
   const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
@@ -1294,7 +1297,7 @@ export function DeckMasterRail({
     <div
       className={cn(duelFontClasses, styles.masterRail)}
       data-battle={isBattlePhase(engine.phase) ? "true" : "false"}
-      data-docks={rivals ? rivals.length + 1 : 2}
+      data-docks={rivals ? rivals.length + 1 : undefined}
     >
       {(rivals ?? [{ seat: topIndex, title: mySeat == null ? "Seat 2 Master" : "Opponent Master" }]).map((rival) => (
         <MasterDock
@@ -1313,7 +1316,7 @@ export function DeckMasterRail({
         />
       ))}
       <MasterDock
-        title={mySeat == null ? "Seat 1 Master" : "Your Master"}
+        title={selfTitle ?? (mySeat == null ? "Seat 1 Master" : "Your Master")}
         view={bottom}
         local={mySeat != null}
         legalKeys={legalKeys}

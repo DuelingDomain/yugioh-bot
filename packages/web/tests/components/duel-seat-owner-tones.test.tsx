@@ -63,4 +63,20 @@ describe("owner in the seat colour", () => {
     expect(titles).toEqual(["Ryo's Master", "Mika's Master", "Your Master"]);
     expect(container.querySelector("[data-docks='3']")).not.toBeNull();
   });
+
+  it("titles the bottom dock for a spectator and leaves data-docks off the 1v1 rail", () => {
+    const seats = engine.seats.map((seat) => ({
+      ...seat,
+      deckMaster: { card: { ...engine.seats[0].monsters[0]!, description: "", type: 0, attack: 0, defense: 0, level: 0, attribute: 0, race: "", code: 46986414, name: `Master ${seat.seat}` }, inZone: false, returns: 0, nextCost: 0 },
+    }));
+    const props = {
+      engine: { ...engine, seats }, legalKeys: new Set<string>(), selectedKeys: new Set<string>(), canAct: false,
+      legalActionsFor: () => [], onActivate: vi.fn(), onChooseAction: vi.fn(), onInspect: vi.fn(),
+    };
+    const watch = render(<DeckMasterRail {...props} mySeat={null} rivals={[]} selfTitle="Mika's Master" />);
+    expect([...watch.container.querySelectorAll("section h2")].map((node) => node.textContent)).toEqual(["Mika's Master"]);
+    cleanup();
+    const oneVOne = render(<DeckMasterRail {...props} mySeat={0} />);
+    expect(oneVOne.container.querySelector("[data-docks]")).toBeNull();
+  });
 });
