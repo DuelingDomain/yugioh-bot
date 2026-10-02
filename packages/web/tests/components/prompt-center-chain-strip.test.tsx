@@ -91,3 +91,22 @@ describe("PromptCenter chain list as a card strip", () => {
     expect(screen.getAllByText("Activate").length).toBeGreaterThan(0);
   });
 });
+
+describe("PromptCenter chain rows at a table of 3 or 4", () => {
+  it("names the owner of a response row by player name and tones it", () => {
+    const tones = new Map([[0, { main: "#9b7eff", ink: "#c6b6ff" }], [2, { main: "#8fd36b", ink: "#c4ecad" }]]);
+    const options = [
+      { id: "card:0", label: "Mirror Force: Destroy", controller: 2 },
+      { id: "card:1", label: "Raigeki: Destroy", controller: 0 },
+    ];
+    render(
+      <PromptCenter prompt={chainPrompt(options)} mySeat={0} active slug="s" busy={false} draft={draft} onSubmit={vi.fn()}
+        menuOpen={false} chain={[]} aimLocked={false} reducedMotion revision={0} seatTones={tones}
+        nameOf={(seat) => `Player ${seat + 1}`} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    const toned = [...document.querySelectorAll<HTMLElement>('[data-toned="true"]')];
+    expect(toned.some((el) => el.style.getPropertyValue("--seat-main") === "#8fd36b")).toBe(true);
+    expect(document.body.textContent?.includes("Opponent")).toBe(false);
+  });
+});

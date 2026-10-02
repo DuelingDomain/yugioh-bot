@@ -304,6 +304,8 @@
 }
 .rowOwner[data-owner="you"] { border-color: rgb(155 126 255 / 0.5); color: var(--duel-pen-ink, #c6b6ff); }
 .rowOwner[data-owner="opp"] { border-color: rgb(228 182 79 / 0.5); color: var(--duel-chain-ink, #f4d690); }
+/* A table of 3 or 4: the owner's seat tone marks the name, so two rivals never read alike. */
+.row[data-toned="true"] .rowOwner { border-color: color-mix(in srgb, var(--seat-main) 55%, transparent); color: var(--seat-ink); }
 
 .rowGo {
   flex: none;

@@ -377,6 +377,9 @@
 }
 .who { color: var(--duel-pen-ink, #c6b6ff); font-size: var(--duel-t-xs, 11px); }
 .row[data-mine="true"] .who { color: var(--duel-ink-2, #c3bba8); }
+/* A table of 3 or 4: the owner's seat tone marks the row (a small edge and the name), never the chain gold. */
+.row[data-toned="true"] { box-shadow: inset 2px 0 0 var(--seat-main); }
+.row[data-toned="true"] .who { color: var(--seat-ink); }
 
 /* The link that is resolving. */
 .row[data-status="resolving"] { background: rgb(228 182 79 / 0.16); }
