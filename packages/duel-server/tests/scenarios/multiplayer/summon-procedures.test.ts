@@ -5,7 +5,7 @@ import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import type { Scenario } from "../../support/dsl.js";
-import { KAIJU_SCENARIOS } from "./summon-procedures.js";
+import { KAIJU_SCENARIOS, LAVA_SCENARIOS, NORDIC_SCENARIOS, OPPONENT_FIELD_PROCEDURE_SCENARIOS } from "./summon-procedures.js";
 
 // The summon procedures of the cards that the testers listed as pending (the 6 Kaiju), on a real engine. Same gate as
 // procedures.test.ts: NSEAT_LIVE=1 and a multi core with Debug.SetupDuelists. With DUEL_REQUIRE_CORES=1 a closed gate fails the run.
@@ -14,7 +14,24 @@ describeWithCores("live summon procedure scenarios: Kaiju", liveNseat, () => {
   runScenarios("multiplayer/summon-procedures-kaiju", KAIJU_SCENARIOS);
 });
 
-const LISTS: Array<[string, Scenario[]]> = [["Kaiju", KAIJU_SCENARIOS]];
+describeWithCores("live summon procedure scenarios: Lava procedure", liveNseat, () => {
+  runScenarios("multiplayer/summon-procedures-lava", LAVA_SCENARIOS);
+});
+
+describeWithCores("live summon procedure scenarios: Nordic cards", liveNseat, () => {
+  runScenarios("multiplayer/summon-procedures-nordic", NORDIC_SCENARIOS);
+});
+
+describeWithCores("live summon procedure scenarios: Grinder Golem and Fallen of Argyros", liveNseat, () => {
+  runScenarios("multiplayer/summon-procedures-opponent-field", OPPONENT_FIELD_PROCEDURE_SCENARIOS);
+});
+
+const LISTS: Array<[string, Scenario[]]> = [
+  ["Kaiju", KAIJU_SCENARIOS],
+  ["Lava procedure", LAVA_SCENARIOS],
+  ["Nordic", NORDIC_SCENARIOS],
+  ["Grinder Golem and Fallen of Argyros", OPPONENT_FIELD_PROCEDURE_SCENARIOS],
+];
 
 describe("live summon procedure scenario lists", () => {
   for (const [name, list] of LISTS) {

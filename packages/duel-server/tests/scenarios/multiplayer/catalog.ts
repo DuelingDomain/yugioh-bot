@@ -980,4 +980,45 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "summon-procedures-ffa4-dogoran-no-tribute-with-kaiju-on-opponent",
     "summon-procedures-tag-dogoran-no-tribute-with-kaiju-on-opposing-member",
   ], // Dogoran
+  25920413: [
+    "summon-procedures-ffa3-alien-skull-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-alien-skull-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-alien-skull-tribute-goes-to-opposing-member",
+  ], // Alien Skull (Lava procedure)
+  46565218: [
+    "summon-procedures-ffa3-santa-claws-tribute-goes-to-tributed-field-and-it-draws",
+    "summon-procedures-ffa4-santa-claws-tribute-goes-to-tributed-field-and-it-draws",
+    "summon-procedures-tag-santa-claws-tribute-goes-to-opposing-member-and-it-draws",
+  ], // Santa Claws (Lava procedure)
+  33331231: [
+    "summon-procedures-ffa3-hamp-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-hamp-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-hamp-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-hamp-own-field-tributes-own-monster",
+    "summon-procedures-ffa4-hamp-own-field-tributes-own-monster",
+    "summon-procedures-tag-hamp-own-field-tributes-own-monster",
+  ], // H.A.M.P. (Lava procedure, both fields)
+  64203620: [
+    "summon-procedures-ffa3-jormungardr-goes-to-picked-opponent",
+    "summon-procedures-ffa4-jormungardr-opponent-with-full-field-is-not-offered",
+    "summon-procedures-tag-jormungardr-goes-to-opposing-member-not-partner",
+  ], // Jormungardr (Nordic)
+  91697229: [
+    "summon-procedures-ffa3-fenrir-goes-to-picked-opponent",
+    "summon-procedures-ffa4-fenrir-opponent-with-full-field-is-not-offered",
+    "summon-procedures-tag-fenrir-goes-to-opposing-member-not-partner",
+  ], // Fenrir (Nordic)
+  75732622: [
+    "summon-procedures-ffa3-grinder-golem-goes-to-picked-opponent-and-tokens-to-the-own-field",
+    "summon-procedures-ffa4-grinder-golem-opponent-with-full-field-is-not-offered",
+    "summon-procedures-tag-grinder-golem-goes-to-opposing-member-not-partner",
+  ], // Grinder Golem
+  82090807: [
+    "summon-procedures-ffa3-fallen-of-argyros-opponent-field-goes-to-picked-opponent",
+    "summon-procedures-ffa4-fallen-of-argyros-opponent-field-goes-to-picked-opponent",
+    "summon-procedures-tag-fallen-of-argyros-opponent-field-goes-to-opposing-member",
+    "summon-procedures-ffa3-fallen-of-argyros-own-field-asks-no-opponent",
+    "summon-procedures-ffa4-fallen-of-argyros-own-field-asks-no-opponent",
+    "summon-procedures-tag-fallen-of-argyros-own-field-asks-no-opponent",
+  ], // Fallen of Argyros
 };

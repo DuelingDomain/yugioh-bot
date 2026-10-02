@@ -308,6 +308,13 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   48770333: ["ffa3", "ffa4", "tag"], // Thunder King (Kaiju procedure)
   63941210: ["ffa3", "ffa4", "tag"], // Jizukiru (Kaiju procedure)
   93332803: ["ffa3", "ffa4", "tag"], // Dogoran (Kaiju procedure)
+  25920413: ["ffa3", "ffa4", "tag"], // Alien Skull (Lava procedure)
+  46565218: ["ffa3", "ffa4", "tag"], // Santa Claws (Lava procedure)
+  33331231: ["ffa3", "ffa4", "tag"], // H.A.M.P. (Lava procedure, both fields)
+  64203620: ["ffa3", "ffa4", "tag"], // Jormungardr (Nordic)
+  91697229: ["ffa3", "ffa4", "tag"], // Fenrir (Nordic)
+  75732622: ["ffa3", "ffa4", "tag"], // Grinder Golem
+  82090807: ["ffa3", "ffa4", "tag"], // Fallen of Argyros
 };
 
 export const MULTIPLAYER_CARD_RULES: readonly MultiplayerCardRule[] = CARD_RULE_DRAFTS.map((draft) => {
