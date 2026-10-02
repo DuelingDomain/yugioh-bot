@@ -121,7 +121,11 @@ export function ProfileView({ profile: initialProfile, leaderboardRank: initialR
                   <p className="lp-v"><b>{profile.rating}</b></p>
                 </div>
               </div>
-              <p className="small">Record and streak are kept per season. Switch back to This season to see them.</p>
+              <p className="small">
+                {hasSeason
+                  ? "Record and streak are kept per season. Switch back to This season to see them."
+                  : "Record and streak are kept per season. They show here while a season is running."}
+              </p>
             </div>
           )}
         </div>
