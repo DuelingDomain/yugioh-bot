@@ -576,6 +576,85 @@ button.plate[data-next="true"]:hover {
   }
 }
 
+/* ---------- seat strip and attack lock (tables of 3 or more seats) ---------- */
+
+.lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 24px;
+  padding: 0 9px 0 7px;
+  border: 1px solid rgb(var(--ember-rgb) / 0.55);
+  border-radius: 999px;
+  background: rgb(var(--ember-rgb) / 0.09);
+  color: rgb(var(--ember-rgb));
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.lock svg {
+  width: 12px;
+  height: 12px;
+}
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chip {
+  --seat-main: var(--pen);
+  --seat-ink: var(--pen-ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: rgb(14 23 41 / 0.7);
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1;
+}
+.chipDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--seat-main);
+}
+.chipName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip[data-status="turn"],
+.chip[data-status="choosing"] {
+  border-color: color-mix(in srgb, var(--seat-main) 75%, transparent);
+  background: color-mix(in srgb, var(--seat-main) 14%, transparent);
+  color: var(--seat-ink);
+}
+.chip[data-status="eliminated"] {
+  border-style: dashed;
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+.chip[data-status="eliminated"] .chipDot {
+  background: transparent;
+  border: 1px solid var(--seat-main);
+}
+.chip[data-status="leaving"] {
+  border-color: rgb(228 90 77 / 0.6);
+}
+
 /* ---------- phone / narrow: two rows ---------- */
 
 @media (max-width: 900px) {
@@ -744,5 +823,12 @@ button.plate[data-next="true"]:hover {
   }
   .onlyNarrow {
     display: inline;
+  }
+}
+
+@media (max-width: 900px) {
+  .strip,
+  .lock {
+    display: none;
   }
 }
