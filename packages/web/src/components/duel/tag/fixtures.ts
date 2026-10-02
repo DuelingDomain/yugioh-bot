@@ -1,4 +1,4 @@
-import type { DuelChainLink, DuelEngineView, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, zoneKey } from "../constants";
 import {
   cardAt,
@@ -91,6 +91,7 @@ interface Spec {
   edit?: (seats: DuelSeatView[]) => void;
   prompt?: (seats: DuelSeatView[]) => DuelPrompt | null;
   chain?: DuelChainLink[];
+  events?: DuelEvent[];
   result?: DuelEngineView["result"];
   ui?: TableFixtureState["ui"];
 }
@@ -119,6 +120,7 @@ function make(id: TableStateId, label: string, spec: Spec = {}): TableFixtureSta
     battleStep: spec.battleStep,
     prompt: spec.prompt?.(seats) ?? null,
     chain: spec.chain,
+    events: spec.events,
     result: spec.result,
   });
   return { id, label, room: fixtureRoom({ format: "tag", names: TAG_NAMES, viewerSeat, engine, clockMs: CLOCK_MS }), ui: spec.ui };
@@ -128,6 +130,8 @@ const attackerKey = zoneKey(ASTER, LOCATION_MZONE, 0);
 
 const states = {
   main: make("main", "Main Phase: usable cards", {
+    // Last turn's battle damage: the red chip on the Starfall plate.
+    events: [{ id: 1, kind: "damage", seat: CORVIN, amount: 1_200, cause: "battle", text: `${TAG_NAMES[CORVIN]} took 1200 damage` }],
     prompt: () => ({
       id: "main-action",
       seat: ASTER,
@@ -228,6 +232,7 @@ const states = {
   elimination: make("elimination", "Team loss: Thornveil", {
     phase: "battle",
     battleStep: "damage",
+    events: [{ id: 1, kind: "damage", seat: MIRELLE, amount: 9_400, cause: "battle", text: `${TAG_NAMES[MIRELLE]} took 9400 damage` }],
     edit: (seats) => {
       setTeamLp(seats, 1, 0);
       for (const seat of RIVALS) seats[seat].pendingElimination = true;

@@ -646,6 +646,18 @@
   color: var(--ink-4);
 }
 
+.dmg {
+  align-self: center;
+  padding: calc(1 * var(--u)) calc(6 * var(--u));
+  border-radius: 999px;
+  border: 1px solid rgb(255 106 106 / 0.55);
+  background: rgb(255 106 106 / 0.16);
+  color: #ff9a9a;
+  font: 700 var(--fs-sm) / 1.2 var(--num);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
 .plate[data-hang="true"] .pr2 { --lp-size: calc(28 * var(--u)); }
 
 .mchips {

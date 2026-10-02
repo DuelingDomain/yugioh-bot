@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DuelChainLink, DuelEngineView, DuelPrompt, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   batonOrder,
+  lastTeamDamage,
   passSummary,
   chainLinkLabel,
   defaultDirectSeat,
@@ -250,5 +251,22 @@ describe("passSummary", () => {
   it("says when the other team passed, and calls the answering team rival for the other side", () => {
     const window = { team: 1, members: [{ seat: 1, state: "passed" as const }, { seat: 3, state: "choosing" as const }], otherPassed: true, passedSeats: [0, 2], bothPassed: false };
     expect(passSummary(window, nameOf, 0)).toBe("Rival team: Mirelle passed, Juniper is choosing. The other team passed.");
+  });
+});
+
+describe("lastTeamDamage", () => {
+  const engine = (events: unknown[]) => ({ events }) as never;
+  it("gives the newest damage of a seat of that team", () => {
+    const events = [
+      { id: 1, kind: "damage", seat: 1, amount: 500, text: "" },
+      { id: 2, kind: "damage", seat: 0, amount: 700, text: "" },
+      { id: 3, kind: "damage", seat: 3, amount: 1200, text: "" },
+    ];
+    expect(lastTeamDamage(engine(events), 1)).toEqual({ seat: 3, amount: 1200 });
+    expect(lastTeamDamage(engine(events), 0)).toEqual({ seat: 0, amount: 700 });
+  });
+  it("is null with no damage, or with a zero amount", () => {
+    expect(lastTeamDamage(engine([]), 0)).toBeNull();
+    expect(lastTeamDamage(engine([{ id: 1, kind: "damage", seat: 0, amount: 0, text: "" }]), 0)).toBeNull();
   });
 });

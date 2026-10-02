@@ -24,7 +24,7 @@ import {
   type RoofPose,
 } from "./roof-camera";
 import { Baton, RoofDecor, TeamStrip } from "./roof-world";
-import { batonOrder, responseWindow, rivalPickOptions, teamGlyph, teamLoss, teamLp } from "./tag-logic";
+import { batonOrder, lastTeamDamage, responseWindow, rivalPickOptions, teamGlyph, teamLoss, teamLp } from "./tag-logic";
 import { plateState, TeamLpPlate, type PlateMember } from "./team-lp-plate";
 import styles from "./tag-stage.module.css";
 
@@ -280,6 +280,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
         startLp={startLp}
         state={plateState({ out, choosing: window_?.team === team, onTurn: teamOfSeat(TAG, engine.turnSeat) === team })}
         cracked={out && loss.cracking}
+        damage={lastTeamDamage(engine, team)?.amount ?? null}
         members={members}
         hang={!near}
         reducedMotion={reducedMotion}

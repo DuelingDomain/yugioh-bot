@@ -183,3 +183,16 @@ export function passSummary(window: ResponseWindow, nameOf: (seat: number) => st
   const members = window.members.map((m) => `${nameOf(m.seat)} ${word[m.state]}`).join(", ");
   return `${who}: ${members}.${window.otherPassed ? " The other team passed." : ""}`;
 }
+
+/**
+ * The last LP a team lost, for the red chip on its plate: the newest damage event of a member seat. Null when the team
+ * took no damage.
+ */
+export function lastTeamDamage(engine: DuelEngineView, team: number): { seat: number; amount: number } | null {
+  for (let i = engine.events.length - 1; i >= 0; i -= 1) {
+    const event = engine.events[i];
+    if (event.kind !== "damage" || event.seat == null || event.amount == null || event.amount <= 0) continue;
+    if (teamOfSeat(TAG, event.seat) === team) return { seat: event.seat, amount: event.amount };
+  }
+  return null;
+}

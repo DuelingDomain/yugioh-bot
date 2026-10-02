@@ -32,6 +32,7 @@ export interface TeamPlateProps {
   startLp: number;
   state: PlateState;
   cracked: boolean;
+  damage?: number | null; // LP the team lost last, shown as a red chip
   members: readonly PlateMember[];
   hang?: boolean; // the rival plate hangs from cords above its strip
   reducedMotion: boolean;
@@ -117,7 +118,7 @@ function Chip({ member, onPick }: { member: PlateMember; onPick?: (seat: number)
 }
 
 /** Team life plate: the shared LP once, then one chip per member. Each chip carries the data-lp-seat hook of its seat. */
-export function TeamLpPlate({ teamName, glyph, near, lp, startLp, state, cracked, members, hang, reducedMotion, onPick, plateRef, style }: TeamPlateProps) {
+export function TeamLpPlate({ teamName, glyph, near, lp, startLp, state, cracked, damage, members, hang, reducedMotion, onPick, plateRef, style }: TeamPlateProps) {
   return (
     <div
       ref={plateRef}
@@ -137,6 +138,7 @@ export function TeamLpPlate({ teamName, glyph, near, lp, startLp, state, cracked
         <div className={styles.pr2}>
           <LifePoints value={lp} reducedMotion={reducedMotion} size="lg" />
           <span className={styles.lpof}>/ {startLp.toLocaleString("en-US")}</span>
+          {damage ? <span className={styles.dmg} data-damage-chip title="Last damage">-{damage.toLocaleString("en-US")}</span> : null}
         </div>
       </div>
       <div className={styles.mchips}>
