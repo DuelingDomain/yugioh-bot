@@ -42,17 +42,26 @@
   position: fixed;
   inset: 0;
   z-index: var(--duel-z-result);
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  padding: max(28px, env(safe-area-inset-top)) max(28px, env(safe-area-inset-right))
-    max(28px, env(safe-area-inset-bottom)) max(28px, env(safe-area-inset-left));
+  /* When the stack is taller than the screen (a series on a phone, or a phone held sideways) the
+     overlay scrolls; the ground and frame stay put. */
+  overflow-x: hidden;
+  overflow-y: auto;
   color: var(--ink);
   font-family: var(--font-ui);
   font-size: clamp(15px, calc(6.5px + 0.6vw), 22px);
   line-height: 1.35;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: contain;
+}
+/* Centres the stack and grows with it, so a tall stack scrolls from its top instead of being cut off.
+   The clip keeps the burst, which is wider and taller than the screen, from adding scroll room. */
+.scroll {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  overflow: clip;
+  padding: max(28px, env(safe-area-inset-top)) max(28px, env(safe-area-inset-right))
+    max(28px, env(safe-area-inset-bottom)) max(28px, env(safe-area-inset-left));
 }
 .root:focus,
 .root:focus-visible {
@@ -98,7 +107,7 @@
 /* ---- Ground and frame ------------------------------------------------- */
 
 .backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: radial-gradient(75% 65% at 50% 44%, rgb(17 26 48 / 0.95), rgb(5 8 15 / 0.97) 82%);
 }
@@ -107,7 +116,7 @@
 }
 
 .frame {
-  position: absolute;
+  position: fixed;
   inset: clamp(10px, 2.2vmin, 26px);
   border: 1px solid var(--frame);
   pointer-events: none;
@@ -139,7 +148,6 @@
   flex-direction: column;
   align-items: center;
   width: min(100%, 1500px);
-  max-height: 100%;
   gap: clamp(8px, 1.8vh, 18px);
   text-align: center;
 }
@@ -233,7 +241,7 @@
 }
 
 .flash {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 3;
   opacity: 0;
@@ -529,19 +537,8 @@
 /* ---- Small screens ----------------------------------------------------- */
 
 @media (max-width: 560px) {
-  /* A series card can make the stack taller than a short phone: let the overlay scroll. The ground
-     and frame stay put; the burst is bounded by the narrow viewport so it adds no scroll height. */
-  .root {
-    overflow-x: hidden;
-    overflow-y: auto;
+  .scroll {
     padding-inline: max(20px, env(safe-area-inset-left));
-  }
-  .backdrop,
-  .frame {
-    position: fixed;
-  }
-  .stage {
-    max-height: none;
   }
   /* Exit on its own row, the other two side by side. */
   .actions {

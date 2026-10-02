@@ -416,83 +416,85 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
         <span className={styles.corner} data-corner="br" />
       </div>
 
-      <div className={styles.stage}>
-        <div className={styles.hero}>
-          {burst ? (
-            <div className={styles.burst} aria-hidden="true">
-              <div className={styles.raysSpin}>
-                <SunburstRays />
-              </div>
-              <Rosette />
-            </div>
-          ) : null}
-
-          <div className={`${styles.card} ${styles.titleCard}`}>
-            <h1 id={titleId} className={styles.wordmark} data-tier={tier}>
-              <span className={styles.srOnly}>{model.headline}</span>
-              <span className={styles.face} aria-hidden="true">
-                {outcome === "lose"
-                  ? (["a", "b", "c"] as const).map((shard) => (
-                      <span key={shard} className={styles.layer} data-shard={shard}>{model.headline}</span>
-                    ))
-                  : <span className={styles.layer}>{model.headline}</span>}
-                {outcome === "lose" ? (
-                  <svg className={styles.crack} viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
-                    <polyline points="41,-2 47,26 38,49 46,74 40,102" vectorEffect="non-scaling-stroke" />
-                    <polyline points="69,-2 63,30 72,58 64,82 70,102" vectorEffect="non-scaling-stroke" />
-                  </svg>
-                ) : null}
-              </span>
-            </h1>
-            {model.reason ? <p id={reasonId} className={styles.reason}>{model.reason}</p> : null}
-          </div>
-        </div>
-
-        {model.scores.length > 0 ? (
-          <ul className={styles.scoreboard} aria-label="Final Life Points">
-            {model.scores.map((score) => (
-              <li key={score.seat} className={`${styles.card} ${styles.score}`} data-winner={score.isWinner ? "true" : "false"} data-out={score.lp <= 0 ? "true" : "false"}>
-                {score.deckMaster ? (
-                  <img
-                    className={styles.dmArt}
-                    src={cardArtUrl(score.deckMaster.code, "small")}
-                    alt=""
-                    draggable={false}
-                    onError={(event) => { event.currentTarget.style.visibility = "hidden"; }}
-                  />
-                ) : null}
-                <div className={styles.scoreText}>
-                  <span className={styles.scoreName}>
-                    <span className={styles.name}>{score.name}</span>
-                    {score.isMe ? <span className={styles.tag} data-tag="you">You</span> : null}
-                    {score.isWinner ? <span className={styles.tag} data-tag="winner">Winner</span> : null}
-                  </span>
-                  <span className={styles.scoreLp}>
-                    <span>{formatLp(score.lp)}</span>
-                    <span className={styles.lpUnit} aria-hidden="true">LP</span>
-                    <span className={styles.srOnly}> Life Points</span>
-                  </span>
-                  {score.deckMaster ? <span className={styles.dmName}>{score.deckMaster.name}</span> : null}
+      <div className={styles.scroll}>
+        <div className={styles.stage}>
+          <div className={styles.hero}>
+            {burst ? (
+              <div className={styles.burst} aria-hidden="true">
+                <div className={styles.raysSpin}>
+                  <SunburstRays />
                 </div>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+                <Rosette />
+              </div>
+            ) : null}
 
-        {room.series ? (
-          <SeriesResult room={room} slug={slug} onOpenSide={onOpenSide} onChanged={onSeriesChanged} onNavigate={onNavigate} />
-        ) : null}
+            <div className={`${styles.card} ${styles.titleCard}`}>
+              <h1 id={titleId} className={styles.wordmark} data-tier={tier}>
+                <span className={styles.srOnly}>{model.headline}</span>
+                <span className={styles.face} aria-hidden="true">
+                  {outcome === "lose"
+                    ? (["a", "b", "c"] as const).map((shard) => (
+                        <span key={shard} className={styles.layer} data-shard={shard}>{model.headline}</span>
+                      ))
+                    : <span className={styles.layer}>{model.headline}</span>}
+                  {outcome === "lose" ? (
+                    <svg className={styles.crack} viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
+                      <polyline points="41,-2 47,26 38,49 46,74 40,102" vectorEffect="non-scaling-stroke" />
+                      <polyline points="69,-2 63,30 72,58 64,82 70,102" vectorEffect="non-scaling-stroke" />
+                    </svg>
+                  ) : null}
+                </span>
+              </h1>
+              {model.reason ? <p id={reasonId} className={styles.reason}>{model.reason}</p> : null}
+            </div>
+          </div>
 
-        <div className={styles.actions}>
-          {onExit ? (
-            <button type="button" className={styles.btn} data-kind={leaveKind} onClick={onExit}>Exit duel</button>
-          ) : (
-            <Link href="/duels" className={styles.btn} data-kind={leaveKind}>Back to tables</Link>
-          )}
-          {canReplay ? (
-            <Link href={`/duels/${slug}/replay`} className={styles.btn} data-kind="secondary">Watch replay</Link>
+          {model.scores.length > 0 ? (
+            <ul className={styles.scoreboard} aria-label="Final Life Points">
+              {model.scores.map((score) => (
+                <li key={score.seat} className={`${styles.card} ${styles.score}`} data-winner={score.isWinner ? "true" : "false"} data-out={score.lp <= 0 ? "true" : "false"}>
+                  {score.deckMaster ? (
+                    <img
+                      className={styles.dmArt}
+                      src={cardArtUrl(score.deckMaster.code, "small")}
+                      alt=""
+                      draggable={false}
+                      onError={(event) => { event.currentTarget.style.visibility = "hidden"; }}
+                    />
+                  ) : null}
+                  <div className={styles.scoreText}>
+                    <span className={styles.scoreName}>
+                      <span className={styles.name}>{score.name}</span>
+                      {score.isMe ? <span className={styles.tag} data-tag="you">You</span> : null}
+                      {score.isWinner ? <span className={styles.tag} data-tag="winner">Winner</span> : null}
+                    </span>
+                    <span className={styles.scoreLp}>
+                      <span>{formatLp(score.lp)}</span>
+                      <span className={styles.lpUnit} aria-hidden="true">LP</span>
+                      <span className={styles.srOnly}> Life Points</span>
+                    </span>
+                    {score.deckMaster ? <span className={styles.dmName}>{score.deckMaster.name}</span> : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : null}
-          <button type="button" className={styles.btn} data-kind="quiet" onClick={onClose}>View board</button>
+
+          {room.series ? (
+            <SeriesResult room={room} slug={slug} onOpenSide={onOpenSide} onChanged={onSeriesChanged} onNavigate={onNavigate} />
+          ) : null}
+
+          <div className={styles.actions}>
+            {onExit ? (
+              <button type="button" className={styles.btn} data-kind={leaveKind} onClick={onExit}>Exit duel</button>
+            ) : (
+              <Link href="/duels" className={styles.btn} data-kind={leaveKind}>Back to tables</Link>
+            )}
+            {canReplay ? (
+              <Link href={`/duels/${slug}/replay`} className={styles.btn} data-kind="secondary">Watch replay</Link>
+            ) : null}
+            <button type="button" className={styles.btn} data-kind="quiet" onClick={onClose}>View board</button>
+          </div>
         </div>
       </div>
       <div className={styles.flash} aria-hidden="true" />
