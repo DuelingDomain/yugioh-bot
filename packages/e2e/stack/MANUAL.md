@@ -47,8 +47,9 @@ In that case manual mode verifies the installed wrapper against that patch and c
 symlinks to the unchanged snapshot files and a derived manifest with the local wrapper hash and bundle version.
 No source manifest, core, or Lua script is changed. Normal e2e mode keeps its original integrity checks.
 
-Real art is read from `/home/sulman633/repos/yugioh-bot/data/card-images`, with YGOPRODeck as fallback.
-Set `CARD_IMAGE_CACHE_DIR=/another/cache` on the manual command to choose a different **read-only source**.
+Set `E2E_CARD_IMAGE_SOURCE_DIR=/path/to/cache` on the manual command to read real art from that **read-only source**.
+`CARD_IMAGE_CACHE_DIR` also selects a source when `E2E_CARD_IMAGE_SOURCE_DIR` is unset.
+When neither is set, startup warns that card art will download from YGOPRODeck. Missing cached cards also download there.
 Downloaded art is written only into `packages/e2e/.stack/manual-card-images`.
 Normal e2e runs keep tiny stub images in their separate `.stack/card-images` cache.
 
