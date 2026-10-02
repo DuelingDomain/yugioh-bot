@@ -52,9 +52,9 @@ export async function withPreservedFiles(files, build) {
   } finally {
     files.forEach((file, index) => {
       if (before[index] === null) rmSync(file, { force: true });
-      else if (!existsSync(file) || !readFileSync(file).equals(before[index].bytes)) {
-        writeFileSync(file, before[index].bytes);
-        utimesSync(file, before[index].info.atime, before[index].info.mtime);
+      else {
+        if (!existsSync(file) || !readFileSync(file).equals(before[index].bytes)) writeFileSync(file, before[index].bytes);
+        if (statSync(file).mtimeMs !== before[index].info.mtimeMs) utimesSync(file, before[index].info.atime, before[index].info.mtime);
       }
     });
   }

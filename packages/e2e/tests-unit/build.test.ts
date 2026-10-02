@@ -74,6 +74,11 @@ test("slot builds restore generated config even on failure without touching unch
     utimesSync(config, 1, 1);
     await withPreservedFiles([config, generated], () => {});
     assert.equal(statSync(config).mtimeMs, 1000);
+    await withPreservedFiles([config], () => {
+      writeFileSync(config, "original");
+      utimesSync(config, 2, 2);
+    });
+    assert.equal(statSync(config).mtimeMs, 1000, "identical-byte rewrites must retain the original mtime");
     await assert.rejects(withPreservedFiles([config, generated], () => {
       writeFileSync(config, "Next modified this");
       writeFileSync(generated, "new file");
