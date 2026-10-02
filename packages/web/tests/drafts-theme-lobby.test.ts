@@ -7,6 +7,7 @@ const auth = vi.fn();
 const tempDirs: string[] = [];
 
 vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/notify", () => ({ broadcaster: { draft: vi.fn() }, announcer: { announce: vi.fn() } }));
 
 type SeedCube = { main: number; extra: number };
 
@@ -109,4 +110,32 @@ describe("theme lobby routes", () => {
     expect(body.errors.some((e: string) => /main/i.test(e))).toBe(true);
     expect(body.warnings.length).toBeGreaterThan(0); // Theme1 has 0 extra but extra enabled
   }, 30000);
+
+  it("does not let a player who has not joined reserve a cube", async () => {
+    const { cubeIds } = await seedDraft([{ main: 42, extra: 0 }]);
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','outsider','Other')").run();
+    auth.mockResolvedValue({ user: { id: "outsider" } });
+    const { POST } = await import("../app/api/drafts/[slug]/claim-cube/route");
+    const res = await POST(new Request("http://x", { method: "POST", body: JSON.stringify({ cubeId: cubeIds[0] }) }), {
+      params: Promise.resolve({ slug: "theme-slug" }),
+    });
+    expect(res.status).toBe(403);
+    expect(getDb().prepare("select count(*) as n from draft_player_cube").get()).toEqual({ n: 0 });
+  }, 30000);
+  it.each(["foreign", "unallowed-local"])("rejects a poisoned %s player claim before start", async (kind) => {
+    const { cubeIds, p1, p2 } = await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], { extraDeckEnabled: false });
+    const { getDb } = await import("../src/lib/db");
+    const db = getDb();
+    const poisonedId = Number(db.prepare("insert into cubes (guild_id, name, created_by_user_id) values (?, 'Poisoned', 'u1')").run(kind === "foreign" ? "other-guild" : "guild-1").lastInsertRowid);
+    db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) select ?, catalog_card_id, pool, max_copies from cube_cards where cube_id = ?").run(poisonedId, cubeIds[0]);
+    db.prepare("insert into draft_player_cube (draft_id, player_id, cube_id) values (1, ?, ?), (1, ?, ?)").run(p1, poisonedId, p2, cubeIds[1]);
+    auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
+    const { POST } = await import("../app/api/drafts/[slug]/route");
+    const response = await POST(new Request("http://x", { method: "POST" }), { params: Promise.resolve({ slug: "theme-slug" }) });
+    expect(response.status).toBe(kind === "foreign" ? 404 : 400);
+    expect(db.prepare("select status from drafts where id = 1").get()).toEqual({ status: "pending" });
+    expect(db.prepare("select count(*) as n from draft_cards").get()).toEqual({ n: 0 });
+  }, 30000);
+
 });

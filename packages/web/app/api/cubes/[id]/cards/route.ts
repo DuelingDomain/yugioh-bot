@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireWebAccess } from "@/lib/web-access";
+import { cubeWriteAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
@@ -15,10 +16,8 @@ type Op =
   | { op: "seedArchetype"; archetype: string; banlist?: string };
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const actor = await requireWebAccess();
+  if (!actor.ok) return actor.response;
   if (!env.discordGuildId) {
     return NextResponse.json({ error: "Server not configured for cubes" }, { status: 500 });
   }
@@ -30,12 +29,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
 
   const db = getDb();
-  const owner = db
-    .prepare("select guild_id from cubes where id = ?")
-    .get(cubeId) as { guild_id: string } | undefined;
-  if (!owner || owner.guild_id !== env.discordGuildId) {
-    return NextResponse.json({ error: "Cube not found" }, { status: 404 });
-  }
+  const denied = await cubeWriteAccess(db, cubeId, actor.userId);
+  if (denied) return denied;
 
   const catalog = createCardCatalogService(db);
   const cubes = createCubeService(db, catalog);

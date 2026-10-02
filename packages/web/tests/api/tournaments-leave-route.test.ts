@@ -11,10 +11,12 @@ vi.mock("@/lib/auth", () => ({ auth }));
 describe("POST /api/tournaments/[slug]/leave", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     delete process.env.DATABASE_PATH;
     while (tempDirs.length > 0) {
       const d = tempDirs.pop();

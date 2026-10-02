@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
 import { analyzeCube, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
@@ -137,6 +138,12 @@ export async function PUT(
     const body = await request.json();
     const { name, config } = body as { name?: string; config?: unknown };
 
+    const drafts = createDraftService(db);
+    const existing = drafts.findById(draft.id);
+    const mergedConfig = { ...existing.config, ...(config as object) };
+    const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds);
+    if (denied) return denied;
+
     if (name !== undefined) {
       if (!name.trim()) {
         return NextResponse.json({ error: "Name cannot be empty" }, { status: 400 });
@@ -158,10 +165,6 @@ export async function PUT(
     let analysisWarnings: ReturnType<typeof analyzeCube> | undefined;
 
     if (config !== undefined) {
-      const drafts = createDraftService(db);
-      const existing = drafts.findById(draft.id);
-      const mergedConfig = { ...existing.config, ...(config as object) };
-
       // The submitted config redefines the pool (sets + custom passcodes), so
       // any previously materialized ids are stale. Drop them before resolving —
       // otherwise resolveCubeCardIds returns the old snapshot and edits like
@@ -263,6 +266,19 @@ export async function POST(
 
     const drafts = createDraftService(db);
     const draftModel = drafts.findById(draft.id);
+    // The service drops deleted library cubes; surviving references must stay in this guild.
+    const denied = cubeReferenceAccess(db, draftModel.config.allowedCubeIds, { allowMissing: true });
+    if (denied) return denied;
+    if (draftModel.config.mode === "theme" && (draftModel.config.themeSelection ?? "player_pick") === "player_pick") {
+      const claims = db.prepare("select cube_id from draft_player_cube where draft_id = ?")
+        .all(draft.id) as Array<{ cube_id: number }>;
+      const claimedCubeIds = claims.map((claim) => claim.cube_id);
+      const deniedClaim = cubeReferenceAccess(db, claimedCubeIds);
+      if (deniedClaim) return deniedClaim;
+      if (claimedCubeIds.some((id) => !(draftModel.config.allowedCubeIds ?? []).includes(id))) {
+        return NextResponse.json({ error: "Claimed cube is not allowed in this draft" }, { status: 400 });
+      }
+    }
     const cards = createCardCatalogService(db);
 
     if (!draftModel.config.cubeCardIds?.length && !draftModel.config.poolCardIds?.length) {

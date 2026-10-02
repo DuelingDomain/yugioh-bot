@@ -1,3 +1,4 @@
+import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Trophy, Layers, Swords, TrendingUp, ArrowRight, Target, Flame, Star, Coins } from "lucide-react";
@@ -22,8 +23,8 @@ export default async function DashboardPage() {
   const db = getDb();
 
   const playerRows = db
-    .prepare("select id, guild_id from players where discord_user_id = ?")
-    .all(discordUserId) as Array<{ id: number; guild_id: string }>;
+    .prepare("select id, guild_id from players where discord_user_id = ? and guild_id = ?")
+    .all(discordUserId, env.discordGuildId) as Array<{ id: number; guild_id: string }>;
   const playerIds = playerRows.map((r) => r.id);
 
   let tournaments: TournamentCardProps[] = [];
@@ -59,11 +60,11 @@ export default async function DashboardPage() {
          from tournaments t
          inner join tournament_participants tp on tp.tournament_id = t.id
          left join tournament_participants tp2 on tp2.tournament_id = t.id
-         where tp.player_id in (${ph}) and t.status in ('pending', 'active')
+         where t.guild_id = ? and tp.player_id in (${ph}) and t.status in ('pending', 'active')
          group by t.id
          order by case t.status when 'active' then 0 else 1 end, t.created_at desc`
       )
-      .all(...playerIds)
+      .all(env.discordGuildId, ...playerIds)
       .map((row: any) => ({
         id: row.id,
         guildId: row.guild_id,
@@ -82,11 +83,11 @@ export default async function DashboardPage() {
          from drafts d
          inner join draft_players dp on dp.draft_id = d.id
          left join draft_players dp2 on dp2.draft_id = d.id
-         where dp.player_id in (${ph}) and d.status in ('pending', 'active')
+         where d.guild_id = ? and dp.player_id in (${ph}) and d.status in ('pending', 'active')
          group by d.id
          order by case d.status when 'active' then 0 else 1 end, d.created_at desc`
       )
-      .all(...playerIds)
+      .all(env.discordGuildId, ...playerIds)
       .map((row: any) => ({
         id: row.id,
         guildId: row.guild_id,
@@ -108,7 +109,7 @@ export default async function DashboardPage() {
                and winner_id not in (${ph})
              then 1 else 0 end) as losses
          from matches
-         where status = 'completed'
+         where guild_id = ? and status = 'completed'
            and (player_one_id in (${ph}) or player_two_id in (${ph}))`
       )
       .get(
@@ -116,6 +117,7 @@ export default async function DashboardPage() {
         ...playerIds,
         ...playerIds,
         ...playerIds,
+        env.discordGuildId,
         ...playerIds,
         ...playerIds
       ) as { wins: number | null; losses: number | null } | undefined;
