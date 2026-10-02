@@ -84,7 +84,7 @@ test.describe("4-player FFA", () => {
 
   test("R-FFA-NO-ATTACK: last duelist gets Battle Phase on turn 4", async ({ player }) => {
     const seats = await openSeats(player);
-    await startTable(seats, "ffa4 ADR battle window", decks([FILLER]));
+    const { slug } = await startTable(seats, "ffa4 ADR battle window", decks([FILLER]));
     for (const [index, seat] of seats.entries()) {
       await expectTurnReady(seat, index + 1);
       if (index < 3) {
@@ -92,7 +92,10 @@ test.describe("4-player FFA", () => {
         await endTurn(seat.page, index + 2);
       }
     }
+    const prompt = (await readTable(seats[3]!.page, slug)).engine!.prompt!;
+    expect(prompt.context?.type).toBe("action");
     test.fail(true, "R-FFA-NO-ATTACK pending engine change");
+    expect(prompt.options.some((option) => option.id === "to_bp")).toBe(true);
     await expect(toBattle(seats[3]!.page)).toBeEnabled({ timeout: 1000 });
   });
 
@@ -132,9 +135,9 @@ test.describe("4-player FFA", () => {
     await useCard(alice.page, handCard(alice.page, "Raigeki"), "Activate");
     await pickLegalZone(alice.page, "st");
     test.fail(true, "R-FFA-OPP-ONE pending engine change");
+    expect((await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("opponent");
     const choice = alice.page.getByTestId("holo-pick-2");
     await expect(choice).toBeVisible({ timeout: 1000 });
-    expect((await readTable(alice.page, slug)).engine!.prompt!.context?.type).toBe("opponent");
     await choice.click();
     await expect(tableField(alice.page, 2).locator("[data-kind='mz'][data-occupied='true']")).toHaveCount(0);
     for (const seat of [0, 1, 3]) await expect(tableField(alice.page, seat).locator("[data-kind='mz'][data-occupied='true']")).toHaveCount(1);
