@@ -84,7 +84,8 @@ export interface DuelSeriesService {
    * already checked card types. The service checks: status between_games, the
    * same cards as the current deck (as a multiset over main+extra+side), the
    * side deck count unchanged, main >= min(40, base main count) and <= 60,
-   * extra <= 15.
+   * extra <= 15. A deck that differs from the current one clears the player's
+   * Ready, so the next game never starts on a deck they did not confirm.
    */
   setSideDeck(seriesId: number, guildId: string, playerId: number, deck: DuelDeck): DuelSeriesSummary;
   setSideReady(seriesId: number, guildId: string, playerId: number): DuelSeriesSummary;
@@ -210,6 +211,13 @@ function sameCounts(a: Map<number, number>, b: Map<number, number>): boolean {
   if (a.size !== b.size) return false;
   for (const [code, count] of a) if (b.get(code) !== count) return false;
   return true;
+}
+
+/** Same cards in the same order in every section: anything else is a deck change. */
+function sameDeckLayout(a: DuelDeck, b: DuelDeck): boolean {
+  const sameList = (x: readonly number[], y: readonly number[]) => x.length === y.length && x.every((code, i) => code === y[i]);
+  return sameList(a.main, b.main) && sameList(a.extra, b.extra) && sameList(a.side, b.side)
+    && (a.deckMaster ?? null) === (b.deckMaster ?? null);
 }
 
 type InsertSeriesParams = [
@@ -734,6 +742,8 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
   const updateDeck1 = db.prepare<[string, number]>("update duel_series set deck1_json = ? where id = ?");
   const markSideReady0 = db.prepare<[number]>("update duel_series set side_ready0 = 1 where id = ?");
   const markSideReady1 = db.prepare<[number]>("update duel_series set side_ready1 = 1 where id = ?");
+  const clearSideReady0 = db.prepare<[number]>("update duel_series set side_ready0 = 0 where id = ?");
+  const clearSideReady1 = db.prepare<[number]>("update duel_series set side_ready1 = 0 where id = ?");
   const resetToActive = db.prepare<[number]>(
     "update duel_series set status = 'active', side_ready0 = 0, side_ready1 = 0, next_game_at = null where id = ?",
   );
@@ -965,6 +975,11 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
         throw new DuelServiceError(`Main deck must have between ${minMain} and ${SIDE_DECK_MAX_MAIN} cards`, 400);
       }
       (index === 0 ? updateDeck0 : updateDeck1).run(JSON.stringify(next), row.id);
+      if (!sameDeckLayout(next, state.currentDeck)) {
+        // Ready confirmed the old deck. Cleared in the same transaction as the deck write, so no advance
+        // (the ready path or the tick sweep) can see the new deck together with the old Ready.
+        (index === 0 ? clearSideReady0 : clearSideReady1).run(row.id);
+      }
       return store.summarize(store.requireSeries(row.id));
     },
   );

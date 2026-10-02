@@ -1043,7 +1043,11 @@ export function createDuelHost(options: {
         // "same cards" check in setSideDeck compares like with like. validateSessionDeck still rejects it.
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
         validateSessionDeck(room.session.mode, deck, room.session.settings);
-        return { series: series.setSideDeck(seriesId, guildId, actor, deck) };
+        const index = info.playerIds.indexOf(actor);
+        const updated = series.setSideDeck(seriesId, guildId, actor, deck);
+        // A changed deck clears this player's Ready: refresh both players' views so the room shows it.
+        if (info.sideReady[index] && !updated.sideReady[index]) await emitChange(updated.currentDuelSlug ?? slug, guildId);
+        return { series: updated };
       }
       if (info.status !== "between_games") {
         // The next game may already exist (the timer or the other player was first): point the client at it.

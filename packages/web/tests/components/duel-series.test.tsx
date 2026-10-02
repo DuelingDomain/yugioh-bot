@@ -208,6 +208,33 @@ describe("SideDeckPanel", () => {
     expect(api.saveSeriesSideDeck.mock.invocationCallOrder[0]).toBeLessThan(api.readySeries.mock.invocationCallOrder[0]);
   });
 
+  it("tells a ready player that saving swaps clears Ready, then offers Ready again", async () => {
+    const base = makeDeck();
+    const swapped = { main: [1, 10, 3], extra: [100, 101], side: [2, 11] };
+    const between = { status: "between_games" as const, nextGameAt: soon(), hasSide: [true, false] as [boolean, boolean] };
+    api.saveSeriesSideDeck.mockResolvedValue({ series: makeSeries({ ...between, sideReady: [false, true] }) });
+    const element = (sideReady: [boolean, boolean], current: typeof base) => (
+      <SideDeckPanel slug="game-1" series={makeSeries({ ...between, sideReady })} myIndex={0}
+        side={{ baseDeck: base, currentDeck: current }} onClose={vi.fn()} onChanged={vi.fn()} onNavigate={vi.fn()} />
+    );
+    const { rerender } = render(element([true, true], base));
+    expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/clears your Ready|no longer ready/)).toBeNull();
+
+    fireEvent.click(await tile("Card 2"));
+    fireEvent.click(await tile("Card 10"));
+    expect(screen.getByText(/Saving these swaps clears your Ready/).getAttribute("role")).toBe("status");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", swapped));
+
+    // The room refreshes with the server state: this player is no longer ready.
+    rerender(element([false, true], swapped));
+    expect((await screen.findByText(/You are no longer ready/)).getAttribute("role")).toBe("status");
+    expect(screen.queryByText(/clears your Ready/)).toBeNull();
+    const ready = screen.getByRole("button", { name: "Ready for next game" }) as HTMLButtonElement;
+    expect(ready.disabled).toBe(false);
+  });
+
   it("closes on Escape", async () => {
     const props = panel();
     await tile("Card 1");

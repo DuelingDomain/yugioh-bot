@@ -395,6 +395,49 @@ describe("series advance", () => {
     expect(app.series.get(series.id, GUILD).gameNumber).toBe(2);
   });
 
+  it("un-readies a player who sides after Ready, so the next game waits for their new deck", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const changes: string[] = [];
+    const { host, workers } = openHost(app, { onChange: (slug) => void changes.push(slug) });
+    const { duel, series } = await startChallenge(app, host, 3);
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    const p1Index = app.series.get(series.id, GUILD).playerIds.indexOf(app.p1);
+    const before = app.series.sideState(series.id, GUILD, app.p1).currentDeck;
+    // Swap the first main card for the second side card.
+    const sided: DuelDeck = { ...before, main: [before.side[1]!, ...before.main.slice(1)], side: [before.side[0]!, before.main[0]!] };
+    expect(sided).not.toEqual(before);
+
+    const ready = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    expect(ready.status).toBe(200);
+    expect(ready.data.series.sideReady[p1Index]).toBe(true);
+
+    changes.length = 0;
+    const side = await post(host, { op: "series-side", slug: duel.slug, playerId: app.p1, deck: sided });
+    expect(side.status).toBe(200);
+    expect(side.data.series.sideReady[p1Index]).toBe(false);
+    // The opponent's view refreshes so it no longer shows this player as ready.
+    expect(changes).toContain(duel.slug);
+
+    const other = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
+    expect(other.status).toBe(200);
+    expect(other.data.nextSlug).toBeNull();
+    expect(other.data.series.status).toBe("between_games");
+    expect(other.data.series.sideReady[p1Index]).toBe(false);
+    await settle();
+    expect(workers).toHaveLength(1);
+    expect(app.series.get(series.id, GUILD)).toMatchObject({ status: "between_games", gameNumber: 1 });
+
+    // Ready again on the new deck: the next game starts with it.
+    const again = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    expect(again.status).toBe(200);
+    expect(typeof again.data.nextSlug).toBe("string");
+    expect(workers).toHaveLength(2);
+    const next = app.duels.get(again.data.nextSlug, GUILD);
+    const seat = next.seats.find((entry) => entry.playerId === app.p1)!.seat;
+    expect(app.duels.privateState(next.slug, GUILD).decks[seat]).toEqual(sided);
+  });
+
   it("stores a sided deck between games and rejects it at other times", async () => {
     vi.useFakeTimers();
     const app = setup();

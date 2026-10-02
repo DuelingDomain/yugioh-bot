@@ -54,7 +54,8 @@ function Group({ title, count, children }: { title: string; count: number; child
 /**
  * Side deck window between games of a Best of 3. Pick one card from the Main or Extra Deck and one
  * from the Side Deck to swap them; the Side Deck size never changes. Save stores the deck for the
- * next game, Ready saves first when needed.
+ * next game, Ready saves first when needed. Saving a changed deck clears the player's Ready on the
+ * server, so they must click Ready again.
  */
 export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged, onNavigate }: {
   slug: string;
@@ -73,6 +74,8 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** A save cleared this player's Ready; shown until they are ready again. */
+  const [unreadied, setUnreadied] = useState(false);
   const [meta, setMeta] = useState<ReadonlyMap<number, CardMeta>>(new Map());
   const rootRef = useRef<HTMLDivElement>(null);
   const seconds = useSecondsUntil(series.nextGameAt);
@@ -169,7 +172,8 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   }
 
   const save = () => work(async () => {
-    await saveSeriesSideDeck(slug, draft);
+    const result = await saveSeriesSideDeck(slug, draft);
+    setUnreadied(imReady && !result.series.sideReady[myIndex]);
     onChanged();
   });
   const ready = () => work(async () => {
@@ -227,6 +231,11 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
 
         {problem ? <p className={styles.problem} role="alert">{problem}</p> : null}
         {error ? <p className={styles.problem} role="alert">{error}</p> : null}
+        {imReady && dirty ? (
+          <p className={styles.hintLine} role="status">Saving these swaps clears your Ready. Click Ready again when you are done.</p>
+        ) : unreadied && !imReady ? (
+          <p className={styles.hintLine} role="status">Swaps saved. You are no longer ready: click Ready for next game.</p>
+        ) : null}
         <footer className={styles.sideFoot}>
           <SheetButton kind="secondary" disabled={busy || atBase} onClick={() => { setDraft(base); setOut(null); setInIndex(null); setProblem(null); }}>
             Reset to registered deck

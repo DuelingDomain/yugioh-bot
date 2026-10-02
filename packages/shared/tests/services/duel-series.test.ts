@@ -659,6 +659,31 @@ describe("side decking", () => {
     expect(priv.decks[seat]).toEqual(swapped);
   });
 
+  it("clears the player's Ready when they change their deck after Ready", () => {
+    const app = setup();
+    const series = betweenGames(app);
+    const index = series.playerIds.indexOf(app.p1);
+    const deck = validDeck(1);
+    const swapped: DuelDeck = {
+      ...deck,
+      main: [...deck.main.slice(1), deck.side[0] as number],
+      side: [deck.main[0] as number, deck.side[1] as number],
+    };
+    app.series.setSideReady(series.id, "g1", app.p1);
+    app.series.setSideReady(series.id, "g1", app.p2);
+    expect(app.series.get(series.id, "g1").sideReady).toEqual([true, true]);
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([{ seriesId: series.id, guildId: "g1" }]);
+
+    // Saving the same deck again is not a change and keeps Ready.
+    expect(app.series.setSideDeck(series.id, "g1", app.p1, deck).sideReady).toEqual([true, true]);
+
+    const summary = app.series.setSideDeck(series.id, "g1", app.p1, swapped);
+    expect(summary.sideReady[index]).toBe(false);
+    expect(summary.sideReady[index === 0 ? 1 : 0]).toBe(true);
+    // The series is no longer due: neither the ready path nor the sweep may start the next game.
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+  });
+
   it("rejects different cards, a changed side count and a small main deck", () => {
     const app = setup();
     const series = betweenGames(app);
