@@ -1,7 +1,7 @@
 // Superconductive Plasma Blast (51869363): an opponent-turn activation may
 // search the holder's Deck only after a monster was destroyed this turn.
 // The own-turn branch puts a Rock on top and can destroy any field card.
-import { activate, endTurn, expectOffered, expectPrompt, faceDown, normalSummon, pass, select, setCard, yes, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, endTurn, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, normalSummon, pass, select, setCard, yes, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, PARTNER, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
@@ -68,13 +68,18 @@ function reset(): Scenario {
     ...first, tags: first.tags.filter(tag => tag !== "ffa-first-draw-included"),
     id: "superconductive-plasma-blast-ffa3-p2-destruction-flag-clears-next-turn",
     title: "FFA3: Plasma Blast can search after destruction but cannot search in the next turn",
+    setup: { ...first.setup, p2: { ...first.setup.p2, spells: [faceDown(CARD), faceDown("Jar of Greed")] } },
     steps: [
-      activate(RAID, "p0"), expectOffered("activate", CARD, "p2"), pass("p2"), endTurn("p0"), pass("p2"), pass("p2"),
+      activate(RAID, "p0"), pass("p2"), expectOffered("activate", CARD, "p2"), pass("p2"), endTurn("p0"), pass("p2"), pass("p2"),
+      expectTurn("p1", 2), expectPrompt({ by: "p2", context: "chain" }),
+      expectNotOffered("activate", CARD, "p2"), pass("p2"),
+      expectNotOffered("activate", CARD, "p2"), pass("p2"),
+      expectNotOffered("activate", CARD, "p2"), pass("p2"),
       expectPrompt({ by: "p1", context: "action" }),
       everySeat("ffa3", {
         p0: { hand: [], deckCount: 20, grave: [RAID] },
         p1: { hand: [ELF], deckCount: 19, grave: [ELF] },
-        p2: { hand: [], deckCount: 20, spells: [CARD] },
+        p2: { hand: [], deckCount: 20, spells: [CARD, "Jar of Greed"] },
       }),
     ],
   });
