@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
-import { seatCountFor, type DuelAnswer, type DuelCardInfo, type DuelDeck, type DuelEngineView, type DuelFormat } from "@yugidraft/shared/duels";
+import { seatCountFor, type DuelAnswer, type DuelCardInfo, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
@@ -81,20 +81,39 @@ function open() {
 }
 
 /** A full table: a human at seat 0 and a practice bot at every other seat. */
-async function table(format: DuelFormat) {
+async function table(format: DuelFormat, mode: DuelMode = "normal", masterRule: DuelMasterRule = 5) {
   const t = open();
-  const session = t.duels.create({ guildId: "g1", organizerPlayerId: t.player, name: "Duel", mode: "normal", format });
+  const session = t.duels.create({ guildId: "g1", organizerPlayerId: t.player, name: "Duel", mode, format, masterRule });
   const organizer = { slug: session.slug, guildId: "g1", playerId: t.player };
   for (let seat = 1; seat < seatCountFor(format); seat += 1) {
     expect((await post(t.host, { op: "add-bot", ...organizer, seat })).status).toBe(200);
   }
-  t.duels.setDeck(session.slug, "g1", t.player, rotated(buildPracticeBotDeck("normal", DATA), 1));
+  t.duels.setDeck(session.slug, "g1", t.player, rotated(buildPracticeBotDeck(mode, DATA), 1));
   return { ...t, session, organizer };
 }
 
 const setupOf = (duels: ReturnType<typeof open>["duels"], slug: string) => duels.privateState(slug, "g1").setup;
 
 describe("DUEL_1V1_ENGINE on a new table", () => {
+  it.each((["normal", "domain"] as const).flatMap((mode) =>
+    ([1, 2, 3, 4, 5] as const).map((masterRule) => ({ mode, masterRule })),
+  ))("legacy $mode MR$masterRule: saves the stock first-turn draw rule", async ({ mode, masterRule }) => {
+    process.env.DUEL_1V1_ENGINE = "legacy";
+    const t = await table("1v1", mode, masterRule);
+    expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
+    const firstTurnDraw = masterRule <= 2;
+    expect(t.workers[0]!.created).toMatchObject({ engine: "legacy", firstTurnDraw });
+    expect(setupOf(t.duels, t.session.slug)).toMatchObject({ engine: "legacy", firstTurnDraw });
+  });
+
+  it("pinned Domain MR5: saves a first-turn draw", async () => {
+    process.env.DUEL_1V1_ENGINE = "pinned";
+    const t = await table("1v1", "domain");
+    expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
+    expect(t.workers[0]!.created).toMatchObject({ engine: "pinned", firstTurnDraw: true });
+    expect(setupOf(t.duels, t.session.slug)).toMatchObject({ engine: "pinned", firstTurnDraw: true });
+  });
+
   it("starts a 1v1 table on the legacy engine when the switch is not set, and saves that", async () => {
     const t = await table("1v1");
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
@@ -138,12 +157,34 @@ describe("DUEL_1V1_ENGINE on a new table", () => {
 
 describe("a saved 1v1 table keeps its engine", () => {
   /** A started table that no worker holds (the host was restarted): the next request recovers it. */
-  async function activeTable(setup: Record<string, unknown> | undefined) {
-    const t = await table("1v1");
+  async function activeTable(setup: Record<string, unknown> | undefined, mode: DuelMode = "normal", masterRule: DuelMasterRule = 5) {
+    const t = await table("1v1", mode, masterRule);
     t.duels.activate(t.session.slug, "g1", t.player, ["seed-a"], MANIFEST.bundleVersion, null, setup);
     return t;
   }
   const view = (t: Awaited<ReturnType<typeof activeTable>>) => post(t.host, { op: "view", ...t.organizer });
+
+  it.each(([1, 2, 3, 4, 5] as const).flatMap((masterRule) =>
+    [false, true].map((savedEngine) => ({ masterRule, savedEngine })),
+  ))("legacy Domain MR$masterRule: infers the draw rule without a flag (saved engine=$savedEngine)", async ({ masterRule, savedEngine }) => {
+    process.env.DUEL_1V1_ENGINE = "pinned";
+    const t = await activeTable(savedEngine ? { engine: "legacy" } : undefined, "domain", masterRule);
+    expect((await view(t)).status).toBe(200);
+    expect(t.workers[0]!.created).toMatchObject({ engine: "legacy", firstTurnDraw: masterRule <= 2 });
+  });
+
+  it("legacy Domain MR5: replay keeps the saved no-draw rule after the switch changes", async () => {
+    process.env.DUEL_1V1_ENGINE = "legacy";
+    const t = await table("1v1", "domain");
+    expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
+    expect((await post(t.host, { op: "surrender", ...t.organizer })).status).toBe(200);
+    process.env.DUEL_1V1_ENGINE = "pinned";
+    const before = t.workers.length;
+    expect((await post(t.host, { op: "replay", ...t.organizer })).status).toBe(200);
+    const replayWorkers = t.workers.slice(before);
+    expect(replayWorkers.length).toBeGreaterThan(0);
+    for (const worker of replayWorkers) expect(worker.created).toMatchObject({ engine: "legacy", firstTurnDraw: false });
+  });
 
   it.each([
     ["legacy", "pinned"],

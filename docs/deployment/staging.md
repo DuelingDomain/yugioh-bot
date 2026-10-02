@@ -110,6 +110,10 @@ New duels save `setup.firstTurnDraw`, the resolved `DUEL_1ST_TURN_DRAW` flag, wh
 Worker recovery and all journal replay paths use this saved flag. The engine resource pin still checks the
 bundle and Lua overlay. A rule change alone does not change an existing duel's draw flag.
 
+The legacy 1v1 engine uses the stock Master Rule draw rule in Standard and Domain:
+MR1/MR2 draw on turn 1; MR3-MR5 do not. The pinned engine draws on turn 1 in every
+Domain seat layout. Standard on the pinned engine uses the stock Master Rule draw rule.
+
 Old records have no saved flag. Production ran `main`; after migration, all its old duels are 1v1
 and need no action. Staging ran this branch before and after `0fb46df`, but never `d4338a2` or a later commit.
 Only FFA gained the new draw rule at `0fb46df`. Standard and Domain

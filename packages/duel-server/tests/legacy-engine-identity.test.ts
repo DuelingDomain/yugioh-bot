@@ -40,6 +40,30 @@ function npmCoreFile(): string {
 }
 
 describe("legacy 1v1 engine core identity", () => {
+  it.each([1, 2, 3, 4, 5] as const)("Standard MR%s: only MR1 and MR2 draw on turn 1", async (masterRule) => {
+    const game = await createLegacyEngineGame({ mode: "normal", format: "1v1", masterRule,
+      decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
+    try {
+      for (let actor = 0; actor < 2; actor++) {
+        const own = game.view(actor);
+        expect(own.turn).toBe(actor + 1);
+        expect(own.turnSeat).toBe(actor);
+        expect(own.prompt?.options.some((option) => option.id === "to_ep")).toBe(true);
+        for (let viewer = 0; viewer < 2; viewer++) {
+          const view = game.view(viewer);
+          for (let seat = 0; seat < 2; seat++) {
+            const drew = seat <= actor && (seat > 0 || masterRule <= 2);
+            expect(view.seats[seat]!.hand).toHaveLength(5 + Number(drew));
+            expect(view.seats[seat]!.deckCount).toBe(35 - Number(drew));
+          }
+        }
+        if (actor === 0) game.answer(actor, own.prompt!.id, { choice: "to_ep" });
+      }
+    } finally {
+      game.close();
+    }
+  });
+
   it("Standard runs the npm package core, byte for byte", async () => {
     const game = await createLegacyEngineGame({ mode: "normal", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
     try {

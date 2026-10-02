@@ -8,7 +8,7 @@ Konami publishes official rules only for Tag Duels ([TCG, revised 5 December 201
 
 ## Rules common to every multi-player format
 
-- `[R-FFA-FIRST-DRAW]` **First draw by duel mode and Master Rule (all seat layouts).** Domain 1v1, Tag, FFA3 and FFA4: every duelist draws on their first turn, including the turn-1 duelist. Standard MR1 and MR2: the turn-1 duelist draws, as specified by the stock core flags. Standard MR3, MR4 and MR5: only the turn-1 duelist skips the draw; all later duelists draw on their first turn. MR3 removed the turn-1 draw on 21 March 2014. The rule id is kept for existing references.
+- `[R-FFA-FIRST-DRAW]` **First draw by duel mode and Master Rule (all seat layouts).** Domain 1v1, Tag, FFA3 and FFA4 on the pinned engine: every duelist draws on their first turn, including the turn-1 duelist. Standard MR1 and MR2: the turn-1 duelist draws, as specified by the stock core flags. Standard MR3, MR4 and MR5: only the turn-1 duelist skips the draw; all later duelists draw on their first turn. The legacy 1v1 engine keeps this stock Master Rule draw rule in both Standard and Domain. MR3 removed the turn-1 draw on 21 March 2014. The rule id is kept for existing references.
 
 - `[R-COMMON-SEP-FIELDS]` **Separate fields.** Each duelist has their own Main Monster Zones, Spell & Trap Zones, Field Zone, Pendulum Zones (per the Master Rule), Graveyard, banishment, hand, Deck and Extra Deck. In Domain, each duelist has their own Deck Master and Deck Master zone.
 The FFA rules for "your opponent" are in the free-for-all section. Tag uses the opposing team under its official rules.

@@ -28,6 +28,8 @@ afterEach(async () => {
 
 async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterRule = 5) {
   vi.stubEnv("MULTIPLAYER_TABLES", "1");
+  // These tests use the pinned engine to check its saved draw rule.
+  vi.stubEnv("DUEL_1V1_ENGINE", "pinned");
   const db = new Database(":memory:");
   migrate(db);
   const duels = createDuelService(db);
