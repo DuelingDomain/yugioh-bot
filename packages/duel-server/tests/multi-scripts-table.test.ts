@@ -112,7 +112,7 @@ const NO_CONDITION_RUN: Record<number, string> = {
   3549275: "Dice Jar: a Flip effect (its only target function runs when the card is flipped); the generic game does not flip a Set monster",
   40267580: "Brain Jacker: a Flip effect that equips, and a Standby Phase trigger of the equip; the generic game does not flip it",
   30109445: "Clown Crew Dristy: the target runs for a trigger on its own release (EVENT_RELEASE); at three seats the generic game does not release it (in Tag it does)",
-  39767432: "Sorcerer of Sebek: triggers on battle damage (EVENT_BATTLE_DAMAGE) and on gaining Life Points (EVENT_RECOVER); the generic game has neither on its field",
+  39767432: "Sorcerer of Sebek: triggers on battle damage (EVENT_BATTLE_DAMAGE) and on gaining Life Points (EVENT_RECOVER); at three and four seats the generic game has neither on its field (in Tag it has battle damage)",
   68078978: "Fortune Fairy Chee: triggers on being drawn (EVENT_DRAW from the hand) and on its own Special Summon; the generic game does neither",
   82734805: "Infernoid Tierra: triggers on its own Special Summon by its procedure; the generic game does not Special Summon it",
   96148285: "Triggered Summon: a Trap that waits for a Special Summon; no Special Summon of the generic game reaches its condition",
@@ -136,7 +136,7 @@ const NO_CONDITION_RUN: Record<number, string> = {
   94585852: "Pandemonium: a Field Spell with an LP-cost replacement and a trigger on a custom event; the generic game pays no LP cost and raises no such event",
 };
 /** Formats where the NO_CONDITION_RUN entry holds (default both). */
-const NO_CONDITION_RUN_ONLY: Record<number, DuelFormat[]> = { 89731911: ["tag"], 30109445: ["ffa3"], 29724053: ["tag"] };
+const NO_CONDITION_RUN_ONLY: Record<number, DuelFormat[]> = { 89731911: ["tag"], 30109445: ["ffa3"], 29724053: ["tag"], 39767432: ["ffa3", "ffa4"] };
 
 /**
  * Cards of the table that are not in cards.cdb of the engine data (the script exists, the card does not), by code, with the reason.
@@ -421,9 +421,12 @@ export function boardFor(format: DuelFormat, code: number, layout: Layout): Boar
   p0.monsters = own;
   if (layout === "ahead") p0.hand = [...(p0.hand ?? []), "Silver Fang"];
   const board: BoardSpec = { format, deckSize: 20, p0 };
-  const counts = layout === "behind" ? [3, 2, 4] : [1, 0, 1];
-  // `ahead`: p2 has an empty field and a Cyber Dragon in the hand (it Special Summons itself), so a card that waits for a Special Summon sees one.
-  const hands: CardEntry[][] = layout === "behind" ? [filler(3), filler(2), filler(1)] : [[], ["Cyber Dragon"], []];
+  // `ahead`: one seat has an empty field and a Cyber Dragon in the hand (it Special Summons itself), so a card that waits for a Special Summon sees one.
+  // In Tag that seat is p3, an opponent: the partner of p0 (p2) may Tribute the monsters of p0 (R-TAG-PARTNER-COST), and a Cyber Dragon there
+  // would be Tribute Summoned with the card under test.
+  const dragonSeat = format === "tag" ? 2 : 1;
+  const counts = layout === "behind" ? [3, 2, 4] : format === "tag" ? [1, 1, 0] : [1, 0, 1];
+  const hands: CardEntry[][] = layout === "behind" ? [filler(3), filler(2), filler(1)] : [0, 1, 2].map((index): CardEntry[] => (index === dragonSeat ? ["Cyber Dragon"] : []));
   (["p1", "p2", "p3"] as const).slice(0, seatCountFor(format) - 1).forEach((id, index) => {
     board[id] = {
       monsters: filler(counts[index]!),
