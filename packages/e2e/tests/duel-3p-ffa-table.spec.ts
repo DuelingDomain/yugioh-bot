@@ -145,18 +145,19 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(errors).toEqual([]);
   });
 
-  test("Mind Crush shows table opponent choices and affects only the chosen seat (FFA4 preset fallback)", async ({ player }) => {
+  test("Mind Crush shows table opponent choices and affects only the chosen seat", async ({ player }, info) => {
     const alice = await player("p1");
     const errors = collectTableErrors(alice.page);
-    const slug = await startTablePreset(alice.page, "mind-crush-ffa4-pick");
+    const slug = await startTablePreset(alice.page, "ffa3-mind-crush-pick");
+    await expectRealCore(alice.page, slug, "scripted", info);
     // Debug.AddCard sets a trap on turn 1; it becomes usable on the next turn.
     await endTurn(alice.page, 2);
     await activateSingleResponse(alice.page);
-    for (const seat of [1, 2, 3]) await expect(alice.page.getByTestId(`holo-pick-${seat}`)).toBeVisible();
+    for (const seat of [1, 2]) await expect(alice.page.getByTestId(`holo-pick-${seat}`)).toBeVisible();
     await expect(alice.page.getByTestId("holo-pick-0")).toHaveCount(0);
     const before = (await readTable(alice.page, slug)).engine!;
     expect(before.prompt!.context?.type).toBe("opponent");
-    expect(before.prompt!.options.map((option) => option.controller)).toEqual([1, 2, 3]);
+    expect(before.prompt!.options.map((option) => option.controller)).toEqual([1, 2]);
     await alice.page.getByTestId("holo-pick-2").click();
     await alice.page.getByLabel("Search card name").fill("Sangan");
     await alice.page.locator("#announce-card ~ ul button").filter({ hasText: /^Sangan$/ }).click();
@@ -167,7 +168,13 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(after.seats[2]!.view.seats[2]!.hand.map((card) => card.name)).not.toContain("Sangan");
     expect(after.seats[1]!.view.seats[1]!.hand.map((card) => card.name)).toContain("Sangan");
     expect(after.seats[1]!.view.seats[1]!.graveyard).toHaveLength(0);
-    expect(after.seats[3]!.view.seats[3]!.hand.map((card) => card.name)).toContain("Giant Rat");
+    await expect(tableGrave(alice.page, 1)).toHaveAccessibleName(/ (GY|Graveyard) \(0\)$/);
+    await expect(tableGrave(alice.page, 2)).toHaveAccessibleName(/ (GY|Graveyard) \(1\)$/);
+    await tableGrave(alice.page, 2).hover();
+    await tableField(alice.page, 2).getByRole("button", { name: /^Open .* (GY|Graveyard)$/ }).click();
+    const grave = alice.page.getByRole("dialog", { name: / (GY|Graveyard)$/ });
+    await expect(grave.getByRole("button", { name: /^Sangan/ }).first()).toBeVisible();
+    await alice.page.keyboard.press("Escape");
     expect(errors).toEqual([]);
   });
 

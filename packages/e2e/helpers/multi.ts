@@ -116,6 +116,7 @@ interface Plan {
 const PLANS: Record<string, Plan> = {
   "raigeki-dark-hole-ffa4": { wants: [{ verb: "activate", card: "Raigeki" }, { verb: "activate", card: "Dark Hole" }] },
   "raigeki-dark-hole-tag": { wants: [{ verb: "activate", card: "Raigeki" }, { verb: "activate", card: "Dark Hole" }] },
+  "ffa3-mind-crush-pick": { wants: [{ verb: "activate", card: "Mind Crush" }], opponent: 2, announce: "Sangan" },
   "mind-crush-ffa4-pick": { wants: [{ verb: "activate", card: "Mind Crush" }], opponent: 1, announce: "Sangan" },
   "tag-lp-solemn-partner": { wants: [{ verb: "summon", card: "Celtic Guardian" }] },
   "tag-jinzo-blocks-traps": { wants: [{ verb: "summon", card: "Celtic Guardian" }] },

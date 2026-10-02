@@ -9,6 +9,7 @@ import { preset as ffa4Surrender } from "./ffa4-surrender-in-chain.js";
 import { presets as ffa3Table } from "./ffa3-table.js";
 import { preset as jinzo } from "./jinzo-stops-trap.js";
 import { preset as mindCrush } from "./mind-crush-ffa4-pick.js";
+import { preset as mindCrush3 } from "./ffa3-mind-crush-pick.js";
 import { presets as raigekiDarkHole } from "./raigeki-dark-hole.js";
 import { preset as solemn } from "./solemn-judgment-summon.js";
 import { preset as tagJinzo } from "./tag-jinzo-blocks-traps.js";
@@ -25,6 +26,7 @@ export const PRESETS: readonly Preset[] = [
   jinzo,
   ...raigekiDarkHole,
   mindCrush,
+  mindCrush3,
   tagSolemn,
   tagJinzo,
   ffa4ChainOrder,
