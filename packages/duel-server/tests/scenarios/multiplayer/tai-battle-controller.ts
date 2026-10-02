@@ -1,4 +1,4 @@
-import { activate, attack, defineScenario, faceDown, normalSummon, pickOpponent, type Scenario } from "../../support/dsl.js";
+import { activate, attack, defineScenario, faceDown, normalSummon, pickOpponent, type Scenario, type Step } from "../../support/dsl.js";
 import { baseSetup, everySeat, SEATS, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 const TAI = "TA.I. Strike";
@@ -22,7 +22,7 @@ function tai(format: Format, changed: boolean): Scenario {
     setup: baseSetup(format, { p0: { monsters: [OX], hand: [TAI, ...(changed ? [ELF] : [])] },
       ...(changed ? { p0: { monsters: [OX], hand: [TAI, ELF], spells: [faceDown(GIVE)], grave: [BLUE] } } : { [target]: { monsters: [BLUE] } }) }),
     steps: [...(changed ? [normalSummon(ELF, "p0"), activate(GIVE, "p0"), pickOpponent(target, "p0"),
-      { op: "select", sels: [{ card: ELF, owner: "p0" }], by: "p0" } as const] : []),
+      { op: "select", sels: [{ card: ELF, owner: "p0" }], by: "p0" } as Step] : []),
       attack(OX, { card: BLUE, owner: target }, "p0"), activate(TAI, "p0"), everySeat(format, spec)],
   });
 }
