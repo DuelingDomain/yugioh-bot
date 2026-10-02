@@ -20,6 +20,8 @@ import { DuelRoomView } from "@/components/duel/room";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { TAG_FIXTURES } from "@/components/duel/tag/fixtures";
+import { makeSeries } from "../helpers/duel-series";
+import { duelWindowPath } from "@/components/duel/duel-window";
 
 beforeAll(() => {
   class RO { constructor(private cb: () => void) {} observe() { this.cb(); } disconnect() {} }
@@ -66,6 +68,15 @@ describe("live room table mount", () => {
     const { container } = mount();
     expect(screen.getByTestId("multi-seat-stage")).toHaveAttribute("data-format", "tag");
     expect(container.querySelector("[data-table-shell]")).toBeNull();
+  });
+
+  it.each([true, false])("preserves stage=legacy while following the next series game (windowed=%s)", (windowed) => {
+    window.history.replaceState(null, "", "/duels/live?stage=legacy");
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.series = makeSeries({ currentDuelSlug: "next-game" });
+    mount(windowed);
+    const path = windowed ? `${duelWindowPath("next-game")}&stage=legacy` : "/duels/next-game?stage=legacy";
+    expect(state.replace).toHaveBeenCalledWith(path);
   });
 
   it("keeps the two-seat DuelField path", () => {

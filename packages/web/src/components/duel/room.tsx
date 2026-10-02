@@ -329,8 +329,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   // A series moves on to its next game by itself: follow it, keeping the duel window.
   const nextTarget = data ? nextGameTarget(data, slug) : null;
   const goToGame = useCallback((next: string) => {
-    router.replace(inDuelWindow ? duelWindowPath(next) : `/duels/${encodeURIComponent(next)}`);
-  }, [router, inDuelWindow]);
+    const path = inDuelWindow ? duelWindowPath(next) : `/duels/${encodeURIComponent(next)}`;
+    router.replace(legacyStage ? `${path}${inDuelWindow ? "&" : "?"}stage=legacy` : path);
+  }, [router, inDuelWindow, legacyStage]);
   useEffect(() => {
     if (nextTarget) goToGame(nextTarget);
   }, [nextTarget, goToGame]);
