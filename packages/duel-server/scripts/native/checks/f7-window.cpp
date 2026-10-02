@@ -1043,7 +1043,8 @@ static void part_b(const Plan& pl) {
 	}
 	// review fix 5: the release list of the other side follows the window (GetReleaseGroupCount with oppo = true)
 	{
-		const int own = pl.mon[0];
+		// R-TAG-PARTNER-COST: in Tag the release list of the own side holds the monsters of the partner (seat 2) too
+		const int own = pl.mon[0] + (pl.tag ? pl.mon[2] : 0);
 		const uint8_t B = static_cast<uint8_t>(opp[1]), S = static_cast<uint8_t>(opp[0]);
 		int total = 0;
 		for(int q : opp) total += pl.mon[q];

@@ -5,7 +5,7 @@
 // state of EVERY seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectTurn, normalSummon, pickOpponent, select, yes,
+  activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectTurn, normalSummon, pickOpponent, select, yes,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -310,9 +310,9 @@ export const TAG_COPY_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "tag-copies-kaiser-colosseum-partner-monster-counts-for-the-limit",
-    title: "Tag: as above, but the partner p3 controls a monster: with the Skull the team of p1 would hold 2 monsters against 1, so the Tribute Summon is not offered",
+    title: "Tag: as above, but the partner p3 controls a Beaver Warrior: the monster of the partner counts for the limit (the Tribute of Soul Exchange would leave the team of p1 with 2 monsters against 1), so the summon stays possible only by Tributing the Beaver of the partner (R-TAG-PARTNER-COST), and the monsters of p0 stay",
     source: TAG_PARTNER,
-    rules: ["R-TAG-PARTNER"],
+    rules: ["R-TAG-PARTNER", "R-TAG-PARTNER-COST"],
     tags: ["multiplayer", "compare", "tag", "card:35059553", "card:68005187"],
     setup: {
       format: "tag",
@@ -324,12 +324,15 @@ export const TAG_COPY_SCENARIOS: Scenario[] = [
       endTurn("p0"),
       activate("Soul Exchange", "p1"),
       select(OX),
-      expectNotOffered("tributeSummon", SKULL, "p1"),
-      // The Tribute of Soul Exchange is paid by the summon, which never starts: the monsters of p0 stay.
+      expectOffered("tributeSummon", SKULL, "p1"),
+      normalSummon(SKULL, "p1"),
+      expectPickOptions({ count: 1, include: [{ card: BEAVER }], exclude: [{ card: OX }] }, "p1"),
+      select(BEAVER),
+      // The Tribute is the Beaver of the partner p3; the Ox of p0 is not Tributed.
       everyTagSeat({
         p0: { monsters: [OX, GUARDIAN], spells: ["Kaiser Colosseum"] },
-        p1: { hand: [SKULL, ELF], grave: ["Soul Exchange"] },
-        p3: { monsters: [BEAVER] },
+        p1: { monsters: [SKULL], grave: ["Soul Exchange"], hand: [ELF] },
+        p3: { grave: [BEAVER] },
       }),
     ],
   }),

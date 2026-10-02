@@ -8,7 +8,7 @@ import { LAPLACIAN_SCENARIOS } from "./laplacian.js";
 
 // Live scenarios of Primathmech Laplacian: the number of materials to detach reads the picked opponent (FFA the window of that seat, Tag the joined side with the picked hand).
 // Same gate as the other live N-seat files: NSEAT_LIVE=1 and a multi core. Run it on the Standard multi core and again on the Domain multi core
-// (NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-P60.sync.wasm).
+// (NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-P61.sync.wasm).
 describeWithCores("live Primathmech Laplacian scenarios", liveNseat, () => {
   runScenarios("multiplayer/laplacian", LAPLACIAN_SCENARIOS);
 });

@@ -35,6 +35,8 @@ const SPECS: EffectSpec[] = [
     code: 42956963, name: "Nightmare Archfiends", slug: "nightmare-archfiends", does: "Tributes a monster of p0 and Special Summons 3 Nightmare Archfiend Tokens",
     p0: { monsters: [ELF], spells: [set("Nightmare Archfiends")] },
     steps: [activate("Nightmare Archfiends", "p0")],
+    // In Tag the Tribute cost may take the monster of the partner (R-TAG-PARTNER-COST): the choice is shown, p0 pays with its own Elf.
+    then: (roles) => (roles.partner ? [select(ELF)] : []),
     p0End: { grave: [ELF, "Nightmare Archfiends"] },
     gain: { tokens: { card: "Nightmare Archfiend Token", count: 3 } },
   },
