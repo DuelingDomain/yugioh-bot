@@ -796,6 +796,7 @@ export function DuelField({
   onHoverCard,
   bottomName,
   topName,
+  priorityLive,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -808,6 +809,8 @@ export function DuelField({
   onHoverCard?: DuelHoverHandler;
   bottomName: string;
   topName: string;
+  /** Room action/reveal gate. Local priority follows this directly; previews can omit it. */
+  priorityLive?: boolean;
 }) {
   const bottomIndex = mySeat ?? 0;
   const topIndex = bottomIndex === 0 ? 1 : 0;
@@ -819,15 +822,16 @@ export function DuelField({
   const battle = isBattlePhase(engine.phase);
   const boardRef = useRef<HTMLElement | null>(null);
   const pending = deriveFieldActivity(engine);
-  // The parent contains the sibling DOM/Three.js effects as well as the field. Reuse their
-  // animation/hold gate for every prompt owner, including private opponent prompts.
+  // The room owns local reveal. The parent also contains sibling board effects, which gate
+  // private opponent prompts and standalone previews.
   const priorityReady = useFieldPriorityReady({
     events: engine.events,
-    waiting: pending.prioritySeat != null,
+    waiting: pending.prioritySeat != null && !(priorityLive != null && pending.prioritySeat === mySeat),
     board: boardRef,
     reducedMotion,
   });
-  const activity = deriveFieldActivity(engine, !priorityReady);
+  const priorityShown = priorityLive !== false && priorityReady;
+  const activity = deriveFieldActivity(engine, !priorityShown);
   const priorityLabel = (seat: number, name: string) => activity.prioritySeat !== seat ? null
     : mySeat == null ? `${name} to act` : mySeat === seat ? "Your move" : "Opponent to act";
 

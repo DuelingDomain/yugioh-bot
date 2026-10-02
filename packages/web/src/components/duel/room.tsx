@@ -970,6 +970,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
               <>
                 <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
                   reducedMotion={preferences.reducedMotion}
+                  priorityLive={!busy && !error && !realtime.recovering && !catchingUp &&
+                    (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed)}
                   legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                   onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
                   bottomName={playerName(localSeat)}
