@@ -5,15 +5,17 @@ import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
+const broadcaster = { draft: vi.fn() };
 const tempDirs: string[] = [];
 
 vi.mock("@/lib/auth", () => ({ auth }));
-vi.mock("@/lib/notify", () => ({ broadcaster: { draft: vi.fn() } }));
+vi.mock("@/lib/notify", () => ({ broadcaster }));
 
 describe("POST /api/drafts/[slug]/pick (theme mode bots)", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
+    broadcaster.draft.mockReset();
     auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });
   });
   afterEach(() => {
@@ -83,6 +85,11 @@ describe("POST /api/drafts/[slug]/pick (theme mode bots)", () => {
 
     // Both players picked round 1 -> advanced to round 2.
     expect(body.packRound).toBe(2);
+    expect(body.phase).toBe("main");
+    expect(broadcaster.draft.mock.calls).toStrictEqual([
+      [{ kind: "pick", slug: draft.webSlug, playerId: human, packRound: 1, pickStep: 1 }],
+      [{ kind: "resync", slug: draft.webSlug, packRound: 2, pickStep: 1 }],
+    ]);
 
     // The bot recorded a pick for round 1.
     const verify = new Database(dbPath);
