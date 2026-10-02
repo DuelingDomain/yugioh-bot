@@ -3,54 +3,6 @@
   "routes": {
     "A": {
       "requires": "owner confirms R-COMMON-CONTROLLER-TURN",
-      "patches": [
-        "turn-resource/controller-turn-rule.patch",
-        "integration/law-normal-after-controller.adr.patch",
-        "protected/c3-10-owner-return-rule.patch",
-        "turn-resource/helper-turn-order.patch",
-        "turn-resource/clear-world.patch",
-        "turn-resource/clear-world-hints.patch",
-        "turn-resource/hama.patch",
-        "turn-resource/battlefield.patch",
-        "turn-resource/underworld-circle.patch",
-        "turn-resource/c3-08-revival-eligibility-cleanup.patch",
-        "turn-resource/c3-05-resource-order.patch",
-        "controller-turn.overlays.patch",
-        "controller-turn.scenarios.patch",
-        "pin-living.overlays.patch",
-        "pin-living.scenarios.patch",
-        "pin-living.existing-proof.patch",
-        "hints-fork/fork-controller.patch",
-        "hints-fork/fork-owner-action-scenarios.patch",
-        "hints-fork/fork-draw-legality-scenarios.patch",
-        "hints-fork/fork-controller-review-proofs.patch",
-        "hints-fork/engine-hint-logs.patch",
-        "hints-fork/hint-log-call-review-proofs.patch",
-        "hints-fork/clear-world-hint-review-proofs.patch",
-        "hints-fork/native-hint-call-proof.patch",
-        "seat-queries.native.patch",
-        "seat-queries.native-registration.patch",
-        "protected/c1-02-book-astro-spec.patch",
-        "validation/c1-04-stress-current-rules-reconciled.patch",
-        "protected/c1-05-tag-loss-proof-scope.patch",
-        "protected/c1-06-soul-release-direct-scenario.patch",
-        "protected/c1-09-duplicate-setups.patch",
-        "integration/c1-10-host-gates-current.patch",
-        "validation/c2-04-legal-continuous-lock-validated.patch",
-        "validation/c2-08-fuzz-positive-return-validated.patch",
-        "protected/c3-01-02-geometry-scenario-scope.patch",
-        "validation/c3-07-chainer-response-window-validated.patch",
-        "protected/c3-04-turn-n-first-battle.patch",
-        "protected/c3-12-remove-ojama-tautology.patch",
-        "protected/c5-opponent-field-markers.patch",
-        "validation/c5-current-rule-audit.patch",
-        "validation/c5-living-partner-and-first-draw-spec.patch",
-        "protected/c6-worm-unused-import.patch",
-        "validation/c7-local-controller-partner-control-validated.patch",
-        "protected/c7-arcana-damage-marker.patch",
-        "validation/c7-register-original-runners.patch",
-        "validation/c7-remove-duplicate-first-battle-export.patch"
-      ],
       "manifestPatches": [
         "protected/c2-06-manifest-normalization.patch",
         "integration/manifest-other-four-notes.patch",
@@ -60,55 +12,14 @@
         "pin-living.manifest.patch",
         "protected/c7-cannons-manifest-note.patch",
         "hints-fork/fork-manifest-note.patch"
-      ]
+      ],
+      "orderFiles": {
+        "production": "integration/repo-order-A-production.json",
+        "owner-seat": "integration/repo-order-A-owner-seat.json"
+      }
     },
     "B": {
       "requires": "proposal held; no controller-turn patches",
-      "patches": [
-        "law-normal.adr.patch",
-        "protected/c3-10-owner-return-rule.patch",
-        "turn-resource/helper-turn-order.patch",
-        "turn-resource/clear-world.patch",
-        "turn-resource/clear-world-hints.patch",
-        "turn-resource/hama.patch",
-        "turn-resource/battlefield.patch",
-        "turn-resource/underworld-circle.patch",
-        "turn-resource/c3-08-revival-eligibility-cleanup.patch",
-        "turn-resource/c3-05-resource-order.patch",
-        "pin-living.overlays.patch",
-        "pin-living.scenarios.patch",
-        "pin-living.existing-proof.patch",
-        "hints-fork/fork-controller.patch",
-        "hints-fork/fork-owner-action-scenarios.patch",
-        "hints-fork/fork-draw-legality-scenarios.patch",
-        "hints-fork/fork-controller-review-proofs.patch",
-        "hints-fork/engine-hint-logs.patch",
-        "hints-fork/hint-log-call-review-proofs.patch",
-        "hints-fork/clear-world-hint-review-proofs.patch",
-        "hints-fork/native-hint-call-proof.patch",
-        "seat-queries.native.patch",
-        "seat-queries.native-registration.patch",
-        "protected/c1-02-book-astro-spec.patch",
-        "validation/c1-04-stress-current-rules-reconciled.patch",
-        "protected/c1-05-tag-loss-proof-scope.patch",
-        "protected/c1-06-soul-release-direct-scenario.patch",
-        "protected/c1-09-duplicate-setups.patch",
-        "integration/c1-10-host-gates-current.patch",
-        "validation/c2-04-legal-continuous-lock-validated.patch",
-        "validation/c2-08-fuzz-positive-return-validated.patch",
-        "protected/c3-01-02-geometry-scenario-scope.patch",
-        "validation/c3-07-chainer-response-window-validated.patch",
-        "protected/c3-04-turn-n-first-battle.patch",
-        "protected/c3-12-remove-ojama-tautology.patch",
-        "protected/c5-opponent-field-markers.patch",
-        "validation/c5-current-rule-audit.patch",
-        "validation/c5-living-partner-and-first-draw-spec.patch",
-        "protected/c6-worm-unused-import.patch",
-        "validation/c7-local-controller-partner-control-validated.patch",
-        "protected/c7-arcana-damage-marker.patch",
-        "validation/c7-register-original-runners.patch",
-        "validation/c7-remove-duplicate-first-battle-export.patch"
-      ],
       "manifestPatches": [
         "protected/c2-06-manifest-normalization.patch",
         "integration/manifest-other-four-notes.patch",
@@ -117,7 +28,34 @@
         "pin-living.manifest.patch",
         "protected/c7-cannons-manifest-note.patch",
         "hints-fork/fork-manifest-note.patch"
-      ]
+      ],
+      "orderFiles": {
+        "production": "integration/repo-order-B-production.json",
+        "owner-seat": "integration/repo-order-B-owner-seat.json"
+      }
     }
-  }
+  },
+  "schemaVersion": 2,
+  "forkRoutes": {
+    "production": {
+      "requires": "owner-seat scenario export is not applied",
+      "predecessors": [
+        "../../phase1/df-c6/out/ffa4-shared-zones-scenarios-old-to-new.patch"
+      ],
+      "sourcePatch": "hints-fork/fork-controller.patch"
+    },
+    "owner-seat": {
+      "requires": "owner-seat export phase1/gap-overlay/out2 is applied",
+      "predecessors": [
+        "../../phase1/gap-overlay/out2/mp-owner-seat.scenarios.patch",
+        "../../phase1/gap-overlay/out2/mp-action-seat.pre-tag.scenarios.patch",
+        "../../phase1/gap-overlay/out2/mp-action-seat.tag-shared-cards.patch",
+        "integration/c6-after-owner.scenarios.patch"
+      ],
+      "skip": "hints-fork/fork-controller.patch: skip when the owner-seat export (phase1/gap-overlay/out2) is applied",
+      "sourcePatch": "hints-fork/fork-owner-route.patch"
+    }
+  },
+  "dependencyRecord": "fix2/c6-input.json",
+  "proofRecord": "fix2/integration-apply.json"
 }

@@ -1,0 +1,8 @@
+diff --git a/packages/duel-server/scripts/native/checks/checks.tsv b/packages/duel-server/scripts/native/checks/checks.tsv
+--- a/packages/duel-server/scripts/native/checks/checks.tsv
++++ b/packages/duel-server/scripts/native/checks/checks.tsv
+@@ -65,3 +65,4 @@
+ tag-self-attack-review	tag-self-attack-review	-	ready	Tag: EFFECT_SELF_ATTACK permits attacks on own and partner monsters; the attacker stays excluded and EFFECT_ATTACK_ALL keeps its gate, with FFA and n == 2 controls (core patch 0066).
+ hints-without-opponent-picks	hints-without-opponent-picks	-	ready	Duel.Hint recipients and unchanged scopes: 12 cases in FFA3, FFA4, Tag and stock two-seat duels; core patch 0067
+ dead-across-zones	zones	dead-across	ready	FFA4 alive guard: a dead seat retains its EMZ card and used/disabled bits.
++leftover-seat-queries	leftover-seat-queries	-	ready	Additive turn and living seat queries; owner and controller turns stay separate at 2, 3, 4 and Tag seats.
