@@ -22,6 +22,8 @@ interface CardPoolPanelProps {
   onCardClick?: (card: CardSummary) => void;
   cardActionLabel?: (card: CardSummary) => string;
   cubeEditMode?: boolean;
+  /** "sheet" renders with the Match Sheet look (drafts pages, inside a SheetRoot). Default keeps the current look. */
+  variant?: "default" | "sheet";
 }
 
 function CardPoolPanelBase({
@@ -38,6 +40,7 @@ function CardPoolPanelBase({
   onCardClick,
   cardActionLabel,
   cubeEditMode,
+  variant = "default",
 }: CardPoolPanelProps) {
   const distinct = cards.length;
   const totalCopies = useMemo(
@@ -73,6 +76,7 @@ function CardPoolPanelBase({
         onCardClick={onCardClick}
         cardActionLabel={cardActionLabel}
         cubeEditMode={cubeEditMode}
+        variant={variant}
       />
     </div>
   );

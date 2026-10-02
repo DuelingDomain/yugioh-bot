@@ -66,6 +66,8 @@ interface CardPoolGridProps {
   // virtualized (columns derived from measured width), so a fixed grid class
   // is no longer applied — cubeEditMode widens the tiles instead.
   gridClassName?: string;
+  /** "sheet" renders with the Match Sheet look (drafts pages, inside a SheetRoot). Default keeps the current look. */
+  variant?: "default" | "sheet";
 }
 
 const FILTER_BUTTONS: Array<{ label: string; value: PoolFilter }> = [
@@ -101,6 +103,7 @@ function CardPoolGridBase({
   cardActionLabel,
   cubeEditMode = false,
   tileMinPx,
+  variant = "default",
 }: CardPoolGridProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState<PoolFilter>("all");
