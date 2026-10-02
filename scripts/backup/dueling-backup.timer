@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Dueling System backup at 07:30 UTC
+
+[Timer]
+OnCalendar=*-*-* 07:30:00 UTC
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

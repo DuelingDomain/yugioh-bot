@@ -76,6 +76,10 @@ export type WaitForRevealOptions = {
   reducedMotion: boolean;
   timing?: Partial<RevealTiming>;
   signal?: AbortSignal;
+  /** Additional finite feedback to wait for (field priority also includes CSS banners). */
+  pendingAnimations?: (source: AnimationSource | null | undefined) => AnimationLike[];
+  /** Additional planned effects, measured as time remaining in ms. */
+  holdMs?: () => number;
   /** Clock in ms; Date.now by default (fake timers drive it in tests). */
   now?: () => number;
 };
@@ -144,8 +148,8 @@ export async function waitForReveal(options: WaitForRevealOptions): Promise<bool
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
     const budget = timing.capMs - timing.settleMs - elapsed();
     if (budget <= 0) break;
-    const pending = pendingBoardAnimations(source());
-    const holdMs = boardHoldUntil - Date.now();
+    const pending = (options.pendingAnimations ?? pendingBoardAnimations)(source());
+    const holdMs = Math.max(boardHoldUntil - Date.now(), options.holdMs?.() ?? 0);
     if (pending.length === 0 && holdMs <= 0) break;
     const waits: Promise<unknown>[] = [sleep(holdMs > 0 ? Math.min(holdMs, budget) : budget, signal)];
     if (pending.length > 0 && holdMs <= 0) waits.push(Promise.allSettled(pending.map((animation) => animation.finished)));
