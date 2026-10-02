@@ -45,7 +45,7 @@ function grapha(format: Format): Scenario {
     p0: { hand: [HOLE], monsters: [RAT] },
     p1: { hand: [OX], monsters: [GRAPHA] },
     p2: { hand: [AXE], monsters: [ELF] },
-    ...(tag ? { p3: { hand: [FANG] } } : {}),
+    ...(format !== "ffa3" ? { p3: { hand: [FANG] } } : {}),
   };
   return defineScenario({
     id: `gaps-r1-${format}-grapha-changed-link-makes-its-controller-discard`,
@@ -61,7 +61,7 @@ function grapha(format: Format): Scenario {
         p0: { monsters: [RAT], grave: [HOLE] },
         p1: { monsters: [GRAPHA], grave: [OX] },
         p2: { monsters: [ELF], hand: [AXE] },
-        ...(tag ? { p3: { hand: [FANG] } } : {}),
+        ...(format !== "ffa3" ? { p3: { hand: [FANG] } } : {}),
       }),
     ],
   });
@@ -76,13 +76,13 @@ function grapha(format: Format): Scenario {
 // of this size gives a result that does not depend on the format or on the core: 2 (3494825834153508910), 4 (3718197871008284709), 5
 // (4388313981572612106). Every seat has a 2-card Deck of one card name, so the setup shuffle does not change the draw.
 const DICE_RULE = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q4: Dangerous Machine Type-6 (the die result acts on ONE picked opponent)`;
-const MACHINE_PICKS: Record<"ffa3" | "tag", Seat[]> = { ffa3: ["p1", "p2"], tag: ["p1", "p3"] };
+const MACHINE_PICKS: Record<Format, Seat[]> = { ffa3: ["p1", "p2"], ffa4: ["p1", "p2", "p3"], tag: ["p1", "p3"] };
 const MACHINE_SEEDS = { 2: "3494825834153508910", 4: "3718197871008284709", 5: "4388313981572612106" } as const;
 const MACHINE_HAND: Record<Seat, string> = { p0: RAT, p1: OX, p2: FANG, p3: ELF };
 const MACHINE_FIELD: Record<Seat, string> = { p0: ELF, p1: AXE, p2: RAT, p3: OX };
 const MACHINE_DECK: Record<Seat, string> = { p0: OX, p1: AXE, p2: ELF, p3: RAT };
 
-function dangerousMachine(format: "ffa3" | "tag", die: 2 | 4 | 5): Scenario {
+function dangerousMachine(format: Format, die: 2 | 4 | 5): Scenario {
   const seats = seatsOf(format);
   const picked = MACHINE_PICKS[format][MACHINE_PICKS[format].length - 1];
   const setup: Scenario["setup"] = { format };
@@ -232,10 +232,10 @@ const SCHEME_RULE = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q3
 const SCHEME_HAND: Record<Seat, [string, string]> = { p0: [RAT, OX], p1: [AXE, FANG], p2: [ELF, RAT], p3: [OX, AXE] };
 const SCHEME_DECK: Record<Seat, string> = { p0: FANG, p1: ELF, p2: OX, p3: RAT };
 
-function darkScheme(format: "ffa3" | "tag", negate: boolean): Scenario {
+function darkScheme(format: Format, negate: boolean): Scenario {
   const seats = seatsOf(format);
   const tag = format === "tag";
-  const picks: Seat[] = tag ? ["p1", "p3"] : ["p1", "p2"];
+  const picks: Seat[] = tag ? ["p1", "p3"] : format === "ffa4" ? ["p1", "p2", "p3"] : ["p1", "p2"];
   const picked = picks[picks.length - 1];
   const setup: Scenario["setup"] = { format };
   const spec: Partial<Record<Seat, DuelistExpect>> = {};
@@ -303,8 +303,10 @@ function jormungandr(format: Format): Scenario {
 
 export const GAPS_R1_SCENARIOS: Scenario[] = [
   darkScheme("ffa3", false),
+  darkScheme("ffa4", false),
   darkScheme("tag", false),
   darkScheme("ffa3", true),
+  darkScheme("ffa4", true),
   darkScheme("tag", true),
   shamoji("ffa3", "lp"),
   shamoji("tag", "lp"),
@@ -313,8 +315,9 @@ export const GAPS_R1_SCENARIOS: Scenario[] = [
   gagigobyte("ffa3", "1"),
   gagigobyte("tag", "1"),
   grapha("ffa3"),
+  grapha("ffa4"),
   grapha("tag"),
   jormungandr("ffa3"),
   jormungandr("tag"),
-  ...([2, 4, 5] as const).flatMap((die) => [dangerousMachine("ffa3", die), dangerousMachine("tag", die)]),
+  ...([2, 4, 5] as const).flatMap((die) => [dangerousMachine("ffa3", die), dangerousMachine("ffa4", die), dangerousMachine("tag", die)]),
 ];
