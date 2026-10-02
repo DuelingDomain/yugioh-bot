@@ -334,6 +334,16 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   93775296: ["ffa3", "ffa4", "tag"], // Reverse Reuse
   93912845: ["ffa3", "ffa4", "tag"], // Revival Gift
   99330325: ["ffa3", "ffa4", "tag"], // Interrupted Kaiju Slumber
+  1041278: ["ffa3", "ffa4", "tag"], // Branded Expulsion
+  8837932: ["ffa3", "ffa4", "tag"], // Cubic Mandala
+  13204145: ["ffa3", "ffa4", "tag"], // Mimighoul Maker
+  13935001: ["ffa3", "ffa4", "tag"], // Lunalight Serenade Dance
+  14283055: ["ffa3", "ffa4", "tag"], // Concours de Cuisine
+  49966595: ["ffa3", "ffa4", "tag"], // Graydle Parasite
+  63086455: ["ffa3", "ffa4", "tag"], // Terrors of the Overroot
+  85698115: ["ffa3", "ffa4", "tag"], // Terrors of the Afterroot
+  93983867: ["ffa3", "ffa4", "tag"], // Trick Box
+  96857854: ["ffa3", "ffa4", "tag"], // Diamond Duston
 };
 
 export const MULTIPLAYER_CARD_RULES: readonly MultiplayerCardRule[] = CARD_RULE_DRAFTS.map((draft) => {

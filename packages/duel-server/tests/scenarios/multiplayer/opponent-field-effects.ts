@@ -89,6 +89,8 @@ export interface EffectSpec {
   partnerEnd?: Zones;
   /** Formats of the card. Default all three. */
   formats?: Format[];
+  /** The duelists may attack in the first turn (the setup flag of the DSL). */
+  attackFirstTurn?: boolean;
 }
 
 const names = (entries: Array<CardEntry | null> | undefined): Array<string | number> =>
@@ -132,7 +134,7 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
     const oppSetup = spec.opp ?? { monsters: [ELF] };
     const tgtSetup = spec.tgt ?? oppSetup;
     const partnerSetup = spec.partner ?? { monsters: [PARTNER_MONSTER] };
-    const setup: Record<string, unknown> = { format, p0: spec.p0 };
+    const setup: Record<string, unknown> = { format, ...(spec.attackFirstTurn ? { attackFirstTurn: true } : {}), p0: spec.p0 };
     for (const seat of roles.opponents) setup[seat] = seat === roles.tgt ? tgtSetup : oppSetup;
     if (roles.partner) setup[roles.partner] = partnerSetup;
     for (const [seat, value] of Object.entries(spec.seats ?? {})) if (seat in setup || seat === roles.partner) setup[seat] = value;

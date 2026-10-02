@@ -1125,4 +1125,54 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "opponent-field-effects-ffa4-interrupted-kaiju-slumber-goes-to-the-picked-opponent",
     "opponent-field-effects-tag-interrupted-kaiju-slumber-goes-to-an-opposing-member",
   ], // Interrupted Kaiju Slumber
+  1041278: [
+    "opponent-field-effects-ffa3-branded-expulsion-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-branded-expulsion-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-branded-expulsion-goes-to-an-opposing-member",
+  ], // Branded Expulsion
+  8837932: [
+    "opponent-field-effects-ffa3-cubic-mandala-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-cubic-mandala-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-cubic-mandala-goes-to-an-opposing-member",
+  ], // Cubic Mandala
+  13204145: [
+    "opponent-field-effects-ffa3-mimighoul-maker-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-mimighoul-maker-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-mimighoul-maker-goes-to-an-opposing-member",
+  ], // Mimighoul Maker
+  13935001: [
+    "opponent-field-effects-ffa3-lunalight-serenade-dance-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-lunalight-serenade-dance-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-lunalight-serenade-dance-goes-to-an-opposing-member",
+  ], // Lunalight Serenade Dance
+  14283055: [
+    "opponent-field-effects-ffa3-concours-de-cuisine-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-concours-de-cuisine-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-concours-de-cuisine-goes-to-an-opposing-member",
+  ], // Concours de Cuisine
+  49966595: [
+    "opponent-field-effects-ffa3-graydle-parasite-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-graydle-parasite-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-graydle-parasite-goes-to-an-opposing-member",
+  ], // Graydle Parasite
+  63086455: [
+    "opponent-field-effects-ffa3-terrors-of-the-overroot-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-terrors-of-the-overroot-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-terrors-of-the-overroot-goes-to-an-opposing-member",
+  ], // Terrors of the Overroot
+  85698115: [
+    "opponent-field-effects-ffa3-terrors-of-the-afterroot-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-terrors-of-the-afterroot-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-terrors-of-the-afterroot-goes-to-an-opposing-member",
+  ], // Terrors of the Afterroot
+  93983867: [
+    "opponent-field-effects-ffa3-trick-box-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-trick-box-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-trick-box-goes-to-an-opposing-member",
+  ], // Trick Box
+  96857854: [
+    "opponent-field-effects-ffa3-diamond-duston-goes-to-the-picked-opponent",
+    "opponent-field-effects-ffa4-diamond-duston-goes-to-the-picked-opponent",
+    "opponent-field-effects-tag-diamond-duston-goes-to-an-opposing-member",
+  ], // Diamond Duston
 };

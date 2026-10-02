@@ -1,7 +1,7 @@
 // Spell and Trap cards whose effect Special Summons a card or tokens to the field of an opponent (the table and the rule are in
 // opponent-field-effects.ts). Every card of this file is activated by p0, who then picks one opponent.
 
-import { activate, choose, expectNoPrompt, normalSummon, select, yes } from "../../support/dsl.js";
+import { activate, attack, choose, expectNoPrompt, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
 import { ELF } from "./nseat-scenarios.js";
 import { effectScenarios, type EffectSpec } from "./opponent-field-effects.js";
 
@@ -185,6 +185,104 @@ const SPECS: EffectSpec[] = [
     p0End: { grave: ["Light of the Branded"], monsters: ["Fallen of Albaz"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
   },
+  {
+    code: 63086455, name: "Terrors of the Overroot", slug: "terrors-of-the-overroot", does: "sends a card of an opponent to the Graveyard and Sets a monster of an opponent Graveyard",
+    p0: { spells: [set("Terrors of the Overroot")] },
+    tgt: { monsters: [ELF], grave: [MAGICIAN] },
+    steps: [activate("Terrors of the Overroot", "p0")],
+    // The targets are the Elf of p1 (field) and the Dark Magician in the Graveyard of the picked opponent: targets may be of any opponent (R-COMMON-OPP-FIELD); the card is Set on the field of the picked opponent.
+    then: [select({ card: ELF, owner: "p1" }, MAGICIAN)],
+    p0End: { grave: ["Terrors of the Overroot"] },
+    tgtEnd: { monsters: [ELF, MAGICIAN] },
+    seatEnd: { p1: { grave: [ELF] } },
+  },
+  {
+    code: 85698115, name: "Terrors of the Afterroot", slug: "terrors-of-the-afterroot", does: "Special Summons a monster of an opponent Graveyard",
+    p0: { spells: [set("Terrors of the Afterroot")] },
+    tgt: { monsters: [ELF], grave: [MAGICIAN] },
+    steps: [activate("Terrors of the Afterroot", "p0")],
+    then: [no("p0")],
+    p0End: { grave: ["Terrors of the Afterroot"] },
+    tgtEnd: { monsters: [ELF, MAGICIAN] },
+  },
+  {
+    code: 13204145, name: "Mimighoul Maker", slug: "mimighoul-maker", does: "Special Summons a face-down flip monster",
+    p0: { hand: ["Mimighoul Maker"], deck: ["Man-Eater Bug", "Hane-Hane"] },
+    steps: [activate("Mimighoul Maker", "p0")],
+    // The picked opponent chooses at random which of the 2 flip monsters is Special Summoned face-down to its field; p0 adds the other to its hand.
+    then: [select("Man-Eater Bug", "Hane-Hane")],
+    p0End: { grave: ["Mimighoul Maker"] },
+    gain: { tokens: { count: 1 } },
+  },
+  {
+    code: 13935001, name: "Lunalight Serenade Dance", slug: "lunalight-serenade-dance", does: "Special Summons a Lunalight Token",
+    p0: { hand: ["Polymerization", "Gaia The Fierce Knight", "Curse of Dragon"], spells: [{ card: "Lunalight Serenade Dance", pos: "up" }], extra: ["Gaia the Dragon Champion"] },
+    steps: [activate("Polymerization", "p0"), select("Gaia The Fierce Knight", "Curse of Dragon"), yes("p0")],
+    p0End: { monsters: ["Gaia the Dragon Champion"], spells: ["Lunalight Serenade Dance"], grave: ["Polymerization", "Gaia The Fierce Knight", "Curse of Dragon"] },
+    gain: { tokens: { count: 1 } },
+  },
+  {
+    code: 1041278, name: "Branded Expulsion", slug: "branded-expulsion", does: "Tributes a Fusion monster and Special Summons a monster to the own field and one to the field of an opponent",
+    p0: { monsters: ["Gaia the Dragon Champion"], spells: [set("Branded Expulsion")], grave: [MAGICIAN] },
+    tgt: { monsters: [ELF], grave: [SKULL] },
+    steps: [activate("Branded Expulsion", "p0")],
+    // p0 picks the 2 monsters, then which of them goes to the own field; the other goes to the field of the picked opponent.
+    then: [select(MAGICIAN, SKULL), select(MAGICIAN)],
+    p0End: { monsters: [MAGICIAN], grave: ["Branded Expulsion", "Gaia the Dragon Champion"] },
+    tgtEnd: { monsters: [ELF, SKULL] },
+  },
+  {
+    code: 8837932, name: "Cubic Mandala", slug: "cubic-mandala", does: "Special Summons a destroyed monster",
+    p0: { hand: ["Raigeki"], monsters: ["Vijam the Cubic Seed"], spells: [set("Cubic Mandala")] },
+    steps: [activate("Raigeki", "p0"), activate("Cubic Mandala", "p0")],
+    // Raigeki sends the Elf of every opponent to the Graveyard (not the Tag partner). The Elf of p1 is the target; it comes to the field of the picked opponent.
+    then: [select({ card: ELF, owner: "p1" })],
+    p0End: { monsters: ["Vijam the Cubic Seed"], spells: ["Cubic Mandala"], grave: ["Raigeki"] },
+    tgtEnd: { monsters: [ELF], grave: [ELF] },
+    othersEnd: { grave: [ELF] },
+    seatEnd: { p1: {} },
+  },
+  {
+    code: 96857854, name: "Diamond Duston", slug: "diamond-duston", does: "Special Summons a Duston monster",
+    p0: { hand: ["Smashing Ground"], spells: [set("Diamond Duston")], deck: ["House Duston"] },
+    tgt: { monsters: [MAGICIAN] },
+    // Smashing Ground destroys the Dark Magician (highest DEF) of the picked-later opponent; Diamond Duston answers the destruction.
+    steps: [activate("Smashing Ground", "p0"), activate("Diamond Duston", "p0")],
+    then: [yes("p0")],
+    p0End: { grave: ["Smashing Ground", "Diamond Duston"] },
+    tgtEnd: { monsters: ["House Duston"], grave: [MAGICIAN] },
+  },
+  {
+    code: 93983867, name: "Trick Box", slug: "trick-box", does: "takes control of a monster until the End Phase and Special Summons a Performage from the own Graveyard",
+    p0: { hand: ["Offerings to the Doomed"], monsters: ["Performage Hat Tricker"], spells: [set("Trick Box")] },
+    steps: [activate("Offerings to the Doomed", "p0"), select("Performage Hat Tricker"), activate("Trick Box", "p0"), select({ card: ELF, owner: "p1" })],
+    p0End: { monsters: [ELF], grave: ["Offerings to the Doomed", "Trick Box"] },
+    gain: { monsters: ["Performage Hat Tricker"] },
+    seatEnd: { p1: {} },
+  },
+  {
+    code: 14283055, name: "Concours de Cuisine", slug: "concours-de-cuisine", does: "Special Summons a Nouvelles and a Patissciel Pendulum monster, one to the own field and one to the field of an opponent",
+    p0: { hand: ["Concours de Cuisine (Culinary Confrontation)"], deck: ["Chef de Nouvelles"], extra: ["Patissciel Couverture"] },
+    steps: [activate("Concours de Cuisine (Culinary Confrontation)", "p0")],
+    then: [select("Chef de Nouvelles", "Patissciel Couverture"), select("Chef de Nouvelles")],
+    p0End: { monsters: ["Chef de Nouvelles"], grave: ["Concours de Cuisine (Culinary Confrontation)"] },
+    gain: { monsters: ["Patissciel Couverture"] },
+  },
 ];
 
-export const SPELL_EFFECT_SCENARIOS = SPECS.flatMap(effectScenarios);
+// Graydle Parasite: the Graydle monster of p0 attacks the picked opponent directly and its trigger Special Summons the monster of an opponent
+// Graveyard to the field of a picked opponent (a second pick, after the pick of the attack). Both picks name the same seat; the monster in that
+// field turns the direct attack into a replay, so no seat takes damage.
+const GRAYDLE_PARASITE: EffectSpec = {
+  code: 49966595, name: "Graydle Parasite", slug: "graydle-parasite", does: "Special Summons a monster of an opponent Graveyard",
+  attackFirstTurn: true,
+  p0: { monsters: ["Graydle Cobra"], spells: [{ card: "Graydle Parasite", pos: "up" }] },
+  opp: {},
+  tgt: { grave: [MAGICIAN] },
+  partner: {},
+  steps: (roles) => [attack("Graydle Cobra", "direct", "p0"), pickOpponent(roles.tgt, "p0"), yes("p0")],
+  p0End: { monsters: ["Graydle Cobra"], spells: ["Graydle Parasite"] },
+  tgtEnd: { monsters: [MAGICIAN] },
+};
+
+export const SPELL_EFFECT_SCENARIOS = [...SPECS, GRAYDLE_PARASITE].flatMap(effectScenarios);
