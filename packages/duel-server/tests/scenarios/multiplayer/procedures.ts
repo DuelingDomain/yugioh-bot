@@ -478,4 +478,86 @@ export const PROCEDURE_TAG_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
+  // --- Volcanic Queen and Ra Sphere Mode in Tag (review B, cards area: these two were proven at FFA3 and FFA4 only) ---------------------------
+  defineScenario({
+    id: "procedures-tag-volcanic-queen-goes-to-tributed-field",
+    title: "Tag: Volcanic Queen Tributes a monster of the picked opposing member (p3) and goes to the field of p3, p1 and the partner p2 are unchanged",
+    source: `${SOURCE} [R-TAG-PARTNER]`,
+    rules: ["R-TAG-PARTNER", "R-COMMON-OPP-FIELD", "R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "summon", "procedure", "lava", "tag", "card:63014935"],
+    setup: { format: "tag", p0: { hand: [QUEEN] }, p1: { monsters: [ELF] }, p2: { monsters: [AXE] }, p3: { monsters: [RAT, OX] } },
+    steps: [
+      specialSummon(QUEEN, "p0"),
+      pickOpponent("p3", "p0"),
+      // The Tribute list holds the monsters of p3 only: the monster of p1 and the monster of the partner p2 are not offered.
+      expectPickOptions({ count: 2, exclude: [{ card: ELF }, { card: AXE }] }, "p0"),
+      select(RAT),
+      expectBoard({
+        p0: tagSeat(),
+        p1: tagSeat({ monsters: [ELF] }),
+        p2: tagSeat({ monsters: [AXE] }),
+        p3: tagSeat({ monsters: [OX, QUEEN], grave: [RAT] }),
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "procedures-tag-ra-sphere-mode-split-rejected",
+    title: "Tag: p1 and p3 control 2 monsters each (4 in all): Ra Sphere Mode is not offered (3 Tributes of ONE opposing member are not possible)",
+    source: `${SOURCE} [R-TAG-PARTNER] [Q8]`,
+    rules: ["R-TAG-PARTNER", "R-COMMON-OPP-FIELD"],
+    tags: ["multiplayer", "summon", "procedure", "ra", "q8", "tag", "card:10000080"],
+    setup: { format: "tag", p0: { hand: [RA] }, p1: { monsters: [ELF, RAT] }, p3: { monsters: [OX, AXE] } },
+    steps: [
+      expectNotOffered("normalSummon", RA, "p0"),
+      endTurn("p0"),
+      expectBoard({
+        // p1 starts its turn and draws its only Deck card (a Mystical Elf).
+        p0: tagSeat({ hand: [RA] }),
+        p1: tagSeat({ monsters: [ELF, RAT], hand: [ELF] }),
+        p2: tagSeat(),
+        p3: tagSeat({ monsters: [OX, AXE] }),
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "procedures-tag-ra-sphere-mode-one-opposing-member-accepted",
+    title: "Tag: only p3 controls 3 monsters: Ra Sphere Mode Tributes all 3 and goes to the field of p3, p1 and the partner p2 are unchanged",
+    source: `${SOURCE} [R-TAG-PARTNER] [Q8]`,
+    rules: ["R-TAG-PARTNER", "R-COMMON-OPP-FIELD"],
+    tags: ["multiplayer", "summon", "procedure", "ra", "q8", "tag", "card:10000080"],
+    setup: { format: "tag", p0: { hand: [RA] }, p1: { monsters: [ELF, RAT] }, p2: { monsters: [LEOGUN] }, p3: { monsters: [OX, AXE, VORSE] } },
+    steps: [
+      normalSummon(RA, "p0"),
+      // Only p3 can pay: the opponent is bound with no pick, and the Tribute list holds the 3 monsters of p3.
+      expectPickOptions({ count: 3, exclude: [{ card: ELF }, { card: RAT }, { card: LEOGUN }] }, "p0"),
+      select(OX, AXE, VORSE),
+      expectBoard({
+        p0: tagSeat(),
+        p1: tagSeat({ monsters: [ELF, RAT] }),
+        p2: tagSeat({ monsters: [LEOGUN] }),
+        p3: tagSeat({ monsters: [RA], grave: [OX, AXE, VORSE] }),
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "procedures-tag-ra-sphere-mode-picked-opposing-member",
+    title: "Tag: p1 and p3 can both pay: p0 picks p3, Ra Sphere Mode Tributes the 3 monsters of p3 and goes to the field of p3",
+    source: `${SOURCE} [R-TAG-PARTNER] [Q8]`,
+    rules: ["R-TAG-PARTNER", "R-COMMON-OPP-FIELD", "R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "summon", "procedure", "ra", "q8", "tag", "card:10000080"],
+    setup: { format: "tag", p0: { hand: [RA] }, p1: { monsters: [ELF, RAT, LEOGUN] }, p3: { monsters: [OX, AXE, VORSE] } },
+    steps: [
+      normalSummon(RA, "p0"),
+      pickOpponent("p3", "p0"),
+      // The Tribute list holds the monsters of p3 only: a mixed Tribute is not offered.
+      expectPickOptions({ count: 3, exclude: [{ card: ELF }, { card: RAT }, { card: LEOGUN }] }, "p0"),
+      select(OX, AXE, VORSE),
+      expectBoard({
+        p0: tagSeat(),
+        p1: tagSeat({ monsters: [ELF, RAT, LEOGUN] }),
+        p2: tagSeat(),
+        p3: tagSeat({ monsters: [RA], grave: [OX, AXE, VORSE] }),
+      }),
+    ],
+  }),
 ];
