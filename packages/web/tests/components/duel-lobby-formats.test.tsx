@@ -63,7 +63,7 @@ describe("DuelCreator format picker", () => {
   it("defaults to 1v1 and sends the chosen format", async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ session: { slug: "abc" } }, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<DuelCreator multiplayerTables />);
+    render(<DuelCreator />);
     const picker = screen.getByLabelText("Table type") as HTMLSelectElement;
     expect(picker.value).toBe("1v1");
     fireEvent.change(picker, { target: { value: "tag" } });
@@ -76,7 +76,7 @@ describe("DuelCreator format picker", () => {
   });
 
   it("shows FFA life points per duelist", () => {
-    render(<DuelCreator multiplayerTables />);
+    render(<DuelCreator />);
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "ffa4" } });
     const note = screen.getByTestId("format-rule").textContent ?? "";
     expect(note).toContain("4 seats");

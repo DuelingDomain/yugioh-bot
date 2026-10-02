@@ -1,7 +1,6 @@
-import { isDuelFormat, multiDomainBlockReason, multiplayerTableBlockReason, type DuelTableCapabilities } from "@yugidraft/shared/duels";
+import { isDuelFormat, multiDomainBlockReason } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
-import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
-import { multiplayerTablesEnabled } from "@/lib/duel-table-capabilities";
+import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
 
 export const runtime = "nodejs";
@@ -47,15 +46,9 @@ export async function POST(request: NextRequest) {
   if (!isDuelFormat(format)) {
     return NextResponse.json({ error: "Duel format must be 1v1, tag, ffa3, or ffa4" }, { status: 400 });
   }
-  const tableBlocked = multiplayerTableBlockReason(format, multiplayerTablesEnabled());
-  if (tableBlocked) return NextResponse.json({ error: tableBlocked }, { status: 400 });
-  if (format !== "1v1") {
-    const result = await callDuelHost({ op: "capabilities", guildId: actor.guildId, playerId: actor.playerId });
-    if (!result.ok) return result.response;
-    const data = result.data as Partial<DuelTableCapabilities> | null;
-    const blocked = multiplayerTableBlockReason(format, data?.multiplayerTables === true)
-      ?? multiDomainBlockReason(mode, format, data?.multiDomainCoreReady === true);
-    if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
+  const blocked = multiDomainBlockReason(mode, format);
+  if (blocked) {
+    return NextResponse.json({ error: blocked }, { status: 400 });
   }
 
   try {

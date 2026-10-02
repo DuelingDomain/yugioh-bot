@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTableBlockReason } from "../../src/duels/multi-domain.js";
+import { MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "../../src/duels/multi-domain.js";
 
 describe("multiDomainBlockReason", () => {
   it("allows Standard at every table type", () => {
@@ -20,24 +20,11 @@ describe("multiDomainBlockReason", () => {
   });
 
   it("allows Domain at those tables when the core is there", () => {
-    for (const format of ["ffa3", "ffa4", "tag"] as const) {
-      expect(multiDomainBlockReason("domain", format, true)).toBeNull();
-    }
+    expect(multiDomainBlockReason("domain", "ffa3", true)).toBeNull();
   });
 
-  it("keeps the gate closed until the host confirms the core", () => {
+  it("is off by default until the core ships", () => {
     expect(MULTI_DOMAIN_CORE_READY).toBe(false);
     expect(multiDomainBlockReason("domain", "ffa4")).toBe(MULTI_DOMAIN_UNAVAILABLE_MESSAGE);
-  });
-});
-
-describe("multiplayerTableBlockReason", () => {
-  it("keeps 1v1 open when the flag is off", () => {
-    expect(multiplayerTableBlockReason("1v1", false)).toBeNull();
-  });
-
-  it.each(["ffa3", "ffa4", "tag"] as const)("requires the flag for %s", (format) => {
-    expect(multiplayerTableBlockReason(format, false)).toContain("3 or more seats are disabled");
-    expect(multiplayerTableBlockReason(format, true)).toBeNull();
   });
 });

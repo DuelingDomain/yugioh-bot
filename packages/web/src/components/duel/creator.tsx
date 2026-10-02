@@ -57,10 +57,7 @@ const VALIDATION: readonly Choice<boolean>[] = [{ value: true, label: "Forbid in
 const SHUFFLE: readonly Choice<boolean>[] = [{ value: true, label: "Shuffled" }, { value: false, label: "Not shuffled" }];
 const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label: `Banlist: ${label}` }));
 
-export function DuelCreator({ multiplayerTables = false, multiDomainCoreReady = false }: {
-  multiplayerTables?: boolean;
-  multiDomainCoreReady?: boolean;
-}) {
+export function DuelCreator() {
   const router = useRouter();
   const [name, setName] = useState("Table");
   const [mode, setMode] = useState<DuelMode>("normal");
@@ -72,8 +69,7 @@ export function DuelCreator({ multiplayerTables = false, multiDomainCoreReady = 
   const inFlight = useRef(false);
   const customDomain = mode === "domain" && isCustomDomain(masterRule, settings);
   // Domain is offered only where its core exists (see multiDomainBlockReason).
-  const domainBlocked = multiDomainBlockReason("domain", format, multiDomainCoreReady);
-  const tableFormats = multiplayerTables ? TABLE_FORMATS : TABLE_FORMATS.filter((choice) => choice.value === "1v1");
+  const domainBlocked = multiDomainBlockReason("domain", format);
   const duelTypes = domainBlocked ? FORMATS.filter((choice) => choice.value !== "domain") : FORMATS;
 
   function update<K extends keyof DuelSettings>(key: K, value: DuelSettings[K]) {
@@ -144,14 +140,14 @@ export function DuelCreator({ multiplayerTables = false, multiDomainCoreReady = 
             <section className={styles.section} aria-labelledby="creator-format">
               <div className={styles.side}>
                 <h2 id="creator-format" className={ui.sectionTitle}>Format</h2>
-                <p className={ui.hint}>Table size and rules. Each duelist has a separate field and, in Domain, a separate Deck Master.</p>
+                <p className={ui.hint}>Table size and rules. Standard allows every table type. Domain is for 1v1 tables for now.</p>
               </div>
               <div className={styles.fields}>
                 <div className={styles.wide}>
-                  <SheetSelect label="Table type" value={format} choices={tableFormats} onChange={(value) => {
+                  <SheetSelect label="Table type" value={format} choices={TABLE_FORMATS} onChange={(value) => {
                     setFormat(value);
-                    // Use the host's installed core status for the new format.
-                    if (mode === "domain" && multiDomainBlockReason("domain", value, multiDomainCoreReady)) {
+                    // Domain has no core for 3 or more seats yet: go back to Standard and its preset.
+                    if (mode === "domain" && multiDomainBlockReason("domain", value)) {
                       setMode("normal");
                       setSettings((current) => ({ ...defaultDuelSettings("normal"), visibility: current.visibility }));
                     }
