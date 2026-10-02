@@ -6,6 +6,7 @@
   "scripts": {
     "stack:build": "node stack/prepare.mjs",
     "stack:manual": "node stack/manual.mjs",
+    "stack:login": "node stack/login.mjs",
     "e2e": "node stack/prepare.mjs && playwright test",
     "e2e:nobuild": "playwright test",
     "e2e:ui": "node stack/prepare.mjs && playwright test --ui",
