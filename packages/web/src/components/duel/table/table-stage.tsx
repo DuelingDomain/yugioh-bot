@@ -152,7 +152,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
           </>
         ) : null}
         <div ref={worldRef} className={styles.world} data-world>
-          {threeWay && cityOn ? <FlyCity /> : null}
+          {threeWay && cityOn ? <FlyCity title={layout.format === "ffa4" ? "4-WAY DUEL" : undefined} /> : null}
           <div className={styles.wstage} onClick={onSeatClick}>
             <Plaza layout={layout} poses={poses} fly={fly} />
             {ring && threeWay ? (

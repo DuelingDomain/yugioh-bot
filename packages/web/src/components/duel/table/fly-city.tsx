@@ -112,7 +112,7 @@ function towers(): Tower[] {
   return list;
 }
 
-export function FlyCity() {
+export function FlyCity({ title = "3-WAY DUEL" }: { title?: string } = {}) {
   // The textures come from a canvas, which the server cannot draw: the city mounts after hydration.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -162,7 +162,7 @@ function FlyCityBody() {
             {tower.mark === "screen" ? (
               <div className={styles.screen}>
                 <div>
-                  3-WAY DUEL<small>LIVE · FINALS</small>
+                  {title}<small>LIVE · FINALS</small>
                 </div>
               </div>
             ) : null}
