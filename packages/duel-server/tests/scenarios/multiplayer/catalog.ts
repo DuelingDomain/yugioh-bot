@@ -189,12 +189,12 @@ export const GROUP_ALL: CatalogScenario[] = [
   }),
   all({
     card: "Book of Eclipse", code: 35480699, ruleClass: "O",
-    oneVsOne: "Changes all face-up monsters to face-down. The opponent draws one card for each face-down monster.",
-    results: { ffa3: "Field part uses all opponents. The draw part goes to ONE bound opponent (lazy prompt).", ffa4: "Same as 3-FFA: one bound opponent draws.", tag: "Field part uses both opposing members. The draw goes to one bound opposing member." },
+    oneVsOne: "Changes all face-up monsters to face-down. In the End Phase of the turn, the opponent flips its face-down monsters face-up and draws one card for each.",
+    results: { ffa3: "The field part reaches the monsters of every seat. In the End Phase each opponent flips its OWN face-down monsters and draws for them (script fix, overlay c35480699.lua).", ffa4: "Same as 3-FFA.", tag: "Same, for each opposing member: the member flips and draws for the monsters it controls." },
     evidence: [ev(35480699, 17, "LOCATION_MZONE,LOCATION_MZONE"), ev(35480699, 38, "IsFacedown,tp,0,LOCATION_MZONE"), ev(35480699, 40, "Duel.Draw(1-tp,ct")],
     setup: "Each seat controls one face-up monster.",
-    action: "P0 activates Book of Eclipse. P0 picks the draw target when asked.",
-    expected: "All face-up monsters become face-down. The picked opponent draws the count of face-down opponent monsters.",
+    action: "P0 activates Book of Eclipse. The turn ends.",
+    expected: "All face-up monsters become face-down. In the End Phase each opponent flips its own monster face-up and draws 1 card. The partner of P0 and P0 draw nothing.",
   }),
   all({
     card: "Cyber Dragon", code: 70095154, ruleClass: "U",
@@ -1390,4 +1390,71 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "opponent-field-effects-ffa4-space-time-police-goes-to-the-picked-opponent",
     "opponent-field-effects-tag-space-time-police-goes-to-an-opposing-member",
   ], // Space-Time Police
+  // Cross-seat staples proven live (the event binding and the delayed draw), all three tables.
+  35480699: [
+    "book-of-eclipse-ffa3-p0-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa3-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa4-p0-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa4-p2-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-tag-p0-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-tag-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa3-p0-activates-in-the-turn-of-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
+  ], // Book of Eclipse
+  76922029: [
+    "don-zaloog-ffa3-p1-damages-p2-deck-effect-hits-only-p2",
+    "don-zaloog-ffa3-p1-damages-p0-hand-effect-hits-only-p0",
+    "don-zaloog-ffa4-p3-damages-p1-deck-effect-hits-only-p1",
+    "don-zaloog-ffa4-p2-damages-p0-hand-effect-hits-only-p0",
+    "don-zaloog-tag-p1-damages-p2-deck-effect-hits-only-p2",
+    "don-zaloog-tag-p0-damages-p3-hand-effect-hits-only-p3",
+    "don-zaloog-tag-p2-damages-p1-hand-effect-hits-only-p1",
+    "don-zaloog-tag-p3-damages-p0-deck-effect-hits-only-p0",
+  ], // Don Zaloog
+  77538567: [
+    "dark-bribe-ffa3-p1-pot-negated-by-p2-only-p1-draws",
+    "dark-bribe-ffa3-p1-pot-negated-by-p0-only-p1-draws",
+    "dark-bribe-ffa4-p2-pot-negated-by-p0-only-p2-draws",
+    "dark-bribe-ffa4-p2-pot-negated-by-p3-only-p2-draws",
+    "dark-bribe-tag-p1-pot-negated-by-p0-only-p1-draws",
+    "dark-bribe-tag-p1-pot-negated-by-p2-only-p1-draws",
+    "dark-bribe-tag-p0-pot-negated-by-p3-only-p0-draws",
+    "dark-bribe-tag-p0-pot-negated-by-p1-only-p0-draws",
+  ], // Dark Bribe
+  81510157: [
+    "soul-taker-ffa3-p1-destroys-monster-of-p2-p2-gains-1000",
+    "soul-taker-ffa3-p1-destroys-monster-of-p0-p0-gains-1000",
+    "soul-taker-ffa4-p2-destroys-monster-of-p3-p3-gains-1000",
+    "soul-taker-ffa4-p3-destroys-monster-of-p1-p1-gains-1000",
+    "soul-taker-tag-p1-destroys-monster-of-p0-p0-gains-1000",
+    "soul-taker-tag-p1-destroys-monster-of-p2-p2-gains-1000",
+    "soul-taker-tag-p0-destroys-monster-of-p3-p3-gains-1000",
+  ], // Soul Taker
+  10045474: [
+    "infinite-impermanence-ffa3-p1-turn-p2-negates-homunculus-of-p1",
+    "infinite-impermanence-ffa4-p2-turn-p0-negates-homunculus-of-p2",
+    "infinite-impermanence-tag-p0-turn-p1-negates-homunculus-of-p0",
+    "infinite-impermanence-tag-p0-turn-p3-negates-homunculus-of-p2",
+    "infinite-impermanence-tag-p1-turn-p2-negates-homunculus-of-p3",
+  ], // Infinite Impermanence
+  97268402: [
+    "effect-veiler-ffa3-p1-turn-p2-negates-homunculus-of-p1",
+    "effect-veiler-ffa3-p1-turn-p0-negates-homunculus-of-p1",
+    "effect-veiler-ffa4-p2-turn-p3-negates-homunculus-of-p2",
+    "effect-veiler-ffa4-p1-turn-p0-negates-homunculus-of-p1",
+    "effect-veiler-tag-p0-turn-p1-negates-homunculus-of-p0",
+    "effect-veiler-tag-p0-turn-p1-negates-homunculus-of-p2",
+    "effect-veiler-tag-p1-turn-p0-negates-homunculus-of-p1",
+    "effect-veiler-tag-p1-turn-p2-negates-homunculus-of-p3",
+    "effect-veiler-tag-p0-turn-partner-p2-is-never-offered",
+  ], // Effect Veiler
+  23434538: [
+    "maxx-c-ffa3-p1-special-summons-p2-draws",
+    "maxx-c-ffa3-p1-special-summons-p0-draws",
+    "maxx-c-ffa4-p2-special-summons-p0-draws",
+    "maxx-c-ffa4-p2-special-summons-p3-draws",
+    "maxx-c-tag-p1-special-summons-p0-draws",
+    "maxx-c-tag-p1-special-summons-p2-draws",
+    "maxx-c-tag-p1-special-summons-p3-no-draw",
+    "maxx-c-tag-p0-special-summons-p2-no-draw",
+  ], // Maxx "C"
 };

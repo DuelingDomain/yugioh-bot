@@ -379,6 +379,23 @@ Decision 4: the other cards use the defaults.
 | Book of Eclipse | 35480699 | In your End Phase, each opponent changes its OWN face-down monsters to face-up Defense Position and draws 1 card for each of its own (R-COMMON-EACH-PLAYER, lead decision 2026-10-01). In Tag, each opposing member does the same for the monsters it controls. The stock script lets one opponent draw for all of them (script fix, overlay `c35480699.lua`). | `c35480699.lua:37` |
 | Prediction Princess Astromorrigan | 5010422 | In the End Phase of the turn you flip it, each opponent takes 500 damage for each of its OWN Defense Position monsters destroyed this way (R-COMMON-EACH-PLAYER, follows the Book of Eclipse decision). In Tag the opposing members share one LP pool, so the sum is the stock value. The stock script lets one opponent take the damage for all of them (script fix, overlay `c5010422.lua`). | `c5010422.lua:25`, `c5010422.lua:30` |
 
+Decision 7: cards that were legal but gave a wrong result at 3 or more duelists (cross-seat review, 2026-10-01). Each row names the live proof (FFA3, FFA4 and Tag, Standard and Domain cores). "Fixed" means an overlay in `domain-core/multi-scripts`; "proven" means the stock script is right and a live scenario shows it.
+
+| Card | Passcode | Result | Proof |
+|---|---|---|---|
+| Rebirth of the Seventh Emperors | 83888009 | Fixed: only the controller of the Tribute Summoned monster is affected. | `rebirth-emperors.ts` |
+| Invincible Demise Lord | 71108540 | Fixed: its 3000 ATK and the effect-proof bonus come after a battle kill at any seat (the stock global check wrote slot 0). | `demise-lord.ts` |
+| Mementotlan Shleepy, Mementotlan Fusion | 50042011, 66518509 | Fixed: the flag and the effect bind to the real controller. | `memento-flags.ts` |
+| Soul Taker | 81510157 | Fixed: the 1000 LP go to the controller of the destroyed monster (in Tag, its team). Stock asked "Choose an opponent". | `event-binding-staples.ts` |
+| Ante, Tri-and-Guess, Self-Destruct Button | n/a | Proven correct: no change. | `lp-pair-cards.ts` |
+| Foolish Trap Hole | n/a | Proven. | `foolish-trap-hole.ts` |
+| Chaos Archfiend, Chaos Beast, Sangen Kaiho, Dragions, True Draco Heritage, Utopia the Envoy of Light | n/a | Proven. | `flag-atk-cards.ts`, `attack-flag-cards.ts`, `true-draco-heritage.ts`, `utopia-envoy.ts` |
+| Dark Bribe, Don Zaloog, Maxx "C", Effect Veiler, Infinite Impermanence | 77538567, 76922029, 23434538, 97268402, 10045474 | Proven: the core binds the event player, only the duelist of the event is hit. | `event-binding-staples.ts` |
+
+Not live-tested (same wrapper overlay as a proven card): Monster Rebirth, Kairo Ryu-Ge Emva, Kyoro Ryu-Ge Kaiva, Battlefield Tragedy, Superconductive Plasma Blast, Flame Wingman, Red-Eyes Exceed, Swiftwind Panther Warrior, Token Support, Penetration Fusion, Divine Arsenal AA-ZEUS - Sky Thunder, Red Nova, Vanquish Soul Rocks. Artifact Lancea has no overlay.
+
+The Domain n-seat Deck Master rules (summon, Link material, recall) are proven in `domain-nseat-gaps.ts` and `domain-ffa4-deck-master.ts`.
+
 ## Open questions for the product owner
 
 Answered on 2026-10-01 (see "Card rules", the alt-win rows in group (c) and rules 8 to 11 above; the ten triage questions are in ADR-0002): Evenly Matched and Pineapple Blast (one opponent in free-for-all, joined fields in Tag), Snatch Steal, Lava Golem and the Kaiju cards, summons to the field of an opponent (Jormungardr, Fenrir, Grinder Golem and the same cards), Messenger of Peace, Royal Tribute (partner included), Soul Exchange and all alternative-win cards.
