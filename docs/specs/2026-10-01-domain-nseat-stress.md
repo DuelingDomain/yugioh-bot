@@ -127,3 +127,8 @@ Five two-seat Domain controls also pass on that same wasm. The build uses P61,
 the Domain layer, and local Emscripten 4.0.9. No core was installed. The patch
 and `commit-message.txt` are in `gap-domain/out`, with tracked copies under
 `domain-core/proposals/domain-nseat-stress/`. No overlay change is needed.
+
+Three direct-attack cases pass on the private wasm. A master in the Domain
+zone is not an attack target and does not block a direct attack. Damage goes
+to the selected opponent in FFA and the shared opposing LP pool in Tag.
+The master remains in its zone. Every seat is checked.
