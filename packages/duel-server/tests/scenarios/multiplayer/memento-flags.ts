@@ -12,7 +12,7 @@
 //   - Elf of an opponent: Shleepy is not offered (the monster was not controlled by the holder);
 //   - Tag, Elf of the partner: see the scenario.
 
-import { activate, auto, choose, defineScenario, expectNotOffered, expectOffered, select, zone, type Scenario } from "../../support/dsl.js";
+import { activate, auto, choose, defineScenario, expectNotOffered, expectOffered, faceDown, select, zone, type Scenario } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, PARTNER, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -93,7 +93,62 @@ function fusion(format: Format, holder: Seat, whose: Whose): Scenario {
   });
 }
 
+// Dark Hole destroys monsters at p1 and p2 in the same EVENT_DESTROY group.
+// Both holders must receive their flag and use their own card after that event.
+function simultaneousShleepy(): Scenario {
+  return defineScenario({
+    id: "mementotlan-shleepy-ffa3-two-seats-destroyed-in-one-event",
+    title: "FFA3: Dark Hole destroys an Elf at p1 and p2; both holders summon Shleepy",
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] one destruction event writes the flag for each affected seat`,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "global-effect", "flag", "ffa3", `card:${SHLEEPY_CODE}`],
+    setup: baseSetup("ffa3", {
+      p0: { hand: ["Dark Hole"] },
+      p1: { monsters: [ELF], hand: [SHLEEPY] },
+      p2: { monsters: [ELF], hand: [SHLEEPY] },
+    }),
+    steps: [
+      activate("Dark Hole", "p0"),
+      expectOffered("activate", SHLEEPY, "p1"), activate(SHLEEPY, "p1"),
+      expectOffered("activate", SHLEEPY, "p2"), activate(SHLEEPY, "p2"),
+      everySeat("ffa3", {
+        p0: { hand: [], grave: ["Dark Hole"] },
+        p1: { hand: [], grave: [ELF], monsters: [SHLEEPY] },
+        p2: { hand: [], grave: [ELF], monsters: [SHLEEPY] },
+      }),
+    ],
+  });
+}
+
+function simultaneousFusion(): Scenario {
+  return defineScenario({
+    id: "mementotlan-fusion-ffa3-two-seats-destroyed-in-one-event",
+    title: "FFA3: Dark Hole destroys an Elf at p1 and p2; both holders use a Goblin from their own Graveyard to Fusion Summon",
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] one destruction event writes the flag for each affected seat`,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "global-effect", "flag", "ffa3", `card:${FUSION_CODE}`],
+    setup: baseSetup("ffa3", {
+      p1: { hand: ["Dark Hole", FUSION, MACE], monsters: [ELF], grave: [GOBLIN], extra: [TWIN_DRAGON] },
+      p2: { hand: [MACE], spells: [faceDown(FUSION)], monsters: [ELF], grave: [GOBLIN], extra: [TWIN_DRAGON] },
+    }),
+    steps: [
+      ...turnsBefore("ffa3", "p1"),
+      activate("Dark Hole", "p1"),
+      expectOffered("activate", FUSION, "p1"), activate(FUSION, "p1"),
+      expectOffered("activate", FUSION, "p2"), activate(FUSION, "p2"),
+      select({ card: MACE, owner: "p2" }, { card: GOBLIN, owner: "p2" }),
+      select({ card: MACE, owner: "p1" }, { card: GOBLIN, owner: "p1" }),
+      everySeat("ffa3", {
+        p0: { hand: [] },
+        p1: { hand: [ELF], monsters: [TWIN_DRAGON], grave: ["Dark Hole", FUSION, MACE, ELF], extra: [] },
+        p2: { hand: [], monsters: [TWIN_DRAGON], grave: [FUSION, MACE, ELF], extra: [] },
+      }),
+    ],
+  });
+}
+
 export const MEMENTO_FLAG_SCENARIOS: Scenario[] = [
+  simultaneousShleepy(), simultaneousFusion(),
   shleepy("ffa3", "p1", "own"), shleepy("ffa3", "p2", "own"), shleepy("ffa4", "p3", "own"), shleepy("tag", "p1", "own"), shleepy("tag", "p3", "own"),
   shleepy("ffa3", "p1", "opponent"), shleepy("ffa3", "p2", "opponent"), shleepy("ffa4", "p3", "opponent"), shleepy("tag", "p1", "opponent"), shleepy("tag", "p3", "opponent"),
   shleepy("tag", "p1", "partner"), shleepy("tag", "p3", "partner"),

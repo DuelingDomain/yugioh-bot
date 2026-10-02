@@ -12,7 +12,7 @@
 // (the cost) and Special Summons the Utopia back. The hands before the turn are p0 1 card, p1 1 card, p2 2 cards, p3 3 cards (the Mystical Elf). A duelist that took its own turn before the End Phase of the actor
 // drew 1 card (p0 does not draw in the first turn), so the end hand of a seat is its setup hand + 1 when its turn came before or is the turn of the actor.
 
-import { activate, attack, auto, changePhase, defineScenario, endTurn, faceDown, pass, pickOpponent, xyz, type Scenario } from "../../support/dsl.js";
+import { activate, attack, auto, changePhase, defineScenario, endTurn, expectEliminated, faceDown, pass, pickOpponent, xyz, type Scenario } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, PARTNER, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -24,16 +24,17 @@ const COWBOY = "Gagaga Cowboy";
 const ELF = "Mystical Elf";
 const SETUP_HAND: Record<Seat, number> = { p0: 1, p1: 1, p2: 2, p3: 3 };
 
-function emperors(format: Format, actor: Seat): Scenario {
+function emperors(format: Format, actor: Seat, p0Out = false): Scenario {
   const seats = SEATS[format];
   const actorIndex = seats.indexOf(actor);
-  const handAtEnd = (seat: Seat): number => SETUP_HAND[seat] + (seats.indexOf(seat) >= 1 && seats.indexOf(seat) <= actorIndex ? 1 : 0);
+  const handAtEnd = (seat: Seat): number => (p0Out && seat === "p0" ? 0 : SETUP_HAND[seat]) + (seats.indexOf(seat) >= 1 && seats.indexOf(seat) <= actorIndex ? 1 : 0);
   const holder = seats[(actorIndex + 1) % seats.length]!;
   const setup: Partial<Record<Seat, object>> = {};
   for (const seat of seats) {
     setup[seat] = {
-      hand: Array.from({ length: SETUP_HAND[seat] }, () => ELF),
-      ...(seat === actor ? { monsters: [xyz(UTOPIA, []), xyz(COWBOY, [])], spells: [faceDown(REBIRTH)] } : {}),
+      hand: Array.from({ length: p0Out && seat === "p0" ? 0 : SETUP_HAND[seat] }, () => ELF),
+      ...(p0Out && seat === "p0" ? { lp: 800 } : {}),
+      ...(seat === actor ? { monsters: [xyz(UTOPIA, []), xyz(COWBOY, []), ...(p0Out ? [ELF] : [])], spells: [faceDown(REBIRTH)] } : {}),
       ...(seat === holder ? { spells: [faceDown(PRISON)] } : {}),
     };
   }
@@ -42,24 +43,25 @@ function emperors(format: Format, actor: Seat): Scenario {
   const spec: Partial<Record<Seat, object>> = {};
   for (const seat of seats) {
     spec[seat] = {
-      lp: base - damage(seat),
+      lp: p0Out && seat === "p0" ? 0 : base - damage(seat),
       // The turn of the next seat (the holder of the Prison) has begun when the board is read: it drew 1 card.
       hand: { count: handAtEnd(seat) + (seat === holder ? 1 : 0) },
-      ...(seat === actor ? { monsters: [UTOPIA], grave: [COWBOY, REBIRTH] } : {}),
+      ...(seat === actor ? { monsters: [UTOPIA, ...(p0Out ? [ELF] : [])], grave: [COWBOY, REBIRTH] } : {}),
       ...(seat === holder ? { grave: [PRISON] } : {}),
     };
   }
   return defineScenario({
-    id: `rebirth-emperors-${format}-${actor}-each-player-takes-damage-for-its-own-hand`,
-    title: `${label(format)}: ${actor} activates Rebirth of the Seventh Emperors and in the End Phase every duelist takes 300 for each card in its OWN hand (${seats.map((s) => `${s} ${handAtEnd(s)}`).join(", ")})${format === "tag" ? "; the team LP takes the sum of both partners" : ""}`,
+    id: `rebirth-emperors-${format}-${actor}-each-player-takes-damage-for-its-own-hand${p0Out ? "-p0-out-by-lp-zero" : ""}`,
+    title: `${label(format)}: ${p0Out ? "p0 is out at LP 0; " : ""}${actor} activates Rebirth of the Seventh Emperors and in the End Phase every duelist takes 300 for each card in its OWN hand (${seats.map((s) => `${s} ${handAtEnd(s)}`).join(", ")})${format === "tag" ? "; the team LP takes the sum of both partners" : ""}`,
     source: `${SOURCE} [R-COMMON-EACH-PLAYER] "each player" is every living duelist, Tag partner included (Q3)`,
-    rules: ["R-COMMON-EACH-PLAYER"],
+    rules: ["R-COMMON-EACH-PLAYER", ...(p0Out ? ["R-FFA-ELIMINATION"] : [])],
     tags: ["multiplayer", "each-player", "damage", format, `card:${REBIRTH_CODE}`],
     setup: baseSetup(format, setup),
     steps: [
       ...turnsBefore(format, actor),
+      ...(p0Out ? [attack(ELF, "direct", actor), pickOpponent("p0", actor), pass(holder), expectEliminated("p0")] : []),
       attack(UTOPIA, "direct", actor),
-      pickOpponent(holder, actor),
+      ...(!p0Out || format === "ffa4" ? [pickOpponent(holder, actor)] : []),
       activate(PRISON, holder),
       pass(actor),
       changePhase("main2", actor),
@@ -75,4 +77,5 @@ export const REBIRTH_EMPERORS_SCENARIOS: Scenario[] = [
   emperors("ffa3", "p0"), emperors("ffa3", "p2"),
   emperors("ffa4", "p0"), emperors("ffa4", "p3"),
   emperors("tag", "p0"), emperors("tag", "p3"),
+  emperors("ffa3", "p1", true), emperors("ffa4", "p1", true),
 ];
