@@ -16,7 +16,10 @@ export const ports = {
   duel: Number(process.env.E2E_DUEL_PORT ?? 4303),
 };
 // The live stack uses these. The E2E stack must never use them.
-export const livePorts = [3000, 3001, 3002, 4001, 4002, 4003];
+export const livePorts = [3000, 3001, 3002, 3100, 3110, 4001, 4002, 4003, 4010];
+export const manualMode = process.env.E2E_MANUAL === "1";
+// Local login handoff; contains a throwaway secret, never log or commit it.
+export const manualInfoFile = resolve(stackDir, "manual.json");
 
 // "localhost", not 127.0.0.1: the socket connection is refused on 127.0.0.1.
 export const webUrl = `http://localhost:${ports.web}`;

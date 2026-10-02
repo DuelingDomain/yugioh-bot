@@ -2,12 +2,12 @@
 // Playwright starts it as one webServer and waits for the web /login page.
 // Ctrl-C or SIGTERM stops all three children. Nothing here touches the live stack.
 import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  cardImageDir, dbPath, duelDataDir, ensureSecrets, guildId, livePorts, players, ports, repoRoot, stackDir, stackLogFile, webUrl, wsUrl,
+  cardImageDir, dbPath, duelDataDir, ensureSecrets, guildId, livePorts, manualInfoFile, manualMode, players, ports, repoRoot, stackDir, stackLogFile, webUrl, wsUrl,
 } from "./env.mjs";
 import { seedDatabase } from "./seed.mjs";
 
@@ -26,6 +26,7 @@ function portFree(port) {
 function stop(code = 0) {
   if (stopping) return;
   stopping = true;
+  if (manualMode) rmSync(manualInfoFile, { force: true });
   for (const child of children) if (child.exitCode === null) child.kill("SIGTERM");
   setTimeout(() => {
     for (const child of children) if (child.exitCode === null) child.kill("SIGKILL");
@@ -46,6 +47,10 @@ function logLine(name, line) {
 function run(name, command, args, options) {
   const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], ...options });
   const prefix = `[e2e:${name}] `;
+  child.once("error", (error) => {
+    console.error(`${prefix}${error.message}`);
+    stop(1);
+  });
   for (const stream of [child.stdout, child.stderr]) {
     stream.on("data", (chunk) => {
       for (const line of String(chunk).split("\n")) {
@@ -82,7 +87,7 @@ for (const [label, file] of [
   ["duel host build", resolve(repoRoot, "packages/duel-server/dist/server.js")],
   ["duel engine data", resolve(duelDataDir, "cards.cdb")],
 ]) {
-  if (!existsSync(file)) throw new Error(`Missing ${label}: ${file}. Run "npm run prepare --workspace=packages/e2e" first.`);
+  if (!existsSync(file)) throw new Error(`Missing ${label}: ${file}. Run "npm run stack:build --workspace=packages/e2e" first.`);
 }
 
 mkdirSync(stackDir, { recursive: true });
@@ -90,6 +95,9 @@ mkdirSync(dirname(stackLogFile), { recursive: true });
 stackLog = createWriteStream(stackLogFile, { flags: "w" });
 mkdirSync(cardImageDir, { recursive: true });
 await seedDatabase();
+if (manualMode) {
+  writeFileSync(manualInfoFile, JSON.stringify({ webUrl, authSecret: secrets.auth, supervisorPid: process.pid }), { mode: 0o600 });
+}
 
 const wsInternal = `http://127.0.0.1:${ports.wsInternal}`;
 // The ws and duel servers call dotenv. dotenv never overrides a variable that is set, but it adds every
@@ -121,6 +129,7 @@ run("duel", process.execPath, ["packages/duel-server/dist/server.js"], {
     WS_INTERNAL_SECRET: secrets.ws,
     // Scenario presets (list-presets, start-preset, report). E2E stack only: never the dev or prod env.
     DUEL_SCENARIOS: "1",
+    DUEL_FX_LAB: manualMode ? "1" : "0",
     // The duel host report op writes here, not into the repo .status/manual. Keeps the real manual reports apart.
     DUEL_REPORT_DIR: resolve(stackDir, "reports"),
     // Tag, 3-player and 4-player tables. On for the E2E stack so the multi-seat specs run; E2E_MULTIPLAYER_TABLES=0 turns it off.
@@ -164,6 +173,7 @@ run("web", process.execPath, ["server.js"], {
     DUEL_INTERNAL_SECRET: secrets.duel,
     // The preset and report routes answer 404 without this. E2E stack only.
     DUEL_SCENARIOS: "1",
+    DUEL_FX_LAB: manualMode ? "1" : "0",
     // Same flag as on the duel host. The web reads it at run time.
     MULTIPLAYER_TABLES: process.env.E2E_MULTIPLAYER_TABLES ?? "1",
     CARD_IMAGE_CACHE_DIR: cardImageDir,
