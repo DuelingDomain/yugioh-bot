@@ -57,6 +57,8 @@ export interface Synth {
 export type SoundSide = { style: AttackStyleId; signature: number | null };
 
 export type BattleSoundPlan = {
+  /** Shared performance.now() origin; audio joins at its current point after preparation. */
+  startedAt?: number;
   kind: BattleKind;
   reduced: boolean;
   attacker: SoundSide;

@@ -177,6 +177,8 @@ export type FxRequest = {
   seed?: number;
   /** The effect is already this many ms late (it was planned earlier than it started): it starts advanced by this much. */
   skipMs?: number;
+  /** Battle's shared performance.now() origin, including time spent preparing the renderer. */
+  startedAt?: number;
   /** id "battle": the fight. */
   battle?: FxBattle;
   /** id "scene": the trap or effect set piece. */

@@ -28,7 +28,7 @@ class FakeContext {
   destination = new FakeNode();
   oscillators = 0;
   sources = 0;
-  sourceNodes: Array<FakeNode & { stop: ReturnType<typeof vi.fn>; onended: null | (() => void) }> = [];
+  sourceNodes: Array<FakeNode & { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; onended: null | (() => void) }> = [];
   master: (FakeNode & { gain: ReturnType<typeof param> }) | null = null;
   gains: Array<FakeNode & { gain: ReturnType<typeof param> }> = [];
   constructor() {
@@ -85,9 +85,28 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete (window as unknown as { AudioContext?: unknown }).AudioContext;
+  vi.restoreAllMocks();
 });
 
 describe("createDuelFeedbackAudio", () => {
+  it("keeps the counter sound on the battle clock after 200 ms of GPU preparation", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(1200);
+    const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
+    const timing = battleTiming("lose", "slash", "beam");
+    audio.playBattle({ ...battle, kind: "lose", defender: { style: "beam", signature: null }, timing, startedAt: 1000 });
+    const starts = created[0]!.sourceNodes.map((node) => node.start.mock.calls[0]![0] as number);
+    expect(starts.some((start) => Math.abs(start - (1.01 + timing.attackerDamageMs / 1000 - 0.2)) < 0.001)).toBe(true);
+    expect(starts.every((start) => start >= created[0]!.currentTime)).toBe(true);
+    audio.dispose();
+  });
+
+  it("skips expired battle voices instead of scheduling negative audio timestamps", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(6000);
+    const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
+    audio.playBattle({ ...battle, startedAt: 1000 });
+    expect(created[0]!.sourceNodes).toHaveLength(0);
+    audio.dispose();
+  });
   it("stays silent until a user gesture unlocks it", () => {
     const audio = createDuelFeedbackAudio();
     audio.setMuted(false);

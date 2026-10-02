@@ -14,6 +14,8 @@ export class ArtStore {
   private readonly entries = new Map<number, Entry>();
   private disposed = false;
 
+  constructor(private readonly prepareTexture?: (texture: THREE.Texture) => void) {}
+
   prefetch(code: number): void {
     if (this.disposed || code <= 0) return;
     const known = this.entries.get(code);
@@ -49,7 +51,8 @@ export class ArtStore {
   private load(url: string, done: (texture: THREE.Texture) => void): void {
     const image = new Image();
     image.decoding = "async";
-    image.onload = () => {
+    image.onload = async () => {
+      try { await image.decode(); } catch { return; }
       if (this.disposed) return;
       const texture = new THREE.Texture(image);
       // Colours pass through untouched: the shaders work in display space.
@@ -58,6 +61,7 @@ export class ArtStore {
       texture.minFilter = THREE.LinearFilter;
       texture.magFilter = THREE.LinearFilter;
       texture.needsUpdate = true;
+      this.prepareTexture?.(texture);
       done(texture);
     };
     image.onerror = () => undefined;

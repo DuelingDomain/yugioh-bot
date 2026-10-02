@@ -50,7 +50,9 @@ export class Fx3dEngine implements Fx3dApi {
   private readonly group = new THREE.Group();
   private readonly camera = new THREE.OrthographicCamera(0, 1, 1, 0, -1000, 1000);
   private readonly kit = new FxKit();
-  private readonly art = new ArtStore();
+  private readonly art = new ArtStore((texture) => {
+    if (this.ready) this.renderer.initTexture(texture);
+  });
   private readonly post: PostPass;
   /** The board element the shake moves, and its inline transform before the shake. */
   private shaken: { el: HTMLElement; transform: string } | null = null;
@@ -116,6 +118,7 @@ export class Fx3dEngine implements Fx3dApi {
     // The host may have been resized since the last frame: measure now, so rectangles land exactly.
     this.resize();
     const env: FxEnv = { kit: this.kit, group: this.group, view: this.view, quality: this.quality, art: this.art, post: this.post.uniforms };
+    const preparedAt = performance.now();
     let instance: FxInstance;
     try {
       instance = factory(env, request);
@@ -124,10 +127,17 @@ export class Fx3dEngine implements Fx3dApi {
       return Promise.resolve();
     }
     if (request.artCode) this.art.prefetch(request.artCode);
+    const start = id === "battle" && request.startedAt != null
+      ? request.startedAt
+      : (id === "battle" ? preparedAt : performance.now()) - Math.min(600, Math.max(0, request.skipMs ?? 0));
+    if (id === "battle") this.prepareBattle();
+    const limit = Math.min(instance.durationMs, HARD_LIMIT_MS) - (performance.now() - start);
+    if (limit <= 0) {
+      instance.dispose();
+      return Promise.resolve();
+    }
     return new Promise<void>((resolve) => {
-      const late = Math.min(600, Math.max(0, request.skipMs ?? 0));
-      const limit = Math.min(instance.durationMs, HARD_LIMIT_MS) - late;
-      const run: Running = { instance, start: performance.now() - late, resolve, timer: 0, shake: Math.max(0, Math.min(1.6, request.shake ?? 1)) };
+      const run: Running = { instance, start, resolve, timer: 0, shake: Math.max(0, Math.min(1.6, request.shake ?? 1)) };
       run.timer = window.setTimeout(() => {
         this.finish(run);
         if (this.running.size === 0) this.stop();
@@ -146,6 +156,33 @@ export class Fx3dEngine implements Fx3dApi {
       );
       this.wake();
     });
+  }
+
+  private prepareBattle(): void {
+    const viewport = this.renderer.getViewport(new THREE.Vector4());
+    const scissor = this.renderer.getScissor(new THREE.Vector4());
+    const scissorTest = this.renderer.getScissorTest();
+    const hidden: THREE.Object3D[] = [];
+    this.scene.traverse((object) => {
+      if (!object.visible) { hidden.push(object); object.visible = true; }
+    });
+    try {
+      // Use the canvas's output format: an offscreen target generates different shader variants.
+      // A one-pixel draw initializes BOTH strikes and the shards, then is cleared before paint.
+      // compile() alone leaves the first draw's buffer/uniform work until impact.
+      this.renderer.setViewport(0, 0, 1, 1);
+      this.renderer.setScissor(0, 0, 1, 1);
+      this.renderer.setScissorTest(true);
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.clear();
+    } catch (error) {
+      console.warn("[fx3d] battle preparation failed", error);
+    } finally {
+      for (const object of hidden) object.visible = false;
+      this.renderer.setViewport(viewport);
+      this.renderer.setScissor(scissor);
+      this.renderer.setScissorTest(scissorTest);
+    }
   }
 
   cancelAll(): void {

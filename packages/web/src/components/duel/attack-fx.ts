@@ -50,6 +50,8 @@ export type FxLpHit = {
 };
 
 export type AttackFxPlan = {
+  /** Shared performance.now() clock for the canvas, audio and DOM beats. */
+  startedAt?: number;
   reduced: boolean;
   kind: BattleKind;
   attacker: FxSide;
@@ -232,6 +234,7 @@ type Ctx = {
   particles: { budget: number };
   /** Scale of this attacker's card against the prototype's (78 px) card. */
   u: number;
+  elapsedMs: number;
 };
 
 /** Geometry of one strike: attacker box, the box it lands on, and the resolved tint. */
@@ -255,7 +258,7 @@ type Geo = {
 function add(cx: Ctx, el: Element, keyframes: Keyframe[], o: Anim): Animation | null {
   if (typeof el.animate !== "function") return null;
   const a = safeAnimate(el, keyframes, {
-    delay: Math.max(0, o.at),
+    delay: Math.max(0, o.at) - cx.elapsedMs,
     duration: Math.max(1, o.dur),
     easing: o.easing ?? "linear",
     fill: o.fill ?? "both",
@@ -1032,7 +1035,8 @@ function runReduced(cx: Ctx, plan: AttackFxPlan): void {
  */
 export function runAttackFx(html: HTMLElement, svg: SVGSVGElement, plan: AttackFxPlan, cls: FxClasses): () => void {
   const u = Math.max(0.55, Math.min(2, plan.attacker.box.width / 78));
-  const cx: Ctx = { html, svg, cls, animations: [], nodes: [], particles: { budget: MAX_PARTICLES }, u };
+  const elapsedMs = plan.startedAt == null ? 0 : Math.max(0, performance.now() - plan.startedAt);
+  const cx: Ctx = { html, svg, cls, animations: [], nodes: [], particles: { budget: MAX_PARTICLES }, u, elapsedMs };
   if (plan.reduced) {
     runReduced(cx, plan);
   } else {

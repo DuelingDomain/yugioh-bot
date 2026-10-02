@@ -15,6 +15,10 @@ import { battleDestroyAt, clearBattleHolds } from "@/components/duel/battle-hold
 import { AttackConfirm } from "@/components/duel/card-interactions";
 import { armLpHold, clearLpHolds, takeLpHold } from "@/components/duel/life-points";
 import { isAttackTargetPrompt, isDirectAttackPrompt } from "@/components/duel/prompts";
+import { setSharedFx3d } from "@/components/duel/fx3d/shared";
+import { clearPromptRevealHold, promptRevealHoldMs } from "@/components/duel/prompt-reveal";
+import { DUEL_FX_CUE_EVENT, type DuelFxCueDetail } from "@/components/duel/event-queue";
+import type { FxRequest } from "@/components/duel/fx3d/types";
 
 function prompt(over: Partial<DuelPrompt>): DuelPrompt {
   return { id: "p1", seat: 0, kind: "cards", title: "Select an attack target", options: [], min: 1, max: 1, ...over };
@@ -228,6 +232,7 @@ describe("BattleFx", () => {
   });
 
   it("waits for the counter strike before rolling the attacker's LP, and keeps a counter fight under the battle ceiling", () => {
+    vi.spyOn(performance, "now").mockReturnValue(1000);
     const seats = seatsOf(warrior, machine);
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
     act(() => undefined);
@@ -419,6 +424,7 @@ describe("BattleFx resolution", () => {
   });
 
   it("bounces a blow off a stronger Defense Position monster: the counter hurts the attacker and nothing breaks", () => {
+    vi.spyOn(performance, "now").mockReturnValue(1000);
     const view = seats(4);
     const { rerender } = open(view);
     rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={view} />);
@@ -428,6 +434,43 @@ describe("BattleFx resolution", () => {
     expect(document.body.querySelectorAll("div[style*='clip-path']")).toHaveLength(0);
     // the attacker's LP rolls when the counter lands, not at the first strike
     expect(takeLpHold(0)).toBe(Math.round(STYLE_TIMING.slash.impact + COUNTER_GAP_MS + STYLE_TIMING.beam.impact * COUNTER_SCALE) + ATTACK_TIMING.lpAfterHitMs);
+  });
+
+  it("keeps the canvas, DOM, sound, destruction and prompt deadline together after slow GPU preparation", () => {
+    let now = 1000;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    vi.spyOn(Date, "now").mockReturnValue(10000);
+    const cues: DuelFxCueDetail[] = [];
+    const listen = (event: Event) => cues.push((event as CustomEvent<DuelFxCueDetail>).detail);
+    window.addEventListener(DUEL_FX_CUE_EVENT, listen);
+    const play = vi.fn((_id: string, _request: FxRequest) => { now += 200; return Promise.resolve(); });
+    const prefetchArt = vi.fn();
+    setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt, cancelAll() {} } });
+    clearPromptRevealHold();
+    try {
+      const { rerender, unmount } = open();
+      rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
+      expect(prefetchArt).toHaveBeenCalledWith(warrior.code);
+      expect(prefetchArt).toHaveBeenCalledWith(machine.code);
+      const resolved = [phase, attack, damage(3, 0), destroyed(4, 0)];
+      rerender(<BattleFx events={resolved} reducedMotion={false} seats={seats()} />);
+      const request = play.mock.calls[0]![1];
+      expect(request.startedAt).toBe(1000);
+      expect(cues.find((cue) => cue.cue === "battle")?.battle?.startedAt).toBe(1000);
+      expect((playLayer() as HTMLElement).style.animationDelay).toBe("-200ms");
+      expect(promptRevealHoldMs()).toBe(request.battle!.totalMs - 200);
+      const counterHit = Math.round(STYLE_TIMING.slash.impact + COUNTER_GAP_MS + STYLE_TIMING.beam.impact * COUNTER_SCALE);
+      expect(battleDestroyAt({ controller: 0, location: 4, sequence: 0 }, now)).toBe(1000 + counterHit + DESTROY_BEAT_MS);
+      now += 300;
+      rerender(<BattleFx events={resolved} reducedMotion={false} seats={seats()} />);
+      expect((playLayer() as HTMLElement).style.animationDelay).toBe("-200ms");
+      expect(play).toHaveBeenCalledOnce();
+      unmount();
+    } finally {
+      window.removeEventListener(DUEL_FX_CUE_EVENT, listen);
+      setSharedFx3d(null);
+      clearPromptRevealHold();
+    }
   });
 
   it("shows a clash when the next phase closes a fight that left no damage and no destroy", () => {

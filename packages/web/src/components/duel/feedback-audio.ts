@@ -395,9 +395,14 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
   }
 
   function synthFor(audio: AudioContext, dest: GainNode): Synth {
+    const remaining = <T extends { start: number; duration: number }>(opts: T): T | null => {
+      const end = opts.start + opts.duration;
+      const start = Math.max(0, audio.currentTime, opts.start);
+      return end > start ? { ...opts, start, duration: end - start } : null;
+    };
     return {
-      tone: (opts) => tone(audio, dest, opts),
-      burst: (opts) => burst(audio, dest, opts),
+      tone: (opts) => { const live = remaining(opts); if (live) tone(audio, dest, { ...live, attack: Math.min(live.attack ?? 0.012, live.duration / 2) }); },
+      burst: (opts) => { const live = remaining(opts); if (live) burst(audio, dest, live); },
     };
   }
 
@@ -411,7 +416,8 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     const mine: Voice[] = [];
     collecting = mine;
     try {
-      scheduleBattleSound(synthFor(audio, dest), plan, audio.currentTime + 0.01);
+      const elapsed = plan.startedAt == null ? 0 : Math.max(0, performance.now() - plan.startedAt) / 1000;
+      scheduleBattleSound(synthFor(audio, dest), plan, audio.currentTime + 0.01 - elapsed);
     } finally {
       collecting = null;
     }
