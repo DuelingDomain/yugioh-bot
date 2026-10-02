@@ -8,6 +8,12 @@ import { resetPhaseBeats } from "@/components/duel/phase-beats";
 import { useStartBeats } from "@/components/duel/use-start-beats";
 import { MoveFx } from "@/components/duel/move-fx";
 import { resetMoveSchedule } from "@/components/duel/move-plan";
+import { DuelFeedback } from "@/components/duel/feedback";
+
+vi.mock("next/font/google", () => {
+  const font = () => ({ variable: "font-var", className: "font-class" });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
 
 const phase = (id: number, text: string): DuelEvent => ({ id, kind: "phase", text }) as DuelEvent;
 const draw = (id: number): DuelEvent => ({ id, kind: "move", reason: "draw", text: "draw" }) as unknown as DuelEvent;
@@ -144,6 +150,13 @@ describe("useStartBeats", () => {
     expect(second.result.current.active).toBe(false);
   });
 
+  it("publishes the consumed opening cursor even before any phase events arrive", () => {
+    const engine = view({ turn: 0, events: [draw(1)] });
+    const { result } = renderHook(() => useStartBeats({ engine, duelKey, reducedMotion: false, ready: true }));
+    expect(result.current.replayFrom).toBeNull();
+    expect(result.current.skipThrough).toBe(1);
+  });
+
   it("plays game 2 once after the between-games screen, even when event ids restart", () => {
     const opening = view({ events: [draw(1), phase(2, "Draw Phase"), phase(3, "Standby Phase"), phase(4, "Main Phase 1")] });
     let engine: DuelEngineView | null = opening;
@@ -173,7 +186,7 @@ describe("useStartBeats", () => {
       const beats = useStartBeats({ engine, duelKey, reducedMotion: false, ready });
       return <div>
         <button data-testid="card" data-zones="0:2:0">Hand card</button>
-        {ready ? <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={false} replayFrom={beats.replayFrom} /> : null}
+        {ready ? <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={false} replayFrom={beats.replayFrom} skipThrough={beats.skipThrough} /> : null}
       </div>;
     }
     const board = render(<StrictMode><Board ready /></StrictMode>);
@@ -186,5 +199,56 @@ describe("useStartBeats", () => {
     board.rerender(<StrictMode><Board ready /></StrictMode>);
     expect(board.container.querySelectorAll('[data-style="draw"]')).toHaveLength(0);
     expect(board.getByTestId("card").style.visibility).toBe("");
+  });
+
+  it("keeps a late opening out of an already mounted card layer with an empty history", () => {
+    resetMoveSchedule(duelKey);
+    const rect = { left: 0, top: 0, width: 70, height: 100, right: 70, bottom: 100, x: 0, y: 0, toJSON: () => ({}) };
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    const clock: DuelClock = { turn: 1, remainingMs: [30_000, 30_000], activeSeat: 0, startedAt: 9_000, serverNow: 10_000 };
+    function Board({ engine }: { engine: DuelEngineView }) {
+      const beats = useStartBeats({ engine, clock, duelKey, reducedMotion: false, ready: true });
+      return <div>
+        <button data-testid="card" data-zones="0:2:0">Hand card</button>
+        <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={false} replayFrom={beats.replayFrom} skipThrough={beats.skipThrough} />
+        <DuelFeedback events={engine.events} duelKey={duelKey} reducedMotion={false} soundEnabled={false} replayFrom={beats.replayFrom} skipThrough={beats.skipThrough} />
+      </div>;
+    }
+    const board = render(<Board engine={view({ events: [] })} />);
+    board.rerender(<Board engine={view({ events: [{ ...draw(1), from: { controller: 0, location: 1, sequence: 0 }, zone: { controller: 0, location: 2, sequence: 0 } }, phase(2, "Draw Phase")] })} />);
+    expect(board.container.querySelectorAll('[data-style="draw"]')).toHaveLength(0);
+    expect(board.getByTestId("card").style.visibility).toBe("");
+    expect(board.getByRole("status").textContent).toBe("");
+  });
+
+  it("presents the opening ribbons once in Strict Mode and keeps them out of an FX remount", async () => {
+    resetMoveSchedule(duelKey);
+    const rect = { left: 0, top: 0, width: 70, height: 100, right: 70, bottom: 100, x: 0, y: 0, toJSON: () => ({}) };
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect);
+    const engine = view({ events: [{ ...draw(1), from: { controller: 0, location: 1, sequence: 0 }, zone: { controller: 0, location: 2, sequence: 0 } }, phase(2, "Draw Phase"), phase(3, "Standby Phase"), phase(4, "Main Phase 1")] });
+    function Board({ ready }: { ready: boolean }) {
+      const beats = useStartBeats({ engine, duelKey, reducedMotion: false, ready });
+      return <div>
+        <button data-testid="card" data-zones="0:2:0">Hand card</button>
+        {ready ? <>
+          <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={false} replayFrom={beats.replayFrom} skipThrough={beats.skipThrough} />
+          <DuelFeedback events={engine.events} duelKey={duelKey} reducedMotion={false} soundEnabled={false} replayFrom={beats.replayFrom} skipThrough={beats.skipThrough} />
+        </> : null}
+      </div>;
+    }
+    const board = render(<StrictMode><Board ready /></StrictMode>);
+    expect(board.container.querySelectorAll('[data-style="draw"]')).toHaveLength(1);
+    const seen: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+      const text = board.getByRole("status").textContent ?? "";
+      if (text && text !== seen[seen.length - 1]) seen.push(text);
+    }
+    expect(seen).toEqual(["Draw Phase", "Standby Phase", "Main Phase 1"]);
+    expect(board.getByTestId("card").style.visibility).toBe("");
+    board.rerender(<StrictMode><Board ready={false} /></StrictMode>);
+    board.rerender(<StrictMode><Board ready /></StrictMode>);
+    expect(board.getByRole("status").textContent).toBe("");
+    expect(board.container.querySelectorAll('[data-style="draw"]')).toHaveLength(0);
   });
 });

@@ -36,6 +36,8 @@ export type DuelFeedbackProps = {
    * history. 0 plays the opening of a duel (its phases). Missing or null: no replay.
    */
   replayFrom?: number | null;
+  /** Opening history to skip even in a layer that mounted before it arrived. */
+  skipThrough?: number | null;
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -175,6 +177,7 @@ export function DuelFeedback({
   soundVolume = DEFAULT_SOUND_VOLUME,
   reducedMotion,
   replayFrom = null,
+  skipThrough = null,
 }: DuelFeedbackProps) {
   const [current, setCurrent] = useState<{ event: DuelEvent; durationMs: number } | null>(null);
   const currentRef = useRef<DuelEvent | null>(null);
@@ -291,6 +294,7 @@ export function DuelFeedback({
       audioRef.current?.stopAll();
     }
 
+    if (skipThrough != null) cursorRef.current = Math.max(cursorRef.current ?? skipThrough, skipThrough);
     if (cursorRef.current == null) {
       cursorRef.current = replayRef.current ?? maxEventId(events) ?? 0;
       if (replayRef.current == null) return;
@@ -356,7 +360,7 @@ export function DuelFeedback({
     if (toasts.length === 0) return;
     queueRef.current.push(...toasts);
     startNextRef.current();
-  }, [duelKey, events]);
+  }, [duelKey, events, skipThrough]);
 
   return (
     <div

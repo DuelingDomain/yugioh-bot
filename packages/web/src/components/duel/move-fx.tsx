@@ -50,6 +50,8 @@ export type MoveFxProps = {
    * history. 0 plays the opening of a duel (both hands dealt from the decks). Missing or null: no replay.
    */
   replayFrom?: number | null;
+  /** Ignore already presented opening events even if this layer's cursor was set by an empty snapshot. */
+  skipThrough?: number | null;
 };
 
 const CARD_ASPECT = 0.686;
@@ -642,7 +644,7 @@ function useHandFlip(boardOf: () => HTMLElement | null, reducedRef: { current: b
 
 /* ---------- layer ---------- */
 
-export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: MoveFxProps) {
+export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skipThrough = null }: MoveFxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<MovePlan[]>([]);
   const [overlay, setOverlay] = useState<HTMLDivElement | null>(null);
@@ -702,6 +704,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
       resetMoveSchedule(duelKey);
       setItems([]);
     }
+    if (skipThrough != null) cursorRef.current = Math.max(cursorRef.current ?? skipThrough, skipThrough);
     if (cursorRef.current == null) {
       cursorRef.current = replayRef.current ?? maxEventId(events) ?? 0;
       if (replayRef.current == null) return;
@@ -752,7 +755,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
       }
     }
     if (started.length > 0) addItems(started);
-  }, [duelKey, events]);
+  }, [duelKey, events, skipThrough]);
 
   const release = (id: number) => {
     const fn = releasesRef.current.get(id);

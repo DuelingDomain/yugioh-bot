@@ -18,6 +18,8 @@ export type StartBeats = {
   phase: string | null | undefined;
   /** Where the card and banner layers start replaying events (0: the opening deal), or null for none. */
   replayFrom: number | null;
+  /** Opening events already presented or too late to present, including in layers mounted earlier. */
+  skipThrough: number | null;
   /** The opening deal waits for the card layers to mount: the hands stay hidden until then. */
   waiting: boolean;
 };
@@ -53,6 +55,7 @@ export function useStartBeats({
     && openingPresentationMs(engine.events, reducedMotion) + 100 <= graceLeft ? 0 : null;
 
   const [shown, setShown] = useState<Shown>(IDLE);
+  const [, setOpeningClaim] = useState<string | null>(null);
   const cursorRef = useRef<number | null>(null);
   const keyRef = useRef(duelKey);
   const timersRef = useRef<Set<number>>(new Set());
@@ -98,6 +101,8 @@ export function useStartBeats({
     if (opening && !presentedOpenings.has(duelKey)) {
       // The opening may arrive after an empty engine snapshot, when the cursor is already set.
       presentedOpenings.add(duelKey);
+      // Publish the consumed cursor to the layers even if this batch has no phase beats to show.
+      setOpeningClaim(duelKey);
       if (replayFrom == null) {
         cursorRef.current = maxEventId(events) ?? 0;
         return;
@@ -143,6 +148,7 @@ export function useStartBeats({
     active: shown.active,
     phase: shown.active ? shown.phase : waiting ? null : undefined,
     replayFrom,
+    skipThrough: opening && replayFrom == null ? maxEventId(events ?? []) : null,
     waiting,
   };
 }
