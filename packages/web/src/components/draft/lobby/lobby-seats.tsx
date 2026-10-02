@@ -33,7 +33,7 @@ export function LobbySeats({
         <h2 className="sec-t" id="lobby-players-t">Players</h2>
         <span className="sec-aux">{aux}</span>
       </div>
-      <ul className="seats">
+      <ul className="seats" data-many={players.length > 6 ? "" : undefined}>
         {players.map((p) => {
           const you = youIds.has(p.playerId);
           const time = joinedTime(p.joinedAt);

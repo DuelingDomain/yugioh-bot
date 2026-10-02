@@ -133,6 +133,19 @@ describe("DraftManageView — header, players, start", () => {
     expect(screen.queryByText("host")).not.toBeInTheDocument();
   });
 
+  it.each([
+    [0, false], [1, false], [6, false], [7, true], [12, true],
+  ] as const)("marks the seats list for the compact layout with %i players: %s", (count, many) => {
+    const lobbyPlayers = Array.from({ length: count }, (_, i) => ({
+      ...players[0], playerId: i + 1, displayName: `Player ${i + 1}`,
+    }));
+    render(<DraftManageView {...baseProps} draft={{ ...baseDraft, players: lobbyPlayers, playerCount: count }} />);
+    const section = screen.getByRole("heading", { name: "Players" }).closest("section")!;
+    const list = within(section).getByRole("list");
+    if (many) expect(list).toHaveAttribute("data-many");
+    else expect(list).not.toHaveAttribute("data-many");
+  });
+
   it("shows an open seat and a disabled Start with the reason under two players", () => {
     const draft = { ...baseDraft, players: [players[0]], playerCount: 1, seats: [seats[0]] };
     render(<DraftManageView {...baseProps} draft={draft} />);
