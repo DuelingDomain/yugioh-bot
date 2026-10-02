@@ -55,3 +55,7 @@ The first Marron fix used one damage action per Tag team. The Q3 rule requires e
 ## Global owner events
 
 Iron Core Specimen Lab (53039326) raised upkeep events only for owners 0 and 1. The global callback now puts each real owner in its own event. Live proof: `iron-core-owner.ts`. Three later-owner stock outcomes fail; three seat-1 controls pass. All six fixed cases pass on both cores.
+
+## Black Dragon Ninja returns
+
+Black Dragon Ninja (56562619) returned a later owner's banished monster to the picked opponent. The overlay groups the banished cards by their real owners, checks each return field and completes the summons once. The Blue-Eyes Spirit limit stays in place. Live proof: `black-dragon-return.ts`. The stock wrong-field probe fails in all three formats. All three fixed cases pass on both cores.

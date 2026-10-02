@@ -3146,6 +3146,15 @@
       ]
     },
     {
+      "code": 56562619,
+      "file": "c56562619.lua",
+      "name": "Black Dragon Ninja",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "f74b7b5b04044a3f7ad391f5917e755fe4ef7410fb9eb18e0c0af3564b954a3d",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 56673480,
       "file": "c56673480.lua",
       "name": "Contract with Don Thousand",
