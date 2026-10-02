@@ -1,9 +1,10 @@
-import { expect, it } from "vitest";
+import { expect } from "vitest";
 import { createEngineGame } from "../../../src/engine.js";
 import { compileBoard } from "../../support/board.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
+import { runScenarios } from "../../support/runner.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
 import { expectPrompt, pickOpponent, type DuelistId } from "../../support/dsl.js";
 import { GUMBLAR_HAND_BINDING_SCENARIOS } from "./gumblar-hand-binding.js";
@@ -15,7 +16,7 @@ skip:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skip:SetTargetRange(1,1); Duel.Regi
 local undo=Effect.GlobalEffect(); undo:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS); undo:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
 undo:SetOperation(function(e) skip:Reset() e:Reset() end); Duel.RegisterEffect(undo,0) end`;
 describeWithCores("live Gumblar hand binding", liveNseat, () => {
-  for (const scenario of GUMBLAR_HAND_BINDING_SCENARIOS) it(scenario.id, async () => {
+  runScenarios("multiplayer/gumblar-hand-binding", GUMBLAR_HAND_BINDING_SCENARIOS, async (scenario) => {
     const compiled = compileBoard(scenario.setup);
     compiled.options.startupScripts![0].content += SKIP_OPENING_DRAW;
     const count = scenario.setup.format === "1v1" ? 2 : scenario.setup.format === "ffa3" ? 3 : 4;

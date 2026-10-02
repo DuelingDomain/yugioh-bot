@@ -16,6 +16,7 @@ The FFA rules for "your opponent" are in the free-for-all section. Tag uses the 
 - `[R-COMMON-ALL-BOTH]` **"All" and both sides of the field.** An effect that affects "all" cards, or cards on both sides of the field (for example Dark Hole: "destroy all monsters on the field"), affects every duelist, you and your 2v2 partner included. An effect on "your opponent" affects only opponents, never your partner.
 - `[R-COMMON-EMZ]` **Separate Extra Monster Zones (FFA3 and Tag).** Each duelist has their own two Extra Monster Zones (EMZ). FFA3 columns are separate too. As in 1v1 (Master Rule 4 and 5), a duelist may use one EMZ, and may use the second only when the 1v1 rules allow it. Different duelists' EMZ do not block each other. FFA4 uses R-FFA-ACROSS-EMZ (pending engine change).
 - `[R-COMMON-FL-LIST]` The Forbidden & Limited List applies per duelist (per Deck).
+- `[R-COMMON-CTRL]` **Actual controller and LP.** Effects that refer to a card's controller use that card's actual controller seat. Damage, recovery and LP costs apply to the duelist specified by the effect; in Tag they change that duelist's shared team LP.
 - `[R-COMMON-SEAT-STATE]` **Per-player flags and counters (owner decision Q6).** A flag or counter that a card keeps for each player (for example Curse of the Circle, Wiseman's Chalice, Fatal Abacus) has one slot per seat in free-for-all and one slot per team in Tag. The key is the team in Tag and the seat in free-for-all (rule R2 of the triage).
 
 ## 2v2 Tag (official TCG Tag Duel rules)

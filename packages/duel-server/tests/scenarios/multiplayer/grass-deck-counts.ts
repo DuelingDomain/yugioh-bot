@@ -13,7 +13,7 @@ function grass(format: "1v1" | "ffa3" | "ffa4" | "tag", noOpponent = false): Sce
   setup.p0!.hand!.push("That Grass Looks Greener");
   if (noOpponent) board.p0!.hand = [HANDS[0], "That Grass Looks Greener"];
   else { board.p0!.deckCount = 3; board.p0!.grave = ["That Grass Looks Greener", ...Array<string>(5).fill("Blue-Eyes White Dragon")]; }
-  return defineScenario({ id: `grass-deck-counts-${format}-${noOpponent ? "no-eligible-opponent" : "late-eligible-opponent"}`, title: `${format}: Grass ${noOpponent ? "has no smaller opposing Deck" : "mills five against the later smaller Deck"}`, source: "docs/adr/0002-multiplayer-duel-rules.md [Q2]", rules: ["R-COMMON-OPP-PICK"], tags: ["multiplayer", "compare", "card:11110587", format], setup, steps: [noOpponent ? expectNotOffered("activate", "That Grass Looks Greener", "p0") : activate("That Grass Looks Greener", "p0"), expectBoard(board)] });
+  return defineScenario({ id: `grass-deck-counts-${format}-${noOpponent ? "no-eligible-opponent" : "late-eligible-opponent"}`, title: `${format}: Grass ${noOpponent ? "has no smaller opposing Deck" : "mills five against the later smaller Deck"}`, source: "docs/adr/0002-multiplayer-duel-rules.md [Q2]", rules: noOpponent ? [] : ["R-COMMON-OPP-PICK"], tags: ["multiplayer", "compare", "card:11110587", format], setup, steps: [noOpponent ? expectNotOffered("activate", "That Grass Looks Greener", "p0") : activate("That Grass Looks Greener", "p0"), expectBoard(board)] });
 }
 export const GRASS_DECK_COUNTS_SCENARIOS: Scenario[] = [
   ...(["1v1", "ffa3", "ffa4", "tag"] as const).map(format => grass(format)),
