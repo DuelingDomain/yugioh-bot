@@ -111,9 +111,19 @@ not a material while it is in the Domain zone. After a real Normal Summon,
 that same partner master is a valid Fusion material. Both teams
 pass, and every board check includes all four seats.
 
-Three pending-loss chain cases pass on P61. FFA preserves the response window
+Three pending-loss chain view cases pass on P61. FFA preserves the response window
 of a living seat. The lost seat's Dust Tornado has no effect, Pot of Greed
-finishes, and the lost master's real zone is removed. In Tag, the living
+finishes, and the lost master's reported zone is removed. In Tag, the living
 partner keeps its response window until the loss is applied. The team result
 then ends the duel, with the unfinished chain and final board preserved.
-Two direct core checks also query all real zones after the FFA chain cases.
+Two direct core checks found a hidden P61 defect after the FFA chain cases:
+Dust Tornado returned to the lost owner's Graveyard. Elimination removed the
+card but kept it in `leave_confirmed`. Chain cleanup then sent it to the
+Graveyard again. The private patch removes the card from that queue and clears
+its leave status. The elimination function already returns with two seats.
+
+The raw Domain and Standard cases fail on P61 and pass on the private wasm.
+Five two-seat Domain controls also pass on that same wasm. The build uses P61,
+the Domain layer, and local Emscripten 4.0.9. No core was installed. The patch
+and `commit-message.txt` are in `gap-domain/out`, with tracked copies under
+`domain-core/proposals/domain-nseat-stress/`. No overlay change is needed.

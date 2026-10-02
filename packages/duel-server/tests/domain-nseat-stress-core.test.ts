@@ -13,7 +13,9 @@ import { DOMAIN_NSEAT_STRESS_CHAIN } from "./scenarios/multiplayer/domain-nseat-
 import { it } from "vitest";
 
 // Views hide the cards of an eliminated seat. Query the real core too, so that
-// a hidden card left in the zone cannot make this proof pass.
+// a hidden card left in the zone cannot make this proof pass. P61 fails the
+// pending-loss cases: chain cleanup sends the removed Dust Tornado back to
+// the lost owner's Graveyard. The private gap-domain patch clears this queue.
 describeWithCores("Domain elimination removes the real zone", [liveNseat, ...needs.domainMulti()], () => {
   for (const scenario of [...DOMAIN_NSEAT_STRESS.filter((s) => s.setup.format !== "tag" &&
     (s.id.endsWith("eliminated-owner-loses-its-zone") || s.id.endsWith("stolen-master-is-removed-with-owner"))),
