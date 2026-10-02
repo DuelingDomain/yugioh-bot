@@ -537,10 +537,32 @@
 /* ---- Small screens ----------------------------------------------------- */
 
 @media (max-width: 560px) {
+  /* A series card can make the stack taller than a short phone: let the overlay scroll. The ground
+     and frame stay put; the burst is bounded by the narrow viewport so it adds no scroll height. */
+  .root {
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding-inline: max(20px, env(safe-area-inset-left));
+  }
+  .backdrop,
+  .frame {
+    position: fixed;
+  }
+  .stage {
+    max-height: none;
+  }
+  /* Exit on its own row, the other two side by side. */
   .actions {
-    flex-direction: column;
-    align-items: stretch;
-    width: min(320px, 100%);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: min(340px, 100%);
+  }
+  .actions > :first-child:nth-last-child(odd) {
+    grid-column: 1 / -1;
+  }
+  .actions .btn {
+    padding-inline: 0.6em;
+    letter-spacing: 0.04em;
   }
   .score {
     gap: 8px;
