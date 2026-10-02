@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDuelFeedbackAudio } from "../../src/components/duel/feedback-audio";
 import { battleTiming } from "../../src/components/duel/attack-styles";
+import { scheduleBattleSound, type ToneOpts, type BurstOpts } from "../../src/components/duel/attack-audio";
 
 function param(value = 0) {
   return {
@@ -89,6 +90,19 @@ afterEach(() => {
 });
 
 describe("createDuelFeedbackAudio", () => {
+  it.each([20, 39, 41, 100, 200])("drops voices over 30 ms late when joining %i ms into a battle", async (elapsed) => {
+    vi.spyOn(performance, "now").mockReturnValue(1000 + elapsed);
+    const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
+    const voices: Array<ToneOpts | BurstOpts> = [];
+    scheduleBattleSound({ tone: (opts) => voices.push(opts), burst: (opts) => voices.push(opts) }, battle, 1.01 - elapsed / 1000);
+    audio.playBattle({ ...battle, startedAt: 1000 });
+    const expected = voices.filter((voice) => 1 - voice.start <= 0.03 && voice.start + voice.duration > 1)
+      .flatMap((voice) => Array.from({ length: "vibrato" in voice && voice.vibrato ? 2 : 1 }, () => Math.max(1, voice.start)));
+    const starts = created[0]!.sourceNodes.map((node) => node.start.mock.calls[0]![0] as number);
+    expect(starts.sort((a, b) => a - b)).toEqual(expected.sort((a, b) => a - b));
+    audio.dispose();
+  });
+
   it("keeps the counter sound on the battle clock after 200 ms of GPU preparation", async () => {
     vi.spyOn(performance, "now").mockReturnValue(1200);
     const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();

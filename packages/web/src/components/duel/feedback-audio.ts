@@ -396,6 +396,8 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
 
   function synthFor(audio: AudioContext, dest: GainNode): Synth {
     const remaining = <T extends { start: number; duration: number }>(opts: T): T | null => {
+      // A restarted envelope or pitch sweep sounds like a new hit. Join only near onset.
+      if (audio.currentTime - opts.start > 0.03) return null;
       const end = opts.start + opts.duration;
       const start = Math.max(0, audio.currentTime, opts.start);
       return end > start ? { ...opts, start, duration: end - start } : null;
