@@ -45,3 +45,7 @@ Mecha-Dog Marron (94667532) damaged only folded players 0 and 1 after battle des
 ## Returned owners discard
 
 Criosphinx (18654201) represented returned monster owners with two bits. It now uses one bit per real seat. Each owner in the return event discards once, including a Tag partner. Live proof: `criosphinx.ts`. All six stock outcomes fail; all six fixed outcomes pass on each core.
+
+## Target controller and owner actions
+
+Mecha Bunny (10110717) damaged a picked opponent instead of the actual target controller. Mimighoul Fork (19338434) gave two draws to a picked opponent instead of the sent card's owner. These overlays bind the target controller for damage and the controller of the Graveyard card for the owner's draw. Fork keeps the opponent's effect choice. Live proof: `owner-actions.ts`. The stock probe fails five of six outcomes; the fixed six cases pass on each core.

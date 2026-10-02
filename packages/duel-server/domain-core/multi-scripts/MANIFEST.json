@@ -523,6 +523,15 @@
       "stockSha256": "8b50857dfc4745fa75e0f02aa8076a1a56bfc88e4af17627ce41c103ee1b1707"
     },
     {
+      "code": 10110717,
+      "file": "c10110717.lua",
+      "name": "Mecha Bunny",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "134f9a365465d07ae39ee0c8af42eacdd8011dc6fb450bfafcf0b80391a297ef",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 10113611,
       "file": "c10113611.lua",
       "name": "Wattuna",
@@ -1071,6 +1080,15 @@
         "condition"
       ],
       "stockSha256": "32cfe8d8c4eb5f701024261c78a5b792789d3ba97f77554fbe959ec0927852f8"
+    },
+    {
+      "code": 19338434,
+      "file": "c19338434.lua",
+      "name": "Mimighoul Fork",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "d4558d29867411b26d965c8afffc6cb2afb223b913a5e31f5f97e4198a92fded",
+      "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
       "code": 19665973,
