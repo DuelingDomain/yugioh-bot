@@ -218,3 +218,9 @@
 .board :global([data-hand-seat][data-side="opp"]:hover) {
   translate: -50% 4%;
 }
+
+/* Keep your field name in the empty lane beside the hand as more cards arrive. */
+.board :global([data-seat-field][data-side="you"] > [data-seat-name]) {
+  left: 0;
+  translate: 0 100%;
+}

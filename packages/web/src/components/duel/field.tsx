@@ -1113,7 +1113,7 @@ export function SeatField({
             <PileColumn view={view} opponent={false} flip={straight} side="right" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
           </div>
         </div>
-        {density !== "compact" ? <span className={styles.sfName}>{label}</span> : null}
+        {density !== "compact" ? <span className={styles.sfName} data-seat-name>{label}</span> : null}
         {showTally ? (
           <div className={styles.sfTally}>
             <Tally side={side} name={label} lp={view?.lp ?? null} seatKey={seat} active={turn} reducedMotion={reducedMotion} />

@@ -1,5 +1,5 @@
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
-import { TABLE_CARDS, TABLE_STATE_IDS, type TableFixtureSet } from "./common";
+import { cardAt, HAND, TABLE_CARDS, TABLE_STATE_IDS, type TableFixtureSet } from "./common";
 import { FFA3_FIXTURES } from "./ffa3";
 import { FFA4_FIXTURES } from "./ffa4";
 
@@ -20,6 +20,8 @@ export function reviewFixtures(damage = 0, format: "ffa3" | "ffa4" = "ffa3"): Ta
       if (!seat.eliminated) seat.lp = 8000;
     });
     if (id === "main") {
+      room.session.seats[0].displayName = "E2E Alice";
+      engine.seats[0].hand.push(cardAt(TABLE_CARDS.celtic, HAND(0, 5)));
       engine.turn = 1;
       engine.prompt!.options = engine.prompt!.options.filter((option) => option.id !== "to_bp");
       if (damage) {
