@@ -108,6 +108,37 @@
   --lp-size: 38px;
 }
 
+/* Last damage: the LP before it, struck out, over a red chip. Sits beside the numerals. */
+.hit {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  margin-left: 8px;
+  align-self: center;
+  text-shadow: none;
+  font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.hit s {
+  color: var(--ink-4);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration-color: var(--loss);
+}
+
+.hit b {
+  padding: 1px 6px;
+  border: 1px solid rgb(228 90 77 / 0.55);
+  border-radius: 999px;
+  background: rgb(228 90 77 / 0.16);
+  color: var(--loss-ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .meta {
   display: flex;
   align-items: center;

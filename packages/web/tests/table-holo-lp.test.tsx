@@ -22,6 +22,18 @@ function holo(over: Partial<HoloLpProps> = {}): HoloLpProps {
 }
 
 describe("HoloLp", () => {
+  it("strikes out the old LP and shows a red chip for the last damage", () => {
+    const { container } = render(<HoloLp {...holo({ lp: 6800, lastDamage: 1200 })} />);
+    const chip = container.querySelector("[data-damage-chip]") as HTMLElement;
+    expect(chip.querySelector("s")?.textContent).toBe("8,000");
+    expect(chip.querySelector("b")?.textContent).toBe("-1,200");
+  });
+
+  it("shows no chip without damage", () => {
+    const { container } = render(<HoloLp {...holo({ lastDamage: null })} />);
+    expect(container.querySelector("[data-damage-chip]")).toBeNull();
+  });
+
   it("owns exactly one data-lp-seat for its seat", () => {
     const { container } = render(<HoloLp {...holo()} />);
     const nodes = container.querySelectorAll("[data-lp-seat]");

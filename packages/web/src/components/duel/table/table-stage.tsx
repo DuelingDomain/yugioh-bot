@@ -6,6 +6,7 @@ import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
 import { flyWorld, holoAnchor, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, STAGE } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
+import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
 import { RivalField } from "./rival-field";
 import { TurnRing } from "./turn-ring";
@@ -216,6 +217,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
               floating={fly}
               master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
               onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
+              lastDamage={lastSeatDamage(engine.events, slot.seat)}
               legal={pickable}
               hotkey={pickable && index >= 0 ? index + 1 : null}
               onPick={() => picks?.onPick(slot.seat)}

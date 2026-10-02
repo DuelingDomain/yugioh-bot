@@ -4,6 +4,7 @@ import { tableLayout } from "@/components/duel/table/geometry";
 import {
   attackLockAt,
   firstAttackTurn,
+  lastSeatDamage,
   placeLabel,
   placings,
   seatsOut,
@@ -99,5 +100,16 @@ describe("seat-state", () => {
     const nextOut = outStrip.find((entry) => entry.status === "next");
     expect(nextOut).toBeDefined();
     expect(nextOut!.seat).not.toBe(2);
+  });
+});
+
+describe("lastSeatDamage", () => {
+  const ev = (id: number, seat: number, amount: number) => ({ id, kind: "damage" as const, seat, amount, text: "" });
+  it("returns the newest damage of the seat", () => {
+    expect(lastSeatDamage([ev(1, 1, 500), ev(2, 0, 300), ev(3, 1, 1200)], 1)).toBe(1200);
+  });
+  it("returns null when the newest LP event healed or none exists", () => {
+    expect(lastSeatDamage([ev(1, 1, 500), ev(2, 1, -400)], 1)).toBeNull();
+    expect(lastSeatDamage([ev(1, 0, 500)], 1)).toBeNull();
   });
 });

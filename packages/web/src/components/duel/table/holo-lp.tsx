@@ -32,6 +32,8 @@ export interface HoloLpProps {
   onHover?: (hover: boolean) => void;
   /** The fly-in pump places this panel with `style.transform`: the anchor translate is zero. */
   floating?: boolean;
+  /** LP this seat lost last (its newest LP event): the old LP is struck out and a "-1,200" chip shows beside the numerals. */
+  lastDamage?: number | null;
   /** A rival's Deck Master: a small art thumb at the top right of the panel. A click inspects it. */
   master?: DuelCardInfo | null;
   onInspectMaster?: (card: DuelCardInfo) => void;
@@ -92,6 +94,7 @@ export function HoloLp({
   floating = false,
   master = null,
   onInspectMaster,
+  lastDamage = null,
   reducedMotion,
 }: HoloLpProps) {
   const hex = SEAT_TONE_HEX[tone];
@@ -113,6 +116,12 @@ export function HoloLp({
       </div>
       <div className={styles.main} data-lp-seat={seat}>
         <LifePoints value={lp} reducedMotion={reducedMotion} size={me ? "lg" : "sm"} />
+        {lastDamage != null && lastDamage > 0 && lp != null ? (
+          <span className={styles.hit} data-damage-chip title="Last damage">
+            <s aria-label="LP before">{(lp + lastDamage).toLocaleString("en-US")}</s>
+            <b>-{lastDamage.toLocaleString("en-US")}</b>
+          </span>
+        ) : null}
       </div>
       <div className={styles.meta}>
         <span title="Cards in hand">

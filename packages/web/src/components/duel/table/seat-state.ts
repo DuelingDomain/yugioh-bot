@@ -35,6 +35,19 @@ export function trackOutOrder(before: readonly (readonly number[])[], engine: Pi
   return unchanged ? (before as number[][]) : added.length > 0 ? [...kept, added] : kept;
 }
 
+/**
+ * The LP a seat lost in its newest "damage" event, for the red chip on its panel. Null when that event healed it
+ * (the struck-out old value would be wrong then) or the seat took none in the event window.
+ */
+export function lastSeatDamage(events: DuelEngineView["events"], seat: number): number | null {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event.kind !== "damage" || event.seat !== seat || event.amount == null || event.amount === 0) continue;
+    return event.amount > 0 ? event.amount : null;
+  }
+  return null;
+}
+
 export interface Placing {
   seat: number;
   /** 1 is the winner. Seats that left together share a place. */
