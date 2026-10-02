@@ -170,21 +170,9 @@
 .dr .seg button { min-height: 34px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font-size: 14px; cursor: pointer; }
 .dr .seg button[aria-pressed="true"] { background: var(--panel-3); color: var(--ink); box-shadow: inset 0 0 0 1px var(--rule); }
 .dr .pop p { margin: 10px 0 0; color: var(--ink-3); font-size: 13.5px; line-height: 1.45; }
-.dr .says { display: flex; flex-wrap: wrap; gap: 6px; }
-.dr .says button {
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  background: rgb(0 0 0 / 0.2);
-  color: var(--ink);
-  font-size: 15px;
-  cursor: pointer;
-}
-.dr .says button:hover { border-color: var(--rule-hi); background: var(--panel-3); }
 
 /* ---------- body ---------- */
-.dr ..dr {
+.dr .body {
   display: grid;
   grid-template-columns: var(--insp-w) minmax(0, 1fr) var(--bind-w);
   min-height: 0;
@@ -585,24 +573,6 @@
 .dr[data-mode="theme"] .seat { opacity: 0.9; }
 @keyframes dr-hold { 0%, 100% { transform: rotateY(-24deg) translateY(0); } 50% { transform: rotateY(24deg) translateY(-3px); } }
 
-/* what someone says: a bubble over their seat */
-.dr .bubble {
-  position: absolute;
-  z-index: 8;
-  padding: 6px 11px 7px;
-  border: 1px solid var(--rule);
-  border-radius: 12px 12px 12px 3px;
-  background: #f1e6cf;
-  color: #20160d;
-  font: 600 14px/1 var(--f-ui);
-  white-space: nowrap;
-  pointer-events: none;
-  box-shadow: 0 10px 22px rgb(0 0 0 / 0.5);
-  translate: -10px -100%;
-}
-.dr .bubble small { margin-right: 6px; color: #6d5a43; font-weight: 500; }
-.dr .bubble.up { border-radius: 3px 12px 12px 12px; translate: -10px 0; }
-.dr .bubble.flip { border-radius: 12px 12px 3px 12px; translate: calc(-100% + 10px) -100%; }
 
 /* ---------- the hologram ---------- */
 .dr .holo { position: absolute; top: 0; left: 0; z-index: 4; width: var(--hw, 228px); pointer-events: none; visibility: hidden; }
@@ -1077,8 +1047,6 @@
 .dr .fin-counts span { display: flex; align-items: center; gap: 5px; color: var(--ink-3); font-size: 13px; }
 .dr .fin-counts span i { width: 7px; height: 7px; border-radius: 2px; background: var(--kc); }
 .dr .fin-note { margin: 0; color: var(--ink-3); font-size: 14px; }
-.dr .fin-chat { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.dr .fin-chat .bubble { position: static; translate: none; box-shadow: none; }
 .dr .fin-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 6px; }
 .dr .fin-actions .pick-btn { width: auto; justify-content: center; }
 .dr .btn-2 {
@@ -1100,7 +1068,7 @@
 /* ---------- mid widths: the binder slides in from the right ---------- */
 @media (max-width: 1359px) and (min-width: 901px) {
   .dr { --insp-w: 284px; }
-  .dr ..dr { grid-template-columns: var(--insp-w) minmax(0, 1fr); }
+  .dr .body { grid-template-columns: var(--insp-w) minmax(0, 1fr); }
   .dr .binder {
     position: fixed;
     top: var(--bar-h);
@@ -1135,7 +1103,7 @@
   .dr .where .w { font-size: 12.5px; }
   .dr .where .w b { font-size: 22px; }
   .dr .clock b { font-size: 28px; }
-  .dr ..dr { grid-template-columns: minmax(0, 1fr); }
+  .dr .body { grid-template-columns: minmax(0, 1fr); }
 
   .dr .seatstrip {
     display: flex;
@@ -1157,21 +1125,6 @@
   .dr .chip-seat .nm { max-width: 100%; overflow: hidden; color: var(--ink-2); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
   .dr .chip-seat[data-state="picked"] .nm { color: var(--ink-3); }
   .dr .chip-seat[data-talk] .nm { visibility: hidden; }
-  .dr .chip-seat .say {
-    position: absolute;
-    left: 50%;
-    bottom: -3px;
-    display: none;
-    padding: 2px 7px 3px;
-    border-radius: 9px;
-    background: #f1e6cf;
-    color: #20160d;
-    font: 600 12px/1.2 var(--f-ui);
-    white-space: nowrap;
-    translate: -50% 0;
-    box-shadow: 0 4px 10px rgb(0 0 0 / 0.45);
-  }
-  .dr .chip-seat[data-talk] .say { display: block; }
   .dr .chip-seat .mp {
     position: absolute;
     left: calc(50% + 9px);
@@ -1186,8 +1139,6 @@
   .dr[data-phase="extra"] .chip-seat .mp { border-color: #8a6bb0; background-image: url("/duel/card-back-extra-hd.webp"); }
   .dr[data-mode="theme"] .chip-seat .mp { display: none; }
   .dr .chip-seat[data-state="passing"] .mp { visibility: hidden; }
-  .dr .seatstrip .say-btn { flex: none; width: 36px; padding: 0; justify-content: center; }
-  .dr .bar .say-btn { display: none; }
 
   .dr .seat, .dr .tcard .ix, .dr[data-kbd] .tcard .ix, .dr .keys, .dr .search kbd { display: none; }
   .dr .dr-table { bottom: calc(var(--disk-h) + 22px); }
@@ -1297,3 +1248,16 @@
 .dr:not([data-motion="full"]) .holo .motes,
 .dr:not([data-motion="full"]) .lamp .dust,
 .dr:not([data-motion="full"]) .dr-ring .spark .fz { display: none; }
+
+/* the flight layer: ghost cards fly between rects while a card is picked or a pack passes */
+.dr .kit-fx { position: fixed; inset: 0; z-index: 70; pointer-events: none; }
+.dr .kit-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  border-radius: 6px;
+  background: #06080e center / cover no-repeat;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5), 0 0 22px 4px rgb(var(--glow, 155 126 255) / 0.55), 0 14px 26px rgb(0 0 0 / 0.55);
+  will-change: transform, opacity;
+}

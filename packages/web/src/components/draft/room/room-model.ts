@@ -216,20 +216,19 @@ export interface Pt {
   y: number;
 }
 
-/** Where friend `i` (1-based table index) sits, in table pixels. Index 0 is you at the near edge. */
+/** Where friend `i` sits, in table pixels. Index 0 is you at the near edge; friends go clockwise from your left. */
 export function anchorPoint(i: number, n: number, tw: number, th: number): Pt {
   if (i === 0) return { x: tw / 2, y: th + 30 };
-  const friends = n - 1;
   if (n >= 5) {
     if (i === 1) return { x: -46, y: th * 0.56 };
     if (i === n - 1) return { x: tw + 46, y: th * 0.56 };
     const rim = n - 3;
-    const k = i - 2;
-    const xs = rim === 3 ? [0.2, 0.5, 0.8] : Array.from({ length: rim }, (_, j) => 0.15 + (0.7 * (rim === 1 ? 0.5 : j / (rim - 1))));
-    return { x: tw * xs[k], y: -14 };
+    const t = rim === 1 ? 0.5 : 0.2 + (0.6 * (i - 2)) / (rim - 1);
+    return { x: tw * t, y: -14 };
   }
-  const t = friends === 1 ? 0.5 : 0.2 + (0.6 * (i - 1)) / (friends - 1);
-  return { x: tw * t, y: -14 };
+  const friends = n - 1;
+  const t = friends <= 1 ? 0.5 : (i - 1) / (friends - 1);
+  return { x: tw * (0.03 + 0.94 * t), y: -14 };
 }
 
 /* ---------- levels ---------- */
