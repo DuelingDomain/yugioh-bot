@@ -233,7 +233,7 @@ test.describe("4-player FFA", () => {
     await endTurn(carol.page, 8);
     await expect(turnLabel(alice.page)).toHaveText("Turn 8");
 
-    // The first-turn draw makes Alice hold 7 cards on turn 8. Use her normal summon
+    // Alice can hold 7 cards on turn 8. Use her normal summon
     // before ending the turn so the test does not stall at an unanswered discard prompt.
     await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
     await pickLegalZone(alice.page, "mz");
