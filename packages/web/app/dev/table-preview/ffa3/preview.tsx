@@ -13,7 +13,13 @@ export function Ffa3Preview({ stateId, cam, lock }: { stateId: string | null; ca
       cam={cam}
       lock={lock}
       basePath="/dev/table-preview/ffa3"
-      renderStage={(controller) => <TableShell controller={controller} />}
+      renderStage={(controller, state, preview) => (
+        <TableShell
+          controller={controller}
+          initialCamera={{ mode: preview.cam.mode, focusSeat: preview.cam.focusSeat, lookSeat: preview.cam.lookSeat, ...state.ui?.camera }}
+          initialLock={preview.lock}
+        />
+      )}
     />
   );
 }

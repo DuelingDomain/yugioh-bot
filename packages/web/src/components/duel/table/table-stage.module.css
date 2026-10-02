@@ -55,6 +55,82 @@
   transform-origin: 0 0;
 }
 
+/* A 3-way canvas has a camera: the fly-in tilts the world inside this perspective. */
+.canvas[data-fly-capable="true"] {
+  perspective: 1500px;
+  perspective-origin: 550px 400px;
+}
+
+/* The world sits at the arena centre. Flat views leave it at identity; the fly-in turns, tilts and zooms it. */
+.world {
+  position: absolute;
+  left: 550px;
+  top: 410px;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+/* The stage plane inside the world: stage px, flattened onto the floor. */
+.wstage {
+  position: absolute;
+  left: -550px;
+  top: -410px;
+  width: 1100px;
+  height: 860px;
+  transform: translateZ(1px);
+}
+
+.sky,
+.fog {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.sky {
+  inset: -200px -500px;
+  background:
+    radial-gradient(60% 34% at 50% 0%, rgb(70 48 128 / 0.34), transparent 70%),
+    radial-gradient(40% 30% at 14% 0%, rgb(30 60 110 / 0.26), transparent 70%),
+    linear-gradient(180deg, #03050b 0%, #070a16 34%, #05070e 100%);
+}
+
+.fog {
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(180deg, rgb(4 6 12 / 0.5) 0%, rgb(4 6 12 / 0) 22%),
+    radial-gradient(120% 90% at 50% 62%, transparent 55%, rgb(2 3 8 / 0.6) 100%);
+}
+
+.board[data-fly="true"] .sky,
+.board[data-fly="true"] .fog {
+  opacity: 1;
+}
+
+.board[data-fly="true"] {
+  cursor: grab;
+}
+
+.board[data-dragging="true"] {
+  cursor: grabbing;
+}
+
+/* Dashed lines from a seat to its holo panel in the fly-in view. */
+.tethers {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 39;
+  width: 1100px;
+  height: 860px;
+  overflow: visible;
+  pointer-events: none;
+}
+
 /* Slots over the whole box. A child turns pointer events back on for its own panels. */
 .slot {
   position: absolute;
