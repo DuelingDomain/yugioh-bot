@@ -48,6 +48,7 @@ import { getPreset, multiCoreAvailable, multiCoreInfo, PRESETS, SCRIPTED_POLICY,
  * answers, and a random bot always ends it (the Decks run out). A bot that loops inside one turn is still caught.
  */
 const BOT_ADVANCE_LIMIT = 128;
+const BOT_ONLY_TURN_LIMIT = 200;
 const DEFAULT_ARCHIVE_AFTER_MS = 10 * 60 * 1000;
 const DEFAULT_IDLE_WORKER_MS = 5 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 30 * 1000;
@@ -460,6 +461,19 @@ export function createDuelHost(options: {
     service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock);
   }
 
+  /** Stop a long duel once no human can play. This is an interruption, not a game draw. */
+  async function stopLongBotDuel(slug: string, guildId: string, session: DuelSession, entry: LiveGame | undefined, view: DuelEngineView): Promise<boolean> {
+    if (view.turn < BOT_ONLY_TURN_LIMIT) return false;
+    const humanLiving = session.seats.some((seat) => {
+      if (seat.isBot || entry?.surrendered.has(seat.seat)) return false;
+      const state = view.seats.find((state) => state.seat === seat.seat);
+      return !state?.eliminated && !state?.pendingElimination;
+    });
+    if (humanLiving) return false;
+    await interruptBrokenBot(slug, guildId, `No human seat is living. The duel reached the limit of ${BOT_ONLY_TURN_LIMIT} turns.`);
+    return true;
+  }
+
   async function advancePracticeBot(slug: string, guildId: string, game: DuelGameWorker): Promise<void> {
     let stepsInTurn = 0;
     let lastTurn: number | null = null;
@@ -473,6 +487,7 @@ export function createDuelHost(options: {
       const found = await findAutoPrompt(game, autoSeats);
       if (!found || found.kind === "result") return;
       const { seat, view } = found;
+      if (await stopLongBotDuel(slug, guildId, session, entry, view)) return;
       const prompt = view.prompt!;
       if (view.turn !== lastTurn) {
         lastTurn = view.turn;
@@ -654,6 +669,10 @@ export function createDuelHost(options: {
       return null;
     }
     const { view, seat } = found;
+    if (await stopLongBotDuel(slug, guildId, session, entry, view)) {
+      finish();
+      return null;
+    }
     const prompt = view.prompt!;
     let answer: DuelAnswer;
     let note: string | undefined;

@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import type { DuelAnswer, DuelCardInfo, DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
@@ -19,13 +19,15 @@ class EndlessBotWorker implements DuelGameWorker {
   revision = 1;
   answers = 0;
   private stopped = false;
-  constructor(private readonly total: number | null, private readonly perTurn: number) {}
+  constructor(private readonly total: number | null, private readonly perTurn: number, private readonly humanOut = false) {}
   get running() { return !this.stopped; }
   async create(_options: GameOptions) {}
   private result(): DuelEngineView["result"] {
     return this.total !== null && this.answers >= this.total ? { winnerSeat: BOT_SEAT, reason: "LP reached 0" } : null;
   }
   async view(viewer: number | null): Promise<DuelEngineView> {
+    // Bound the negative proof so an old host cannot leave this test in an endless loop.
+    if (this.humanOut && this.answers >= 1100) throw new Error("Test safety stop: turn cap was not applied");
     const result = this.result();
     const prompt: DuelPrompt | null = !result && viewer === BOT_SEAT
       ? { id: `p${this.revision}`, seat: BOT_SEAT, kind: "choice", title: "Main", options: [{ id: "to_ep", label: "End" }], context: { type: "action", phase: "main" } }
@@ -36,7 +38,7 @@ class EndlessBotWorker implements DuelGameWorker {
       turn: 1 + Math.floor(this.answers / this.perTurn),
       turnSeat: BOT_SEAT,
       phase: "main1",
-      seats: [seat(0), seat(1)],
+      seats: [{ ...seat(0), eliminated: this.humanOut }, seat(1)],
       prompt,
       chain: [],
       events: [{ id: this.revision, kind: "phase", text: "x" }],
@@ -55,6 +57,7 @@ class EndlessBotWorker implements DuelGameWorker {
 
 const hosts: DuelHost[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   while (hosts.length > 0) await hosts.pop()!.close();
 });
 
@@ -84,6 +87,32 @@ async function table(worker: EndlessBotWorker, botStepDelayMs: number) {
 }
 
 describe("bots that play a long duel on their own", () => {
+  it.each([0, 1])("delay %i: stops an endless duel at turn 200 when no human is living", async (delay) => {
+    vi.useFakeTimers();
+    const worker = new EndlessBotWorker(null, 5, true);
+    const t = await table(worker, delay);
+    const started = await post(t.host, { op: "start", ...t.base });
+    expect(started.status, JSON.stringify(started.data)).toBe(200);
+    if (delay) await vi.advanceTimersByTimeAsync(1500);
+    const session = t.duels.get(t.slug, "g1");
+    expect(session.status).toBe("interrupted");
+    expect(session.winnerSeat).toBeNull();
+    expect(session.resultReason).toBe("No human seat is living. The duel reached the limit of 200 turns.");
+    expect(worker.answers).toBe(995);
+    expect(worker.running).toBe(false);
+    expect(vi.getTimerCount()).toBe(1); // Only the host sweep remains.
+  });
+
+  it.each([0, 1])("delay %i: a living human keeps a duel open beyond turn 200", async (delay) => {
+    vi.useFakeTimers();
+    const worker = new EndlessBotWorker(1100, 5);
+    const t = await table(worker, delay);
+    expect((await post(t.host, { op: "start", ...t.base })).status).toBe(200);
+    if (delay) await vi.advanceTimersByTimeAsync(1500);
+    expect(t.duels.get(t.slug, "g1").status).toBe("completed");
+    expect(worker.answers).toBe(1100);
+  });
+
   it("unpaced: 400 answers over many turns end the duel, not a 500", async () => {
     const worker = new EndlessBotWorker(400, 5);
     const t = await table(worker, 0);
