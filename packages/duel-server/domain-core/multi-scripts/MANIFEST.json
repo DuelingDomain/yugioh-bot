@@ -312,6 +312,20 @@
       "seatInit": "false"
     },
     {
+      "code": 6909330,
+      "file": "c6909330.lua",
+      "name": "Soul Binding Gate",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "30654e1b600e51a4b7d361df3d6b86796bb3f7fe14283d8b71baf0a3b758ea2d",
+      "note": "Pick the FFA LP opponent at activation, before resolution. Keep all opposing fields available; Tag keeps the stock team result.",
+      "wrap": {
+        "MPPick": [
+          "destg"
+        ]
+      }
+    },
+    {
       "code": 7293697,
       "file": "c7293697.lua",
       "name": "Toon World the Perfect World",
