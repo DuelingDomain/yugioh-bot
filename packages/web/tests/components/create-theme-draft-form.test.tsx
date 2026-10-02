@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CreateThemeDraftForm } from "../../src/components/draft/create-theme-draft-form";
 
@@ -19,11 +19,30 @@ describe("CreateThemeDraftForm", () => {
 
     await screen.findByRole("option", { name: "#drafts" });
 
-    const selection = screen.getByLabelText(/theme selection/i);
-    expect(within(selection).getByRole("option", { name: "Players pick" })).toBeInTheDocument();
-    expect(within(selection).getByRole("option", { name: "Random" })).toBeInTheDocument();
-    expect(within(selection).queryByRole("option", { name: /host assigned/i })).toBeNull();
-    expect(selection).toHaveValue("player_pick");
+    const selection = screen.getByRole("group", { name: /theme selection/i });
+    expect(selection.tagName).toBe("FIELDSET");
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    expect(screen.getByRole("radio", { name: /players pick/i })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /random/i })).not.toBeChecked();
+    expect(screen.queryByRole("radio", { name: /host assigned/i })).toBeNull();
+  });
+
+  it("disables the Extra deck size when the Extra deck is off", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ channels: [] })));
+    render(<CreateThemeDraftForm />);
+    const size = screen.getByLabelText(/extra deck size/i);
+    expect(size).toBeEnabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /draft an extra deck/i }));
+    expect(size).toBeDisabled();
+    expect(screen.getByText("Not drafted")).toBeInTheDocument();
+  });
+
+  it("asks for a name before creating", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ channels: [] })));
+    render(<CreateThemeDraftForm />);
+    fireEvent.click(screen.getByRole("button", { name: /create theme draft/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Draft name is required");
+    expect(screen.getByLabelText(/draft name/i)).toHaveAttribute("aria-invalid", "true");
   });
 
   it.each(["player_pick", "random"])("creates a draft using %s", async (themeSelection) => {
@@ -38,7 +57,7 @@ describe("CreateThemeDraftForm", () => {
     render(<CreateThemeDraftForm />);
 
     fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Theme Night" } });
-    fireEvent.change(screen.getByLabelText(/theme selection/i), { target: { value: themeSelection } });
+    fireEvent.click(screen.getByRole("radio", { name: themeSelection === "random" ? /random/i : /players pick/i }));
     fireEvent.click(screen.getByRole("button", { name: /create theme draft/i }));
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/draft/theme-night"));

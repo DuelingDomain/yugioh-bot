@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CircleAlert } from "lucide-react";
 import { parseCustomCardIds, toCardCounts } from "@/lib/custom-card-pool";
 import { getCached, putCards } from "@/lib/cards-cache";
 import type { CardSummary } from "@/lib/card-types";
@@ -18,6 +19,8 @@ interface PoolBuilderProps {
   previewHeightClassName?: string;
   showPreview?: boolean;
   onPool?: (cards: CardSummary[], unknownIds: number[], loading: boolean) => void;
+  /** Rendered between the Sets field and the Custom card IDs field (the draft form puts "Add a whole archetype" here). */
+  afterSets?: ReactNode;
 }
 
 const DEBOUNCE_MS = 300;
@@ -28,6 +31,7 @@ export function PoolBuilder({
   previewHeightClassName = "h-[22rem]",
   showPreview = true,
   onPool,
+  afterSets,
 }: PoolBuilderProps) {
   const parsed = useMemo(() => parseCustomCardIds(value.customCardText), [value.customCardText]);
   const [cards, setCards] = useState<CardSummary[]>([]);
@@ -106,42 +110,66 @@ export function PoolBuilder({
     onPool?.(cards, unknownIds, loading);
   }, [cards, unknownIds, loading, onPool]);
 
+  const cardCountText = `${parsed.cardIds.length} ${parsed.cardIds.length === 1 ? "card" : "cards"}`;
+
   return (
-    <div className="space-y-4">
-      <div>
-        <label className="mb-1 block text-sm font-medium text-text-primary">Sets</label>
+    <>
+      <div className="wide">
+        <label className="label" htmlFor="pool-set-search">
+          Sets
+        </label>
         <SetPicker selectedSets={value.setNames} onSetsChange={(setNames) => onChange({ ...value, setNames })} />
       </div>
 
-      <div>
-        <label htmlFor="custom-card-ids" className="mb-1 block text-sm font-medium text-text-primary">Custom Card IDs</label>
+      {afterSets}
+
+      <div className="wide">
+        <label className="label" htmlFor="custom-card-ids">
+          Custom card IDs
+        </label>
         <textarea
           id="custom-card-ids"
+          className={`input${parsed.errors.length > 0 ? " bad" : ""}`}
           value={value.customCardText}
           onChange={(e) => onChange({ ...value, customCardText: e.target.value })}
           placeholder={"46986414\n83764718, 12345678"}
           rows={4}
-          className="w-full resize-y rounded-lg border border-border bg-bg-elevated px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-secondary focus:border-accent-primary focus:outline-none"
+          aria-invalid={parsed.errors.length > 0 ? true : undefined}
+          aria-describedby="custom-card-ids-hint"
         />
-        <div className="mt-2 flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-text-secondary">Paste YGOPRODeck passcodes separated by new lines, commas, or spaces.</p>
-          {parsed.errors.length > 0 && <p className="text-accent-cta">Invalid: {parsed.errors.slice(0, 3).join(", ")}</p>}
-        </div>
+        {parsed.errors.length > 0 ? (
+          <p className="ferr" id="custom-card-ids-hint">
+            <CircleAlert className="ic sm" aria-hidden="true" />
+            Remove invalid card IDs: {parsed.errors.slice(0, 3).join(", ")}
+          </p>
+        ) : (
+          <p className="hint" id="custom-card-ids-hint">
+            One passcode per line or separated by commas. {cardCountText}.
+          </p>
+        )}
       </div>
 
-      {apiError && <p className="text-sm text-destructive">{apiError}</p>}
+      {apiError && (
+        <p className="ferr wide" role="alert">
+          <CircleAlert className="ic sm" aria-hidden="true" />
+          {apiError}
+        </p>
+      )}
 
       {showPreview && (
-        <CardPoolPanel
-          title="Pool preview"
-          cards={cards}
-          unknownIds={unknownIds}
-          loading={loading}
-          heightClassName={previewHeightClassName}
-          emptyMessage="Add sets or card IDs above to preview the pool."
-          countMode="copies"
-        />
+        <div className="wide">
+          <CardPoolPanel
+            variant="sheet"
+            title="Pool preview"
+            cards={cards}
+            unknownIds={unknownIds}
+            loading={loading}
+            heightClassName={previewHeightClassName}
+            emptyMessage="Add sets or card IDs above to preview the pool."
+            countMode="copies"
+          />
+        </div>
       )}
-    </div>
+    </>
   );
 }
