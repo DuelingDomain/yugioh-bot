@@ -1,6 +1,6 @@
 // FFA4 live scenarios of the Deck Master in a Domain duel (review gap: Domain was proven at FFA4 only through the overlay-card variants, and the
 // Deck Master recall only at 2 seats). Each of the 4 seats has its own Deck Master and its own Deck Master zone [R-COMMON-SEP-FIELDS]. A Dark Hole
-// destroys the Deck Master that is on the field and the monsters of the other 3 seats. Only the owner of the Deck Master gets the recall prompt, and the
+// destroys the Deck Masters on the field and the monsters of the other seats. Each owner gets its own recall prompt, and the
 // Deck Masters in the zones of the other seats stay. Every scenario asserts the state of every seat. Plain data (scripts/rule-coverage.ts reads it);
 // domain-ffa4-deck-master.test.ts runs it on a live Domain core. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
@@ -63,9 +63,61 @@ export const DOMAIN_FFA4_DECK_MASTER_SCENARIOS: Scenario[] = [
       no("p1"),
       expectBoard({
         p0: { lp: 8000, hand: [], monsters: [], grave: [ELF], deckMaster: { inZone: true, returns: 0 } },
-        p1: { lp: 8000, monsters: [], grave: [MASTERS.p1, "Dark Hole"], deckMaster: { inZone: false, returns: 0 } },
+        p1: { lp: 8000, hand: [ELF], monsters: [], grave: [MASTERS.p1, "Dark Hole"], deckMaster: { inZone: false, returns: 0 } },
         p2: { lp: 8000, hand: [], monsters: [], grave: [ELF], deckMaster: { inZone: true, returns: 0 } },
         p3: { lp: 8000, hand: [], monsters: [], grave: [], deckMaster: { inZone: true, returns: 0 } },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "domain-ffa4-two-deck-masters-destroyed-recall-answers-stay-with-each-owner",
+    title: "Domain FFA4: one Dark Hole destroys the Deck Masters of p0 and p2; p0 recalls, p2 refuses, and each seat keeps its own return count and cost",
+    source: RULE,
+    rules: ["R-COMMON-SEP-FIELDS", "R-FFA-ORDER"],
+    tags: ["multiplayer", "domain", "deck-master", "recall", "ffa4", "card:53129443"],
+    setup: {
+      mode: "domain",
+      format: "ffa4",
+      p0: { deckMaster: MASTERS.p0, hand: ["Dark Hole"] },
+      p1: { deckMaster: MASTERS.p1, monsters: [ELF] },
+      p2: { deckMaster: MASTERS.p2 },
+      p3: { deckMaster: MASTERS.p3, monsters: [ELF] },
+    },
+    steps: [
+      normalSummon({ card: MASTERS.p0, from: "dmz" }, "p0"),
+      endTurn("p0"),
+      endTurn("p1"),
+      normalSummon({ card: MASTERS.p2, from: "dmz" }, "p2"),
+      endTurn("p2"),
+      endTurn("p3"),
+      expectBoard({
+        p0: { monsters: [MASTERS.p0], deckMaster: { inZone: false, returns: 0, nextCost: 0 } },
+        p1: { monsters: [ELF], deckMaster: { inZone: true, returns: 0, nextCost: 0 } },
+        p2: { monsters: [MASTERS.p2], deckMaster: { inZone: false, returns: 0, nextCost: 0 } },
+        p3: { monsters: [ELF], deckMaster: { inZone: true, returns: 0, nextCost: 0 } },
+      }),
+      activate("Dark Hole", "p0"),
+      expectPrompt({ by: "p0", context: "deck-master-recall" }),
+      expectBoard({
+        p0: { deckMaster: { returns: 0, nextCost: 0 } },
+        p1: { deckMaster: { returns: 0, nextCost: 0 } },
+        p2: { deckMaster: { returns: 0, nextCost: 0 } },
+        p3: { deckMaster: { returns: 0, nextCost: 0 } },
+      }),
+      yes("p0"),
+      expectPrompt({ by: "p2", context: "deck-master-recall" }),
+      expectBoard({
+        p0: { deckMaster: { returns: 1, nextCost: 500 } },
+        p1: { deckMaster: { returns: 0, nextCost: 0 } },
+        p2: { deckMaster: { returns: 0, nextCost: 0 } },
+        p3: { deckMaster: { returns: 0, nextCost: 0 } },
+      }),
+      no("p2"),
+      expectBoard({
+        p0: { lp: 8000, hand: [ELF], monsters: [], grave: ["Dark Hole"], deckMaster: { inZone: true, returns: 1, nextCost: 500 } },
+        p1: { lp: 8000, hand: [ELF], monsters: [], grave: [ELF], deckMaster: { inZone: true, returns: 0, nextCost: 0 } },
+        p2: { lp: 8000, hand: [ELF], monsters: [], grave: [MASTERS.p2], deckMaster: { inZone: false, returns: 0, nextCost: 0 } },
+        p3: { lp: 8000, hand: [ELF], monsters: [], grave: [ELF], deckMaster: { inZone: true, returns: 0, nextCost: 0 } },
       }),
     ],
   }),
