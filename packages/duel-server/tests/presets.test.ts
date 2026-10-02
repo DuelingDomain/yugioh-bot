@@ -80,7 +80,21 @@ describe("preset registry", () => {
       "solemn-judgment-summon",
       "jinzo-stops-trap",
     ]);
-    expect(PRESETS.filter((preset) => preset.needs === "multi-core")).toHaveLength(9);
+    expect(PRESETS.filter((preset) => preset.needs === "multi-core").map((preset) => preset.id).sort()).toEqual([
+      "ffa3-mind-crush-pick",
+      "ffa3-table-battle",
+      "ffa3-table-chain",
+      "ffa3-table-direct",
+      "ffa3-third-response",
+      "ffa3-turn-player-last",
+      "ffa4-chain-order-heavy-storm",
+      "ffa4-surrender-in-chain",
+      "mind-crush-ffa4-pick",
+      "raigeki-dark-hole-ffa4",
+      "raigeki-dark-hole-tag",
+      "tag-jinzo-blocks-traps",
+      "tag-lp-solemn-partner",
+    ]);
     expect(getPreset("nope")).toBeUndefined();
   });
 
