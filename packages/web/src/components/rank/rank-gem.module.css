@@ -1,0 +1,8 @@
+.gem { width: 15px; height: 15px; flex: none; display: inline-block; vertical-align: -2px; }
+.lg { width: 22px; height: 22px; }
+.tier { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; color: var(--t-none); }
+.tier[data-t="Bronze"] { color: var(--t-bronze); }
+.tier[data-t="Silver"] { color: var(--t-silver); }
+.tier[data-t="Gold"] { color: var(--t-gold); }
+.tier[data-t="Platinum"] { color: var(--t-plat); }
+.tier[data-t="Diamond"] { color: var(--t-ice); background: var(--diamond-text); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }

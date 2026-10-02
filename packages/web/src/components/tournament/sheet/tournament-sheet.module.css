@@ -1,0 +1,72 @@
+/* Board 02. The real AppShell supplies the background and navigation. */
+.page { max-width: 120rem; margin-inline: auto; padding: 16px; }
+@media (min-width: 640px) { .page { padding: 24px; } }
+@media (min-width: 1024px) { .page { padding: 32px; } }
+@media (min-width: 1536px) { .page { padding-inline: 40px; } }
+
+.crumb[href] { display: inline-flex; align-items: center; gap: 6px; height: 32px; margin-left: -8px; padding: 0 8px; border-radius: 6px; color: var(--ink-3); font-size: 13.5px; }
+.crumb:hover { color: var(--ink); background: rgb(239 231 213 / 0.05); }
+.t-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 20px 40px; margin: 8px 0 26px; }
+.t-head > div:first-child { min-width: 0; }
+.t-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 11px; color: var(--ink-3); font-size: 13.5px; }
+.t-meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-4); }
+.t-meta .status { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); }
+.prog { display: grid; gap: 9px; width: min(100%, 300px); }
+.prog-top { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+.prog-n { font-family: var(--f-num); font-size: 38px; font-weight: 300; line-height: 0.85; }
+.prog-n span { color: var(--ink-3); font-size: 22px; }
+.prog-l { color: var(--ink-3); font-size: 12.5px; text-align: right; }
+.prog-bar { display: flex; gap: 2px; height: 4px; }
+.prog-bar i { display: block; height: 100%; border-radius: 2px; background: rgb(239 231 213 / 0.09); }
+.prog-bar i.d { background: var(--ink-2); }
+.prog-bar i.l { background: var(--live); }
+.prog-bar i.w { background: var(--chain); }
+.prog-bar i.y { background: var(--pen); }
+.prog-key { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--ink-3); font-size: 12px; }
+.prog-key span { display: inline-flex; align-items: center; gap: 5px; }
+.prog-key i { width: 8px; height: 3px; border-radius: 2px; display: inline-block; }
+.prog-key .l { background: var(--live); }
+.prog-key .w { background: var(--chain); }
+.prog-key .y { background: var(--pen); }
+.prog-key .open { background: rgb(239 231 213 / 0.2); }
+
+.t-grid { display: grid; grid-template-columns: minmax(0, 1fr) 332px; gap: clamp(20px, 2.6cqi, 32px); align-items: start; }
+.t-main, .t-rail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 26px; min-width: 0; }
+.t-main > *, .t-rail > * { min-width: 0; }
+@container sheet-page (max-width: 1060px) { .t-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.organizer { display: grid; gap: 16px; }
+.lockline { display: flex; align-items: flex-start; gap: 8px; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
+.lockline .ic { margin-top: 1px; }
+.org-end { display: grid; gap: 4px; padding-top: 14px; border-top: 1px solid var(--rule-lo); }
+.org-end > button { justify-content: flex-start; padding-inline: 10px; }
+.players-title { margin-bottom: 8px; }
+.plist { display: grid; }
+.plist li { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 42px; border-top: 1px solid var(--rule-lo); font-size: 14px; }
+.plist li:first-child { border-top: 0; }
+.plist .nm { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.deckst { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
+.deckst.ok { color: var(--ok); }
+.deckst.no { color: var(--chain-ink); }
+.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.ic.sm { width: 14px; height: 14px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Inline editors and end confirmations use the shared inputs, banners and buttons. */
+.setting-row[data-editing="true"] { flex-direction: column; align-items: stretch; gap: 6px; }
+.setting-row[data-editing="true"] dd { display: block; width: 100%; text-align: left; }
+.editor { display: grid; gap: 8px; }
+.editor-acts, .confirm-acts { justify-content: flex-end; }
+.confirm { display: grid; gap: 14px; }
+.confirm-acts > button { flex: 1 1 160px; }
+.error { color: var(--loss-ink); font-size: 12.5px; }
+.refresh-status { margin: -12px 0 20px; }
+.deck { display: grid; gap: 16px; }
+.rules-toggle { justify-self: start; }
+
+/* The foundation's .root button/a reset outranks single-class controls.
+   Keep the shared control properties here until that reset can be consolidated. */
+.organizer .button { font-size: 13.5px; font-weight: 450; letter-spacing: 0.005em; line-height: 1; }
+.organizer .quiet { color: var(--ink-3); }
+.organizer .danger { color: var(--loss-ink); }
+.draft-link[href] { color: var(--pen-ink); }

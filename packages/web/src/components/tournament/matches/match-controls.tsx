@@ -1,0 +1,50 @@
+"use client";
+
+import Link from "next/link";
+import { AlertCircle, Check, Eye, Swords } from "lucide-react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
+import sheet from "@/components/sheet/sheet.module.css";
+import { SECTION_IDS } from "../sheet-contracts";
+import type { Match } from "../types";
+import type { matchView } from "./match-model";
+import type { MatchActions } from "./use-match-actions";
+import styles from "./matches.module.css";
+
+type Variant = "primary" | "secondary" | "quiet" | "danger";
+export function buttonClass(variant: Variant, small = false) {
+  return `${sheet.btn} ${sheet[`btn-${variant}`]} ${small ? `${sheet["btn-sm"]} ${styles.small}` : ""} ${styles.button} ${styles[variant] ?? ""}`;
+}
+
+export function MatchButton({ variant = "secondary", small = false, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; small?: boolean; children: ReactNode }) {
+  return <button type="button" className={buttonClass(variant, small)} {...props}>{children}</button>;
+}
+
+export function MatchError({ error }: { error: string | null }) {
+  if (!error) return null;
+  const parts = error.split("My deck");
+  return <div role="alert" className={`${sheet.banner} ${sheet["banner-bad"]} ${styles.error}`}>
+    <AlertCircle size={16} aria-hidden="true" />
+    <div>{parts.map((part, index) => <span key={index}>{index > 0 && <a className={sheet.link} href={`#${SECTION_IDS.myDeck}`}>My deck</a>}{part}</span>)}</div>
+  </div>;
+}
+
+export function MatchControls({ match, view, actions, small = true, reportLabel = "Report", waitingOn }: {
+  match: Match; view: ReturnType<typeof matchView>; actions: MatchActions; small?: boolean; reportLabel?: string; waitingOn: string;
+}) {
+  if (actions.reporting && view.canReport) return <MatchButton variant="quiet" small={small} onClick={actions.cancelReport}>Cancel</MatchButton>;
+  if (view.canOpen) return <Link href={`/duels/${match.series!.currentDuelSlug}`} className={buttonClass(view.player ? "primary" : "secondary", small)}>
+    {view.player ? <Swords size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}{view.player ? "Open duel" : "Watch"}
+  </Link>;
+  const disabled = actions.loading !== null;
+  return <>
+    {view.canStart && <MatchButton variant={view.player ? "primary" : "quiet"} small={small} disabled={disabled} onClick={actions.start}>
+      {view.player && <Swords size={16} aria-hidden="true" />}Start duel
+    </MatchButton>}
+    {view.canReport && <MatchButton small={small} disabled={disabled} onClick={actions.openReport}>{reportLabel}</MatchButton>}
+    {view.canConfirm && <>
+      <MatchButton variant="primary" small={small} disabled={disabled} onClick={actions.approve}><Check size={16} aria-hidden="true" />Approve</MatchButton>
+      <MatchButton variant="danger" small={small} disabled={disabled} onClick={actions.deny}>Deny</MatchButton>
+    </>}
+    {(view.state === "pending" || view.state === "reported") && <span className={`${sheet.chip} ${sheet["chip-gold"]}`}>Waiting on {waitingOn}</span>}
+  </>;
+}

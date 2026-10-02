@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TournamentRulesForm } from "../../src/components/tournament/tournament-rules-form";
 import { CreateTournamentForm } from "../../src/components/tournament/create-tournament-form";
-import { PlayersTab } from "../../src/components/tournament/players-tab";
+import { PlayersPanel } from "../../src/components/tournament/sheet/players-panel";
 import type { DuelSeriesSummary, TournamentDetail } from "../../src/components/tournament/types";
 
 const push = vi.fn();
@@ -90,14 +90,16 @@ describe("CreateTournamentForm rules", () => {
   });
 });
 
-describe("PlayersTab deck marker", () => {
+describe("PlayersPanel deck state", () => {
   it("shows deck status per participant to the organizer only", () => {
-    const props = { tournament: base, tournamentSlug: "cup", currentUserPlayerId: 1, onChanged: () => {} };
-    const { unmount } = render(<PlayersTab {...props} isCreator />);
-    expect(screen.getByTestId("player-deck-marker-1")).toHaveTextContent(/deck registered/i);
-    expect(screen.getByTestId("player-deck-marker-2")).toHaveTextContent(/no deck/i);
+    const props = { tournament: base, ratings: new Map() };
+    const { unmount } = render(<PlayersPanel {...props} isHost />);
+    const ann = screen.getByText("Ann").closest("li")!;
+    const ben = screen.getByText("Ben").closest("li")!;
+    expect(ann).toHaveTextContent(/registered/i);
+    expect(ben).toHaveTextContent(/no deck/i);
     unmount();
-    render(<PlayersTab {...props} isCreator={false} />);
-    expect(screen.queryByTestId("player-deck-marker-1")).toBeNull();
+    render(<PlayersPanel {...props} isHost={false} />);
+    expect(screen.getByText("Ann").closest("li")).not.toHaveTextContent(/registered|no deck/i);
   });
 });

@@ -1,0 +1,54 @@
+/* Board 02 crosstable. The whole table scrolls; no columns are sticky. */
+.section { min-width: 0; }
+/* Keep the link primitive's colour and size above SheetRoot's button reset. */
+.section .toggle { color: var(--pen-ink); font-size: 13.5px; }
+.xt-wrap { overflow-x: auto; border: 1px solid var(--rule-lo); border-radius: 12px; background: linear-gradient(180deg, rgb(19 32 55 / 0.38), rgb(10 17 32 / 0.8)); }
+.xt { width: 100%; min-width: 660px; border-collapse: collapse; font-size: 14px; }
+.xt th { height: 40px; padding: 0 6px; border-bottom: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 12.5px; font-weight: 400; text-align: center; white-space: nowrap; }
+.xt th.l { text-align: left; }
+.xt th.place-head { padding-left: 16px; }
+.xt th.loss-head { padding-right: 14px; }
+.xt th.opp { width: 68px; }
+.xt th.opp span { display: block; max-width: 62px; margin: 0 auto; overflow: hidden; text-overflow: ellipsis; }
+.xt td { height: 54px; padding: 0 4px; border-bottom: 1px solid var(--rule-lo); text-align: center; }
+.xt tbody tr:last-child td { border-bottom: 0; }
+.xt .pos { width: 46px; padding-left: 16px; text-align: left; font-family: var(--f-num); font-size: 19px; color: var(--ink-3); }
+.xt .who { text-align: left; padding-right: 12px; }
+.xt .who > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.xt .who .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+.xt .rec { width: 46px; font-family: var(--f-num); font-size: 19px; }
+.xt .rec.w { color: var(--ink); }
+.xt .rec.l { color: var(--ink-3); padding-right: 14px; }
+.xt tr.me td { background: rgb(239 231 213 / 0.035); }
+
+.cell { display: inline-grid; place-items: center; align-content: center; gap: 2px; width: 60px; height: 40px; border-radius: 7px; font-family: var(--f-num); font-size: 16px; line-height: 1; }
+.cell small { font-family: var(--f-ui); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.9; }
+.cell[data-r="w"] { color: var(--ok); background: var(--ok-soft); }
+.cell[data-r="l"] { color: var(--ink-3); }
+.cell[data-r="live"] { color: var(--ink); background: rgb(255 91 79 / 0.08); box-shadow: inset 0 0 0 1px rgb(255 91 79 / 0.45); }
+.cell[data-r="wait"] { color: var(--chain-ink); background: var(--chain-soft); box-shadow: inset 0 0 0 1px rgb(228 182 79 / 0.4); }
+.cell[data-r="open"] { color: var(--ink-4); border: 1px dashed rgb(181 153 99 / 0.22); }
+.cell[data-r="self"] { background: repeating-linear-gradient(135deg, rgb(181 153 99 / 0.13) 0 1px, transparent 1px 7px); }
+/* Same Play styling as the reference button, with native in-page navigation. */
+a.cell[data-r="you"] { border: 1px solid rgb(155 126 255 / 0.6); background: var(--pen-soft); color: var(--pen-ink); font-family: var(--f-ui); font-size: 13px; font-weight: 500; cursor: pointer; }
+a.cell[data-r="you"]:hover { background: rgb(155 126 255 / 0.22); }
+.xt-key { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 12px 16px; border-top: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 12.5px; }
+.xt-key span { display: inline-flex; align-items: center; gap: 7px; }
+.xt-key .cell { width: 28px; height: 18px; font-size: 11px; }
+
+/* The mini table family with crosstable row heights and numeral sizes. */
+.mini { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
+.mini th { height: 40px; padding: 0 6px; color: var(--ink-3); font-size: 12.5px; font-weight: 400; text-align: left; border-bottom: 1px solid var(--rule-lo); }
+.mini td { height: 54px; padding: 0 4px; border-bottom: 1px solid var(--rule-lo); }
+.mini tbody tr:last-child td { border-bottom: 0; }
+.mini .r { text-align: right; }
+.mini .pos { width: 46px; padding-left: 16px; color: var(--ink-3); }
+.mini td.pos { font-family: var(--f-num); font-size: 19px; }
+.mini .who { padding-right: 12px; }
+.mini .who > span { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mini .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+.mini .rec { width: 46px; }
+.mini td.rec { font-family: var(--f-num); font-size: 19px; }
+.mini .rec.w { color: var(--ink); }
+.mini .rec.l, .mini th.loss-head { color: var(--ink-3); padding-right: 14px; }
+.mini tr.me td { background: rgb(239 231 213 / 0.035); }

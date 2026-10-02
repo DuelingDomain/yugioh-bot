@@ -1,44 +1,59 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { MyMatchesTab } from "../../src/components/tournament/my-matches-tab";
-import { AllMatchesTab } from "../../src/components/tournament/all-matches-tab";
-import { StandingsTab } from "../../src/components/tournament/standings-tab";
-import type { TournamentDetail } from "../../src/components/tournament/types";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { useTournamentWebsocket } from "@/lib/hooks/use-tournament-websocket";
 
-const t: TournamentDetail = {
-  id: 1, name: "RR", format: "round_robin", status: "active", createdByUserId: "host",
-  isParticipant: true, currentUserPlayerId: 10,
-  startedAt: null, createdAt: "2026-01-01T00:00:00Z",
-  participants: [{ playerId: 10, displayName: "Me" }, { playerId: 20, displayName: "Bob" }],
-  matches: [
-    { id: 1, matchId: null, roundNumber: 1, playerOneId: 10, playerTwoId: 20, playerOneName: "Me", playerTwoName: "Bob", status: "open", winnerId: null, reporterId: null, resolvedAt: null, metadata: {} },
-    { id: 2, matchId: null, roundNumber: 1, playerOneId: 20, playerTwoId: 30, playerOneName: "Bob", playerTwoName: "Cy", status: "open", winnerId: null, reporterId: null, resolvedAt: null, metadata: {} },
-  ],
-};
+vi.mock("next/font/google", () => {
+  const font = () => ({ className: "font", variable: "font-var", style: {} });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
+let searchParams = new URLSearchParams();
+let handlers: NonNullable<Parameters<typeof useTournamentWebsocket>[1]>;
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ slug: "friday-night-12" }), useRouter: () => ({ replace: vi.fn(), push: vi.fn() }), useSearchParams: () => searchParams,
+}));
+vi.mock("@/lib/hooks/use-tournament-websocket", () => ({ useTournamentWebsocket: (_slug: string, options: typeof handlers) => { handlers = options; } }));
+vi.mock("@/components/tournament/standings/crosstable", () => ({ Crosstable: () => <section id="standings" aria-label="Standings" /> }));
+vi.mock("@/components/tournament/matches/your-match", () => ({ YourMatch: () => <section id="your-match" aria-label="Your match" /> }));
+vi.mock("@/components/tournament/matches/match-queue", () => ({ MatchQueue: () => <section id="matches" aria-label="Matches" /> }));
+import TournamentDetailPage from "../../app/(app)/tournament/[slug]/page";
+import { sheetRatings, sheetTournament } from "../fixtures/tournament-sheet";
 
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
+const scroll = vi.fn();
+beforeEach(() => {
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+  HTMLElement.prototype.scrollIntoView = scroll;
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
+    if (String(url) === "/api/auth/session") return Response.json({ user: { id: "host" } });
+    if (String(url) === "/api/tournaments/friday-night-12") return Response.json(sheetTournament);
+    if (String(url) === "/api/leaderboard?scope=all") return Response.json({ rows: sheetRatings });
+    return Response.json({});
+  }));
+});
+afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); searchParams = new URLSearchParams(); });
 
-describe("tournament tab panels", () => {
-  it("MyMatchesTab shows only the user's matches", () => {
-    render(<MyMatchesTab tournament={t} tournamentSlug="s1" onChanged={() => {}} />);
-    expect(screen.getByText(/me/i)).toBeTruthy();
-    expect(screen.queryByText(/cy/i)).toBeNull();
+describe("legacy tournament tab links", () => {
+  it.each([["standings", "standings"], ["all", "matches"], ["players", "players"]])("scrolls tab=%s to #%s once after loading", async (tab, id) => {
+    searchParams = new URLSearchParams({ tab });
+    render(<TournamentDetailPage />);
+    await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
+    expect(scroll.mock.instances[0]).toBe(document.getElementById(id));
+    expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    act(() => handlers.onMatchUpdated?.());
+    await act(async () => {});
+    expect(scroll).toHaveBeenCalledTimes(1);
   });
-
-  it("AllMatchesTab groups by round", () => {
-    render(<AllMatchesTab tournament={t} tournamentSlug="s1" onChanged={() => {}} />);
-    expect(screen.getByText(/round 1/i)).toBeTruthy();
+  it.each(["my", "overview", "unknown", ""])("keeps tab=%s at the top while showing the one sheet", async (tab) => {
+    searchParams = new URLSearchParams({ tab });
+    render(<TournamentDetailPage />);
+    expect(await screen.findByRole("region", { name: "Standings" })).toBeInTheDocument();
+    expect(scroll).not.toHaveBeenCalled();
   });
-
-  it("StandingsTab fetches and renders standings", async () => {
-    const fetchMock = vi.fn(async () =>
-      Response.json([{ playerId: 10, displayName: "Me", wins: 2, losses: 0 }]),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    render(<StandingsTab tournamentSlug="s1" />);
-    await waitFor(() => expect(screen.getByText("Me")).toBeTruthy());
-    expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/s1/standings");
+  it("uses immediate scrolling for reduced motion", async () => {
+    searchParams = new URLSearchParams("tab=standings");
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    render(<TournamentDetailPage />);
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ behavior: "instant", block: "start" }));
   });
 });

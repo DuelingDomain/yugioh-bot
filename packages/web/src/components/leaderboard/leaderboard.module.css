@@ -1,0 +1,106 @@
+/* Board 05: page layout and ledger. Shared primitives live in sheet.module.css. */
+.lb-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 18px 32px; margin-bottom: 26px; }
+.lb-sub { margin-top: 10px; color: var(--ink-3); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.status { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); }
+.dot { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-4); }
+.lb-grid { display: grid; grid-template-columns: minmax(0, 1fr) 316px; gap: clamp(20px, 2.6cqi, 32px); align-items: start; }
+.main { min-width: 0; }
+.t-rail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 26px; min-width: 0; }
+.t-rail > * { min-width: 0; }
+@container sheet-page (max-width: 1040px) { .lb-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Top-three strip: no visual reordering of the server's standings. */
+.podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--rule); border-radius: 12px; background: var(--podium-fill); margin-bottom: 22px; }
+.podium > a { display: grid; gap: 10px; align-content: start; padding: 18px 20px 16px; border-left: 1px solid var(--rule-lo); min-width: 0; transition: background-color 160ms var(--ease); }
+.podium > a:first-child { border-left: 0; }
+.podium > a:hover { background: var(--row-hover); }
+.pd-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pd-pos { font-family: var(--f-disp); font-size: 12px; font-weight: 500; letter-spacing: 0.14em; color: var(--ink-3); }
+.pd-name { font-size: 18px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-big { font-family: var(--f-num); font-size: 44px; font-weight: 300; line-height: 0.85; }
+.pd-big span { margin-left: 6px; font-family: var(--f-ui); font-size: 13px; color: var(--ink-3); }
+.pd-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--ink-3); font-size: 12.5px; }
+.pd-streak { color: var(--ember); display: inline-flex; align-items: center; gap: 4px; }
+.pd-streak svg, .stk svg { width: 14px; height: 14px; flex: none; stroke-width: 1.75; }
+@container sheet-page (max-width: 640px) {
+  .podium { grid-template-columns: minmax(0, 1fr); }
+  .podium > a { border-left: 0; border-top: 1px solid var(--rule-lo); }
+  .podium > a:first-child { border-top: 0; }
+}
+
+/* This container responds to the ledger's width, even beside a wide rail. */
+.ledger-container { container: ledger / inline-size; }
+.ledger { overflow-x: auto; border: 1px solid var(--rule-lo); border-radius: 12px; background: var(--ledger-fill); }
+.ledger-container[aria-busy="true"] { opacity: 0.55; }
+.ledger table { width: 100%; min-width: 680px; border-collapse: collapse; font-size: 14px; }
+.ledger table[data-scope="all"] { min-width: 520px; }
+.ledger th { height: 40px; padding: 0 12px; border-bottom: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 12.5px; font-weight: 400; text-align: left; white-space: nowrap; }
+.ledger th:first-child { padding-left: 18px; }
+.ledger th.r, .ledger td.r { text-align: right; }
+.ledger th.sort { color: var(--ink); }
+.ledger th.sort::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 7px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; rotate: 45deg; translate: 0 -3px; }
+.ledger td { height: 50px; padding: 0 12px; border-bottom: 1px solid var(--rule-lo); white-space: nowrap; }
+.ledger th:last-child, .ledger td:last-child { padding-right: 18px; }
+.ledger tbody tr:last-child td { border-bottom: 0; }
+.ledger tbody tr { position: relative; cursor: pointer; transition: background-color 160ms var(--ease); }
+.ledger tbody tr:hover td { background: var(--row-hover); }
+.ledger tr.me td { background: var(--row-you); }
+.ledger .p { width: 52px; padding-left: 18px; font-family: var(--f-num); font-size: 19px; color: var(--ink-3); }
+.ledger .nm { display: inline-flex; align-items: center; gap: 9px; font-size: 15px; }
+.ledger .wn { font-family: var(--f-num); font-size: 21px; font-weight: 450; color: var(--ink); }
+.ledger .v { font-family: var(--f-num); font-size: 17px; color: var(--ink-2); }
+.ledger .wl { font-family: var(--f-num); font-size: 17px; color: var(--ink-2); }
+.ledger .wl span { color: var(--ink-4); margin: 0 3px; }
+.ledger .stk { display: inline-flex; align-items: center; gap: 4px; font-family: var(--f-num); font-size: 17px; color: var(--ember); }
+.ledger .stk.z { color: var(--ink-4); }
+.ledger :is(.p, .wn, .v, .wl, .stk) { }
+.row-link::after { content: ""; position: absolute; inset: 0; }
+.row-link:focus-visible::after { outline: 2px solid var(--ink); outline-offset: -2px; }
+@container ledger (max-width: 600px) {
+  .ledger table { min-width: 0 !important; }
+  .ledger th:nth-child(n+6), .ledger td:nth-child(n+6), .ledger th:nth-child(4), .ledger td:nth-child(4) { display: none; }
+  .ledger .wn { padding-right: 18px; }
+}
+
+/* Pin only the current player, after their actual row has left view. */
+.pinbar { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 10px; padding: 0 18px; height: 52px; border: 1px solid var(--rule); border-radius: 10px; background: var(--pin-fill); box-shadow: var(--pin-shadow); position: sticky; bottom: 0; z-index: 2; }
+.pinbar .p { font-family: var(--f-num); font-size: 19px; color: var(--ink-3); }
+.pinbar .nm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 9px; font-size: 15px; min-width: 0; }
+.pinbar .gap { color: var(--ink-3); font-size: 13px; }
+.pinbar .wn { font-family: var(--f-num); font-size: 21px; font-weight: 450; }
+.pinbar :is(.p, .wn) { }
+
+/* Your position and Elo progress. */
+.card-name { font-size: 22px; font-weight: 300; margin-top: 2px; }
+.tier-progress { display: grid; gap: 8px; }
+.progress-top { display: flex; justify-content: space-between; font-size: 13px; }
+.progress-label { color: var(--ink-3); }
+.meter { position: relative; height: 4px; border-radius: 2px; background: var(--meter-track); }
+.meter i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--t-none); }
+.meter i[data-t="Bronze"] { background: var(--t-bronze); }
+.meter i[data-t="Silver"] { background: var(--t-silver); }
+.meter i[data-t="Gold"] { background: var(--t-gold); }
+.meter i[data-t="Platinum"] { background: var(--t-plat); }
+.meter i[data-t="Diamond"] { background: var(--t-ice); }
+
+/* Tier ladder and scoring guide. */
+.ladder-title { margin-bottom: 6px; }
+.ladder { display: grid; }
+.ladder li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 42px; border-top: 1px solid var(--rule-lo); font-size: 14px; }
+.ladder li:first-child { border-top: 0; }
+.ladder .rng { font-family: var(--f-num); font-size: 15px; color: var(--ink-3); }
+.ladder li.here { position: relative; }
+.tier-marker { margin-left: 8px; color: var(--ink-3); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; -webkit-text-fill-color: var(--ink-3); }
+.winnings-panel { display: grid; gap: 12px; }
+.howto { width: 100%; border-collapse: collapse; font-size: 13px; }
+.howto th { padding: 0 0 7px; color: var(--ink-3); font-weight: 400; font-size: 12px; text-align: right; border-bottom: 1px solid var(--rule-lo); }
+.howto th:first-child { text-align: left; }
+.howto td { padding: 7px 0; text-align: right; font-family: var(--f-num); font-size: 15px; color: var(--ink-2); border-bottom: 1px solid var(--rule-lo); }
+.howto td:first-child { text-align: left; font-family: var(--f-ui); font-size: 13px; color: var(--ink-3); }
+.howto tr:last-child td { border-bottom: 0; }
+.error { color: var(--loss-ink); margin-bottom: 12px; }
+.all-time-note { margin-top: 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger tbody tr, .podium > a { transition: none; }
+}
