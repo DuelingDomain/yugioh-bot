@@ -539,7 +539,8 @@ export type DealEvent =
       completed: boolean;
       theme: boolean;
     }
-  | { type: "picked"; cardId: number };
+  | { type: "picked"; cardId: number }
+  | { type: "unpicked" };
 
 export function stepKeyOf(packRound: number, pickStep: number): string {
   return `${packRound}:${pickStep}`;
@@ -553,6 +554,9 @@ export function dealReducer(state: DealState, event: DealEvent): DealState {
   if (event.type === "picked") {
     if (!state.dealt.some((c) => c.id === event.cardId)) return state;
     return { ...state, pickedId: event.cardId };
+  }
+  if (event.type === "unpicked") {
+    return state.pickedId == null ? state : { ...state, pickedId: null };
   }
   if (event.completed) {
     if (state.dealt.length === 0 && state.pickedId == null) return state;
@@ -572,8 +576,12 @@ export function dealReducer(state: DealState, event: DealEvent): DealState {
         advanced: newStep,
       };
     }
-    // Same step. If you already picked, a late poll must not bring your card back.
-    if (state.pickedId != null) return state;
+    // Same step. If you already picked, a late poll must not bring your card back,
+    // unless the server still offers it: then the pick did not go through.
+    if (state.pickedId != null) {
+      if (!event.pack.some((c) => c.id === state.pickedId)) return state;
+      return { ...state, pickedId: null, dealt: event.pack };
+    }
     if (state.dealt.length === 0) {
       return { ...state, dealt: event.pack, seq: state.seq + 1, reason: event.theme ? "stack" : "deal", advanced: false };
     }
@@ -732,7 +740,7 @@ export function ringSegmentCount(length: number): number {
   return Math.max(72, Math.min(180, Math.round(length / 13)));
 }
 
-export function ringSegments_(geo: RingGeometry): RingSegment[] {
+export function buildRingSegments(geo: RingGeometry): RingSegment[] {
   const n = ringSegmentCount(geo.length);
   const L = geo.length;
   const fmt = (p: Pt) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`;

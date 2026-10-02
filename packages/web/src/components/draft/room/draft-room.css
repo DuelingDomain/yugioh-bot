@@ -250,7 +250,7 @@
 .dr .pick-btn:hover:not(:disabled) { filter: brightness(1.12); }
 .dr .pick-btn:disabled { border-color: var(--rule-lo); background: var(--panel-3); box-shadow: none; color: var(--ink-3); cursor: default; }
 .dr .pick-btn:disabled kbd { display: none; }
-.dr .keys { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-4); font-size: 12.5px; }
+.dr .keys { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-3); font-size: 12.5px; }
 .dr .keys kbd { padding: 0 5px; border: 1px solid var(--rule-lo); border-radius: 4px; color: var(--ink-3); font: 500 11.5px/1.5 var(--f-ui); }
 .dr .sheet-x { display: none; }
 
@@ -552,13 +552,13 @@
   height: 32px;
   border-radius: 50%;
   background: hsl(var(--hue) 34% 26%);
-  box-shadow: 0 0 0 2px var(--ring, var(--chain)), 0 0 14px rgb(228 182 79 / 0.45);
+  box-shadow: 0 0 0 2px var(--av-ring, var(--chain)), 0 0 14px rgb(228 182 79 / 0.45);
   color: hsl(var(--hue) 70% 88%);
   font: 600 12.5px/1 var(--f-ui);
   font-style: normal;
   transition: box-shadow 0.3s;
 }
-.dr [data-state="picked"] > .av, .dr [data-state="picked"] .av { --ring: var(--ink-4); box-shadow: 0 0 0 2px var(--ring); }
+.dr [data-state="picked"] > .av, .dr [data-state="picked"] .av { --av-ring: var(--ink-4); box-shadow: 0 0 0 2px var(--av-ring); }
 .dr .seat .nm { margin-top: 6px; color: var(--ink); font-size: 14px; font-weight: 500; white-space: nowrap; }
 .dr .seat .st { color: var(--chain-ink); font-size: 12.5px; white-space: nowrap; }
 /* still deciding: three dots, like someone typing */
@@ -869,7 +869,7 @@
 .dr .search:focus-within { border-color: var(--rule-hi); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.18); }
 .dr .search svg { width: 16px; height: 16px; flex: none; color: var(--ink-3); }
 .dr .search input { flex: 1; min-width: 0; height: 38px; border: 0; background: none; color: var(--ink); font: inherit; font-size: 14.5px; outline: none; }
-.dr .search input::placeholder { color: var(--ink-4); }
+.dr .search input::placeholder { color: var(--ink-3); }
 .dr .search input::-webkit-search-cancel-button { display: none; }
 .dr .search kbd { padding: 0 6px; border: 1px solid var(--rule-lo); border-radius: 4px; color: var(--ink-3); font: 500 12px/1.5 var(--f-ui); }
 .dr .search .clr { display: none; padding: 2px 6px; border: 0; background: none; color: var(--ink-3); font-size: 18px; line-height: 1; cursor: pointer; }
@@ -1261,3 +1261,10 @@
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5), 0 0 22px 4px rgb(var(--glow, 155 126 255) / 0.55), 0 14px 26px rgb(0 0 0 / 0.55);
   will-change: transform, opacity;
 }
+
+/* a card whose image would not load shows its name instead */
+.dr .img-miss { display: grid; place-items: center; width: 100%; height: 100%; padding: 6px; background: var(--panel-3); color: var(--ink-2); font: 500 12px/1.2 var(--f-ui); text-align: center; }
+
+/* the draft API sends the whole card, not cropped art: show the artwork window of the card face in the square portraits */
+.dr .portrait img.crop { display: block; width: 128.2%; height: auto; max-width: none; margin: -33.6% 0 0 -14.1%; object-fit: fill; }
+.dr a.pick-btn { text-decoration: none; }
