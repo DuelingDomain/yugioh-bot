@@ -4468,6 +4468,19 @@
       }
     },
     {
+      "code": 83888009,
+      "file": "c83888009.lua",
+      "name": "Rebirth of the Seventh Emperors",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+CONTINUOUS",
+      "redefined": [
+        "damop"
+      ],
+      "stockSha256": "0e9e4d48dc74519bb0657ec8e41b3537256c0723ab5cd82ff111addfecb2c06e",
+      "note": "Script fix (R1 each player, R-COMMON-EACH-PLAYER, lead decision 2026-10-01): the activation registers an End Phase effect (Duel.RegisterEffect) that damages tp for the cards of its hand and 1-tp for the cards of ITS hand; at 3 or more seats the value 1-tp is ONE opponent and its hand count is the sum of every opponent, so one opponent took the damage for all the hands and the others took nothing (in Tag the own team counted only the hand of the activating seat). The operation loops over every living duelist (aux.MPForEachDuelist): each takes 300 for each card in its OWN hand, the Tag partners add up on the team LP. The activation is stock. Not part of R1 or R2 (a script fix, as Astromorrigan)."
+    },
+    {
       "code": 83957459,
       "file": "c83957459.lua",
       "name": "Rhinotaurus",
