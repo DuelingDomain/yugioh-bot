@@ -46,6 +46,8 @@ export interface AimFlow {
   promptAim: PromptAim | null;
   /** A pick of a seat is up: the number keys belong to it, not to the camera. */
   seatKeys: boolean;
+  /** The target the player pointed at and has not sent yet: a card (zone key) or a seat's LP panel. Null when none. */
+  pointed: { zoneKey: string | null; lpSeat: number | null; label: string; optionId: string } | null;
   confirm: () => void;
   cancel: () => void;
 }
@@ -56,7 +58,12 @@ const isTyping = (target: EventTarget | null): boolean => {
   return node.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(node.tagName);
 };
 
-export function useAimFlow(base: TableController, layout: TableLayout, root: { current: HTMLElement | null }): AimFlow {
+export interface AimFlowOptions {
+  /** A menu or the pile viewer is open: Enter, Esc and the number keys leave the aim alone. */
+  suspended?: boolean;
+}
+
+export function useAimFlow(base: TableController, layout: TableLayout, root: { current: HTMLElement | null }, options: AimFlowOptions = {}): AimFlow {
   const { prompt, engine, viewerSeat, canAct, nameOf, onAnswer } = base;
   const promptId = prompt?.id ?? null;
   const attackerKey = base.aim?.from ?? null;
@@ -188,12 +195,14 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   const pickRef = useRef(seatPick);
   const orderRef = useRef(rivalOrder);
   const liveRef = useRef(live);
+  const suspendedRef = useRef(options.suspended === true);
   pickRef.current = seatPick;
   orderRef.current = rivalOrder;
   liveRef.current = live;
+  suspendedRef.current = options.suspended === true;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) return;
+      if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target) || suspendedRef.current) return;
       const target = event.target as HTMLElement | null;
       if (/^[1-9]$/.test(event.key) && pickRef.current) {
         const seat = orderRef.current[Number(event.key) - 1];
@@ -270,6 +279,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     bar,
     promptAim,
     seatKeys: seatPick != null,
+    pointed: live ? { zoneKey: live.to.zones?.[0] ?? null, lpSeat: live.to.lpSeat ?? null, label: live.label, optionId: live.optionId } : null,
     confirm,
     cancel,
   };

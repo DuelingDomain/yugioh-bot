@@ -25,6 +25,8 @@ export interface UseCameraOptions {
   aiming: boolean;
   /** A pick of a seat owns the number keys. */
   seatKeys: boolean;
+  /** A menu or the pile viewer is open: no camera key fires while it is. */
+  suspended?: boolean;
   /** Reads the real clock. A test injects its own. */
   now?: () => number;
 }
@@ -59,7 +61,7 @@ function typing(target: EventTarget | null): boolean {
  * The camera of a table: the pure model, the FX lock fed by engine events and seat changes, the auto camera, the
  * aim hold and the keys. It reads the clock only inside effects.
  */
-export function useCamera({ controller, layout, initial, initialLock = null, aiming, seatKeys, now = Date.now }: UseCameraOptions): UseCamera {
+export function useCamera({ controller, layout, initial, initialLock = null, aiming, seatKeys, suspended = false, now = Date.now }: UseCameraOptions): UseCamera {
   const { engine, prompt, viewerSeat, nameOf } = controller;
   const out = useMemo(
     () => engine.seats.filter((view) => isEliminated(view) || view.pendingElimination === true).map((view) => view.seat),
@@ -114,11 +116,11 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
     if (seat != null && out.includes(seat)) dispatch({ type: "home" });
   }, [out, state.focusSeat, state.lookSeat, state.mode]);
 
-  const keyRef = useRef({ state, seatKeys });
-  keyRef.current = { state, seatKeys };
+  const keyRef = useRef({ state, seatKeys, suspended });
+  keyRef.current = { state, seatKeys, suspended };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
+      if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target) || keyRef.current.suspended) return;
       const target = event.target as HTMLElement | null;
       if (event.key === "Tab" && target?.closest?.("[data-slot='prompt'], [role='dialog']")) return;
       if (/^[1-9]$/.test(event.key) && keyRef.current.seatKeys) return;
