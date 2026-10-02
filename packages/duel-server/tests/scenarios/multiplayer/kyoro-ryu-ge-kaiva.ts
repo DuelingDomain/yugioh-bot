@@ -1,7 +1,7 @@
 // Kyoro Ryu-Ge Kaiva (93509766): two destroyed cards enable its hand summon.
 // Dark Hole destroys cards at two different seats; a later holder uses the
 // global counter. One destruction must leave the holder's card in its hand.
-import { activate, endTurn, expectOffered, expectPrompt, expectTurn, pass, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, pass, type DuelistExpect, type Scenario } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, type Format, type Seat } from "./seat-kit.js";
@@ -58,3 +58,32 @@ export const KYORO_RYU_GE_KAIVA_SCENARIOS: Scenario[] = [
   summon("tag", "p2", 2), summon("tag", "p3", 2),
   summon("ffa3", "p2", 1), summon("ffa4", "p3", 1), summon("tag", "p3", 1), reset(),
 ];
+
+for (const format of ["ffa3", "ffa4", "tag"] as const) {
+  const holder: Seat = format === "ffa3" ? "p2" : "p3";
+  KYORO_RYU_GE_KAIVA_SCENARIOS.push(defineScenario({
+    id: `kyoro-ryu-ge-kaiva-${format}-one-then-two-destructions`,
+    title: `${format}: Kaiva is absent after one destruction and becomes available after the second`,
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] the destruction counter has a two-card threshold`,
+    rules: ["R-COMMON-SEAT-STATE"], tags: ["multiplayer", format, "card:93509766"],
+    setup: baseSetup(format, {
+      p0: { hand: [HOLE, "De-Spell"] },
+      p1: { monsters: [ELF], spells: ["Ground Collapse"] },
+      [holder]: { hand: [CARD], spells: [faceDown("Jar of Greed")] },
+    }),
+    steps: [
+      activate(HOLE, "p0"), pass(holder),
+      expectPrompt({ by: holder, context: "chain" }), expectNotOffered("activate", CARD, holder),
+      activate("Jar of Greed", holder),
+      activate("De-Spell", "p0"),
+      expectOffered("activate", CARD, holder), activate(CARD, holder),
+      expectPrompt({ by: "p0", context: "action" }),
+      everySeat(format, {
+        p0: { hand: [], deckCount: 20, grave: [HOLE, "De-Spell"] },
+        p1: { hand: [], deckCount: 20, grave: [ELF, "Ground Collapse"] },
+        ...(format === "ffa3" ? {} : { p2: { hand: [], deckCount: 20 } }),
+        [holder]: { hand: [ELF], deckCount: 19, monsters: [CARD], grave: ["Jar of Greed"] },
+      }),
+    ],
+  }));
+}
