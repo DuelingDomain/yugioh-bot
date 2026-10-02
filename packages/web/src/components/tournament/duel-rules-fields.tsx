@@ -30,7 +30,7 @@ export function DuelRulesFields({
 }) {
   const lengthId = `${idPrefix}-length`;
   return (
-    <div className="fields">
+    <div className={`fields ${styles.fields}`}>
       <div className="wide">
         <span className="label" id={lengthId}>
           Match length
