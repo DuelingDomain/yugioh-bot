@@ -37,6 +37,7 @@ export function standingsSeries(slot: Match, changes: Partial<DuelSeriesSummary>
     wins: [1, 0], gameNumber: 2, currentDuelSlug: `duel-${slot.id}`, winnerPlayerId: null,
     tournamentId: 12, tournamentSlug: "friday-night-duels-12", tournamentMatchId: slot.id,
     nextGameAt: null, sideReady: [false, false], hasSide: [true, true],
+    firstChooser: null, firstChoice: null, vsBot: false,
     ...changes,
   };
 }

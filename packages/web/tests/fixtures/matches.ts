@@ -17,7 +17,7 @@ export function slot(id: number, one: number, two: number | null, overrides: Par
 }
 
 export function seriesFor(match: Match, overrides: Partial<DuelSeriesSummary> = {}): DuelSeriesSummary {
-  return { id: match.id, bestOf: 3, ranked: false, status: "active", playerIds: [match.playerOneId, match.playerTwoId!], displayNames: [match.playerOneName, match.playerTwoName!], wins: [1, 0], gameNumber: 2, currentDuelSlug: `duel-${match.id}`, winnerPlayerId: null, tournamentId: 12, tournamentSlug: "friday-night-duels-12", tournamentMatchId: match.id, nextGameAt: null, sideReady: [false, false], hasSide: [true, true], ...overrides };
+  return { id: match.id, bestOf: 3, ranked: false, status: "active", playerIds: [match.playerOneId, match.playerTwoId!], displayNames: [match.playerOneName, match.playerTwoName!], wins: [1, 0], gameNumber: 2, currentDuelSlug: `duel-${match.id}`, winnerPlayerId: null, tournamentId: 12, tournamentSlug: "friday-night-duels-12", tournamentMatchId: match.id, nextGameAt: null, sideReady: [false, false], hasSide: [true, true], firstChooser: null, firstChoice: null, vsBot: false, ...overrides };
 }
 
 function completed(id: number, one: number, two: number, wins: [number, number], resolvedAt: string): Match {
