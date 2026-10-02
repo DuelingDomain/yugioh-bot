@@ -84,6 +84,19 @@ const NETWORK = "Numeron Network";
 const UTOPIA = "Number 39: Utopia";
 const NUMERONIUS = "Number C1000: Numerounius";
 const UNIFIED = "Unified Front";
+const CARTESIA = "Blazing Cartesia, the Virtuous";
+const SCREAMS = "Screams of the Branded";
+const BURST = "Evolution Burst";
+const CYBER = "Cyber Dragon";
+const SACRIFICE = "Card of Sacrifice";
+const BEACON = "Cyberse Beacon";
+const GADGET = "Cyberse Gadget";
+const SOUL = "Successor Soul";
+const LEONIDAS = "D/D/D Rebel King Leonidas";
+const OOKAZI = "Ookazi";
+const POLY = "Polymerization";
+const MANIPULATOR = "Flame Manipulator";
+const MASAKI = "Masaki the Legendary Swordsman";
 const CARNOT = "Carnot the Eternal Machine";
 const SPIDER = "Link Spider";
 const YOWIE = "Yowie";
@@ -218,6 +231,8 @@ const graveFlags = (): Scenario[] => [
       (holder, other) => ({ p0: { grave: [RAIGEKI] }, [other]: { grave: [BRIGHTEST] }, [holder]: { grave: [FLAME], hand: [BRIGHTEST] } })),
     graveFlag(format, 29948294, HIGH_SPIRITS, FLAME, [yes(format === "tag" ? "p3" : "p2")],
       (holder, other) => ({ p0: { grave: [RAIGEKI] }, [other]: { grave: [HIGH_SPIRITS] }, [holder]: { grave: [FLAME], hand: [HIGH_SPIRITS] } })),
+    graveFlag(format, 95515789, CARTESIA, FLAME, [yes(format === "tag" ? "p3" : "p2")],
+      (holder, other) => ({ p0: { grave: [RAIGEKI] }, [other]: { grave: [CARTESIA] }, [holder]: { grave: [FLAME], hand: [CARTESIA] } })),
     graveFlag(format, 27275398, PEDAL, LEON, [yes(format === "tag" ? "p3" : "p2")],
       (holder, other) => ({ p0: { grave: [RAIGEKI] }, [other]: { grave: [PEDAL] }, [holder]: { grave: [LEON], spells: [PEDAL] } })),
   ]),
@@ -461,6 +476,148 @@ const unified = (format: "ffa3" | "tag"): Scenario => {
 
 const yowies = (): Scenario[] => [yowie("ffa3", 1), yowie("ffa3", 2), yowie("tag", 1), yowie("tag", 2)];
 
+/** Batch of "own turn" probes: the holder is p1 (team 1 in Tag). `late` holders have a Battle Phase (p1 in turn 5 in FFA3, p3 in turn 4 in Tag). */
+const holderOf = (format: "ffa3" | "tag", late: boolean) => {
+  const tag = format === "tag";
+  const holder: Seat = late && tag ? "p3" : "p1";
+  const first: Step[] = !late ? turns(["p0"]) : tag ? turns(["p0", "p1", "p2"]) : turns(["p0", "p1", "p2", "p0"]);
+  const filler = { deck: [ELF, ELF, ELF, ELF] };
+  const setup: Record<string, unknown> = { p0: filler, p1: filler, p2: filler };
+  if (tag) setup.p3 = filler;
+  return { tag, holder, first, setup, label: tag ? "Tag" : "FFA3" };
+};
+
+/**
+ * Screams of the Branded 67100549 is a Trap: it needs Duel.GetFlagEffect(tp,id)>0 (a Fusion Monster of the holder went to the Graveyard this turn: flag for
+ * its controller). Raigeki of p0 destroys the Flame Swordsman of the holder; the Set trap of the holder is then offered and Special Summons it from the
+ * Graveyard. A second duelist has the same Set trap and a Fusion Monster in its Graveyard but no flag: it is not offered.
+ */
+const screams = (format: "ffa3" | "tag"): Scenario => {
+  const tag = format === "tag";
+  const holder: Seat = tag ? "p3" : "p2";
+  const other: Seat = tag ? "p2" : "p1";
+  const setup: Record<string, unknown> = { p0: { hand: [RAIGEKI], deck: [ELF] }, p1: { deck: [ELF] }, p2: { deck: [ELF] } };
+  if (tag) setup.p3 = { deck: [ELF] };
+  setup[holder] = { monsters: [FLAME], spells: [{ card: SCREAMS, pos: "set" }], deck: [ELF] };
+  setup[other] = { ...(setup[other] as object), spells: [{ card: SCREAMS, pos: "set" }], grave: [FLAME] };
+  return probe(format, `screams-of-the-branded-flag-of-${holder}-only`, 67100549,
+    `${tag ? "Tag" : "FFA3"}: Raigeki of p0 destroys the Flame Swordsman of ${holder} (flag kept for ${tag ? "team 1" : holder}); the Set Screams of the Branded of ${holder} is offered and Special Summons it from the Graveyard`,
+    setup,
+    [activate(RAIGEKI, "p0"), expectOffered("activate", SCREAMS, holder), activate(SCREAMS, holder)],
+    { p0: { grave: [RAIGEKI] }, [other]: { spells: [SCREAMS], grave: [FLAME] }, [holder]: { monsters: [FLAME], grave: [SCREAMS] } });
+};
+
+/**
+ * Card of Sacrifice 88513608 is a Trap: a global check keeps a flag for rp (the duelist that changes a battle position by hand); the cost needs
+ * not Duel.HasFlagEffect(tp,id). The holder keeps it Set with 3 Attack Position Mystical Elf (2400 ATK in all) against the Dark Magician of p0 (2500 ATK).
+ * Without a position change the Set trap is offered at the End Phase window of the holder and draws 2 cards; after the holder changed the position of one Elf by hand
+ * (flag of the holder, in Tag of team 1) no window opens for it at the same phase change.
+ */
+/** Windows that the Set trap of the holder opens in the turn of p0 and in the Draw, Standby and Main steps before the holder can act. */
+const PASSES = 5;
+const sacrifice = (format: "ffa3" | "tag", changed: boolean): Scenario => {
+  const { holder, first, setup, label, tag } = holderOf(format, false);
+  setup[holder] = { spells: [{ card: SACRIFICE, pos: "set" }], monsters: [ELF, ELF, ELF], deck: [ELF, ELF, ELF, ELF] };
+  setup.p0 = { monsters: [DM], deck: [ELF, ELF, ELF, ELF] };
+  const steps: Step[] = changed
+    ? [...first, ...Array.from({ length: PASSES }, () => pass(holder)), changePosition({ card: ELF, nth: 0 }, holder), changePhase("end", holder)]
+    : [...first, ...Array.from({ length: PASSES }, () => pass(holder)), changePhase("end", holder), expectOffered("activate", SACRIFICE, holder), activate(SACRIFICE, holder)];
+  const spec: Partial<Record<Seat, DuelistExpect>> = changed
+    ? { p0: { monsters: [DM] }, [holder]: { spells: [SACRIFICE], monsters: [ELF, ELF, ELF], hand: [ELF] } }
+    : { p0: { monsters: [DM] }, [holder]: { grave: [SACRIFICE], monsters: [ELF, ELF, ELF], hand: [ELF, ELF, ELF] } };
+  return probe(format, `card-of-sacrifice-${changed ? "not-offered-after-a-position-change" : "offered-without-a-position-change"}-of-${holder}`, 88513608,
+    changed
+      ? `${label}: ${holder} changes the position of one Elf by hand (flag of ${tag ? "team 1" : holder}); its Set Card of Sacrifice gets no window at the End Phase change`
+      : `${label}: ${holder} keeps a Set Card of Sacrifice with 3 Attack Position Elf (2400 ATK) against the Dark Magician of p0 (2500 ATK): it is offered at the End Phase window and draws 2 cards`,
+    setup, steps, spec);
+};
+
+/**
+ * Cyberse Beacon 91269402 is a Trap: a global check keeps a flag for ep (the duelist that took battle damage or damage from an opponent's card effect); the
+ * condition reads Duel.GetFlagEffect(tp,id)~=0. Ookazi of p0 burns one duelist: the Set Cyberse Beacon of that duelist is offered and adds Cyberse Gadget from the
+ * Deck; a second duelist with the same Set trap that did not take the damage is not offered it (in Tag the flag is the one of the team of the damaged duelist).
+ */
+const beacon = (format: "ffa3" | "tag"): Scenario => {
+  const tag = format === "tag";
+  const holder: Seat = tag ? "p1" : "p2";
+  const other: Seat = tag ? "p2" : "p1";
+  const set = { spells: [{ card: BEACON, pos: "set" }], deck: [GADGET, ELF] };
+  const setup: Record<string, unknown> = { p0: { hand: [OOKAZI], deck: [ELF] }, p1: { deck: [ELF] }, p2: { deck: [ELF] } };
+  if (tag) setup.p3 = { deck: [ELF] };
+  setup[holder] = set;
+  setup[other] = set;
+  const lp = tag ? 15200 : 7200;
+  const spec: Partial<Record<Seat, DuelistExpect>> = {
+    p0: { grave: [OOKAZI] }, [other]: { spells: [BEACON] },
+    [holder]: { lp, grave: [BEACON], hand: [GADGET] },
+  };
+  if (tag) spec.p3 = { lp };
+  return probe(format, `cyberse-beacon-damage-flag-of-${holder}-only`, 91269402,
+    `${tag ? "Tag" : "FFA3"}: Ookazi of p0 burns ${holder} (flag kept for ${tag ? "team 1" : holder}); the Set Cyberse Beacon of ${holder} is offered and adds Cyberse Gadget, the same Set trap of ${other} (no damage taken${tag ? ", team 0" : ""}) is not offered`,
+    setup,
+    [activate(OOKAZI, "p0"), ...(tag ? [] : [pickOpponent(holder, "p0")]), expectOffered("activate", BEACON, holder), activate(BEACON, holder)],
+    spec);
+};
+
+/**
+ * Successor Soul 69145169: a global check keeps a flag for the controller of an attacker (label = field id of the first attacker, 0 once a second monster
+ * attacked); the cost needs no flag or label ~= 0. The holder (an Elf and a second Elf, Man-Eater Bug to Tribute, Dark Magician in the hand) attacks the Man-Eater Bug
+ * of p0 with ONE monster and is offered the Quick-Play Spell; after a SECOND monster attacked it is not offered.
+ */
+const soul = (format: "ffa3" | "tag", attackers: 1 | 2): Scenario => {
+  const { holder, first, setup, label, tag } = holderOf(format, true);
+  setup[holder] = { hand: [SOUL, DM, BUG], monsters: [ELF, ELF], deck: [ELF, ELF, ELF, ELF] };
+  setup.p0 = { monsters: attackers === 1 ? [BUG] : [BUG, BUG], deck: [ELF, ELF, ELF, ELF] };
+  const ready: Step[] = [...first, normalSummon(BUG, holder), pass(holder), changePhase("battle", holder), pass(holder)];
+  const hit = attack({ card: ELF, nth: 0 }, { card: BUG, owner: "p0" }, holder);
+  const steps: Step[] = attackers === 1
+    ? [...ready, hit, expectOffered("activate", SOUL, holder), activate(SOUL, holder)]
+    : [...ready, hit, expectOffered("activate", SOUL, holder), pass(holder), pass(holder), hit, changePhase("main2", holder)];
+  const spec: Partial<Record<Seat, DuelistExpect>> = attackers === 1
+    ? { p0: { grave: [BUG] }, [holder]: { monsters: [ELF, ELF, DM], grave: [BUG, SOUL], hand: tag ? [ELF] : [ELF, ELF] } }
+    : { p0: { lp: tag ? 15300 : 7300, grave: [BUG, BUG] }, [holder]: { monsters: [ELF, ELF, BUG], hand: tag ? [SOUL, DM, ELF] : [SOUL, DM, ELF, ELF] } };
+  if (attackers === 2 && tag) spec.p2 = { lp: 15300 };
+  return probe(format, `successor-soul-${attackers === 1 ? "offered-after-one-attacker" : "not-offered-after-two-attackers"}-of-${holder}`, 69145169,
+    `${label}: ${holder} attacks with ${attackers} monster${attackers === 1 ? "" : "s"} (flag of ${tag ? "team 1" : holder}); Successor Soul is ${attackers === 1 ? "offered, Tributes the Man-Eater Bug, sends the Bug of p0 to the Graveyard and Special Summons Dark Magician" : "offered at the first attack and not at the second"}`,
+    setup, steps, spec);
+};
+
+/**
+ * D/D/D Rebel King Leonidas 92536468: a global check keeps a flag for ep (RESET_CHAIN) and the hand effect reads ep==tp and r&REASON_EFFECT. Ookazi of p0 burns
+ * one duelist (800): its Leonidas in the hand triggers (optional, `yes`), is Special Summoned and the 800 LP come back, so the LP is unchanged. A second duelist
+ * with Leonidas in the hand that took no damage (in Tag the duelist of team 0) gets no trigger.
+ */
+const leonidas = (format: "ffa3" | "tag"): Scenario => {
+  const tag = format === "tag";
+  const holder: Seat = tag ? "p1" : "p2";
+  const other: Seat = tag ? "p2" : "p1";
+  const setup: Record<string, unknown> = { p0: { hand: [OOKAZI], deck: [ELF] }, p1: { deck: [ELF] }, p2: { deck: [ELF] } };
+  if (tag) setup.p3 = { deck: [ELF] };
+  setup[holder] = { hand: [LEONIDAS], deck: [ELF] };
+  setup[other] = { hand: [LEONIDAS], deck: [ELF] };
+  return probe(format, `d-d-d-rebel-king-leonidas-hand-effect-of-${holder}-only`, 92536468,
+    `${tag ? "Tag" : "FFA3"}: Ookazi of p0 burns ${holder}: Leonidas in the hand of ${holder} triggers and is Special Summoned (800 LP back), the Leonidas in the hand of ${other} (no damage taken) does not trigger`,
+    setup,
+    [activate(OOKAZI, "p0"), ...(tag ? [] : [pickOpponent(holder, "p0")]), expectOffered("activate", LEONIDAS, holder), activate(LEONIDAS, holder), auto(holder)],
+    { p0: { grave: [OOKAZI] }, [other]: { hand: [LEONIDAS] }, [holder]: { monsters: [LEONIDAS] } });
+};
+
+/**
+ * Evolution Burst 52875873: a global check keeps a flag for the controller of an attacking Cyber Dragon; the cost needs Duel.GetFlagEffect(tp,id)==0. The holder is
+ * offered the Spell before its Cyber Dragon attacks and is not offered it in the Main Phase 2 after the attack.
+ */
+const burst = (format: "ffa3" | "tag"): Scenario => {
+  const { holder, first, setup, label } = holderOf(format, true);
+  setup[holder] = { hand: [BURST], monsters: [CYBER], deck: [ELF, ELF, ELF] };
+  setup.p0 = { spells: [{ card: POT, pos: "set" }], deck: [ELF, ELF, ELF, ELF] };
+  const tag = format === "tag";
+  return probe(format, `evolution-burst-not-offered-after-a-cyber-dragon-attack-of-${holder}`, 52875873,
+    `${label}: ${holder} is offered Evolution Burst before its Cyber Dragon attacks; the attack (direct, on p0) keeps the flag for ${tag ? "team 1" : holder}, so the Spell is not offered in the Main Phase 2`,
+    setup,
+    [...first, expectOffered("activate", BURST, holder), attack({ card: CYBER }, "direct", holder), pickOpponent("p0", holder), changePhase("main2", holder), expectNotOffered("activate", BURST, holder)],
+    { p0: { lp: tag ? 13900 : 5900, spells: [POT] }, ...(tag ? { p2: { lp: 13900 } } : {}), [holder]: { monsters: [CYBER], hand: tag ? [BURST, ELF] : [BURST, ELF, ELF] } });
+};
+
 export const R2_NOCHANGE_SCENARIOS: Scenario[] = [
   probe("ffa3", "bumpkin-offered-after-3-special-summons-of-an-opponent", 8700633,
     "FFA3: p2 Special Summons 4 Sheep Tokens with Scapegoat (the flag is kept for the seat of p2); in the Main Phase of p2 the Undaunted Bumpkin Beast of p0 is offered and Special Summoned, the Bumpkin of p2 itself stays in the hand",
@@ -529,4 +686,8 @@ export const R2_NOCHANGE_SCENARIOS: Scenario[] = [
   ...graveFlags(),
   carnot("ffa3"),
   carnot("tag"),
+  screams("ffa3"),
+  screams("tag"),
+  burst("ffa3"),
+  burst("tag"), sacrifice("ffa3", false), sacrifice("ffa3", true), sacrifice("tag", false), sacrifice("tag", true), beacon("ffa3"), beacon("tag"), soul("ffa3", 1), soul("ffa3", 2), soul("tag", 1), soul("tag", 2), leonidas("ffa3"), leonidas("tag"),
 ];
