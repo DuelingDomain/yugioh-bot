@@ -133,3 +133,7 @@ Greed (89405199) counted the same face-up Trap twice when it checked both Tag me
 ## Unicore Tag hands
 
 The Fabled Unicore (44155002) compared only the event opponent's hand in Tag. Q2 requires both opposing hands; the own hand remains the holder's hand. The Tag-only overlay sums both opposing hands. Live proof: `fabled-unicore-counts.ts`. Both stock Tag cases fail, in opposite directions. All five fixed cases pass on both cores, including stock 1v1 and FFA controls.
+
+## Bujinki detach state
+
+Bujinki Ahashima (71095768) stored the detach sequence relative to the first global holder. A later holder then missed its linked Xyz monster's effect. The overlay stores the real detach controller and compares it with each holder. Live proof: `bujinki-detach-state.ts`, with a real Gagaga Cowboy detach. All three original two-holder cases fail; all three one-holder controls pass. All six fixed cases pass on both cores.

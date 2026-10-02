@@ -4146,7 +4146,11 @@
       ],
       "r2Class": "LITERAL",
       "stockSha256": "f637773a7a97f279f069f74e7a157afdf2334abd618ec676da0f653c6210fdd4",
-      "note": "the global check compares the controller of a card with 1-p (p = controller of this card); it compares the keys (seat in FFA, team in Tag). The linked-zone bit 16+ still means one opponent side."
+      "note": "Compare the real detach controller with each holder linked zones.",
+      "redefines": [
+        "checkop",
+        "descon"
+      ]
     },
     {
       "code": 71108540,

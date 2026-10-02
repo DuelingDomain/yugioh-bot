@@ -5,12 +5,17 @@ function s.checkop(e,tp,eg,ep,ev,re,r,rp)
 		s[0],s[1]=Duel.GetChainInfo(cid,CHAININFO_CHAIN_ID),Duel.GetChainInfo(cid,CHAININFO_TRIGGERING_LOCATION)
 		local seq=Duel.GetChainInfo(cid,CHAININFO_TRIGGERING_SEQUENCE)
 		local te=Duel.GetChainInfo(cid,CHAININFO_TRIGGERING_EFFECT)
-		local tc,p=te:GetHandler(),e:GetHandler():GetControler()
-		if tc:IsRelateToEffect(te) then
-			if aux.MPKey(tc:GetControler())~=aux.MPKey(p) then seq=seq+16 end
-		else
-			if aux.MPKey(tc:GetPreviousControler())~=aux.MPKey(p) then seq=seq+16 end
-		end
+		local tc=te:GetHandler()
+		s.mp_detach_seat=tc:IsRelateToEffect(te) and Duel.MPSeatOf(tc) or tc:GetPreviousControler()
 		s[2]=seq
 	end
+end
+-- Each holder compares the real detach controller with its own linked zones.
+function s.descon(e,tp,eg,ep,ev,re,r,rp)
+	local c=e:GetHandler()
+	local loc,seq=s[1],s[2]
+	if c:IsStatus(STATUS_BATTLE_DESTROYED) or not seq then return false end
+	if aux.MPKeyOfSeat(s.mp_detach_seat)~=aux.MPKeyOfSeat(Duel.MPSeatOf(c)) then seq=seq+16 end
+	return Duel.GetChainInfo(ev,CHAININFO_CHAIN_ID)==s[0]
+		and re:IsActiveType(TYPE_XYZ) and (loc&LOCATION_MZONE)~=0 and bit.extract(c:GetLinkedZone(),seq)~=0
 end
