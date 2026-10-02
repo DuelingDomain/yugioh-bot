@@ -17,12 +17,12 @@ export function CardPreview({ card, onPick, onBack }: CardPreviewProps) {
   return (
     <div className="flex flex-col gap-4">
       {/* Full art image */}
-      <div className="relative mx-auto aspect-[3/4] w-full max-w-xs overflow-hidden rounded-xl bg-bg-elevated shadow-card">
+      <div className="card-frame mx-auto w-full max-w-xs bg-bg-elevated shadow-card">
         <Image
           src={card.imageUrl}
           alt={card.name}
           fill
-          className="object-cover"
+          className="object-contain"
           sizes="(max-width: 768px) 100vw, 384px"
         />
       </div>

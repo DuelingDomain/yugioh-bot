@@ -375,7 +375,7 @@ export function FxLab() {
                     <DuelField
                       engine={engine}
                       mySeat={script.mySeat ?? 0}
-                      masterRule={5}
+                      masterRule={script.masterRule ?? 5}
                       reducedMotion={reduced}
                       legalKeys={legalKeys as Set<string>}
                       selectedKeys={pickedKeys as Set<string>}
