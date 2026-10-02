@@ -7,7 +7,7 @@
 // The holder (a seat of the turn) destroys the 2 monsters of the opponents (Ignis Heat and Majesty Maiden are both True Draco monsters) with Raigeki and
 // draws with the Heritage: ONE card, because both are Monster cards.
 
-import { activate, attack, changePhase, defineScenario, endTurn, expectEliminated, pickOpponent, surrender, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePhase, defineScenario, endTurn, expectEliminated, expectPrompt, surrender, yes, type Scenario, type Step } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -37,7 +37,7 @@ function heritage(format: Format, holder: Seat, p0Out: boolean): Scenario {
     ...turnsBefore(format, holder, first),
     activate(RAIGEKI, holder),
     activate({ card: HERITAGE, from: "szone" }, holder),
-    ...(foes.length > 1 ? [pickOpponent(foes[0]!, holder)] : []), // with 2 opponents the holder picks the one its effect folds to
+    expectPrompt({ by: holder, context: "action" }),
   ];
   return defineScenario({
     id: `true-draco-heritage-${format}-${holder}${p0Out ? "-p0-out" : ""}-two-monsters-draw-one-card`,
@@ -72,7 +72,7 @@ function heritageAtLpZero(format: "ffa3" | "ffa4"): Scenario {
     steps: [
       endTurn("p0"), attack("Mystical Elf", "direct", "p1"), yes("p1"), changePhase("main2", "p1"), expectEliminated("p0"),
       activate(RAIGEKI, "p1"), activate({ card: HERITAGE, from: "szone" }, "p1"),
-      ...(format === "ffa4" ? [pickOpponent("p2", "p1")] : []),
+      expectPrompt({ by: "p1", context: "action" }),
       everySeat(format, {
         p0: { lp: 0, hand: [] },
         p1: { hand: { count: 2 }, monsters: ["Mystical Elf"], spells: [HERITAGE], grave: [RAIGEKI] },

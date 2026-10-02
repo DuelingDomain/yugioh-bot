@@ -1,8 +1,8 @@
 // Sangen Kaiho (25388971): "(Quick Effect) from your Graveyard, if 3 or more attacks were declared this turn: banish this card; draw 1 card".
 // The global check registers a flag for the attacking player (ep) at every attack declaration and the condition reads
 // Duel.GetFlagEffect(0,id)+Duel.GetFlagEffect(1,id) (the two players of a duel). With more than two duelists the holder must see the 3 attacks
-// of ANY turn player, whichever seat the holder, the attacker and the attacked duelist have. No bug: the offer is right for every combination here
-// (the flag of the attacker is read through the sum of both folded players). The turn player declares 3 direct attacks
+// of ANY turn player, whichever seat the holder, the attacker and the attacked duelist have. The overlay sums the flags of every seat
+// (one read per team in Tag) without a read that can ask for an opponent. The turn player declares 3 direct attacks
 // (a Mystical Elf each) and the holder is offered the card after the third; with 2 attacks it is not offered. Tag: both partners.
 
 import { activate, attack, defineScenario, expectNotOffered, expectOffered, pickOpponent, type Scenario, type Step } from "../../support/dsl.js";
@@ -13,8 +13,6 @@ const KAIHO = "Sangen Kaiho";
 const KAIHO_CODE = 25388971;
 const ELF = "Mystical Elf";
 
-/** On the turn of its own side the holder picks the opponent that its effect folds to (Tag: the partner of the turn player; FFA: the turn player itself). */
-const sameSide = (format: Format, a: Seat, b: Seat): boolean => (format === "tag" ? Number(a[1]) % 2 === Number(b[1]) % 2 : a === b);
 
 function kaiho(format: Format, attacker: Seat, target: Seat, holder: Seat, attacks: 2 | 3): Scenario {
   const base = format === "tag" ? 16000 : 8000;
@@ -22,7 +20,7 @@ function kaiho(format: Format, attacker: Seat, target: Seat, holder: Seat, attac
   const steps: Step[] = [
     ...turnsBefore(format, attacker),
     ...Array.from({ length: attacks }, () => [attack({ card: ELF, nth: 0 }, "direct", attacker), pickOpponent(target, attacker)]).flat(),
-    ...(offered ? [expectOffered("activate", { card: KAIHO, from: "grave" }, holder), activate({ card: KAIHO, from: "grave" }, holder), ...(sameSide(format, attacker, holder) ? [pickOpponent(target, holder)] : [])] : [expectNotOffered("activate", { card: KAIHO, from: "grave" }, attacker)]),
+    ...(offered ? [expectOffered("activate", { card: KAIHO, from: "grave" }, holder), activate({ card: KAIHO, from: "grave" }, holder)] : [expectNotOffered("activate", { card: KAIHO, from: "grave" }, attacker)]),
   ];
   // Each seat that had its turn until now drew 1 card for it (p0 does not draw in the first turn); the holder draws 1 more with the card.
   const handCount = (seat: Seat): number => (seat !== "p0" && Number(seat[1]) <= Number(attacker[1]) ? 1 : 0) + (offered && seat === holder ? 1 : 0);

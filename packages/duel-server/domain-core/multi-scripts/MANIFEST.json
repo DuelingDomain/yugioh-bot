@@ -1477,9 +1477,12 @@
         "phcon"
       ],
       "redefined": [
-        "phcon"
+        "phcon",
+        "initial_effect",
+        "mp_attackcon"
       ],
-      "stockSha256": "d22769cec678669c6d56d296ac82acb6519c1146b18a46a2940d1bd1a4746749"
+      "stockSha256": "d22769cec678669c6d56d296ac82acb6519c1146b18a46a2940d1bd1a4746749",
+      "note": "The Graveyard condition sums attack flags over all seats, once per team in Tag. It does not read a folded opponent or ask for a pick."
     },
     {
       "code": 25669282,
@@ -2773,7 +2776,13 @@
       ],
       "r2Class": "FLAG-L0",
       "stockSha256": "44dbfe219c696b7c5a5d5c5515c2585e1630eadc74f5674182c1a6d9dada5556",
-      "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+      "note": "The global flag reaches every key. Card effects read the holder flag. Informational hints go to every opponent without a pick.",
+      "redefined": [
+        "initial_effect",
+        "drtg",
+        "drop",
+        "sumtg"
+      ]
     },
     {
       "code": 49565413,
