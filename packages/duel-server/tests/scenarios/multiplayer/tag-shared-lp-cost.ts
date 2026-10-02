@@ -6,7 +6,7 @@ const CARD = "Cosmic Cyclone";
 const SPELL = "Dark Room of Nightmare";
 
 function cost(actor: Seat, lp: number): Scenario {
-  const target = actor === "p2" ? "p3" : "p2";
+  const target: Seat = actor === "p2" ? "p3" : "p2";
   const leader = PARTNER[actor];
   const canPay = lp >= 1000;
   return defineScenario({
