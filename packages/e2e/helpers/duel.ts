@@ -50,7 +50,9 @@ export async function surrender(page: Page): Promise<void> {
   await openOptions(page);
   await page.getByRole("button", { name: "Surrender", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Surrender" });
+  const done = page.waitForResponse(response => response.url().endsWith("/surrender") && response.request().method() === "POST");
   await dialog.getByRole("button", { name: "Surrender", exact: true }).click();
+  expect((await done).ok()).toBe(true);
 }
 
 /** Picks one option of a segmented control. The radio input is visually hidden, so the visible label takes the click. */
