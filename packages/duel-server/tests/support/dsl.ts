@@ -104,6 +104,7 @@ export interface PromptExpect {
 }
 
 export type Step =
+  | { op: "expectPrivateCards"; cards: Array<{ owner: DuelistId; from: "hand" | "mzone" | "szone"; seq: number; card: CardRef; visibleTo: DuelistId[] }> }
   | { op: "activate"; sel: CardSel; by?: DuelistId }
   | { op: "normalSummon"; sel: CardSel; by?: DuelistId }
   | { op: "set"; sel: CardSel; by?: DuelistId }
@@ -197,6 +198,8 @@ export const raw = (answer: DuelAnswer, by?: DuelistId): Step => ({ op: "raw", a
 
 // Expectations ------------------------------------------------------------------------------------
 export const expectBoard = (board: BoardExpect): Step => ({ op: "expectBoard", board });
+/** Check the real projection of each private card for every seat and the spectator. Hidden cards have only their place and position. */
+export const expectPrivateCards = (cards: Extract<Step, { op: "expectPrivateCards" }>["cards"]): Step => ({ op: "expectPrivateCards", cards });
 /** These events happened in this order (other events may sit between them). */
 export const expectEvents = (...events: EventMatch[]): Step => ({ op: "expectEvents", events });
 export const expectNoEvent = (event: EventMatch): Step => ({ op: "expectNoEvent", event });

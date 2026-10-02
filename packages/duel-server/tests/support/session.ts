@@ -287,6 +287,28 @@ export class Session {
   run(step: Step, stepNo: number): void {
     this.settle(step, stepNo);
     switch (step.op) {
+      case "expectPrivateCards": {
+        const problems: string[] = [];
+        for (const viewer of [...this.seats, null]) {
+          const view = this.game.view(viewer);
+          for (const ref of step.cards) {
+            const state = view.seats[seatOf(ref.owner)];
+            const list = ref.from === "hand" ? state.hand : ref.from === "mzone" ? state.monsters : state.spells;
+            const card = list[ref.seq];
+            const label = `${viewer === null ? "spectator" : `p${viewer}`} sees ${ref.owner}.${ref.from}[${ref.seq}]`;
+            if (!card) { problems.push(`${label}: missing card`); continue; }
+            const visible = viewer !== null && ref.visibleTo.some((id) => seatOf(id) === viewer);
+            if (visible) {
+              if (card.code !== codeOf(ref.card) || !card.name) problems.push(`${label}: expected ${cardLabel(codeOf(ref.card))}, got ${cardLabel(card.code)}`);
+            } else {
+              const leaked = Object.keys(card).filter((key) => !["controller", "location", "sequence", "position"].includes(key));
+              if (leaked.length) problems.push(`${label}: private fields leaked: ${leaked.join(", ")}`);
+            }
+          }
+        }
+        if (problems.length) this.fail(stepNo, step, problems.join("\n"), false);
+        return;
+      }
       case "activate":
       case "normalSummon":
       case "specialSummon":
