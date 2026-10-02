@@ -129,3 +129,7 @@ Live proof: `local-controller-lp.ts`. The original scripts fail 24 cases. Twelve
 ## Greed shared field view
 
 Greed (89405199) counted the same face-up Trap twice when it checked both Tag members' joined Spell and Trap zones. The draw callback now visits each observer card once. Live proof: `player-all-overlay-lp.ts`. Both original Tag outcomes fail, with 2000 damage instead of 1000. Both FFA controls pass. All 20 checks for five overlay LP cards pass on both cores.
+
+## Unicore Tag hands
+
+The Fabled Unicore (44155002) compared only the event opponent's hand in Tag. Q2 requires both opposing hands; the own hand remains the holder's hand. The Tag-only overlay sums both opposing hands. Live proof: `fabled-unicore-counts.ts`. Both stock Tag cases fail, in opposite directions. All five fixed cases pass on both cores, including stock 1v1 and FFA controls.

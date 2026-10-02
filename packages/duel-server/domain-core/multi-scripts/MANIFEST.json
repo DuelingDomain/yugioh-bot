@@ -2602,6 +2602,18 @@
       ]
     },
     {
+      "code": 44155002,
+      "file": "c44155002.lua",
+      "name": "The Fabled Unicore",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "785ca7c621cbb4d58083127e6ae3a6fc3ade4e13a499c192daf6f870215e5074",
+      "note": "Tag hand comparison sums both opposing hands.",
+      "redefines": [
+        "disop"
+      ]
+    },
+    {
       "code": 44656491,
       "file": "c44656491.lua",
       "name": "Messenger of Peace",
