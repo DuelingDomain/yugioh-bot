@@ -804,7 +804,7 @@ function ResponseBody({
         {prompt.options.map((option, index) => {
           const { effectText: optionEffect } = optionTexts(option);
           // Seat-only choices use the same names as the LP panels, including duplicate-name seat numbers.
-          const directAttack = option.controller != null && option.location == null && /^Attack .+ directly$/i.test(option.label);
+          const directAttack = seatTones != null && option.controller != null && option.location == null && /^Attack .+ directly$/i.test(option.label);
           const seatName = (context?.type === "opponent" || directAttack) && option.controller != null ? nameOf?.(option.controller) : undefined;
           const label = directAttack && seatName ? `Attack ${seatName} directly`
             : seatName ?? humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));

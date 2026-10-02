@@ -2,7 +2,7 @@
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import type { DuelPrompt } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelPrompt } from "@yugidraft/shared/duels";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -15,10 +15,10 @@ afterEach(cleanup);
 const prompt: DuelPrompt = { id: "direct", seat: 0, kind: "choice", title: "Select a duelist to attack",
   options: [1, 2].map((seat) => ({ id: `direct-${seat}`, controller: seat, label: `Attack Player ${seat + 1} directly` })),
 };
-function Panel({ onSubmit = vi.fn(), nameOf }: { onSubmit?: ReturnType<typeof vi.fn>; nameOf?: (seat: number) => string }) {
+function Panel({ onSubmit = vi.fn(), nameOf, table = true }: { onSubmit?: (answer: DuelAnswer) => void; nameOf?: (seat: number) => string; table?: boolean }) {
   const draft = usePromptDraft(prompt);
   return <PromptCenter prompt={prompt} mySeat={0} active slug="t" busy={false} draft={draft} onSubmit={onSubmit}
-    menuOpen={false} chain={[]} reducedMotion revision={1} nameOf={nameOf} />;
+    menuOpen={false} chain={[]} aimLocked={false} reducedMotion revision={1} nameOf={nameOf} seatTones={table ? new Map() : undefined} />;
 }
 it("names direct attack seats consistently with the table and preserves the selected engine option", () => {
   const submit = vi.fn();
@@ -30,4 +30,9 @@ it("names direct attack seats consistently with the table and preserves the sele
 it("keeps engine labels when no table name lookup is supplied", () => {
   render(<Panel />);
   expect(screen.getByRole("button", { name: /Attack Player 2 directly/ })).toBeVisible();
+});
+it("preserves duel labels when a 1v1 name lookup is supplied", () => {
+  render(<Panel table={false} nameOf={() => "Bob"} />);
+  expect(screen.getByRole("button", { name: /Attack Player 2 directly/ })).toBeVisible();
+  expect(screen.queryByRole("button", { name: /Attack Bob directly/ })).toBeNull();
 });
