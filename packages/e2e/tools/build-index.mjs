@@ -6,10 +6,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-
-const e2eRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const resultsDir = resolve(e2eRoot, "test-results");
-const jsonFile = resolve(e2eRoot, "../../.status/e2e-results.json");
+import { e2eRoot, jsonReportFile, resultsDir } from "../stack/env.mjs";
 const ANSI = /\u001b\[[0-9;]*m/g;
 
 function readJson(file) {
@@ -57,7 +54,7 @@ function evidenceDirs() {
 }
 
 export function buildIndex() {
-  const report = readJson(jsonFile);
+  const report = readJson(jsonReportFile);
   const failed = report ? failedFromReport(report) : [];
   const byDir = new Map();
   const entries = [];
@@ -126,7 +123,7 @@ export function buildIndex() {
     if (row.leak) md.push(`- Leak scan: ${row.leak.status}${row.leak.file ? ` ([leak-scan.json](${row.leak.file}))` : ""}${row.leak.first ? `. ${row.leak.first}` : ""}`);
     if (row.timeline) md.push(`- Timeline: [timeline.md](${row.timeline}), [timeline.json](${row.timelineJson})`);
     if (row.failureSummary) md.push(`- Failure summary: [failure-summary.json](${row.failureSummary})`);
-    if (row.trace) md.push(`- Trace: [trace.zip](${row.trace}) (\`npx playwright show-trace packages/e2e/test-results/${row.trace}\`)`);
+    if (row.trace) md.push(`- Trace: [trace.zip](${row.trace}) (\`npx playwright show-trace ${relative(process.cwd(), resolve(resultsDir, row.trace))}\`)`);
     for (const command of row.replay) md.push(`- Replay: \`${command}\``);
     md.push("");
   });
@@ -139,5 +136,5 @@ export function buildIndex() {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const rows = buildIndex();
-  console.log(`[e2e] index: ${rows.length} failed test(s), see packages/e2e/test-results/index.md`);
+  console.log(`[e2e] index: ${rows.length} failed test(s), see ${resolve(resultsDir, "index.md")}`);
 }

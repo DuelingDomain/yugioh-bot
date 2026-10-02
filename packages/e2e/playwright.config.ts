@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { ensureSecrets, webUrl } from "./stack/env.mjs";
+import { ensureSecrets, htmlReportDir, jsonReportFile, resultsDir, webUrl } from "./stack/env.mjs";
 
 // Fresh throwaway secrets for this run. Workers and the stack inherit them from this process.
 ensureSecrets();
@@ -8,7 +8,7 @@ const ci = Boolean(process.env.CI);
 
 export default defineConfig({
   testDir: "./tests",
-  outputDir: "./test-results",
+  outputDir: resultsDir,
   // One duel table per test, unique names: tests do not share state, so they can run in parallel.
   fullyParallel: true,
   forbidOnly: ci,
@@ -18,12 +18,12 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: [
     ["list"],
-    ["html", { open: "never", outputFolder: "playwright-report" }],
-    ["json", { outputFile: "../../.status/e2e-results.json" }],
+    ["html", { open: "never", outputFolder: htmlReportDir }],
+    ["json", { outputFile: jsonReportFile }],
     // Must stay after the json reporter: it reads that file. Writes test-results/index.md.
     ["./tools/index-reporter.mjs"],
   ],
-  // Sharding: `playwright test --shard=1/3`. Each shard starts its own stack; run shards on separate machines.
+  // Shards/runs on one machine must choose distinct E2E_SLOT values.
   use: {
     baseURL: webUrl,
     // CI retries once: the trace of the retry is kept, and of a last failed attempt. Locally there is no retry, so keep the trace of a failure.

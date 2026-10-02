@@ -1,9 +1,9 @@
 import { request as playwrightRequest, test as setup, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import { players, webUrl } from "../stack/env.mjs";
+import { authDir, players, webUrl } from "../stack/env.mjs";
 import { authFile } from "../helpers/players";
 
-mkdirSync(new URL("../.auth/", import.meta.url), { recursive: true });
+mkdirSync(authDir, { recursive: true });
 
 // Log each test player in once through the test-only credentials provider. No browser needed.
 for (const player of players) {
