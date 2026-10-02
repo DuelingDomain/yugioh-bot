@@ -884,6 +884,9 @@ export class Session {
     }
     if (card.code !== want) problems.push(`${label}: expected ${cardLabel(want)}, got ${cardLabel(card.code)}`);
     if (typeof expect === "object") {
+      if (expect.attack != null && card.attack !== expect.attack) {
+        problems.push(`${label}: expected ATK ${expect.attack}, got ${card.attack}`);
+      }
       const faceDown = (card.position & (0x02 | 0x08)) !== 0;
       if (expect.pos === "atk" && card.position !== 0x01) problems.push(`${label}: expected face-up attack, position is ${card.position}`);
       if (expect.pos === "def" && card.position !== 0x04) problems.push(`${label}: expected face-up defense, position is ${card.position}`);

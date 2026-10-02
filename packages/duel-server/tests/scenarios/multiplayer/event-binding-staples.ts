@@ -147,6 +147,7 @@ function maxx(format: Format, activator: Seat, holder: Seat): Scenario {
 const VEILER = "Effect Veiler";
 const IMPERMANENCE = "Infinite Impermanence";
 const HOMUNCULUS = "Homunculus the Alchemic Being";
+const CALCULATOR = "The Calculator";
 
 /**
  * The holder is offered its Quick Effect in the Main Phase 1 of a turn of another side: at the click that ends the Main Phase of the turn player
@@ -165,16 +166,21 @@ function mainWindows(format: Format, turnSeat: Seat, holder: Seat): Step[] {
 }
 
 /**
- * `holder` negates the effects of the Homunculus of `target` during the Main Phase of `turnSeat` (Effect Veiler from the hand or Infinite Impermanence Set):
- * only the target is negated. The proof is on the Homunculus of the turn player: it is negated when it is the target and keeps its effect when another seat is.
+ * The target Calculator loses its continuous ATK effect, including at a non-turn seat.
+ * Every other Calculator keeps its ATK. The turn player's Homunculus keeps its ignition effect.
  */
 function negate(format: Format, card: "veiler" | "impermanence", turnSeat: Seat, holder: Seat, target: Seat): Scenario {
   const name = card === "veiler" ? VEILER : IMPERMANENCE;
   const spec: Record<string, object> = {};
   const setup: Record<string, object> = {};
   for (const seat of SEATS[format]) {
-    spec[seat] = { hand: { count: drawn(seat, turnSeat) }, monsters: seat === holder ? [] : [HOMUNCULUS], grave: [] };
-    setup[seat] = seat === holder ? {} : { monsters: [HOMUNCULUS] };
+    // Each pair is level 4 + level 2. Tag counts all face-up monsters on the own team.
+    const pairs = SEATS[format].filter((s) => s !== holder && (format !== "tag" ? s === seat : team(s) === team(seat))).length;
+    spec[seat] = {
+      hand: { count: drawn(seat, turnSeat) }, monsters: seat === holder ? [] : [HOMUNCULUS, CALCULATOR], grave: [],
+      ...(seat !== holder ? { zones: { m1: { card: CALCULATOR, attack: seat === target ? 0 : pairs * 1800 } } } : {}),
+    };
+    setup[seat] = seat === holder ? {} : { monsters: [HOMUNCULUS, CALCULATOR] };
   }
   spec[holder] = { ...spec[holder], grave: [name] };
   setup[holder] = card === "veiler" ? { hand: [VEILER] } : { spells: [faceDown(IMPERMANENCE)] };
@@ -184,18 +190,17 @@ function negate(format: Format, card: "veiler" | "impermanence", turnSeat: Seat,
     endTurn(turnSeat),
     expectOffered("activate", name, holder),
     activate(name, holder),
-    select({ card: HOMUNCULUS, owner: target }),
+    select({ card: CALCULATOR, owner: target }),
   ];
   for (const seat of SEATS[format]) {
     if (seat === holder || seat !== turnSeat) continue;
-    // The turn player tries its own Homunculus: a negated effect resolves with no choice, an effect that is not negated asks for an Attribute.
+    // A different monster at the turn seat still resolves its ignition effect.
     steps.push(activate(HOMUNCULUS, seat));
-    steps.push(seat === target ? expectPrompt({ by: seat, context: "action" }) : expectPrompt({ by: seat, title: "Declare an Attribute" }));
-    if (seat !== target) steps.push(choose("attr:1", seat));
+    steps.push(expectPrompt({ by: seat, title: "Declare an Attribute" }), choose("attr:1", seat));
   }
   return defineScenario({
-    id: `${card === "veiler" ? "effect-veiler" : "infinite-impermanence"}-${format}-${turnSeat}-turn-${holder}-negates-homunculus-of-${target}`,
-    title: `${label(format)}: ${holder} uses ${name} in the Main Phase of ${turnSeat} on the Homunculus of ${target}: the effect of the target is negated and the Homunculus of the turn player keeps its effect when it is not the target`,
+    id: `${card === "veiler" ? "effect-veiler" : "infinite-impermanence"}-${format}-${turnSeat}-turn-${holder}-negates-calculator-of-${target}`,
+    title: `${label(format)}: ${holder} uses ${name} in the Main Phase of ${turnSeat} on The Calculator of ${target}: its ATK becomes 0, other Calculators keep their ATK and the turn player can use Homunculus`,
     source: `${SOURCE} [R-COMMON-SEAT-STATE] the opponent named by 1-tp is any duelist of the other side`,
     rules: ["R-COMMON-SEAT-STATE"],
     tags: ["multiplayer", "event-opponent", format, `card:${card === "veiler" ? 97268402 : 10045474}`],
@@ -227,9 +232,9 @@ export const EVENT_BINDING_SCENARIOS: Scenario[] = [
   taker("tag", "p1", "p0"), taker("tag", "p1", "p2"), taker("tag", "p0", "p3"),
   maxx("ffa3", "p1", "p2"), maxx("ffa3", "p1", "p0"), maxx("ffa4", "p2", "p0"), maxx("ffa4", "p2", "p3"),
   maxx("tag", "p1", "p0"), maxx("tag", "p1", "p2"), maxx("tag", "p1", "p3"), maxx("tag", "p0", "p2"),
-  negate("ffa3", "veiler", "p1", "p2", "p1"), negate("ffa3", "veiler", "p1", "p0", "p1"), negate("ffa4", "veiler", "p2", "p3", "p2"), negate("ffa4", "veiler", "p1", "p0", "p1"),
+  negate("ffa3", "veiler", "p1", "p2", "p0"), negate("ffa3", "veiler", "p1", "p2", "p1"), negate("ffa3", "veiler", "p1", "p0", "p1"), negate("ffa4", "veiler", "p2", "p3", "p2"), negate("ffa4", "veiler", "p1", "p0", "p1"),
   negate("tag", "veiler", "p0", "p1", "p0"), negate("tag", "veiler", "p0", "p1", "p2"), negate("tag", "veiler", "p1", "p0", "p1"), negate("tag", "veiler", "p1", "p2", "p3"),
-  negate("ffa3", "impermanence", "p1", "p2", "p1"), negate("ffa4", "impermanence", "p2", "p0", "p2"),
+  negate("ffa3", "impermanence", "p1", "p2", "p0"), negate("ffa3", "impermanence", "p1", "p2", "p1"), negate("ffa4", "impermanence", "p2", "p0", "p2"),
   negate("tag", "impermanence", "p0", "p1", "p0"), negate("tag", "impermanence", "p0", "p3", "p2"), negate("tag", "impermanence", "p1", "p2", "p3"),
   veilerPartner("p0", "p2"),
   zaloog("tag", "p1", "p2", "deck"), zaloog("tag", "p0", "p3", "hand"), zaloog("tag", "p2", "p1", "hand"), zaloog("tag", "p3", "p0", "deck"),

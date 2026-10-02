@@ -68,6 +68,8 @@ export type ZoneExpect =
       card: CardRef;
       pos?: Stance | "faceup" | "facedown";
       materials?: number;
+      /** Current ATK, including continuous effects and negation. */
+      attack?: number;
       /** Exact counters on the card: counter type to count. {} means no counters. */
       counters?: Record<number, number>;
     };
