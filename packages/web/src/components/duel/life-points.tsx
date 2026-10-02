@@ -630,7 +630,7 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
 
   return (
     <span className={rootClass} ref={rootRef} data-size={size}>
-      <span className={styles.srOnly} aria-live="polite" aria-atomic="true">
+      <span className={styles.srOnly} data-lp-value aria-live="polite" aria-atomic="true">
         {label}
       </span>
       <span className={styles.roll} ref={rollRef} aria-hidden="true">
