@@ -3,7 +3,7 @@ import { activateSingleResponse, attackWithFirstMonster, endTurn, expectReadyToA
 import { FILLER, withFiller } from "../helpers/decks";
 import { enterDuelRoom, openOptions, surrender } from "../helpers/duel";
 import { decide } from "../helpers/multi";
-import { answerTable, collectTableErrors, expectRealCore, observeTable, readTable, readTableTrace, startTablePreset, tableField, tableLp, tableShot, tableTurns } from "../helpers/table";
+import { actionPosts, answerTable, collectTableErrors, expectRealCore, observeTable, readTable, readTableTrace, startTablePreset, tableField, tableGrave, tableLp, tableLpValue, tableShot, tableTurns } from "../helpers/table";
 import type { DuelEngineView } from "@yugidraft/shared/duels";
 import type { Page } from "@playwright/test";
 
@@ -30,7 +30,7 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(room.engine!.seats.map((seat) => seat.lp)).toEqual([8000, 8000, 8000]);
     for (const seat of [0, 1, 2]) {
       await expect(tableLp(alice.page, seat)).toHaveCount(1);
-      await expect(tableLp(alice.page, seat)).toContainText("8,000");
+      await expect(tableLpValue(alice.page, seat)).toHaveText("8,000");
       const emz = tableField(alice.page, seat).locator("[data-kind='emz']");
       await expect(emz).toHaveCount(2);
       expect(await emz.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-zones")))).toEqual([`${seat}:4:5`, `${seat}:4:6`]);
@@ -79,18 +79,22 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(actions.filter((entry) => entry.turn === 3).some((entry) => entry.options.some((option) => option.id === "to_bp"))).toBe(true);
   });
 
-  test("a practice-bot duel clears rivals, asks which duelist for a direct attack, damages only the pick, and reloads", async ({ player }, info) => {
+  test("Dark Hole clears every field including self, then a direct attack damages only the picked rival after reload", async ({ player }, info) => {
     const alice = await player("p1");
     const errors = collectTableErrors(alice.page);
-    const { slug } = await startTable([alice], "ffa3 direct", [{ main: withFiller(["Raigeki", FILLER], 40) }], options);
+    const { slug } = await startTable([alice], "ffa3 direct", [{ main: withFiller(["Dark Hole", FILLER, FILLER], 40) }], options);
     await expectRealCore(alice.page, slug, "practice", info);
-    await endTurn(alice.page, 4);
     await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
     await pickLegalZone(alice.page, "mz");
+    await endTurn(alice.page, 4);
     for (const seat of [1, 2]) await expect(occupied(alice.page, seat)).toHaveCount(1);
-    await useCard(alice.page, handCard(alice.page, "Raigeki"), "Activate");
+    await useCard(alice.page, handCard(alice.page, "Dark Hole"), "Activate");
     await pickLegalZone(alice.page, "st");
-    for (const seat of [1, 2]) await expect(occupied(alice.page, seat)).toHaveCount(0);
+    for (const seat of [0, 1, 2]) await expect(occupied(alice.page, seat)).toHaveCount(0);
+    expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.monsters.filter(Boolean).length)).toEqual([0, 0, 0]);
+    expect((await readTable(alice.page, slug)).engine!.seats[0]!.graveyard.map((card) => card.name)).toContain(FILLER);
+    await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
+    await pickLegalZone(alice.page, "mz");
     await alice.page.reload();
     await enterDuelRoom(alice.page);
     await expect(occupied(alice.page, 0)).toHaveCount(1);
@@ -103,11 +107,14 @@ test.describe("FFA3 real-engine table rules", () => {
     const before = (await readTable(alice.page, slug)).engine!;
     expect(before.prompt!.options.map((option) => option.controller)).toEqual([1, 2]);
     await tableShot(alice.page, slug, info, "direct-seat-choice");
+    const posts = actionPosts(alice.page, slug);
     await alice.page.getByTestId("holo-pick-2").click();
-    expect((await readTable(alice.page, slug)).engine!.revision).toBe(before.revision);
+    expect(posts.count, "choosing a rival must not POST").toBe(0);
     await alice.page.getByTestId("aim-confirm").click();
-    await expect(tableLp(alice.page, 2)).toContainText("6,000");
-    await expect(tableLp(alice.page, 1)).toContainText("8,000");
+    await expect.poll(() => posts.count).toBe(1);
+    await expect(tableLpValue(alice.page, 2)).toHaveText("6,000");
+    await expect(tableLpValue(alice.page, 1)).toHaveText("8,000");
+    for (const untouched of [0, 1]) await expect(tableLp(alice.page, untouched).locator("[data-damage-chip]")).toHaveCount(0);
     expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.lp)).toEqual([8000, 8000, 6000]);
     await tableShot(alice.page, slug, info, "direct-damage");
     expect(errors).toEqual([]);
@@ -124,11 +131,16 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(before.prompt!.options.map((option) => option.controller)).toEqual([1, 2]);
     for (const seat of [1, 2]) await expect(tableField(alice.page, seat).locator("[data-kind='mz'][data-legal='true']")).toHaveCount(1);
     await tableShot(alice.page, slug, info, "monster-targets");
+    const posts = actionPosts(alice.page, slug);
     await tableField(alice.page, 2).locator("[data-kind='mz'][data-legal='true'] button").click();
-    expect((await readTable(alice.page, slug)).engine!.revision).toBe(before.revision);
+    expect(posts.count, "choosing a monster must not POST").toBe(0);
     await alice.page.locator("[data-attack-confirm] [data-go]").click();
+    await expect.poll(() => posts.count).toBe(1);
     await expect(occupied(alice.page, 2)).toHaveCount(0);
     await expect(occupied(alice.page, 1)).toHaveCount(1);
+    await expect(tableLpValue(alice.page, 2)).toHaveText("4,400");
+    await expect(tableLpValue(alice.page, 1)).toHaveText("3,000");
+    await expect(tableLp(alice.page, 1).locator("[data-damage-chip]")).toHaveCount(0);
     expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.lp)).toEqual([8000, 3000, 4400]);
     expect(errors).toEqual([]);
   });

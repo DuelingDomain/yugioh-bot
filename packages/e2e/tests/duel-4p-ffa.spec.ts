@@ -2,6 +2,7 @@ import { test, expect, type Seat } from "../helpers/fixtures";
 import { activateSingleResponse, attackWithFirstMonster, endTurn, expectOpponentBoards, handCard, pickLegalZone, startTable, turnLabel, useCard } from "../helpers/board";
 import { FILLER, withFiller } from "../helpers/decks";
 import { surrender } from "../helpers/duel";
+import { actionPosts, expectRealCore, readTable, startTablePreset, tableField, tableLp, tableLpValue } from "../helpers/table";
 import type { Page } from "@playwright/test";
 
 // 4-player free-for-all in real browsers (ADR-0002 and ADR-0003). Turn order is seat 0, 1, 2, 3.
@@ -14,7 +15,6 @@ const decks = (first: string[]) => Array.from({ length: 4 }, (_, seat) => ({ mai
 const openSeats = (player: (key: (typeof KEYS)[number]) => Promise<Seat>) => Promise.all(KEYS.map((key) => player(key)));
 const ownMonsters = (page: Page) => page.locator('[data-seat-field][data-side="you"] [data-kind="mz"][data-occupied="true"]');
 /** TableShell gives each seat exactly one holographic LP panel. */
-const lpOf = (page: Page, seat: number) => page.locator(`[data-table-stage] [data-lp-seat="${seat}"]`);
 /** The phase bar. The Battle plate is a button only while the engine offers the Battle Phase. */
 const toBattle = (page: Page) => page.getByRole("button", { name: /^To Battle/ });
 /** The Battle plate in the list of phase plates (not the primary dock button, which also names the Battle Phase). */
@@ -96,7 +96,7 @@ test.describe("4-player FFA", () => {
     await expect(toBattle(seats[3]!.page)).toBeEnabled({ timeout: 1000 });
   });
 
-  test("a spell that hits all opponents clears the monsters of all 3 opponents", async ({ player }) => {
+  test("current engine: Raigeki hits all opponents (R-FFA-OPP-ONE pending)", async ({ player }) => {
     const seats = await openSeats(player);
     // Seat 0 holds Raigeki and summons a filler monster on turn 1. Seats 1 to 3 each summon a filler monster on their own turn.
     // Raigeki destroys the monsters of the opponents only: the monster of seat 0 must stay (Dark Hole would destroy it too).
@@ -122,6 +122,23 @@ test.describe("4-player FFA", () => {
     }
     // Each opponent had one monster (normalSummon checked that), so the count 0 above is a change. The own monster stays.
     await expect(ownMonsters(alice.page)).toHaveCount(1);
+  });
+
+  test("R-FFA-OPP-ONE: Raigeki asks for one opponent and clears only that field", async ({ player }, info) => {
+    const alice = await player("p1");
+    const slug = await startTablePreset(alice.page, "raigeki-dark-hole-ffa4");
+    await expectRealCore(alice.page, slug, "scripted", info, 3);
+    for (const seat of [0, 1, 2, 3]) await expect(tableField(alice.page, seat).locator("[data-kind='mz'][data-occupied='true']")).toHaveCount(1);
+    await useCard(alice.page, handCard(alice.page, "Raigeki"), "Activate");
+    await pickLegalZone(alice.page, "st");
+    test.fail(true, "R-FFA-OPP-ONE pending engine change");
+    const choice = alice.page.getByTestId("holo-pick-2");
+    await expect(choice).toBeVisible({ timeout: 1000 });
+    expect((await readTable(alice.page, slug)).engine!.prompt!.context?.type).toBe("opponent");
+    await choice.click();
+    await expect(tableField(alice.page, 2).locator("[data-kind='mz'][data-occupied='true']")).toHaveCount(0);
+    for (const seat of [0, 1, 3]) await expect(tableField(alice.page, seat).locator("[data-kind='mz'][data-occupied='true']")).toHaveCount(1);
+    expect((await readTable(alice.page, slug)).engine!.seats.map((seat) => seat.monsters.filter(Boolean).length)).toEqual([1, 1, 0, 1]);
   });
 
   test("a card that picks one opponent offers each living opponent by name, and only the picked one is hit", async ({ player }) => {
@@ -184,9 +201,10 @@ test.describe("4-player FFA", () => {
 
     // The hit lands on seat 2 only (2000 damage). All four pages agree.
     for (const seat of seats) {
-      await expect(lpOf(seat.page, 2)).toContainText("6,000");
-      await expect(lpOf(seat.page, 1)).toContainText("8,000");
-      await expect(lpOf(seat.page, 3)).toContainText("8,000");
+      await expect(tableLpValue(seat.page, 2)).toHaveText("6,000");
+      await expect(tableLpValue(seat.page, 1)).toHaveText("8,000");
+      await expect(tableLpValue(seat.page, 3)).toHaveText("8,000");
+      for (const untouched of [0, 1, 3]) await expect(tableLp(seat.page, untouched).locator("[data-damage-chip]")).toHaveCount(0);
     }
 
     // Seat 3 surrenders in the middle of the attack. The seat shows "Leaving" until the step is done, and the duel goes on.

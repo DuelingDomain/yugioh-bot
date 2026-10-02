@@ -9,6 +9,18 @@ import type { PromptTraceEntry } from "../../duel-server/src/prompt-trace";
 
 export const tableField = (page: Page, seat: number) => page.locator(`[data-table-stage] [data-seat-field='${seat}']`);
 export const tableLp = (page: Page, seat: number) => page.locator(`[data-table-stage] [data-lp-seat='${seat}']`);
+export const tableLpValue = (page: Page, seat: number) => tableLp(page, seat).locator("[data-lp-value]");
+export const tableGrave = (page: Page, seat: number) => tableField(page, seat).getByRole("button", { name: / (GY|Graveyard) \(\d+\)$/ });
+
+/** Count actual browser POSTs, independent of response/revision timing. */
+export function actionPosts(page: Page, slug: string): { count: number } {
+  const tally = { count: 0 };
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === `/api/duels/${slug}/actions`) tally.count += 1;
+  });
+  return tally;
+}
+
 export async function readTable(page: Page, slug: string): Promise<DuelRoom> {
   const response = await page.request.get(`/api/duels/${slug}`);
   expect(response.ok(), await response.text()).toBe(true);
