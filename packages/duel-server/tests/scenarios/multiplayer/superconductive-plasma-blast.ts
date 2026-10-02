@@ -100,7 +100,6 @@ function exchanged(format: "ffa3" | "tag"): Scenario {
     setup: baseSetup(format, { p0: { hand: ["Exchange", CARD] }, [holder]: { hand: [ELF, VOID], deck: [ELF, ELF, ROCK, OTHER_ROCK] } }),
     steps: [
       activate("Exchange", "p0"), select({ card: ELF, owner: holder, from: "hand" }),
-      ...(format === "tag" ? [] : [{ op: "select", sels: [CARD], by: holder } satisfies Step]),
       ...turnsBefore(format, holder), expectOffered("activate", CARD, holder), pass(holder), pass(holder), pass(holder), setCard(CARD, holder), endTurn(holder),
       expectPrompt({ by: "p0", context: "action" }), ...turnsBefore(format, holder),
       activate(CARD, holder), select({ card: ROCK, owner: holder, from: "deck" }), activate(VOID, holder),
