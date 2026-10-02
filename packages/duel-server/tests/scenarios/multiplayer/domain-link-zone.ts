@@ -1,4 +1,4 @@
-import { activate, defineScenario, expectNotOffered, expectOffered, expectPrompt, no, select, specialSummon, yes, type Scenario } from "../../support/dsl.js";
+import { activate, defineScenario, expectNotOffered, expectOffered, expectPrompt, no, specialSummon, yes, type Scenario } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -22,7 +22,7 @@ function summon(format: Format, actor: Seat, recall: boolean): Scenario {
       expectNotOffered("normalSummon", { card: LINK, from: "dmz" }, actor),
       expectOffered("specialSummon", { card: LINK, from: "dmz" }, actor),
       specialSummon({ card: LINK, from: "dmz" }, actor),
-      { ...select({ card: MATERIAL, owner: actor }), by: actor },
+      { op: "select" as const, sels: [{ card: MATERIAL, owner: actor }], by: actor },
       everySeat(format, { [actor]: { monsters: [LINK], zones: { emz0: LINK, emz1: null }, grave: [MATERIAL], deckMaster: { inZone: false, returns: 0, nextCost: 0 } }, ...others }),
       activate("Dark Hole", actor),
       expectPrompt({ by: actor, context: "deck-master-recall" }),

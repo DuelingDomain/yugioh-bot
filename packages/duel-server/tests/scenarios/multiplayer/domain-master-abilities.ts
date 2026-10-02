@@ -1,4 +1,4 @@
-import { activate, defineScenario, expectNotOffered, expectOffered, normalSummon, select, type Scenario } from "../../support/dsl.js";
+import { activate, defineScenario, expectNotOffered, expectOffered, normalSummon, type Scenario } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -22,7 +22,7 @@ function ability(format: Format, actor: Seat, target: Seat): Scenario {
       normalSummon({ card: BREAKER, from: "dmz" }, actor),
       expectOffered("activate", BREAKER, actor),
       activate(BREAKER, actor),
-      { ...select({ card: SPELL, owner: target }), by: actor },
+      { op: "select" as const, sels: [{ card: SPELL, owner: target }], by: actor },
       everySeat(format, Object.fromEntries(SEATS[format].map((seat) => [seat, {
         spells: seat === target ? [] : [SPELL],
         grave: seat === target ? [SPELL] : [],

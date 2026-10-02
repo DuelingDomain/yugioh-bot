@@ -1,4 +1,4 @@
-import { activate, defineScenario, expectPrompt, select, specialSummon, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, defineScenario, expectPrompt, specialSummon, yes, type Scenario, type Step } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -17,11 +17,11 @@ function tax(format: Format, actor: Seat): Scenario {
     const grave = Array.from({ length: returns }, () => [MATERIAL, MATERIAL, REMOVE]).flat();
     steps.push(
       specialSummon({ card: LINK, from: "dmz" }, actor),
-      { ...select({ card: MATERIAL, owner: actor, nth: 0 }), by: actor },
+      { op: "select" as const, sels: [{ card: MATERIAL, owner: actor, nth: 0 }], by: actor },
       everySeat(format, { [actor]: { lp, monsters: [LINK, ...Array(2 - returns).fill(MATERIAL)], grave: [...grave, MATERIAL], deckMaster: { inZone: false, returns, nextCost: returns * 500 } }, ...others }),
       activate({ card: REMOVE, nth: 0 }, actor),
-      { ...select({ card: MATERIAL, owner: actor, from: "hand", nth: 0 }), by: actor },
-      ...(returns < 2 ? [{ ...select({ card: LINK, owner: actor }), by: actor } as Step] : []),
+      { op: "select" as const, sels: [{ card: MATERIAL, owner: actor, from: "hand", nth: 0 }], by: actor },
+      ...(returns < 2 ? [{ op: "select" as const, sels: [{ card: LINK, owner: actor }], by: actor } as Step] : []),
       expectPrompt({ by: actor, context: "deck-master-recall" }),
       yes(actor),
       everySeat(format, { [actor]: { lp, monsters: Array(2 - returns).fill(MATERIAL), grave: [...grave, MATERIAL, MATERIAL, REMOVE], deckMaster: { inZone: true, returns: returns + 1, nextCost: (returns + 1) * 500 } }, ...others }),
