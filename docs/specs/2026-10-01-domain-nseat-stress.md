@@ -158,3 +158,48 @@ queries the effect only for another controller or team. The probe now passes,
 followed by a real master summon and both-seat checks. All 177 tests and the
 focused type check pass on the reviewed private wasm. The third unnumbered
 patch is under `gap-domain/out/synchro-effect-order/`, with a tracked copy.
+
+## Final proof and limits
+
+The reviewed private wasm passes 177 tests in 12 files: 131 new live checks
+and 46 existing checks. Every new decisive board check includes all seats.
+The raw checks include Standard regressions. Seven two-seat Domain controls
+run on the same private wasm. Five driver comparisons have the same two-seat
+hashes, journals, and step counts. Review has no remaining finding.
+
+The final Domain fuzz run completes all 450 duels, with seeds 1 through 150
+in each format, Master Rule 5, 1000 steps per duel, and elimination rate 0.5.
+Strict mode reports no Lua error, engine error, hang, winner-check failure,
+or unfinished duel.
+
+| Format | Ended | Steps | Master leaves | Returns |
+|---|---:|---:|---:|---:|
+| FFA3 | 150/150 | 50033 | 654 | 336 |
+| FFA4 | 150/150 | 73245 | 901 | 486 |
+| Tag | 150/150 | 49206 | 846 | 439 |
+| Total | 450/450 | 172484 | 2401 | 1261 |
+
+The run has 1650 masters, with real master leaves and returns at every seat.
+The reviewed wasm SHA256 is
+`a695f5e895dc31745c54aad73fbe417874942e3ae750c6f381d4d2e913915abe`.
+Its base is P61 core commit `adff5f1`; its tested head is `538916e`.
+The frozen overlay is from commit `a3297e3`. Its manifest SHA256 is
+`c4df9c0388c813b443edb51b8f93aff7a1e282a983b96d2b07c22d5fc31d414f`.
+An earlier run stopped when another agent changed the live overlay during
+manifest loading. That setup race is excluded from the final result.
+
+The focused type check passes. The package type check fails in concurrent
+audit files because of `.ts` import extensions and missing scenario tags.
+There is no type error in this task's files. The latest concurrent overlay
+changes are outside this frozen proof. Assigned ability, Link, recall, tax,
+restriction, Tag PayLPCost, and host/lobby work are also outside this audit.
+The installed P61 core still needs the exported fixes.
+
+Commit `37f6923` also contains three files that another agent had staged in
+the shared index. This task did not edit them. The history is preserved.
+All later commits use explicit path-only commits.
+
+The private build, binaries, frozen overlay, debug replay, and scratch logs
+are removed. The unnumbered patches, commit messages, build details, compact
+proof record, and selected proof logs remain in `gap-domain/out`. Tracked
+proposal copies also remain. Installed cores and external services are unchanged.
