@@ -80,15 +80,18 @@ describeWithCores("live stock Synchro material condition order", [liveNseat, ...
         expect(captured.lib!.loadScript(captured.handle!, "synchro-material-order-probe.lua", `
           local material=Duel.GetFieldCard(${actor},LOCATION_MZONE,0)
           local synchro=Duel.GetFieldCard(${actor},LOCATION_EXTRA,0)
-          local calls=0
+          STOCK_MATERIAL_CONDITION_CALLS=0
           local e=Effect.CreateEffect(material)
           e:SetType(EFFECT_TYPE_SINGLE)
           e:SetCode(EFFECT_SYNCHRO_MATERIAL)
-          e:SetCondition(function() calls=calls+1 return true end)
+          e:SetCondition(function()
+            STOCK_MATERIAL_CONDITION_CALLS=STOCK_MATERIAL_CONDITION_CALLS+1
+            return true
+          end)
           material:RegisterEffect(e)
-          calls=0
           assert(material:IsCanBeSynchroMaterial(synchro))
-          STOCK_MATERIAL_CONDITION_CALLS=calls
+          -- Count only the queries made by the real summon below.
+          STOCK_MATERIAL_CONDITION_CALLS=0
         `)).toBe(true);
         scenario.steps.forEach((step, index) => session.run(step, index + 1));
         expect(captured.lib!.loadScript(captured.handle!, "synchro-material-order-result.lua",
