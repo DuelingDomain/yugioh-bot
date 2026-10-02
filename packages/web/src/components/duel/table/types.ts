@@ -1,0 +1,159 @@
+import type { ReactNode } from "react";
+import type { DuelAnswer, DuelEngineView, DuelEvent, DuelFormat, DuelMasterRule, DuelPrompt, DuelRoom } from "@yugidraft/shared/duels";
+import type { BattleAim } from "../battle-fx";
+import type { PromptDraft } from "../prompts";
+import type { InspectTarget } from "../inspector";
+import type { DuelActivateHandler, DuelHoverHandler } from "../field";
+import type { SeatPick, SeatRelation } from "../multi-seat";
+export type { BattleAim, PromptDraft, InspectTarget, DuelActivateHandler, DuelHoverHandler, SeatPick, SeatRelation };
+
+/**
+ * The contract of the multiplayer table UI (3-way, 4-way, 2v2 tag). The scaffold wrote it; after that only the
+ * 3w-* steps may change it, and only by adding. Plan: docs/specs/2026-10-01-multiplayer-table-ui-plan.md.
+ */
+
+export type TableFormat = Exclude<DuelFormat, "1v1">; // "tag" | "ffa3" | "ffa4"
+export type SeatTone = "violet" | "ice" | "verdant" | "rose";
+export type Compass = "S" | "W" | "N" | "E";
+export const SEAT_TONE_HEX: Readonly<Record<SeatTone, { main: string; ink: string }>> = {
+  violet: { main: "#9b7eff", ink: "#c6b6ff" },
+  ice: { main: "#5cb8f5", ink: "#a9dcfb" },
+  verdant: { main: "#8fd36b", ink: "#c4ecad" },
+  rose: { main: "#f08cc4", ink: "#fbc8e4" },
+};
+
+export interface SeatSlot {
+  seat: number;
+  relation: SeatRelation;
+  tone: SeatTone;
+  compass: Compass;
+  baseAngleDeg: number; // true table angle; 0 = viewer side, clockwise
+  team: number | null; // tag: seat % 2; ffa: null
+  code: string | null; // tag: "1A" | "2A" | "1B" | "2B" (tagSeatCode); ffa: null
+  turnOrder: number; // 0-based order in the turn ring
+}
+export interface TableLayout {
+  format: TableFormat;
+  viewerSeat: number | null;
+  anchorSeat: number; // anchor = viewer, or 0 for spectator
+  slots: readonly SeatSlot[]; // viewer/anchor first, then placementOrder
+  stage: { width: 1100; height: 860 };
+}
+export interface SeatPose {
+  seat: number;
+  x: number;
+  y: number; // field centre in stage px
+  scale: number;
+  rotateDeg: number; // effective rotation (text counter-rotates when upright)
+  z: number;
+  docked: boolean;
+  compact: boolean;
+  hidden: boolean;
+}
+
+export type CameraMode = "home" | "focus" | "look" | "overview" | "fly";
+export type CameraLockReason = "chain" | "battle" | "direct" | "destroy" | "elimination";
+export interface FlyPose {
+  yawDeg: number;
+  tiltDeg: number;
+  zoom: number;
+  targetSeat: number | null;
+}
+export interface CameraState {
+  mode: CameraMode;
+  focusSeat: number | null;
+  lookSeat: number | null;
+  upright: boolean;
+  compact: "auto" | "on" | "off";
+  auto: boolean;
+  pinned: boolean;
+  aiming: boolean;
+  fly: FlyPose;
+  lock: { reason: CameraLockReason; untilMs: number } | null;
+}
+export type CameraAction =
+  | { type: "home" }
+  | { type: "overview" }
+  | { type: "focus"; seat: number }
+  | { type: "focusStep"; dir: 1 | -1 }
+  | { type: "look"; seat: number | null }
+  | { type: "toggleFly" }
+  | { type: "flyTo"; seat: number }
+  | { type: "orbit"; dYawDeg: number; dTiltDeg: number }
+  | { type: "zoom"; factor: number }
+  | { type: "toggleUpright" }
+  | { type: "toggleCompact" }
+  | { type: "toggleAuto" }
+  | { type: "pin"; on: boolean }
+  | { type: "aiming"; on: boolean }
+  | { type: "autoFollow"; seat: number | null }
+  | { type: "lock"; reason: CameraLockReason; nowMs: number; ms: number }
+  | { type: "tick"; nowMs: number };
+
+export interface TargetChoice {
+  seat: number;
+  zones: readonly string[];
+  direct: boolean; // direct = option to hit that seat's LP
+  optionIds: readonly string[];
+  label: string;
+}
+export type SeatStatus = "active" | "turn" | "choosing" | "next" | "leaving" | "eliminated";
+
+export interface SeatFieldProps {
+  engine: DuelEngineView;
+  seat: number;
+  viewerSeat: number | null;
+  masterRule: DuelMasterRule;
+  side: "you" | "opp";
+  angleDeg: number;
+  upright: boolean;
+  tone: SeatTone;
+  density: "full" | "rival" | "compact";
+  hand: "face" | "backs" | "none";
+  emz: "own" | "shared-bottom" | "shared-top";
+  showTally: boolean; // false when a holo LP panel owns data-lp-seat
+  usable: boolean; // false: legal ring only, no USE glow (partner, spectator)
+  peekSetCards?: boolean; // tag partner: set cards readable, eye chip
+  legalKeys: Set<string>;
+  selectedKeys: Set<string>;
+  reducedMotion: boolean;
+  onActivate: DuelActivateHandler;
+  onInspect: (target: InspectTarget) => void;
+  onHoverCard?: DuelHoverHandler;
+}
+export type SeatFieldRenderer = (props: SeatFieldProps) => ReactNode;
+
+export interface TableController {
+  room: DuelRoom;
+  engine: DuelEngineView;
+  viewerSeat: number | null;
+  nameOf: (seat: number) => string;
+  prompt: DuelPrompt | null;
+  promptSeat: number | null;
+  canAct: boolean;
+  busy: boolean;
+  revealed: boolean;
+  draft: PromptDraft;
+  legalKeys: Set<string>;
+  selectedKeys: Set<string>;
+  aim: BattleAim | null;
+  seatPick: SeatPick | null;
+  reducedMotion: boolean;
+  onAnswer: (answer: DuelAnswer) => void;
+  onActivate: DuelActivateHandler;
+  onInspect: (target: InspectTarget) => void;
+  onHoverCard?: DuelHoverHandler;
+  onAim?: (to: BattleAim["to"] | null) => void; // hover/lock an attack target
+}
+export interface TableStageProps {
+  controller: TableController;
+  layout: TableLayout;
+  camera: CameraState;
+  dispatchCamera: (action: CameraAction) => void;
+  renderSeatField: SeatFieldRenderer; // SeatField from field.tsx; a render prop so tag never imports table code
+  fx?: ReactNode;
+  promptCenter?: ReactNode;
+  overlay?: ReactNode; // slots: FxBoundary tree, PromptCenter, menus
+}
+export type TagStageProps = TableStageProps;
+export type FxLockRule = (event: DuelEvent) => { reason: CameraLockReason; ms: number } | null;
