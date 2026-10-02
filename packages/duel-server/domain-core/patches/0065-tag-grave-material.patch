@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Tue, 14 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: include the Tag partner GY in extra material lists
+
+At more than two duelists, search the GY of every living team member for EXTRA_RITUAL_MATERIAL and EXTRA_FUSION_MATERIAL. Hand, Deck and Extra Deck ranges do not change. FFA keeps its own GY. Two duelists keep the stock GY list.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ field.cpp | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index 65579df..5483378 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -2473,7 +2473,10 @@ void field::get_ritual_material(uint8_t playerid, effect* peffect, card_set* mat
+ 	for(auto& pcard : player[playerid].list_hand)
+ 		if((pcard->data.type & TYPE_MONSTER) && pcard->is_releasable_by_nonsummon(playerid, REASON_EFFECT))
+ 			material->insert(pcard);
+-	for(auto& pcard : player[playerid].list_grave)
++	card_vector team_grave_tmp;
++	const auto& team_grave = n_duelists == 2 ? player[playerid].list_grave
++	    : side_cards(playerid, false, &player_info::list_grave, team_grave_tmp);
++	for(auto& pcard : team_grave)
+ 		if((pcard->data.type & TYPE_MONSTER) && pcard->is_affected_by_effect(EFFECT_EXTRA_RITUAL_MATERIAL) && pcard->is_removeable(playerid, POS_FACEUP, REASON_EFFECT))
+ 			material->insert(pcard);
+ 	for(auto& pcard : player[playerid].list_main)
+@@ -2505,7 +2508,10 @@ void field::get_fusion_material(uint8_t playerid, card_set* material) {
+ 	for(auto& pcard : player[playerid].list_hand)
+ 		if(pcard->data.type & TYPE_MONSTER || pcard->is_affected_by_effect(EFFECT_EXTRA_FUSION_MATERIAL))
+ 			material->insert(pcard);
+-	for(auto& pcard : player[playerid].list_grave)
++	card_vector team_grave_tmp;
++	const auto& team_grave = n_duelists == 2 ? player[playerid].list_grave
++	    : side_cards(playerid, false, &player_info::list_grave, team_grave_tmp);
++	for(auto& pcard : team_grave)
+ 		if(pcard->is_affected_by_effect(EFFECT_EXTRA_FUSION_MATERIAL))
+ 			material->insert(pcard);
+ }
