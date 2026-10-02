@@ -192,7 +192,8 @@ Do the steps in this order. Write down the result of each step. Report every ste
 
 1. Make a 3-player free-for-all Standard table. First try a deck with Ring of Destruction or Swords of Revealing Light.
    Expect a refusal. Then use legal decks.
-2. Start the duel. Expect: the seat order is shown, and the first player does not draw on turn 1.
+2. Start the duel. Expect: the seat order is shown. Every duelist draws on their first turn, the first duelist too
+   (p0 has 6 cards on turn 1).
 3. Turns 1 to 3: there is no attack option. Attacks start on turn 4.
 4. The turn passes in the order 0, 1, 2, 0. The "To play" and "Choosing" tags follow the turn.
 5. Attack when one opponent has monsters and one has none. Expect: the targets are right, a direct attack is possible only
