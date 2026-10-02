@@ -214,6 +214,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
               y={anchor.y}
               beam={fly ? "none" : threeWay ? anchor.beam : place === 0 ? "none" : "down"}
               floating={fly}
+              master={slot.relation === "self" ? null : view.deckMaster?.card ?? null}
+              onInspectMaster={(card) => controller.onInspect({ type: "info", card })}
               legal={pickable}
               hotkey={pickable && index >= 0 ? index + 1 : null}
               onPick={() => picks?.onPick(slot.seat)}

@@ -1,6 +1,8 @@
 "use client";
 
 import type { CSSProperties } from "react";
+import type { DuelCardInfo } from "@yugidraft/shared/duels";
+import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
 import { hexToRgbTriplet } from "./seat-angle";
 import { SEAT_TONE_HEX, type SeatStatus, type SeatTone } from "./types";
@@ -30,6 +32,9 @@ export interface HoloLpProps {
   onHover?: (hover: boolean) => void;
   /** The fly-in pump places this panel with `style.transform`: the anchor translate is zero. */
   floating?: boolean;
+  /** A rival's Deck Master: a small art thumb at the top right of the panel. A click inspects it. */
+  master?: DuelCardInfo | null;
+  onInspectMaster?: (card: DuelCardInfo) => void;
   reducedMotion: boolean;
 }
 
@@ -85,6 +90,8 @@ export function HoloLp({
   onPick,
   onHover,
   floating = false,
+  master = null,
+  onInspectMaster,
   reducedMotion,
 }: HoloLpProps) {
   const hex = SEAT_TONE_HEX[tone];
@@ -156,6 +163,18 @@ export function HoloLp({
       ) : (
         <div className={styles.body}>{body}</div>
       )}
+      {master ? (
+        <button
+          type="button"
+          className={styles.master}
+          data-master-thumb={seat}
+          aria-label={`${name}'s Master: ${master.name}`}
+          title={`${name}'s Master: ${master.name}`}
+          onClick={() => onInspectMaster?.(master)}
+        >
+          <img src={cardArtUrl(master.code, "small")} alt="" draggable={false} />
+        </button>
+      ) : null}
       <span className={styles.beam} aria-hidden="true" />
     </div>
   );

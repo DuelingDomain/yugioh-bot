@@ -58,6 +58,29 @@ describe("HoloLp", () => {
   });
 });
 
+describe("HoloLp Deck Master thumb", () => {
+  const master = { code: 46986414, name: "Dark Magician", description: "", type: 1, attack: 0, defense: 0, level: 7, attribute: 1, race: "Spellcaster" };
+
+  it("shows a rival's master art and inspects it on click, beside the LP node", () => {
+    const onInspectMaster = vi.fn();
+    const { container } = render(<HoloLp {...holo({ master, onInspectMaster })} />);
+    const thumb = container.querySelector("[data-master-thumb='1']") as HTMLElement;
+    expect(thumb).not.toBeNull();
+    expect(thumb.getAttribute("aria-label")).toContain("Dark Magician");
+    fireEvent.click(thumb);
+    expect(onInspectMaster).toHaveBeenCalledWith(master);
+    expect(container.querySelectorAll("[data-lp-seat]")).toHaveLength(1);
+  });
+
+  it("has no thumb without a master, and sits outside the pick button of a legal panel", () => {
+    expect(render(<HoloLp {...holo()} />).container.querySelector("[data-master-thumb]")).toBeNull();
+    cleanup();
+    const { container } = render(<HoloLp {...holo({ master, legal: true, hotkey: 1 })} />);
+    expect(container.querySelector("button [data-master-thumb]")).toBeNull();
+    expect(container.querySelector("[data-master-thumb]")).not.toBeNull();
+  });
+});
+
 describe("formatClock", () => {
   it("formats minutes and seconds, and hides a missing clock", () => {
     expect(formatClock(null)).toBeNull();

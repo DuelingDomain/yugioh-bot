@@ -57,6 +57,17 @@
   flex-direction: column-reverse;
 }
 
+/* In a side column: part of the flow, the grid opens below the toggle. */
+.panel[data-variant="column"] {
+  position: static;
+  z-index: auto;
+  flex: none;
+  width: 100%;
+  margin-top: 8px;
+}
+.panel[data-variant="column"][data-open="true"] { flex-direction: column; }
+.panel[data-variant="column"] .grid { max-height: none; box-shadow: none; }
+
 .sec {
   display: flex;
   grid-column: 1 / -1;

@@ -171,9 +171,6 @@ export function TableShell({
   const onInspectorActivate = (card: DuelCard, anchor: HTMLElement) =>
     controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor);
 
-  const rivals = layout.slots
-    .filter((slot) => slot.seat !== layout.anchorSeat)
-    .map((slot) => ({ seat: slot.seat, title: `${nameOf(slot.seat)}'s Master` }));
   const masterRail = domain ? (
     <DeckMasterRail
       engine={engine}
@@ -186,10 +183,20 @@ export function TableShell({
       onActivate={controller.onActivate}
       onHoverCard={controller.onHoverCard}
       onInspect={controller.onInspect}
-      rivals={rivals}
+      rivals={[]}
+      selfTitle={spectator ? `${nameOf(layout.anchorSeat)}'s Master` : undefined}
     />
   ) : null;
 
+  const cameraProps = {
+    layout,
+    camera: camera.state,
+    locked: camera.locked,
+    cue: camera.cue,
+    nameOf,
+    dispatch: camera.dispatch,
+    out: camera.out,
+  };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
   const logVisible = ui.pane === "log";
   const inspectorTarget: InspectTarget | null = ui.inspect;
@@ -393,15 +400,7 @@ export function TableShell({
                       ))}
                     </ul>
                   ) : null}
-                  <CameraControls
-                    layout={layout}
-                    camera={camera.state}
-                    locked={camera.locked}
-                    cue={camera.cue}
-                    nameOf={nameOf}
-                    dispatch={camera.dispatch}
-                    out={camera.out}
-                  />
+                  <CameraControls {...cameraProps} variant={masterRail ? "stage" : "float"} />
                   {ui.pile ? (
                     <PileViewer
                       title={ui.pile.title}
@@ -423,7 +422,12 @@ export function TableShell({
             />
           </div>
         </section>
-        {masterRail ? <aside className={roomStyles.masters} aria-label="Deck Masters">{masterRail}</aside> : null}
+        {masterRail ? (
+          <aside className={roomStyles.masters} aria-label="Deck Masters">
+            {masterRail}
+            <CameraControls {...cameraProps} variant="panel" />
+          </aside>
+        ) : null}
       </div>
       <div className={roomStyles.track}>
         <StationTrack

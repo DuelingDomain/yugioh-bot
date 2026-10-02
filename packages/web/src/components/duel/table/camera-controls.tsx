@@ -17,6 +17,12 @@ export interface CameraControlsProps {
   dispatch: (action: CameraAction) => void;
   /** Seats that are out: no button for them. */
   out?: readonly number[];
+  /**
+   * `float` (default): everything floats over the board. `panel`: only the View panel, in the flow of its parent (a
+   * side column). `stage`: the chip, the auto-camera cue and the look banner, without the View panel. A table that
+   * puts the panel in a column renders `panel` there and `stage` over the board.
+   */
+  variant?: "float" | "panel" | "stage";
 }
 
 function toneVars(layout: TableLayout, seat: number): CSSProperties {
@@ -82,7 +88,7 @@ function ViewButton({ action, label, icon, seatStyle, hotkey, pressed, disabled,
  * upright and auto switches, the Keep pin), the camera chip with its FX lock mark, the auto-camera cue and the
  * look-from-seat banner. It only dispatches camera actions. While the FX lock is on the buttons are off.
  */
-export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, out = [] }: CameraControlsProps) {
+export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, out = [], variant = "float" }: CameraControlsProps) {
   const [open, setOpen] = useState(false);
   const rivals = layout.slots.filter((slot) => slot.seat !== layout.anchorSeat && !out.includes(slot.seat));
   const flyOn = camera.mode === "fly";
@@ -91,9 +97,19 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
   const label = cameraLabel(camera, nameOf, layout.anchorSeat);
   const hint = flyOn ? "Drag · wheel · 1-3 · Esc" : "Tab focus · P look · 0 overview";
 
+  const showPanel = variant !== "stage";
+  const showStage = variant !== "panel";
+
   return (
     <>
-      <div className={styles.panel} data-camera-panel data-open={open ? "true" : "false"} data-locked={locked ? "true" : undefined}>
+      {showPanel ? (
+      <div
+        className={styles.panel}
+        data-camera-panel
+        data-variant={variant === "panel" ? "column" : undefined}
+        data-open={open ? "true" : "false"}
+        data-locked={locked ? "true" : undefined}
+      >
         <button
           type="button"
           className={styles.toggle}
@@ -182,7 +198,10 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
           </div>
         ) : null}
       </div>
+      ) : null}
 
+      {showStage ? (
+        <>
       <div className={styles.chip} data-camera-chip data-lock={locked ? "true" : undefined} role="status">
         <Focus size={13} aria-hidden="true" />
         <b>{label}</b>
@@ -217,6 +236,8 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
             Back to my seat <Key>H</Key>
           </button>
         </div>
+      ) : null}
+        </>
       ) : null}
     </>
   );

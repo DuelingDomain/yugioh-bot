@@ -71,6 +71,18 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect(container.querySelector("[aria-label='Deck Masters']")).not.toBeNull();
   });
 
+  it("puts rival Deck Masters on the holo panels, and only your own master and the camera panel in the right column", () => {
+    const { container } = render(<Shell id="main" />);
+    const aside = container.querySelector("[aria-label='Deck Masters']") as HTMLElement;
+    expect([...aside.querySelectorAll("section h2")].map((node) => node.textContent)).toEqual(["Your Master"]);
+    expect(aside.querySelector("[data-docks]")?.getAttribute("data-docks")).toBe("1");
+    expect(aside.querySelector("[data-camera-panel]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-camera-panel]")).toHaveLength(1);
+    expect(container.querySelector("[data-camera-chip]")).not.toBeNull();
+    const thumbs = [...container.querySelectorAll("[data-master-thumb]")].map((node) => node.getAttribute("data-master-thumb")).sort();
+    expect(thumbs).toEqual(["1", "2"]);
+  });
+
   it("marks the duelist who left and keeps playing on", () => {
     const { container } = render(<Shell id="elimination" />);
     const out = container.querySelectorAll("[data-testid='seat-out']");
