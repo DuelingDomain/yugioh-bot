@@ -39,7 +39,7 @@ describe("field turn and priority", () => {
     expect(half(container, prioritySeat)?.getAttribute("data-priority")).toBe("true");
     expect(half(container, 1 - prioritySeat)?.getAttribute("data-priority")).toBe("false");
     expect(screen.getByText("Turn").closest("[data-lp-seat]")?.getAttribute("data-lp-seat")).toBe(String(turnSeat));
-    expect(screen.getByText(prioritySeat === 0 ? "Your move" : "Opponent to act").closest("[data-lp-seat]")?.getAttribute("data-lp-seat")).toBe(String(prioritySeat));
+    expect(screen.getByText(prioritySeat === 0 ? "Your move" : "Opponent to act", { selector: "[data-priority-full]" }).closest("[data-lp-seat]")?.getAttribute("data-lp-seat")).toBe(String(prioritySeat));
   });
 
   it("moves purple alone on a response window, then moves gold on the next turn", () => {
@@ -55,24 +55,28 @@ describe("field turn and priority", () => {
   it("orients both states for a player in seat 1", () => {
     const { container } = render(field(view({ turnSeat: 0, prioritySeat: 1 }), 1));
     expect(half(container, 1).getAttribute("data-side")).toBe("bottom");
-    expect(screen.getByText("Your move").closest("[data-lp-seat]")?.getAttribute("data-lp-seat")).toBe("1");
+    expect(screen.getByText("Your move", { selector: "[data-priority-full]" }).closest("[data-lp-seat]")?.getAttribute("data-lp-seat")).toBe("1");
   });
 
   it("names the actor for a spectator", () => {
     render(field(view({ prioritySeat: 1 }), null));
-    expect(screen.getByLabelText("Kaiba to act")).toBeTruthy();
+    expect(screen.getByText("Kaiba to act").className).toMatch(/visuallyHidden/);
     expect(screen.queryByText("Your move")).toBeNull();
   });
 
   it("keeps the action label separate from a long spectator name", () => {
     const name = "VeryLongDiscordDisplayName123456";
-    render(<DuelField engine={view({ prioritySeat: 1 })} mySeat={null} masterRule={5} reducedMotion
+    render(<DuelField engine={view({ turnSeat: 1, prioritySeat: 1 })} mySeat={null} masterRule={5} reducedMotion
       legalKeys={new Set()} selectedKeys={new Set()} onActivate={() => {}} onInspect={() => {}}
       bottomName="Yugi" topName={name} />);
-    const label = screen.getByLabelText(`${name} to act`);
+    const hidden = screen.getByText(`${name} to act`);
+    expect(hidden.className).toMatch(/visuallyHidden/);
+    const label = hidden.parentElement!;
     expect(label.getAttribute("title")).toBe(`${name} to act`);
-    expect(label.textContent).toBe("to act");
-    expect(label.parentElement?.querySelector("span")?.textContent).toBe(name);
+    const visible = label.querySelector('[data-priority-full]')!;
+    expect(visible.textContent).toBe("to act");
+    expect(label.previousElementSibling?.textContent).toBe(name);
+    expect(label.parentElement?.nextElementSibling?.textContent).toBe("Turn");
   });
 
   it.each([1, 2, 3, 4, 5] as const)("hugs the zones in Master Rule %i", (rule) => {

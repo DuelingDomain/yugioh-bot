@@ -290,6 +290,25 @@
   white-space: nowrap;
 }
 
+.tIdentity {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tPriorityShort { display: none; }
+
 .tWho {
   min-width: 0;
   overflow: hidden;
@@ -315,7 +334,6 @@
 
 .tPriority {
   flex: none;
-  margin-left: auto;
   color: var(--pen-ink);
   font-family: var(--f-ui);
   font-size: 10px;
@@ -1707,6 +1725,10 @@
     width: 10px;
     height: 10px;
   }
+
+  .tHead { gap: 5px; }
+  .tPriorityFull { display: none; }
+  .tPriorityShort { display: inline; }
 
   .tTurn {
     font-size: 9.5px;

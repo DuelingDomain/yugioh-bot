@@ -482,18 +482,24 @@ function Tally({
   spectator: boolean;
   reducedMotion: boolean;
 }) {
+  const priority = priorityLabel ? (
+    <span className={styles.tPriority} title={priorityLabel}>
+      <span className={styles.visuallyHidden}>{priorityLabel}</span>
+      <span className={styles.tPriorityFull} data-priority-full aria-hidden="true">{spectator ? "to act" : priorityLabel}</span>
+      <span className={styles.tPriorityShort} aria-hidden="true">To act</span>
+    </span>
+  ) : null;
   return (
     <div className={styles.tally} data-side={side} data-lp-seat={seatKey} data-active={active ? "true" : "false"}>
       <div className={styles.tHead}>
-        <span className={styles.tWho}>{name}</span>
+        <span className={styles.tIdentity}>
+          <span className={styles.tWho} aria-hidden={spectator && priorityLabel ? true : undefined}>{name}</span>
+          {spectator ? priority : null}
+        </span>
         {active ? (
           <span className={styles.tTurn}>Turn</span>
         ) : null}
-        {priorityLabel ? (
-          <span className={styles.tPriority} aria-label={priorityLabel} title={priorityLabel}>
-            {spectator ? "to act" : priorityLabel}
-          </span>
-        ) : null}
+        {!spectator ? priority : null}
       </div>
       <div className={styles.tLp}>
         <strong>
