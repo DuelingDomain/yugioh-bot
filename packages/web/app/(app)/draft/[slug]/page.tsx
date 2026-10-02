@@ -319,7 +319,7 @@ export default function DraftDetailPage() {
     );
   }
 
-  const finalePool = storePool.length > 0 ? storePool : (draft.myPool ?? []);
+  const finalePool = draft.status === DRAFT_STATUS.completed && draft.myPool?.length ? draft.myPool : storePool;
   const showFinale = wasInRoom && !finaleClosed && draft.status === DRAFT_STATUS.completed && isParticipant && finalePool.length > 0;
   const finaleExtra = isThemeDraft ? Math.max(0, finalePool.length - (draft.config.cardsPerPlayer ?? 40)) : 0;
   const downloadYdk = async () => {

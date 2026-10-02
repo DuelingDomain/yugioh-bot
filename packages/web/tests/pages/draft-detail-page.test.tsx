@@ -42,9 +42,10 @@ vi.mock("../../src/components/draft/room/draft-room", () => ({
   DraftRoom: () => <div data-testid="draft-room">Room</div>,
 }));
 vi.mock("../../src/components/draft/room/finale", () => ({
-  DraftFinale: ({ onClose }: { onClose: () => void }) => (
+  DraftFinale: ({ onClose, pool }: { onClose: () => void; pool: Array<{ id: number; name: string }> }) => (
     <button data-testid="draft-finale" onClick={onClose}>
       Finale
+      {pool.map((card) => <span key={card.id}>{card.name}</span>)}
     </button>
   ),
 }));
@@ -164,9 +165,36 @@ describe("DraftDetailPage — completion transition", () => {
       useDraftStore.getState().setFromServer({ completed: true });
     });
     await waitFor(() => expect(screen.getByTestId("draft-finale")).toBeTruthy());
+    expect(screen.getByTestId("draft-finale").textContent).toContain("A");
     expect(screen.getByTestId("draft-summary-view")).toBeTruthy();
     act(() => screen.getByTestId("draft-finale").click());
     expect(screen.queryByTestId("draft-finale")).toBeNull();
+  });
+
+  it("uses the completed response pool including the final timer pick", async () => {
+    const firstCard = { id: 1, name: "First card", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" };
+    const finalCard = { ...firstCard, id: 2, name: "Final timer card" };
+    let completed = false;
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      const body = url === "/api/auth/session"
+        ? { user: { id: "user-1" } }
+        : url === "/api/drafts/test-draft/pool"
+          ? { cards: [] }
+          : completed
+            ? { ...completedDraftResponse, myPool: [firstCard, finalCard] }
+            : { ...activeDraftResponse, myPool: [firstCard] };
+      return Promise.resolve({ ok: true, json: async () => body } as Response);
+    });
+    render(<DraftDetailPage />);
+    await waitFor(() => expect(screen.getByTestId("draft-room")).toBeTruthy());
+
+    completed = true;
+    const options = vi.mocked(useDraftWebsocket).mock.calls.at(-1)?.[1];
+    act(() => options?.onResync?.());
+
+    await waitFor(() => expect(screen.getByTestId("draft-finale").textContent).toContain("Final timer card"));
+    expect(screen.getByTestId("draft-finale").textContent).toContain("First card");
+    expect(useDraftStore.getState().myPool.map((card) => card.id)).toEqual([1]);
   });
 
   it("transitions to DraftSummaryView when storeCompleted becomes true while draft.status is active", async () => {

@@ -535,6 +535,7 @@ export type DealEvent =
       type: "server";
       stepKey: string;
       pack: RoomCard[];
+      poolIds: ReadonlySet<number>;
       isMyTurn: boolean;
       completed: boolean;
       theme: boolean;
@@ -564,6 +565,13 @@ export function dealReducer(state: DealState, event: DealEvent): DealState {
   }
   const first = state.stepKey === null;
   const newStep = !first && state.stepKey !== event.stepKey;
+  if (!first && !newStep) {
+    const pooledCard = state.dealt.find((card) => event.poolIds.has(card.id));
+    if (!event.isMyTurn || pooledCard) {
+      const pickedId = pooledCard?.id ?? state.pickedId;
+      return pickedId === state.pickedId ? state : { ...state, pickedId };
+    }
+  }
   const hasPack = event.isMyTurn && event.pack.length > 0;
   if (hasPack) {
     if (first || newStep) {
@@ -577,7 +585,7 @@ export function dealReducer(state: DealState, event: DealEvent): DealState {
       };
     }
     // Same step. If you already picked, a late poll must not bring your card back,
-    // unless the server still offers it: then the pick did not go through.
+    // unless the server still offers it and the pool has no pick from this deal.
     if (state.pickedId != null) {
       if (!event.pack.some((c) => c.id === state.pickedId)) return state;
       return { ...state, pickedId: null, dealt: event.pack };
