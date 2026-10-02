@@ -52,6 +52,7 @@ import {
 } from "./chain-state";
 import { chainBeatAt, chainBeatsEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
 import { holdPromptReveal } from "./prompt-reveal";
+import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import styles from "./chain-fx.module.css";
 
 export type ChainFxProps = {
@@ -69,6 +70,8 @@ export type ChainFxProps = {
    * "Opponent") and wears the owner's tone. Left out (1v1), nothing changes.
    */
   seatTones?: ReadonlyMap<number, { main: string; ink: string }>;
+  /** Tables of 3 or 4 seats: who may answer the open chain, in order. The panel lists it under its head. */
+  priority?: readonly PrioritySlot[];
 };
 
 function toneVars(tones: ChainFxProps["seatTones"], seat: number): CSSProperties | undefined {
@@ -233,7 +236,7 @@ function ChainGlyph() {
 
 const NO_LINKS: ReadonlySet<number> = new Set();
 
-export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones }: ChainFxProps) {
+export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority }: ChainFxProps) {
   const named = seatTones != null;
   const state = useChainPlayback(events, chain, duelKey, reducedMotion);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -397,6 +400,11 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
                 <span>Chain</span>
                 <small>off board</small>
               </li>
+              {priority && priority.length > 0 ? (
+                <li className={styles.prioRow}>
+                  <PriorityChips order={priority} mySeat={mySeat} nameOf={playerName} seatTones={seatTones} compact />
+                </li>
+              ) : null}
               {rows.map((link) => (
                 <li
                   key={link.index}

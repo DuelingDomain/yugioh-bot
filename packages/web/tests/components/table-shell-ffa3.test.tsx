@@ -104,6 +104,16 @@ describe("TableShell on the 3-way fixtures: the whole table", () => {
     expect((tiles[0] as HTMLElement).style.getPropertyValue("--seat-main")).not.toBe("");
   });
 
+  it("lists who may answer an open chain, in order, on the chain panel; no chain, no list", () => {
+    const withChain = render(<Shell id="chain-2" />);
+    const chips = withChain.container.querySelectorAll("[data-chain-panel] [data-testid='priority-chips'] [data-seat]");
+    expect(chips).toHaveLength(3);
+    expect(withChain.container.querySelectorAll("[data-chain-panel] [data-now='true']")).toHaveLength(1);
+    withChain.unmount();
+    const plain = render(<Shell id="main" />);
+    expect(plain.container.querySelector("[data-testid='priority-chips']")).toBeNull();
+  });
+
   it("puts rival Deck Masters on the holo panels, and only your own master and the camera panel in the right column", () => {
     const { container } = render(<Shell id="main" />);
     const aside = container.querySelector("[aria-label='Deck Masters']") as HTMLElement;

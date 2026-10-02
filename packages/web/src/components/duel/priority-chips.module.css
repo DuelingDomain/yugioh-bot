@@ -1,0 +1,31 @@
+/* Who may answer the chain, in order. The seat that is choosing is lit in chain gold; the rest wear their seat tone. */
+.prio {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 5px;
+  padding: calc(5 * var(--duel-unit, 1px)) calc(8 * var(--duel-unit, 1px)) calc(2 * var(--duel-unit, 1px));
+  color: var(--duel-ink-3, #958f81);
+  font-size: var(--duel-t-xs, 11px);
+}
+.prio[data-compact="true"] { padding-inline: 8px; }
+.cap { letter-spacing: 0.06em; }
+.slot { display: inline-flex; align-items: center; gap: 4px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--seat-main, #958f81) 40%, transparent);
+  border-radius: 999px;
+  color: var(--seat-ink, var(--duel-ink-2, #c8c2b4));
+  white-space: nowrap;
+}
+.chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--seat-main, #958f81); }
+.chip em { font-style: normal; }
+.chip[data-now="true"] {
+  border-color: var(--duel-chain, #e4b64f);
+  background: rgb(228 182 79 / 0.14);
+  color: var(--duel-chain-ink, #f4d690);
+  box-shadow: 0 0 8px 0 rgb(228 182 79 / 0.3);
+}

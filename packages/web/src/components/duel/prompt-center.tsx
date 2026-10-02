@@ -33,6 +33,7 @@ import {
   POS_FACEUP_DEFENSE,
 } from "./constants";
 import { opponentPickLabel } from "./multi-seat";
+import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import { CardBack } from "./card-face";
 import { CardStrip, type StripCard } from "./card-strip";
 import { optionNotes } from "./option-strip";
@@ -680,6 +681,7 @@ function ResponseBody({
   onInspectCard,
   nameOf,
   seatTones,
+  priority,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
@@ -691,6 +693,7 @@ function ResponseBody({
   onInspectCard?: InspectCardHandler;
   nameOf?: (seat: number) => string;
   seatTones?: PromptSeatTones;
+  priority?: readonly PrioritySlot[];
 }) {
   const context = prompt.context;
   const choose = (id: string) => onSubmit({ choice: id });
@@ -740,6 +743,7 @@ function ResponseBody({
     return (
       <>
         <ChainStrip chain={chain} compact={cards} />
+        {priority && nameOf ? <PriorityChips order={priority} mySeat={mySeat} nameOf={nameOf} seatTones={seatTones} compact={cards} /> : null}
         {cards ? (
           <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} />
         ) : (
@@ -1226,6 +1230,8 @@ export interface PromptCenterProps {
    * name, never "Opponent") and wear the owner's tone. Left out (1v1), nothing changes.
    */
   seatTones?: PromptSeatTones;
+  /** Tables of 3 or 4 seats: who may answer the open chain, in order. A chain response then lists it under the chain. */
+  priority?: readonly PrioritySlot[];
 }
 
 /**
@@ -1635,7 +1641,7 @@ export function PromptCenter(props: PromptCenterProps) {
           {hide}
         </header>
         <ResponseBody prompt={prompt} draft={draft} busy={busy} slug={slug} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
-          onInspectCard={onInspectCard} nameOf={props.nameOf} seatTones={props.seatTones} />
+          onInspectCard={onInspectCard} nameOf={props.nameOf} seatTones={props.seatTones} priority={props.priority} />
         {hasActions || optional ? (
           <footer className={styles.foot}>
             {optional ? <span className={styles.hint}>Right-click to pass</span> : null}

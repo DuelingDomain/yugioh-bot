@@ -27,6 +27,7 @@ import { MatchSheetLog } from "../text-log";
 import { PositionFx } from "../position-fx";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { optionsForCard, PromptTray } from "../prompts";
+import { priorityOrder } from "../priority-chips";
 import { useResultGate } from "../result-reveal";
 import { firstInspectCard } from "../tag/tag-logic";
 import { DuelClockDisplay } from "../room-settings";
@@ -163,6 +164,12 @@ export function TableShell({
   const dockMode = !promptMine || prompt == null || centered ? "idle" : actionPrompt ? (prompt.cancelable || prompt.finishable ? "float" : "idle") : "flow";
   const trackCaption = terminal ? "Duel finished" : prompt == null ? null : promptMine ? (actionPrompt ? null : prompt.title) : `${nameOf(prompt.seat)} is choosing…`;
   const canAct = base.canAct && !base.busy;
+  // Who may answer the open chain, in order (the panel of the chain and the response prompt list it).
+  const chainOpen = engine.chain.length > 0 && !terminal;
+  const priority = useMemo(
+    () => (chainOpen ? priorityOrder(engine.seats, engine.turnSeat, engine.chain, prompt?.context?.type === "chain" ? prompt.seat : null) : undefined),
+    [chainOpen, engine.seats, engine.turnSeat, engine.chain, prompt],
+  );
 
   // The locked target of an attack: the confirm sits on the card. A locked seat keeps the opponent bar.
   const lockKey = flow.pointed?.zoneKey ?? null;
@@ -364,7 +371,7 @@ export function TableShell({
                   {fxActive ? <SummonFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
                   {fxActive ? <MoveFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                   {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
-                  {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} /> : null}
+                  {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} /> : null}
                   {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
                   <BattleFx events={engine.events} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
                   <DestroyFx events={engine.events} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
@@ -390,6 +397,7 @@ export function TableShell({
                   onInspectCard={(card) => ui.setInspect({ type: "info", card })}
                   nameOf={nameOf}
                   seatTones={seatTones}
+                  priority={priority}
                 />
               }
               overlay={
