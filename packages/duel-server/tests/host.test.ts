@@ -72,6 +72,7 @@ function fakeView(
       },
     ],
     prompt,
+    prioritySeat: promptId && !result ? promptSeat : null,
     chain: [],
     events: [],
     log: [],
@@ -1129,6 +1130,30 @@ describe("duel host replay", () => {
     expect(replay.frames[3]?.view.result).toEqual({ winnerSeat: 1, reason: "Surrender" });
     expect(replay.frames[0]?.view.seats[0]?.hand[0]?.code).toBe(111);
     expect(duels.get(session.slug, "g1")).toEqual(before);
+  });
+
+  it("clears live priority in completed snapshots and every viewer's replay frames", async () => {
+    const { db, host, session, p1, p2, p3, duels } = await playedDuel(false, 1);
+    const live = await post(host, { op: "view", slug: session.slug, guildId: "g1", playerId: p1 });
+    expect(live.status).toBe(200);
+    expect(readRoom(live.data).engine?.prioritySeat).toBe(0);
+    const surrendered = await post(host, { op: "surrender", slug: session.slug, guildId: "g1", playerId: p1 });
+    expect(surrendered.status).toBe(200);
+    expect(readRoom(surrendered.data).engine?.prioritySeat).toBeNull();
+    for (const playerId of [p1, p2, p3]) {
+      expect(duels.room(session.slug, "g1", playerId).engine?.prioritySeat).toBeNull();
+      const res = await post(host, { op: "replay", slug: session.slug, guildId: "g1", playerId });
+      expect(res.status).toBe(200);
+      const frames = readReplay(res.data).frames;
+      expect(frames.length).toBeGreaterThan(1);
+      for (const frame of frames) {
+        expect(frame.view.prioritySeat).toBeNull();
+        expect(frame.view.prompt).toBeNull();
+      }
+    }
+    const stored = db.prepare("select snapshot_public_json, snapshot_seat0_json, snapshot_seat1_json from duels where web_slug = ?")
+      .get(session.slug) as Record<string, string>;
+    for (const raw of Object.values(stored)) expect(JSON.parse(raw).prioritySeat).toBeNull();
   });
 
   it("gives spectators the public view", async () => {
