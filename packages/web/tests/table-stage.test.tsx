@@ -1,0 +1,71 @@
+// @vitest-environment jsdom
+import React from "react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+vi.mock("next/font/google", () => {
+  const font = () => ({ variable: "font-var", className: "font-class" });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
+
+import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
+import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
+import { TableShell } from "@/components/duel/table/table-shell";
+
+beforeAll(() => {
+  class RO {
+    constructor(private cb: () => void) {}
+    observe() { this.cb(); }
+    disconnect() {}
+    unobserve() {}
+  }
+  vi.stubGlobal("ResizeObserver", RO);
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1100 });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 860 });
+});
+afterEach(cleanup);
+
+function Shell({ id }: { id: keyof typeof FFA3_FIXTURES.states }) {
+  const controller = useFixtureController(FFA3_FIXTURES.states[id], { reducedMotion: true });
+  return <TableShell controller={controller} />;
+}
+
+describe("TableShell on the 3-way fixtures", () => {
+  it("draws one LP panel per seat and one seat field per seat", () => {
+    const { container } = render(<Shell id="main" />);
+    const lp = [...container.querySelectorAll("[data-lp-seat]")].map((node) => node.getAttribute("data-lp-seat"));
+    expect(lp.sort()).toEqual(["0", "1", "2"]);
+    expect(container.querySelectorAll("[data-seat-field]")).toHaveLength(3);
+  });
+
+  it("puts data-hand-seat on every hand, one per seat, backs for rivals", () => {
+    const { container } = render(<Shell id="main" />);
+    const hands = [...container.querySelectorAll("[data-hand-seat]")].map((node) => node.getAttribute("data-hand-seat"));
+    expect(hands.sort()).toEqual(["0", "1", "2"]);
+    expect(container.querySelectorAll("[data-seat-field='1'] [data-hand-seat], [data-seat-field='2'] [data-hand-seat]")).toHaveLength(2);
+  });
+
+  it("gives each seat its own extra monster keys and marks every zone", () => {
+    const { container } = render(<Shell id="main" />);
+    for (const seat of [0, 1, 2]) {
+      const field = container.querySelector(`[data-seat-field="${seat}"]`)!;
+      const keys = [...field.querySelectorAll("[data-zones]")].map((node) => node.getAttribute("data-zones") ?? "");
+      expect(keys.some((key) => key.includes(`${seat}:4:5`))).toBe(true);
+      expect(keys.some((key) => key.includes(`${seat}:4:6`))).toBe(true);
+    }
+  });
+
+  it("toggles upright text with the S key", () => {
+    const { container } = render(<Shell id="main" />);
+    const stage = container.querySelector("[data-table-stage]")!;
+    expect(stage.getAttribute("data-upright")).toBe("false");
+    act(() => {
+      fireEvent.keyDown(window, { key: "s" });
+    });
+    expect(stage.getAttribute("data-upright")).toBe("true");
+    act(() => {
+      fireEvent.keyDown(window, { key: "S" });
+    });
+    expect(stage.getAttribute("data-upright")).toBe("false");
+  });
+});
