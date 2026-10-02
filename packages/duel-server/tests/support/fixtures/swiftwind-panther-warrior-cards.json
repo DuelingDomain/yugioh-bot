@@ -1,0 +1,76 @@
+{
+  "source": "https://github.com/ProjectIgnis/BabelCDB/blob/430ee8fdee84c83617c428f779209d445b0eb63b/release-betb.cdb",
+  "sourceSha256": "939a33357d6d43e0c392a33df4e31034152a7bec09696041239cded0d8d8e3ae",
+  "datas": [
+    [
+      77482666,
+      1,
+      0,
+      102,
+      33,
+      2000,
+      1600,
+      4,
+      32768,
+      1,
+      1048592
+    ],
+    [
+      40235813,
+      1,
+      0,
+      0,
+      65538,
+      0,
+      0,
+      0,
+      0,
+      0,
+      537133569
+    ]
+  ],
+  "texts": [
+    [
+      77482666,
+      "Swiftwind Panther Warrior",
+      "During the Main Phase (Quick Effect): You can Tribute 1 other monster from your hand or field, then activate 1 of these effects;\r\n● Special Summon 1 monster that mentions \"Dark Time Wizard\" from your hand or Deck, except \"Swiftwind Panther Warrior\".\r\n● Send 1 Spell/Trap that mentions \"Dark Time Wizard\" from your Deck to the GY.\r\nYou can only use this effect of \"Swiftwind Panther Warrior\" once per turn. Cannot declare an attack unless a monster(s) was Tributed this turn.",
+      "Activate 1 of these effects;",
+      "Special Summon 1 appropriate monster",
+      "Send 1 appropriate Spell/Trap to the GY",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      40235813,
+      "Dark Time Wizard",
+      "Activate 1 of these effects (but you can only use each effect of \"Dark Time Wizard\" once per turn);\r\n● Add 1 card that mentions \"Dark Time Wizard\" from your Deck to your hand, except \"Dark Time Wizard\", also add 1 \"Dark Time Wizard\" from your GY to your hand during the End Phase of this turn.\r\n● Toss a coin and call it. If you call it right, destroy as many monsters your opponent controls as possible, and if you do, inflict damage to your opponent equal to half the total original ATK of those monsters. If you call it wrong, destroy all monsters you control.",
+      "Activate 1 of these effects",
+      "Search 1 card that mentions \"Dark Time Wizard\"",
+      "Toss a coin and call it",
+      "Affected by \"Dark Time Wizard\": will add 1 \"Dark Time Wizard\" from their GY to their hand during the End Phase of this turn",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ]
+  ]
+}
