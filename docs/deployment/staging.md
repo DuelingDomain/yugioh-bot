@@ -110,7 +110,8 @@ New duels save `setup.firstTurnDraw`, the resolved `DUEL_1ST_TURN_DRAW` flag, wh
 Worker recovery and all journal replay paths use this saved flag. The engine resource pin still checks the
 bundle and Lua overlay. A rule change alone does not change an existing duel's draw flag.
 
-Old records have no saved flag. Production ran `main`. Staging ran this branch after `0fb46df`, when
+Old records have no saved flag. Production ran `main`; after migration, all its old duels are 1v1
+and need no action. Staging ran this branch after `0fb46df`, when
 only FFA gained the new draw rule. Commits `d4338a2` and `42e66c3` were not deployed. Standard and Domain
 1v1 and Tag therefore used the stock Master Rule draw flag: MR1/MR2 drew on turn 1; MR3-MR5 did not.
 The server infers those old rules. No backfill is needed for Domain 1v1 or Tag records.
@@ -122,7 +123,9 @@ Recovery and replay refuse these records with this message:
 "The first-turn draw rule was not saved for this duel. Its old rule cannot be determined safely; recovery
 and replay are unavailable." The saved final board remains available.
 
-Before deployment, let ambiguous active duels finish. To restore an old replay, first establish the server
+Before a staging deploy, use the read-only query in [the runbook](vm-runbook.md#first-turn-draw-records-2026-10-02)
+to find ambiguous active FFA duels and let them finish. The FFA repair is for staging only.
+To restore an old replay, first establish the server
 rule used at its start from deployment records, then save the flag in its setup: `true` for Standard or
 Domain FFA under `0fb46df`, `false` for either FFA mode before that change. The per-row SQL statement is
 in [the production runbook](vm-runbook.md#first-turn-draw-records-2026-10-02). Do not set an old flag from

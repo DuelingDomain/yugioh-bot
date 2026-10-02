@@ -103,7 +103,12 @@ Recovery and replay use that flag. Domain draws on turn 1 in every seat layout.
 Standard MR1/MR2 draw on turn 1; Standard MR3/MR4/MR5 skip only the turn-1 draw.
 Standard FFA and Tag use MR5 only.
 
-Production ran `main`. Staging ran this branch after `0fb46df`, when only FFA gained
+Production ran `main`, which had no Tag or FFA duels and no `format` or `setup_json`
+columns. Migration adds `format` with the default `'1v1'`, so every old production
+row is 1v1 and the server infers its draw rule. Production needs no action.
+The FFA check and repair below are for the staging database only.
+
+Staging ran this branch after `0fb46df`, when only FFA gained
 the new draw rule. Commits `d4338a2` and `42e66c3` were not deployed. Thus an old
 Domain 1v1 or Tag record with no flag uses the stock rule: no turn-1 draw at MR3-MR5,
 and a turn-1 draw at MR1/MR2. The server infers this rule in both modes. No database
@@ -115,7 +120,19 @@ deployment. If recovery finds such an active duel, it sets the status to `interr
 and emits the change. Replay refuses it with the missing-rule message. The saved
 final board remains available.
 
-To restore one FFA replay, first prove its start rule from deployment records. On a
+Before a staging deploy, run this read-only query on the staging database. Let
+each active duel that it finds finish before deployment.
+
+```sql
+SELECT web_slug, guild_id, mode, format, status, created_at
+FROM duels
+WHERE format IN ('ffa3', 'ffa4')
+  AND status = 'active'
+  AND seed_json IS NOT NULL
+  AND json_extract(setup_json, '$.firstTurnDraw') IS NULL;
+```
+
+To restore one staging FFA replay, first prove its start rule from deployment records. On a
 database backup, check the selected row, then use the statement below on that row.
 Use `json('true')` for a run after `0fb46df` that enabled the FFA draw. Use `json('false')`
 for a run before that change. Do not infer this value from the creation date alone.
