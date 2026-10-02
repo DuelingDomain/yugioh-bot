@@ -1,8 +1,8 @@
+import type { CSSProperties } from "react";
 import Link from "next/link";
 import { Flame } from "lucide-react";
-import { LpTally, TierMeter, TierName, type LpTallyItem } from "@/components/sheet";
+import { TierMeter, TierName } from "@/components/sheet";
 import { tierProgress, winRatePercent } from "./dashboard-model";
-import styles from "./dashboard.module.css";
 
 export type StandingProfile = {
   rating: number;
@@ -11,6 +11,8 @@ export type StandingProfile = {
   currentStreak: number;
 };
 
+const TIER_VAR: Record<string, string> = { Platinum: "plat", Diamond: "dia" };
+
 export function YourStanding({
   profile,
   record,
@@ -18,61 +20,9 @@ export function YourStanding({
   profile: StandingProfile | null;
   record: { wins: number; losses: number };
 }) {
-  const items: LpTallyItem[] = [];
-  const className = "db-lps";
-
-  if (profile) {
-    const p = tierProgress(profile.rating, profile.rank);
-    items.push({
-      key: "elo",
-      tone: "tier",
-      tier: profile.rank.name,
-      label: <TierName tier={profile.rank.name} />,
-      aside: p.nextTier ? `${p.toNext} to ${p.nextTier}` : "Top tier",
-      value: profile.rating,
-      sub: (
-        <TierMeter
-          tier={profile.rank.name}
-          value={p.fraction}
-          className={styles.meterBlock}
-          label={
-            p.span != null
-              ? `${p.into} of ${p.span} Elo through ${p.tier}`
-              : `${p.tier}, the top tier`
-          }
-        />
-      ),
-    });
-  }
-
-  items.push({
-    key: "winnings",
-    label: "Winnings",
-    value: profile ? profile.winnings : "—",
-    sub: "this season",
-  });
-  items.push({
-    key: "record",
-    label: "Record",
-    value: record.wins,
-    unit: `–${record.losses}`,
-    sub: `${winRatePercent(record.wins, record.losses)}% won, all matches`,
-  });
-  const streak = profile?.currentStreak ?? null;
-  items.push({
-    key: "streak",
-    label: "Streak",
-    value:
-      streak != null && streak > 0 ? (
-        <span className={styles.flame}>
-          <Flame className="ic" aria-hidden="true" />
-          {streak}
-        </span>
-      ) : (
-        "—"
-      ),
-    sub: "this season",
-  });
+  const progress = profile ? tierProgress(profile.rating, profile.rank) : null;
+  const streak = profile?.currentStreak ?? 0;
+  const count = (profile ? 1 : 0) + 3;
 
   return (
     <section className="db-stand msheet" aria-labelledby="db-standing">
@@ -82,7 +32,52 @@ export function YourStanding({
           <Link className="link" href="/leaderboard">Leaderboard</Link>
         </small>
       </header>
-      <LpTally items={items} className={className} />
+      <div className="lps db-lps" style={{ "--n": count } as CSSProperties}>
+        {profile && progress && (
+          <div
+            className="lp db-elo"
+            data-tone="tier"
+            style={{ "--tier": `var(--t-${TIER_VAR[profile.rank.name] ?? profile.rank.name.toLowerCase()})` } as CSSProperties}
+          >
+            <p className="lp-k">
+              <TierName tier={profile.rank.name} />
+              <small>{progress.nextTier ? `${progress.toNext} to ${progress.nextTier}` : "Top tier"}</small>
+            </p>
+            <p className="lp-v"><b>{profile.rating}</b></p>
+            <TierMeter
+              tier={profile.rank.name}
+              value={progress.fraction}
+              label={
+                progress.span != null
+                  ? `${progress.into} of ${progress.span} Elo through ${progress.tier}`
+                  : `${progress.tier}, the top tier`
+              }
+            />
+          </div>
+        )}
+        <div className="lp">
+          <p className="lp-k">Winnings</p>
+          <p className="lp-v"><b>{profile ? profile.winnings : "—"}</b></p>
+          <p className="lp-s">this season</p>
+        </div>
+        <div className="lp">
+          <p className="lp-k">Record</p>
+          <p className="lp-v">
+            <b>{record.wins}<small>–{record.losses}</small></b>
+          </p>
+          <p className="lp-s">{winRatePercent(record.wins, record.losses)}% won, all matches</p>
+        </div>
+        <div className="lp" data-tone={streak > 0 ? "streak" : undefined}>
+          <p className="lp-k">Streak</p>
+          <p className="lp-v">
+            <b>
+              {streak > 0 && <Flame className="ic" aria-hidden="true" />}
+              {streak > 0 ? streak : "—"}
+            </b>
+          </p>
+          <p className="lp-s">this season</p>
+        </div>
+      </div>
     </section>
   );
 }

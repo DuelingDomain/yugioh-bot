@@ -2,7 +2,6 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { LivePill, StationTrack } from "@/components/sheet";
 import { draftProgressLabel, draftStatus, plural, tournamentFormatLabel } from "./dashboard-model";
-import styles from "./dashboard.module.css";
 
 export type DashboardTournament = {
   id: number;
@@ -37,7 +36,7 @@ function Dot() {
 export function TournamentRow({ tournament }: { tournament: DashboardTournament }) {
   const active = tournament.status === "active";
   return (
-    <Link href={`/tournament/${tournament.webSlug ?? tournament.id}`} className={`db-row ${styles.row}`} data-you>
+    <Link href={`/tournament/${tournament.webSlug ?? tournament.id}`} className={"db-row"} data-you>
       <div>
         <p className="nm">{tournament.name}</p>
         <p className="mt">
@@ -48,7 +47,7 @@ export function TournamentRow({ tournament }: { tournament: DashboardTournament 
           {active ? plural(tournament.participantCount, "player") : `${tournament.participantCount} joined`}
         </p>
       </div>
-      <div className={`rt ${styles.rt}`}>
+      <div className="rt">
         <StationTrack
           stations={STATIONS}
           current={active ? 1 : 0}
@@ -94,7 +93,7 @@ export function DraftRow({ draft }: { draft: DashboardDraft }) {
     return <div className="db-row" data-you>{body}</div>;
   }
   return (
-    <Link href={`/draft/${draft.webSlug}`} className={`db-row ${styles.row}`} data-you>
+    <Link href={`/draft/${draft.webSlug}`} className={"db-row"} data-you>
       {body}
     </Link>
   );

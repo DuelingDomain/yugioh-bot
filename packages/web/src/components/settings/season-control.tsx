@@ -193,7 +193,7 @@ export function SeasonControl() {
             <dd>{formatDate(season.startedAt)}</dd>
           </div>
         </dl>
-        <DangerZone >
+        <DangerZone className="in-sheet">
           <DangerRow
             title={`End Season ${season.number}`}
             description="Freezes the standings as its final table. Nothing resets."
