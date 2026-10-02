@@ -119,3 +119,9 @@ Gift Exchange (82257940) and PSY-Framelord Omega (74586817) returned cards to th
 ## Damage after destruction
 
 TA.I. Strike (86449372) and Arcana Force XV - The Fiend (59712426) used a folded controller after destruction. Their overlays keep the real controller before the card moves. Live proof: `tai-battle-controller.ts` and `arcana-target-controller.ts`. Six stock FFA outcomes fail; three Tag controls pass. All nine fixed cases pass on both cores. The TA.I. Strike tests include a monster whose owner and controller differ.
+
+## Local target damage
+
+Pestilence (62472614), Mask of Dispel (20765952), Mask of the Accursed (56948373), Darkworld Shackles (83584898) and Axe of Fools (19578592) damaged the wrong folded player and also triggered on the Tag partner's Standby Phase. Stamping Destruction (81385346) and Turbo Cannon (13574687) used the wrong folded target controller at resolution. Their overlays bind the actual controller. The five Standby effects also use MPTurnOwns.
+
+Live proof: `local-controller-lp.ts`. The original scripts fail 24 cases. Twelve controls pass, including Ghost Mourner and Blazing Mirror Force. All 36 fixed cases pass on both cores.

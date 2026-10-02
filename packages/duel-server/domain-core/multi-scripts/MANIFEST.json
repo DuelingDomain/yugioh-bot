@@ -733,6 +733,19 @@
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
+      "code": 13574687,
+      "file": "c13574687.lua",
+      "name": "Turbo Cannon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "463d3de8387c0480c9c8d3bad73fb1262ad3a0f600ea19bdb9e83e956f0b9a1d",
+      "note": "Bind the real target controller for damage information and destruction damage.",
+      "redefines": [
+        "target",
+        "operation"
+      ]
+    },
+    {
       "code": 13995824,
       "file": "c13995824.lua",
       "name": "Voltic Bicorn",
@@ -1118,6 +1131,20 @@
       "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
+      "code": 19578592,
+      "file": "c19578592.lua",
+      "name": "Axe of Fools",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "7bc249dbaead5bb683aacdc5717e519ef6dde59684a60f45021c3dc03604307b",
+      "note": "Damage the real target controller only on the holder own duelist turn.",
+      "redefines": [
+        "damcon",
+        "damtg",
+        "damop"
+      ]
+    },
+    {
       "code": 19665973,
       "file": "c19665973.lua",
       "name": "Battle Fader",
@@ -1228,6 +1255,20 @@
         "R1"
       ],
       "stockSha256": "d1f43147ab9399a82ec525a40188c6d6b06f0689e92f6c0fac53bedb33eb407c"
+    },
+    {
+      "code": 20765952,
+      "file": "c20765952.lua",
+      "name": "Mask of Dispel",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "b55fea54a74565e5052ed03e5f897725ed14c13e48ce3e7283c8403925e44d08",
+      "note": "Damage the real target controller only on the holder own duelist turn.",
+      "redefines": [
+        "damcon",
+        "damtg",
+        "damop"
+      ]
     },
     {
       "code": 20904475,
@@ -3259,6 +3300,21 @@
       "stockSha256": "fdbc39fddddfcdccb9d24a0dbf75f5645e994cf35ef1b73cfc224b77e2bef537"
     },
     {
+      "code": 56948373,
+      "file": "c56948373.lua",
+      "name": "Mask of the Accursed",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "0fd983ed56723517c0e610db8ddb17cd41d46245510e03e9854d4550569db124",
+      "note": "Damage the real target controller only on the holder own duelist turn.",
+      "redefines": [
+        "initial_effect",
+        "damcon",
+        "damtg",
+        "damop"
+      ]
+    },
+    {
       "code": 56980148,
       "file": "c56980148.lua",
       "name": "Dinowrestler Systegosaur",
@@ -3658,6 +3714,20 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "6e17185e669e90fc75bf6741cdd609471395d0bf6098d3f6b320c7857b07f43c"
+    },
+    {
+      "code": 62472614,
+      "file": "c62472614.lua",
+      "name": "Pestilence",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "d0d29c029f334c8874ae7fb5b33e7f2944352864e36acf440176b3f1556c0028",
+      "note": "Damage the real target controller only on the holder own duelist turn.",
+      "redefines": [
+        "damcon",
+        "damtg",
+        "damop"
+      ]
     },
     {
       "code": 63378869,
@@ -4668,6 +4738,18 @@
       ]
     },
     {
+      "code": 81385346,
+      "file": "c81385346.lua",
+      "name": "Stamping Destruction",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "835e148962634fdbc5406dee7234bcf635d984d6d63a1330f6939066d61979f4",
+      "note": "Bind the real target controller before destruction and damage.",
+      "redefines": [
+        "activate"
+      ]
+    },
+    {
       "code": 81510157,
       "file": "c81510157.lua",
       "name": "Soul Taker",
@@ -4820,6 +4902,20 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "19ee01503d77d2109cfe9599245fed310dbc3c44358b7d33fe81cd92e44b44c2"
+    },
+    {
+      "code": 83584898,
+      "file": "c83584898.lua",
+      "name": "Darkworld Shackles",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "344c9b0c962d0dbe6f9e576db260621a2cd91a174dd7fdc61978a32623af3b21",
+      "note": "Damage the real target controller only on the holder own duelist turn.",
+      "redefines": [
+        "damcon",
+        "damtg",
+        "damop"
+      ]
     },
     {
       "code": 83725008,
