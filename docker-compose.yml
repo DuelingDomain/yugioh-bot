@@ -31,7 +31,7 @@ services:
   duel:
     build:
       context: .
-      target: duel
+      target: duel-bundled
     restart: unless-stopped
     user: "${UID}:${GID}"
     environment:

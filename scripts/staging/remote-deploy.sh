@@ -6,6 +6,7 @@
 # Input (environment):
 #   STAGING_ACTION       deploy (default) or stop
 #   STAGING_REF          the git branch to run (required for deploy)
+#   STAGING_COMMIT       exact checked-out CI commit (required for deploy)
 #   STAGING_REFRESH_DB   "true" copies the production database again (default false)
 #   STAGING_HOST         public address of the VM, used only when .env.staging does not exist yet
 #   STAGING_DOMAIN       host name for the staging address, used only when .env.staging does not exist yet (optional)
@@ -51,8 +52,11 @@ cd "$staging_dir"
 
 if [ "$action" = "deploy" ]; then
   [ -n "${STAGING_REF:-}" ] || { echo "remote-deploy: STAGING_REF is required" >&2; exit 1; }
-  git fetch --all --prune
-  git reset --hard "origin/$STAGING_REF"
+  printf '%s' "${STAGING_COMMIT:-}" | grep -Eq '^[0-9a-f]{40}$' || {
+    echo "remote-deploy: STAGING_COMMIT must be the exact CI commit" >&2; exit 1;
+  }
+  git fetch origin "$STAGING_COMMIT"
+  git reset --hard "$STAGING_COMMIT"
   echo "remote-deploy: staging code is now $(git rev-parse --short HEAD) from $STAGING_REF"
 fi
 
@@ -73,8 +77,8 @@ fi
 [ "$action" = "deploy" ] || { echo "remote-deploy: unknown action $action" >&2; exit 1; }
 [ -f "$bundle" ] || { echo "remote-deploy: engine bundle $bundle not found" >&2; exit 1; }
 
-# The bundle in /tmp is not needed after this run, whatever the result.
-trap 'rm -f "$bundle"' EXIT
+# Neither the transfer nor its image build context is needed after this run.
+trap 'rm -f "$bundle"; rm -rf .deploy-duel-engine' EXIT
 
 # 1. The env file, only when it is missing. Secrets stay on the VM.
 if [ ! -f .env.staging ]; then
@@ -110,6 +114,13 @@ sh scripts/staging/check-resources.sh "before build" "${STAGING_MIN_BUILD_MB:-11
 rm -rf data-staging/card-images
 
 # 3. Build the three images. Remember the ids of the old ones, to remove them after a healthy start.
+# CI already compiled both multi cores; bake this exact bundle into the duel image.
+rm -rf .deploy-duel-engine
+mkdir .deploy-duel-engine
+tar -C .deploy-duel-engine -xzf "$bundle"
+DUEL_PREFLIGHT=1 DUEL_BUNDLE_SRC="$staging_dir/.deploy-duel-engine" \
+  DUEL_DATA_DIR="$staging_dir/.deploy-duel-engine" \
+  sh packages/duel-server/scripts/install-engine-bundle.sh
 old_images=$($compose images -q 2>/dev/null | sort -u | tr '\n' ' ' || true)
 $compose build
 sh scripts/staging/check-resources.sh "after build" 0 "${STAGING_MIN_DISK_AFTER_BUILD_MB:-2500}" /opt
