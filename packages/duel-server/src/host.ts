@@ -116,7 +116,7 @@ function newestEventId(view: DuelEngineView): number {
 }
 
 function freezeView(view: DuelEngineView, result: { winnerSeat: number | null; reason: string }): DuelEngineView {
-  return { ...view, prompt: null, result };
+  return { ...view, prompt: null, prioritySeat: null, result };
 }
 
 /** What the duel host tells the ws server about a tournament bracket slot. */
@@ -756,7 +756,7 @@ export function createDuelHost(options: {
     const events = view.events.filter((entry) => entry.id > seen.events);
     for (const entry of log) seen.log = Math.max(seen.log, entry.id);
     for (const entry of events) seen.events = Math.max(seen.events, entry.id);
-    return { ...view, prompt: null, log, events };
+    return { ...view, prompt: null, prioritySeat: null, log, events };
   }
 
   async function buildReplay(slug: string, guildId: string, room: DuelRoom): Promise<DuelReplay> {
@@ -827,6 +827,7 @@ export function createDuelHost(options: {
           view: {
             ...lastView,
             prompt: null,
+            prioritySeat: null,
             log: [],
             events: [],
             result: { winnerSeat: session.winnerSeat, reason: session.resultReason ?? "Duel ended" },

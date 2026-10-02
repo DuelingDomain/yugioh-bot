@@ -304,8 +304,24 @@
   flex: none;
   align-items: center;
   gap: 4px;
-  color: var(--ink-2);
-  font-size: var(--fs-small);
+  padding: 0 4px;
+  border: 1px solid rgb(228 182 79 / 0.35);
+  border-radius: 3px;
+  color: var(--chain-ink);
+  background: rgb(228 182 79 / 0.08);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.tPriority {
+  flex: none;
+  margin-left: auto;
+  color: var(--pen-ink);
+  font-family: var(--f-ui);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: right;
 }
 
 .tClock {
@@ -544,6 +560,66 @@
 
 .half {
   display: contents;
+}
+
+/* Two independent signals around the zones, behind cards and their usable-card glows.
+   Gold encloses the turn half; purple sits just outside its two vertical edges. The shared
+   Extra Monster Zone band belongs to neither half. Position follows the arena's fit variables. */
+.halfSignals {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: calc(2 * var(--z) + var(--gy));
+  pointer-events: none;
+}
+
+.halfSignals[data-side="bottom"] {
+  top: calc(3 * var(--z) + 3 * var(--gy));
+}
+
+.halfSignals::before,
+.halfSignals::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  border-radius: 4px;
+  opacity: 0;
+}
+
+.halfSignals::before {
+  inset: -2px;
+  border: 1px solid rgb(228 182 79 / 0.5);
+  background: linear-gradient(90deg, rgb(228 182 79 / 0.06), transparent 24%, transparent 76%, rgb(228 182 79 / 0.06));
+  box-shadow: 0 0 12px rgb(228 182 79 / 0.08);
+}
+
+.half[data-turn="true"] .halfSignals::before {
+  opacity: 1;
+}
+
+.halfSignals::after {
+  inset: -4px;
+  border-inline: 2px solid var(--pen);
+  box-shadow: -4px 0 10px -5px var(--pen), 4px 0 10px -5px var(--pen);
+}
+
+.half[data-priority="true"] .halfSignals::after {
+  opacity: 1;
+  animation: priorityBreathe 2.8s ease-in-out infinite;
+}
+
+@keyframes priorityBreathe {
+  0%, 100% { opacity: 0.65; }
+  50% { opacity: 1; }
+}
+
+.felt[data-reduced-motion="true"] .halfSignals::after {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .halfSignals::after { animation: none !important; }
 }
 
 .emzBand {

@@ -374,6 +374,12 @@ export interface DuelEngineView {
   battleStep?: DuelBattleStep | null;
   seats: DuelSeatView[];
   prompt: DuelPrompt | null;
+  /**
+   * Public seat the engine is waiting on, including when that viewer cannot see the prompt.
+   * null while processing or after the duel; absent in older clients' saved views/replays.
+   * This reveals ownership only, never the answering player's prompt or options.
+   */
+  prioritySeat?: number | null;
   chain: DuelChainLink[];
   events: DuelEvent[];
   log: Array<{ id: number; text: string }>;

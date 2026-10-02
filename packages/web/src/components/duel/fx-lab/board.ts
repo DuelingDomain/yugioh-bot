@@ -24,6 +24,8 @@ export type LabBoard = {
   chain: DuelChainLink[];
   phase: string;
   turnSeat: number;
+  /** Public prompt ownership; no prompt contents are needed to preview opponent priority. */
+  prioritySeat?: number | null;
 };
 
 /** An engine event before the runner gives it an id. */
