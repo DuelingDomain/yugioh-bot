@@ -56,7 +56,7 @@ export function SheetHeader({ tournament, progress, mine, ending, caption }: {
           <h1 className="t-title">{tournament.name}</h1>
           <p className="t-meta">
             {status}
-            {meta.map((value) => <Fragment key={value}><span className="dot" aria-hidden="true" />{value}</Fragment>)}
+            {meta.map((value) => <Fragment key={value}><span className="dot" aria-hidden="true" /><span>{value}</span></Fragment>)}
           </p>
         </div>
         <StationTrack
@@ -81,13 +81,13 @@ function defaultCaption({ tournament, progress, ending, pending, active }: {
   tournament: TournamentDetail; progress: TournamentProgress; ending: TournamentEnding; pending: boolean; active: boolean;
 }) {
   const n = tournament.participants.length;
-  if (pending) return <><span className="at">Lobby</span><span className="sep">·</span>{n} joined</>;
+  if (pending) return <><span className="at">Lobby</span><span className="sep">·</span><span>{n} joined</span></>;
   if (ending === "cancelled") return <span className="at">Cancelled</span>;
-  if (ending === "ended-early") return <><span className="at">Ended early</span><span className="sep">·</span>{progress.done} of {progress.total} decided</>;
-  if (!active) return <><span className="at">Finished</span><span className="sep">·</span>all {progress.total} decided</>;
+  if (ending === "ended-early") return <><span className="at">Ended early</span><span className="sep">·</span><span>{progress.done} of {progress.total} decided</span></>;
+  if (!active) return <><span className="at">Finished</span><span className="sep">·</span><span>all {progress.total} decided</span></>;
   const parts = [`${progress.done} of ${progress.total} decided`];
   if (progress.live > 0) parts.push(`${progress.live} live`);
   if (progress.toConfirm > 0) parts.push(`${progress.toConfirm} to confirm`);
   if (progress.yours > 0) parts.push(`${progress.yours} ${progress.yours === 1 ? "is" : "are"} yours`);
-  return <><span className="at">Playing</span>{parts.map((part) => <Fragment key={part}><span className="sep">·</span>{part}</Fragment>)}</>;
+  return <><span className="at">Playing</span>{parts.map((part) => <Fragment key={part}><span className="sep">·</span><span>{part}</span></Fragment>)}</>;
 }
