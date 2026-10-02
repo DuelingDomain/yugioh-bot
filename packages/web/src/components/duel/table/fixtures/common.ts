@@ -88,6 +88,7 @@ export function fixtureEngine(o: {
   prompt?: DuelPrompt | null;
   chain?: DuelChainLink[];
   events?: DuelEvent[];
+  log?: DuelEngineView["log"];
   result?: DuelEngineView["result"];
 }): DuelEngineView {
   return {
@@ -101,7 +102,7 @@ export function fixtureEngine(o: {
     prompt: o.prompt ?? null,
     chain: o.chain ?? [],
     events: o.events ?? [],
-    log: [],
+    log: o.log ?? [],
     result: o.result ?? null,
   };
 }
@@ -113,7 +114,10 @@ export function fixtureRoom(o: {
   viewerSeat: number | null;
   engine: DuelEngineView;
   clockMs?: readonly number[];
+  /** A Domain table shows the Deck Master column. Default "normal". */
+  mode?: "normal" | "domain";
 }): DuelRoom {
+  const mode = o.mode ?? "normal";
   const done = o.engine.result != null;
   const winnerSeat = o.engine.result?.winnerSeat ?? null;
   return {
@@ -123,11 +127,11 @@ export function fixtureRoom(o: {
       name: `Table preview (${o.format})`,
       guildId: "preview",
       organizerPlayerId: 1,
-      mode: "normal",
+      mode,
       format: o.format,
       masterRule: 5,
       status: done ? "completed" : "active",
-      settings: defaultDuelSettings("normal"),
+      settings: defaultDuelSettings(mode),
       seats: o.names.map((displayName, seat) => ({ seat, playerId: seat + 1, displayName, ready: true, isBot: false })),
       createdAt: "",
       endedAt: null,

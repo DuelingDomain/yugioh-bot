@@ -1,4 +1,5 @@
-import type { DuelChainLink, DuelEngineView, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import { ev, MZ, SZ } from "../../fx-lab/board";
 import { LOCATION_HAND, LOCATION_MZONE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
@@ -25,6 +26,31 @@ const REN = 0;
 const RYO = 1;
 const MIKA = 2;
 
+/** The last plays of turns 3 to 5, the rows of the history rail. Each carries the seat that did it. */
+function history(): DuelEvent[] {
+  const specs = [
+    ev.phase("Turn 3"),
+    ev.summon(RYO, C.blueEyes, MZ(RYO, 1), "tribute"),
+    ev.set(RYO, C.mirrorForce, SZ(RYO, 1)),
+    ev.phase("Turn 4"),
+    ev.summon(MIKA, C.redEyes, MZ(MIKA, 0)),
+    ev.summon(MIKA, C.gaia, MZ(MIKA, 2)),
+    ev.attack(MIKA, MZ(MIKA, 0), MZ(RYO, 1)),
+    ev.damage(MIKA, 1200),
+    ev.phase("Turn 5"),
+    ev.summon(REN, C.darkMagician, MZ(REN, 0)),
+    ev.destroy(MIKA, C.gaia, MZ(MIKA, 2), { cause: "effect", sourceCode: C.raigeki.code, sourceKind: "spell", sourceSeat: REN }),
+    ev.toGrave(MIKA, C.gaia, MZ(MIKA, 2), 0, { cause: "effect", sourceCode: C.raigeki.code, sourceKind: "spell", sourceSeat: REN }),
+  ];
+  return specs.map((spec, index) => ({ ...spec, id: index + 1 }) as DuelEvent);
+}
+
+const MASTERS = [
+  { seat: REN, card: C.envoy, returns: 1, nextCost: 1000 },
+  { seat: RYO, card: C.blueEyes, returns: 0, nextCost: 0 },
+  { seat: MIKA, card: C.redEyes, returns: 2, nextCost: 1500 },
+] as const;
+
 function board(): DuelSeatView[] {
   const ren = newSeat(REN, { lp: 8000, hand: [C.raigeki, C.potOfGreed, C.celtic, C.solemn, C.heavyStorm], deck: 29, extra: [C.darkPaladin, C.stardust] });
   putMonster(ren, 0, C.darkMagician);
@@ -43,7 +69,9 @@ function board(): DuelSeatView[] {
   putMonster(mika, 2, C.gaia);
   putSpell(mika, 0, null);
   putSpell(mika, 1, null);
-  return [ren, ryo, mika];
+  const views = [ren, ryo, mika];
+  for (const master of MASTERS) views[master.seat].deckMaster = { card: { ...master.card }, inZone: false, returns: master.returns, nextCost: master.nextCost };
+  return views;
 }
 
 const monsterOption = (seat: number, sequence: number, label: string): DuelPromptOption => ({
@@ -95,9 +123,10 @@ function make(id: TableStateId, label: string, spec: Spec = {}): TableFixtureSta
     battleStep: spec.battleStep,
     prompt: spec.prompt?.(seats) ?? null,
     chain: spec.chain,
+    events: history(),
     result: spec.result,
   });
-  return { id, label, room: fixtureRoom({ format: "ffa3", names: NAMES, viewerSeat, engine, clockMs: CLOCK_MS }), ui: spec.ui };
+  return { id, label, room: fixtureRoom({ format: "ffa3", names: NAMES, viewerSeat, engine, clockMs: CLOCK_MS, mode: "domain" }), ui: spec.ui };
 }
 
 const attackerKey = zoneKey(REN, LOCATION_MZONE, 0);
