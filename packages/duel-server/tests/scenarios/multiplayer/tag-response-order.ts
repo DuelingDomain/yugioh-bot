@@ -58,13 +58,46 @@ export const TAG_RESPONSE_ORDER_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "tag-response-order-chain-team-1-turn-opposing-team-first",
+    title: "Tag: after Heavy Storm of p1, p2 and p0 answer before p3: all three pass and the Spell resolves",
+    source: RULE,
+    rules: ["R-TAG-RESPONSE"],
+    tags: ["multiplayer", "chain", "tag", "team1", "card:19613556", "card:77414722", "card:3819470", "card:73567374"],
+    // The Seven Tools of p3 cannot answer a Spell; the Magic Jammer of p0 or p2 can.
+    // Fairy Wind of p3 can answer its partner's Spell without negating it. Thus every relevant seat has a real window.
+    // Team order is p2, p0, p3. Plain seat order would give p2, p3, p0 and fail at pass("p0").
+    setup: {
+      format: "tag",
+      p0: { hand: [ELF], spells: [{ card: "Magic Jammer", pos: "set" }] },
+      p1: { hand: ["Heavy Storm"], spells: [{ card: "Seven Tools of the Bandit", pos: "set" }] },
+      p2: { hand: [ELF], spells: [{ card: "Magic Jammer", pos: "set" }] },
+      p3: { spells: [{ card: "Seven Tools of the Bandit", pos: "set" }, { card: "Fairy Wind", pos: "set" }] },
+    },
+    steps: [
+      endTurn("p0"),
+      expectTurn("p1", 2),
+      activate("Heavy Storm", "p1"),
+      pass("p2"),
+      pass("p0"),
+      pass("p3"),
+      expectResponseOrder("p2", "p0", "p3"),
+      expectResolved("Heavy Storm"),
+      expectBoard({
+        p0: { lp: 16000, hand: [ELF], grave: ["Magic Jammer"], spells: [] },
+        p1: { lp: 16000, hand: [ELF], grave: ["Heavy Storm", "Seven Tools of the Bandit"], spells: [] },
+        p2: { lp: 16000, hand: [ELF], grave: ["Magic Jammer"], spells: [] },
+        p3: { lp: 16000, hand: [], grave: ["Seven Tools of the Bandit", "Fairy Wind"], spells: [] },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "tag-response-order-chain-team-1-counter-trap-resets-order",
     title: "Tag: in the turn of p1, after its Heavy Storm the opposing team answers first (p2, then p0), who adds Magic Jammer; then p1 and p3 answer the Jammer, and p3 negates it with Seven Tools of the Bandit",
     source: RULE,
     rules: ["R-TAG-RESPONSE"],
     tags: ["multiplayer", "chain", "tag", "team1", "card:19613556", "card:77414722", "card:3819470"],
     // Team 1 is the acting team. Counter Traps are used because they open no window at the turn change (a set Dust Tornado does: with
-    // four of them the walk to the turn of p1 holds 19 optional windows). After the Heavy Storm of p1 only the opposing team (p2 then p0,
-    // the seats after p1) can answer: Magic Jammer cannot negate the Spell of the partner p3. After the Jammer of p0 the opposing team
+    // four of them the walk to the turn of p1 holds 19 optional windows). After the Heavy Storm of p1 the Seven Tools of p3 cannot answer a Spell;
+    // the Magic Jammer of p0 or p2 can answer it. After the Jammer of p0 the opposing team
     // of p0 answers, p1 then p3, and Seven Tools of the Bandit of p3 negates the Jammer (a Trap Card). The partner p2 of p0 holds no card
     // that can answer a Trap Card, so it gets no window.
     setup: {
@@ -101,7 +134,7 @@ export const TAG_RESPONSE_ORDER_SCENARIOS: Scenario[] = [
     tags: TRIGGER_TAGS,
     // Four mandatory triggers of four duelists in one event. Order on the chain (turn player p0, its partner p2, then p1, p3): Sangan,
     // Witch of the Black Forest, Skull-Mark Ladybug, Doomdog Octhros. Resolution is the reverse. A plain seat order (p0, p1, p2, p3)
-    // would resolve Witch of the Black Forest before Skull-Mark Ladybug and the partner order p0, p1, p2, p3 would end with p3 on top.
+    // would resolve Witch of the Black Forest before Skull-Mark Ladybug. The team order is p0, p2, p1, p3.
     setup: {
       format: "tag",
       p0: { hand: ["Dark Hole"], monsters: ["Sangan"], deck: ["Giant Rat"] },
