@@ -24,6 +24,7 @@ Konami publishes official rules only for Tag Duels (TCG, revised 5 December 2019
 - `[R-TAG-ORDER]` Turn order is 1A, 2A, 1B, 2B. The first duelist does not draw on their first turn. The first three duelists cannot attack; the first Battle Phase is turn 4.
 - `[R-TAG-SHARED-CARDS]` "You control", "your field" and "your Graveyard" include your partner's cards. "Your hand" and "your Deck" mean only your own.
 - `[R-TAG-UNIQUE]` **Unique cards.** In Tag, a unique-on-field limit ("You can only control 1") permits one copy per team. Both team fields count.
+- `[R-TAG-ATTACK]` **Direct attacks.** In Tag, you may attack a duelist directly when that duelist controls no monster, even if the partner controls monsters. This is an exception to R-TAG-SHARED-CARDS.
 - `[R-TAG-PARTNER-COST]` You may use your partner's cards for costs, Tributes, materials and summon conditions. You cannot activate your partner's cards or effects.
 - `[R-TAG-PARTNER]` Your partner is not your opponent. Your effects on "your opponent" do not affect your partner, and a card that works only on an opponent's card (for example Effect Veiler or Infinite Impermanence) cannot be used on your partner's card. A card that negates an activation, an effect or a summon (for example Solemn Judgment, Solemn Warning or Ash Blossom & Joyous Spring) cannot negate your partner's activation, effect or summon. It can negate the activations and summons of the opposing team, and your own, as in 1v1.
 - `[R-TAG-VISIBILITY]` Partners may see each other's hands and Set cards.
