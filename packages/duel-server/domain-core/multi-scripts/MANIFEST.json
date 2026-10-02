@@ -1942,6 +1942,19 @@
       "note": "the global check compares the controller of the chain link with 1-turn player; it compares the keys (seat in FFA, team in Tag)."
     },
     {
+      "code": 35480699,
+      "file": "c35480699.lua",
+      "name": "Book of Eclipse",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+CONTINUOUS",
+      "redefined": [
+        "flipop"
+      ],
+      "stockSha256": "d8429c88bb7922c1f0fe1887aabe4073fb78b057d260459a719a4d6621fb2118",
+      "note": "Script fix (R1 each opponent, R-COMMON-EACH-PLAYER, lead decision 2026-10-01): the End Phase effect (registered with Duel.RegisterEffect) flips the face-down monsters of the opponents and the stock operation lets ONE opponent (Duel.Draw(1-tp,ct)) draw for all of them. The operation groups the face-down monsters by real controller seat (aux.MPForEachController): each opponent changes its OWN monsters to face-up Defense Position and draws 1 card for each of its own; in Tag each opposing member does the same. The activation and the condition are stock. Not part of R1 or R2 (a script fix, as Raging Cloudian)."
+    },
+    {
       "code": 35842855,
       "file": "c35842855.lua",
       "name": "Pyrorex the Elemental Lord",
