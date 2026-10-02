@@ -46,14 +46,15 @@ export interface SeatPose {
   scale: number;
   rotateDeg: number; // effective rotation (text counter-rotates when upright)
   tiltDeg?: number; // perspective tilt of a far field (rotateX), default 0
-  slot?: PoseSlot; // named place of the pose (3-way): the ring, the holo panels and the docks read it
+  slot?: PoseSlot; // named place of the pose (3-way and 4-way): the ring, the holo panels and the docks read it
   z: number;
   docked: boolean;
   compact: boolean;
   hidden: boolean;
 }
 
-export type PoseSlot = "home" | "vL" | "vR" | "focus" | "dockL" | "dockR" | "oHome" | "oL" | "oR";
+/** Named places of a camera mode. `vN` and `oN` are the far (north) places of a 4-way table. */
+export type PoseSlot = "home" | "vL" | "vN" | "vR" | "focus" | "dockL" | "dockR" | "oHome" | "oL" | "oN" | "oR";
 
 export type CameraMode = "home" | "focus" | "look" | "overview" | "fly";
 export type CameraLockReason = "chain" | "battle" | "direct" | "destroy" | "elimination";
