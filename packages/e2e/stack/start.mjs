@@ -157,6 +157,10 @@ run("duel", process.execPath, ["packages/duel-server/dist/server.js"], {
 });
 
 const stub = fileURLToPath(new URL("./fetch-stub.mjs", import.meta.url));
+const manualImageSource = process.env.E2E_CARD_IMAGE_SOURCE_DIR || process.env.CARD_IMAGE_CACHE_DIR || "";
+if (manualMode && !manualImageSource) {
+  console.warn("[e2e] No card-art source configured. Manual card images will download from YGOPRODeck.");
+}
 run("web", process.execPath, ["server.js"], {
   cwd: standaloneDir,
   env: {
@@ -179,9 +183,7 @@ run("web", process.execPath, ["server.js"], {
     E2E_STUB_GUILD_ID: guildId,
     E2E_STUB_MEMBER_IDS: players.map((player) => player.discordId).join(","),
     E2E_MANUAL: manualMode ? "1" : "0",
-    E2E_CARD_IMAGE_SOURCE_DIR: manualMode
-      ? (process.env.CARD_IMAGE_CACHE_DIR ?? "/home/sulman633/repos/yugioh-bot/data/card-images")
-      : "",
+    E2E_CARD_IMAGE_SOURCE_DIR: manualMode ? manualImageSource : "",
     WS_INTERNAL_URL: wsInternal,
     WS_INTERNAL_SECRET: secrets.ws,
     DUEL_INTERNAL_URL: `http://127.0.0.1:${ports.duel}`,
