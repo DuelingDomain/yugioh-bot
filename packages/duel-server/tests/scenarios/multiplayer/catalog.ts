@@ -932,4 +932,52 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "late-ffa4-messenger-of-peace-limit-for-all-and-payment-only-in-own-standby",
     "late-tag-messenger-of-peace-limit-for-all-and-payment-only-in-own-standby",
   ], // Messenger of Peace
+  28674152: [
+    "summon-procedures-ffa3-radian-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-radian-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-radian-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-radian-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-radian-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-radian-no-tribute-with-kaiju-on-opposing-member",
+  ], // Radian
+  29726552: [
+    "summon-procedures-ffa3-kumongous-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-kumongous-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-kumongous-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-kumongous-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-kumongous-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-kumongous-no-tribute-with-kaiju-on-opposing-member",
+  ], // Kumongous
+  36956512: [
+    "summon-procedures-ffa3-gadarla-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-gadarla-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-gadarla-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-gadarla-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-gadarla-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-gadarla-no-tribute-with-kaiju-on-opposing-member",
+  ], // Gadarla
+  48770333: [
+    "summon-procedures-ffa3-thunder-king-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-thunder-king-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-thunder-king-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-thunder-king-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-thunder-king-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-thunder-king-no-tribute-with-kaiju-on-opposing-member",
+  ], // Thunder King
+  63941210: [
+    "summon-procedures-ffa3-jizukiru-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-jizukiru-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-jizukiru-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-jizukiru-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-jizukiru-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-jizukiru-no-tribute-with-kaiju-on-opposing-member",
+  ], // Jizukiru
+  93332803: [
+    "summon-procedures-ffa3-dogoran-tribute-goes-to-tributed-field",
+    "summon-procedures-ffa4-dogoran-tribute-goes-to-tributed-field",
+    "summon-procedures-tag-dogoran-tribute-goes-to-opposing-member",
+    "summon-procedures-ffa3-dogoran-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-ffa4-dogoran-no-tribute-with-kaiju-on-opponent",
+    "summon-procedures-tag-dogoran-no-tribute-with-kaiju-on-opposing-member",
+  ], // Dogoran
 };

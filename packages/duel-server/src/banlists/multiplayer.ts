@@ -302,6 +302,12 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   3549275: ["ffa3", "ffa4", "tag"], // Dice Jar
   72405967: ["ffa3", "ffa4", "tag"], // Royal Tribute
   44656491: ["ffa3", "ffa4", "tag"], // Messenger of Peace
+  28674152: ["ffa3", "ffa4", "tag"], // Radian (Kaiju procedure)
+  29726552: ["ffa3", "ffa4", "tag"], // Kumongous (Kaiju procedure)
+  36956512: ["ffa3", "ffa4", "tag"], // Gadarla (Kaiju procedure)
+  48770333: ["ffa3", "ffa4", "tag"], // Thunder King (Kaiju procedure)
+  63941210: ["ffa3", "ffa4", "tag"], // Jizukiru (Kaiju procedure)
+  93332803: ["ffa3", "ffa4", "tag"], // Dogoran (Kaiju procedure)
 };
 
 export const MULTIPLAYER_CARD_RULES: readonly MultiplayerCardRule[] = CARD_RULE_DRAFTS.map((draft) => {
