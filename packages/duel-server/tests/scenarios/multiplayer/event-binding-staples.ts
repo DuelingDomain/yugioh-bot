@@ -1,8 +1,8 @@
-// Dark Bribe (77538567), Don Zaloog (76922029), Soul Taker (81510157) and Maxx "C" (23434538): cards that name "the opponent" as 1-tp inside their
+// Dark Bribe (77538567), Don Zaloog (76922029), Soul Taker (81510157), Maxx "C" (23434538), Effect Veiler (97268402) and Infinite Impermanence (10045474): cards that name "the opponent" as 1-tp inside their
 // own effect. In a duel with more than 2 duelists the opponent is the duelist of the event (the one who activated, took the damage or summoned) or the
 // controller of the target. Each scenario asserts the final state of every seat: the duelist of the event is the only one that is affected.
 
-import { activate, attack, auto, pass, choose, select, defineScenario, expectOffered, faceDown, yes, pickOpponent, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, auto, pass, choose, select, endTurn, expectPrompt, expectTurn, defineScenario, expectOffered, faceDown, yes, pickOpponent, type Scenario, type Step } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -143,6 +143,81 @@ function maxx(format: Format, activator: Seat, holder: Seat): Scenario {
   });
 }
 
+const VEILER = "Effect Veiler";
+const IMPERMANENCE = "Infinite Impermanence";
+const HOMUNCULUS = "Homunculus the Alchemic Being";
+
+/**
+ * The holder is offered its Quick Effect in the Main Phase 1 of a turn of another side: at the click that ends the Main Phase of the turn player
+ * (the holder passes the window of each earlier turn). Tag: the partner of the turn player is never offered.
+ */
+function mainWindows(format: Format, turnSeat: Seat, holder: Seat): Step[] {
+  const order = SEATS[format];
+  const offered = (seat: Seat): boolean => (format === "tag" ? team(seat) !== team(holder) : seat !== holder);
+  const steps: Step[] = [];
+  for (let i = 0; i < order.indexOf(turnSeat); i++) {
+    const seat = order[i] as Seat;
+    steps.push({ op: "phase", to: "end", by: seat } as Step);
+    if (offered(seat)) steps.push(pass(holder));
+  }
+  return steps;
+}
+
+/**
+ * `holder` negates the effects of the Homunculus of `target` during the Main Phase of `turnSeat` (Effect Veiler from the hand or Infinite Impermanence Set):
+ * only the target is negated. The proof is on the Homunculus of the turn player: it is negated when it is the target and keeps its effect when another seat is.
+ */
+function negate(format: Format, card: "veiler" | "impermanence", turnSeat: Seat, holder: Seat, target: Seat): Scenario {
+  const name = card === "veiler" ? VEILER : IMPERMANENCE;
+  const spec: Record<string, object> = {};
+  const setup: Record<string, object> = {};
+  for (const seat of SEATS[format]) {
+    spec[seat] = { hand: { count: drawn(seat, turnSeat) }, monsters: seat === holder ? [] : [HOMUNCULUS], grave: [] };
+    setup[seat] = seat === holder ? {} : { monsters: [HOMUNCULUS] };
+  }
+  spec[holder] = { ...spec[holder], grave: [name] };
+  setup[holder] = card === "veiler" ? { hand: [VEILER] } : { spells: [faceDown(IMPERMANENCE)] };
+  const steps: Step[] = [
+    // A Set Trap (like Maxx "C") opens a chain window in every phase of every turn.
+    ...(card === "veiler" ? mainWindows(format, turnSeat, holder) : windows(format, turnSeat, holder)),
+    endTurn(turnSeat),
+    expectOffered("activate", name, holder),
+    activate(name, holder),
+    select({ card: HOMUNCULUS, owner: target }),
+  ];
+  for (const seat of SEATS[format]) {
+    if (seat === holder || seat !== turnSeat) continue;
+    // The turn player tries its own Homunculus: a negated effect resolves with no choice, an effect that is not negated asks for an Attribute.
+    steps.push(activate(HOMUNCULUS, seat));
+    steps.push(seat === target ? expectPrompt({ by: seat, context: "action" }) : expectPrompt({ by: seat, title: "Declare an Attribute" }));
+    if (seat !== target) steps.push(choose("attr:1", seat));
+  }
+  return defineScenario({
+    id: `${card === "veiler" ? "effect-veiler" : "infinite-impermanence"}-${format}-${turnSeat}-turn-${holder}-negates-homunculus-of-${target}`,
+    title: `${label(format)}: ${holder} uses ${name} in the Main Phase of ${turnSeat} on the Homunculus of ${target}: the effect of the target is negated and the Homunculus of the turn player keeps its effect when it is not the target`,
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] the opponent named by 1-tp is any duelist of the other side`,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "event-opponent", format, `card:${card === "veiler" ? 97268402 : 10045474}`],
+    setup: baseSetup(format, setup as never),
+    steps: [...steps, everySeat(format, spec as never)],
+  });
+}
+
+/** Tag: the partner of the turn player holds Effect Veiler (and an opposing monster is a legal target): it is never offered during the turn of its own team. */
+function veilerPartner(turnSeat: Seat, holder: Seat): Scenario {
+  const spec: Record<string, object> = {};
+  for (const seat of SEATS.tag) spec[seat] = { hand: { count: drawn(seat, "p1") + (seat === holder ? 1 : 0) }, monsters: [HOMUNCULUS] };
+  return defineScenario({
+    id: `effect-veiler-tag-${turnSeat}-turn-partner-${holder}-is-never-offered`,
+    title: `Tag: ${holder} holds Effect Veiler in the turn of its partner ${turnSeat}: it is not offered, the turn of the opposing team starts and ${holder} keeps the card in hand`,
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] the opponent named by 1-tp is any duelist of the other side`,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "event-opponent", "tag", "card:97268402"],
+    setup: baseSetup("tag", { p0: { monsters: [HOMUNCULUS] }, p1: { monsters: [HOMUNCULUS] }, p2: { monsters: [HOMUNCULUS], hand: [VEILER] }, p3: { monsters: [HOMUNCULUS] } }),
+    steps: [endTurn(turnSeat), expectTurn("p1", 2), everySeat("tag", spec as never)],
+  });
+}
+
 export const EVENT_BINDING_SCENARIOS: Scenario[] = [
   bribe("ffa3", "p1", "p2"), bribe("ffa3", "p1", "p0"), bribe("ffa4", "p2", "p0"), bribe("ffa4", "p2", "p3"),
   bribe("tag", "p1", "p0"), bribe("tag", "p1", "p2"), bribe("tag", "p0", "p3"), bribe("tag", "p0", "p1"),
@@ -151,5 +226,10 @@ export const EVENT_BINDING_SCENARIOS: Scenario[] = [
   taker("tag", "p1", "p0"), taker("tag", "p1", "p2"), taker("tag", "p0", "p3"),
   maxx("ffa3", "p1", "p2"), maxx("ffa3", "p1", "p0"), maxx("ffa4", "p2", "p0"), maxx("ffa4", "p2", "p3"),
   maxx("tag", "p1", "p0"), maxx("tag", "p1", "p2"), maxx("tag", "p1", "p3"), maxx("tag", "p0", "p2"),
+  negate("ffa3", "veiler", "p1", "p2", "p1"), negate("ffa3", "veiler", "p1", "p0", "p1"), negate("ffa4", "veiler", "p2", "p3", "p2"), negate("ffa4", "veiler", "p1", "p0", "p1"),
+  negate("tag", "veiler", "p0", "p1", "p0"), negate("tag", "veiler", "p0", "p1", "p2"), negate("tag", "veiler", "p1", "p0", "p1"), negate("tag", "veiler", "p1", "p2", "p3"),
+  negate("ffa3", "impermanence", "p1", "p2", "p1"), negate("ffa4", "impermanence", "p2", "p0", "p2"),
+  negate("tag", "impermanence", "p0", "p1", "p0"), negate("tag", "impermanence", "p0", "p3", "p2"), negate("tag", "impermanence", "p1", "p2", "p3"),
+  veilerPartner("p0", "p2"),
   zaloog("tag", "p1", "p2", "deck"), zaloog("tag", "p0", "p3", "hand"), zaloog("tag", "p2", "p1", "hand"), zaloog("tag", "p3", "p0", "deck"),
 ];
