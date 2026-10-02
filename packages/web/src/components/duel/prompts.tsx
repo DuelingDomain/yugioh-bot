@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { searchDuelCards } from "./api";
 import { cardArtUrl, LOCATION_MZONE, zoneKey } from "./constants";
 import { backOutAnswer } from "./pick-backout";
+import { selectBarCopy, sumSelectionValues } from "./select-bar-copy";
 import styles from "./prompts.module.css";
 
 export interface PromptDraft {
@@ -234,7 +235,8 @@ export function canConfirm(prompt: DuelPrompt, draft: PromptDraft): boolean {
       return draft.cardCode != null;
     case "sum": {
       if (prompt.mandatory?.some((id) => !draft.selected.includes(id))) return false;
-      return draft.selected.length >= min && draft.selected.length <= max;
+      return draft.selected.length >= min && draft.selected.length <= max &&
+        (prompt.target == null || sumSelectionValues(prompt, draft.selected).sumMet === true);
     }
     default:
       return false;
@@ -907,16 +909,10 @@ export function PromptTray({
       <PromptHeader prompt={prompt} />
       {prompt.kind === "sum" ? (
         <p className={styles.status}>
-          {prompt.target != null ? `Target ${prompt.target}` : "Select materials"}
-          {draft.selected.length > 0
-            ? ` · ${draft.selected
-                .map((id) => {
-                  const option = prompt.options.find((item) => item.id === id);
-                  if (!option) return id;
-                  return option.values && option.values.length > 0 ? option.values.join("/") : option.label;
-                })
-                .join(", ")}`
-            : ""}
+          {selectBarCopy({
+            kind: prompt.kind, title: prompt.title, min, max, count: draft.selected.length,
+            target: prompt.target, sumMode: prompt.sumMode, ...sumSelectionValues(prompt, draft.selected),
+          }).progress}
         </p>
       ) : null}
       {prompt.kind === "tribute" ? (

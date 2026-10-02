@@ -157,7 +157,9 @@ function queryToCard(
   const counters = query.counters
     ? Object.entries(query.counters).map(([type, count]) => ({ type: Number(type), count }))
     : undefined;
-  const level = query.level || query.rank || query.link?.rating;
+  // A monster whose Level an effect lowered to 0 keeps that 0; Spells and Traps have no Level.
+  const level = query.level || query.rank || query.link?.rating ||
+    (query.level === 0 && ((info?.type ?? 0) & OcgType.MONSTER) !== 0 ? 0 : undefined);
   const card: DuelCard = {
     controller,
     location,
@@ -1188,8 +1190,11 @@ function projectPrompt(
   const projected: DuelPrompt = {
     ...prompt,
     options: prompt.options.map((option) => {
-      if (promptOptionVisible(option, viewer, seats, reveals)) return option;
-      return redactPromptOption(option, cardAt(seats, option.controller ?? -1, option.location ?? -1, option.sequence ?? -1));
+      const card = cardAt(seats, option.controller ?? -1, option.location ?? -1, option.sequence ?? -1);
+      if (promptOptionVisible(option, viewer, seats, reveals)) {
+        return card?.level != null ? { ...option, currentLevel: card.level } : option;
+      }
+      return redactPromptOption(option, card);
     }),
   };
   // A located source card must be visible to the answering seat, or the prompt names nothing.
