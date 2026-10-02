@@ -1,27 +1,34 @@
 // @vitest-environment jsdom
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultDuelSettings, type DuelRoom, type DuelListItem } from "@yugidraft/shared/duels";
 import { makeSeries, makeSeriesRoom } from "../helpers/duel-series";
 
-const { listSavedDecks, listData } = vi.hoisted(() => ({ listSavedDecks: vi.fn(), listData: { duels: [] as DuelListItem[] } }));
+const { listSavedDecks, listData, takeDuelSeat, push } = vi.hoisted(() => ({
+  listSavedDecks: vi.fn(), listData: { duels: [] as DuelListItem[] }, takeDuelSeat: vi.fn(), push: vi.fn(),
+}));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push, replace: vi.fn() }) }));
 vi.mock("swr", () => ({ default: () => ({ data: listData, mutate: vi.fn() }) }));
 vi.mock("../../src/components/decks/api", () => ({ listSavedDecks }));
 vi.mock("../../src/components/duel/api", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/components/duel/api")>(),
+  takeDuelSeat,
   validateDuelDeck: vi.fn(async () => ({ issues: [] })),
   searchDuelCards: vi.fn(async () => ({ cards: [] })),
 }));
+vi.mock("@/components/duel/room", () => ({ DuelRoomView: () => <div>Room</div> }));
 
 import { RoomLobby } from "../../src/components/duel/room-lobby";
 import { DuelLobby } from "../../src/components/duel/lobby";
+import DuelRoomPage from "../../app/(app)/duels/[slug]/page";
+
+beforeEach(() => { takeDuelSeat.mockReset(); takeDuelSeat.mockResolvedValue({ session: room(1, true).session }); });
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -131,21 +138,72 @@ describe("choosing a lobby seat", () => {
 });
 
 describe("table list entry", () => {
-  function table(full = false) {
+  function table(full = false, occupiedSeat = 0) {
     const data = room(null, full);
+    if (!full) data.session.seats[0].seat = occupiedSeat;
     listData.duels = [{ ...data.session, mySeat: null, lastActivityAt: "", series: null }];
     render(<DuelLobby />);
   }
 
-  it("offers both Join and Watch for an open lobby", () => {
+  it.each([0, 1])("claims the open seat before navigating when seat %i is occupied", async (occupiedSeat) => {
+    let resolveClaim!: (value: unknown) => void;
+    takeDuelSeat.mockReturnValue(new Promise((resolve) => { resolveClaim = resolve; }));
+    table(false, occupiedSeat);
+    const join = screen.getByRole("button", { name: /Join/ });
+    fireEvent.click(join);
+    expect(takeDuelSeat).toHaveBeenCalledWith("game-1", occupiedSeat === 0 ? 1 : 0);
+    expect(join).toBeDisabled();
+    fireEvent.click(join);
+    expect(takeDuelSeat).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
+    resolveClaim({ session: room(1, true).session });
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/duels/game-1"));
+  });
+
+  it.each([409, 500])("opens the room as a spectator with a notice after a failed claim (%i)", async (status) => {
+    const { DuelRequestError } = await import("../../src/components/duel/api");
+    takeDuelSeat.mockRejectedValue(new DuelRequestError("That seat is already taken.", status));
     table();
-    expect(screen.getByRole("link", { name: /Join/ })).toHaveAttribute("href", "/duels/game-1");
-    expect(screen.getByRole("link", { name: "Watch" })).toHaveAttribute("href", "/duels/game-1");
+    fireEvent.click(screen.getByRole("button", { name: /Join/ }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/duels/game-1?join=failed"));
+    cleanup();
+    render(await DuelRoomPage({ params: Promise.resolve({ slug: "game-1" }), searchParams: Promise.resolve({ join: "failed" }) }));
+    expect(screen.getByRole("status")).toHaveTextContent(/could not confirm the seat claim/i);
+  });
+
+  it("keeps the notice neutral if the server seats the player before its response is lost", async () => {
+    takeDuelSeat.mockImplementation(async () => {
+      listData.duels[0].seats.push(room(1, true).session.seats[1]);
+      throw new TypeError("Failed to fetch");
+    });
+    table();
+    fireEvent.click(screen.getByRole("button", { name: /Join/ }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/duels/game-1?join=failed"));
+    cleanup();
+    render(await DuelRoomPage({ params: Promise.resolve({ slug: "game-1" }), searchParams: Promise.resolve({ join: "failed" }) }));
+    expect(screen.getByRole("status")).toHaveTextContent("Could not confirm the seat claim.");
+    expect(screen.getByRole("status")).not.toHaveTextContent(/spectator/);
+  });
+
+  it("offers Watch as a plain room link without claiming a seat", () => {
+    table();
+    const watch = screen.getByRole("link", { name: "Watch" });
+    expect(watch).toHaveAttribute("href", "/duels/game-1");
+    // Keep jsdom on the test page while exercising the link click.
+    watch.addEventListener("click", (event) => event.preventDefault());
+    fireEvent.click(watch);
+    expect(takeDuelSeat).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("shows no failed-claim notice for ordinary room entry", async () => {
+    render(await DuelRoomPage({ params: Promise.resolve({ slug: "game-1" }), searchParams: Promise.resolve({}) }));
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("labels a full lobby Full — watch and has no Join action", () => {
     table(true);
     expect(screen.getByRole("link", { name: /Full — watch/ })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Join/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Join/ })).toBeNull();
   });
 });
