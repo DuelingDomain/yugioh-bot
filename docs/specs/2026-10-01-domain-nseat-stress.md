@@ -10,28 +10,33 @@ Sources: ADR-0002; `2026-09-30-multiplayer-core-design.md`, section 8;
 `domain-core/pins.json`; `domain_master.cpp`; `apply-domain-patch.mjs`;
 `apply-domain-multi.mjs`; `lua/domain.lua`.
 
-| Rule | FFA3 and FFA4 | Tag | Proof plan |
+PASS below means live proof on the private P61 core with the three exported
+patches. The tests use the frozen script overlay at commit `a3297e3`.
+OTHER means work assigned to another agent. The final board is preserved when
+a result ends the duel; continuing FFA elimination removes real cards.
+
+| Rule | FFA3 and FFA4 | Tag | Status at more than two seats |
 |---|---|---|---|
-| One Deck Master and zone per seat | 3 or 4 separate owners and zones | 4 separate owners and zones | Existing summon tests; new removal tests |
-| The zone is 0x4000, not hand, field, or Extra Deck | Ordinary field effects and counts exclude it | Partner field counts exclude the partner zone | New count and destruction tests |
-| A Deck Master occupies one location | A summon empties only the owner's zone | Same, including the partner | Existing tests; new control tests |
-| Normal Summon and Monster Set use the normal rules | Own turn and own summon limit | Own turn; partner cards can pay costs | Existing summon tests; new Set tests |
-| Main monster inherent Special Summon uses its procedure | Own zone; normal procedure | Own zone; team field where rules allow | Existing rules; new summon proof |
-| Fusion, Synchro, Xyz, Link, and Ritual use proper summon rules | Proper mechanic may see own master | Partner master stays in its own zone | Link work belongs to the other agent; new Fusion and Ritual proof |
-| A bounded Extra Deck bridge needs the proper mechanic and a successful card filter | Type-only queries do not see the master | Same | Existing 1v1 bridge tests; n-seat gap to check |
-| Activated effects in the zone are blocked, except main Pendulum scale activation | Owner only | Owner only | Other agent owns ability work |
-| Materials cannot come directly from the zone | First summon the master | Partner zone is also excluded | Other agent owns Link work; existing rules |
-| Main Deck masters may Pendulum Summon when legal; Extra Deck Pendulum masters need their proper mechanic | Own master and zones | Same | New Pendulum proof |
-| First leave is free; each completed return adds 500 LP to the next leave | Own LP | Shared team LP | Other agent owns tax work |
-| Costs accumulate; normal LP cost modifiers apply | Own LP | Team LP | Other agent owns tax and Tag PayLPCost work |
-| Recall follows a location-kind change, after chains and triggers at open state | Living owners in turn order | Separate living owners in turn order | Other agent owns recall; movement tests refuse it |
-| Field and overlay locations block recall; refusal consumes the change | Owner keeps current location | Same | New control and destruction proof |
-| Elimination removes all owned cards, stolen cards, and ongoing effects | Remove the lost seat's master too; no residual zone | Loss applies to both team members | New removal and stolen-master proof |
-| A pending loser has no new chain effect; simultaneous losses are applied together | Survivors continue; last survivor wins; no survivors draw | One surviving team wins; both teams lost draw | New loss proof |
-| LP, damage, and recovery use the correct seat | Separate 8000 LP by default | Two shared 16000 LP pools by default | New battle and effect proof |
-| Turns skip eliminated seats; only the first duelist skips its first draw | Clockwise; no battle until all living seats had a turn | 0,1,2,3; battle starts on turn 4 | New first-turn proof |
-| Opponent field effects include all opponents; compare effects pick one in FFA | Master on field counts for its controller | Compare joined team fields; partner is not an opponent | New count and battle proof |
-| Domain does not change Standard or 1v1 rules | N-seat changes require n > 2 | Same | Guard review and live 1v1 controls if core changes |
+| One Deck Master and zone per seat | 3 or 4 separate owners and zones | 4 separate owners and zones | PASS: all-seat boards and raw FFA queries |
+| The zone is 0x4000, not hand, field, or Extra Deck | Ordinary field effects and counts exclude it | Partner field counts exclude the partner zone | PASS: counts, effects, materials, direct attacks, and Extra Deck queries |
+| A Deck Master occupies one location | A summon empties only the owner's zone | Same, including the partner | PASS: summons, movement, theft, and raw queries |
+| Normal Summon and Monster Set use the normal rules | Own turn and own summon limit | Own turn; partner cards can pay costs | PASS: summon and Set; existing partner-cost Domain cases are separate |
+| Main monster inherent Special Summon uses its procedure | Own zone; normal procedure | Own zone; team field where rules allow | PASS: Cyber Dragon and field master counts |
+| Fusion, Synchro, Xyz, Link, and Ritual use proper summon rules | Proper mechanic may see own master | Partner master stays in its own zone; legal partner materials count | PASS: Fusion, Synchro, Xyz, Ritual; Tag partner Fusion and Synchro; OTHER: Link |
+| A bounded Extra Deck bridge needs the proper mechanic and a successful card filter | Type-only queries do not see the master | Same | PASS: valid Fusion, incompatible Fusion, and type-only refusal |
+| Activated effects in the zone are blocked, except main Pendulum scale activation | Owner only | Owner only | OTHER: ability work; Pendulum summon cases pass |
+| Materials cannot come directly from the zone | First summon the master | Partner zone is also excluded | PASS: matching own and partner Fusion materials; OTHER: Link |
+| Main Deck masters may Pendulum Summon when legal; Extra Deck Pendulum masters need their proper mechanic | Own master and zones | Same | PASS: main Normal, main Pendulum, and excluded Extra Pendulum |
+| First leave is free; each completed return adds 500 LP to the next leave | Own LP | Shared team LP | OTHER: tax; first free leave passes in these cases |
+| Costs accumulate; normal LP cost modifiers apply | Own LP | Team LP | OTHER: tax and Tag PayLPCost |
+| Recall follows a location-kind change, after chains and triggers at open state | Living owners in turn order | Separate living owners in turn order | PASS: movement with refusal; OTHER: full recall order and Link recall |
+| Field and overlay locations block recall; refusal consumes the change | Owner keeps current location | Same | PASS: control return, destruction, banishment, and attached Xyz material |
+| Elimination removes all owned cards, stolen cards, and ongoing effects | Remove the lost seat's master too; no residual zone | Loss applies to both team members and ends the duel | PASS: real FFA zones, stolen masters, dead chain links; final Tag board stays frozen |
+| A pending loser has no new chain effect; simultaneous losses are applied together | Survivors continue; last survivor wins; no survivors draw | One surviving team wins; both teams lost draw | PASS: open response windows, loss sets, deck-out, and final results |
+| LP, damage, and recovery use the correct seat | Separate 8000 LP by default | Two shared 16000 LP pools by default | PASS: battle, direct attack, damage effects, and recovery |
+| Turns skip eliminated seats; only the first duelist skips its first draw | Clockwise; no battle until all living seats had a turn | 0,1,2,3; battle starts on turn 4 | PASS: every first turn and loss before a first turn |
+| Opponent field effects include all opponents; compare effects pick one in FFA | Master on field counts for its controller | Compare joined team fields; partner is not an opponent | PASS: Raigeki, Cyber Dragon, Pineapple Blast, and battle |
+| Domain does not change Standard or 1v1 rules | N-seat changes require n > 2 | Same | PASS: guarded patches, Standard raw regressions, seven two-seat Domain controls, five driver comparisons |
 
 Deck construction also uses these rules per seat in all three formats: one
 playable monster as Deck Master, exactly 60 Main Deck cards, at most 15 Extra
@@ -57,7 +62,7 @@ competitive deck legality.
 
 ## Results
 
-P61 passes 27 live scenarios and 4 direct core checks. They prove destruction,
+The initial P61 run passes 27 live scenarios and 4 direct core checks. They prove destruction,
 banishment, theft, battle damage, first-turn rules, simultaneous losses, and
 inherent summons. Every decisive board check includes all seats. The direct
 core checks also prove that a lost FFA seat has no cards in any real zone.
@@ -70,9 +75,9 @@ and the LP of all four seats. These are the existing core termination rules.
 The fuzz driver now counts real Deck Master leaves and returns per seat. A live
 seed in each format proves that the report includes actual Deck Master play.
 The new tests failed before this report change and pass after it. Deck creation
-and the random answer policy already support Domain and need no change.
+already supports Domain decks. The later chain-loop fix changes the answer policy.
 
-P61 also passes 32 summon cases at FFA3 seat 2, FFA4 seat 3, and Tag seats 2
+P61 also passes 40 summon cases at FFA3 seat 2, FFA4 seat 3, and Tag seats 2
 and 3. These prove Monster Set, Fusion, Synchro, Xyz, Ritual, and Pendulum
 Summons. Both Normal and Pendulum main-deck masters can Pendulum Summon. An
 Extra Deck Pendulum master is excluded from the scale activation and Pendulum
@@ -143,3 +148,13 @@ teams still reject opponent materials. Two extra two-seat cases prove the
 same boundary. All 177 tests pass on the final private wasm. The second
 unnumbered patch and its commit message are under `gap-domain/out/tag-partner-synchro/`,
 with tracked copies under the matching proposal folder.
+
+Review found one two-seat change in the adopted Synchro patch. It queried a
+material effect before it compared controllers. Stock skips that query for
+own material. An effect condition can change Lua state and effect IDs. A live
+two-seat probe with a counting condition fails with the adopted patch and
+passes on P61. The correction compares controllers or teams first, then
+queries the effect only for another controller or team. The probe now passes,
+followed by a real master summon and both-seat checks. All 177 tests and the
+focused type check pass on the reviewed private wasm. The third unnumbered
+patch is under `gap-domain/out/synchro-effect-order/`, with a tracked copy.

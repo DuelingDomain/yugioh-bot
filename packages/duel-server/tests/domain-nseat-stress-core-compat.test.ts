@@ -62,9 +62,9 @@ describeWithCores("Domain core patch keeps Standard and two-seat rules", [liveNs
   const twoSeatSynchro = [
     defineScenario({ id: "domain-nseat-stress-two-seat-synchro-own-material", title: "Two seats: own Synchro materials stay legal",
       source: "docs/specs/2026-10-01-domain-nseat-stress.md", tags: ["domain", "synchro", "compatibility"],
-      setup: { mode: "domain", p0: { deckMaster: "Stardust Dragon", monsters: ["The Magical King of Dimension Zeta", "Axe Raider"] }, p1: { deckMaster: "Celtic Guardian" } },
+      setup: { mode: "domain", p0: { deckMaster: "Stardust Dragon", monsters: ["The Magical King of Dimension Zeta", "Axe Raider"], extra: ["Black Rose Dragon"] }, p1: { deckMaster: "Celtic Guardian" } },
       steps: [specialSummon({ card: "Stardust Dragon", from: "dmz" }, "p0"), select("The Magical King of Dimension Zeta", "Axe Raider"),
-        expectBoard({ p0: { lp: 8000, monsters: ["Stardust Dragon"], spells: [], grave: ["The Magical King of Dimension Zeta", "Axe Raider"], banished: [], deckMaster: { inZone: false, returns: 0, nextCost: 0 } },
+        expectBoard({ p0: { lp: 8000, monsters: ["Stardust Dragon"], spells: [], grave: ["The Magical King of Dimension Zeta", "Axe Raider"], banished: [], extra: ["Black Rose Dragon"], deckMaster: { inZone: false, returns: 0, nextCost: 0 } },
           p1: { lp: 8000, monsters: [], spells: [], grave: [], banished: [], deckMaster: { inZone: true, returns: 0, nextCost: 0 } } })],
     }),
     defineScenario({ id: "domain-nseat-stress-two-seat-synchro-opponent-material", title: "Two seats: opponent Synchro materials stay illegal",
@@ -78,10 +78,31 @@ describeWithCores("Domain core patch keeps Standard and two-seat rules", [liveNs
   for (const scenario of [...TWO_SEAT_CASES, ...twoSeatSynchro]) {
     it(`Two seats on the tested multi Domain wasm: ${scenario.id}`, async () => {
       const bytes = readFileSync(currentDomainMultiWasm());
-      registerDomainCoreFactory((ctx) => createDomainCore({ ...ctx, wasmBinary: bytes }));
+      const luaErrors: string[] = [];
+      registerDomainCoreFactory((ctx) => createDomainCore({ ...ctx, wasmBinary: bytes, errorHandler: (type, message) => {
+        luaErrors.push(message); ctx.errorHandler(type, message);
+      } }));
       let game: Awaited<ReturnType<typeof createEngineGame>> | undefined;
       try {
         game = await createEngineGame({ ...compileBoard(scenario.setup).options, seed: ["1", "2", "3", "4"], dataDirectory: engineDataDirectory });
+        if (scenario.id === "domain-nseat-stress-two-seat-synchro-own-material") {
+          // Stock skips this effect query for own material. A condition can
+          // change Lua state and effect IDs, even when the material is legal.
+          const loaded = captured.lib!.loadScript(captured.handle!, "domain-nseat-stress-synchro-order.lua", `
+            local material=Duel.GetFieldCard(0,LOCATION_MZONE,1)
+            local master=Duel.GetFieldCard(0,LOCATION_EXTRA,0)
+            local calls=0
+            local e=Effect.CreateEffect(material)
+            e:SetType(EFFECT_TYPE_SINGLE)
+            e:SetCode(EFFECT_SYNCHRO_MATERIAL)
+            e:SetCondition(function() calls=calls+1 return true end)
+            material:RegisterEffect(e)
+            calls=0
+            assert(material:IsCanBeSynchroMaterial(master))
+            assert(calls==0,"own material must skip the Synchro material effect condition")
+          `);
+          expect(loaded, luaErrors.join("; ")).toBe(true);
+        }
         const session = new Session(scenario, game);
         session.reachMainPhase();
         scenario.steps.forEach((step, index) => session.run(step, index + 1));
