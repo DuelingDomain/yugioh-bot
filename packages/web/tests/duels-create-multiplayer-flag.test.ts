@@ -18,7 +18,7 @@ function request(body: unknown): NextRequest {
 }
 
 beforeEach(() => {
-  callDuelHost.mockReset().mockResolvedValue({ ok: true, data: { multiplayerTables: true, multiDomainCoreReady: true } });
+  callDuelHost.mockReset().mockResolvedValue({ ok: true, data: { multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true } });
   create.mockReset();
   create.mockReturnValue({ slug: "abc" });
 });

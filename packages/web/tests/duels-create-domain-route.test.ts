@@ -23,7 +23,7 @@ beforeEach(() => {
   create.mockReset();
   create.mockReturnValue({ slug: "abc" });
   callDuelHost.mockReset();
-  callDuelHost.mockResolvedValue({ ok: true, data: { multiplayerTables: true, multiDomainCoreReady: false } });
+  callDuelHost.mockResolvedValue({ ok: true, data: { multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: false } });
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -42,7 +42,7 @@ describe("POST /api/duels with Domain", () => {
   });
 
   it.each(["ffa3", "ffa4", "tag"])("makes a Domain %s table when the host has its core", async (format) => {
-    callDuelHost.mockResolvedValue({ ok: true, data: { multiplayerTables: true, multiDomainCoreReady: true } });
+    callDuelHost.mockResolvedValue({ ok: true, data: { multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true } });
     expect((await POST(request({ name: "T", mode: "domain", format }))).status).toBe(201);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ mode: "domain", format }));
     expect(callDuelHost).toHaveBeenCalledWith({ op: "capabilities", guildId: "g1", playerId: 1 });
@@ -58,7 +58,7 @@ describe("POST /api/duels with Domain", () => {
   });
 
   it("blocks creation when the host flag is off", async () => {
-    callDuelHost.mockResolvedValue({ ok: true, data: { multiplayerTables: false, multiDomainCoreReady: true } });
+    callDuelHost.mockResolvedValue({ ok: true, data: { multiplayerTables: false, multiCoreReady: false, multiDomainCoreReady: true } });
     expect((await POST(request({ name: "T", mode: "domain", format: "ffa4" }))).status).toBe(403);
     expect(create).not.toHaveBeenCalled();
   });

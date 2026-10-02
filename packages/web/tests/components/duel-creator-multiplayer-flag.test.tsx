@@ -23,9 +23,22 @@ describe("DuelCreator with the MULTIPLAYER_TABLES flag", () => {
     expect(text).toMatch(/1v1/);
   });
 
+  it.each([undefined, false])("disables multiplayer formats and explains why when multiCoreReady is %s", (multiCoreReady) => {
+    render(<DuelCreator multiplayerTables multiCoreReady={multiCoreReady} multiDomainCoreReady />);
+    const picker = screen.getByLabelText("Table type") as HTMLSelectElement;
+    expect(picker.value).toBe("1v1");
+    expect([...picker.options].filter((option) => option.value !== "1v1").every((option) => option.disabled)).toBe(true);
+    expect(picker.options[0].disabled).toBe(false);
+    expect(screen.getByTestId("multi-core-blocked").textContent).toMatch(/core.*missing/);
+    expect(screen.getByLabelText("Domain")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Create game/ })).toBeEnabled();
+  });
+
   it("offers 1v1, Tag, 3-player and 4-player when the flag is on", () => {
-    render(<DuelCreator multiplayerTables />);
+    render(<DuelCreator multiplayerTables multiCoreReady />);
     const picker = screen.getByLabelText("Table type") as HTMLSelectElement;
     expect([...picker.options].map((option) => option.value)).toEqual(["1v1", "tag", "ffa3", "ffa4"]);
+    expect([...picker.options].every((option) => !option.disabled)).toBe(true);
+    expect(screen.queryByTestId("multi-core-blocked")).toBeNull();
   });
 });

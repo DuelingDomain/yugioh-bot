@@ -1,4 +1,4 @@
-import { isDuelFormat, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
+import { isDuelFormat, MULTI_CORE_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
 import { sendDuelInvite } from "@/lib/announce-bot";
@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
     const data = result.data as Partial<DuelTableCapabilities> | null;
     const hostBlocked = multiplayerTablesBlockReason(format, data?.multiplayerTables === true);
     if (hostBlocked) return NextResponse.json({ error: hostBlocked }, { status: 403 });
+    if (data?.multiCoreReady !== true) return NextResponse.json({ error: MULTI_CORE_UNAVAILABLE_MESSAGE }, { status: 409 });
     const domainBlocked = multiDomainBlockReason(mode, format, data?.multiDomainCoreReady === true);
     if (domainBlocked) return NextResponse.json({ error: domainBlocked }, { status: 400 });
   }

@@ -1850,7 +1850,7 @@ export function createDuelHost(options: {
     }
     const actor = playerId as number;
     if (op === "capabilities") {
-      return { multiplayerTables: multiplayerTablesEnabled(), multiDomainCoreReady: multiDomainCoreAvailable(options.dataDirectory) };
+      return { multiplayerTables: multiplayerTablesEnabled(), multiCoreReady: multiCoreAvailable(options.dataDirectory), multiDomainCoreReady: multiDomainCoreAvailable(options.dataDirectory) };
     }
     if (op === "list-presets") {
       requireScenarios();
