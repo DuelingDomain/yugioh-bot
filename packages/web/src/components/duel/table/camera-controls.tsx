@@ -187,10 +187,10 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
             {layout.format === "ffa4" ? (
               <ViewButton
                 action="compact"
-                label={`Compact rival fields ${camera.compact}`}
+                label={`Compact: ${camera.compact}`}
                 icon={<LayoutGrid size={13} aria-hidden="true" />}
                 hotkey="C"
-                pressed={camera.compact !== "off"}
+                pressed={camera.compact === "on"}
                 wide
                 onClick={() => dispatch({ type: "toggleCompact" })}
               />
