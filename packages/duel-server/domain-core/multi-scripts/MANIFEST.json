@@ -1109,6 +1109,15 @@
       "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
+      "code": 19491080,
+      "file": "c19491080.lua",
+      "name": "Clown Crew Cappello",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "c22295fb38777b98bafb7f22cc3ded9c831e9df598ae15957eff060b59cdba3b",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 19665973,
       "file": "c19665973.lua",
       "name": "Battle Fader",
@@ -1547,6 +1556,15 @@
       "compareIn": [
         "condition"
       ]
+    },
+    {
+      "code": 26964762,
+      "file": "c26964762.lua",
+      "name": "Destiny HERO - Dark Angel",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "69cd9231d916e996ef873109ca7dfb82ce5a8124e379652b5d42028d3db1e928",
+      "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
       "code": 27062594,
@@ -5264,6 +5282,15 @@
         "R1"
       ],
       "stockSha256": "dc0cfca2f59c7bd6b6adca735f4e58e7a8b7e6f1367569c1bde4ce0eb415c563"
+    },
+    {
+      "code": 93053159,
+      "file": "c93053159.lua",
+      "name": "Alba System Dogmatikalamity",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "63afcacd43c51b243d0dba0fd8ca744286eda6351c0b01a44827c16979e3bb41",
+      "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
       "code": 93211810,

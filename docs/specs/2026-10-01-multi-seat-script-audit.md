@@ -77,3 +77,7 @@ Live proof: `all-player-zone-gaps.ts` and `underworld-circle-standby.ts`. Seven 
 ## The holder's own turn
 
 Dark Snake Syndrome (47233801) and Crimson Nova (30270176) also triggered on the Tag partner's turn. Their conditions now use MPTurnOwns for the holder. Their damage still acts once per living duelist, as Q3 requires. Live proof: `each-player-lp-simple.ts` and `each-player-lp-triggers.ts`. Four original Tag cases show extra damage. The 84 cases for 21 each-player LP cards pass on both cores.
+
+## Extra Deck and Deck top
+
+Clown Crew Cappello (19491080), Destiny HERO - Dark Angel (26964762) and Alba System Dogmatikalamity (93053159) changed only some Extra Decks or Deck tops after a bind. Their overlays include each living duelist. Live proof: `all-player-extra.ts`. The real Tribute Summon, Standby cost and Fusion/ignition probes fail in all three multiplayer formats. All 12 fixed cases pass on both cores, with 1v1 controls.
