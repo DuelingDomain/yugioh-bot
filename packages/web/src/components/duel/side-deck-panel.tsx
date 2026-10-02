@@ -138,9 +138,13 @@ export function SideDeckPanel({ slug, series, myIndex, side, onClose, onChanged,
   const swaps = swapCount(base, draft);
   const imReady = known ?? serverReady;
 
-  /** Any edit while ready (or possibly ready) takes Ready back on the server straight away. */
+  /**
+   * Any edit takes Ready back on the server straight away whenever the server might have this player
+   * ready: its latest flag says so, this panel's own requests said so, or a Ready's answer was lost.
+   * Un-ready is harmless when already not ready, so a spare request costs nothing.
+   */
   function leaveReady() {
-    if (!(imReady || maybeReady) || unreadying.current) return;
+    if (!(serverReady || imReady || maybeReady) || unreadying.current) return;
     const before = known;
     setKnown(false);
     setMaybeReady(false);

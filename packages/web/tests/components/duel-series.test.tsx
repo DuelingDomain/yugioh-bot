@@ -216,21 +216,23 @@ describe("SideDeckPanel", () => {
   });
 
   it("un-readies a ready player on the server as soon as they start a swap, before any save", async () => {
+    let finish!: (value: unknown) => void;
+    api.unreadySeries.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
     const props = panel({ sideReady: [true, true] });
     expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByText(/no longer ready/)).toBeNull();
 
     fireEvent.click(await tile("Card 2"));
     await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledWith("game-1"));
-    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
     expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
     expect(screen.getByText(/You are no longer ready/).getAttribute("role")).toBe("status");
     expect((screen.getByRole("button", { name: "Ready for next game" }) as HTMLButtonElement).disabled).toBe(false);
-    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
 
-    // Finishing the swap does not send a second un-ready.
+    // Finishing the swap while the un-ready is in flight does not send a second one.
     fireEvent.click(await tile("Card 10"));
     expect(api.unreadySeries).toHaveBeenCalledTimes(1);
+    finish({ series: makeSeries(), nextSlug: null });
+    await waitFor(() => expect(props.onChanged).toHaveBeenCalled());
   });
 
   it("sends Ready only after a pending un-ready has landed", async () => {
@@ -332,7 +334,6 @@ describe("SideDeckPanel", () => {
     const { rerender } = render(element([true, false]));
     fireEvent.click(await tile("Card 2"));
     await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(1));
-    fireEvent.click(await tile("Card 2"));
 
     // The room refreshes (not ready), then Ready arrives from another tab.
     rerender(element([false, false]));
@@ -340,6 +341,27 @@ describe("SideDeckPanel", () => {
     expect(await screen.findByText("You are ready")).toBeTruthy();
     fireEvent.click(await tile("Card 3"));
     await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
+  });
+
+  it("un-readies again when a refresh still shows Ready after an un-ready (Ready from another tab)", async () => {
+    const base = makeDeck();
+    const between = { status: "between_games" as const, nextGameAt: soon(), hasSide: [true, false] as [boolean, boolean] };
+    const onChanged = vi.fn();
+    const element = (sideReady: [boolean, boolean]) => (
+      <SideDeckPanel slug="game-1" series={makeSeries({ ...between, sideReady })} myIndex={0}
+        side={{ baseDeck: base, currentDeck: base }} onClose={vi.fn()} onChanged={onChanged} onNavigate={vi.fn()} />
+    );
+    const { rerender } = render(element([true, false]));
+    fireEvent.click(await tile("Card 2"));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+
+    // The refresh never showed the player not ready: Ready landed again from another tab.
+    rerender(element([true, false]));
+    fireEvent.click(await tile("Card 3"));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(api.unreadySeries).toHaveBeenCalledTimes(2);
   });
 
   it("un-readies on the next edit when a Ready's answer was lost", async () => {

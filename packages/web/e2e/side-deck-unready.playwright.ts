@@ -10,6 +10,7 @@
  *
  * Run (Node 22, shared built, engine data in data/duel-engine):
  *   PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs SIDE_DECK_ARTIFACTS=/tmp/side-deck-proof \
+ *   CHROMIUM_PATH=/optional/chrome (otherwise Playwright's own browser) \
  *     node --import tsx packages/web/e2e/side-deck-unready.playwright.ts
  * Exits 1 when any step's check fails; screenshots and evidence.json are written either way.
  */
@@ -17,7 +18,7 @@ import { createHmac } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import Database from "better-sqlite3";
@@ -217,7 +218,7 @@ function check(step: string, name: string, ok: boolean, detail: unknown = "") {
 }
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH ?? resolve(homedir(), ".cache/ms-playwright/chromium-1234/chrome-linux64/chrome"),
+  ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
   headless: true,
   args: ["--no-sandbox", "--disable-dev-shm-usage"],
 });
