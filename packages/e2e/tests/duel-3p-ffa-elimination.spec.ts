@@ -374,7 +374,10 @@ test.describe("FFA3 elimination, Domain and UI rule gaps", () => {
     const { page } = await player("p1");
     const slug = await createTable(page, uniqueTableName("ffa3 Domain smoke"), { domain: true, format: "ffa3", ordered: true, noBanlist: true });
     await importDeckUploadAndReady(page, legalDomainUpload(), 60);
-    for (let count = 0; count < 2; count += 1) await page.getByRole("button", { name: /^Add bot/ }).first().click();
+    for (const count of [2, 3]) {
+      await page.getByRole("button", { name: /^Add bot/ }).first().click();
+      await expect.poll(async () => (await readTable(page, slug)).session.seats.length).toBe(count);
+    }
     await expect(page.getByRole("button", { name: /^Start duel/ })).toBeEnabled();
     await page.getByRole("button", { name: /^Start duel/ }).click();
     await enterDuelRoom(page);
