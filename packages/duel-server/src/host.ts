@@ -348,13 +348,14 @@ export function createDuelHost(options: {
 
   async function readClockView(game: DuelGameWorker): Promise<DecisionClockView> {
     const first = await game.view(0);
+    const opening = first.revision === 0 && first.turn <= 1;
     if (first.result) return { turn: first.turn, promptSeat: null };
     if (first.prompt && isSeatIndex(first.prompt.seat)) {
-      return { turn: first.turn, promptSeat: first.prompt.seat };
+      return { turn: first.turn, promptSeat: first.prompt.seat, opening };
     }
     const second = await game.view(1);
     if (second.prompt && isSeatIndex(second.prompt.seat)) {
-      return { turn: second.turn, promptSeat: second.prompt.seat };
+      return { turn: second.turn, promptSeat: second.prompt.seat, opening };
     }
     return { turn: first.turn, promptSeat: null };
   }

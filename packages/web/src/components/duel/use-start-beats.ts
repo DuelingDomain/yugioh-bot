@@ -7,9 +7,9 @@
  * its events as history.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { DuelEngineView } from "@yugidraft/shared/duels";
+import type { DuelClock, DuelEngineView } from "@yugidraft/shared/duels";
 import { collectFreshEvents, maxEventId } from "./event-queue";
-import { isOpeningView, planPhaseBeats, type PhaseBeatPlan } from "./phase-beats";
+import { isOpeningView, openingPresentationMs, planPhaseBeats, type PhaseBeatPlan } from "./phase-beats";
 
 export type StartBeats = {
   /** The turn-start phases are passing: nothing can be answered yet. */
@@ -31,18 +31,26 @@ const presentedOpenings = new Set<string>();
 
 export function useStartBeats({
   engine,
+  clock,
   duelKey,
   reducedMotion,
   ready,
 }: {
   engine: DuelEngineView | null | undefined;
+  clock?: DuelClock | null;
   duelKey: string;
   reducedMotion: boolean;
   /** The card and banner layers are mounted (the room hides them while it recovers a connection). */
   ready: boolean;
 }): StartBeats {
+  const receivedClock = useRef({ clock, at: performance.now() });
+  if (receivedClock.current.clock !== clock) receivedClock.current = { clock, at: performance.now() };
+  const graceLeft = clock?.startedAt == null ? Infinity
+    : clock.startedAt - clock.serverNow - (performance.now() - receivedClock.current.at);
+  const opening = engine != null && isOpeningView(engine);
   // A duel that is still at its very start replays its opening; one the player joins halfway does not.
-  const replayFrom = engine && isOpeningView(engine) && !presentedOpenings.has(duelKey) ? 0 : null;
+  const replayFrom = opening && !presentedOpenings.has(duelKey)
+    && openingPresentationMs(engine.events, reducedMotion) + 100 <= graceLeft ? 0 : null;
 
   const [shown, setShown] = useState<Shown>(IDLE);
   const cursorRef = useRef<number | null>(null);
@@ -87,10 +95,17 @@ export function useStartBeats({
       setShown(IDLE);
       return;
     }
+    if (opening && !presentedOpenings.has(duelKey)) {
+      // The opening may arrive after an empty engine snapshot, when the cursor is already set.
+      presentedOpenings.add(duelKey);
+      if (replayFrom == null) {
+        cursorRef.current = maxEventId(events) ?? 0;
+        return;
+      }
+    }
     if (cursorRef.current == null) {
       cursorRef.current = replayFrom ?? maxEventId(events) ?? 0;
       if (replayFrom == null) return;
-      presentedOpenings.add(duelKey);
     }
     const cursor = cursorRef.current;
     const { nextCursor, fresh } = collectFreshEvents(events, cursor);
@@ -121,7 +136,7 @@ export function useStartBeats({
       // A later batch may have held the player for longer.
       if (performance.now() + 8 >= releaseAtRef.current) setShown(IDLE);
     });
-  }, [duelKey, events, replayFrom, ready]);
+  }, [duelKey, events, opening, replayFrom, ready]);
 
   const waiting = replayFrom === 0 && !ready;
   return {

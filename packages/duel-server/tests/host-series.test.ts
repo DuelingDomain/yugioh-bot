@@ -121,6 +121,7 @@ function openHost(
     onChange?: (slug: string, guildId: string) => void | Promise<void>;
     notifyTournament?: (notice: TournamentNotice) => void | Promise<void>;
     pollIntervalMs?: number;
+    createWorker?: () => FakeWorker;
   } = {},
 ) {
   const workers: FakeWorker[] = [];
@@ -133,7 +134,7 @@ function openHost(
     idleWorkerMs: 60 * 60 * 1000,
     pollIntervalMs: extra.pollIntervalMs ?? 60 * 60 * 1000,
     createWorker: () => {
-      const worker = new FakeWorker();
+      const worker = extra.createWorker?.() ?? new FakeWorker();
       workers.push(worker);
       return worker;
     },
@@ -615,6 +616,36 @@ describe("Best of 3 against the practice bot", () => {
     return table;
   }
   const humanSeat = (app: App, slug: string) => app.duels.get(slug, GUILD).seats.find((seat) => !seat.isBot)!.seat;
+
+  it("gives game 2 a fresh decision bank and opening grace after side decking against the bot", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    class OpeningWorker extends FakeWorker {
+      async view(seat: number | null) {
+        return { ...await super.view(seat), revision: 0 };
+      }
+    }
+    const { host, workers } = openHost(app, { createWorker: () => new OpeningWorker() });
+    const table = await startBotMatch(app, host);
+    const firstClock = app.duels.privateState(table.slug, GUILD).clock!;
+    expect(firstClock.startedAt).toBe(Date.now() + 8_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await endGame(host, workers[0]!, table.slug, app.p1, 1 - humanSeat(app, table.slug));
+    await post(host, { op: "series-first", slug: table.slug, playerId: app.p1, choice: "first" });
+    const ready = await post(host, { op: "series-ready", slug: table.slug, playerId: app.p1 });
+    expect(ready.status).toBe(200);
+    const nextSlug = ready.data.nextSlug as string;
+    const next = app.duels.get(nextSlug, GUILD);
+    expect(next.gameNumber).toBe(2);
+    expect(next.status).toBe("active");
+    const nextClock = app.duels.privateState(nextSlug, GUILD).clock!;
+    expect(nextClock.remainingMs).toEqual(firstClock.remainingMs);
+    expect(nextClock.activeSeat).toBe(humanSeat(app, nextSlug));
+    expect(nextClock.startedAt).toBe(Date.now() + 8_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await post(host, { op: "view", slug: nextSlug, playerId: app.p1 });
+    expect(app.duels.privateState(nextSlug, GUILD).clock).toEqual(nextClock);
+  });
 
   it("keeps the match going after the bot wins: the human chooses, then game 2 starts with the bot", async () => {
     vi.useFakeTimers();

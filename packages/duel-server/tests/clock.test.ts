@@ -12,6 +12,23 @@ import {
 import { duelClockRegainMs, duelClockRulesText } from "@yugidraft/shared/duels";
 
 describe("decision clock", () => {
+  it("keeps the opening deal out of the decision bank and enforces the deadline after grace", () => {
+    const clock = startDecisionClock({ turn: 1, promptSeat: 0, opening: true }, 30, 1_000)!;
+    expect(clock.startedAt).toBe(9_000);
+    expect(liveRemainingMs(clock, 8_999)).toEqual([30_000, 30_000]);
+    expect(liveRemainingMs(clock, 9_400)).toEqual([29_600, 30_000]);
+    expect(isClockDue(clock, 38_999)).toBe(false);
+    expect(isClockDue(clock, 39_000)).toBe(true);
+  });
+
+  it("preserves remaining opening grace when the first prompt changes early", () => {
+    const clock = startDecisionClock({ turn: 1, promptSeat: 0, opening: true }, 30, 1_000)!;
+    const next = syncDecisionClock(clock, { turn: 1, promptSeat: 1 }, 30, 2_000, 3_000)!;
+    expect(next.startedAt).toBe(9_000);
+    expect(liveRemainingMs(next, 8_999)).toEqual([30_000, 30_000]);
+    expect(liveRemainingMs(next, 9_500)).toEqual([30_000, 29_500]);
+  });
+
   it("is absent when turnSeconds is unlimited", () => {
     expect(startDecisionClock({ turn: 1, promptSeat: 0 }, 0, 10_000)).toBeNull();
     expect(syncDecisionClock({ turn: 1, remainingMs: [1000, 1000] as [number, number], activeSeat: 0, startedAt: 1 }, { turn: 1, promptSeat: 0 }, 0, 10_000)).toBeNull();

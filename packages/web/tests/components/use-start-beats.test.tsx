@@ -2,7 +2,7 @@
 import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, renderHook } from "@testing-library/react";
-import type { DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
+import type { DuelClock, DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
 import { PHASE_TIMING } from "@/components/duel/duel-timing";
 import { resetPhaseBeats } from "@/components/duel/phase-beats";
 import { useStartBeats } from "@/components/duel/use-start-beats";
@@ -68,6 +68,27 @@ describe("useStartBeats", () => {
     expect(result.current.active).toBe(false);
   });
 
+  it("skips a late opening when the server grace has already ended", () => {
+    const engine = view({ events: [draw(1), phase(2, "Draw Phase"), phase(3, "Standby Phase"), phase(4, "Main Phase 1")] });
+    const clock: DuelClock = { turn: 1, remainingMs: [30_000, 30_000], activeSeat: 0, startedAt: 9_000, serverNow: 10_000 };
+    const { result } = renderHook(() => useStartBeats({ engine, clock, duelKey, reducedMotion: false, ready: true }));
+    expect(result.current.active).toBe(false);
+    expect(result.current.replayFrom).toBeNull();
+  });
+
+  it("skips the opening if recovery consumed too much of the remaining grace", () => {
+    const engine = view({ events: [draw(1), phase(2, "Draw Phase"), phase(3, "Standby Phase"), phase(4, "Main Phase 1")] });
+    const clock: DuelClock = { turn: 1, remainingMs: [30_000, 30_000], activeSeat: 0, startedAt: 9_000, serverNow: 1_000 };
+    let ready = false;
+    const { result, rerender } = renderHook(() => useStartBeats({ engine, clock, duelKey, reducedMotion: false, ready }));
+    expect(result.current.waiting).toBe(true);
+    act(() => vi.advanceTimersByTime(7_000));
+    ready = true;
+    rerender();
+    expect(result.current.active).toBe(false);
+    expect(result.current.replayFrom).toBeNull();
+  });
+
   it("holds the player for the Draw and Standby Phase of a later turn", () => {
     const first = [phase(1, "Battle Phase"), phase(2, "End Phase")];
     let engine = view({ revision: 4, turn: 2, events: first });
@@ -103,6 +124,19 @@ describe("useStartBeats", () => {
   it("remembers a presented opening across a room remount", () => {
     const engine = view({ events: [draw(1), phase(2, "Draw Phase"), phase(3, "Standby Phase")] });
     const first = renderHook(() => useStartBeats({ engine, duelKey, reducedMotion: false, ready: true }));
+    act(() => vi.advanceTimersByTime(PHASE_TIMING.capMs + 1));
+    first.unmount();
+    const second = renderHook(() => useStartBeats({ engine, duelKey, reducedMotion: false, ready: true }));
+    expect(second.result.current.replayFrom).toBeNull();
+    expect(second.result.current.active).toBe(false);
+  });
+
+  it("consumes an opening that arrives after an empty engine snapshot", () => {
+    let engine = view({ events: [] });
+    const first = renderHook(() => useStartBeats({ engine, duelKey, reducedMotion: false, ready: true }));
+    engine = view({ events: [draw(1), phase(2, "Draw Phase"), phase(3, "Standby Phase")] });
+    first.rerender();
+    expect(first.result.current.active).toBe(true);
     act(() => vi.advanceTimersByTime(PHASE_TIMING.capMs + 1));
     first.unmount();
     const second = renderHook(() => useStartBeats({ engine, duelKey, reducedMotion: false, ready: true }));

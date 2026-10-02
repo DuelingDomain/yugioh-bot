@@ -523,6 +523,26 @@ describe("duel host clocks", () => {
     shuffleDeck: false,
   };
 
+  it("grants an opening snapshot grace once and persists it across reconnects", async () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    const { p1, p2 } = seedPlayers(db);
+    const { session, duels } = readyLobby(db, p1, p2, timedSettings);
+    const worker = new FakeWorker();
+    worker.revision = 0;
+    let nowMs = 1_000;
+    const { host } = openHost(() => worker, { db, now: () => nowMs });
+    const started = await post(host, { op: "start", slug: session.slug, guildId: "g1", playerId: p1 });
+    expect(started.status).toBe(200);
+    expect(roomClock(started.data)?.startedAt).toBe(9_000);
+    const before = storedClock(duels, session.slug);
+    nowMs = 2_000;
+    const reconnected = await post(host, { op: "view", slug: session.slug, guildId: "g1", playerId: p1 });
+    expect(reconnected.status).toBe(200);
+    expect(storedClock(duels, session.slug)).toEqual(before);
+    expect(roomClock(reconnected.data)?.startedAt).toBe(9_000);
+  });
+
   it("passes persisted creator settings into worker.create and starts both seats", async () => {
     const db = new Database(":memory:");
     migrate(db);

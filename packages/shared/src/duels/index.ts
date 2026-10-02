@@ -18,6 +18,7 @@ export {
   DUEL_CLOCK_INCREMENT_MS,
   DUEL_CLOCK_REGAIN_FRACTION,
   DUEL_CLOCK_REGAIN_MIN_MS,
+  DUEL_OPENING_GRACE_MS,
   defaultDuelSettings,
   duelClockBankMs,
   duelClockRegainMs,

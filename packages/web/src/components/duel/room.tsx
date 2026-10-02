@@ -300,6 +300,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   // The turn-start phases (and the opening deal) play one beat at a time; nothing can be answered meanwhile.
   const startBeats = useStartBeats({
     engine: data?.engine ?? null,
+    clock: data?.clock,
     duelKey: slug,
     reducedMotion: preferences.reducedMotion,
     ready: !error && !realtime.recovering,
