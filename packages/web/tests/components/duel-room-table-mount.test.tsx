@@ -42,7 +42,8 @@ function room(source: DuelRoom) {
   state.room = { ...source, session: { ...source.session, slug: "live" }, engine: { ...source.engine!, events: [],
     prompt: source.engine!.prompt ? { ...source.engine!.prompt, options: source.engine!.prompt.options.map((option) => ({ ...option })) } : null } };
 }
-function mount(windowed = true) { return render(<DuelRoomView slug="live" windowed={windowed} />); }
+function mount(windowed = true) { return render(<DuelRoomView slug="live" windowed={windowed}
+  legacyStage={new URLSearchParams(window.location.search).get("stage") === "legacy"} />); }
 
 describe("live room table mount", () => {
   it.each([FFA3_FIXTURES, FFA4_FIXTURES])("mounts $format with every engine seat", (fixtures) => {
