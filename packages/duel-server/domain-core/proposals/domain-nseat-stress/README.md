@@ -1,7 +1,19 @@
 # Domain proof patches
 
-These patches are proposals. They are not in the installed patch series.
-Apply them to P61, in this order:
+The installed P68 series includes two of these patches:
+
+- `tag-partner-synchro/tag-partner-synchro.patch` is installed as
+  `0062-tag-synchro.patch`.
+- `synchro-effect-order/synchro-effect-order.patch` is installed as
+  `0068-synchro-material-effect-order.patch`.
+
+Do not apply these two proposal copies to P68. The installed series already
+has their changes. `remove-eliminated-chain-cards.patch` is still a proposal.
+It is not in patches 0001 through 0068.
+
+## Historical P61 proof
+
+The private proof below applied the proposal copies to P61 in this order:
 
 1. `remove-eliminated-chain-cards.patch`
 2. `tag-partner-synchro/tag-partner-synchro.patch`
