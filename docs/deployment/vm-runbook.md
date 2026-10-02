@@ -123,7 +123,7 @@ for a run before that change. Do not infer this value from the creation date alo
 ```sql
 UPDATE duels
 SET setup_json = json_set(coalesce(setup_json, '{}'), '$.firstTurnDraw', json('true'))
-WHERE slug = '<verified-duel-slug>'
+WHERE web_slug = '<verified-duel-slug>'
   AND guild_id = '<verified-guild-id>'
   AND format IN ('ffa3', 'ffa4')
   AND seed_json IS NOT NULL
