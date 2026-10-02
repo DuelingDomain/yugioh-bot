@@ -1,0 +1,271 @@
+/* Compact chip view of a rival field that is too small to read (4-way table). It sits in the middle of the seat
+   box and turns back by the box turn (--crot), so it reads upright on screen. */
+.chips {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: max-content;
+  max-width: 620px;
+  padding: 16px 18px;
+  translate: -50% -50%;
+  rotate: var(--crot, 0deg);
+  border: 2px solid rgb(var(--t) / 0.55);
+  border-radius: 10px;
+  background: linear-gradient(160deg, rgb(var(--t) / 0.14), rgb(7 11 21 / 0.9) 60%);
+  box-shadow: 0 20px 50px -20px #000;
+  color: #eceaf5;
+}
+
+.chips[data-sideways="true"] {
+  width: 340px;
+  max-width: 340px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--tink);
+  font: 700 26px/1 var(--font-duel-display, var(--f-ui, sans-serif));
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.head i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgb(var(--t));
+}
+
+.head small {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: #a8a4bd;
+  font: 600 20px/1 var(--font-duel-num, var(--f-ui, sans-serif));
+  letter-spacing: 0.04em;
+}
+
+.head small svg {
+  width: 20px;
+  height: 20px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+}
+
+.lab {
+  width: 44px;
+  color: #6f6b87;
+  font: 600 18px/1 var(--font-duel-display, var(--f-ui, sans-serif));
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.empty {
+  color: #6f6b87;
+  font: italic 22px var(--font-duel-ink, serif);
+}
+
+.chip {
+  position: relative;
+  width: 84px;
+  height: 122px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: zoom-in;
+  --r: 6px;
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border-radius: 6px;
+  box-shadow: 0 6px 14px rgb(0 0 0 / 0.6);
+}
+
+/* A monster in defense lies on its side inside the same box. */
+.chip[data-defense="true"] .face {
+  scale: 0.72;
+}
+
+.value {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 4px 0;
+  background: rgb(5 8 16 / 0.9);
+  color: #eceaf5;
+  font: 600 22px/1 var(--font-duel-num, var(--f-ui, sans-serif));
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Usable or pickable: a soft glow and a small chip on top, never a dashed outline and never a dim. */
+.glow {
+  position: absolute;
+  inset: -1px;
+  z-index: 4;
+  border-radius: 6px;
+  box-shadow:
+    0 0 8px 2px rgb(155 126 255 / 0.9),
+    0 0 20px 5px rgb(155 126 255 / 0.5),
+    0 0 34px 8px rgb(155 126 255 / 0.22);
+  animation: breathe 2.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.glow[data-state="picked"] {
+  box-shadow:
+    0 0 4px 2px rgb(244 214 144 / 0.95),
+    0 0 14px 5px rgb(155 126 255 / 1),
+    0 0 30px 10px rgb(155 126 255 / 0.6);
+  animation: none;
+}
+
+.tag {
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 28px;
+  border: 1px solid rgb(155 126 255 / 0.9);
+  border-radius: 999px;
+  background: #0c1224;
+  color: #c6b6ff;
+  translate: -50% 0;
+  pointer-events: none;
+}
+
+.tag svg {
+  width: 16px;
+  height: 16px;
+}
+
+.link {
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e4b64f;
+  color: #140c04;
+  font: 800 20px/1 var(--font-duel-num, var(--f-ui, sans-serif));
+  pointer-events: none;
+}
+
+.piles {
+  display: flex;
+  gap: 14px;
+  color: #a8a4bd;
+  font: 600 20px/1 var(--font-duel-num, var(--f-ui, sans-serif));
+}
+
+.pile {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid rgb(var(--t) / 0.35);
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pile b {
+  color: #eceaf5;
+}
+
+.pile[data-legal="true"] {
+  border-color: rgb(155 126 255 / 0.9);
+  box-shadow: 0 0 10px 1px rgb(155 126 255 / 0.55);
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow {
+    animation: none;
+  }
+}
+
+/* The lens: a larger card beside the hovered chip. It lives in the page body, so it uses real pixels. */
+.lens {
+  position: fixed;
+  z-index: 210;
+  width: 176px;
+  padding: 8px;
+  border: 1px solid rgb(var(--t) / 0.7);
+  border-radius: 8px;
+  background: rgb(9 12 24 / 0.96);
+  box-shadow: 0 20px 40px -10px #000;
+  color: #eceaf5;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.lens img,
+.lensBack {
+  display: block;
+  width: 100%;
+  aspect-ratio: 59 / 86;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.lensBack {
+  background: #120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat;
+  border: 1px solid #b08a3e;
+}
+
+.lens b {
+  display: block;
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+.lens span {
+  color: #cfcce0;
+  font: 600 15px var(--font-duel-num, var(--f-ui, sans-serif));
+}
+
+.lens em {
+  display: block;
+  color: var(--tink);
+  font-size: 12px;
+  line-height: 1.25;
+}

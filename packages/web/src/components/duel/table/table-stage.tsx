@@ -42,19 +42,23 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const canvasRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const tetherRef = useRef<SVGSVGElement>(null);
-  const [box, setBox] = useState({ width: 0, height: 0 });
+  const [box, setBox] = useState({ width: 0, height: 0, screenWidth: 0 });
 
   useLayoutEffect(() => {
     const node = rootRef.current;
     if (!node) return;
     const read = () => setBox((prev) => {
-      const next = { width: node.clientWidth, height: node.clientHeight };
-      return prev.width === next.width && prev.height === next.height ? prev : next;
+      const next = { width: node.clientWidth, height: node.clientHeight, screenWidth: window.innerWidth };
+      return prev.width === next.width && prev.height === next.height && prev.screenWidth === next.screenWidth ? prev : next;
     });
     read();
     const observer = new ResizeObserver(read);
     observer.observe(node);
-    return () => observer.disconnect();
+    window.addEventListener("resize", read);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", read);
+    };
   }, []);
 
   const k = stageFit(box);
