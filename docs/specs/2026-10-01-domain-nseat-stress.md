@@ -69,3 +69,11 @@ and 3. These prove Monster Set, Fusion, Synchro, Xyz, Ritual, and Pendulum
 Summons. Both Normal and Pendulum main-deck masters can Pendulum Summon. An
 Extra Deck Pendulum master is excluded from the scale activation and Pendulum
 Summon. All cases check the Deck Master zone and the board of every seat.
+
+P61 passes 25 control and loss cases. They prove temporary control return,
+battle damage to the controller of a stolen master, a return to the owner's
+hand, and count effects that include a master on the field. They also prove
+empty-Deck losses, LP recovery, all-seat simultaneous losses, and the first
+battle window after a seat loses before its first turn. A lost FFA thief sends
+the living owner's master to that owner's Graveyard. Tag count effects use
+the joined opposing field. LP recovery reaches both views of the same team.
