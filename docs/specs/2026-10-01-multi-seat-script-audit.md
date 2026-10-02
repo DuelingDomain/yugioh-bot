@@ -81,3 +81,9 @@ Dark Snake Syndrome (47233801) and Crimson Nova (30270176) also triggered on the
 ## Extra Deck and Deck top
 
 Clown Crew Cappello (19491080), Destiny HERO - Dark Angel (26964762) and Alba System Dogmatikalamity (93053159) changed only some Extra Decks or Deck tops after a bind. Their overlays include each living duelist. Live proof: `all-player-extra.ts`. The real Tribute Summon, Standby cost and Fusion/ignition probes fail in all three multiplayer formats. All 12 fixed cases pass on both cores, with 1v1 controls.
+
+## Fork draw eligibility
+
+Mimighoul Fork (19338434) could offer a two-card draw when the real owner's Deck was empty. The picked chooser's Deck had two cards, so the folded owner check passed. Its filter and operation now rebind each FFA duelist to find the exact owner. In Tag, they bind the current controller for an unchanged owner/controller. Live proof: `fork-draw-legality.ts`. All three previous-overlay probes offered the wrong option; nine fixed legality and owner-action cases pass on both cores.
+
+Tag cards owned by a different duelist still need the real-owner API, including a transfer between partners whose folded owner/controller values are equal. That complete fix is exported with the core query and is not installed.
