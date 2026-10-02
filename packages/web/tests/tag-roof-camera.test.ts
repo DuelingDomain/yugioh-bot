@@ -3,15 +3,18 @@ import {
   ROOF_LIMITS,
   ROOF_PRESETS,
   cameraLabel,
+  clampCenter,
   easeCam,
   easeFly,
   initialRoofCamera,
   poseAt,
+  roofFit,
   roofKeyAction,
   roofReducer,
   roofSlots,
   roofTransform,
   seatPose,
+  tweenProgress,
   type RoofCameraState,
 } from "@/components/duel/tag/roof-camera";
 import type { CameraAction } from "@/components/duel/table/types";
@@ -351,5 +354,37 @@ describe("camera label", () => {
     expect(cameraLabel(run(initialRoofCamera({ anchorSeat: 0 }), { type: "focus", seat: 0 }), nameOf)).toBe("Aster · you");
     expect(cameraLabel(run(initialRoofCamera({ anchorSeat: 0 }), { type: "focus", seat: 3 }), nameOf)).toBe("Juniper's chair");
     expect(cameraLabel(run(initialRoofCamera({ anchorSeat: 0 }), { type: "zoom", factor: 1.2 }), nameOf)).toBe("Free");
+  });
+});
+
+describe("stage fit and hud placement", () => {
+  it("fits the 1560 by 700 roof world into the free box", () => {
+    expect(roofFit({ left: 0, right: 1560, top: 0, bottom: 700 })).toBeCloseTo(1, 5);
+    expect(roofFit({ left: 100, right: 1100, top: 6, bottom: 706 })).toBeCloseTo(1000 / 1560, 5);
+    expect(roofFit({ left: 0, right: 3120, top: 0, bottom: 350 })).toBeCloseTo(0.5, 5);
+  });
+
+  it("gives 0 for an empty box", () => {
+    expect(roofFit({ left: 10, right: 10, top: 0, bottom: 300 })).toBe(0);
+    expect(roofFit({ left: 0, right: 300, top: 50, bottom: 40 })).toBe(0);
+  });
+
+  it("keeps a hud box inside the view and leaves a box that already fits", () => {
+    const view = { left: 0, right: 1000, top: 0, bottom: 600 };
+    expect(clampCenter({ x: 500, y: 300 }, { w: 200, h: 100 }, view)).toEqual({ x: 500, y: 300 });
+    expect(clampCenter({ x: 20, y: 590 }, { w: 200, h: 100 }, view)).toEqual({ x: 100, y: 550 });
+    expect(clampCenter({ x: 990, y: -40 }, { w: 200, h: 100 }, view)).toEqual({ x: 900, y: 50 });
+  });
+
+  it("centres a box that is wider than the view", () => {
+    const view = { left: 0, right: 100, top: 0, bottom: 100 };
+    expect(clampCenter({ x: 10, y: 10 }, { w: 300, h: 40 }, view).x).toBe(50);
+  });
+
+  it("reads tween progress from the clock", () => {
+    expect(tweenProgress(1000, 1000, 500)).toBe(0);
+    expect(tweenProgress(1250, 1000, 500)).toBeCloseTo(0.5, 5);
+    expect(tweenProgress(9000, 1000, 500)).toBe(1);
+    expect(tweenProgress(1000, 1000, 0)).toBe(1);
   });
 });

@@ -372,3 +372,41 @@ export function lockLabel(reason: CameraLockReason): string {
       return "team out";
   }
 }
+
+/** The part of the stage box the roof world may use (stage px). Rails and HUD blocks are already cut off. */
+export interface RoofView {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** Width and depth of the roof world that must stay in view at zoom 1: both team strips and the gap between them. */
+export const ROOF_WORLD = { width: 1560, depth: 700 } as const;
+
+/** Fit factor of the roof world: the world at zoom 1 fills the free box. 0 for an empty box. */
+export function roofFit(view: RoofView): number {
+  const w = view.right - view.left;
+  const h = view.bottom - view.top;
+  if (!(w > 0) || !(h > 0)) return 0;
+  return Math.min(w / ROOF_WORLD.width, h / ROOF_WORLD.depth);
+}
+
+/** Centre of a HUD box that is pushed back into the view. A box wider than the view is centred on it. */
+export function clampCenter(
+  at: { x: number; y: number },
+  box: { w: number; h: number },
+  view: RoofView,
+): { x: number; y: number } {
+  const axis = (v: number, size: number, lo: number, hi: number) => {
+    if (hi - lo <= size) return (lo + hi) / 2;
+    return Math.max(lo + size / 2, Math.min(hi - size / 2, v));
+  };
+  return { x: axis(at.x, box.w, view.left, view.right), y: axis(at.y, box.h, view.top, view.bottom) };
+}
+
+/** Progress of a tween, 0 to 1, from the clock. A tween with no length is done at once. */
+export function tweenProgress(nowMs: number, startMs: number, durMs: number): number {
+  if (!(durMs > 0)) return 1;
+  return Math.max(0, Math.min(1, (nowMs - startMs) / durMs));
+}
