@@ -6,8 +6,6 @@ import { DraftManageView } from "@/components/draft/draft-manage-view";
 import { DraftSummaryView } from "@/components/draft/draft-summary-view";
 import { DraftRoom } from "@/components/draft/room/draft-room";
 import { DraftFinale } from "@/components/draft/room/finale";
-import { CubeLobbyPanel } from "@/components/cubes/cube-lobby-panel";
-import { CubeDraftBuilder } from "@/components/cubes/cube-draft-builder";
 import { useDraftStore } from "@/lib/stores/draft-store";
 import { useDraftWebsocket } from "@/lib/hooks/use-draft-websocket";
 import { useDraftCountdown } from "@/lib/hooks/use-draft-countdown";
@@ -299,41 +297,19 @@ export default function DraftDetailPage() {
 
   if (draft.status === "pending") {
     return (
-      <div>
-        {isThemeDraft && (
-          <div className="mx-auto max-w-[1800px] px-4 pt-4 sm:px-6 lg:px-8">
-            {isCreator ? (
-              <CubeDraftBuilder
-                slug={slug}
-                allowedCubes={draft.allowedCubes ?? []}
-                uniqueThemes={draft.config.uniqueThemes ?? true}
-                onChanged={() => void fetchDraft()}
-              />
-            ) : (
-              draft.allowedCubes && (
-                <CubeLobbyPanel
-                  slug={slug}
-                  allowedCubes={draft.allowedCubes}
-                  themeSelection={draft.config.themeSelection ?? "player_pick"}
-                  onClaimed={() => void fetchDraft()}
-                />
-              )
-            )}
-          </div>
-        )}
-        <DraftManageView
-          draft={draft}
-          slug={slug}
-          isCreator={isCreator}
-          isParticipant={isParticipant}
-          onStart={handleStart}
-          onCancel={handleCancel}
-          onUpdate={handleUpdate}
-          onJoin={handleJoin}
-          onAddBot={handleAddBot}
-          isDev={process.env.NODE_ENV !== "production"}
-        />
-      </div>
+      <DraftManageView
+        draft={draft}
+        slug={slug}
+        isCreator={isCreator}
+        isParticipant={isParticipant}
+        onStart={handleStart}
+        onCancel={handleCancel}
+        onUpdate={handleUpdate}
+        onJoin={handleJoin}
+        onAddBot={handleAddBot}
+        onChanged={() => void fetchDraft()}
+        isDev={process.env.NODE_ENV !== "production"}
+      />
     );
   }
 

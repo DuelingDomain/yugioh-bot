@@ -3,7 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { DraftConfig } from "@yugidraft/shared/types";
-import { Button } from "@/components/ui/button";
+import { CircleAlert } from "lucide-react";
+import { secondsText, themeSelectionText } from "./create/format";
+import styles from "./create/create.module.css";
 
 type Channel = { id: string; name: string };
 
@@ -22,6 +24,8 @@ export function CreateThemeDraftForm() {
   const [pickSeconds, setPickSeconds] = React.useState(45);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [nameError, setNameError] = React.useState(false);
+  const nameRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     fetch("/api/discord/channels")
@@ -35,6 +39,8 @@ export function CreateThemeDraftForm() {
     setError(null);
     if (!name.trim()) {
       setError("Draft name is required");
+      setNameError(true);
+      nameRef.current?.focus();
       return;
     }
     const config: DraftConfig = {
@@ -70,76 +76,186 @@ export function CreateThemeDraftForm() {
     }
   };
 
-  const inputCls =
-    "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none";
+  const unnamed = !name.trim();
 
   return (
-    <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">
-      {error && (
-        <div className="rounded-lg border border-accent-cta/50 bg-accent-cta/10 px-4 py-2 text-sm text-accent-cta">{error}</div>
-      )}
-
-      <p className="rounded-lg border border-border bg-surface/60 px-4 py-3 text-sm text-text-secondary">
-        Set up the draft here, then add your theme cubes (one per archetype) inside the draft on the next screen.
-      </p>
-
-      <div>
-        <label htmlFor="theme-draft-name" className="mb-1 block text-sm font-medium text-text-primary">Draft Name</label>
-        <input id="theme-draft-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Friday Theme Night" className={inputCls} required />
-      </div>
-
-      <div>
-        <label htmlFor="theme-draft-channel" className="mb-1 block text-sm font-medium text-text-primary">Channel</label>
-        <select id="theme-draft-channel" value={channelId} onChange={(e) => setChannelId(e.target.value)} className={`native-select ${inputCls}`}>
-          <option value="">Default Channel</option>
-          {channels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}
-        </select>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="text-sm text-text-primary">
-          Choices per pick
-          <input type="number" min={2} value={themePackSize} onChange={(e) => setThemePackSize(Number(e.target.value))} className={`mt-1 ${inputCls}`} />
-        </label>
-        <label className="text-sm text-text-primary">
-          Main deck size
-          <input type="number" min={20} value={cardsPerPlayer} onChange={(e) => setCardsPerPlayer(Number(e.target.value))} className={`mt-1 ${inputCls}`} />
-        </label>
-        <label className="text-sm text-text-primary">
-          Pick seconds
-          <input type="number" min={5} value={pickSeconds} onChange={(e) => setPickSeconds(Number(e.target.value))} className={`mt-1 ${inputCls}`} />
-        </label>
-        <label className="text-sm text-text-primary">
-          Theme selection
-          <select value={themeSelection} onChange={(e) => setThemeSelection(e.target.value as typeof themeSelection)} className={`native-select mt-1 ${inputCls}`}>
-            <option value="player_pick">Players pick</option>
-            <option value="random">Random</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="space-y-3">
-        <label className="flex items-center gap-2 text-sm text-text-primary">
-          <input type="checkbox" checked={extraDeckEnabled} onChange={(e) => setExtraDeckEnabled(e.target.checked)} />
-          Draft an Extra Deck phase
-        </label>
-        {extraDeckEnabled && (
-          <label className="block text-sm text-text-primary">
-            Extra Deck size
-            <input type="number" min={1} value={extraDeckSize} onChange={(e) => setExtraDeckSize(Number(e.target.value))} className={`mt-1 ${inputCls}`} />
-          </label>
+    <form className="mk" onSubmit={handleSubmit} noValidate>
+      <div className="min-w-0">
+        {error && (
+          <div className={`banner banner-bad ${styles.banner}`} role="alert">
+            <CircleAlert className="ic" aria-hidden="true" />
+            <p>{error}</p>
+          </div>
         )}
-        <label className="flex items-center gap-2 text-sm text-text-primary">
-          <input type="checkbox" checked={burnUnpicked} onChange={(e) => setBurnUnpicked(e.target.checked)} />
-          Burn unpicked choices (discard instead of returning to the pool)
-        </label>
-        <label className="flex items-center gap-2 text-sm text-text-primary">
-          <input type="checkbox" checked={uniqueThemes} onChange={(e) => setUniqueThemes(e.target.checked)} />
-          Every player gets a distinct theme
-        </label>
+        <div className="mk-secs">
+          <section className="mk-sec" aria-labelledby="dt-d">
+            <div className="mk-side">
+              <h2 id="dt-d">Draft</h2>
+              <p>Players see this name in Discord and on the web.</p>
+            </div>
+            <div className="fields">
+              <div className="wide">
+                <label className="label" htmlFor="theme-draft-name">
+                  Draft name
+                </label>
+                <input
+                  ref={nameRef}
+                  className={`input${nameError ? " bad" : ""}`}
+                  id="theme-draft-name"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (nameError) setNameError(false);
+                  }}
+                  placeholder="Friday Theme Night"
+                  aria-invalid={nameError ? true : undefined}
+                />
+              </div>
+              <div className="wide">
+                <label className="label" htmlFor="theme-draft-channel">
+                  Channel
+                </label>
+                <select
+                  className="input select"
+                  id="theme-draft-channel"
+                  value={channelId}
+                  onChange={(e) => setChannelId(e.target.value)}
+                >
+                  <option value="">Default channel</option>
+                  {channels.map((ch) => <option key={ch.id} value={ch.id}>#{ch.name}</option>)}
+                </select>
+                <p className="hint">The bot posts the draft here so people can join from Discord.</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="mk-sec" aria-labelledby="dt-t">
+            <div className="mk-side">
+              <h2 id="dt-t">Themes</h2>
+              <p>Who drafts which archetype.</p>
+            </div>
+            <div className="fields">
+              <fieldset className={`wide ${styles.fieldset}`}>
+                <legend className="label">Theme selection</legend>
+                <div className="opts">
+                  <label className={`opt ${styles.opt}`}>
+                    <input
+                      type="radio"
+                      name="theme-selection"
+                      value="player_pick"
+                      checked={themeSelection === "player_pick"}
+                      onChange={() => setThemeSelection("player_pick")}
+                    />
+                    <b>Players pick</b>
+                    <span>Players claim a theme in the lobby. Anyone who hasn&apos;t claimed one gets one at the start.</span>
+                  </label>
+                  <label className={`opt ${styles.opt}`}>
+                    <input
+                      type="radio"
+                      name="theme-selection"
+                      value="random"
+                      checked={themeSelection === "random"}
+                      onChange={() => setThemeSelection("random")}
+                    />
+                    <b>Random</b>
+                    <span>Themes are dealt at random when you press Start.</span>
+                  </label>
+                </div>
+              </fieldset>
+              <label className={`wide ${styles.check}`}>
+                <input type="checkbox" checked={uniqueThemes} onChange={(e) => setUniqueThemes(e.target.checked)} />
+                <span>
+                  <b>Every player gets a different theme</b>
+                  You need at least one theme per player.
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section className="mk-sec" aria-labelledby="dt-p">
+            <div className="mk-side">
+              <h2 id="dt-p">Picks</h2>
+              <p>Each pick shows a few cards from your own theme. You take one.</p>
+            </div>
+            <div className={`fields ${styles.three}`}>
+              <div>
+                <label className="label" htmlFor="theme-main-size">Main deck size</label>
+                <input className="input" id="theme-main-size" type="number" inputMode="numeric" min={20} value={cardsPerPlayer} onChange={(e) => setCardsPerPlayer(Number(e.target.value))} />
+              </div>
+              <div>
+                <label className="label" htmlFor="theme-pack-size">Choices per pick</label>
+                <input className="input" id="theme-pack-size" type="number" inputMode="numeric" min={2} value={themePackSize} onChange={(e) => setThemePackSize(Number(e.target.value))} />
+              </div>
+              <div>
+                <label className="label" htmlFor="theme-pick-seconds">Pick duration</label>
+                <span className={styles.unit}>
+                  <input className="input" id="theme-pick-seconds" type="number" inputMode="numeric" min={5} value={pickSeconds} onChange={(e) => setPickSeconds(Number(e.target.value))} />
+                  <span aria-hidden="true">seconds</span>
+                </span>
+              </div>
+              <label className={`wide ${styles.check}`}>
+                <input type="checkbox" checked={extraDeckEnabled} onChange={(e) => setExtraDeckEnabled(e.target.checked)} />
+                <span>
+                  <b>Draft an Extra deck</b>
+                  After the main deck, everyone drafts Extra deck cards from their theme.
+                </span>
+              </label>
+              <div>
+                <label className="label" htmlFor="theme-extra-size">Extra deck size</label>
+                <input className="input" id="theme-extra-size" type="number" inputMode="numeric" min={1} disabled={!extraDeckEnabled} value={extraDeckSize} onChange={(e) => setExtraDeckSize(Number(e.target.value))} />
+              </div>
+              <label className={`wide ${styles.check}`}>
+                <input type="checkbox" checked={burnUnpicked} onChange={(e) => setBurnUnpicked(e.target.checked)} />
+                <span>
+                  <b>Burn unpicked choices</b>
+                  Cards you pass on are gone for the rest of the draft. Off, they can come back in a later pick.
+                </span>
+              </label>
+            </div>
+          </section>
+        </div>
       </div>
 
-      <Button type="submit" loading={submitting} size="lg" className="w-full">Create Theme Draft</Button>
+      <aside className="sum" aria-label="Draft summary">
+        <div className="card">
+          <p className={`card-kind ${styles.thKind}`}>Theme draft</p>
+          <p className={`sum-name${unnamed ? ` ${styles.unnamed}` : ""}`}>{unnamed ? "Untitled draft" : name.trim()}</p>
+          <dl className="rows">
+            <div>
+              <dt>Themes</dt>
+              <dd>{themeSelectionText(themeSelection, uniqueThemes)}</dd>
+            </div>
+            <div>
+              <dt>Main deck</dt>
+              <dd>{cardsPerPlayer} picks</dd>
+            </div>
+            <div>
+              <dt>Extra deck</dt>
+              <dd>{extraDeckEnabled ? `${extraDeckSize} picks` : "Not drafted"}</dd>
+            </div>
+            <div>
+              <dt>Each pick</dt>
+              <dd>{themePackSize} choices</dd>
+            </div>
+            <div>
+              <dt>Pick duration</dt>
+              <dd>{secondsText(pickSeconds)}</dd>
+            </div>
+            <div>
+              <dt>Passed cards</dt>
+              <dd>{burnUnpicked ? "Gone for good" : "Can come back"}</dd>
+            </div>
+          </dl>
+          <ol className="next" aria-label="What happens next">
+            <li><span>You get a lobby. Add one theme cube per archetype there.</span></li>
+            <li><span>Players join and claim a theme.</span></li>
+            <li><span>You press Start. Everyone drafts at once, main deck first.</span></li>
+          </ol>
+          <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={submitting} aria-busy={submitting || undefined}>
+            Create theme draft
+          </button>
+        </div>
+      </aside>
     </form>
   );
 }

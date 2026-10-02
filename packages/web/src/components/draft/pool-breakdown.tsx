@@ -3,6 +3,8 @@
 import { memo } from "react";
 import type { CardSummary } from "@/lib/card-types";
 import { attributeBreakdown, typeBreakdown, type BreakdownEntry } from "@/lib/pool-breakdown";
+import { cn } from "@/lib/utils";
+import styles from "./summary/chips.module.css";
 
 function Chip({ entry }: { entry: BreakdownEntry }) {
   return (
@@ -13,10 +15,29 @@ function Chip({ entry }: { entry: BreakdownEntry }) {
   );
 }
 
-function PoolBreakdownBase({ cards }: { cards: CardSummary[] }) {
+function PoolBreakdownBase({ cards, variant = "default" }: { cards: CardSummary[]; variant?: "default" | "sheet" }) {
   const attrs = attributeBreakdown(cards);
   const types = typeBreakdown(cards);
   if (attrs.length === 0 && types.length === 0) return null;
+
+  if (variant === "sheet") {
+    const list = (label: string, entries: BreakdownEntry[]) => (
+      <ul aria-label={label} className={cn(styles.list)}>
+        {entries.map((e) => (
+          <li key={e.label} className="chip">
+            {e.label} <b>{e.count}</b>
+          </li>
+        ))}
+      </ul>
+    );
+    return (
+      <>
+        {attrs.length > 0 && list("Attributes drafted", attrs)}
+        {types.length > 0 && list("Types drafted", types)}
+      </>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-2">
       {attrs.length > 0 && (

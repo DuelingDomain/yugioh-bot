@@ -1,0 +1,22 @@
+/* Rows: the board's fixed 230px track column is too narrow for a four-stop theme track,
+   so the middle column sizes to its content. Doubled selectors beat the board's own rule. */
+:global(.ms) .row:global(.tl-row) { grid-template-columns: minmax(0, 1fr) auto auto; }
+.row:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+.count b { margin-left: 0; }
+.count[aria-label] { white-space: nowrap; }
+@container (max-width: 760px) {
+  :global(.ms) .row:global(.tl-row) { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  :global(.ms) .row :global(.tl-name) { font-size: 17px; }
+  .prog { width: 100%; min-width: 0; }
+  :global(.ms) .prog :global(.trk) { justify-items: start; }
+  :global(.ms) .prog :global(.trk-cap) { text-align: left; }
+}
+.fin a { color: var(--ink); }
+.fin a:hover { color: var(--pen-ink); text-decoration: underline; text-underline-offset: 3px; }
+.fin a:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; border-radius: 3px; }
+.fin tr { position: relative; }
+.fin a::after { content: ""; position: absolute; inset: 0; }
+.fin td:first-child { white-space: normal; min-width: 140px; }
+.more { background: none; border: 0; cursor: pointer; color: var(--ink-3); font: inherit; font-size: 12.5px; letter-spacing: 0; text-decoration: underline; text-underline-offset: 3px; }
+.more:hover { color: var(--ink); }
+.more:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
