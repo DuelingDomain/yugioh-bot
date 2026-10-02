@@ -120,9 +120,12 @@ end
 
 -- The same loop for code that can run in a GLOBAL effect (a check that a card registers in initial_effect, a turn-end or adjust handler).
 -- A global effect has no scope player, so Duel.MPNthDuelist gives nothing there and aux.MPForEachDuelist would run fn zero times.
--- Here the Lua values are real seats (no fold): fn(tp_i,seat_i) runs for every seat 0 to 3 that is in the duel and has LP left, in seat
+-- Here the Lua values are real seats (no fold): fn(tp_i,seat_i) runs for every seat 0 to 3 that is in the duel and has LP > 0, in seat
 -- order, and fn must use seat_i only (tp_i is the Tag team id of the seat, or 0 in FFA). Inside a card effect (a scope player exists)
 -- this IS aux.MPForEachDuelist. Two seats: fn(0,0) then fn(1,1), as MPForEachDuelist does.
+-- LP > 0 is NOT the same as living: the core keeps the LP of a seat that is out by a deck-out or a surrender (field::eliminate only sets
+-- `eliminated`), and no Lua query gives that state in a global effect. Such a seat is also given to fn. This is harmless for a flag: every
+-- card of an eliminated seat has left the game, so no effect reads its flag. fn must not count the seats it is given as living duelists.
 function aux.MPEachSeat(fn)
 	if Duel.MPMode()==0 or not Duel.MPNthDuelist or Duel.MPNthDuelist(1) then
 		if Duel.MPMode()~=0 and Duel.MPNthDuelist then Duel.MPNthDuelist(0) end
