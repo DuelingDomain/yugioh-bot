@@ -4,20 +4,14 @@ import { formatDay, groupAwards, type AwardEntry } from "./profile-model";
 import styles from "./profile.module.css";
 
 /** The duel-log style list of the last winnings earned, grouped by event. */
-export function ProfileWinnings({ recent, careerWinnings = 0 }: { recent: AwardEntry[]; careerWinnings?: number }) {
+export function ProfileWinnings({ recent }: { recent: AwardEntry[] }) {
   if (recent.length === 0) {
-    // A player can have a career total with no award rows behind it (older history).
-    const unlisted = careerWinnings > 0;
     return (
       <section aria-labelledby="pf-win-empty">
         <div className={`empty ${styles.empty}`}>
           <Coins className="ic" aria-hidden />
-          <h2 id="pf-win-empty">{unlisted ? "No awards listed yet" : "No winnings yet"}</h2>
-          <p>
-            {unlisted
-              ? "Earlier winnings count toward the total but aren't listed one by one. New awards show up here."
-              : "Win a match or place in a tournament to earn some. Losses never cost winnings."}
-          </p>
+          <h2 id="pf-win-empty">No winnings yet</h2>
+          <p>Win a match or place in a tournament to earn some. Losses never cost winnings.</p>
         </div>
       </section>
     );
