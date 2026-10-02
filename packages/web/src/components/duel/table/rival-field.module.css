@@ -1,0 +1,13 @@
+/* The place of one seat box on the stage. The box itself is sized by the seat field from --sf-z. */
+.seat {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: max-content;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+.seat[hidden] {
+  display: none;
+}
