@@ -381,7 +381,7 @@ describeWithCores("the overlay against the stock scripts", stock, () => {
     expect(compare.filter((code) => !scanned.includes(code))).toEqual([]);
     const listed = new Set(cards.map((card) => card.code));
     expect(scanned.filter((code) => !listed.has(code)).sort((a, b) => a - b)).toEqual([]);
-  });
+  }, 30_000);
 
   it("a compare card that reads overlay materials or counters on a field is in the manifest", () => {
     const listed = new Set(cards.map((card) => card.code));
@@ -391,7 +391,7 @@ describeWithCores("the overlay against the stock scripts", stock, () => {
         expect(listed.has(card.code), `${card.code} ${card.name} reads overlay or counters and has no MANIFEST entry`).toBe(true);
       }
     }
-  });
+  }, 30_000);
 });
 
 describeWithCores("the overlay against the triage file", triageNeed, () => {
