@@ -28,9 +28,9 @@
  * no burst, no movement and no wire; the state shows through colour and opacity, with a short hold
  * so the order stays readable.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { DuelChainLink, DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl } from "./constants";
+import { cardArtUrl, zoneKey } from "./constants";
 import { collectFreshEvents, findZoneElement, maxEventId } from "./event-queue";
 import {
   applyChainEvent,
@@ -144,6 +144,17 @@ export function useChainPlayback(
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
     const chainEvents = fresh.filter(isChainEvent);
+    // An open response window needs the current targets immediately, including target-only
+    // snapshot changes. Playback holds are for resolution; pending links follow the live chain.
+    if (snapshot.length > 0 && stateRef.current.links.every((link) => link.status === "pending") &&
+      [...queueRef.current, ...chainEvents].every((event) => event.kind === "activate" || event.kind === "target")) {
+      if (timerRef.current != null) window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+      queueRef.current = [];
+      const live = deriveChainState(events, snapshot);
+      if (chainStateKey(live) !== chainStateKey(stateRef.current)) commit(live);
+      return;
+    }
     if (chainEvents.length > 0) {
       // Already planned in the render; this only fills a gap.
       planChainBeats(fresh, { now: clock(), reduced: latest.current.reducedMotion, duelKey });
@@ -225,9 +236,19 @@ const NO_LINKS: ReadonlySet<number> = new Set();
 
 export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName }: ChainFxProps) {
   const state = useChainPlayback(events, chain, duelKey, reducedMotion);
+  // Badges play historical resolution beats; targeting follows the live engine so a replacement
+  // occupant is never marked while old beats play, and chain-end clears target rings immediately.
+  const live = useMemo(() => deriveChainState(events, chain), [events, chain]);
+  const targetLinks = live.links.filter((link) => link.status !== "resolved");
+  const targetsKey = chainStateKey(live);
+  const targetLinksRef = useRef(targetLinks);
+  targetLinksRef.current = targetLinks;
   const overlayRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef(new Map<number, HTMLElement>());
   const wireRefs = useRef(new Map<number, SVGPathElement>());
+  const targetRefs = useRef(new Map<string, HTMLElement>());
+  const targetWireRefs = useRef(new Map<string, SVGPathElement>());
+  const arrowId = useId();
   const [lost, setLost] = useState<ReadonlySet<number>>(NO_LINKS);
   const lostKeyRef = useRef("");
   const links = state.links;
@@ -237,7 +258,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
 
   // Keep every badge on its card: layout can move under us (resize, a hovered hand card, a summon).
   useLayoutEffect(() => {
-    if (links.length === 0) {
+    if (links.length === 0 && targetLinks.length === 0) {
       if (lostKeyRef.current !== "") {
         lostKeyRef.current = "";
         setLost(NO_LINKS);
@@ -291,6 +312,34 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           wire.setAttribute("d", d);
         }
       }
+      for (const link of targetLinksRef.current) {
+        for (const target of link.targets) {
+          const key = `${link.index}:${zoneKey(target.controller, target.location, target.sequence)}`;
+          const mark = targetRefs.current.get(key);
+          const zone = findZoneElement(target);
+          const box = zone ? cardBox(origin, zone) : null;
+          const wire = targetWireRefs.current.get(key);
+          if (mark) {
+            mark.dataset.placed = box ? "true" : "false";
+            if (box) {
+              const geo = `${box.left},${box.top},${box.width},${box.height}`;
+              if (mark.dataset.geo !== geo) {
+                mark.dataset.geo = geo;
+                mark.style.width = `${box.width}px`;
+                mark.style.height = `${box.height}px`;
+                mark.style.translate = `${box.left}px ${box.top}px`;
+              }
+            }
+          }
+          if (wire) {
+            const from = centers.get(link.index);
+            const to = box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : null;
+            const d = from && to ? chainWirePath(from, to, gap) : null;
+            if (d && wire.getAttribute("d") !== d) wire.setAttribute("d", d);
+            else if (!d && wire.hasAttribute("d")) wire.removeAttribute("d");
+          }
+        }
+      }
       const key = gone.join(",");
       if (key !== lostKeyRef.current) {
         lostKeyRef.current = key;
@@ -307,7 +356,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
     }
     tick();
     return () => cancelAnimationFrame(raf);
-  }, [linksKey, links.length]);
+  }, [linksKey, links.length, targetsKey, targetLinks.length]);
 
   // Live announcements for screen readers: what changed on this beat of the chain.
   const prevRef = useRef<ChainState>(EMPTY_CHAIN);
@@ -338,6 +387,11 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
         {!reducedMotion ? (
           <svg className={styles.wires} data-chain-wires="true" aria-hidden="true" focusable="false">
+            <defs>
+              <marker id={arrowId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 Z" fill="var(--duel-pen-ink, #c6b6ff)" />
+              </marker>
+            </defs>
             {links.filter((link) => link.index > 1).map((link) => (
               <path
                 key={link.index}
@@ -350,6 +404,13 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
                 data-status={link.status}
               />
             ))}
+            {targetLinks.flatMap((link) => link.targets.map((target) => {
+              const key = `${link.index}:${zoneKey(target.controller, target.location, target.sequence)}`;
+              return <path key={key} ref={(el) => {
+                if (el) targetWireRefs.current.set(key, el);
+                else targetWireRefs.current.delete(key);
+              }} className={styles.targetWire} markerEnd={`url(#${arrowId})`} data-chain-target-wire={link.index} />;
+            }))}
           </svg>
         ) : null}
         {links.map((link) => (
@@ -379,6 +440,18 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             </span>
           </div>
         ))}
+        {targetLinks.flatMap((link) => link.targets.map((target) => {
+          const zone = zoneKey(target.controller, target.location, target.sequence);
+          const key = `${link.index}:${zone}`;
+          return <div key={key} ref={(el) => {
+            if (el) targetRefs.current.set(key, el);
+            else targetRefs.current.delete(key);
+          }} className={styles.target} data-placed="false" data-chain-target={link.index} data-target-zone={zone}
+            style={{ "--target-offset": `${(link.index - 1) * 16}px` } as CSSProperties}>
+            <span className={styles.targetRing} />
+            <span className={styles.targetTag}>Target · {link.index}</span>
+          </div>;
+        }))}
         {rows.length > 0 ? (
           <div className={styles.dock}>
             <ol className={styles.panel} data-chain-panel="true">
