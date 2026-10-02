@@ -24,8 +24,13 @@ export interface BarCopyInput {
   count: number;
   /** Chosen values of a sum pick, "4 + 4". */
   values?: string;
+  /** Running sum, only when every selected card has one engine contribution. */
+  total?: number;
   /** Sum pick target. */
   target?: number;
+  sumMode?: DuelPrompt["sumMode"];
+  /** Whether any combination of alternative engine contributions meets the sum. */
+  sumMet?: boolean;
   /** One card at a time: every pick is a step, so the count always shows. */
   toggling?: boolean;
   /** An attack-target pick: picking a card aims. */
@@ -48,6 +53,8 @@ export interface BarCopy {
   instruction: string;
   /** The count part of the progress, shown as a chip: "1/2 selected". Null when the progress has none. */
   counter: string | null;
+  /** Numeric requirement state, separate from whether the engine offers Finish. */
+  met: boolean | null;
   /** Cards still to pick before Confirm works ("Select 1 more"), or null when that is not a plain card count. */
   remaining: number | null;
   /** Second line: detail and progress. */
@@ -67,6 +74,72 @@ function capital(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** Engine contributions may differ from printed Levels, or offer alternative Levels. */
+export function sumSelectionValues(prompt: DuelPrompt, selected: readonly string[]): Pick<BarCopyInput, "values" | "total" | "sumMet"> {
+  const contributions = selected.map((id) => prompt.options.find((option) => option.id === id)?.values ?? []);
+  return {
+    values: contributions.map((values) => values.length > 1 ? `(${values.join("/")})` : values[0]?.toString() ?? "?").join(" + "),
+    total: contributions.every((values) => values.length === 1)
+      ? contributions.reduce((sum, values) => sum + values[0], 0)
+      : undefined,
+    sumMet: prompt.target != null ? sumValuesMet(contributions, prompt.target, prompt.sumMode) : undefined,
+  };
+}
+
+function sumValuesMet(contributions: number[][], target: number, mode: DuelPrompt["sumMode"]): boolean {
+  if (mode === "at-least") return minimalSumMet(contributions, target);
+  // Each card contributes exactly one of its engine values. Capping at the target bounds the search.
+  let totals = new Set([0]);
+  for (const values of contributions) {
+    const next = new Set<number>();
+    for (const total of totals) {
+      for (const value of values) {
+        const sum = total + value;
+        if (sum <= target) next.add(sum);
+      }
+    }
+    totals = next;
+  }
+  return totals.has(target);
+}
+
+/**
+ * The core's rule for an "at least" sum (Group.SelectWithSumGreater): the group reaches the target and
+ * drops below it without its smallest card, so no card is spare. Each card takes one of its engine values.
+ */
+function minimalSumMet(contributions: number[][], target: number): boolean {
+  // States are (total, smallest value so far); totals past the target only matter through that smallest value.
+  let states = new Map<string, [number, number]>([["0:Infinity", [0, Infinity]]]);
+  for (const values of contributions) {
+    const next = new Map<string, [number, number]>();
+    for (const [total, smallest] of states.values()) {
+      for (const value of values) {
+        const state: [number, number] = [total + value, Math.min(smallest, value)];
+        next.set(state.join(":"), state);
+      }
+    }
+    states = next;
+  }
+  for (const [total, smallest] of states.values()) {
+    if (contributions.length > 0 && total >= target && total - smallest < target) return true;
+  }
+  return false;
+}
+
+export function synchroSelectionValues(prompt: DuelPrompt): Pick<BarCopyInput, "total"> {
+  const levels = prompt.options.filter((option) => option.selected).map((option) => option.currentLevel ?? option.card?.level);
+  return { total: levels.every((level) => level != null) ? levels.reduce<number>((sum, level) => sum + level!, 0) : undefined };
+}
+
+function synchroMaterials(input: BarCopyInput): boolean {
+  return (input.kind === "sum" || input.kind === "toggle") && /\bsynchro material\b/i.test(input.title);
+}
+
+function oneAtATime(input: BarCopyInput): boolean {
+  // 1/1 bounds a SelectUnselect step. Fixed multi-card script bounds still supply a total.
+  return input.kind === "toggle" && !input.openEnded && input.min === 1 && input.max === 1;
+}
+
 function classify(input: BarCopyInput): BarKind {
   const { kind, title } = input;
   if (kind === "places") return "zone";
@@ -83,9 +156,23 @@ function classify(input: BarCopyInput): BarKind {
 function progressParts(input: BarCopyInput): { instruction: string; counter: string | null } {
   const { min, max, count, values, target } = input;
   if (input.aiming) return { instruction: "Point at a target, then confirm", counter: null };
-  if (input.kind === "sum" && target != null) return { instruction: `Total ${target}`, counter: values || null };
+  if (synchroMaterials(input)) {
+    const running = input.total ?? (input.kind === "sum" ? values || "0" : undefined);
+    return { instruction: "", counter: target != null && running != null
+      ? `Level ${running} / ${target}` : `${count} selected` };
+  }
+  if (input.kind === "sum" && target != null) {
+    // Ritual uses the generic Tribute hint; Synchro can also use SELECT_SUM for material Levels.
+    const levels = /\b(?:level|synchro|ritual|tribute)\b/i.test(input.title);
+    const running = values ? `${values}${input.total != null && count > 1 ? ` = ${input.total}` : ""}` : "0";
+    return {
+      instruction: `Total ${input.sumMode === "at-least" ? "at least " : ""}${target}`,
+      counter: levels ? `Level total ${running}` : values || null,
+    };
+  }
   if (input.kind === "tribute") return { instruction: "", counter: `${count} selected` };
   if (input.kind === "order") return { instruction: "", counter: `${count} of ${max} ordered` };
+  if (oneAtATime(input)) return { instruction: "", counter: `${count} selected` };
   if (!input.openEnded && min === max) {
     const steps = max > 1 || input.toggling || count > 0;
     return { instruction: `Pick ${max}`, counter: steps ? `${count}/${max} selected` : null };
@@ -97,7 +184,7 @@ function progressParts(input: BarCopyInput): { instruction: string; counter: str
 
 /** Cards still needed to reach the minimum. Not for tribute (a value), sum, order or an aim: those have no plain count. */
 function remainingCards(input: BarCopyInput): number | null {
-  if (input.aiming || input.kind === "tribute" || input.kind === "sum" || input.kind === "order") return null;
+  if (input.aiming || input.kind === "tribute" || input.kind === "sum" || input.kind === "order" || oneAtATime(input)) return null;
   const left = input.min - input.count;
   return left > 0 ? left : null;
 }
@@ -131,7 +218,7 @@ export function selectBarCopy(input: BarCopyInput): BarCopy {
       detail = source;
       break;
     case "materials": {
-      title = "Select materials";
+      title = oneAtATime(input) ? "Choose a material" : "Select materials";
       const made = full.match(MATERIAL_KIND)?.[1];
       detail = made ? `${capital(made.toLowerCase())} material` : source;
       break;
@@ -171,6 +258,9 @@ export function selectBarCopy(input: BarCopyInput): BarCopy {
     progress,
     instruction,
     counter,
+    met: (input.kind === "sum" || synchroMaterials(input)) && input.target != null
+      ? input.sumMet ?? (input.total != null && (input.sumMode === "at-least" ? input.total >= input.target : input.total === input.target))
+      : null,
     remaining: remainingCards(input),
     sub: detail ? `${detail} · ${progress}` : progress,
     full,

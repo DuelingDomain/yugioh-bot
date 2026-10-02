@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { selectBarCopy, type BarCopyInput } from "@/components/duel/select-bar-copy";
+import { selectBarCopy, sumSelectionValues, type BarCopyInput } from "@/components/duel/select-bar-copy";
+import type { DuelPrompt } from "@yugidraft/shared/duels";
 
 function copy(overrides: Partial<BarCopyInput> = {}) {
   return selectBarCopy({ kind: "cards", title: "Select 2 card(s)", min: 2, max: 2, count: 0, ...overrides });
@@ -27,11 +28,11 @@ describe("selectBarCopy title", () => {
   });
 
   it("calls a material pick Select materials and keeps the summon kind as the detail", () => {
-    const out = copy({ kind: "toggle", title: "Select the card(s) to use as Synchro Material", min: 2, max: 2, count: 1, toggling: true });
+    const out = copy({ kind: "toggle", title: "Select the card(s) to use as Fusion Material", min: 2, max: 2, count: 1, toggling: true });
     expect(out.kind).toBe("materials");
     expect(out.title).toBe("Select materials");
-    expect(out.detail).toBe("Synchro material");
-    expect(out.sub).toBe("Synchro material · Pick 2 · 1/2 selected");
+    expect(out.detail).toBe("Fusion material");
+    expect(out.sub).toBe("Fusion material · Pick 2 · 1/2 selected");
     expect(copy({ title: "Select the card(s) to be used as Xyz material" }).detail).toBe("Xyz material");
     expect(copy({ title: "Select the card(s) to use as material" }).detail).toBeNull();
   });
@@ -102,6 +103,23 @@ describe("selectBarCopy title", () => {
 });
 
 describe("selectBarCopy progress", () => {
+  it.each([
+    { count: 0, total: 0, counter: "Level 0 / 7", met: false },
+    { count: 1, total: 3, counter: "Level 3 / 7", met: false },
+    { count: 2, total: 7, counter: "Level 7 / 7", met: true },
+    { count: 2, total: 8, counter: "Level 8 / 7", met: false },
+  ])("reports Synchro Level progress at $count picks", ({ count, total, counter, met }) => {
+    expect(copy({ kind: "toggle", title: "Select the card(s) to use as Synchro Material", min: 1, max: 1,
+      target: 7, total, count, sumMode: "exact" })).toMatchObject({ title: "Choose a material", counter, met });
+  });
+
+  it("falls back to the selected count when the Synchro target is unknown and keeps Xyz/Link counts", () => {
+    for (const summon of ["Synchro", "Xyz", "Link"]) {
+      expect(copy({ kind: "toggle", title: `Select the card(s) to use as ${summon} Material`, min: 1, max: 1,
+        count: 2, total: 7 }).counter).toBe("2 selected");
+    }
+  });
+
   it("reads Pick 1 for a pick answered at once", () => {
     expect(copy({ min: 1, max: 1 }).progress).toBe("Pick 1");
   });
@@ -109,7 +127,7 @@ describe("selectBarCopy progress", () => {
   it("counts a pick that needs steps", () => {
     expect(copy({ min: 2, max: 2, count: 0 }).progress).toBe("Pick 2 · 0/2 selected");
     expect(copy({ min: 2, max: 2, count: 1 }).progress).toBe("Pick 2 · 1/2 selected");
-    expect(copy({ kind: "toggle", toggling: true, min: 1, max: 1, count: 0 }).progress).toBe("Pick 1 · 0/1 selected");
+    expect(copy({ kind: "toggle", toggling: true, min: 1, max: 1, count: 0 }).progress).toBe("0 selected");
     expect(copy({ min: 1, max: 1, count: 1 }).progress).toBe("Pick 1 · 1/1 selected");
   });
 
@@ -162,5 +180,33 @@ describe("selectBarCopy ask, counter and remaining", () => {
   it("keeps the progress as the ask and the count joined", () => {
     const out = copy({ min: 2, max: 2, count: 1 });
     expect(out.progress).toBe(`${out.instruction} · ${out.counter}`);
+  });
+});
+
+describe("sumSelectionValues", () => {
+  const sum = (target: number, sumMode: DuelPrompt["sumMode"], values: number[][]): DuelPrompt => ({
+    id: "p", seat: 0, kind: "sum", title: "Tribute", target, sumMode,
+    options: values.map((entry, index) => ({ id: `c${index}`, label: `Card ${index}`, values: entry })),
+  } as DuelPrompt);
+  const met = (prompt: DuelPrompt, ids: string[]) => sumSelectionValues(prompt, ids).sumMet;
+
+  it("meets an at-least sum only with no spare card, as the core requires", () => {
+    const ritual = sum(4, "at-least", [[2], [3], [4]]);
+    expect(met(ritual, ["c0"])).toBe(false);
+    expect(met(ritual, ["c0", "c1"])).toBe(true);
+    expect(met(ritual, ["c2"])).toBe(true);
+    // 2 + 3 + 4 reaches 4, but the core retries: without the 2 it still reaches 4.
+    expect(met(ritual, ["c0", "c1", "c2"])).toBe(false);
+  });
+
+  it("tries each alternative value for an at-least sum", () => {
+    expect(met(sum(4, "at-least", [[1, 3], [2]]), ["c0", "c1"])).toBe(true);
+    expect(met(sum(4, "at-least", [[1, 5], [4]]), ["c0", "c1"])).toBe(false);
+  });
+
+  it("meets an exact sum only on the target", () => {
+    const synchro = sum(7, "exact", [[3], [4], [2]]);
+    expect(met(synchro, ["c0", "c1"])).toBe(true);
+    expect(met(synchro, ["c0", "c2"])).toBe(false);
   });
 });

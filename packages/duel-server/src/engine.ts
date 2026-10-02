@@ -7,6 +7,7 @@ import createCore, {
   OcgMessageType,
   OcgPosition,
   OcgProcessResult,
+  OcgType,
   cardMatchesOpcode,
   type OcgCardData,
   type OcgCoreSync,
@@ -15,7 +16,7 @@ import createCore, {
   type OcgOpCode,
 } from "ocgcore-wasm";
 import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
-import { EngineAnswerError, autoResponse, isWaitingMessage, mapPrompt, recallPromptContext, resolveAnswer, type PendingPrompt } from "./prompts.js";
+import { EngineAnswerError, autoResponse, isWaitingMessage, mapPrompt, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
@@ -296,6 +297,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let lastSelectHint: string | undefined;
   /** Card named by the core's last HINT_CARD: the card whose effect the following prompts belong to. */
   let lastHintCard: number | undefined;
+  let synchroSummon: MapPromptExtras["synchroSummon"];
   let sawRetry = false;
   const hintCardName = () => (lastHintCard ? cards.get(lastHintCard)?.name : undefined);
 
@@ -342,6 +344,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       case OcgMessageType.CHAIN_SOLVED:
       case OcgMessageType.CHAIN_END:
         lastHintCard = undefined;
+        synchroSummon = undefined;
+        return;
+      case OcgMessageType.SPSUMMONED:
+        synchroSummon = undefined;
         return;
       case OcgMessageType.WIN: {
         const winnerSeat = message.player === 0 || message.player === 1 ? message.player : null;
@@ -495,7 +501,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
           : undefined;
       const recall = recallState ? recallPromptContext(recallState, cards) : undefined;
       // The main action prompts start a new play; a hint card from an earlier effect no longer applies.
-      if (waiting.type === OcgMessageType.SELECT_IDLECMD || waiting.type === OcgMessageType.SELECT_BATTLECMD) lastHintCard = undefined;
+      if (waiting.type === OcgMessageType.SELECT_IDLECMD || waiting.type === OcgMessageType.SELECT_BATTLECMD) {
+        lastHintCard = undefined;
+        synchroSummon = undefined;
+      }
       const next = mapPrompt(
         waiting,
         cards,
@@ -505,6 +514,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
           domain: domainState,
           recall: recall ? { card: recall.card, returns: recall.returns, nextCost: recall.nextCost } : undefined,
           hintCard: lastHintCard,
+          synchroSummon,
         },
       );
       lastSelectHint = undefined;
@@ -559,6 +569,20 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       if (!pending) throw new EngineAnswerError("No prompt is waiting");
       const response = resolveAnswer(pending, seat, promptId, answer, cards);
       const previous = pending;
+      const previousSummon = synchroSummon;
+      if (pending.message.type === OcgMessageType.SELECT_IDLECMD && answer.choice?.startsWith("spsummon:")) {
+        const option = pending.prompt.options.find((entry) => entry.id === answer.choice);
+        synchroSummon = undefined;
+        if (option?.card && (option.card.type & OcgType.SYNCHRO) !== 0 && option.location === OcgLocation.EXTRA) {
+          // Capture the selected card, not a guessed target from the material hint or other Extra Deck cards.
+          const card = game.view(seat).seats[seat].extra.find((entry) => entry.code === option.card!.code &&
+            entry.sequence === option.sequence && entry.controller === option.controller);
+          if (card?.code && card.level != null && card.level > 0) {
+            synchroSummon = { code: card.code, level: card.level, controller: card.controller,
+              location: card.location, sequence: card.sequence };
+          }
+        }
+      }
       sawRetry = false;
       // Stays set through the summon's follow-up prompts; observeDuelEvent clears it at SPSUMMONED.
       if (isPendulumSummonAnswer(pending, answer)) eventContext.pendulumSummon = true;
@@ -566,6 +590,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       processUntilWait();
       if (sawRetry) {
         pending = previous;
+        synchroSummon = previousSummon;
         sawRetry = false;
         throw new EngineAnswerError("Invalid answer");
       }

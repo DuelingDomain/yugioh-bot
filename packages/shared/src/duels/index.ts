@@ -161,6 +161,8 @@ export interface DuelPromptOption {
   location?: number;
   sequence?: number;
   values?: number[];
+  /** Current Level from this viewer's card projection; takes precedence over the printed Level. */
+  currentLevel?: number;
   max?: number;
   selected?: boolean;
   /** Full printed text of the card this option is bound to (absent when the card is hidden from the viewer). */
@@ -203,6 +205,8 @@ export interface DuelPrompt {
   min?: number;
   max?: number;
   target?: number;
+  /** Sum requirement (also used for a Synchro toggle's Level target), independent of card-count bounds. */
+  sumMode?: "exact" | "at-least";
   mandatory?: string[];
   cancelable?: boolean;
   finishable?: boolean;
