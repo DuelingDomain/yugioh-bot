@@ -1,5 +1,6 @@
 // A real Give and Take sends a later owner's Doom to p0. Its End Phase upkeep destroys it, and Lab must give the search to that owner.
-import { activate, defineScenario, endTurn, faceDown, normalSummon, pickOpponent, yes, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, faceDown, normalSummon, pickOpponent, yes, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, SEATS, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 

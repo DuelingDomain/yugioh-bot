@@ -1,4 +1,5 @@
-import { activate, changePosition, choose, defineScenario, pickOpponent, select, raw } from '../../support/dsl.js';
+import { activate, changePosition, choose, pickOpponent, select, raw } from '../../support/dsl.js';
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { everySeat, baseSetup, type Format, type Seat } from './seat-kit.js';
 import { SOURCE } from './nseat-scenarios.js';
 export const OWNER_ACTION_SCENARIOS = (['ffa3','ffa4','tag'] as Format[]).flatMap(format=>{

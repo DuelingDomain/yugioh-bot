@@ -6,9 +6,10 @@
 // Every scenario ends with the state of every seat.
 
 import {
-  attack, changePhase, defineScenario, endTurn, expectEliminated, expectPrompt, surrender, yes,
+  attack, changePhase, endTurn, expectEliminated, expectPrompt, surrender, yes,
   type Scenario,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { OPP_PICK, everySeat } from "./table-cards.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

@@ -1,6 +1,7 @@
 // Review 5c: extra Ritual and Fusion material in the partner's Graveyard belongs to the Tag team.
 // Real Djinn and Magical Knight Dragon scripts register the effects. Opponent Graveyards stay out.
-import { activate, defineScenario, endTurn, expectNotOffered, expectOffered, expectPickOptions, select, zone, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, expectNotOffered, expectOffered, expectPickOptions, select, zone, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, SEATS, type Format, type Seat } from "./seat-kit.js";
 import { teamOneVariant } from "./team-variants.js";
@@ -39,7 +40,7 @@ function ritual(format: Format, partner: boolean): Scenario {
       select(OX, { card: DJINN, owner: holder, from: "grave" }),
       everySeat(format, state),
     ],
-  });
+  }, { card: "Ookazi" });
 }
 
 function fusion(format: Format, partner: boolean): Scenario {
@@ -64,7 +65,7 @@ function fusion(format: Format, partner: boolean): Scenario {
       select({ card: GAIA, owner: holder, from: "grave" }, { card: CURSE, owner: holder, from: "grave" }),
       everySeat(format, state),
     ],
-  });
+  }, { card: "Ookazi" });
 }
 
 function opponentOnly(format: Format, kind: "ritual" | "fusion"): Scenario {
@@ -89,7 +90,7 @@ function opponentOnly(format: Format, kind: "ritual" | "fusion"): Scenario {
         hand: seat === "p1" ? ["Mystical Elf"] : [...(setup[seat]?.hand ?? [])], extra: setup[seat]?.extra ?? [],
       }]))),
     ],
-  });
+  }, { card: "Ookazi" });
 }
 
 const partnerCases = [ritual("tag", true), fusion("tag", true)];

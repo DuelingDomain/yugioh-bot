@@ -69,7 +69,7 @@ function astromorrigan(format: Format, actor: Seat): Scenario {
   }
   // The seats before the actor take their turns first: each one makes its normal draw at the start of its turn.
   const steps: Step[] = seats.slice(0, actorIndex).map((seat) => endTurn(seat));
-  const normalDraws = (seat: Seat) => (seats.indexOf(seat) >= 1 && seats.indexOf(seat) <= actorIndex ? 1 : 0);
+  const normalDraws = (seat: Seat) => (seats.indexOf(seat) >= (tag ? 1 : 0) && seats.indexOf(seat) <= actorIndex ? 1 : 0);
   const names = (seat: Seat) => field[seat].map((m) => m.card);
   const handNow = (seat: Seat) => Array.from({ length: normalDraws(seat) }, () => DECK[seat]);
   const zonesOf = (seat: Seat, survivors: Mon[]) =>
@@ -139,8 +139,7 @@ function astromorriganOffTurn(): Scenario {
     };
   }
   const names = (seat: Seat) => field[seat].map((m) => m.card);
-  // Turns 1 to 4 (p0, p1, p2, p0) pass; each seat makes its normal draw at the start of its turn (p0 one in turn 4, p1 one in turn 2,
-  // p2 one in turn 3). The first battle is in turn 5.
+  // Turns 1 to 4 pass. Every FFA seat draws on its first turn, and p0 draws again on turn 4. The attack is in turn 5.
   const steps: Step[] = [endTurn("p0"), endTurn("p1"), endTurn("p2"), endTurn("p0")];
   // p1 attacks the face-down card of p0 with Axe Raider (the only monster of p1 in Attack Position). A face-down card shows no code in
   // the prompt, so the DSL attack() cannot name it: the attacker is the first attack option, the target is the only "Face-down card"
@@ -149,7 +148,7 @@ function astromorriganOffTurn(): Scenario {
   // The flip: Astromorrigan (DEF 0) is destroyed by the battle; nothing else is destroyed yet and nobody took damage.
   steps.push(
     everySeat(format, {
-      p0: { monsters: names("p0"), hand: [DECK.p0], grave: [ASTRO] },
+      p0: { monsters: names("p0"), hand: [DECK.p0, DECK.p0], grave: [ASTRO] },
       p1: { monsters: names("p1"), hand: [DECK.p1, DECK.p1] },
       p2: { monsters: names("p2"), hand: [DECK.p2] },
     }),
@@ -160,7 +159,7 @@ function astromorriganOffTurn(): Scenario {
   steps.push(
     endTurn("p1"),
     everySeat(format, {
-      p0: { lp: 8000, monsters: names("p0"), hand: [DECK.p0], grave: [ASTRO] },
+      p0: { lp: 8000, monsters: names("p0"), hand: [DECK.p0, DECK.p0], grave: [ASTRO] },
       p1: { lp: 8000 - 500 * lost("p1").length, monsters: survivors("p1"), hand: [DECK.p1, DECK.p1], grave: lost("p1") },
       p2: { lp: 8000 - 500 * lost("p2").length, monsters: survivors("p2"), hand: [DECK.p2, DECK.p2], grave: lost("p2") },
     }),

@@ -4,10 +4,11 @@
 // Dust Tornado (the chain). Every scenario asserts a FINAL state after an action.
 
 import {
-  activate, announce, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectChain, expectEliminated, expectLp, expectNotOffered,
+  activate, announce, attack, changePhase, changePosition, endTurn, expectBoard, expectChain, expectEliminated, expectLp, expectNotOffered,
   expectPickSeats, expectPrompt, expectResolved, expectResponseOrder, expectResult, expectTurn, pass, pickOpponent,
   select, surrender, yes, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, ELF_ATK, SOURCE } from "./nseat-scenarios.js";
 
 const DESTRUCTION_RING = { card: "Destruction Ring", pos: "set" as const };
@@ -128,18 +129,16 @@ export const FFA_SCENARIOS: Scenario[] = [
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "draw", "ffa3", "card:55144522"],
-    // Deck of 3. p0 does not draw on turn 1 and plays Pot of Greed (draws 2, 1 card left). The turn 4 draw empties the Deck of
-    // p0. At turn 7 p0 must draw and loses; p1 and p2 still have a card (they draw on turns 2, 5 and 3, 6).
+    // Deck of 3. The turn 1 draw and Pot of Greed empty p0's Deck. The draw on turn 4 eliminates p0.
     setup: { format: "ffa3", deckSize: 3, p0: { hand: ["Pot of Greed"] } },
     steps: [
       activate("Pot of Greed", "p0"),
       expectBoard({ p0: { hand: { count: 2 }, deckCount: 1 } }),
-      ...passTurns("p0", "p1", "p2", "p0", "p1", "p2"),
+      ...passTurns("p0", "p1", "p2"),
       expectEliminated("p0"),
-      // The LP of p0 is not changed by a deck-out. Turn 7 was the turn of p0 (lost at its draw): turn 8 is p1, who has drawn the
-      // last card of its Deck.
-      expectBoard({ p0: VIEW_EMPTY, p1: { deckCount: 0 }, p2: { deckCount: 1 } }),
-      expectTurn("p1", 8),
+      // Deck-out does not change p0's LP. After p0 loses on turn 4, p1 draws its second card on turn 5.
+      expectBoard({ p0: VIEW_EMPTY, p1: { deckCount: 1 }, p2: { deckCount: 2 } }),
+      expectTurn("p1", 5),
     ],
   }),
   defineScenario({
@@ -150,11 +149,10 @@ export const FFA_SCENARIOS: Scenario[] = [
     tags: ["multiplayer", "elimination", "draw", "ffa3"],
     setup: { format: "ffa3", deckSize: 1 },
     steps: [
-      // p0 skipped the draw on turn 1 and draws its only card on turn 4. p1 and p2 drew their only card on turns 2 and 3: at the
-      // draw of turn 5 p1 has no card and loses, and the turn goes on to p2, who loses at once.
-      ...passTurns("p0", "p1", "p2", "p0"),
-      expectEliminated("p1", "p2"),
-      expectResult({ seat: "p0" }),
+      // Every seat draws its only card on its first turn. p0 loses on turn 4, then p1 loses on turn 5. p2 wins.
+      ...passTurns("p0", "p1", "p2"),
+      expectEliminated("p0", "p1"),
+      expectResult({ seat: "p2" }),
     ],
   }),
   defineScenario({
@@ -796,7 +794,7 @@ export const FFA_SCENARIOS: Scenario[] = [
     // the LAST trigger on the chain resolves first. Under the wrong order (p2 before p0) Sangan would resolve first.
     setup: {
       format: "ffa4",
-      p0: { hand: ["Dark Hole"], monsters: ["Sangan"], deck: ["Giant Rat"] },
+      p0: { hand: ["Dark Hole"], monsters: ["Sangan"], deck: [ELF, "Giant Rat"] },
       p2: { monsters: ["Witch of the Black Forest"], deck: ["Silver Fang"] },
     },
     steps: [
@@ -823,7 +821,7 @@ export const FFA_SCENARIOS: Scenario[] = [
     // p0 second, and Sangan resolves first. A plain seat order from p0 would put Sangan first on the chain.
     setup: {
       format: "ffa4",
-      p0: { monsters: ["Sangan"], deck: ["Giant Rat"] },
+      p0: { monsters: ["Sangan"], deck: [ELF, "Giant Rat"] },
       p1: { hand: ["Dark Hole"] },
       p2: { monsters: ["Witch of the Black Forest"], deck: ["Silver Fang"] },
     },

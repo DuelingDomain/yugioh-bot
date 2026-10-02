@@ -1,6 +1,7 @@
 // AA-ZEUS (90448279): a battle involving an Xyz Monster permits the alternative Xyz Summon for any holder.
 // The holder is a later seat. A battle between non-Xyz monsters does not set the flag.
-import { attack, changePhase, defineScenario, expectNotOffered, expectOffered, specialSummon, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { attack, changePhase, expectNotOffered, expectOffered, specialSummon, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

@@ -1,7 +1,8 @@
 // Swiftwind Panther Warrior of a later seat cannot attack before a Tribute. Its real Quick Effect Tributes a monster,
 // sends Dark Time Wizard from the Deck to the Graveyard, and enables an attack through the global Tribute flag.
 
-import { activate, attack, changePhase, defineScenario, expectNotOffered, pass, select, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePhase, expectNotOffered, pass, select, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

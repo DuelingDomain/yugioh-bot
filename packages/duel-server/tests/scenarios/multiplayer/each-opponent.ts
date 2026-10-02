@@ -5,8 +5,9 @@
 // The Shallow Grave is a Normal Spell: it is activated in the own Main Phase from the hand, with an empty chain.
 
 import {
-  activate, defineScenario, expectBoard, expectPickOptions, select, zone, type Scenario,
+  activate, expectBoard, expectPickOptions, select, zone, type Scenario,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 const GRAVE = "The Shallow Grave";

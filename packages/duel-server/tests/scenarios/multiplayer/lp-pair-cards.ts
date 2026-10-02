@@ -11,7 +11,8 @@
 // ONE opponent (only an opponent that has an Extra Deck is offered, in Tag the pick is one of the opposing team); the owner of the
 // card and that opponent confirm their Extra Decks to each other and compare the count of the named type. Every other seat is not involved.
 
-import { activate, choose, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectPickSeats, expectResult, expectTurn, faceDown, pickOpponent, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, choose, endTurn, expectBoard, expectEliminated, expectLp, expectPickSeats, expectResult, expectTurn, faceDown, pickOpponent, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, type Seat } from "./seat-kit.js";
 

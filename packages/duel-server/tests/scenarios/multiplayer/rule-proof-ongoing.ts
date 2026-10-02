@@ -1,4 +1,5 @@
-import { activate, changePhase, defineScenario, endTurn, expectNotOffered, expectOffered, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, changePhase, endTurn, expectNotOffered, expectOffered, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { domainVariant } from "./domain-variants.js";
 import { everySeat, SEATS } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";

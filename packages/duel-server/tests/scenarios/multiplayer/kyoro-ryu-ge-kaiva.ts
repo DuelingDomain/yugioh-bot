@@ -1,7 +1,8 @@
 // Kyoro Ryu-Ge Kaiva (93509766): two destroyed cards enable its hand summon.
 // Dark Hole destroys cards at two different seats; a later holder uses the
 // global counter. One destruction must leave the holder's card in its hand.
-import { activate, defineScenario, endTurn, expectOffered, expectPrompt, expectTurn, pass, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, expectOffered, expectPrompt, expectTurn, pass, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, type Format, type Seat } from "./seat-kit.js";
 
@@ -37,7 +38,7 @@ function summon(format: Format, holder: Seat, count: 1 | 2): Scenario {
 function reset(): Scenario {
   const first = summon("ffa3", "p2", 2);
   return defineScenario({
-    ...first,
+    ...first, tags: first.tags.filter(tag => tag !== "ffa-first-draw-included"),
     id: "kyoro-ryu-ge-kaiva-ffa3-p2-counter-clears-next-turn",
     title: "FFA3: Kaiva is offered after two destructions and stays in hand in the next turn",
     steps: [

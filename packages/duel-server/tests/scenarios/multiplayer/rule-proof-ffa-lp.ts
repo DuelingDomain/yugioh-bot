@@ -1,4 +1,5 @@
-import { activate, defineScenario, endTurn, expectPickSeats, pickOpponent, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, endTurn, expectPickSeats, pickOpponent, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { domainVariant } from "./domain-variants.js";
 import { everySeat, SEATS, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";

@@ -10,9 +10,10 @@
 // for each seat in its own turn.
 
 import {
-  activate, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, faceDown, normalSummon,
+  activate, endTurn, expectBoard, expectNotOffered, expectOffered, faceDown, normalSummon,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

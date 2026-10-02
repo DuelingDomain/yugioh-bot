@@ -8,7 +8,8 @@
 //
 // FFA with p0 out: p0 gives up first. The flag is still read for the literal seat 0 and the holder of a later seat has the bonus.
 
-import { activate, attack, auto, defineScenario, expectEliminated, faceDown, surrender, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, auto, expectEliminated, faceDown, surrender, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

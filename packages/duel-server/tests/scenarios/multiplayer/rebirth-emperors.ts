@@ -10,9 +10,10 @@
 // The Xyz Monster in the banished zone must have been properly summoned, so the actor attacks directly with Number 39: Utopia and the attacked
 // duelist (the next seat in the turn order) banishes it with a Set Dimensional Prison. In Main Phase 2 the actor Releases its Gagaga Cowboy
 // (the cost) and Special Summons the Utopia back. The hands before the turn are p0 1 card, p1 1 card, p2 2 cards, p3 3 cards (the Mystical Elf). A duelist that took its own turn before the End Phase of the actor
-// drew 1 card (p0 does not draw in the first turn), so the end hand of a seat is its setup hand + 1 when its turn came before or is the turn of the actor.
+// drew 1 card (the FFA first-draw fixture adds the draw of p0 in turn 1; Tag skips it), so the end hand of a seat is its setup hand + 1 when its turn came before or is the turn of the actor.
 
-import { activate, attack, auto, changePhase, defineScenario, endTurn, expectEliminated, faceDown, pass, pickOpponent, xyz, type Scenario } from "../../support/dsl.js";
+import { activate, attack, auto, changePhase, endTurn, expectEliminated, faceDown, pass, pickOpponent, xyz, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, PARTNER, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -39,7 +40,7 @@ function emperors(format: Format, actor: Seat, p0Out = false): Scenario {
     };
   }
   const base = baseLp(format);
-  const damage = (seat: Seat): number => 300 * (format === "tag" ? handAtEnd(seat) + handAtEnd(PARTNER[seat]) : handAtEnd(seat));
+  const damage = (seat: Seat): number => 300 * (format === "tag" ? handAtEnd(seat) + handAtEnd(PARTNER[seat]) : handAtEnd(seat) + (seat === "p0" && !p0Out ? 1 : 0));
   const spec: Partial<Record<Seat, object>> = {};
   for (const seat of seats) {
     spec[seat] = {

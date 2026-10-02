@@ -4,9 +4,10 @@
 // NSEAT_LIVE=1). Every scenario uses the real card scripts plus the overlay, and ends with the state of EVERY seat.
 
 import {
-  activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, pass, pickOpponent,
+  activate, attack, changePhase, changePosition, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, faceDown, pass, pickOpponent,
   announce, normalSummon, select, setCard, zone, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

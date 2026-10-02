@@ -1,6 +1,7 @@
 // Vanquish Soul Rocks (77894049): a Vanquish Soul battle at later seats must set the global alternative-Xyz flag.
 // A battle that involves no Vanquish Soul monster does not permit that summon. The procedure can be used only once per turn.
-import { attack, changePhase, defineScenario, expectNotOffered, expectOffered, specialSummon, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { attack, changePhase, expectNotOffered, expectOffered, specialSummon, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

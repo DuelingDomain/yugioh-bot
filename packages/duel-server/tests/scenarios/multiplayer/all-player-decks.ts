@@ -62,6 +62,15 @@ function allDecks(kind: Kind, format: Format): Scenario {
     if (format !== "1v1") steps.push(yes("p0"));
     steps.push(activate("Inferno Tempest", "p1"));
   }
+  if (format === "ffa3" || format === "ffa4") {
+    if (kind === "tempest") {
+      board.p0!.hand = [HANDS[0], HANDS[0], HANDS[0]];
+      board.p0!.banished = [...Array<string>(4).fill(HANDS[0]), "Mystical Elf"];
+    } else {
+      board.p0!.hand = [HANDS[0], kind === "crossout" ? "Hane-Hane" : "Mirror Force"];
+      board.p0!.banished = [];
+    }
+  }
   steps.push(expectBoard(board));
   return defineScenario({
     id: `all-player-decks-${kind}-${format}`,

@@ -2,9 +2,10 @@
 // The unit tests of each step on a fake game are in nseat.test.ts. Registered in nseat-live.test.ts (live gate).
 
 import {
-  attack, changePhase, defineScenario, eliminate, endTurn, expectEliminated, expectLabel, expectLp, expectPickOptions, expectRetry,
+  attack, changePhase, eliminate, endTurn, expectEliminated, expectLabel, expectLp, expectPickOptions, expectRetry,
   pickOpponent, type Scenario,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, ELF_ATK, SOURCE } from "./nseat-scenarios.js";
 
 export const DSL_STEP_SCENARIOS: Scenario[] = [

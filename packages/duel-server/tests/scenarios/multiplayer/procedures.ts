@@ -8,9 +8,10 @@
 // opponent (Q8), and Ra goes to the field of that opponent. A mixed Tribute of two opponents is not offered.
 
 import {
-  activate, choose, defineScenario, endTurn, eliminate, expectBoard, expectEliminated, expectNotOffered, expectPickOptions, expectPrompt,
+  activate, choose, endTurn, eliminate, expectBoard, expectEliminated, expectNotOffered, expectPickOptions, expectPrompt,
   faceDown, normalSummon, pickOpponent, select, specialSummon, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

@@ -2,10 +2,11 @@
 // Gagaga Magician tests the Monster Zone. Field Barrier tests the Spell and Trap Zone.
 // Each outcome checks all seats. A face-down copy does not prevent a face-up copy.
 import {
-  activate, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, faceDown,
+  activate, endTurn, expectBoard, expectNotOffered, expectOffered, faceDown,
   normalSummon, setCard,
   type BoardExpect, type DuelistExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 const MAGICIAN = "Gagaga Magician";

@@ -5,9 +5,10 @@
 // opponent only. Tag: the joined field of the two opposing duelists, and the picked opposing duelist chooses.
 
 import {
-  activate, attack, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectPrompt,
+  activate, attack, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectPrompt,
   normalSummon, pass, pickOpponent, select, expectTurn, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

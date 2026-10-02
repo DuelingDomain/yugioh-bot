@@ -1,7 +1,8 @@
 // A battle kill enables the Quick Fusion effect of Favorite HERO Flame Wingman at a later seat.
 // The global battle flag must reach that seat in FFA and its team in Tag.
 
-import { activate, attack, defineScenario, expectNotOffered, expectOffered, pickOpponent, select, type Scenario, type DuelistExpect } from "../../support/dsl.js";
+import { activate, attack, expectNotOffered, expectOffered, pickOpponent, select, type Scenario, type DuelistExpect } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

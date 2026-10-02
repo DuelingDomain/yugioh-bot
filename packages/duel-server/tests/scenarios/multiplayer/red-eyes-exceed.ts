@@ -1,7 +1,8 @@
 // Dark Time Wizard destroys a monster. A later seat can then Tribute a monster for Red-Eyes Black Dragon Exceed.
 // This proves the global destruction flag and the real summon and optional summon prompts.
 
-import { activate, choose, defineScenario, expectNotOffered, expectOffered, pickOpponent, select, specialSummon, yes, zone, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, choose, expectNotOffered, expectOffered, pickOpponent, select, specialSummon, yes, zone, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

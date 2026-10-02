@@ -1,4 +1,5 @@
-import { activate, attack, changePosition, defineScenario, endTurn, expectBoard, pickOpponent, select, specialSummon, yes, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePosition, endTurn, expectBoard, pickOpponent, select, specialSummon, yes, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Format = "ffa3" | "ffa4" | "tag";
@@ -32,14 +33,13 @@ function lpTrigger(format: Format, actor: 0 | 1, [code, card]: typeof CARDS[numb
     board[seat(actor)]!.monsters = ["Alien Grey"]; board[seat(actor)]!.grave = [card];
     board[seat(enemy)]!.monsters = ["Silver Fang"]; board[seat(enemy)]!.grave = ["Battle Ox"];
   } else if (code === 18271561) {
-    const victim = code === 20985997 ? "Alien Warrior" : "Beaver Warrior";
+    const victim = "Beaver Warrior";
     setup[seat(actor)]!.spells = [{ card, pos: "set" }];
     setup[seat(actor)]!.monsters = [{ card: victim, pos: "def" }];
     setup[seat(enemy)]!.monsters = ["Battle Ox"];
     const turns = actor === 0 ? n + 1 : n;
     for (let i = 0; i < turns; i++) steps.push(endTurn(seat(i % n)));
     steps.push(attack("Battle Ox", { card: victim, owner: seat(actor) }, seat(enemy)), activate(card, seat(actor)));
-    if (code === 20985997) steps.push(select("Battle Ox"));
     for (let i = 0; i < n; i++) board[seat(i)]!.hand = { count: (actor === 0 && i === enemy ? 2 : 1) + (format === "tag" && i >= 2 ? 1 : 0) };
     board[seat(actor)]!.grave = [victim, card]; board[seat(enemy)]!.grave = ["Battle Ox"];
     if (code === 18271561) damage = 850;

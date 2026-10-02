@@ -10,7 +10,8 @@
 // adjacent zones), then activates the ignition effect of Homunculus the Alchemic Being (Monster Zone 1). Setup puts the Traps in place: the
 // scenarios prove the engine rule, not a legal deck.
 
-import { activate, auto, choose, defineScenario, endTurn, expectOffered, expectPrompt, faceDown, pass, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, auto, choose, endTurn, expectOffered, expectPrompt, faceDown, pass, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, PARTNER, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

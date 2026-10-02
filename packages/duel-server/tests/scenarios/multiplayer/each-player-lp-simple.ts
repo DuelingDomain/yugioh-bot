@@ -1,4 +1,5 @@
-import { activate, attack, changePosition, defineScenario, endTurn, expectBoard, normalSummon, yes, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePosition, endTurn, expectBoard, normalSummon, yes, type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Format = "ffa3" | "ffa4" | "tag";

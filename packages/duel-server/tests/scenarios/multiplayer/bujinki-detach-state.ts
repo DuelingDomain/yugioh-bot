@@ -1,5 +1,6 @@
 // A real Xyz cost checks the shared detach record with one and two Ahashima holders.
-import { activate, defineScenario, faceDown, pickOpponent, yes, type Scenario } from "../../support/dsl.js";
+import { activate, faceDown, pickOpponent, yes, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 

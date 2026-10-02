@@ -39,7 +39,7 @@ function domainDecks(count: number): DuelDeck[] {
 }
 
 describeWithCores("domain duel with 3 and 4 duelists", needs.domainMulti(dataDirectory, wasmPath), () => {
-  it.each<[DuelFormat, number]>([["ffa3", 3], ["ffa4", 4], ["tag", 4]])("%s: every seat has a Deck Master and a 5-card hand", async (format, seats) => {
+  it.each<[DuelFormat, number]>([["ffa3", 3], ["ffa4", 4], ["tag", 4]])("%s: every seat has a Deck Master and the first FFA seat draws", async (format, seats) => {
     const game = await createEngineGame({
       mode: "domain", format, decks: domainDecks(seats), seed: ["5", "6", "7", "8"], dataDirectory, settings,
       multiWasmBinary: wasmBinary(),
@@ -47,7 +47,7 @@ describeWithCores("domain duel with 3 and 4 duelists", needs.domainMulti(dataDir
     try {
       const view = game.view(null);
       expect(view.seats).toHaveLength(seats);
-      for (const seat of view.seats) expect(seat.hand).toHaveLength(5);
+      for (const seat of view.seats) expect(seat.hand).toHaveLength(format !== "tag" && seat.seat === 0 ? 6 : 5);
       for (const seat of view.seats) {
         expect(seat.deckMaster).toBeDefined();
         expect([seat.deckMaster!.inZone, seat.deckMaster!.returns, seat.deckMaster!.nextCost]).toEqual([true, 0, 0]);

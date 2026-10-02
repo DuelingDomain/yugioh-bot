@@ -1,8 +1,9 @@
 // Each duelist selects from its own GY or banishment. Tag includes the partner.
 import {
-  activate, attack, changePosition, defineScenario, endTurn, expectBoard, expectPickOptions, expectTurn, select, zone,
+  activate, attack, changePosition, endTurn, expectBoard, expectPickOptions, expectTurn, select, zone,
   type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Format = "ffa3" | "ffa4" | "tag";

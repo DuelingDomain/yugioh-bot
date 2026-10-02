@@ -1,7 +1,8 @@
 // Red Nova Dragon - Burning Soul (65541655): the recovery and 2000 ATK bonus require a real Red Dragon Archfiend Synchro Summon.
 // Later-seat holders must get that flag. A Red Dragon Archfiend placed on the field by setup does not meet the condition.
 // A real battle against Blue-Eyes Ultimate Dragon proves the resulting 5500 or 3500 ATK.
-import { activate, attack, defineScenario, expectNotOffered, expectPrompt, select, specialSummon, yes, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, attack, expectNotOffered, expectPrompt, select, specialSummon, yes, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

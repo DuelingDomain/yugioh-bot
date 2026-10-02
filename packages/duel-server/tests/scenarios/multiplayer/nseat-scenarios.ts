@@ -6,9 +6,10 @@
 // scripts/rule-coverage.ts). A check of the first prompt alone does not count.
 
 import {
-  attack, changePhase, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPrompt,
+  attack, changePhase, endTurn, expectBoard, expectEliminated, expectLp, expectNoPrompt, expectPrompt,
   expectResult, expectTurn, pickOpponent, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 
 export const ELF = "Mystical Elf"; // 800 ATK vanilla, also the Deck filler
 export const ELF_ATK = 800;
@@ -34,10 +35,10 @@ export const NSEAT_SCENARIOS: Scenario[] = [
     ],
   }),
   defineScenario({
-    id: "nseat-ffa3-no-first-draw",
-    title: "FFA3: the first duelist does not draw on their first turn, the next ones do",
-    source: `${SOURCE} [R-FFA-ORDER]`,
-    rules: ["R-FFA-ORDER"],
+    id: "nseat-ffa3-every-first-draw",
+    title: "FFA3: every duelist draws on their first turn",
+    source: `${SOURCE} [R-FFA-ORDER] [R-FFA-FIRST-DRAW]`,
+    rules: ["R-FFA-ORDER", "R-FFA-FIRST-DRAW"],
     tags: ["multiplayer", "draw", "ffa3"],
     setup: { format: "ffa3", deckSize: 20 },
     steps: [

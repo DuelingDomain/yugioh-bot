@@ -1,5 +1,6 @@
 // Real tribute events after p0 reaches LP 0. The shared global memory must use a key that still has flags.
-import { activate, attack, auto, changePhase, defineScenario, endTurn, expectEliminated, normalSummon, select, yes, xyz, type Scenario } from "../../support/dsl.js";
+import { activate, attack, auto, changePhase, endTurn, expectEliminated, normalSummon, select, yes, xyz, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat } from "./seat-kit.js";
 

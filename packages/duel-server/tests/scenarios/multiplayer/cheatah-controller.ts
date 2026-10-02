@@ -1,5 +1,6 @@
 // A real opponent Trap summons a monster. Cheatah must go to that monster's actual field.
-import { activate, defineScenario, expectPrompt, faceDown, normalSummon, type Scenario } from "../../support/dsl.js";
+import { activate, expectPrompt, faceDown, normalSummon, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, SEATS, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 const CARD = "Fallin' Cheatah";

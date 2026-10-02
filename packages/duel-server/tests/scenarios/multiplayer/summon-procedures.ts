@@ -6,8 +6,9 @@
 // every seat.
 
 import {
-  changePhase, choose, defineScenario, endTurn, expectBoard, expectPickOptions, expectPickSeats, pickOpponent, select, specialSummon, yes, type Scenario, type Step,
+  changePhase, choose, endTurn, expectBoard, expectPickOptions, expectPickSeats, pickOpponent, select, specialSummon, yes, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Cards = string[];

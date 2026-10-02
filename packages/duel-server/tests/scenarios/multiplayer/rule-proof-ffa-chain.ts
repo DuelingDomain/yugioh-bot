@@ -1,4 +1,5 @@
-import { defineScenario, type Scenario, type Step } from "../../support/dsl.js";
+import { type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { domainVariant } from "./domain-variants.js";
 import { FFA_SCENARIOS } from "./nseat-ffa.js";
 import { everySeat, SEATS } from "./seat-kit.js";
@@ -16,7 +17,7 @@ const standard: Scenario[] = (["ffa3", "ffa4"] as const).map((format) => {
       return step;
     });
   steps.push(everySeat(format, Object.fromEntries(SEATS[format].map((seat) => [seat, {
-    hand: [], deckCount: 20, grave: seat === "p0" ? ["Heavy Storm", "Swords of Revealing Light", "Swords of Revealing Light", "Dust Tornado"] : ["Dust Tornado"],
+    hand: seat === "p0" ? ["Mystical Elf"] : [], deckCount: seat === "p0" ? 19 : 20, grave: seat === "p0" ? ["Heavy Storm", "Swords of Revealing Light", "Swords of Revealing Light", "Dust Tornado"] : ["Dust Tornado"],
   }]))));
   return defineScenario({ ...source, id: `rule-proof-${format}-turn-player-responds-first`,
     title: `${format}: a later seat chains, then the turn player responds first and all seats pass in order`, setup, steps });

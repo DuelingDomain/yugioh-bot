@@ -1,7 +1,8 @@
 // Review 5d. The private Review Self Attack Spell registers EFFECT_SELF_ATTACK for its own side.
 // No official card in the installed database supplies that effect. All attacks and target prompts are real.
 // Fixture setup: domain-core/.build/phase1/gap-tag2/out/self-scenario-support/setup.py PRIVATE_DATA_DIR.
-import { activate, changePhase, choose, defineScenario, expectPickOptions, select, type DuelistExpect, type OptionRef, type Scenario } from "../../support/dsl.js";
+import { activate, changePhase, choose, expectPickOptions, select, type DuelistExpect, type OptionRef, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, PARTNER, SEATS, type Format, type Seat } from "./seat-kit.js";
 import { teamOneVariant } from "./team-variants.js";

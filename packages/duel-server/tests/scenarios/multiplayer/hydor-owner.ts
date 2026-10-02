@@ -1,4 +1,5 @@
-import { activate, defineScenario, endTurn, expectPickOptions, select, zone, type Scenario, type Step } from '../../support/dsl.js';
+import { activate, endTurn, expectPickOptions, select, zone, type Scenario, type Step } from '../../support/dsl.js';
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, type Format, type Seat } from './seat-kit.js';
 import { SOURCE } from './nseat-scenarios.js';
 function hydor(format: Format, actor: Seat): Scenario {

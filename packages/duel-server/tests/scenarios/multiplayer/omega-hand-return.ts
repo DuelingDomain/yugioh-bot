@@ -1,4 +1,5 @@
-import { activate, defineScenario, endTurn, pickOpponent, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, pickOpponent, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, SEATS, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 const OMEGA = "PSY-Framelord Omega";

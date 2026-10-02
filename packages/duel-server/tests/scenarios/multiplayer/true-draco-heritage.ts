@@ -7,7 +7,8 @@
 // The holder (a seat of the turn) destroys the 2 monsters of the opponents (Ignis Heat and Majesty Maiden are both True Draco monsters) with Raigeki and
 // draws with the Heritage: ONE card, because both are Monster cards.
 
-import { activate, attack, changePhase, defineScenario, endTurn, expectEliminated, expectPrompt, surrender, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePhase, endTurn, expectEliminated, expectPrompt, surrender, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

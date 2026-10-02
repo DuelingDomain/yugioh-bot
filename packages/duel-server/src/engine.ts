@@ -326,7 +326,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     throw new Error(multi ? `Exactly ${seatCount} decks are required for a ${format} duel` : "Exactly two decks are required");
   }
   const start = engineStartConfig(options.settings);
-  const flags = duelFlagsFor(options.masterRule);
+  const flags = duelFlagsFor(options.masterRule)
+    | (format === "ffa3" || format === "ffa4" ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
   const seed = parseSeed(options.seed);
   const cards = loadCardDatabase(options.dataDirectory);
   // Duels with more than two seats read the Lua overlay. 1v1 gets none, so its script text stays the original.

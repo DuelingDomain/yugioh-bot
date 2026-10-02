@@ -1,7 +1,8 @@
 // Superconductive Plasma Blast (51869363): an opponent-turn activation may
 // search the holder's Deck only after a monster was destroyed this turn.
 // The own-turn branch puts a Rock on top and can destroy any field card.
-import { activate, defineScenario, endTurn, expectOffered, expectPrompt, faceDown, normalSummon, pass, select, setCard, yes, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, expectOffered, expectPrompt, faceDown, normalSummon, pass, select, setCard, yes, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, PARTNER, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -64,7 +65,7 @@ function ownTurn(format: Format, actor: Seat = "p0"): Scenario {
 function reset(): Scenario {
   const first = search("ffa3", "p2", true);
   return defineScenario({
-    ...first,
+    ...first, tags: first.tags.filter(tag => tag !== "ffa-first-draw-included"),
     id: "superconductive-plasma-blast-ffa3-p2-destruction-flag-clears-next-turn",
     title: "FFA3: Plasma Blast can search after destruction but cannot search in the next turn",
     steps: [
@@ -94,6 +95,7 @@ function exchanged(format: "ffa3" | "tag"): Scenario {
     setup: baseSetup(format, { p0: { hand: ["Exchange", CARD] }, [holder]: { hand: [ELF, VOID], deck: [ELF, ELF, ROCK, OTHER_ROCK] } }),
     steps: [
       activate("Exchange", "p0"), select({ card: ELF, owner: holder, from: "hand" }),
+      ...(format === "tag" ? [] : [{ op: "select", sels: [CARD], by: holder } satisfies Step]),
       ...turnsBefore(format, holder), expectOffered("activate", CARD, holder), pass(holder), pass(holder), pass(holder), setCard(CARD, holder), endTurn(holder),
       expectPrompt({ by: "p0", context: "action" }), ...turnsBefore(format, holder),
       activate(CARD, holder), select({ card: ROCK, owner: holder, from: "deck" }), activate(VOID, holder),

@@ -98,7 +98,7 @@ describeWithCores("live host forbidden list", [needs.installedMulti(DATA), ...ne
         expect(view.result).toBeNull();
         expect(view.turnSeat).toBe(0);
         expect(view.seats.map((s: { lp: number }) => s.lp)).toEqual(players.map(() => format === "tag" ? 16000 : 8000));
-        expect(view.seats[viewer].hand).toHaveLength(5);
+        expect(view.seats[viewer].hand).toHaveLength(viewer === 0 && format !== "tag" ? 6 : 5);
         if (mode === "domain") expect(view.seats.every((s: { deckMaster?: { inZone: boolean } }) => s.deckMaster?.inZone)).toBe(true);
       }
     } finally { await host.close(); db.close(); }

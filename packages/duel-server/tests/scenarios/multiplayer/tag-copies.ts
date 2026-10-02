@@ -5,9 +5,10 @@
 // state of EVERY seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectTurn, normalSummon, pickOpponent, select, yes,
+  activate, attack, changePhase, choose, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectTurn, normalSummon, pickOpponent, select, yes,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";

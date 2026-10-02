@@ -1,7 +1,8 @@
 import {
-  activate, defineScenario, expectBoard, expectLog, normalSummon, select, yes,
+  activate, expectBoard, expectLog, normalSummon, select, yes,
   type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 
 type Format = "1v1" | "ffa3" | "ffa4" | "tag";
 type Kind = "cappello" | "dark-angel" | "alba-system";
@@ -31,7 +32,7 @@ function allExtra(kind: Kind, format: Format): Scenario {
   } else if (kind === "dark-angel") {
     setup.p0!.grave = ["Destiny HERO - Dark Angel", "Destiny HERO - Defender"];
     board.p0!.banished = ["Destiny HERO - Dark Angel", "Destiny HERO - Defender"];
-    for (let i = 0; i < count; i++) setup[SEATS[i]]!.deck = [SPELLS[i], "Mystical Elf"];
+    for (let i = 0; i < count; i++) setup[SEATS[i]]!.deck = i === 0 && (format === "ffa3" || format === "ffa4") ? ["Mystical Elf", SPELLS[i]] : [SPELLS[i], "Mystical Elf"];
     steps.push(yes("p0"));
   } else {
     const materials = ["Fallen of Albaz", ...HANDS, "Mystical Elf", "Blue-Eyes White Dragon"];

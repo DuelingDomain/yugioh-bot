@@ -10,7 +10,8 @@
 // B: the holder is not the turn player: the turn player declares 2 direct attacks with Mystical Elf; the holder is offered the trigger at the 2nd attack
 //    (not at the 1st) and uses it.
 
-import { attack, defineScenario, expectNotOffered, pickOpponent, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { attack, expectNotOffered, pickOpponent, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 
@@ -22,7 +23,7 @@ const opponents = (format: Format, seat: Seat): Seat[] => SEATS[format].filter((
 /** The opponent prompt of a direct attack comes only when 2 or more opponents have no monster (`busy` are the seats that have one). */
 const pick = (format: Format, by: Seat, target: Seat, busy: Seat[]): Step[] =>
   opponents(format, by).filter((seat) => !busy.includes(seat)).length > 1 ? [pickOpponent(target, by)] : [];
-/** Cards each seat drew until the turn of `turn` (p0 does not draw in the first turn). */
+/** Cards each seat drew until the turn of `turn` (the FFA first-draw fixture adds the draw of p0 in turn 1; Tag skips it). */
 const drawn = (seat: Seat, turn: Seat): number => (seat !== "p0" && Number(seat[1]) <= Number(turn[1]) ? 1 : 0);
 
 function holderAttacks(format: Format, holder: Seat): Scenario {

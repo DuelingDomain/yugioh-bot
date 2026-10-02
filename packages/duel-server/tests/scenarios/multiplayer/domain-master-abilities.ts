@@ -1,4 +1,5 @@
-import { activate, defineScenario, expectNotOffered, expectOffered, normalSummon, type Scenario } from "../../support/dsl.js";
+import { activate, expectNotOffered, expectOffered, normalSummon, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 

@@ -1,4 +1,5 @@
-import { activate, defineScenario, endTurn, select, type Scenario } from '../../support/dsl.js';
+import { activate, endTurn, select, type Scenario } from '../../support/dsl.js';
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, label, turnsBefore, type Format, type Seat } from './seat-kit.js';
 import { SOURCE } from './nseat-scenarios.js';
 
