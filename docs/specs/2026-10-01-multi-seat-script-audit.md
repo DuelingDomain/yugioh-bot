@@ -73,3 +73,7 @@ Hydor (30339825) offered WATER monsters from other FFA owners as its destruction
 Mischief of the Gnomes (164710), Underworld Circle (73443672), The Bystial Alba Los (69120785), Card Destruction (72892473) and Hand Destruction (74519184) skipped later or partner hands, Decks, Extra Decks or Standby summons. Their overlays now collect or visit each living duelist. Card Destruction and Hand Destruction keep their FFA ban and use the change only in Tag.
 
 Live proof: `all-player-zone-gaps.ts` and `underworld-circle-standby.ts`. Seven of 11 stock zone probes fail. All three stock multiplayer Standby probes fail. The 16 fixed zone cases and four fixed Standby cases pass on both cores; 1v1 controls keep the stock scripts.
+
+## The holder's own turn
+
+Dark Snake Syndrome (47233801) and Crimson Nova (30270176) also triggered on the Tag partner's turn. Their conditions now use MPTurnOwns for the holder. Their damage still acts once per living duelist, as Q3 requires. Live proof: `each-player-lp-simple.ts` and `each-player-lp-triggers.ts`. Four original Tag cases show extra damage. The 84 cases for 21 each-player LP cards pass on both cores.

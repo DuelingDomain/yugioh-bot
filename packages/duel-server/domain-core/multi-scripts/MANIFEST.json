@@ -1753,7 +1753,12 @@
       "classes": [
         "R1"
       ],
-      "stockSha256": "4ec451fb4c2f5dd925619fa76d572ca586908d5fa80df67e0140da94024c08d3"
+      "stockSha256": "4ec451fb4c2f5dd925619fa76d572ca586908d5fa80df67e0140da94024c08d3",
+      "redefined": [
+        "damcon",
+        "damop"
+      ],
+      "note": "Only the holder own duelist turn triggers the effect. Each living duelist takes damage."
     },
     {
       "code": 30339825,
@@ -2702,7 +2707,12 @@
       "classes": [
         "R1"
       ],
-      "stockSha256": "f4e96c89c1eff53dfe005fc3bff00f1e23206d6358383ce71d03ca16af90f083"
+      "stockSha256": "f4e96c89c1eff53dfe005fc3bff00f1e23206d6358383ce71d03ca16af90f083",
+      "redefined": [
+        "damcon",
+        "damop"
+      ],
+      "note": "Only the holder own duelist turn triggers the effect. Each living duelist takes damage."
     },
     {
       "code": 47475363,

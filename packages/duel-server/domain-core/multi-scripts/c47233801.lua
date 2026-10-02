@@ -1,4 +1,8 @@
 if not aux.MPForEachDuelist then return end
+-- Only the card owner's own Standby Phase counts; the Tag partner's turn does not count.
+function s.damcon(e,tp,eg,ep,ev,re,r,rp)
+	return Duel.MPTurnOwns(e:GetHandler())
+end
 -- Every duelist takes the damage (R1, Q3, Tag partner included).
 function s.damop(e,tp,eg,ep,ev,re,r,rp)
 	local c=e:GetHandler()
