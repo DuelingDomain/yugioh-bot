@@ -121,6 +121,7 @@ run("duel", process.execPath, ["packages/duel-server/dist/server.js"], {
     WS_INTERNAL_SECRET: secrets.ws,
     // Scenario presets (list-presets, start-preset, report). E2E stack only: never the dev or prod env.
     DUEL_SCENARIOS: "1",
+    MULTIPLAYER_TABLES: "1",
     // The duel host report op writes here, not into the repo .status/manual. Keeps the real manual reports apart.
     DUEL_REPORT_DIR: resolve(stackDir, "reports"),
     // Fast practice bot. The default pause is 900 ms per step.
@@ -159,6 +160,7 @@ run("web", process.execPath, ["server.js"], {
     DUEL_INTERNAL_SECRET: secrets.duel,
     // The preset and report routes answer 404 without this. E2E stack only.
     DUEL_SCENARIOS: "1",
+    MULTIPLAYER_TABLES: "1",
     CARD_IMAGE_CACHE_DIR: cardImageDir,
     // No BOT_ANNOUNCE_URL: the web skips Discord announcements when it is empty.
   },

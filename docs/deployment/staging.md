@@ -19,6 +19,8 @@ does not change.
 
 Files: `docker-compose.staging.yml`, `Caddyfile.staging`, `scripts/staging/`, `.github/workflows/deploy-staging.yml`.
 
+The duel and web services set `MULTIPLAYER_TABLES=1` to permit FFA3, FFA4 and 2v2 Tag tables and presets.
+
 Rules that keep production safe:
 
 - The workflow only runs compose with `scripts/staging/compose.sh`. That script always uses the project name
