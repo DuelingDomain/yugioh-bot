@@ -103,3 +103,7 @@ Pair Bear Scare!! (21501961) recovered LP for only two folded players. It now re
 ## Chaos Emperor Tag hands
 
 Chaos Emperor Dragon (82301904) left the Tag partner's hand unchanged. The Tag-only overlay sends the union of every duelist's hand and field. Its stock damage calculation stays in place. The FFA ban stays. Live proof: `chaos-emperor-tag.ts`. The stock Tag outcome fails; the fixed Tag outcome and stock 1v1 control pass on both cores.
+
+## Equip target damage
+
+DoomZ Command (68831625) and Worm Millidith (71315423) used the equip target's folded controller during a phase event. A picked opponent could take the damage while the actual target controller took none. The overlays bind that controller for target information and damage. Live proof: `doomz-controller.ts` and `worm-controller.ts`. Four stock FFA outcomes fail; two Tag shared-LP controls pass. All six fixed cases pass on both cores.

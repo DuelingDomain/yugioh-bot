@@ -3874,6 +3874,15 @@
       "stockSha256": "055f3d9ec000dd4ba2e8861206c7cb680e7274ca4e02e8f683bd1afdbc98c6b8"
     },
     {
+      "code": 68831625,
+      "file": "c68831625.lua",
+      "name": "DoomZ Command \"D.O.O.M.D.U.R.G.\"",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "87327596c3c5efe397b110aaffe03080bb4058dc835f7ea6b804b752ae0f1c49",
+      "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
       "code": 69042950,
       "file": "c69042950.lua",
       "name": "Crashbug Road",
@@ -4056,6 +4065,15 @@
         "R1"
       ],
       "stockSha256": "e48e5cc488677ae837e0ed243fb9fbb7446e8cb67a139222b3c945524927bd1a"
+    },
+    {
+      "code": 71315423,
+      "file": "c71315423.lua",
+      "name": "Worm Millidith",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "a8b24f7dd4f31f1d0811f0a7b00e7271fcc77042bd7da021251aaafc00142e8a",
+      "note": "The overlay uses the real duelist seat for this card effect."
     },
     {
       "code": 71386411,
