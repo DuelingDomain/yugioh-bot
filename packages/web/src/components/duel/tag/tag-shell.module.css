@@ -1,0 +1,294 @@
+/* The Rooftop preview shell: header, left sheet, roof stage, camera dock and station track.
+   Tokens are the Match Sheet ones of the room shell (obsidian ground, antique-gold hairlines). */
+
+.shell {
+  --duel-unit: clamp(0.94px, min(0.0764vw, 0.1222dvh), 1.75px);
+  --duel-ground: #070b15;
+  --duel-panel: #0a1120;
+  --duel-panel-2: #0e1729;
+  --duel-panel-3: #132037;
+  --duel-ink: #efe7d5;
+  --duel-ink-2: #c3bba8;
+  --duel-ink-3: #958f81;
+  --duel-ink-4: #5f5c57;
+  --duel-rule-rgb: 181 153 99;
+  --duel-rule-a: 0.34;
+  --duel-rule: rgb(var(--duel-rule-rgb) / var(--duel-rule-a));
+  --duel-rule-hi: rgb(var(--duel-rule-rgb) / calc(var(--duel-rule-a) * 1.9));
+  --duel-rule-lo: rgb(var(--duel-rule-rgb) / calc(var(--duel-rule-a) * 0.5));
+  --duel-ember-rgb: 217 141 82;
+  --duel-pen: #9b7eff;
+  --duel-pen-ink: #c6b6ff;
+  --duel-pen-fill: #5733d1;
+  --duel-pen-soft: rgb(155 126 255 / 0.13);
+  --duel-chain: #e4b64f;
+  --duel-chain-ink: #f4d690;
+  --duel-chain-soft: rgb(228 182 79 / 0.11);
+  --duel-loss: #e45a4d;
+  --duel-loss-ink: #ff9489;
+  --duel-lamp: rgb(239 231 213 / 0.085);
+  --duel-gold: var(--duel-chain);
+  --duel-edge: var(--duel-rule-hi);
+  --duel-f-ui: var(--font-duel-ui), "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  --duel-f-num: var(--font-duel-num), "Sofia Sans Extra Condensed", "Arial Narrow", sans-serif;
+  --duel-f-ink: var(--font-duel-ink), "Newsreader", Georgia, serif;
+  --duel-t-xs: max(11px, calc(11 * var(--duel-unit)));
+  --duel-t-sm: max(12px, calc(12 * var(--duel-unit)));
+  --duel-t-body: max(13px, calc(13 * var(--duel-unit)));
+  --duel-t-head: max(14px, calc(15 * var(--duel-unit)));
+  --duel-t-name: max(18px, calc(20 * var(--duel-unit)));
+  --duel-t-num: max(20px, calc(22 * var(--duel-unit)));
+  --left-w: clamp(236px, 17.4vw, 330px);
+  --right-w: clamp(212px, 16.6vw, 300px);
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--duel-ink);
+  font-family: var(--duel-f-ui);
+  font-size: var(--duel-t-body);
+  line-height: 1.35;
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
+    linear-gradient(180deg, #0a1122 0%, #070b15 55%, #05080f 100%);
+}
+.shell[data-turn="opp"] { --duel-rule-a: 0.24; }
+.shell * { scrollbar-width: thin; scrollbar-color: rgb(var(--duel-rule-rgb) / 0.45) transparent; }
+.shell button { cursor: pointer; font: inherit; color: inherit; background: none; border: 0; }
+.shell button:disabled { cursor: default; }
+
+/* ---------- header ---------- */
+.header {
+  flex: none;
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+  padding: 0 14px 0 16px;
+  border-bottom: 1px solid var(--duel-rule);
+  background: linear-gradient(180deg, rgb(12 19 36 / 0.95), rgb(8 13 25 / 0.95));
+}
+.identity { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; color: var(--duel-ink-3); font-size: var(--duel-t-sm); }
+.identity b { color: var(--duel-ink); font-weight: 600; }
+.identity i { font-style: normal; color: var(--duel-ink-4); }
+.format {
+  font-style: normal;
+  padding: 1px 8px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 999px;
+  color: var(--duel-ink-2);
+  font-size: var(--duel-t-xs);
+}
+.turn { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.turn strong { font-size: var(--duel-t-head); font-weight: 500; letter-spacing: 0.01em; }
+.turnPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border: 1px solid rgb(var(--turn) / 0.55);
+  border-radius: 999px;
+  background: rgb(var(--turn) / 0.12);
+  color: var(--duel-ink);
+  font-size: var(--duel-t-sm);
+}
+.turnPill::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  rotate: 45deg;
+  background: rgb(var(--turn));
+  box-shadow: 0 0 8px rgb(var(--turn) / 0.8);
+}
+.turnPill small { color: var(--duel-ink-3); font-size: var(--duel-t-xs); }
+.live { display: flex; justify-content: flex-end; align-items: center; gap: 12px; color: var(--duel-ink-3); font-size: var(--duel-t-xs); }
+.liveDot { display: inline-flex; align-items: center; gap: 6px; letter-spacing: 0.1em; text-transform: uppercase; }
+.liveDot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--duel-loss); box-shadow: 0 0 8px rgb(228 90 77 / 0.7); }
+.spectatorTag { padding: 1px 8px; border: 1px solid var(--duel-rule); border-radius: 999px; color: var(--duel-ink-2); letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* ---------- three columns ---------- */
+.main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--left-w) minmax(0, 1fr) var(--right-w);
+}
+.left {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--duel-rule);
+  background: linear-gradient(180deg, rgb(10 17 32 / 0.92), rgb(7 11 21 / 0.92));
+}
+.left > :first-child { flex: none; }
+.sideContent { position: relative; flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.tray {
+  flex: none;
+  max-height: 50%;
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--duel-rule);
+}
+.tray[data-idle="true"] { display: none; }
+.tray[data-tone="chain"]:not([data-idle="true"]) { border-top-color: rgb(228 182 79 / 0.55); background: var(--duel-chain-soft); }
+
+.board {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.right {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 10px 8px;
+  border-left: 1px solid var(--duel-rule);
+  background: linear-gradient(180deg, rgb(10 17 32 / 0.92), rgb(7 11 21 / 0.92));
+}
+
+.track { flex: none; position: relative; z-index: 2; }
+.clock {
+  font-family: var(--duel-f-num);
+  font-size: var(--duel-t-num);
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--duel-ink);
+}
+
+/* ---------- camera dock ---------- */
+.dock {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 6px;
+  background: rgb(8 14 28 / 0.7);
+}
+.dock[data-locked="true"] { border-color: rgb(var(--duel-ember-rgb) / 0.6); }
+.dockHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  color: var(--duel-ink-3);
+  font-size: var(--duel-t-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.dockHead b { color: var(--duel-ink-2); font-weight: 400; letter-spacing: 0.04em; text-transform: none; }
+.dock[data-locked="true"] .dockHead b { color: rgb(var(--duel-ember-rgb)); }
+.dockLabel { margin: 2px 0 0; display: flex; justify-content: space-between; color: var(--duel-ink-4); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+.dockLabel span { letter-spacing: 0.04em; }
+
+.map { display: block; width: 100%; height: auto; border-radius: 4px; background: radial-gradient(70% 90% at 50% 50%, rgb(26 38 70 / 0.5), rgb(8 12 24 / 0.9)); }
+.mapRoof { fill: rgb(20 28 48 / 0.7); stroke: var(--duel-rule); stroke-width: 0.5; }
+.mapPad { fill: none; stroke: rgb(var(--duel-rule-rgb) / 0.55); stroke-width: 0.6; stroke-dasharray: 2 1.6; }
+.mapPadDot { fill: rgb(var(--duel-rule-rgb) / 0.7); }
+.mapField { cursor: pointer; outline: none; }
+.mapField rect { fill: rgb(var(--seat) / 0.16); stroke: rgb(var(--seat) / 0.7); stroke-width: 0.6; transition: fill 0.2s, stroke-width 0.2s; }
+.mapField text { fill: var(--ink); font-size: 5.4px; font-weight: 700; letter-spacing: 0.06em; pointer-events: none; }
+.mapField:hover rect, .mapField:focus-visible rect { fill: rgb(var(--seat) / 0.3); }
+.mapField[data-now="true"] rect { stroke-width: 1.4; fill: rgb(var(--seat) / 0.28); filter: drop-shadow(0 0 2.5px rgb(var(--seat) / 0.9)); }
+.mapField[data-focus="true"] rect { stroke: #efe7d5; stroke-width: 1.2; }
+.mapField[data-out="true"] rect { fill: rgb(90 92 100 / 0.2); stroke: rgb(120 122 130 / 0.6); }
+.mapField[data-out="true"] text { fill: #7b7d86; }
+.mapField[aria-disabled="true"] { cursor: default; }
+.mapCone path { fill: rgb(239 231 213 / 0.14); stroke: rgb(239 231 213 / 0.5); stroke-width: 0.4; }
+.mapCone circle { fill: #efe7d5; }
+
+.presets, .tools { display: grid; gap: 5px; }
+.presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tools { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.presets button, .tools button, .seatBtns button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 26px;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 4px;
+  background: rgb(14 23 41 / 0.7);
+  color: var(--duel-ink-2);
+  font-size: var(--duel-t-xs);
+  white-space: nowrap;
+}
+.presets button:hover:not(:disabled), .tools button:hover:not(:disabled), .seatBtns button:hover:not(:disabled) { color: var(--duel-ink); border-color: var(--duel-rule-hi); }
+.presets button[aria-pressed="true"], .tools button[aria-pressed="true"] {
+  border-color: rgb(var(--duel-rule-rgb) / 0.85);
+  background: rgb(var(--duel-rule-rgb) / 0.14);
+  color: var(--duel-ink);
+}
+.dock button:disabled { opacity: 0.45; }
+.dock button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 1px; }
+.dock kbd {
+  padding: 0 4px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 3px;
+  color: var(--duel-ink-3);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.seatBtns { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.seatBtns button { justify-content: flex-start; border-color: rgb(var(--seat) / 0.45); }
+.seatBtns button span { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.seatBtns button i { font-style: normal; font-weight: 700; letter-spacing: 0.06em; color: rgb(var(--seat)); }
+.seatBtns button[aria-pressed="true"] { background: rgb(var(--seat) / 0.18); border-color: rgb(var(--seat) / 0.9); }
+
+/* ---------- result ---------- */
+.result {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(60% 60% at 50% 50%, rgb(5 8 15 / 0.62), rgb(5 8 15 / 0.86));
+  backdrop-filter: blur(3px);
+}
+.resultCard {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  min-width: min(440px, 80%);
+  padding: 22px 30px 20px;
+  border: 1px solid var(--duel-rule-hi);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgb(14 23 41 / 0.96), rgb(8 13 25 / 0.96));
+  box-shadow: 0 30px 80px rgb(0 0 0 / 0.6);
+  text-align: center;
+}
+.resultKicker { margin: 0; color: var(--duel-ink-3); font-size: var(--duel-t-xs); letter-spacing: 0.22em; text-transform: uppercase; }
+.resultCard h2 { margin: 0; font-family: var(--duel-f-ink); font-size: max(34px, calc(40 * var(--duel-unit))); font-weight: 600; letter-spacing: 0.04em; line-height: 1.05; }
+.result[data-result="win"] h2 { color: var(--duel-chain-ink); text-shadow: 0 0 26px rgb(228 182 79 / 0.45); }
+.result[data-result="lose"] h2 { color: var(--duel-loss-ink); text-shadow: 0 0 26px rgb(228 90 77 / 0.35); }
+.resultReason { margin: 0; color: var(--duel-ink-2); font-family: var(--duel-f-ink); font-style: italic; }
+.resultTeams { display: grid; gap: 4px; width: 100%; margin: 6px 0 4px; padding: 0; list-style: none; }
+.resultTeams li { display: flex; justify-content: space-between; gap: 18px; padding: 5px 10px; border: 1px solid var(--duel-rule-lo); border-radius: 4px; color: var(--duel-ink-2); }
+.resultTeams li[data-won="true"] { border-color: rgb(228 182 79 / 0.6); color: var(--duel-ink); }
+.resultTeams b { font-family: var(--duel-f-num); font-size: var(--duel-t-num); font-variant-numeric: tabular-nums; }
+.resultCard > button {
+  margin-top: 4px;
+  padding: 6px 16px;
+  border: 1px solid var(--duel-rule-hi);
+  border-radius: 4px;
+  background: rgb(var(--duel-rule-rgb) / 0.12);
+}
+.resultCard > button:hover { background: rgb(var(--duel-rule-rgb) / 0.22); }
+
+@media (max-width: 900px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .left, .right { display: none; }
+}
