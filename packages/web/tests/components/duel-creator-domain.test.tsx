@@ -20,6 +20,14 @@ afterEach(() => {
 });
 
 describe("DuelCreator Domain rule", () => {
+  it("does not promise every duelist a first-turn draw at a Standard FFA3 table", () => {
+    render(<DuelCreator multiplayerTables />);
+    fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "ffa3" } });
+    const note = screen.getByText(/Master Rules use the current card catalog/);
+    expect(note.textContent).not.toContain("every duelist draws");
+    expect(note.textContent).toContain("First-turn draws follow the selected Master Rule.");
+  });
+
   it.each([5, 3])("explains the first-turn draw for Domain MR%s", (masterRule) => {
     render(<DuelCreator multiplayerTables />);
     fireEvent.click(screen.getByLabelText("Domain"));
