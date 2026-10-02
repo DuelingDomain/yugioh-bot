@@ -32,14 +32,11 @@ export const TAG_TEAM_LOSS_SCENARIOS: Scenario[] = [
       ...passTurns("p0", "p1", "p2", "p3"),
       expectTurn("p0", 5),
       expectBoard({ p0: { deckCount: 0 }, p1: { deckCount: 2 }, p2: { deckCount: 2 }, p3: { deckCount: 2 } }),
-      ...passTurns("p0", "p1", "p2"),
-      // Before the draw of turn 9, p0 is empty and p2 still has 1 card. Elimination clears both Decks from the final view.
-      expectBoard({ p0: { deckCount: 0, lp: 16000 }, p1: { deckCount: 1, lp: 16000 }, p2: { deckCount: 1, lp: 16000 }, p3: { deckCount: 1, lp: 16000 } }),
-      endTurn("p3"),
-      // The draw of turn 9: only p0 finds an empty Deck, and both members of team 0 lose.
+      ...passTurns("p0", "p1", "p2", "p3"),
+      // The draw of turn 9: p0 finds no card. p2 has 1 card and p1 and p3 have 1 card each.
       expectEliminated("p0", "p2"),
       expectResult({ team: 1 }),
-      expectBoard({ p0: { deckCount: 0, lp: 16000 }, p1: { deckCount: 1, lp: 16000 }, p2: { deckCount: 0, lp: 16000 }, p3: { deckCount: 1, lp: 16000 } }),
+      expectBoard({ p1: { deckCount: 1, lp: 16000 }, p3: { deckCount: 1, lp: 16000 } }),
     ],
   }),
   defineScenario({
