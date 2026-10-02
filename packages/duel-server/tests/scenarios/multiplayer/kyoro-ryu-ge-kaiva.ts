@@ -87,3 +87,32 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
     ],
   }));
 }
+
+KYORO_RYU_GE_KAIVA_SCENARIOS.push(defineScenario({
+  id: "kyoro-ryu-ge-kaiva-ffa3-reset-in-real-main-phase-window",
+  title: "FFA3: Kaiva's counter is absent in p2's Main Phase response window on turn 2",
+  source: `${SOURCE} [R-COMMON-SEAT-STATE] the destruction counter resets at the End Phase`,
+  rules: ["R-COMMON-SEAT-STATE"], tags: ["multiplayer", "ffa3", "card:93509766"],
+  setup: baseSetup("ffa3", {
+    p0: { hand: [HOLE], monsters: [OX] },
+    p1: { hand: ["Pot of Greed"], monsters: [ELF] },
+    p2: { hand: [CARD], spells: [faceDown("Jar of Greed")] },
+  }),
+  steps: [
+    activate(HOLE, "p0"), pass("p2"), expectOffered("activate", CARD, "p2"), pass("p2"),
+    endTurn("p0"), pass("p2"), pass("p2"),
+    expectTurn("p1", 2),
+    expectNotOffered("activate", CARD, "p2"), pass("p2"),
+    expectNotOffered("activate", CARD, "p2"), pass("p2"),
+    expectNotOffered("activate", CARD, "p2"), pass("p2"),
+    activate("Pot of Greed", "p1"),
+    expectPrompt({ by: "p2", context: "chain" }), expectNotOffered("activate", CARD, "p2"), pass("p2"),
+    expectPrompt({ by: "p2", context: "chain" }), expectNotOffered("activate", CARD, "p2"), pass("p2"),
+    expectPrompt({ by: "p1", context: "action" }),
+    everySeat("ffa3", {
+      p0: { hand: [], deckCount: 20, grave: [HOLE, OX] },
+      p1: { hand: [ELF, ELF, ELF], deckCount: 17, grave: [ELF, "Pot of Greed"] },
+      p2: { hand: [CARD], deckCount: 20, spells: ["Jar of Greed"] },
+    }),
+  ],
+}));
