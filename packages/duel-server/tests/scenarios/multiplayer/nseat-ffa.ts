@@ -614,21 +614,21 @@ export const FFA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa3-seat-out-before-first-turn-no-attack-until-all-living-had-a-turn",
-    title: "FFA3: a seat that is out before its first turn does not delay the first attack: p0 attacks on turn 3, not before",
+    title: "FFA3: p1 leaves before its first turn; p2 makes the first attack on turn 2",
     source: `${SOURCE} [R-FFA-NO-ATTACK]`,
     rules: ["R-FFA-NO-ATTACK", "R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "battle", "surrender", "ffa3", "card:15025844"],
-    // The no-attack window ends when every LIVING duelist has had a turn. p1 gives up on turn 1 and never has a turn, so the
-    // window ends after the turn of p2 (turn 2), and p0 may attack on turn 3.
-    setup: { format: "ffa3", p0: { monsters: [ELF] }, p1: { monsters: [ELF] } },
+    // The last living duelist starts its first turn on turn 2. p1 leaves before its first turn and does not delay battle.
+    setup: { format: "ffa3", p1: { monsters: [ELF] }, p2: { monsters: [ELF] } },
     steps: [
       surrender("p1"),
       expectPrompt({ by: "p0", notOffers: ["to_bp"] }),
-      endTurn("p0"), expectTurn("p2", 2), expectPrompt({ by: "p2", notOffers: ["to_bp"] }),
+      endTurn("p0"), expectTurn("p2", 2), expectPrompt({ by: "p2", offers: ["to_bp"] }),
+      expectEliminated("p1"),
+      changePhase("battle", "p2"),
+      attack(ELF, "direct", "p2"),
+      expectBoard({ p0: { lp: 8000 - ELF_ATK }, p1: { lp: 8000, ...VIEW_EMPTY }, p2: { lp: 8000, monsters: [ELF] } }),
       endTurn("p2"), expectTurn("p0", 3), expectPrompt({ by: "p0", offers: ["to_bp"] }),
-      changePhase("battle", "p0"),
-      attack(ELF, "direct", "p0"),
-      expectBoard({ p2: { lp: 8000 - ELF_ATK }, p0: { lp: 8000 } }),
     ],
   }),
   defineScenario({
