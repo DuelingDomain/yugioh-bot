@@ -13,8 +13,9 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to Production VM
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
@@ -161,40 +162,64 @@ jobs:
       - name: Deploy over SSH
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
         run: |
-          tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$RUNNER_TEMP/duel-engine.tar.gz" .
+          set -eu
+          bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
+          remote_bundle=
+          cleanup_transfer() {
+            rm -f "$bundle_tar"
+            if [ -n "$remote_bundle" ]; then
+              ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_bundle'" || true
+            fi
+          }
+          trap cleanup_transfer EXIT
+          remote_bundle=$(ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            'mktemp /tmp/yugidraft-duel-engine.XXXXXX.tar.gz')
+          printf '%s' "$remote_bundle" | grep -Eq '^/tmp/yugidraft-duel-engine\.[A-Za-z0-9]{6}\.tar\.gz$' || exit 1
+          tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
           scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
-            "$RUNNER_TEMP/duel-engine.tar.gz" \
-            "$VM_USER@$VM_HOST:/tmp/yugidraft-duel-engine.tar.gz"
+            "$bundle_tar" \
+            "$VM_USER@$VM_HOST:$remote_bundle"
           ssh -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' sh -s" <<'REMOTE'
              set -eu
+             bundle_src=
+             installer=
+             context_ready=0
+             cleanup() {
+               rm -f "$DEPLOY_BUNDLE"
+               if [ -n "$installer" ]; then rm -f "$installer"; fi
+               if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
+               if [ "$context_ready" = 1 ]; then rm -rf /opt/yugioh-bot/.deploy-duel-engine; fi
+             }
+             trap cleanup EXIT
+             trap 'exit 1' HUP INT TERM
              printf '%s' "$DEPLOY_COMMIT" | grep -Eq '^[0-9a-f]{40}$' || exit 1
              # One build at a time on this VM: the staging deploy holds the same lock. Wait for it, then stop
              # the staging containers (if any) so their memory is free for this build.
              if command -v flock >/dev/null 2>&1; then
                exec 9>/var/lock/yugidraft-build.lock
-               flock -w 1500 9 || { echo "Another build (maybe the staging deploy) holds the build lock." >&2; exit 1; }
+               flock -w 900 9 || { echo "Another build (maybe the staging deploy) holds the build lock." >&2; exit 1; }
              fi
              cd /opt/yugioh-bot
              git fetch origin "$DEPLOY_COMMIT"
+             git fetch origin main && git merge-base --is-ancestor "$DEPLOY_COMMIT" FETCH_HEAD || exit 1
              # Preflight, before anything on the VM changes: the install script of the new commit, run in check-only
              # mode on the new bundle. It refuses while a duel is active and the bundle would be replaced (or, for a new
              # multi core under an identical bundle, while a Tag or free-for-all duel is active). A refusal here leaves
-             # the old checkout, the old images and the old containers as they were. The new duel image needs the new
-             # bundle, so a later "docker compose up" on a half-done deploy would crash-loop the duel service.
-             rm -rf /tmp/yugidraft-duel-engine-src
-             mkdir -p /tmp/yugidraft-duel-engine-src
-             tar -C /tmp/yugidraft-duel-engine-src -xzf /tmp/yugidraft-duel-engine.tar.gz
-             git show "$DEPLOY_COMMIT":packages/duel-server/scripts/install-engine-bundle.sh > /tmp/yugidraft-install-engine-bundle.sh
-             if ! DUEL_PREFLIGHT=1 DUEL_BUNDLE_SRC=/tmp/yugidraft-duel-engine-src DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
-               sh /tmp/yugidraft-install-engine-bundle.sh; then
-               rm -rf /tmp/yugidraft-duel-engine-src /tmp/yugidraft-install-engine-bundle.sh
+             # the old checkout, the old images and the old containers as they were.
+             bundle_src=$(mktemp -d /tmp/yugidraft-duel-engine-src.XXXXXX)
+             installer=$(mktemp /tmp/yugidraft-install-engine-bundle.XXXXXX.sh)
+             tar -C "$bundle_src" -xzf "$DEPLOY_BUNDLE"
+             git show "$DEPLOY_COMMIT":packages/duel-server/scripts/install-engine-bundle.sh > "$installer"
+             if ! DUEL_PREFLIGHT=1 DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
+               sh "$installer"; then
                echo "Deploy stopped before any change: drain the active duels (see docs/deployment/vm-runbook.md), then run the deploy again." >&2
                exit 1
              fi
-             rm -f /tmp/yugidraft-install-engine-bundle.sh
+             rm -f "$installer"
              staging_ids=$(docker ps -q --filter label=com.docker.compose.project=yugidraft-staging)
              if [ -n "$staging_ids" ]; then
                docker stop $staging_ids || true
@@ -204,20 +229,30 @@ jobs:
              # The image carries the same verified bundle as the data volume.
              rm -rf .deploy-duel-engine
              mkdir .deploy-duel-engine
-             cp -a /tmp/yugidraft-duel-engine-src/. .deploy-duel-engine/
-             trap "rm -rf .deploy-duel-engine" EXIT
+             context_ready=1
+             cp -a "$bundle_src/." .deploy-duel-engine/
+             # Preserve the images of the current containers, even after a previous failed build retagged :latest.
+             for service in duel web bot; do
+               container=$(docker compose -f docker-compose.yml ps -aq "$service")
+               if [ -n "$container" ]; then
+                 image_id=$(docker inspect -f '{{.Image}}' "$container")
+                 image_ref=$(docker inspect -f '{{.Config.Image}}' "$container")
+                 docker tag "$image_id" "${image_ref%:*}:prev"
+               fi
+             done
              docker compose -f docker-compose.yml build
              docker compose -f docker-compose.yml stop web || true
-             if ! DUEL_BUNDLE_SRC=/tmp/yugidraft-duel-engine-src DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
+             trap 'docker compose -f docker-compose.yml start web || true; cleanup' EXIT
+             if ! DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
-               docker compose -f docker-compose.yml start web || true
                exit 1
              fi
              docker compose -f docker-compose.yml down --remove-orphans
              docker compose -f docker-compose.yml up -d
+             trap - EXIT
+             cleanup
              docker compose -f docker-compose.yml ps
              docker compose -f docker-compose.yml logs --tail=40
-             rm -rf /tmp/yugidraft-duel-engine-src /tmp/yugidraft-duel-engine.tar.gz
              sleep 20
              duel_state=$(docker inspect -f "{{.State.Status}} restarts={{.RestartCount}}" "$(docker compose -f docker-compose.yml ps -q duel)")
              echo "duel container: $duel_state"
@@ -226,4 +261,5 @@ jobs:
                echo "The duel container is not running cleanly." >&2
                exit 1
              fi
+             docker image prune -f
           REMOTE
