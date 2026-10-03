@@ -19,7 +19,7 @@ export interface TournamentDuelRules {
   bestOf: DuelBestOf;
   mode: DuelMode;
   masterRule: DuelMasterRule;
-  /** Normalized; visibility is always private for tournament games. */
+  /** Normalized; visibility is always public for tournament games, so anyone in the guild can watch. */
   settings: DuelSettings;
   /** Set when the tournament was made from a draft (drafts.tournament_id). */
   draftId: number | null;
@@ -99,14 +99,16 @@ type TournamentRulesRow = {
 /**
  * Rules for a tournament row. A draft tournament always uses a normal duel,
  * Master Rule 5, no banlist and no deck legality check (the pool is the
- * limit); only its match length can change. Visibility is always private.
+ * limit); only its match length can change. Visibility is always public: anyone
+ * in the guild can watch a tournament game. Seats stay fixed to the two players
+ * (takeSeat refuses series games) and spectators only get the public board.
  */
 export function resolveTournamentDuelRules(row: TournamentRulesRow): TournamentDuelRules {
   const bestOf: DuelBestOf = row.best_of === 1 ? 1 : 3;
   const draftId = row.draft_id ?? null;
   if (draftId !== null) {
     const settings = normalizeDuelSettings("normal", { banlist: NO_BANLIST_ID, validateDeck: false });
-    return { bestOf, mode: "normal", masterRule: 5, settings: { ...settings, visibility: "private" }, draftId };
+    return { bestOf, mode: "normal", masterRule: 5, settings: { ...settings, visibility: "public" }, draftId };
   }
   let stored: { mode?: unknown; masterRule?: unknown; settings?: unknown } = {};
   if (row.duel_rules_json) {
@@ -127,7 +129,7 @@ export function resolveTournamentDuelRules(row: TournamentRulesRow): TournamentD
   } catch {
     settings = normalizeDuelSettings(mode, undefined);
   }
-  return { bestOf, mode, masterRule, settings: { ...settings, visibility: "private" }, draftId };
+  return { bestOf, mode, masterRule, settings: { ...settings, visibility: "public" }, draftId };
 }
 
 /**
@@ -157,7 +159,7 @@ export function serializeTournamentDuelRules(input: {
     if (error instanceof DuelSettingsError) throw new TournamentDuelError(error.message, 400);
     throw error;
   }
-  return JSON.stringify({ mode, masterRule, settings: { ...settings, visibility: "private" } });
+  return JSON.stringify({ mode, masterRule, settings: { ...settings, visibility: "public" } });
 }
 
 function assertBestOf(value: unknown): asserts value is DuelBestOf {

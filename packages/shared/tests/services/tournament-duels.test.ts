@@ -64,7 +64,7 @@ describe("tournament duel rules", () => {
     expect(rules.bestOf).toBe(3);
     expect(rules.mode).toBe("normal");
     expect(rules.masterRule).toBe(5);
-    expect(rules.settings.visibility).toBe("private");
+    expect(rules.settings.visibility).toBe("public");
     expect(tournament.bestOf).toBe(3);
   });
 

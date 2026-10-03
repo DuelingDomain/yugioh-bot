@@ -39,7 +39,7 @@ export const sheetTournament: TournamentDetail = {
   participants: sheetPlayers, isParticipant: true, currentUserPlayerId: 5,
   startedAt: "2026-09-26T00:04:00Z", createdAt: "2026-09-25T20:00:00Z", deadlineAt: "2026-10-03T03:00:00Z",
   reportConfirmWindowHours: 24, bestOf: 3, rulesLocked: true,
-  duelRules: { bestOf: 3, mode: "normal", masterRule: 5, settings: { ...defaultDuelSettings("normal"), visibility: "private", banlist: "tcg-2026-09", turnSeconds: 180 }, draftId: null },
+  duelRules: { bestOf: 3, mode: "normal", masterRule: 5, settings: { ...defaultDuelSettings("normal"), visibility: "public", banlist: "tcg-2026-09", turnSeconds: 180 }, draftId: null },
   matches: [
     slot(1, 5, 3), slot(2, 5, 6), slot(3, 1, 5, 1, [2, 1]),
     slot(4, 1, 2, null, [1, 0]), slot(5, 1, 4), slot(6, 1, 6, 1, [2, 1]),
