@@ -296,6 +296,7 @@ export interface StoredDuelEvent {
   faceDown?: boolean;
   addedToHand?: true;
   target?: DuelZoneRef;
+  battle?: DuelEvent["battle"];
   amount?: number;
   cause?: DuelEvent["cause"];
   sourceCode?: number;
@@ -590,6 +591,10 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.chainIndex != null) projected.chainIndex = event.chainIndex;
   if (event.zone) projected.zone = { ...event.zone };
   if (event.target) projected.target = { ...event.target };
+  if (event.battle) projected.battle = {
+    attacker: { ...event.battle.attacker },
+    ...(event.battle.target ? { target: { ...event.battle.target } } : {}),
+  };
   if (event.from) projected.from = { ...event.from };
   if (event.reason) projected.reason = event.reason;
   if (event.faceDown != null) projected.faceDown = event.faceDown;
@@ -947,6 +952,24 @@ export function observeDuelEvent(
         : `Player ${seat + 1} declares a direct attack`;
       const event: StoredDuelEvent = { id, kind: "attack", seat, text, publicText: text, revealCardTo: "all", zone: zoneOf(message.card) };
       if (message.target) event.target = zoneOf(message.target);
+      return event;
+    }
+    case OcgMessageType.DAMAGE_STEP_END:
+      return { id, kind: "battle-end", text: "Damage Step ended", publicText: "Damage Step ended", revealCardTo: "all" };
+    case OcgMessageType.BATTLE: {
+      const stats = (card: NonNullable<typeof message.card>) => ({
+        attack: card.attack, defense: card.defense, position: card.position as number,
+      });
+      const text = "Damage calculation";
+      const event: StoredDuelEvent = {
+        id, kind: "battle", seat: message.card.controller, text, publicText: text,
+        revealCardTo: "all", zone: zoneOf(message.card), battle: { attacker: stats(message.card) },
+      };
+      // The stock wrapper parses the direct-attack sentinel as a zero-location card.
+      if (message.target?.location === OcgLocation.MZONE) {
+        event.target = zoneOf(message.target);
+        event.battle!.target = stats(message.target);
+      }
       return event;
     }
     case OcgMessageType.DAMAGE: {

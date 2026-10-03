@@ -295,11 +295,18 @@ export type DuelSummonKind =
  */
 export type DuelBattleStep = "start" | "battle" | "damage" | "damage-calculation" | "end";
 
+/** The core's actual stats at damage calculation, before temporary effects expire. */
+export interface DuelBattleStats {
+  attack: number;
+  defense: number;
+  position: number;
+}
+
 export interface DuelEvent {
   id: number;
   kind:
     | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "phase" | "damage" | "destroy" | "move" | "position" | "equip";
+    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "destroy" | "move" | "position" | "equip";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
@@ -335,6 +342,8 @@ export interface DuelEvent {
   handShuffled?: true;
   /** attack: the attacked monster's zone; absent for a direct attack. equip: the monster it was equipped to. */
   target?: DuelZoneRef;
+  /** battle: public MSG_BATTLE values; a direct attack has no target. These never replace live board stats. */
+  battle?: { attacker: DuelBattleStats; target?: DuelBattleStats };
   /** damage: LP lost by `seat` (positive number). */
   amount?: number;
   /**
