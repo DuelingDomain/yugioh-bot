@@ -45,6 +45,7 @@ export function measureTable(opts: {
   const baseRows = theme ? 2 : phone ? 4 : narrow ? 3 : 2;
   let rows = Math.max(baseRows, Math.ceil(packSize / cols));
   const themeBelow = theme && !phone && rows > baseRows;
+  const poolBelow = theme && (phone || themeBelow);
   const top = phone ? 34 : 72;
   const extra = phone ? 54 : 74;
   const floor = phone ? 60 : 64;
@@ -52,9 +53,9 @@ export function measureTable(opts: {
   let tw = widthCap;
   let cw = (tw - pad * 2 - gap * (cols - 1)) / cols;
   const fit = (height - (phone ? diskH + 40 : 150)) / (phone ? 0.93 : 0.8);
-  // Expanded theme packs use the whole card zone, with their pool stack below it.
+  // Budget for the pool below phone and expanded desktop theme packs.
   const widthForHeight = (rowCount: number) =>
-    ((fit - top - extra - (rowCount - 1) * gap - (themeBelow ? 22 : 0)) / (rowCount + (themeBelow ? 0.8 : 0))) *
+    ((fit - top - extra - (rowCount - 1) * gap - (poolBelow ? 22 : 0)) / (rowCount + (poolBelow ? 0.8 : 0))) *
     (59 / 86);
   let cwH = widthForHeight(rows);
   if (cwH < cw || (rows > baseRows && cw < floor)) {
@@ -72,7 +73,7 @@ export function measureTable(opts: {
     tw = cw * cols + gap * (cols - 1) + pad * 2;
   }
   const ch = (cw * 86) / 59;
-  const poolRow = theme && (phone || themeBelow) ? ch * 0.8 + 22 : 0;
+  const poolRow = poolBelow ? ch * 0.8 + 22 : 0;
   const th = top + rows * ch + (rows - 1) * gap + extra + poolRow;
   // A flat table has no depth to compress the visible card widths through perspective.
   const tilt = tall ? 0 : phone ? 26 : 40;

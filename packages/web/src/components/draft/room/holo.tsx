@@ -29,6 +29,42 @@ export const Holo = memo(function Holo({ target, stage }: { target: HoloTarget |
 
   useLayoutEffect(() => {
     const holo = root.current;
+    if (!holo || !target || !stage) return;
+    const face = target.el.querySelector(".face") ?? target.el;
+    const position = (resize: boolean) => {
+      const sr = stage.getBoundingClientRect();
+      const r = face.getBoundingClientRect();
+      const hw = Math.round(Math.min(230, Math.max(170, sr.height * 0.25)));
+      const upright = r.bottom - r.width * 1.12 * (86 / 59) - sr.top;
+      const standTop = target.partial ? (r.top - sr.top + upright) / 2 : upright;
+      const top = Math.max(10, standTop - 26 - hw - 30);
+      let left = r.left + r.width / 2 - sr.left - hw / 2;
+      left = Math.max(10, Math.min(sr.width - hw - 10, left));
+      if (resize) {
+        holo.style.setProperty("--hw", `${hw}px`);
+        holo.style.setProperty("--beam", `${Math.max(16, standTop - (top + hw) + 6)}px`);
+      }
+      // Clamp in viewport space, then convert to the scrolling stage's content space.
+      holo.style.transform = `translate(${left + stage.scrollLeft}px, ${top + stage.scrollTop}px)`;
+    };
+    position(true);
+    let frame: number | null = null;
+    const onScroll = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        position(false);
+      });
+    };
+    stage.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      stage.removeEventListener("scroll", onScroll);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [stage, target]);
+
+  useLayoutEffect(() => {
+    const holo = root.current;
     if (!holo) return;
     if (!target || !stage) {
       if (!holo.hasAttribute("data-on")) return;
@@ -42,36 +78,20 @@ export const Holo = memo(function Holo({ target, stage }: { target: HoloTarget |
       });
       return;
     }
-    const { card, el, partial } = target;
+    const { card, partial } = target;
     const swap = holo.hasAttribute("data-on");
-    if (swap && live.current?.id === card.id && live.current.partial === partial) {
-      // same card: only follow it if the table moved
-    }
     const changed = !(live.current && live.current.id === card.id);
     live.current = { id: card.id, partial };
     if (changed) setShown(card);
     const t = tint(card);
     holo.style.setProperty("--h-hi", t.hi);
     holo.style.setProperty("--h-main", t.main);
-    const sr = stage.getBoundingClientRect();
-    const face = el.querySelector(".face") ?? el;
-    const r = face.getBoundingClientRect();
-    const hw = Math.round(Math.min(230, Math.max(170, sr.height * 0.25)));
-    const upright = r.bottom - r.width * 1.12 * (86 / 59) - sr.top;
-    const standTop = partial ? (r.top - sr.top + upright) / 2 : upright;
-    const top = Math.max(10, standTop - 26 - hw - 30);
-    const beam = Math.max(16, standTop - (top + hw) + 6);
-    let left = r.left + r.width / 2 - sr.left - hw / 2;
-    left = Math.max(10, Math.min(sr.width - hw - 10, left));
-    holo.style.setProperty("--hw", `${hw}px`);
-    holo.style.setProperty("--beam", `${beam}px`);
-    holo.style.transform = `translate(${left}px, ${top}px)`;
     holo.style.opacity = "";
     holo.setAttribute("data-on", "");
     if (!changed || motionOff()) return;
     const pf = holo.querySelector(".pf");
     if (swap) {
-      animate(pf, [{ opacity: 0.35, filter: "brightness(1.8)" }, { opacity: 1, filter: "none" }], { duration: 200, easing: "ease-out" });
+      animate(pf, [{ opacity: 0.35 }, { opacity: 1 }], { duration: 200, easing: "ease-out" });
       return;
     }
     animate(holo.querySelector(".beam"), [{ transform: "scaleY(0)", opacity: 0 }, { transform: "scaleY(1)", opacity: 1 }], {
