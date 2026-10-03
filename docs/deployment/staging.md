@@ -294,7 +294,7 @@ WHERE web_slug = '<verified-local-duel-slug>'
   3. Negation and lock cards (for example Solemn Judgment, Jinzo).
   4. Tag partners (sharing cards and costs, the partner is not an opponent, seeing the partner's hand).
   5. Tag loss and turn-count cards (a team loss from an empty Deck, Final Countdown).
-- The legacy Standard 1v1 engine uses the older npm core. Staging defaults to the pinned engine;
+- The legacy Standard 1v1 engine uses the older npm core. Staging defaults to the legacy 1v1 engine, as production does (`STAGING_DUEL_1V1_ENGINE=pinned` tests the merged one);
   multiplayer games load the separately built multi cores.
 - Staging has a copy of the production database. Testers sign in with their real Discord accounts, and the guild check applies.
 - Staging has its own `NEXTAUTH_SECRET`. A sign-in made in staging is not valid in production, and the other way round.
