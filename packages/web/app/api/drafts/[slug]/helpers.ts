@@ -24,11 +24,16 @@ function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
 /**
  * Run one part of the draft response. If it throws, log it with the draft slug and use the fallback,
  * so one bad row degrades that part of the page and the player still gets into the draft.
+ * SQLITE_BUSY errors are rethrown.
  */
 function degrade<T>(slug: string, part: string, fallback: T, run: () => T): T {
   try {
     return run();
   } catch (error) {
+    // A locked database is not a bad row. Fail the load so the room shows the error; a fallback here
+    // would show stale data (a frozen timer) while the database is busy.
+    const code = (error as { code?: unknown } | null)?.code;
+    if (typeof code === "string" && code.startsWith("SQLITE_BUSY")) throw error;
     console.error(`[api/drafts/${slug}] ${part} failed:`, error);
     return fallback;
   }

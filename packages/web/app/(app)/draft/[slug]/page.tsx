@@ -135,6 +135,10 @@ export default function DraftDetailPage() {
   const storePool = useDraftStore((s) => s.myPool);
 
   const loadedRef = useRef(false);
+  // A new draft address starts unloaded, so a failed first load of it shows the error sheet.
+  useEffect(() => {
+    loadedRef.current = false;
+  }, [slug]);
 
   const fetchDraft = useCallback(async () => {
     try {

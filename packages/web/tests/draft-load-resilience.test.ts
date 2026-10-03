@@ -109,6 +109,27 @@ describe("draft load resilience", () => {
     db.close();
   });
 
+  it("fails the load when the database is locked, instead of showing stale data", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { db, slug } = await setup();
+    vi.doMock("@yugidraft/shared/services", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@yugidraft/shared/services")>();
+      return {
+        ...actual,
+        createDraftService: (...args: Parameters<typeof actual.createDraftService>) => ({
+          ...actual.createDraftService(...args),
+          expireCurrentPickStep: () => {
+            throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+          },
+        }),
+      };
+    });
+
+    await expect(load(slug, "host")).rejects.toMatchObject({ code: "SQLITE_BUSY" });
+    vi.doUnmock("@yugidraft/shared/services");
+    db.close();
+  });
+
   it("logs the draft slug when the route fails", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const { db, slug } = await setup();
