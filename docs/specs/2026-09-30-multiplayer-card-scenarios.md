@@ -5,6 +5,7 @@ Date: 2026-09-30. Updated 2026-10-01 with the card decisions of the product owne
 Rules: [ADR-0002](../adr/0002-multiplayer-duel-rules.md). Design: [multiplayer core design](2026-09-30-multiplayer-core-design.md).
 
 Data in code:
+- P3 Dogmatikamatrix proofs declare before the opponent Extra Deck read and check every seat.
 - P3 Branded in Central Dogmatika proofs declare before the opponent Extra Deck read and check every seat.
 - Forbidden list and card rules: `packages/duel-server/src/banlists/multiplayer.ts` (`MULTIPLAYER_FORBIDDEN` and `MULTIPLAYER_CARD_RULES`).
 - Scenario sketches and script evidence: `packages/duel-server/tests/scenarios/multiplayer/catalog.ts`.
