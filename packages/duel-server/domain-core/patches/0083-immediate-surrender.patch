@@ -130,7 +130,18 @@ diff --git a/operations.cpp b/operations.cpp
  }
  
  int32_t field::negate_chain(uint8_t chaincount) {
-@@ -2077,6 +2083,17 @@
+@@ -859,6 +865,10 @@
+ 	auto oppo = arg.oppo;
+ 	auto countertype = arg.countertype;
+ 	auto count = arg.count;
++	if(n_duelists > 2 && !is_alive(rplayer)) {
++		returns.set<int32_t>(0, FALSE);
++		return TRUE;
++	}
+ 	switch(arg.step) {
+ 	case 0: {
+ 		core.select_options.clear();
+@@ -2077,6 +2087,17 @@
  	return TRUE;
  }
  bool field::process(Processors::SummonRule& arg) {
@@ -148,7 +159,7 @@ diff --git a/operations.cpp b/operations.cpp
  	auto sumplayer = arg.sumplayer;
  	auto target = arg.target;
  	auto summon_procedure_effect = arg.summon_procedure_effect;
-@@ -2772,6 +2789,15 @@
+@@ -2772,6 +2793,15 @@
  	return TRUE;
  }
  bool field::process(Processors::MonsterSet& arg) {
@@ -164,7 +175,7 @@ diff --git a/operations.cpp b/operations.cpp
  	auto setplayer = arg.setplayer;
  	auto target = arg.target;
  	auto summon_procedure_effect = arg.summon_procedure_effect;
-@@ -3131,6 +3157,13 @@
+@@ -3131,6 +3161,13 @@
  	return TRUE;
  }
  bool field::process(Processors::SpellSet& arg) {
@@ -178,7 +189,7 @@ diff --git a/operations.cpp b/operations.cpp
  	auto setplayer = arg.setplayer;
  	auto toplayer = arg.toplayer;
  	auto target = arg.target;
-@@ -3366,6 +3399,15 @@
+@@ -3366,6 +3403,15 @@
  	return TRUE;
  }
  bool field::process(Processors::SpSummonRule& arg) {
@@ -194,7 +205,7 @@ diff --git a/operations.cpp b/operations.cpp
  	auto sumplayer = arg.sumplayer;
  	auto target = arg.target;
  	auto summon_type = arg.summon_type;
-@@ -3404,6 +3446,8 @@
+@@ -3404,6 +3450,8 @@
  			pduel->lua->proc_take_pick(peffect, returns.at<int32_t>(0));
  		} else {
  			peffect = core.select_effects[returns.at<int32_t>(0)];
@@ -203,7 +214,7 @@ diff --git a/operations.cpp b/operations.cpp
  			// F5: a procedure that puts the monster on an opponent's field binds one opponent first
  			if(n_duelists > 2 && pduel->lua->proc_ask_pick(peffect, sumplayer)) {
  				arg.step = 0;
-@@ -3958,6 +4002,14 @@
+@@ -3958,6 +4006,14 @@
  	uint8_t nocheck = (target->spsummon_param >> 16) & 0xff;
  	uint8_t nolimit = (target->spsummon_param >> 8) & 0xff;
  	uint8_t positions = target->spsummon_param & 0xff;
@@ -218,7 +229,7 @@ diff --git a/operations.cpp b/operations.cpp
  	switch(arg.step) {
  	case 0: {
  		if(target->is_affected_by_effect(EFFECT_REVIVE_LIMIT) && !target->is_status(STATUS_PROC_COMPLETE)) {
-@@ -5364,6 +5416,11 @@
+@@ -5364,6 +5420,11 @@
  	uint8_t playerid = (target->to_field_param >> 16) & 0xff;
  	uint8_t location = (target->to_field_param >> 8) & 0xff;
  	uint8_t positions = (target->to_field_param) & 0xff;
@@ -394,6 +405,19 @@ diff --git a/playerop.cpp b/playerop.cpp
  	if(arg.step == 0) {
  		if(count == 0) {
  			auto message = pduel->new_message(MSG_HINT);
+@@ -791,6 +869,12 @@
+ 	auto count = arg.count;
+ 	auto self = arg.self;
+ 	auto oppo = arg.oppo;
++	// Removal clears the offered counters. Consume a departed chooser's old prompt
++	// without validating those counter counts against cards that left the duel.
++	if(n_duelists > 2 && arg.step != 0 && !is_alive(playerid)) {
++		returns.clear();
++		return TRUE;
++	}
+ 	if(arg.step == 0) {
+ 		if(count == 0)
+ 			return TRUE;
 diff --git a/processor.cpp b/processor.cpp
 --- a/processor.cpp
 +++ b/processor.cpp

@@ -8,6 +8,7 @@ import { compileBoard } from "./support/board.js";
 import { currentDomainMultiWasm, currentMultiWasm, describeWithCores, needs } from "./support/cores.js";
 
 const cases: [string, DuelPrompt["kind"], string][] = [
+  ["idle", "choice", "nil"],
   ["yes-no", "choice", "Duel.SelectYesNo(0,30)"],
   ["effect yes-no", "choice", "Duel.SelectEffectYesNo(0,g:GetFirst(),30)"],
   ["option", "choice", "Duel.SelectOption(0,30,31)"],
@@ -23,6 +24,7 @@ const cases: [string, DuelPrompt["kind"], string][] = [
   ["card", "announce-card", "Duel.AnnounceCard(0)"],
   ["number", "choice", "Duel.AnnounceNumber(0,1,2,3)"],
   ["tribute", "tribute", "Duel.SelectTribute(0,g:GetFirst(),1,1)"],
+  ["counters", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_COST)`],
   ["rock-paper-scissors", "choice", "Duel.RockPaperScissors()"],
 ];
 
@@ -72,17 +74,19 @@ e:SetOperation(function()
   local answer=${call}
   ${["yes-no", "effect yes-no", "option"].includes(_name) ? "Duel.SetLP(2,7000+(answer==true and 1 or type(answer)=='number' and answer or 0))" : ""}
 end)
-Duel.RegisterEffect(e,0)` }],
+${_name === "idle" ? "" : "Duel.RegisterEffect(e,0)"}` }],
       });
       try {
         // Reach the exact required prompt, without answering it.
         for (let step = 0; step < 40; step++) {
           const prompt = game.view(holder(game)).prompt!;
+          if (_name === "idle" && holder(game) === 0 && prompt.context?.type === "action") break;
           if (holder(game) === 0 && prompt.context?.type !== "chain" && prompt.context?.type !== "action") break;
           pass(game);
         }
         expect(holder(game)).toBe(0);
         expect(game.view(0).prompt?.kind).toBe(kind);
+        if (_name === "idle") expect(game.view(0).prompt?.context).toEqual({ type: "action", phase: "main" });
         expect(game.view(null).chain ?? []).toHaveLength(0);
         game.eliminate(0, 0);
         expect(game.view(null).seats[0].eliminated).toBe(true);
