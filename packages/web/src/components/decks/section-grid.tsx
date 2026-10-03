@@ -1,8 +1,7 @@
 "use client";
 
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
-import { cx } from "@/components/duel/sheet-ui";
-import ui from "@/components/duel/sheet-ui.module.css";
+import { cn } from "@/lib/utils";
 import { CardArt } from "./card-art";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { LimitBadge } from "./limit-badge";
@@ -10,7 +9,6 @@ import {
   cardLabel,
   copyKey,
   copyLimit,
-  sectionBreakdown,
   type BanlistLimits,
   type CardCatalog,
   type CardSource,
@@ -18,6 +16,7 @@ import {
   type SelectedStack,
 } from "./model";
 import styles from "./editor.module.css";
+import { DeckSizeMeter, sizeState } from "./size-meter";
 
 export type CountTone = "ok" | "warn" | "bad";
 /** One deck copy under the pointer. */
@@ -28,7 +27,9 @@ export function DeckSectionGrid({
   section,
   codes,
   target,
-  tone,
+  minimum = 0,
+  maximum = 15,
+  unused = false,
   catalog,
   unknown,
   limits,
@@ -46,6 +47,9 @@ export function DeckSectionGrid({
   section: DeckSection;
   codes: number[];
   target: string;
+  minimum?: number;
+  maximum?: number;
+  unused?: boolean;
   tone?: CountTone;
   catalog: CardCatalog;
   unknown: ReadonlySet<number>;
@@ -64,7 +68,8 @@ export function DeckSectionGrid({
   const [dropping, setDropping] = useState(false);
   const [insertAt, setInsertAt] = useState<number | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const breakdown = sectionBreakdown(section, codes, catalog);
+  const state = sizeState(codes.length, minimum, maximum);
+  const difference = state === "under" ? minimum - codes.length : codes.length - maximum;
 
   /** Removes a copy from the keyboard and keeps focus on the card that takes its place. */
   function removeFromKeyboard(code: number, index: number) {
@@ -95,7 +100,7 @@ export function DeckSectionGrid({
 
   return (
     <section
-      className={styles.section}
+      className={styles["de-sec-b"]}
       aria-label={`${title} Deck`}
       data-dropping={dropping ? "true" : undefined}
       onDragOver={(event) => { if (allowDrop(event)) setDropping(true); }}
@@ -106,31 +111,21 @@ export function DeckSectionGrid({
       }}
       onDrop={(event) => finishDrop(event)}
     >
-      <header className={styles.sectionHead}>
-        <h2 className={styles.sectionTitle}>
-          {title}
-          <span className={cx(ui.num, styles.sectionCount)} data-tone={tone}>{codes.length}</span>
-          <span className={styles.sectionTarget}>{target}</span>
-        </h2>
-        {breakdown.length > 0 ? (
-          <ul className={styles.breakdown} aria-label={`${title} Deck by card type`}>
-            {breakdown.map((part) => (
-              <li key={part.key}>
-                <span className={styles.typeDot} data-type={part.key} aria-hidden />
-                {part.label} <span className={ui.num}>{part.count}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {actions ? <div className={styles.sectionActions}>{actions}</div> : null}
+      <header className={styles["de-sh"]} data-off={unused ? "" : undefined}>
+        <h2 className={styles["de-st"]}>{title}</h2>
+        <span className={cn("num", styles["de-n"])} data-s={state}>{codes.length}</span>
+        {unused ? null : <DeckSizeMeter title={title} count={codes.length} minimum={minimum} maximum={maximum} />}
+        <span className={styles["de-tg"]}>{target}</span>
+        {state !== "ok" ? <span className={styles["de-off"]} data-s={state}>{difference} {state === "under" ? "short" : "over"}</span> : null}
+        {actions ? <div className={styles["de-clear"]}>{actions}</div> : null}
       </header>
 
       {children}
 
       {codes.length === 0 ? (
-        <p className={styles.empty}>{emptyHint}</p>
+        <p className={styles["de-empty"]}><span className={styles["de-empty-wide"]}>{emptyHint}</span><span className={styles["de-empty-phone"]}>Add cards from the Cards tab.</span></p>
       ) : (
-        <ul ref={listRef} className={styles.cards}>
+        <ul ref={listRef} className={styles["de-grid"]}>
           {codes.map((code, index) => {
             const name = cardLabel(code, catalog);
             const missing = unknown.has(code);
@@ -145,7 +140,7 @@ export function DeckSectionGrid({
               >
                 <button
                   type="button"
-                  className={styles.card}
+                  className={styles["de-c"]}
                   aria-pressed={isSelected}
                   aria-label={`${name}, ${title} Deck card ${index + 1}${missing ? ", not in the card database" : ""}${isOver ? ", too many copies" : ""}`}
                   title={name}
@@ -156,7 +151,7 @@ export function DeckSectionGrid({
                     onSelect({ section, code });
                     writeCardDrag(event, { code, from: section, index });
                   }}
-                  onClick={() => onSelect({ section, code })}
+                  onClick={(event) => { event.currentTarget.focus(); onSelect({ section, code }); }}
                   onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover({ section, index }); }}
                   onPointerLeave={() => onHover(null)}
                   onContextMenu={(event) => { event.preventDefault(); onRemove({ code, from: section, index }); }}
@@ -170,7 +165,7 @@ export function DeckSectionGrid({
                 >
                   <CardArt code={code} name={name} />
                   <LimitBadge limit={copyLimit(code, catalog, limits)} />
-                  {missing ? <span className={cx(ui.num, styles.unknownTag)}>{code}</span> : null}
+                  {missing ? <span className={cn("num", styles.unknownTag)}>{code}</span> : null}
                 </button>
               </li>
             );
