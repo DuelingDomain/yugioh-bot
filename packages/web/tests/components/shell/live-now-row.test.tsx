@@ -41,6 +41,11 @@ describe("LiveNowRow", () => {
     expect(container.querySelectorAll("hr.sv-rule")).toHaveLength(2);
   });
 
+  it("rail: keeps only the top line, so the next group's divider is the only other line", () => {
+    const { container } = render(<LiveNowRow live={COUNT} size="rail" />);
+    expect(container.querySelectorAll("hr.sv-rule")).toHaveLength(1);
+  });
+
   it("rail: the dot alone with a tooltip, and the full name on the link", () => {
     const { container } = render(<LiveNowRow live={YOURS} size="rail" />);
     const link = screen.getByRole("link", { name: "Your duel against Kestrel. Open duel" });

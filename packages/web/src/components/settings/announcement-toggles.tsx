@@ -204,7 +204,7 @@ export function AnnouncementToggles() {
           </StatusLine>
         )}
 
-        <SectionHead as="h3" title="What the bot posts" note="and where" />
+        <SectionHead as="h3" title="What the bot posts" note="and where" className={styles.postsHead} />
         <FloorList>
           {posts.map((post) => (
             <FloorRow key={post.key} className={styles.postRow}>

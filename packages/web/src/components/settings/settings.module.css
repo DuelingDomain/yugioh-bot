@@ -76,8 +76,14 @@
   font: 450 14px/1 var(--f-ui);
 }
 
-.postRow :global(.sv-row-in) {
+/* Doubled class: these must beat the sheet's own `.ms .sv-row-in` and `.ms .sv-cell-*` rules. */
+.postRow.postRow :global(.sv-row-in) {
   align-items: flex-start;
+}
+
+/* Air above the posts list, the same as the gap above the first heading in the section. */
+.postsHead {
+  margin-top: 12px;
 }
 
 .destCell {
@@ -97,16 +103,22 @@
 }
 
 @media (max-width: 620px) {
-  /* Destination drops under the post name. */
-  .postRow :global(.sv-row-in) {
+  /* Destination drops directly under the post name. Without flex: none, the grow cell's 140px
+     flex-basis would become a 140px-tall gap in a column. */
+  .postRow.postRow :global(.sv-row-in) {
     flex-direction: column;
     align-items: stretch;
     gap: 4px;
   }
 
-  .postRow :global(.sv-cell-end) {
+  .postRow.postRow :global(.sv-cell-grow) {
+    flex: none;
+  }
+
+  .postRow.postRow :global(.sv-cell-end) {
     margin-left: 0;
     text-align: left;
     justify-self: start;
+    padding-top: 0;
   }
 }

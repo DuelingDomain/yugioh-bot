@@ -48,7 +48,8 @@ export function LiveNowRow({ live, size, onNavigate }: LiveNowRowProps) {
       ) : (
         link
       )}
-      <LightRule />
+      {/* The rail's next group starts with its own divider, so the tile keeps only the top line. */}
+      {size === "rail" ? null : <LightRule />}
     </div>
   );
 }
