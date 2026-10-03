@@ -261,8 +261,8 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
   defineScenario({
     id: "no-wrapper-hero-counterattack-ffa3-bound-opponent-picks-at-random-from-your-hand",
     title: "FFA3: Hero Counterattack, after a Hero is destroyed in battle, lets the opponent that attacked pick at random from your hand",
-    source: NO_WRAPPER,
-    rules: ["R-COMMON-OPP-PICK"],
+    source: `${SOURCE} [R-FFA-OPP-RESPONSE]: Hero Counterattack binds the attacker`,
+    rules: ["R-FFA-OPP-RESPONSE"],
     tags: ["multiplayer", "no-wrapper", "trap", "ffa3", "card:19024706"],
     setup: {
       format: "ffa3",
