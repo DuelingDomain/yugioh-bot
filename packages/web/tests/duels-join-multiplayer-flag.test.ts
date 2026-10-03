@@ -171,7 +171,7 @@ describe("POST /api/duels/[slug]/seat with MULTIPLAYER_TABLES", () => {
   });
 });
 
-describe("POST /api/duels/[slug]/join with host capabilities", () => {
+describe("POST /api/duels/[slug]/seat with host capabilities", () => {
   beforeEach(() => vi.stubEnv("MULTIPLAYER_TABLES", "1"));
 
   it.each(["tag", "ffa3", "ffa4"] as const)("joins Standard and Domain %s tables when the multi core is ready", async (format) => {

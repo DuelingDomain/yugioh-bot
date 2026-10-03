@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 
-const { requireDuelActor, notifyDuelChange } = vi.hoisted(() => ({ requireDuelActor: vi.fn(), notifyDuelChange: vi.fn() }));
+const { requireDuelActor, callDuelHost, notifyDuelChange } = vi.hoisted(() => ({ requireDuelActor: vi.fn(), callDuelHost: vi.fn(), notifyDuelChange: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/duel-host", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/duel-host")>(), requireDuelActor,
+  ...await importOriginal<typeof import("@/lib/duel-host")>(), requireDuelActor, callDuelHost,
 }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange }));
 
@@ -44,6 +44,7 @@ beforeEach(() => {
   duels = createDuelService(db);
   slug = duels.create({ guildId: "g", organizerPlayerId: host, name: "Table", mode: "normal" }).slug;
   requireDuelActor.mockReset();
+  callDuelHost.mockReset().mockResolvedValue({ ok: true, data: { multiCoreReady: true } });
   notifyDuelChange.mockReset();
   notifyDuelChange.mockResolvedValue(undefined);
   actor();
