@@ -305,6 +305,22 @@ const cell = (value: string | number | null | undefined) =>
  * occurrence in the finished text is removed, whatever field it came from.
  */
 export function buildIssueBody(input: IssueBodyInput, redact: readonly string[] = []): string {
+  const sections = reportSections(input);
+  sections.push("---", `\`Report #${input.reportId}\` · sent from the in-app Report bug button`);
+  return redactText(sections.join("\n\n"), redact);
+}
+
+/**
+ * The text of a +1 comment on an issue another report opened: the same privacy-safe sections as an issue body, under a
+ * first line that names the report. No new issue is made.
+ */
+export function buildCommentBody(input: IssueBodyInput, redact: readonly string[] = []): string {
+  const sections = [`**+1** from \`Report #${input.reportId}\`: another player hit the same bug.`, ...reportSections(input)];
+  sections.push("---", `\`Report #${input.reportId}\` · sent from the in-app Report bug button`);
+  return redactText(sections.join("\n\n"), redact);
+}
+
+function reportSections(input: IssueBodyInput): string[] {
   const { context } = input;
   const seat = context.seat === undefined ? undefined : context.seat === null ? "spectator" : `seat ${context.seat + 1}`;
   const rows: Array<[string, string]> = [
@@ -337,6 +353,5 @@ export function buildIssueBody(input: IssueBodyInput, redact: readonly string[] 
   if (input.duelSlug) {
     sections.push("## Replay", `${input.baseUrl}/duels/${encodeURIComponent(input.duelSlug)}/replay (sign-in needed)`);
   }
-  sections.push("---", `\`Report #${input.reportId}\` · sent from the in-app Report bug button`);
-  return redactText(sections.join("\n\n"), redact);
+  return sections;
 }
