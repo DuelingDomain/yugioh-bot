@@ -39,7 +39,9 @@ describeWithCores("Domain core patch keeps Standard and two-seat rules", [liveNs
         setup[seat] = rest;
       }
       const steps: Step[] = base.steps.map((step) => step.op !== "expectBoard" ? step : { ...step,
-        board: Object.fromEntries(Object.entries(step.board).map(([seat, { deckMaster: _master, ...rest }]) => [seat, rest])) });
+        board: Object.fromEntries(Object.entries(step.board).map(([seat, { deckMaster: _master, ...rest }]) =>
+          // Standard MR5 skips the opening draw. Pot of Greed draws two cards.
+          [seat, seat === "p0" ? { ...rest, hand: { count: 2 }, deckCount: 18 } : rest])) });
       const scenario: Scenario = { ...base, id: `${base.id}-standard`, setup, steps };
       const bytes = readFileSync(currentDomainMultiWasm());
       const game = await createEngineGame({ ...compileBoard(setup).options, seed: ["1", "2", "3", "4"], dataDirectory: engineDataDirectory,
@@ -47,6 +49,7 @@ describeWithCores("Domain core patch keeps Standard and two-seat rules", [liveNs
       try {
         const session = new Session(scenario, game);
         session.reachMainPhase();
+        session.run(expectBoard({ p0: { hand: ["Pot of Greed"], deckCount: 20 } }), 0);
         steps.forEach((step, index) => session.run(step, index + 1));
         for (const seat of game.view(null).seats) {
           expect(captured.lib!.duelQueryCount(captured.handle!, seat.seat, 0x4000 as import("ocgcore-wasm").OcgLocation)).toBe(0);
