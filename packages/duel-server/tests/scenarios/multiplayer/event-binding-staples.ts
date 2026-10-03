@@ -66,7 +66,6 @@ function zaloog(format: Format, attacker: Seat, target: Seat, effect: "hand" | "
   ];
   const setup: Record<string, object> = { [target]: { hand: [ELF], deck: [ELF, ELF, ELF, ELF, ELF, ELF] } };
   for (const seat of SEATS[format]) if (seat !== target) setup[seat] = { ...(seat === attacker ? { monsters: [ZALOOG] } : {}), deck: [ELF, ELF, ELF, ELF, ELF, ELF] };
-  setup[attacker] = { monsters: [ZALOOG], deck: [ELF, ELF, ELF, ELF, ELF, ELF] };
   return defineScenario({
     id: `don-zaloog-${format}-${attacker}-damages-${target}-${effect}-effect-hits-only-${target}`,
     title: `${label(format)}: ${attacker} attacks ${target} directly with Don Zaloog and the ${effect === "hand" ? "random discard" : "Deck effect"} hits ${target} only (no other seat loses a card)`,
@@ -105,7 +104,7 @@ function taker(format: Format, user: Seat, target: Seat): Scenario {
   }
   spec[user] = { ...spec[user], grave: [TAKER] };
   const setup: Record<string, object> = {};
-  for (const seat of SEATS[format]) setup[seat] = seat === target ? { monsters: [ELF] } : { monsters: [ELF] };
+  for (const seat of SEATS[format]) setup[seat] = { monsters: [ELF] };
   setup[user] = { monsters: [ELF], hand: [TAKER] };
   return defineScenario({
     id: `soul-taker-${format}-${user}-destroys-monster-of-${target}-${target}-gains-1000`,
