@@ -36,7 +36,7 @@ vi.mock("./fuzz/answers.js", async (importOriginal) => {
 });
 
 describeWithCores("Domain fuzz can leave an optional chain loop", [liveNseat, ...needs.domainMulti()], () => {
-  it("Tag seed 60 leaves the fixed optional-chain loop and reaches a result", async () => {
+  it("Tag Liberator/Metaion board leaves the optional-chain loop and reaches a result", async () => {
     const bytes = readFileSync(currentDomainMultiWasm());
     const previousNow = Date.now;
     Date.now = () => Date.UTC(2026, 0, 1);
