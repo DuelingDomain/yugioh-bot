@@ -28,7 +28,7 @@ const CHAIN: DuelChainLink[] = [{ index: 1, seat: 0, code: 11 }, { index: 2, sea
  * prompt slot after it. Each slot is its own stacking context in the real table, so the chain's front layer must
  * not live in either.
  */
-function Table({ withRoot = true, table, panels = [] }: { withRoot?: boolean; table?: string; panels?: string[] }) {
+function Table({ withRoot = true, table, panels = [], cue }: { withRoot?: boolean; table?: string; panels?: string[]; cue?: string }) {
   const board = (
     <div data-board data-format={table}>
       <div data-slot="fx">
@@ -37,6 +37,7 @@ function Table({ withRoot = true, table, panels = [] }: { withRoot?: boolean; ta
       <div data-slot="prompt">
         <div data-prompt-panel>Activate its effect?</div>
         {panels.map((box) => <div key={box} data-prompt-panel data-box={box}>choices</div>)}
+        {cue ? <div data-feedback-cue data-box={cue}>My Body as a Shield is activating</div> : null}
       </div>
     </div>
   );
@@ -52,7 +53,7 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     let box = [0, 0, 0, 0];
     if (this.dataset.zones && ZONES[this.dataset.zones]) box = ZONES[this.dataset.zones];
-    else if (this.hasAttribute("data-prompt-panel")) box = (this.dataset.box ?? "0,0,0,0").split(",").map(Number);
+    else if (this.hasAttribute("data-prompt-panel") || this.hasAttribute("data-feedback-cue")) box = (this.dataset.box ?? "0,0,0,0").split(",").map(Number);
     else if (this.hasAttribute("data-duel-fx-speed-root")) box = [20, 10, 1000, 700];
     else if (this.hasAttribute("data-chain-fx") || this.hasAttribute("data-board")) box = [120, 60, 900, 600];
     const [left, top, width, height] = box;
@@ -151,6 +152,12 @@ describe("chain front layer stacking", () => {
     it("moves to the other side when the Yes/No bar sits under it, and never overlaps the bar", () => {
       // The bar, in client pixels: over the default side of the tag.
       const { getByTestId } = render(<Table table="ffa3" panels={["240,240,300,70"]} />);
+      act(() => { vi.advanceTimersByTime(60); });
+      expect(tagOf(getByTestId("root")).dataset.side).toBe("far");
+    });
+
+    it("keeps clear of the activation banner as well, so its text stays readable", () => {
+      const { getByTestId } = render(<Table table="ffa3" cue="240,240,300,70" />);
       act(() => { vi.advanceTimersByTime(60); });
       expect(tagOf(getByTestId("root")).dataset.side).toBe("far");
     });

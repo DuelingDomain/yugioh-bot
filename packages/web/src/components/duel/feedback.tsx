@@ -154,6 +154,7 @@ function FeedbackCue({
   return (
     <div
       className={styles.cue}
+      data-feedback-cue
       data-kind={event.kind}
       data-chain={event.chainIndex != null ? "true" : "false"}
       data-reduced={reducedMotion ? "true" : "false"}

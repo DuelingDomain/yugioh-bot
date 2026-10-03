@@ -320,9 +320,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       const origin = overlay.getBoundingClientRect();
       const front = frontRef.current;
       const hostRect = front && host ? host.getBoundingClientRect() : null;
-      // Open prompt panels, in board pixels: the callout tag keeps clear of them.
+      // Open prompt panels and the activation banner, in board pixels: the callout tag and the target marks keep
+      // clear of them, so their text stays readable.
       const panels: Box[] = [];
-      for (const panel of document.querySelectorAll<HTMLElement>("[data-prompt-panel]")) {
+      for (const panel of document.querySelectorAll<HTMLElement>("[data-prompt-panel], [data-feedback-cue]")) {
         const rect = panel.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) panels.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
       }
