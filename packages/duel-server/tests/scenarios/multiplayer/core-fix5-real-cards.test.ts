@@ -40,7 +40,7 @@ function proof(format:Format,domain:boolean,card:typeof LAND|typeof LOTUS):Scena
   }
   return defineScenario({id:`core-fix5-${lotus?"appointer":"burning-land"}-${format}${domain?"-domain":""}`,
     title:`${format}: ${lotus?"the player effect returns the card after its counted opponent turn":"Burning Land damages the turn player with no opponent pick"}`,
-    source:"Owner duration scope and Opus core-fix4 review HIGH-1/HIGH-2",rules:[format.startsWith("ffa")?(lotus?"R-FFA-DECLARED-DURATION":"R-FFA-OPP-RESPONSE"):"R-COMMON-ONGOING"],
+    source:"Owner duration scope and Opus core-fix4 review HIGH-1/HIGH-2",rules:format.startsWith("ffa")?[lotus?"R-FFA-DECLARED-DURATION":"R-FFA-OPP-RESPONSE"]:!lotus?["R-COMMON-ONGOING"]:format==="tag"?["R-TAG-ORDER","R-COMMON-OPP-PICK"]:["R-COMMON-OPP-PICK"],
     tags:["multiplayer",`card:${lotus?43262273:24294108}`],setup,steps});
 }
 async function run(scenario:Scenario):Promise<void> {
