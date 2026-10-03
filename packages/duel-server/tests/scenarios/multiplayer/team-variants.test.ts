@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
 import type { Scenario } from "../../support/dsl.js";
+import { expectTurn, pass } from "../../support/dsl.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
@@ -44,7 +45,14 @@ const byId = new Map(POOL.map((s) => [s.id, s]));
 const variants: Scenario[] = TEAM_ONE_IDS.map((id) => {
   const base = byId.get(id);
   if (!base) throw new Error(`Team 1 variant source scenario "${id}" does not exist`);
-  return teamOneVariant(base);
+  const variant = teamOneVariant(base);
+  if (id === "late-tag-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked") {
+    // R-TAG-ORDER / R-FFA-FIRST-DRAW: the expected p1 draw needs the start of turn 2.
+    // Foolish Revival is offered as p0 exits Main Phase 1 and in p0's End Phase.
+    // Pass both response windows before p1 acts.
+    variant.steps.splice(1, 0, pass("p1"), pass("p1"), expectTurn("p1", 2));
+  }
+  return variant;
 });
 
 describeWithCores("live Tag scenarios played by team 1", liveNseat, () => {
