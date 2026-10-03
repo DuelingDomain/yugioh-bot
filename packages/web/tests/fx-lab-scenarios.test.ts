@@ -9,7 +9,7 @@ import { ADD_TO_HAND } from "@/components/duel/duel-timing";
 
 const KINDS = new Set<DuelEvent["kind"]>([
   "summon", "set", "activate", "chain-resolving", "chain-resolved", "chain-negated", "chain-end",
-  "attack", "phase", "damage", "destroy", "move", "position", "equip",
+  "attack", "battle", "battle-end", "phase", "damage", "destroy", "move", "position", "equip",
 ]);
 
 function cardAt(board: LabBoard, ref: DuelZoneRef): DuelCard | null | undefined {
@@ -210,11 +210,17 @@ describe("fx lab scenarios", () => {
             expect(event.text.length).toBeGreaterThan(0);
             if (event.kind.startsWith("chain-") && event.kind !== "chain-end") expect(event.chainIndex ?? 0).toBeGreaterThanOrEqual(1);
             if (event.kind === "activate") expect(event.chainIndex ?? 0).toBeGreaterThanOrEqual(1);
-            if (["summon", "set", "attack", "destroy", "move", "position", "equip", "activate"].includes(event.kind)) {
+            if (["summon", "set", "attack", "battle", "destroy", "move", "position", "equip", "activate"].includes(event.kind)) {
               expect(event.zone, `${scenario.id} ${event.kind} needs a zone`).toBeDefined();
             }
             if (event.kind === "move") expect(event.from).toBeDefined();
             if (event.kind === "damage") expect(event.amount ?? 0).toBeGreaterThan(0);
+            if (event.kind === "battle") {
+              expect(event.battle?.attacker).toEqual(expect.objectContaining({
+                attack: expect.any(Number), defense: expect.any(Number), position: expect.any(Number),
+              }));
+              expect(event.battle?.target != null).toBe(event.target != null);
+            }
             if (event.kind === "destroy" && event.zone) {
               const card = cardAt(before, event.zone) ?? cardAt(applyEdits(before, step.edits ?? []), event.zone);
               expect(card ?? null, `${scenario.id} destroy of an empty zone`).not.toBeNull();
