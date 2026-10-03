@@ -30,3 +30,5 @@ export { createDuelSeriesService, SERIES_SIDE_WINDOW_MS } from "./duel-series.js
 export type { DuelSeriesService, CreateChallengeInput, SeriesGameStart } from "./duel-series.js";
 export { createTournamentDuelService, TournamentDuelError } from "./tournament-duels.js";
 export type { TournamentDuelService, TournamentDuelRules, TournamentDeckRegistration } from "./tournament-duels.js";
+export { createBugReportService, BugReportServiceError, BUG_REPORT_LIMIT } from "./bug-reports.js";
+export type { BugReportService, BugReport, BugReportInput, BugReportLimit } from "./bug-reports.js";
