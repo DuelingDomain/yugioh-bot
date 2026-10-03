@@ -256,6 +256,42 @@ for (const mode of ["normal", "domain"] as const) {
       expect(states(replayed.spectator)).toEqual(states(final));
     }, 60_000);
 
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s open-chain own-turn surrender lands before earlier queued losses", async (format) => {
+      const t = await table(mode, format, true);
+      await reachMain(t);
+      const earlier = format === "ffa3" ? [1] : [3, 1];
+      for (const seat of earlier) await t.post("surrender", seat);
+      const start = await t.view();
+      const activate = start.prompt!.options.find((option) => option.card?.code === 55144522 && option.id.startsWith("activate:"));
+      expect(activate).toBeDefined();
+      await t.answer(0, { choice: activate!.id });
+      for (let step = 0; step < 5 && !(await t.view()).chain?.length; step++) await passPrompt(t);
+      const before = await t.view(2);
+      expect(before.chain).toHaveLength(1);
+      expect(before.prompt).not.toBeNull();
+      await t.post("surrender", 0);
+      const pending = await t.view(2);
+      expect(pending.prompt?.id).toBe(before.prompt?.id);
+      expect(pending.eliminationOrder).toEqual([]);
+      expect(states(pending)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 2 ? "in" : "pending"));
+      expect(t.source().commands.filter((command) => command.promptId.startsWith("eliminate")).map((command) => command.promptId))
+        .toEqual([...earlier.map(() => "eliminate-eot:0"), "eliminate:0"]);
+      await t.recover();
+      expect(await t.view(2)).toEqual(pending);
+      for (let step = 0; step < 30 && !(await t.view(2)).result; step++) await passPrompt(t);
+      const final = await t.view(2);
+      expect(final.result?.winnerSeat).toBe(2);
+      expect(final.eliminationOrder).toEqual([0, ...earlier].map((seat) => [seat]));
+      expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 2 ? "in" : "out"));
+      // The flagged owner's Pot of Greed link must still resolve with no effect.
+      expect(final.log.some((line) => line.text.includes("drew 2"))).toBe(false);
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      // The raw engine also returns winnerTeam for FFA; the host saves winnerSeat.
+      expect(replayed.seats[2]).toMatchObject(final);
+      await t.recover();
+      expect(await t.view(2)).toEqual(final);
+    }, 60_000);
+
     it.each([0, 3])("R-COMMON-SURRENDER-EOT: Tag seat %s ends an open chain at once", async (leaver) => {
       const t = await table(mode, "tag", true);
       await reachMain(t);
