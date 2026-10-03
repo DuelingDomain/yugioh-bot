@@ -283,7 +283,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
       attack("Summoned Skull", "Elemental HERO Avian", "p1"),
       activate("Hero Counterattack", "p0"),
       // R-FFA-OPP-RESPONSE: the attacker is the bound opponent. No opponent pick is needed.
-      // The Hero is Special Summoned. Only the attacker's monsters can be destroyed.
+      // The host selects the attacker's only monster, then Special Summons the chosen HERO.
       expectBoard({
         p0: { monsters: ["Elemental HERO Sparkman"], hand: ["Elemental HERO Sparkman"], grave: ["Elemental HERO Avian", "Hero Counterattack"] },
         p1: { monsters: { count: 0 }, grave: ["Summoned Skull"] },
