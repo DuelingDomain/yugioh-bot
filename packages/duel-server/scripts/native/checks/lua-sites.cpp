@@ -402,7 +402,8 @@ static void mode_abs() {
 	abs_case("n3-seat2", 3, 2, 1, 0);
 	abs_case("n4-seat3", 4, 3, 1, 0);
 	abs_case("n3-seat0", 3, 0, 1, 0);
-	// R-COMMON-ONGOING: a continuous opponent range includes every opponent.
+	// Core limit (no card text): outside a card scope, a literal non-owner seat folds to the owner view.
+	// The 1 side then covers every living opponent. R-COMMON-ONGOING applies to that range.
 	abs_case("n3-owner0-seat2", 3, 2, 0, 1, 0, {}, {1, 2});
 	abs_case("n4-owner0-seat3", 4, 3, 0, 1, 0, {}, {1, 2, 3});
 	abs_case("tag-seat3", 4, 3, 0, 1, 3, {0, 1, 0, 1}, {1, 3});
