@@ -255,7 +255,7 @@
         "desop"
       ],
       "stockSha256": "b8df5407add8ab402b6b87d9eda2313afb1bb99fd05540d0dcbf25765224e660",
-      "note": "Script fix (R1 each opponent, R-COMMON-EACH-PLAYER, lead decision 2026-10-01): the flip effect registers an End Phase effect (Duel.RegisterEffect) that destroys the Defense Position monsters of the opponents and the stock operation lets ONE opponent (Duel.Damage(1-tp,ct*500)) take the damage for all of them. The operation groups the monsters by real controller seat (aux.MPForEachController): each opponent takes 500 for each of its OWN monsters destroyed. In Tag the opposing members share one LP pool, so the sum is the stock value. The flip effect is stock. Not part of R1 or R2 (a script fix, as Book of Eclipse)."
+      "note": "Script fix (R-FFA-OPP-ONE, owner decision 2026-10-02): Prediction Princess Astromorrigan declares one opponent when its Flip effect activates in FFA. The delayed effect stores that seat, destroys only its Defense Position monsters and damages it by 500 for each destroyed monster. It does nothing if that seat is eliminated. Tag keeps destruction per opposing controller and the shared LP total. Requires C3."
     },
     {
       "code": 5043010,
