@@ -15,12 +15,13 @@ const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const patches = readdirSync(join(coreRoot, "patches")).filter((name) => /^\d{4}-.*\.patch$/.test(name)).sort();
 const seriesHash = hash(Buffer.concat(patches.map((name) => readFileSync(join(coreRoot, "patches", name)))));
 const domainLayer = hash(readFileSync(join(coreRoot, "src/apply-domain-multi.mjs")));
-const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+const deployedBy = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 
 // Validate both before copying either. Cache restores must include build metadata.
 const cores = ["multi", "multi-domain"].map((mode) => {
   const stem = `ocgcore.${mode}`;
   const info = JSON.parse(readFileSync(join(coreRoot, "dist", `${stem}-build-info.json`), "utf8"));
+  assert.match(info.builderCommit ?? "", /^[0-9a-f]{40}$/, `${stem} builderCommit is missing or invalid`);
   assert.equal(info.ygoproCore, pins.ygoproCore.commit);
   assert.equal(info.ocgcoreWasm, pins.ocgcoreWasm.ref);
   assert.equal(info.lua, pins.lua.commit);
@@ -39,8 +40,9 @@ for (const { stem, path, sha, info } of cores) {
   copyFileSync(path, join(bundle, `${stem}.wasm`));
   writeFileSync(join(bundle, `${stem}.sha256`), `${sha}  ${stem}.wasm\n`);
   writeFileSync(join(bundle, `${stem}.SOURCE`), [
-    `tag=deploy-${commit.slice(0, 12)}`,
-    `commit=${commit}`,
+    `tag=deploy-${deployedBy.slice(0, 12)}`,
+    `builtBy=${info.builderCommit}`,
+    `deployedBy=${deployedBy}`,
     `sha256=${sha}`,
     `patches=${patches.length}`,
     `seriesSha256=${seriesHash}`,
@@ -52,5 +54,5 @@ for (const { stem, path, sha, info } of cores) {
     "note=production build; full patch series; no LUA_FIXED_SEED",
     "",
   ].join("\n"));
-  console.log(`${stem}.wasm sha256 ${sha} (${patches.length} patches, commit ${commit})`);
+  console.log(`${stem}.wasm sha256 ${sha} (${patches.length} patches, builtBy=${info.builderCommit} deployedBy=${deployedBy})`);
 }
