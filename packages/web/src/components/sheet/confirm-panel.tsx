@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -14,6 +14,7 @@ export function ConfirmPanel({
   cancelLabel = "Cancel",
   onConfirm,
   onCancel,
+  returnFocusRef,
   busy = false,
   className,
 }: {
@@ -23,14 +24,21 @@ export function ConfirmPanel({
   cancelLabel?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Focus target on close; use the trigger's ref when the panel replaces it. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
   busy?: boolean;
   className?: string;
 }) {
   const headingId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     cancelRef.current?.focus();
-  }, []);
+    return () => {
+      const target = returnFocusRef?.current ?? previousFocus;
+      if (target?.isConnected) target.focus({ preventScroll: true });
+    };
+  }, [returnFocusRef]);
   return (
     <div className={cn("cfm", className)} role="dialog" aria-modal="false" aria-labelledby={headingId}>
       <h4 id={headingId}>{title}</h4>

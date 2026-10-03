@@ -14,9 +14,9 @@ Run the app as a Docker Compose service on an always-on VM. Do not use serverles
 
 1. Create a CAX11 server (Ubuntu 24.04, ARM64)
 2. Add your SSH key in the Hetzner Cloud Console
-3. Allow TCP ports 22, 80, 443 in the firewall (do not expose 4003)
+3. Apply the [runbook's cloud firewall rules](vm-runbook.md#create-the-server)
 4. Install Docker: `curl -fsSL https://get.docker.com | sh`
-5. Clone the repo, create `.env` from `.env.example` (include `DUEL_INTERNAL_SECRET`)
+5. Clone the repo and create `.env` per the [runbook's production environment setup](vm-runbook.md#create-env) (include `DUEL_INTERNAL_SECRET`)
 6. First start: push to `main` (or `workflow_dispatch`) so Actions installs `data/duel-engine`. The ARM host does not compile Domain wasm.
 
 See `docs/deployment/vm-runbook.md` for the full guide.
@@ -35,14 +35,7 @@ Or push to `main` and let GitHub Actions deploy automatically.
 
 ## Backups
 
-```bash
-./scripts/backup-sqlite.sh
-```
-
-Optional daily cron:
-```cron
-0 3 * * * cd /opt/yugioh-bot && ./scripts/backup-sqlite.sh >> backup.log 2>&1
-```
+See the [runbook's Backups section](vm-runbook.md#backups) for automatic backups and restore instructions.
 
 ## Avoid
 

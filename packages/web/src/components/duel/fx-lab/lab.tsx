@@ -24,7 +24,7 @@ import fx from "./fx-lab.module.css";
 import { applyEdits, numberSteps, scriptDurationMs, type LabBoard, type LabScenario, type LabScript } from "./board";
 import { LAB_CATEGORIES, LAB_SCENARIOS, findScenario, scenariosIn } from "./scenarios";
 import { installTimeShim, type TimeShim } from "./time-shim";
-import { labSeriesRoom, SeriesLabHeader, SeriesLabScreen } from "./series-view";
+import { labSeriesRoom, OpeningLabScreen, SeriesLabHeader, SeriesLabScreen } from "./series-view";
 
 /**
  * The FX lab: the real duel board and effect layers, fed by a scripted engine instead of a server.
@@ -68,6 +68,7 @@ function engineOf(live: Live): DuelEngineView {
     revision: live.revision,
     turn: 3,
     turnSeat: live.board.turnSeat,
+    prioritySeat: live.board.prioritySeat,
     phase: live.board.phase,
     battleStep: null,
     seats: live.board.seats,
@@ -212,7 +213,7 @@ export function FxLab() {
       nextId.current = base + numbered.reduce((sum, entry) => sum + entry.events.length, 0) + 10;
       boardRef.current = built.initial;
       // Fresh layers: a new key remounts the field and every effect with an empty event list.
-      setLive((prev) => ({ runKey: prev.runKey + 1, board: built.initial, chain: [], events: [], revision: prev.revision + 1 }));
+      setLive((prev) => ({ runKey: prev.runKey + 1, board: built.initial, chain: built.initial.chain, events: [], revision: prev.revision + 1 }));
 
       const { speed: rate, reduced: reducedNow } = optionsRef.current;
       const started = () => run === token.current;
@@ -281,7 +282,8 @@ export function FxLab() {
     const found = id ? findScenario(id) : undefined;
     if (found) {
       setSelectedId(found.id);
-      setLive((prev) => ({ ...prev, runKey: prev.runKey + 1, board: found.build().initial }));
+      const initial = found.build().initial;
+      setLive((prev) => ({ ...prev, runKey: prev.runKey + 1, board: initial, chain: initial.chain }));
     }
   }, []);
 
@@ -293,10 +295,14 @@ export function FxLab() {
     shimRef.current?.setFactor(1);
     setStatus("idle");
     setResult(null);
-    setLive((prev) => ({ runKey: prev.runKey + 1, board: script.initial, chain: [], events: [], revision: prev.revision + 1 }));
+    setLive((prev) => ({ runKey: prev.runKey + 1, board: script.initial, chain: script.initial.chain, events: [], revision: prev.revision + 1 }));
   };
 
   const engine = engineOf(live);
+  engine.prompt = script.prompt?.prompt ?? null;
+  engine.result = result;
+  // Between games and opening RPS are not live engine decisions.
+  if (script.opening || script.series?.screen) engine.turn = 0;
   const duelKey = `lab-${live.runKey}`;
   const stageHeight = "clamp(560px, calc(100dvh - 250px), 900px)";
   const battle = isBattlePhase(live.board.phase);
@@ -439,6 +445,9 @@ export function FxLab() {
       ) : null}
       {seriesRoom && script.series && status !== "idle" ? (
         <SeriesLabScreen key={`${scenario.id}-${live.runKey}`} room={seriesRoom} spec={script.series} reduced={reduced} sound={sound} />
+      ) : null}
+      {script.opening && status !== "idle" ? (
+        <OpeningLabScreen key={`${scenario.id}-${live.runKey}`} spec={script.opening} />
       ) : null}
       {result ? (
         <DuelResultScreen

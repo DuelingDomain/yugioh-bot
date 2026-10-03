@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useRef, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,9 @@ import { EquipChip, EquipLinksContext, useEquipRole } from "./equip-chip";
 import { EquipFx } from "./equip-fx";
 import { equipSentence, resolveEquipLinks } from "./equip-links";
 import { duelFontClasses } from "./fonts";
+import { deriveFieldActivity } from "./field-activity";
+import { useFieldPriorityReady } from "./field-priority";
+import { useFieldTurnSeat } from "./field-turn";
 import { LifePoints } from "./life-points";
 import { zoneMarkLook } from "./pick-glow";
 import { pileSummonTone } from "./summon-circle-model";
@@ -467,6 +470,8 @@ function Tally({
   lp,
   seatKey,
   active,
+  priorityLabel,
+  spectator,
   reducedMotion,
 }: {
   side: "opp" | "you";
@@ -474,18 +479,28 @@ function Tally({
   lp: number | null;
   seatKey: number | undefined;
   active: boolean;
+  priorityLabel: string | null;
+  spectator: boolean;
   reducedMotion: boolean;
 }) {
+  const priority = priorityLabel ? (
+    <span className={styles.tPriority} title={priorityLabel}>
+      <span className={styles.visuallyHidden}>{priorityLabel}</span>
+      <span className={styles.tPriorityFull} data-priority-full aria-hidden="true">{spectator ? "to act" : priorityLabel}</span>
+      <span className={styles.tPriorityShort} aria-hidden="true">To act</span>
+    </span>
+  ) : null;
   return (
     <div className={styles.tally} data-side={side} data-lp-seat={seatKey} data-active={active ? "true" : "false"}>
       <div className={styles.tHead}>
-        <span className={styles.tWho}>{name}</span>
+        <span className={styles.tIdentity}>
+          <span className={styles.tWho} aria-hidden={spectator && priorityLabel ? true : undefined}>{name}</span>
+          {spectator ? priority : null}
+        </span>
         {active ? (
-          <span className={styles.tTurn}>
-            <NibIcon />
-            to play
-          </span>
+          <span className={styles.tTurn}>Turn</span>
         ) : null}
+        {!spectator ? priority : null}
       </div>
       <div className={styles.tLp}>
         <strong>
@@ -769,6 +784,26 @@ function PileColumn({
   );
 }
 
+/** Outline follows the zone grid, including the third-row Banished pile on each side. */
+function HalfSignals({ side, masterRule }: { side: "top" | "bottom"; masterRule: DuelMasterRule }) {
+  // Grid units match --wk, --pile-col, --z and --gy in field.module.css; SVG scales with the fit.
+  const width = masterRule === 3 ? 8.344 : 6.822;
+  const pile = masterRule === 3 ? 1.447 : 0.686;
+  const turnPath = side === "top"
+    ? `M0 0 H${width} V2.04 H${pile} V3.08 H0 Z`
+    : `M0 5.16 H${width} V2.08 H${width - pile} V3.12 H0 Z`;
+  const priorityPath = side === "top"
+    ? `M0 0 V3.08 H${pile} V2.04 M${width} 0 V2.04`
+    : `M0 3.12 V5.16 M${width} 5.16 V2.08 H${width - pile} V3.12`;
+  return (
+    <svg className={styles.halfSignals} data-field-signals data-side={side} aria-hidden="true"
+      viewBox={`0 0 ${width} 5.16`} preserveAspectRatio="none">
+      <path className={styles.turnEdge} d={turnPath} vectorEffect="non-scaling-stroke" />
+      <path className={styles.priorityEdge} d={priorityPath} vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
 /**
  * The duel board, restyled as a ruled match sheet.
  *
@@ -788,6 +823,7 @@ export function DuelField({
   onHoverCard,
   bottomName,
   topName,
+  priorityLive,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -800,6 +836,8 @@ export function DuelField({
   onHoverCard?: DuelHoverHandler;
   bottomName: string;
   topName: string;
+  /** Room action/reveal gate. Local priority follows this directly; previews can omit it. */
+  priorityLive?: boolean;
 }) {
   const bottomIndex = mySeat ?? 0;
   const topIndex = bottomIndex === 0 ? 1 : 0;
@@ -809,6 +847,22 @@ export function DuelField({
   const topLabel = mySeat == null ? topName : "Opponent";
   const bottomLabel = mySeat == null ? bottomName : "Your";
   const battle = isBattlePhase(engine.phase);
+  const boardRef = useRef<HTMLElement | null>(null);
+  const pending = deriveFieldActivity(engine);
+  // The room owns local reveal. The parent also contains sibling board effects, which gate
+  // private opponent prompts and standalone previews.
+  const priorityReady = useFieldPriorityReady({
+    events: engine.events,
+    waiting: pending.prioritySeat != null,
+    revealed: priorityLive === true && pending.prioritySeat === mySeat,
+    board: boardRef,
+    reducedMotion,
+  });
+  const priorityShown = priorityLive !== false && priorityReady;
+  const turnSeat = useFieldTurnSeat(engine, pending.turnSeat);
+  const activity = { ...deriveFieldActivity(engine, !priorityShown), turnSeat };
+  const priorityLabel = (seat: number, name: string) => activity.prioritySeat !== seat ? null
+    : mySeat == null ? `${name} to act` : mySeat === seat ? "Your move" : "Opponent to act";
 
   const leftEmz = extraMonster(bottom, top, "left");
   const rightEmz = extraMonster(bottom, top, "right");
@@ -821,6 +875,7 @@ export function DuelField({
     <EquipLinksContext.Provider value={equipLinks}>
     <div
       className={cn(duelFontClasses, styles.felt)}
+      ref={(node) => { boardRef.current = node?.parentElement ?? null; }}
       data-duel-field="true"
       data-battle={battle ? "true" : "false"}
       data-reduced-motion={reducedMotion ? "true" : "false"}
@@ -835,7 +890,9 @@ export function DuelField({
             name={topName}
             lp={top?.lp ?? null}
             seatKey={top?.seat}
-            active={top != null && engine.turnSeat === top.seat}
+            active={activity.turnSeat === topIndex}
+            priorityLabel={priorityLabel(topIndex, topName)}
+            spectator={mySeat == null}
             reducedMotion={reducedMotion}
           />
           {top ? (
@@ -854,7 +911,10 @@ export function DuelField({
           )}
         </div>
         <div className={styles.arena}>
-          <div className={styles.half}>
+          <div className={styles.half} data-field-seat={topIndex} data-side="top"
+            data-turn={activity.turnSeat === topIndex ? "true" : "false"}
+            data-priority={activity.prioritySeat === topIndex ? "true" : "false"}>
+            <HalfSignals side="top" masterRule={masterRule} />
             <PileColumn view={top} opponent side="left" callbacks={callbacks} ownerLabel={topLabel} masterRule={masterRule} />
             <div className={styles.rows}>
               <SpellRow view={top} reversed callbacks={callbacks} masterRule={masterRule} />
@@ -895,7 +955,10 @@ export function DuelField({
               </div>
             ) : <div />}
           </div>
-          <div className={`${styles.half} ${styles.halfLocal}`}>
+          <div className={`${styles.half} ${styles.halfLocal}`} data-field-seat={bottomIndex} data-side="bottom"
+            data-turn={activity.turnSeat === bottomIndex ? "true" : "false"}
+            data-priority={activity.prioritySeat === bottomIndex ? "true" : "false"}>
+            <HalfSignals side="bottom" masterRule={masterRule} />
             <PileColumn view={bottom} opponent={false} side="left" callbacks={callbacks} ownerLabel={bottomLabel} masterRule={masterRule} />
             <div className={styles.rows}>
               <MonsterRow view={bottom} reversed={false} callbacks={callbacks} />
@@ -910,7 +973,9 @@ export function DuelField({
             name={bottomName}
             lp={bottom?.lp ?? null}
             seatKey={bottom?.seat}
-            active={bottom != null && engine.turnSeat === bottom.seat}
+            active={activity.turnSeat === bottomIndex}
+            priorityLabel={priorityLabel(bottomIndex, bottomName)}
+            spectator={mySeat == null}
             reducedMotion={reducedMotion}
           />
           {bottom ? (

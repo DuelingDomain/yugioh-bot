@@ -12,6 +12,7 @@ import {
   observeMoveEvents,
   projectStoredEvent,
   projectView,
+  resetEventBatch,
   type StoredChainLink,
 } from "../src/views.js";
 
@@ -350,25 +351,89 @@ describe("position events", () => {
 
 describe("summon kinds", () => {
   const at = (controller: 0 | 1, location: OcgLocation, sequence: number, position: OcgPosition = OcgPosition.FACEUP_ATTACK) => ({ controller, location, sequence, position });
-  const move = (code: number, from: ReturnType<typeof at>, to: ReturnType<typeof at>): OcgMessage => ({ type: OcgMessageType.MOVE, card: code, from, to });
+  const move = (code: number, from: ReturnType<typeof at>, to: ReturnType<typeof at>, reason = 0) => ({ type: OcgMessageType.MOVE as typeof OcgMessageType.MOVE, card: code, from, to, reason });
   const spsummon = (code: number, sequence = 0): OcgMessage => ({ type: OcgMessageType.SPSUMMONING, code, controller: 0, location: OcgLocation.MZONE, sequence, position: OcgPosition.FACEUP_ATTACK });
   const chain: StoredChainLink[] = [];
 
-  function summonAfter(from: ReturnType<typeof at>, code: number, ctx = createEventContext()) {
+  function summonAfter(from: ReturnType<typeof at>, code: number, ctx = createEventContext(), materialReason = 0) {
+    if (materialReason) {
+      observeMoveEvents(move(GIANT_RAT, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.GRAVE, 0), materialReason), cards, ctx, 0);
+    }
     const target = at(0, OcgLocation.MZONE, 0);
     observeMoveEvents(move(code, from, target), cards, ctx, 1);
     observeDuelEvent(move(code, from, target), cards, chain, 1, ctx);
     return observeDuelEvent(spsummon(code), cards, chain, 2, ctx)!;
   }
 
-  it("names Extra Deck summons by the monster's type and Ritual Summons from the hand", () => {
-    expect(summonAfter(at(0, OcgLocation.EXTRA, 0, OcgPosition.FACEDOWN_DEFENSE), FLAME_SWORDSMAN).summonKind).toBe("fusion");
-    expect(summonAfter(at(0, OcgLocation.HAND, 2, OcgPosition.FACEDOWN), PALADIN).summonKind).toBe("ritual");
-    expect(summonAfter(at(0, 0x4000 as OcgLocation, 0), FLAME_SWORDSMAN).summonKind).toBe("fusion");
-    expect(summonAfter(at(0, 0x4000 as OcgLocation, 0), PALADIN).summonKind).toBe("ritual");
-    // The Domain core's MOVE reports the Deck Master Zone as location 0.
-    expect(summonAfter(at(0, 0 as OcgLocation, 0), FLAME_SWORDSMAN).summonKind).toBe("fusion");
-    expect(summonAfter(at(0, 0 as OcgLocation, 0), PALADIN).summonKind).toBe("ritual");
+  it("names Fusion and Ritual Summons only after matching material moves", () => {
+    const fusionMaterial = 0x8 | 0x40000;
+    const ritualMaterial = 0x8 | 0x100000;
+    expect(summonAfter(at(0, OcgLocation.EXTRA, 0, OcgPosition.FACEDOWN_DEFENSE), FLAME_SWORDSMAN, undefined, fusionMaterial).summonKind).toBe("fusion");
+    expect(summonAfter(at(0, OcgLocation.HAND, 2, OcgPosition.FACEDOWN), PALADIN, undefined, ritualMaterial).summonKind).toBe("ritual");
+    // The Domain core's MOVE can report the Deck Master Zone as location 0.
+    for (const location of [0x4000, 0]) {
+      expect(summonAfter(at(0, location as OcgLocation, 0), FLAME_SWORDSMAN, undefined, fusionMaterial).summonKind).toBe("fusion");
+      expect(summonAfter(at(0, location as OcgLocation, 0), PALADIN, undefined, ritualMaterial).summonKind).toBe("ritual");
+    }
+  });
+
+  it("keeps effect summons of Fusion and Ritual monsters without materials plain", () => {
+    for (const location of [OcgLocation.EXTRA, 0x4000, 0]) {
+      expect(summonAfter(at(0, location as OcgLocation, 0), FLAME_SWORDSMAN).summonKind).toBe("special");
+    }
+    for (const location of [OcgLocation.HAND, 0x4000, 0]) {
+      expect(summonAfter(at(0, location as OcgLocation, 0), PALADIN).summonKind).toBe("special");
+    }
+  });
+
+  it("requires both material and matching method reason bits", () => {
+    for (const reason of [0x8, 0x40000, 0x8 | 0x80000, 0x8 | 0x4000000]) {
+      expect(summonAfter(at(0, OcgLocation.EXTRA, 0), FLAME_SWORDSMAN, undefined, reason).summonKind).toBe("special");
+    }
+    expect(summonAfter(at(0, OcgLocation.HAND, 0), PALADIN, undefined, 0x8 | 0x40000).summonKind).toBe("special");
+  });
+
+  it.each([
+    { kind: "fusion", code: FLAME_SWORDSMAN, origin: OcgLocation.EXTRA, reason: 0x8 | 0x40000 },
+    { kind: "ritual", code: PALADIN, origin: OcgLocation.HAND, reason: 0x8 | 0x100000 },
+  ])("retains $kind material reasons for every monster until SPSUMMONED", ({ kind, code, origin, reason }) => {
+    const ctx = createEventContext();
+    observeMoveEvents(move(GIANT_RAT, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.GRAVE, 0), reason), cards, ctx, 1);
+    for (const sequence of [0, 1]) {
+      const arrival = move(code, at(0, origin, 0), at(0, OcgLocation.MZONE, sequence));
+      observeMoveEvents(arrival, cards, ctx, 2 + sequence * 2);
+      expect(observeDuelEvent(spsummon(code, sequence), cards, chain, 3 + sequence * 2, ctx)!.summonKind).toBe(kind);
+    }
+    observeDuelEvent({ type: OcgMessageType.SPSUMMONED }, cards, chain, 7, ctx);
+    // A separate effect summon in the same batch has no new materials.
+    expect(summonAfter(at(0, OcgLocation.EXTRA, 0), FLAME_SWORDSMAN, ctx).summonKind).toBe("special");
+  });
+
+  it("consumes material reasons when a summon completes so a later effect summon stays plain", () => {
+    for (const type of [OcgMessageType.SPSUMMONING, OcgMessageType.SUMMONING, OcgMessageType.FLIPSUMMONING]) {
+      const ctx = createEventContext();
+      observeMoveEvents(move(GIANT_RAT, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.GRAVE, 0), 0x8 | 0x40000), cards, ctx, 1);
+      observeDuelEvent({ ...spsummon(GIANT_RAT), type } as OcgMessage, cards, chain, 2, ctx);
+      if (type === OcgMessageType.SPSUMMONING) observeDuelEvent({ type: OcgMessageType.SPSUMMONED }, cards, chain, 3, ctx);
+      expect(summonAfter(at(0, OcgLocation.EXTRA, 0), FLAME_SWORDSMAN, ctx).summonKind).toBe("special");
+    }
+  });
+
+  it("clears unused material reasons at batch, chain, turn and phase boundaries", () => {
+    const boundaries: Array<OcgMessage | null> = [
+      null,
+      { type: OcgMessageType.CHAIN_SOLVED, chain_size: 1 },
+      { type: OcgMessageType.CHAIN_END },
+      { type: OcgMessageType.NEW_TURN, player: 0 },
+      { type: OcgMessageType.NEW_PHASE, phase: OcgPhase.MAIN1 },
+    ];
+    for (const boundary of boundaries) {
+      const ctx = createEventContext();
+      observeMoveEvents(move(GIANT_RAT, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.GRAVE, 0), 0x8 | 0x40000), cards, ctx, 1);
+      if (boundary) observeDuelEvent(boundary, cards, chain, 2, ctx);
+      else resetEventBatch(ctx);
+      expect(summonAfter(at(0, OcgLocation.EXTRA, 0), FLAME_SWORDSMAN, ctx).summonKind).toBe("special");
+    }
   });
 
   it("keeps revivals and other Special Summons plain", () => {
@@ -385,7 +450,7 @@ describe("summon kinds", () => {
     expect(summonAfter(at(0, OcgLocation.EXTRA, 0, OcgPosition.FACEUP), FLAME_SWORDSMAN, ctx).summonKind).toBe("pendulum");
     observeDuelEvent({ type: OcgMessageType.SPSUMMONED }, cards, chain, 9, ctx);
     expect(ctx.pendulumSummon).toBe(false);
-    expect(summonAfter(at(0, OcgLocation.EXTRA, 0, OcgPosition.FACEUP), FLAME_SWORDSMAN, ctx).summonKind).toBe("fusion");
+    expect(summonAfter(at(0, OcgLocation.EXTRA, 0, OcgPosition.FACEUP), FLAME_SWORDSMAN, ctx).summonKind).toBe("special");
   });
 
   it("recognises a Pendulum Summon from the Pendulum Zone card's summon action", () => {

@@ -2,11 +2,15 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import type { DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
-import { cancelSeries, readySeries } from "./api";
+import { cancelSeries, chooseSeriesFirst, readySeries } from "./api";
 import { SheetButton } from "./sheet-ui";
 import resultStyles from "./duel-result.module.css";
 import styles from "./series.module.css";
-import { canCancelInterrupted, formatCountdown, opponentSideStatus, seriesPlayerIndex, secondsUntil } from "./series-model";
+import {
+  canCancelInterrupted, formatCountdown, opponentFirstStatus, opponentSideStatus, seriesPlayerIndex, secondsUntil,
+  spectatorSeriesStatus, viewerChoosesFirst,
+  type SeriesReadyRow,
+} from "./series-model";
 
 /** Whole seconds left until `iso`, ticking twice a second; null when there is no deadline. */
 export function useSecondsUntil(iso: string | null): number | null {
@@ -28,6 +32,56 @@ export function OpponentSideChip({ series, index }: { series: DuelSeriesSummary;
     <p className={styles.opp} data-ready={status.ready ? "true" : "false"} role="status" data-testid="opponent-side-status">
       <i aria-hidden />{status.text}
     </p>
+  );
+}
+
+/** Both players and their Ready state, for a spectator between games. */
+export function SeriesReadyRows({ players }: { players: SeriesReadyRow[] }) {
+  return (
+    <ul className={styles.readyRows} aria-label="Players">
+      {players.map((player, index) => (
+        <li key={index} className={styles.readyRow} data-ready={player.ready ? "true" : "false"} data-testid="series-ready-row">
+          <span className={styles.readyName}>{player.name}</span>
+          <span className={styles.readyState}><i aria-hidden />{player.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** "Opponent is choosing to go first or second…" and then what they chose. Null when nobody chooses. */
+export function OpponentFirstChip({ series, index }: { series: DuelSeriesSummary; index: 0 | 1 | null }) {
+  const status = opponentFirstStatus(series, index);
+  if (!status) return null;
+  return (
+    <p className={styles.opp} data-ready={status.done ? "true" : "false"} role="status" data-testid="opponent-first-status">
+      <i aria-hidden />{status.text}
+    </p>
+  );
+}
+
+/** The loser's Go first / Go second choice. The default, Go first, is what happens when the timer ends. */
+export function FirstChoiceGroup({ series, busy, onChoose }: {
+  series: DuelSeriesSummary;
+  busy: boolean;
+  onChoose: (choice: "first" | "second") => void;
+}) {
+  const myChoice = series.firstChoice ?? "first";
+  return (
+    <div className={styles.first} role="group" aria-label="Who goes first in the next game" data-testid="first-choice">
+      <p className={styles.firstHead}>You lost, so you choose</p>
+      <div className={styles.firstRow}>
+        {(["first", "second"] as const).map((choice) => (
+          <button key={choice} type="button" className={styles.firstBtn} aria-pressed={myChoice === choice}
+            data-testid={`first-choice-${choice}`} disabled={busy} onClick={() => onChoose(choice)}>
+            Go {choice}
+          </button>
+        ))}
+      </div>
+      <p className={styles.firstNote}>
+        {series.firstChoice == null ? "Go first is chosen when the timer ends." : `You will go ${series.firstChoice}.`}
+      </p>
+    </div>
   );
 }
 
@@ -54,10 +108,10 @@ function Action({ tone, kind, disabled, loading, onClick, children }: {
 }
 
 /**
- * The between-games controls: countdown, Ready, the side deck button and (for an interrupted casual
- * series) Cancel series. Shown while the series waits between games on this duel.
+ * The between-games controls for a spectator or a strip: countdown, Ready and (for an interrupted
+ * casual series) Cancel series. The players side their decks on the Between games screen instead.
  */
-export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, onOpenSide, beforeReady }: {
+export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate }: {
   room: DuelRoom;
   slug: string;
   tone: "result" | "sheet";
@@ -65,10 +119,6 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   onChanged: () => void;
   /** Go to the next game's room. */
   onNavigate: (slug: string) => void;
-  /** Open the side deck panel; only offered to a player with a side deck. */
-  onOpenSide?: () => void;
-  /** Runs before Ready, e.g. to save pending side deck swaps. */
-  beforeReady?: () => Promise<void>;
 }) {
   const series = room.series;
   const seconds = useSecondsUntil(series?.nextGameAt ?? null);
@@ -80,8 +130,9 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   const index = seriesPlayerIndex(room, series);
   const imReady = index != null && series.sideReady[index];
   const theirReady = index != null && series.sideReady[index === 0 ? 1 : 0];
-  const canSide = index != null && series.hasSide[index] && onOpenSide != null;
   const interrupted = series.nextGameAt == null;
+  const choosing = viewerChoosesFirst(series, index);
+  const canSide = index != null && series.hasSide[index];
 
   async function run(work: () => Promise<void>) {
     if (busy) return;
@@ -98,8 +149,13 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
   }
 
   const ready = () => run(async () => {
-    await beforeReady?.();
     const result = await readySeries(slug);
+    if (result.nextSlug) onNavigate(result.nextSlug);
+    else onChanged();
+  });
+  const choose = (choice: "first" | "second") => run(async () => {
+    if (choice === series.firstChoice) return;
+    const result = await chooseSeriesFirst(slug, choice);
     if (result.nextSlug) onNavigate(result.nextSlug);
     else onChanged();
   });
@@ -109,24 +165,37 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate, on
     onChanged();
   });
 
-  const status = index == null ? "Waiting for the players."
-    : imReady ? (theirReady ? "Both players are ready." : "You are ready.")
-      : interrupted ? "The last game did not finish. Both players must click Ready to play on."
-        : canSide ? "Swap cards from your Side Deck, then click Ready." : "Click Ready to start sooner.";
+  // A spectator sees what the players are doing and both Ready states; there is nothing to click.
+  const watching = index == null ? spectatorSeriesStatus(room, slug) : null;
+  const siding = watching?.kind === "siding" ? watching : null;
+  const status = siding
+    ? `${siding.detail} You will move to game ${series.gameNumber + 1} when it starts.`
+    : index == null ? "Waiting for the players."
+      : imReady ? (theirReady ? "Both players are ready." : "You are ready.")
+        : interrupted ? "The last game did not finish. Both players must click Ready to play on."
+          : canSide ? "Swap cards from your Side Deck on the Between games screen, then click Ready." : "Click Ready to start sooner.";
 
   return (
-    <section className={styles.next} data-tone={tone} aria-label="Next game">
-      <p className={styles.countdown} role="timer" data-waiting={seconds == null ? "true" : undefined}>
-        {seconds != null ? <>Game {series.gameNumber + 1} in <b>{formatCountdown(seconds)}</b></> : "Waiting for both players"}
-      </p>
+    <section className={styles.next} data-tone={tone} data-viewer={index == null ? "spectator" : "player"} aria-label="Next game">
+      {siding ? <p className={styles.watchHead}>{siding.headline}</p> : null}
+      {siding && seconds == null ? null : (
+        <p className={styles.countdown} role="timer" data-waiting={seconds == null ? "true" : undefined}>
+          {seconds != null ? <>Game {series.gameNumber + 1} in <b>{formatCountdown(seconds)}</b></> : "Waiting for both players"}
+        </p>
+      )}
+      {siding ? <SeriesReadyRows players={siding.players} /> : null}
       <p className={styles.status} role="status">{status}</p>
       <OpponentSideChip series={series} index={index} />
+      {/* A spectator already reads who is choosing, or who goes first, under "Up next". */}
+      {index != null ? <OpponentFirstChip series={series} index={index} /> : null}
+      {choosing ? (
+        <FirstChoiceGroup series={series} busy={busy} onChoose={(choice) => void choose(choice)} />
+      ) : null}
       {index != null ? (
         <div className={styles.actions}>
           <Action tone={tone} kind="primary" loading={busy && !confirmCancel} disabled={imReady || busy} onClick={() => void ready()}>
             {imReady ? "Ready" : "Ready for next game"}
           </Action>
-          {canSide ? <Action tone={tone} kind="secondary" disabled={busy} onClick={onOpenSide}>Side deck</Action> : null}
           {canCancelInterrupted(series) ? (
             confirmCancel ? (
               <>

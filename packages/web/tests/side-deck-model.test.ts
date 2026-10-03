@@ -6,77 +6,138 @@ import {
   deckCounts,
   isExtraDeckType,
   isValidSideChange,
+  NO_MARKS,
+  planSideDeck,
   sameDeck,
-  sameSections,
-  swapCount,
-  swapProblem,
-  swapWithSide,
+  toggleIn,
+  toggleOut,
+  type SideMarks,
 } from "../src/components/duel/side-deck-model";
 import { makeDeck } from "./helpers/duel-series";
 
-describe("swapWithSide", () => {
-  it("exchanges one main card with one side card and keeps every count", () => {
+// Card 11 and the 100s are Extra Deck monsters; 10 and the rest are Main Deck cards.
+const types = new Map<number, number>([[10, 0x1], [11, TYPE_FUSION], [100, TYPE_SYNCHRO], [101, TYPE_XYZ]]);
+
+function marks(out: Array<["main" | "extra", number]>, inn: number[]): SideMarks {
+  return { out: out.map(([section, index]) => ({ section, index })), inn };
+}
+
+describe("toggleOut and toggleIn", () => {
+  it("marks a card and takes the mark back", () => {
+    const once = toggleOut(NO_MARKS, "main", 1);
+    expect(once.out).toEqual([{ section: "main", index: 1 }]);
+    expect(toggleOut(once, "main", 1)).toEqual(NO_MARKS);
+    const inOnce = toggleIn(NO_MARKS, 0);
+    expect(inOnce.inn).toEqual([0]);
+    expect(toggleIn(inOnce, 0)).toEqual(NO_MARKS);
+  });
+
+  it("does not change the marks it was given", () => {
+    const start = toggleOut(NO_MARKS, "extra", 0);
+    toggleIn(start, 1);
+    expect(start).toEqual({ out: [{ section: "extra", index: 0 }], inn: [] });
+  });
+});
+
+describe("planSideDeck", () => {
+  it("is the deck as it was with no marks", () => {
     const deck = makeDeck();
-    const next = swapWithSide(deck, { section: "main", index: 1 }, 0);
-    expect(next.main).toEqual([1, 10, 3]);
-    expect(next.side).toEqual([2, 11]);
-    expect(next.extra).toEqual(deck.extra);
-    expect(deckCounts(next)).toEqual(deckCounts(deck));
-    expect(isValidSideChange(deck, next)).toBe(true);
+    const plan = planSideDeck(deck, NO_MARKS, types);
+    expect(plan.deck).toEqual(deck);
+    expect(plan.out).toBe(0);
+    expect(plan.inn).toBe(0);
+    expect(plan.balanced).toBe(true);
+    expect(plan.reason).toBeNull();
+  });
+
+  it("swaps one Main card for one Side card and keeps the Side Deck size", () => {
+    const deck = makeDeck();
+    const plan = planSideDeck(deck, marks([["main", 1]], [0]), types);
+    expect([...plan.deck.main].sort()).toEqual([1, 10, 3].sort());
+    expect([...plan.deck.side].sort()).toEqual([11, 2]);
+    expect(plan.counts).toEqual(deckCounts(deck));
+    expect(plan.balanced).toBe(true);
+    expect(plan.reason).toBeNull();
+    expect(isValidSideChange(deck, plan.deck)).toBe(true);
+  });
+
+  it("sends an Extra Deck monster from the Side Deck into the Extra Deck", () => {
+    const deck = makeDeck();
+    const plan = planSideDeck(deck, marks([["extra", 0]], [1]), types);
+    expect(plan.deck.extra).toEqual([101, 11]);
+    expect(plan.deck.side).toEqual([10, 100]);
+    expect(plan.destination.get(1)).toBe("extra");
+    expect(plan.reason).toBeNull();
+  });
+
+  it("lets a Main card swap with an Extra monster across sections: the monster goes to Extra, the Main card leaves", () => {
+    const deck = makeDeck();
+    const plan = planSideDeck(deck, marks([["main", 0]], [1]), types);
+    expect(plan.deck.main).toEqual([2, 3]);
+    expect(plan.deck.extra).toEqual([100, 101, 11]);
+    expect(plan.counts).toEqual({ main: 2, extra: 3, side: 2 });
+    // Main 3 -> 2 is below the base Main size, so the deck is not allowed.
+    expect(plan.reason).toMatch(/Main Deck needs at least 3/);
+  });
+
+  it("says how many more cards must come in when fewer come in than go out", () => {
+    const plan = planSideDeck(makeDeck(), marks([["main", 0], ["main", 1]], [0]), types);
+    expect(plan.balanced).toBe(false);
+    expect(plan.reason).toBe("Bring in 1 card from the Side Deck, or put 1 card back.");
+  });
+
+  it("says how many more cards must go out when more come in than go out", () => {
+    const plan = planSideDeck(makeDeck(), marks([["main", 0]], [0, 1]), types);
+    expect(plan.reason).toBe("Take out 1 card from the Main or Extra Deck, or put 1 card back.");
+  });
+
+  it("keeps the Main Deck between 40 and 60 cards", () => {
+    const main = Array.from({ length: 40 }, (_, i) => 1000 + i);
+    const deck = { main, extra: [], side: [10, 11] };
+    // One out and one in keeps 40: fine.
+    expect(planSideDeck(deck, marks([["main", 0]], [0]), types, deck).reason).toBeNull();
+    // Two out of Main and two in, one of them an Extra monster: Main drops to 39.
+    const plan = planSideDeck(deck, marks([["main", 0], ["main", 1]], [0, 1]), types, deck);
+    expect(plan.counts.main).toBe(39);
+    expect(plan.reason).toMatch(/at least 40/);
+  });
+
+  it("holds the Main Deck to 60 cards when the marks are even", () => {
+    const deck = { main: Array.from({ length: 60 }, (_, i) => 1000 + i), extra: [100], side: [10, 12] };
+    const plan = planSideDeck(deck, marks([["extra", 0]], [0]), types, deck);
+    expect(plan.counts.main).toBe(61);
+    expect(plan.reason).toMatch(/at most 60/);
+  });
+
+  it("holds the Extra Deck to 15 cards", () => {
+    const extra = Array.from({ length: 15 }, (_, i) => 2000 + i);
+    const deck = { main: Array.from({ length: 41 }, (_, i) => 1000 + i), extra, side: [11, 5] };
+    const plan = planSideDeck(deck, marks([["main", 0]], [0]), types, deck);
+    expect(plan.counts.extra).toBe(16);
+    expect(plan.reason).toMatch(/Extra Deck holds at most 15/);
+  });
+
+  it("uses the base Main size as the floor when the registered deck is small", () => {
+    const deck = makeDeck();
+    expect(planSideDeck(deck, marks([["main", 0]], [0]), types, deck).reason).toBeNull();
+  });
+
+  it("keeps every card: the card multiset never changes", () => {
+    const deck = makeDeck({ deckMaster: 999 });
+    const plan = planSideDeck(deck, marks([["main", 2], ["extra", 1]], [0, 1]), types, deck);
+    expect(cardMultiset(plan.deck)).toEqual(cardMultiset(deck));
+    expect(plan.deck.deckMaster).toBe(999);
   });
 
   it("does not change the deck it was given", () => {
     const deck = makeDeck();
-    swapWithSide(deck, { section: "extra", index: 0 }, 1);
+    planSideDeck(deck, marks([["main", 0]], [0]), types);
     expect(deck).toEqual(makeDeck());
   });
 
-  it("swaps an extra slot and keeps the deck master", () => {
-    const deck = makeDeck({ deckMaster: 999 });
-    const next = swapWithSide(deck, { section: "extra", index: 0 }, 1);
-    expect(next.extra).toEqual([11, 101]);
-    expect(next.side).toEqual([10, 100]);
-    expect(next.deckMaster).toBe(999);
-  });
-
-  it("is its own undo", () => {
-    const deck = makeDeck();
-    const once = swapWithSide(deck, { section: "main", index: 0 }, 1);
-    expect(sameDeck(swapWithSide(once, { section: "main", index: 0 }, 1), deck)).toBe(true);
-  });
-
-  it("throws on an index that is out of range", () => {
-    const deck = makeDeck();
-    expect(() => swapWithSide(deck, { section: "main", index: 3 }, 0)).toThrow(RangeError);
-    expect(() => swapWithSide(deck, { section: "main", index: -1 }, 0)).toThrow(RangeError);
-    expect(() => swapWithSide(deck, { section: "main", index: 0 }, 2)).toThrow(RangeError);
-    expect(() => swapWithSide(deck, { section: "main", index: 0.5 }, 0)).toThrow(RangeError);
-  });
-});
-
-describe("swapProblem", () => {
-  const types = new Map<number, number>([[10, 0x1], [11, TYPE_FUSION], [100, TYPE_SYNCHRO]]);
-  const deck = makeDeck();
-
-  it("allows a normal card for a main card and an extra monster for an extra card", () => {
-    expect(swapProblem(deck, { section: "main", index: 0 }, 0, types)).toBeNull();
-    expect(swapProblem(deck, { section: "extra", index: 0 }, 1, types)).toBeNull();
-  });
-
-  it("refuses an extra deck monster in the main deck", () => {
-    expect(swapProblem(deck, { section: "main", index: 0 }, 1, types)).toMatch(/Main Deck/);
-  });
-
-  it("refuses a main deck card in the extra deck", () => {
-    expect(swapProblem(deck, { section: "extra", index: 0 }, 0, types)).toMatch(/Extra Deck/);
-  });
-
-  it("allows a card with an unknown type (the server checks it)", () => {
-    expect(swapProblem(deck, { section: "extra", index: 0 }, 0, new Map())).toBeNull();
-  });
-
-  it("asks for two cards when an index has no card", () => {
-    expect(swapProblem(deck, { section: "main", index: 9 }, 0, types)).toMatch(/Pick one card/);
+  it("sends a Side card of unknown type to the Main Deck (the server checks it)", () => {
+    const plan = planSideDeck(makeDeck(), marks([["main", 0]], [0]), new Map());
+    expect(plan.destination.get(0)).toBe("main");
   });
 });
 
@@ -102,30 +163,11 @@ describe("isValidSideChange", () => {
   });
 });
 
-describe("comparisons", () => {
-  it("sameDeck needs the same order, sameSections does not", () => {
+describe("sameDeck", () => {
+  it("needs the same order", () => {
     const deck = makeDeck();
-    const shuffled = { ...deck, main: [3, 2, 1] };
-    expect(sameDeck(deck, shuffled)).toBe(false);
-    expect(sameSections(deck, shuffled)).toBe(true);
-    expect(sameSections(deck, { ...deck, side: [10, 12] })).toBe(false);
-  });
-});
-
-describe("swapCount", () => {
-  it("counts the cards that left the registered deck", () => {
-    const base = makeDeck();
-    expect(swapCount(base, base)).toBe(0);
-    const one = swapWithSide(base, { section: "main", index: 0 }, 0);
-    expect(swapCount(base, one)).toBe(1);
-    const two = swapWithSide(one, { section: "main", index: 1 }, 1);
-    expect(swapCount(base, two)).toBe(2);
-  });
-
-  it("returns to zero when a swap is undone", () => {
-    const base = makeDeck();
-    const once = swapWithSide(base, { section: "main", index: 0 }, 0);
-    expect(swapCount(base, swapWithSide(once, { section: "main", index: 0 }, 0))).toBe(0);
+    expect(sameDeck(deck, makeDeck())).toBe(true);
+    expect(sameDeck(deck, { ...deck, main: [3, 2, 1] })).toBe(false);
   });
 });
 
