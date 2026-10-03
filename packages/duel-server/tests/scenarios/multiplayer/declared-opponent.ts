@@ -50,7 +50,7 @@ function allWipe(f: Format, card: string): Scenario {
   const result: BoardExpect = {};
   for (const s of seats(f)) result[s] = { monsters: st ? [mon[s]] : [], spells: st ? [] : [spell],
     ...(bounce ? { hand: [spell] } : {}), grave: [...(s === "p0" ? [card] : []), ...(!bounce ? [st ? spell : mon[s]] : [])] };
-  return scenario(f, `all-${card.toLowerCase().replace(/ /g, "-")}`, setup, [activate(card, "p0"), board(f, result)], ["R-COMMON-EACH-PLAYER"]);
+  return scenario(f, `all-${card.toLowerCase().replace(/ /g, "-")}`, setup, [activate(card, "p0"), board(f, result)], ["R-COMMON-ALL-BOTH"]);
 }
 function legalOnly(f: Format): Scenario {
   const target: Seat = f === "ffa4" ? "p3" : f === "tag" ? "p3" : "p2";
@@ -94,7 +94,7 @@ function torrential(f: Format): Scenario {
   const result: BoardExpect = {};
   for (const s of seats(f)) result[s] = { grave: [mon[s], ...(s === "p0" ? ["Torrential Tribute"] : [])],
     ...(s === "p1" ? { hand: ["Mystical Elf"], deckCount: 19 } : {}) };
-  return scenario(f, "torrential-still-hits-every-seat", setup, [endTurn("p0"), normalSummon(mon.p1, "p1"), activate("Torrential Tribute", "p0"), board(f, result)], ["R-COMMON-EACH-PLAYER"]);
+  return scenario(f, "torrential-still-hits-every-seat", setup, [endTurn("p0"), normalSummon(mon.p1, "p1"), activate("Torrential Tribute", "p0"), board(f, result)], ["R-COMMON-ALL-BOTH"]);
 }
 function banished(f: Format): Scenario {
   const card = "Terrors of the Underroot";
