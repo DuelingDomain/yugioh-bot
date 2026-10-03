@@ -226,6 +226,20 @@ describe("POST /api/bug-reports", () => {
     expect((await rows())[0]!.github_error).toContain("from-app label");
   });
 
+  it("clears the cached list of open issues after it opens a new issue", async () => {
+    const lists = () => github.mock.calls.filter(([url, init]) => String(url).includes("/issues?state=open") && !init?.method).length;
+    github.mockImplementation(async (url: string, init?: RequestInit) =>
+      init?.method === "POST" ? Response.json(created(77), { status: 201 }) : Response.json([]));
+    const { listOpenFromAppIssues } = await import("../src/lib/bug-report-github");
+    await listOpenFromAppIssues();
+    await listOpenFromAppIssues();
+    expect(lists()).toBe(1);
+    const POST = await route();
+    expect((await POST(post(body()))).status).toBe(200);
+    await listOpenFromAppIssues();
+    expect(lists()).toBe(2);
+  });
+
   it("uses BUG_REPORT_GITHUB_REPO when it is valid", async () => {
     vi.stubEnv("BUG_REPORT_GITHUB_REPO", "someone/else");
     const POST = await route();

@@ -34,6 +34,40 @@ describe("listOpenFromAppIssues", () => {
     expect(result.ok && result.issues[0]!.text).toContain("The chain froze");
   });
 
+  it("shares one GitHub call between callers that arrive during a refresh", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    fetchMock.mockImplementation(async () => { await gate; return json([rawIssue(1)]); });
+    const calls = [listOpenFromAppIssues(), listOpenFromAppIssues(), listOpenFromAppIssues()];
+    release();
+    const results = await Promise.all(calls);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    for (const result of results) expect(result.ok && result.issues.map((i) => i.number)).toEqual([1]);
+  });
+
+  it("does not cache a failure, and the next call asks again", async () => {
+    fetchMock.mockResolvedValueOnce(json({ message: "boom" }, 500)).mockResolvedValueOnce(json([rawIssue(2)]));
+    expect((await listOpenFromAppIssues()).ok).toBe(false);
+    const second = await listOpenFromAppIssues();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(second.ok && second.issues.map((i) => i.number)).toEqual([2]);
+  });
+
+  it("after a reset, a refresh that began before it does not fill the cache with its older list", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    fetchMock.mockImplementationOnce(async () => { await gate; return json([rawIssue(1)]); }).mockImplementation(async () => json([rawIssue(1), rawIssue(2)]));
+    const stale = listOpenFromAppIssues();
+    resetGithubIssueCache();
+    const fresh = await listOpenFromAppIssues();
+    release();
+    await stale;
+    expect(fresh.ok && fresh.issues.map((i) => i.number)).toEqual([1, 2]);
+    const again = await listOpenFromAppIssues();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(again.ok && again.issues.map((i) => i.number)).toEqual([1, 2]);
+  });
+
   it("caches the list for 60 seconds", async () => {
     vi.useFakeTimers();
     try {

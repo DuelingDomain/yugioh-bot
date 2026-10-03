@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { BugReportServiceError, createBugReportService, createPlayerService } from "@yugidraft/shared/services";
 import { webBaseUrl } from "@/lib/announce-bot";
 import { parseBugReportRequest } from "@/lib/bug-report";
-import { bugReportRepo, commentOnIssue, createGithubIssue, getOpenFromAppIssue } from "@/lib/bug-report-github";
+import { bugReportRepo, commentOnIssue, createGithubIssue, getOpenFromAppIssue, resetGithubIssueCache } from "@/lib/bug-report-github";
 import { takeDuplicateCheckSlot } from "@/lib/bug-reports/precheck";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -116,6 +116,8 @@ export async function POST(request: Request) {
 
   const issue = await createGithubIssue(issueInput, redact);
   if (issue.ok) {
+    // The cached list of open issues is now missing this one: the next pre-check must read it again.
+    resetGithubIssueCache();
     reports.recordIssue(saved.id, guildId, { number: issue.number, url: issue.url });
     if (issue.warning) {
       // The issue exists, so the player gets it; the note is for the triage owner.

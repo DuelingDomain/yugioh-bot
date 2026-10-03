@@ -109,10 +109,16 @@ export type IssueCheckResult =
 
 const LIST_TTL_MS = 60_000;
 let listCache: { repo: string; at: number; issues: FromAppIssue[] } | null = null;
+/** The refresh that is running now, so callers that arrive during it share one GitHub call. */
+let listInflight: { repo: string; promise: Promise<IssueListResult> } | null = null;
+/** Counts resets: a refresh that began before a reset must not write its (older) list into the cache. */
+let listGeneration = 0;
 
-/** Clears the 60 second issue list cache (tests, and after the report route comments on an issue). */
+/** Clears the 60 second issue list cache (tests, and after the report route opens a new issue). */
 export function resetGithubIssueCache(): void {
+  listGeneration += 1;
   listCache = null;
+  listInflight = null;
 }
 
 /** The description part of an issue body made by `buildIssueBody`, without the code fence. */
@@ -134,14 +140,27 @@ function toFromAppIssue(raw: unknown): FromAppIssue | null {
 }
 
 /**
- * The open issues the app filed, newest 100, cached for 60 seconds. Never throws. Needs the token: with none, or when
- * GitHub fails, it answers `{ ok: false }` and the caller falls back to the saved reports.
+ * The open issues the app filed, newest 100, cached for 60 seconds. Callers that come while the list is being read share
+ * that one call. Never throws. Needs the token: with none, or when GitHub fails, it answers `{ ok: false }` and the
+ * caller falls back to the saved reports.
  */
 export async function listOpenFromAppIssues(): Promise<IssueListResult> {
   const token = process.env.BUG_REPORT_GITHUB_TOKEN?.trim();
   if (!token) return { ok: false, error: "BUG_REPORT_GITHUB_TOKEN is not set" };
   const repo = bugReportRepo();
   if (listCache && listCache.repo === repo && Date.now() - listCache.at < LIST_TTL_MS) return { ok: true, issues: listCache.issues };
+  if (listInflight && listInflight.repo === repo) return listInflight.promise;
+  const generation = listGeneration;
+  const promise = fetchOpenFromAppIssues(repo, token).then((result) => {
+    if (result.ok && generation === listGeneration) listCache = { repo, at: Date.now(), issues: result.issues };
+    if (listInflight?.promise === promise) listInflight = null;
+    return result;
+  });
+  listInflight = { repo, promise };
+  return promise;
+}
+
+async function fetchOpenFromAppIssues(repo: string, token: string): Promise<IssueListResult> {
   try {
     const response = await fetch(`https://api.github.com/repos/${repo}/issues?state=open&labels=from-app&per_page=100`, {
       signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -150,9 +169,7 @@ export async function listOpenFromAppIssues(): Promise<IssueListResult> {
     if (!response.ok) return { ok: false, error: (await errorDetail(response)).split(token).join("[token]").slice(0, 300) };
     const raw = (await response.json()) as unknown;
     if (!Array.isArray(raw)) return { ok: false, error: "GitHub answered with an unexpected list" };
-    const issues = raw.map(toFromAppIssue).filter((issue): issue is FromAppIssue => issue !== null);
-    listCache = { repo, at: Date.now(), issues };
-    return { ok: true, issues };
+    return { ok: true, issues: raw.map(toFromAppIssue).filter((issue): issue is FromAppIssue => issue !== null) };
   } catch (error) {
     return { ok: false, error: failure(error, token) };
   }
