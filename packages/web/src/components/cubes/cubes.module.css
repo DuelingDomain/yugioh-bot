@@ -39,7 +39,7 @@
 @container (max-width: 620px) {
   :global(.ms) .row :global(.sv-row-in) { grid-template-columns: minmax(0, 1fr) 36px; gap: 6px 10px; padding: 12px 4px; }
   .acts { align-self: start; }
-  .openBtn { display: none; }
+  :global(.ms) :global(.sv-btn).openBtn { display: none; }
 }
 
 .skeleton { display: block; margin: 0; padding: 0; list-style: none; }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -54,6 +54,8 @@ import {
 } from "./filter-model";
 import { deckNameFromFile, MAX_IMPORT_FILE_BYTES } from "./import";
 import { DeckImportPopover, Popover } from "./import-popover";
+import { OwnsPageBar, ShellMenuButton } from "@/components/layout/shell-bar";
+import { PageFrame } from "./page-frame";
 import { RegistrationMark, lockedNote } from "./registration";
 import {
   DEFAULT_NAME,
@@ -161,6 +163,14 @@ function copiesText(max: number): string {
  * The deck editor. With `pool` it edits the player's draft deck: the card list holds only the pool,
  * each card has as many copies as the player drafted, and there is no banlist.
  */
+/** The loading and error states. A draft deck page keeps its bar and menu button here too. */
+function EditorState({ pool, backHref, children }: { pool: boolean; backHref: string; children: ReactNode }) {
+  if (pool) {
+    return <PageFrame title="Draft deck" back={{ href: backHref, label: "Back to the draft" }}>{children}</PageFrame>;
+  }
+  return <SheetRoot className={cn(styles.host, styles.center)}>{children}</SheetRoot>;
+}
+
 export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: DraftDeckPool }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -700,17 +710,17 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   if (routeId === "invalid" || (loadError && savedId == null)) {
     return (
-      <SheetRoot className={cn(styles.host, styles.center)} data-pool={pool ? "" : undefined}>
-        <div ref={editorRef} role="alert" className={styles["de-fail"]}><StatusLine tone="block">{loadError ?? "That deck id is not valid."}</StatusLine></div>
-        <SvButton as="a" href={backHref} variant="ghost">{pool ? "Back to the draft" : "Back to decks"}</SvButton>
-      </SheetRoot>
+      <EditorState pool={!!pool} backHref={backHref}>
+        <div ref={pool ? undefined : editorRef} role="alert" className={styles["de-fail"]}><StatusLine tone="block">{loadError ?? "That deck id is not valid."}</StatusLine></div>
+        <div><SvButton as="a" href={backHref} variant="ghost">{pool ? "Back to the draft" : "Back to decks"}</SvButton></div>
+      </EditorState>
     );
   }
   if (loading) {
     return (
-      <SheetRoot className={cn(styles.host, styles.center)} data-pool={pool ? "" : undefined}>
-        <p ref={editorRef} className={styles["de-wait"]} role="status">Loading deck…</p>
-      </SheetRoot>
+      <EditorState pool={!!pool} backHref={backHref}>
+        <p ref={pool ? undefined : editorRef} className={styles["de-wait"]} role="status">Loading deck…</p>
+      </EditorState>
     );
   }
 
@@ -782,6 +792,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   return (
     <SheetRoot className={styles.host} data-pool={pool ? "" : undefined} aria-hidden={isPhone && cardSheetOpen ? true : undefined}>
+      {pool ? <OwnsPageBar /> : null}
       <div ref={editorRef} className={styles.de} data-tab={phoneTab}>
         <header className={styles["de-bar"]}>
           <Link href={backHref} className={styles["de-back"]} aria-label={pool ? "Back to the draft" : "Back to decks"}>
@@ -876,6 +887,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
             ) : null}
             <SvButton variant="primary" className={styles["de-save"]} aria-busy={saveBusy || undefined} disabled={busy} title="Save (Ctrl+S)" onClick={() => void save()}><Save className="ic sm" aria-hidden />Save</SvButton>
           </div>
+          {pool ? <span className={styles["de-menu"]}><ShellMenuButton /></span> : null}
         </header>
         <div className={cn("seg", styles["de-tabs"])} role="tablist" aria-label="Editor" onKeyDown={(event) => {
           if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -901,7 +913,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
             ) : null}
             {isPhone ? <details className={styles["de-pchk"]} data-s={tone}><summary>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span>{flag}</span><ChevronDown className="ic sm" aria-hidden /></summary><DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /></details> : null}
             <div className={styles["de-dbar"]}>
-              {!isPhone ? <button className={styles["de-flag"]} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}{flag}</button> : null}
+              {!isPhone && shownCode != null ? <button className={styles["de-flag"]} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}{flag}</button> : null}
               <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton></span>
               {isPhone ? historyControls : null}
             </div>

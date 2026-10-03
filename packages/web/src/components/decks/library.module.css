@@ -57,7 +57,7 @@
 
 @container (max-width: 860px) {
   :global(.ms) .row :global(.sv-row-in) { grid-template-columns: 100px minmax(0, 1fr) minmax(150px, 220px) auto; gap: 0 14px; }
-  .openBtn { display: none; }
+  :global(.ms) :global(.sv-btn).openBtn { display: none; }
 }
 /* Phone: the fan spans the first two lines; the status goes under the name. */
 @container (max-width: 620px) {

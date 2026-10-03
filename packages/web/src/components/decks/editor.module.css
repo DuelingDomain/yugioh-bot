@@ -70,6 +70,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-flag[data-s="warn"] { color: var(--warn-ink); }
 .de-flag[data-s="ok"] { color: var(--chain-ink); }
 .de-tools { display: inline-flex; gap: 2px; }
+.de-dbar > .de-tools { margin-left: auto; }
 .de-sec-b { display: grid; gap: 10px; }
 .de-sh { display: flex; align-items: center; gap: 12px; min-height: 38px; padding-bottom: 8px; border-bottom: 1px solid var(--rule-lo); }
 .de-st { color: var(--ink); font: 600 19px/1 var(--f-display); }
@@ -153,9 +154,8 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 /* The root measures this workspace, including a draft inside the app shell. */
 .host { container: de-editor / inline-size; width: 100%; height: 100dvh; min-width: 0; min-height: 0; overflow: hidden; }
-.host[data-pool] { width: calc(100% + 32px); margin: -16px; height: calc(100dvh - var(--de-top, 0px)); min-height: 560px; border: 0; border-radius: 0; }
-@media (min-width: 640px) { .host[data-pool] { width: calc(100% + 48px); margin: -24px; } }
-@media (min-width: 1024px) { .host[data-pool] { width: calc(100% + 64px); margin: -32px; } }
+/* A draft deck page owns its bar (OwnsPageBar), so the shell adds no padding to cancel: the host fills the viewport below its measured top. */
+.host[data-pool] { height: calc(100dvh - var(--de-top, 0px)); min-height: 560px; border: 0; border-radius: 0; }
 .center { display: grid; place-content: center; justify-items: center; gap: 14px; padding: 24px; }
 .de { min-width: 0; }
 .de-bar { display: grid; grid-template-columns: auto minmax(120px, 1fr) auto minmax(100px, 210px) auto auto; gap: 10px; }
@@ -166,6 +166,9 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 :global(.ms) .de-fmt button { min-height: 30px; padding: 0 12px; font-size: 13.5px; }
 :global(.ms) .de-back { padding-inline: 8px; }
 .host[data-pool] .de-bar { grid-template-columns: auto minmax(160px, 320px) minmax(0, 1fr) auto auto; }
+/* Level with the sidebar's 68px brand row, whose line the bar's line continues. */
+@container de-editor (width >= 1200px) { .host[data-pool] .de-bar { box-sizing: border-box; height: 68px; padding-block: 6px; } }
+.de-menu { display: none; }
 .de-status { min-width: 0; }
 .de-status[data-tone="bad"] { white-space: normal; overflow-wrap: anywhere; max-width: 230px; }
 .de-name:focus-visible, .host :focus-visible, .de-pop :focus-visible, .de-bs :focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
@@ -253,6 +256,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-acts { display: contents; }
   .de-acts > .de-hist, .de-import, :global(.ms) :global(.sv-btn).de-export { display: none; }
   .de-more { grid-column: 3; grid-row: 1 / 3; }
+  .de-menu { grid-column: 3; grid-row: 1 / 3; display: grid; align-self: center; justify-items: end; }
   .de-save { grid-column: 4; grid-row: 1 / 3; }
   .de-prow { grid-column: 1 / -1; grid-row: 3; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 6px 0 10px 6px; border-bottom: 1px solid var(--rule-lo); }
   .host[data-pool] .de-prow { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }

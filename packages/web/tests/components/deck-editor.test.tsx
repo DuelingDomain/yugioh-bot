@@ -266,20 +266,33 @@ describe("SavedDeckEditor", () => {
     expect(screen.getByText("A draft deck needs at least 3 main deck cards.")).toBeInTheDocument();
   });
 
-  it("measures the draft host in both the loading screen and the loaded editor", async () => {
+  it("keeps the page bar and the menu button in the loading screen and the loaded draft editor", async () => {
     stored = savedDeck([BLUE_EYES.code]);
     const bounds = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-      return new DOMRect(0, this.hasAttribute("data-pool") ? 56 : 118, 1204, 788);
+      return new DOMRect(0, this.hasAttribute("data-pool") ? 0 : 118, 1204, 788);
     });
     try {
       const { container } = render(<SavedDeckEditor deckId="7" pool={{ slug: "retro", draftId: 3, draftName: "Retro draft", cards: [{ code: BLUE_EYES.code, count: 2 }], mainPoolCount: 2, unresolved: [], savedDeckId: 7, registration: null }} />);
       expect(screen.getByText("Loading deck…")).toBeInTheDocument();
-      expect(container.querySelector<HTMLElement>("[data-pool]")?.style.getPropertyValue("--de-top")).toBe("56px");
+      expect(container.querySelector("[data-shell-bar='own']")).not.toBeNull();
+      expect(screen.getByRole("heading", { name: "Draft deck" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Back to the draft" })).toHaveAttribute("href", "/draft/retro");
+      expect(screen.getByRole("button", { name: "Open menu" })).toBeInTheDocument();
       await screen.findByRole("button", { name: /Blue-Eyes White Dragon, Main Deck card/ });
-      expect(container.querySelector<HTMLElement>("[data-pool]")?.style.getPropertyValue("--de-top")).toBe("56px");
+      expect(container.querySelector("[data-shell-bar='own']")).not.toBeNull();
+      expect(screen.getByRole("button", { name: "Open menu" })).toBeInTheDocument();
+      expect(container.querySelector<HTMLElement>("[data-pool]")?.style.getPropertyValue("--de-top")).toBe("0px");
     } finally {
       bounds.mockRestore();
     }
+  });
+
+  it("leaves a saved deck without the shell bar or menu button", async () => {
+    stored = savedDeck([BLUE_EYES.code]);
+    const { container } = render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("button", { name: /Blue-Eyes White Dragon, Main Deck card/ });
+    expect(container.querySelector("[data-shell-bar='own']")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open menu" })).toBeNull();
   });
 
   it("puts Delete in the more menu and focuses Keep before confirming", async () => {

@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { cn } from "@/lib/utils";
-import { SheetRoot, StatusLine, SvButton } from "@/components/sheet";
+import { useEffect, useState, type ReactNode } from "react";
+import { StatusLine, SvButton } from "@/components/sheet";
 import { getDraftDeckPool } from "./api";
 import { SavedDeckEditor } from "./editor";
-import { useEditorViewport } from "./editor-viewport";
+import { PageFrame } from "./page-frame";
 import type { DraftDeckPool } from "./pool-model";
 import styles from "./editor.module.css";
 
@@ -16,7 +15,6 @@ import styles from "./editor.module.css";
 export function DraftDeckEditor({ slug }: { slug: string }) {
   const [pool, setPool] = useState<DraftDeckPool | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { editorRef } = useEditorViewport(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,20 +29,19 @@ export function DraftDeckEditor({ slug }: { slug: string }) {
     return () => { cancelled = true; };
   }, [slug]);
 
+  const frame = (children: ReactNode) => (
+    <PageFrame title="Draft deck" back={{ href: `/draft/${slug}`, label: "Back to the draft" }}>{children}</PageFrame>
+  );
   if (error) {
-    return (
-      <SheetRoot className={cn(styles.host, styles.center)} data-pool>
-        <div ref={editorRef} role="alert" className={styles["de-fail"]}><StatusLine tone="block">{error}</StatusLine></div>
-        <SvButton as="a" href={`/draft/${slug}`} variant="ghost">Back to the draft</SvButton>
-      </SheetRoot>
+    return frame(
+      <>
+        <div role="alert" className={styles["de-fail"]}><StatusLine tone="block">{error}</StatusLine></div>
+        <div><SvButton as="a" href={`/draft/${slug}`} variant="ghost">Back to the draft</SvButton></div>
+      </>,
     );
   }
   if (!pool) {
-    return (
-      <SheetRoot className={cn(styles.host, styles.center)} data-pool>
-        <p ref={editorRef} className={styles["de-wait"]} role="status">Loading your draft pool…</p>
-      </SheetRoot>
-    );
+    return frame(<p className={styles["de-wait"]} role="status">Loading your draft pool…</p>);
   }
   return (
     <SavedDeckEditor
