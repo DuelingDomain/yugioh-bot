@@ -76,6 +76,19 @@ export async function handleSelectMenu(
     const options = deps.drafts.pickOptions(draftId, player.id);
 
     if (options.length === 0) {
+      const progress = deps.db.prepare(
+        "select pick_count, finished_at from draft_players where draft_id = ? and player_id = ?",
+      ).get(draftId, player.id) as { pick_count: number; finished_at: string | null } | undefined;
+      if (
+        draft.status === "active" && progress &&
+        (progress.finished_at !== null || progress.pick_count >= (draft.config.cardsPerPlayer ?? 40))
+      ) {
+        await interaction.reply({
+          content: "You have finished drafting. Waiting for other players.",
+          ephemeral: true,
+        });
+        return;
+      }
       const picked = deps.db.prepare(
         "select 1 from draft_picks where draft_id = ? and player_id = ? and wave_number = ? and pick_step = ?",
       ).get(draftId, player.id, draft.currentPackRound, draft.currentPickStep);

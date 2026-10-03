@@ -167,6 +167,41 @@ describe("select menu interactions", () => {
     app.db.close();
   });
 
+  it.each([
+    { pickCount: 8, finishedAt: null },
+    { pickCount: 9, finishedAt: null },
+    { pickCount: 3, finishedAt: "t" },
+  ])("tells a finished player to wait for others ($pickCount picks, finishedAt=$finishedAt)", async ({ pickCount, finishedAt }) => {
+    const { app, draft, player, menu } = cappedMenuDraft();
+    app.db.prepare("update draft_players set pick_count = ?, finished_at = ? where draft_id = ? and player_id = ?")
+      .run(pickCount, finishedAt, draft.id, player.id);
+    const other = app.drafts.players(draft.id).find((p) => p.playerId !== player.id)!;
+    expect(app.drafts.findById(draft.id).status).toBe("active");
+    expect(app.drafts.pickOptions(draft.id, other.playerId).length).toBeGreaterThan(0);
+    const packOptions = vi.spyOn(app.drafts, "currentPackOptions");
+    const { interaction, replies } = menu();
+
+    await handleSelectMenu(interaction, app);
+
+    expect(replies).toEqual([{ content: "You have finished drafting. Waiting for other players.", ephemeral: true }]);
+    expect(packOptions).not.toHaveBeenCalled();
+    expect(app.drafts.pool(draft.id, player.id)).toEqual([]);
+    app.db.close();
+  });
+
+  it("reports a completed draft even when the player has finished", async () => {
+    const { app, draft, player, menu } = cappedMenuDraft();
+    app.db.prepare("update draft_players set pick_count = 8, finished_at = 't' where draft_id = ? and player_id = ?")
+      .run(draft.id, player.id);
+    app.db.prepare("update drafts set status = 'completed' where id = ?").run(draft.id);
+    const { interaction, replies } = menu();
+
+    await handleSelectMenu(interaction, app);
+
+    expect(replies).toEqual([{ content: "This draft has completed.", ephemeral: true }]);
+    app.db.close();
+  });
+
   it("handles a stale capped selection while other cards remain takeable", async () => {
     const { app, draft, player, pack, cap, menu } = cappedMenuDraft();
     cap(pack[0].catalogCardId);
