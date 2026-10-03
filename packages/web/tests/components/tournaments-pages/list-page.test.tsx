@@ -40,6 +40,7 @@ describe("TournamentsPage", () => {
     expect(screen.getByRole("heading", { name: "No tournaments yet" })).toBeTruthy();
     expect(screen.getByText("/event create")).toBeTruthy();
     expect(screen.getAllByRole("link", { name: /new tournament/i }).length).toBe(2);
+    expect(document.querySelector(".page-sub")).toBeNull();
   });
 
   it("orders running, then open, then finished, newest first, and skips cancelled and other guilds", async () => {
@@ -58,7 +59,9 @@ describe("TournamentsPage", () => {
     const running = within(screen.getByRole("region", { name: "In progress" })).getAllByRole("link");
     expect(running.map((a) => a.getAttribute("href"))).toEqual(["/tournament/newer-run", expect.stringMatching(/^\/tournament\/\d+$/)]);
     expect(running[0].textContent).toContain("Newer run");
-    expect(running[0].textContent).toContain("Single elimination");
+    expect(Array.from(running[0].querySelectorAll(".tl-meta > span > span"), (item) => item.textContent)).toEqual([
+      "In progress", "Single elimination", "0 players",
+    ]);
     expect(running[1].textContent).toContain("Older run");
 
     const open = within(screen.getByRole("region", { name: "Open to join" })).getAllByRole("link");
@@ -70,7 +73,23 @@ describe("TournamentsPage", () => {
 
     expect(screen.queryByText("Gone")).toBeNull();
     expect(screen.queryByText("Elsewhere")).toBeNull();
-    expect(document.querySelector(".page-sub")?.textContent).toBe("2 in progress1 open to join2 finished");
+    expect(Array.from(document.querySelectorAll(".page-sub > span > span"), (item) => item.textContent)).toEqual([
+      "2 in progress", "1 open to join", "2 finished",
+    ]);
+  });
+
+  it("keeps each summary fact with one separator and leaves out empty groups", async () => {
+    add("Running", "active", "2026-02-01 00:00:00");
+    add("Open", "pending", "2026-02-02 00:00:00");
+    render(await TournamentsPage());
+
+    const items = Array.from(document.querySelectorAll(".page-sub > span > span"));
+    expect(items.map((item) => item.textContent)).toEqual(["1 in progress", "1 open to join"]);
+    for (const item of items) {
+      expect(item.querySelectorAll(".dot")).toHaveLength(1);
+      expect(item.firstElementChild).toHaveClass("dot");
+      expect(item.firstElementChild).toHaveAttribute("aria-hidden", "true");
+    }
   });
 
   it("shows the first five finished tournaments, then all of them on Show all", async () => {

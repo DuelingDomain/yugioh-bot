@@ -1,11 +1,11 @@
 import { env } from "@/lib/env";
-import { Fragment } from "react";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Plus, Trophy } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { SheetRoot } from "@/components/sheet";
+import { MetaLine } from "@/components/meta-line/meta-line";
 import { TournamentRow } from "@/components/tournament/tournament-row";
 import { FinishedLedger } from "@/components/tournament/finished-ledger";
 import {
@@ -48,14 +48,7 @@ export default async function TournamentsPage() {
         <div>
           <h1 className="t-title">Tournaments</h1>
           {summary.length > 0 && (
-            <p className="page-sub">
-              {summary.map((part, i) => (
-                <Fragment key={part}>
-                  {i > 0 && <span className="dot" aria-hidden="true" />}
-                  {part}
-                </Fragment>
-              ))}
-            </p>
+            <MetaLine className="page-sub" items={summary.map((part) => ({ content: part }))} />
           )}
         </div>
         <Link className="btn btn-primary" href="/tournaments/new">
