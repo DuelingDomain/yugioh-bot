@@ -64,6 +64,16 @@ const parseNumberKey = (key: string): number | null => {
 
 const inField = (t: EventTarget | null) => t instanceof Element && !!t.closest("input, textarea, select");
 
+const canRestoreFocus = (el: HTMLElement | null | undefined): el is HTMLElement => {
+  if (!el?.isConnected || el === document.body || el.closest("[inert], [hidden]") || el.matches(":disabled")) return false;
+  const visibility = getComputedStyle(el).visibility;
+  if (visibility === "hidden" || visibility === "collapse") return false;
+  for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+    if (getComputedStyle(node).display === "none") return false;
+  }
+  return true;
+};
+
 export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps) {
   const rs = useRoomState(slug, config, isParticipant);
   const { sizes, deal, turn, direction } = rs;
@@ -187,12 +197,24 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     // Leave focus alone when it stayed on the table or moved outside the closing panel.
     const needsRestore = previous && (previous.panel.contains(document.activeElement) || document.activeElement === document.body);
     // React restores pre-commit focus after layout cleanups. Restore here, after that and the inert updates.
-    if (needsRestore && opener?.isConnected && !opener.closest("[inert]")) {
-      // Focusing a table card normally opens the reader. Restoration only moves focus.
-      const wasClicking = clicking.current;
-      clicking.current = true;
-      opener.focus({ preventScroll: true });
-      clicking.current = wasClicking;
+    if (needsRestore) {
+      const root = rootRef.current;
+      const toggle = previous.panel === binderPanelRef.current
+        ? root?.querySelector<HTMLElement>('.dial[aria-controls="binder"]')
+        : null;
+      const target = [
+        opener,
+        toggle,
+        ...Array.from(root?.querySelectorAll<HTMLElement>('.stage .tcard[tabindex="0"]') ?? []),
+        root?.querySelector<HTMLElement>(".stage"),
+      ].find(canRestoreFocus);
+      if (target) {
+        // Focusing a table card normally opens the reader. Restoration only moves focus.
+        const wasClicking = clicking.current;
+        clicking.current = true;
+        target.focus({ preventScroll: true });
+        clicking.current = wasClicking;
+      }
     }
     if (!openPanel) return;
     const panel = openPanel === "card" ? readerPanelRef.current : binderPanelRef.current;
@@ -727,7 +749,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               if (card) setSelectedId(null);
             }}
           />
-          <section className="stage" aria-label="Draft table" ref={setStage}>
+          <section className="stage" aria-label="Draft table" ref={setStage} tabIndex={-1}>
             <Table
               geometry={geometry}
               deal={deal}
