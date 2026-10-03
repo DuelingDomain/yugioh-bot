@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Release Check <release@localhost>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] A002 final route
+
+---
+diff --git a/field.h b/field.h
+index 3616ec5..430dc5e 100644
+--- a/field.h
++++ b/field.h
+@@ -543,8 +543,7 @@ public:
+ 	// True while no duelist can enter the Battle Phase because it is too early in the duel.
+ 	// With first_attack_turn == 2 this is the stock test "turn_id == 1".
+ 	// With more than 2 duelists: Tag keeps the test turn_id < first_attack_turn (4). Free for all waits
+-	// until every LIVING duelist has had a turn: it is true while a living duelist has had none, and
+-	// during the first turn of the turn player (so with nobody eliminated this is turn_id <= n_duelists).
++	// until every living duelist has started a turn. The last living duelist can battle on its first turn.
+ 	// A duelist who is eliminated before their first turn does not hold the attacks back.
+ 	bool before_first_attack_turn() const {
+ 		if(n_duelists == 2 || n_teams != n_duelists)
+@@ -555,7 +554,7 @@ public:
+ 			if(is_alive(p) && infos.turn_id_by_player[p] < 1)
+ 				return true;
+ 		}
+-		return infos.turn_id_by_player[infos.turn_player] <= 1;
++		return false;
+ 	}
+ 	// Phase 3 (F5): true when the event code raises its event_player as a real subject (the damaged player, the player
+ 	// of a chain link, the summoner, the player that draws). Many events pass a literal 0 there (the chain end, the

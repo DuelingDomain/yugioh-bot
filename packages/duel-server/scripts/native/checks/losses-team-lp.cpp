@@ -409,11 +409,11 @@ static void check_first_attack() {
 		std::printf("ok   first attack %s: %s\n", name, show(got).c_str());
 	};
 	{ Game g; setup(g, 2, false, {40, 40}); drive(g, 4000, nullptr, 6); expect_rule("n=2", first_per_turn(g), 2); }
-	{ Game g; setup(g, 3, false, {40, 40, 40}); drive(g, 4000, nullptr, 7); expect_rule("FFA3 nobody out", first_per_turn(g), 4); }
-	{ Game g; setup(g, 4, false, {40, 40, 40, 40}); drive(g, 6000, nullptr, 8); expect_rule("FFA4 nobody out", first_per_turn(g), 5); }
+	{ Game g; setup(g, 3, false, {40, 40, 40}); drive(g, 4000, nullptr, 7); expect_rule("FFA3 nobody out", first_per_turn(g), 3); }
+	{ Game g; setup(g, 4, false, {40, 40, 40, 40}); drive(g, 6000, nullptr, 8); expect_rule("FFA4 nobody out", first_per_turn(g), 4); }
 	{ Game g; setup(g, 4, true, {40, 40, 40, 40}); drive(g, 6000, nullptr, 8); expect_rule("Tag", first_per_turn(g), 4); }
 	{
-		// FFA4, seat 1 out before its first turn: turns 1 (s0), 2 (s2), 3 (s3), then s0 may attack on turn 4.
+		// FFA4, seat 1 out before its first turn: seats 0, 2, 3 start turns 1, 2, 3; seat 3 may battle on turn 3.
 		Game g;
 		setup(g, 4, false, {40, 40, 40, 40});
 		drive(g, 6000, [](Game& g) { if(g.idle_no == 1) lua(g, "Duel.SetLP(1,0)"); }, 8);
@@ -421,19 +421,19 @@ static void check_first_attack() {
 		const auto t = new_turns(g);
 		bool good = v.size() >= 5;
 		for(const auto& x : v)
-			good = good && (x.second == (x.first < 4));
+			good = good && (x.second == (x.first < 3));
 		EXPECT(good && t.size() >= 4 && t[1] == 2 && t[2] == 3 && t[3] == 0, "FFA4 seat 1 out: %s", show(v).c_str());
-		std::printf("ok   first attack FFA4 seat 1 eliminated before its turn: %s (attacks from turn 4, not 5)\n", show(v).c_str());
+		std::printf("ok   first attack FFA4 seat 1 eliminated before its turn: %s (attacks from turn 3)\n", show(v).c_str());
 	}
 	{
-		// FFA3, seat 1 out before its first turn: s0, s2, then s0 attacks on turn 3.
+		// FFA3, seat 1 out before its first turn: seats 0 and 2 start turns 1 and 2; seat 2 may battle on turn 2.
 		Game g;
 		setup(g, 3, false, {40, 40, 40});
 		drive(g, 6000, [](Game& g) { if(g.idle_no == 1) lua(g, "Duel.SetLP(1,0)"); }, 7);
 		const auto v = first_per_turn(g);
 		bool good = v.size() >= 4;
 		for(const auto& x : v)
-			good = good && (x.second == (x.first < 3));
+			good = good && (x.second == (x.first < 2));
 		EXPECT(good, "FFA3 seat 1 out: %s", show(v).c_str());
 		std::printf("ok   first attack FFA3 seat 1 eliminated before its turn: %s\n", show(v).c_str());
 	}

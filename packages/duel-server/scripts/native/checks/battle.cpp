@@ -188,7 +188,8 @@ static Result play(const Scenario& sc, uint32_t seed) {
 		if(std::getenv("CHECK_TRACE"))
 			std::fprintf(stderr, "step %d turn %d phase %x prompt %u\n", steps, F(d).infos.turn_id, F(d).infos.phase, static_cast<unsigned>(last.id));
 		const int turn = F(d).infos.turn_id;
-		const uint8_t first_attack = static_cast<uint8_t>(F(d).first_attack_turn);
+		const uint8_t first_attack = F(d).n_duelists > 2 && F(d).n_teams == F(d).n_duelists
+			? F(d).n_duelists : static_cast<uint8_t>(F(d).first_attack_turn);
 		auto respond = [&](int32_t v) { OCG_DuelSetResponse(d, &v, sizeof(v)); };
 		switch(last.id) {
 		case MSG_SELECT_IDLECMD: {
@@ -421,10 +422,10 @@ static void check_battle() {
 		auto r = play(s, 21);
 		verify(s, r, {2, {0, 2}, false, {}, -1, 0, 1500});
 	}
-	// No Battle Phase before first_attack_turn.
+	// FFA battle starts when the last living duelist starts its first turn.
 	struct Early { const char* name; int n; std::vector<int> team; int first; };
 	const Early early[] = {
-		{"ffa3", 3, {0, 1, 2}, 4}, {"ffa4", 4, {0, 1, 2, 3}, 5}, {"tag", 4, {0, 1, 0, 1}, 4},
+		{"ffa3", 3, {0, 1, 2}, 3}, {"ffa4", 4, {0, 1, 2, 3}, 4}, {"tag", 4, {0, 1, 0, 1}, 4},
 	};
 	for(const auto& e : early) {
 		const uint8_t who = seat_of_turn(e.n, e.first);
