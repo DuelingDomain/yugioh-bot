@@ -146,9 +146,50 @@ describe("cube API routes", () => {
 
     const body = await (await listCubes()).json();
     const built = body.cubes.find((c: any) => c.name === "Dark Magician");
-    expect(built).toMatchObject({ mainCount: 1, extraCount: 1, mainCardIds: [1], customCardIds: [] });
+    expect(built).toMatchObject({ mainCount: 1, extraCount: 1, mainCards: [{ id: 1, copies: 1 }], customCardIds: [] });
     const saved = body.cubes.find((c: any) => c.name === "Saved");
-    expect(saved).toMatchObject({ setNames: ["Set A"], customCardIds: [1, 1], mainCardIds: [] });
+    expect(saved).toMatchObject({ setNames: ["Set A"], customCardIds: [1, 1], mainCards: [] });
+  });
+
+  it("lists each main-pool card with its copies, and reads every cube with two queries", async () => {
+    await setupDb();
+    const { POST: createCube, GET: listCubes } = await import("../app/api/cubes/route");
+    const { POST: mutate } = await import("../app/api/cubes/[id]/cards/route");
+    const ids: number[] = [];
+    for (const name of ["Alpha", "Beta", "Gamma"]) {
+      const created = await createCube(
+        new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name }) }) as any,
+      );
+      ids.push((await created.json()).cube.id);
+    }
+    const post = (id: number, body: object) =>
+      mutate(new Request("http://x", { method: "POST", body: JSON.stringify(body) }) as any, {
+        params: Promise.resolve({ id: String(id) }),
+      });
+    await post(ids[0]!, { op: "add", catalogCardId: 1, pool: "main", maxCopies: 12 });
+    await post(ids[1]!, { op: "add", catalogCardId: 1, pool: "main", maxCopies: 2 });
+    await post(ids[1]!, { op: "add", catalogCardId: 2, pool: "extra", maxCopies: 3 });
+    // A cube in another guild never shows up.
+    const { getDb } = await import("../src/lib/db");
+    const db = getDb();
+    const foreign = Number(
+      db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','x')").run()
+        .lastInsertRowid,
+    );
+    db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, 1, 'main', 3)").run(foreign);
+
+    const Database = (await import("better-sqlite3")).default;
+    const prepare = vi.spyOn(Database.prototype, "prepare");
+    const body = await (await listCubes()).json();
+    const prepared = prepare.mock.calls.length;
+    prepare.mockRestore();
+
+    expect(prepared).toBeLessThanOrEqual(2);
+    expect(body.cubes.map((c: any) => c.name)).toEqual(["Alpha", "Beta", "Gamma"]);
+    const [alpha, beta, gamma] = body.cubes;
+    expect(alpha).toMatchObject({ mainCount: 1, extraCount: 0, mainCards: [{ id: 1, copies: 12 }] });
+    expect(beta).toMatchObject({ mainCount: 1, extraCount: 1, mainCards: [{ id: 1, copies: 2 }] });
+    expect(gamma).toMatchObject({ mainCount: 0, extraCount: 0, mainCards: [] });
   });
 
   it("saves a config-backed cube (pool) and rejects a duplicate name", async () => {

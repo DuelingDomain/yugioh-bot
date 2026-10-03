@@ -8,7 +8,7 @@ import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import { PoolBuilder } from "@/components/cards/pool-builder";
 import { ArchetypeAdd } from "./create/archetype-add";
 import { PoolPreview } from "./create/pool-preview";
-import { loadedPoolHint, poolRowText, savedPoolIds, secondsText } from "./create/format";
+import { loadedPoolHint, poolRowText, savedPoolIds, secondsText, type SavedPoolCard } from "./create/format";
 import styles from "./create/create.module.css";
 import type { CardSummary } from "@/lib/card-types";
 import {
@@ -83,18 +83,18 @@ export function CreateDraftForm() {
             name: string;
             setNames?: string[];
             customCardIds?: number[];
-            mainCardIds?: number[];
+            mainCards?: SavedPoolCard[];
             extraCount?: number;
           }>;
         }) => {
           if (cancelled) return;
-          // A cube's pool is its config sets/passcodes plus the cards in its main pool;
-          // surface both as loadable saved pools for the shared cube draft.
+          // A cube's pool is its config sets/passcodes plus the cards in its main pool (a card
+          // once per copy); surface both as loadable saved pools for the shared cube draft.
           setTemplates(
             (data.cubes ?? []).map((c) => ({
               id: c.id,
               name: c.name,
-              config: { setNames: c.setNames ?? [], customCardIds: savedPoolIds(c.customCardIds, c.mainCardIds) },
+              config: { setNames: c.setNames ?? [], customCardIds: savedPoolIds(c.customCardIds, c.mainCards) },
               extraCount: c.extraCount ?? 0,
             })),
           );

@@ -11,21 +11,24 @@ export function poolRowText(setCount: number, passcodeCount: number): string {
   return parts.length ? parts.join(", ") : "Nothing yet";
 }
 
+/** A card in a cube's main pool and how many copies of it the cube holds. */
+export type SavedPoolCard = { id: number; copies: number };
+
 /**
  * Passcodes a saved pool loads into the form. A pool saved from the form keeps its ids
  * (repeats = copies) in the config; a cube built in the editor keeps them as cards in its
- * main pool. Config ids come first, then main-pool cards the config does not already list.
+ * main pool, each listed once per copy it holds. Config ids come first, then main-pool
+ * cards the config does not already list.
  * The Extra Deck pool is left out: cube drafts deal main-deck cards only.
  */
-export function savedPoolIds(customCardIds: number[] = [], mainCardIds: number[] = []): number[] {
-  const seen = new Set(customCardIds);
-  const extra: number[] = [];
-  for (const id of mainCardIds) {
-    if (seen.has(id)) continue;
-    seen.add(id);
-    extra.push(id);
+export function savedPoolIds(customCardIds: number[] = [], mainCards: SavedPoolCard[] = []): number[] {
+  const listed = new Set(customCardIds);
+  const ids = [...customCardIds];
+  for (const { id, copies } of mainCards) {
+    if (listed.has(id)) continue;
+    for (let i = 0; i < copies; i += 1) ids.push(id);
   }
-  return [...customCardIds, ...extra];
+  return ids;
 }
 
 /** The status line after a saved pool loads. */

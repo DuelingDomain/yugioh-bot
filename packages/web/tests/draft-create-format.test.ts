@@ -18,11 +18,19 @@ describe("new draft summary helpers", () => {
     expect(poolRowText(0, 0)).toBe("Nothing yet");
   });
 
-  it("loads a saved pool as its config passcodes plus its main-pool cards", () => {
-    expect(savedPoolIds([5, 5, 6], [6, 7, 7, 8])).toEqual([5, 5, 6, 7, 8]);
-    expect(savedPoolIds([], [7, 8])).toEqual([7, 8]);
+  it("loads a saved pool as its config passcodes plus its main-pool cards, once per copy", () => {
+    expect(savedPoolIds([5, 5, 6], [{ id: 6, copies: 3 }, { id: 7, copies: 2 }, { id: 8, copies: 1 }])).toEqual([
+      5, 5, 6, 7, 7, 8,
+    ]);
+    expect(savedPoolIds([], [{ id: 7, copies: 1 }, { id: 8, copies: 12 }])).toEqual([7, ...Array(12).fill(8)]);
     expect(savedPoolIds([5, 6])).toEqual([5, 6]);
     expect(savedPoolIds(undefined, undefined)).toEqual([]);
+  });
+
+  it("counts every copy in the loaded pool summary", () => {
+    const ids = savedPoolIds([], [{ id: 7, copies: 5 }, { id: 8, copies: 4 }]);
+    expect(poolRowText(0, ids.length)).toBe("9 passcodes");
+    expect(loadedPoolHint("Stun", 0, ids.length)).toBe("Loaded Stun: 9 passcodes. Loading replaces the pool below.");
   });
 
   it("reports the real count when a saved pool loads", () => {

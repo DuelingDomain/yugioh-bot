@@ -90,20 +90,23 @@ describe("POST /api/drafts", () => {
       db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', 'Dark Magician', 'u')").run()
         .lastInsertRowid,
     );
-    const insCube = db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, ?, ?, 3)");
-    for (const id of mainIds) insCube.run(cube, id, "main");
-    insCube.run(cube, 2000, "extra");
+    const insCube = db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, ?, ?, ?)");
+    // The first card has five copies in the cube, more than the three one player may hold.
+    const copiesOf = (id: number) => (id === mainIds[0] ? 5 : 3);
+    for (const id of mainIds) insCube.run(cube, id, "main", copiesOf(id));
+    insCube.run(cube, 2000, "extra", 3);
     db.close();
 
     // What the form does: list the saved pools, load one, post it as the draft pool.
     const { GET: listCubes } = await import("../app/api/cubes/route");
     const listed = (await (await listCubes()).json()) as {
-      cubes: Array<{ name: string; customCardIds: number[]; mainCardIds: number[] }>;
+      cubes: Array<{ name: string; customCardIds: number[]; mainCards: Array<{ id: number; copies: number }> }>;
     };
     const saved = listed.cubes.find((c) => c.name === "Dark Magician")!;
     const { savedPoolIds } = await import("../src/components/draft/create/format");
-    const loaded = savedPoolIds(saved.customCardIds, saved.mainCardIds);
-    expect(loaded).toEqual(mainIds);
+    const loaded = savedPoolIds(saved.customCardIds, saved.mainCards);
+    const expected = mainIds.flatMap((id) => Array.from({ length: copiesOf(id) }, () => id));
+    expect(loaded).toEqual(expected);
 
     const { POST } = await import("../app/api/drafts/route");
     const response = await POST(
@@ -122,7 +125,7 @@ describe("POST /api/drafts", () => {
     const { createDraftService } = await import("@yugidraft/shared/services");
     const drafts = createDraftService(verifyDb);
     const draft = drafts.findById(id);
-    expect([...(draft.config.cubeCardIds ?? [])].sort()).toEqual([...mainIds].sort());
+    expect([...(draft.config.cubeCardIds ?? [])].sort()).toEqual([...expected].sort());
 
     const insPlayer = verifyDb.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1', ?, ?)");
     for (const n of ["a", "b"]) {
