@@ -39,7 +39,8 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
           [owner]: { monsters: [MASTERS[owner]], grave: ["Mystical Elf"], deckMaster: OUT } })],
     }),
     scenario(format, "drawing-empty-deck-loses-seat-or-team", {
-      setup: { ...setup(format), deckSize: 1 },
+      // Use a captured opening board in Tag so the opposing team is the intended first Deck-out loser.
+      setup: { ...setup(format), deckSize: 1, ...(format === "tag" ? { skipOpeningDraw: true } : {}) },
       rules: [format === "tag" ? "R-TAG-LOSS" : "R-FFA-ELIMINATION"],
       steps: [...SEATS[format].map((seat) => endTurn(seat)), ...(format === "tag" ? [endTurn("p0")] : []),
         expectEliminated(format === "tag" ? ["p1", "p3"] : SEATS[format].slice(0, -1)),
@@ -87,4 +88,31 @@ for (const format of ["ffa3", "ffa4"] as const) {
       expectEliminated(owner), expectPrompt({ by: "p0", context: "action", offers: ["to_bp"] }),
       board(format, { [owner]: { hand: [], deckMaster: OUT } })],
   }));
+}
+
+// A seat-zero thief cannot expose a folded-control value used as an absolute seat.
+// Keep the original battle case, and test actual theft and return with each later thief.
+for (const format of ["ffa3", "ffa4", "tag"] as const) {
+  for (const thief of SEATS[format].slice(1)) {
+    const ti = SEATS[format].indexOf(thief);
+    const owner = SEATS[format][(ti + 1) % SEATS[format].length];
+    const order = SEATS[format];
+    const oi = order.indexOf(owner);
+    const toThief = [];
+    for (let i = oi; i !== ti; i = (i + 1) % order.length) toThief.push(endTurn(order[i]));
+    for (const spell of ["Snatch Steal", "Change of Heart"] as const) {
+      DOMAIN_NSEAT_STRESS_CONTROL.push(scenario(format, `later-thief-${thief}-${spell.toLowerCase().replaceAll(" ", "-")}-from-${owner}`, {
+        setup: setup(format, { [thief]: { hand: [spell, ...(spell === "Snatch Steal" ? ["Heavy Storm"] : [])] },
+          [owner]: { monsters: ["Mystical Elf"] } }),
+        steps: [...turnsBefore(format, owner), normalSummon({ card: MASTERS[owner], from: "dmz" }, owner), ...toThief,
+          activate(spell, thief), select({ card: MASTERS[owner], owner }), expectPrompt({ by: thief, context: "action" }),
+          board(format, { [thief]: { monsters: [MASTERS[owner]], ...(spell === "Snatch Steal" ? { spells: [spell] } : { grave: [spell] }) },
+            [owner]: { monsters: ["Mystical Elf"], deckMaster: OUT } }),
+          ...(spell === "Snatch Steal" ? [activate("Heavy Storm", thief)] : [endTurn(thief)]),
+          expectPrompt({ by: spell === "Snatch Steal" ? thief : owner, context: "action" }),
+          board(format, { [thief]: { grave: [spell, ...(spell === "Snatch Steal" ? ["Heavy Storm"] : [])] },
+            [owner]: { monsters: ["Mystical Elf", MASTERS[owner]], deckMaster: OUT } })],
+      }));
+    }
+  }
 }

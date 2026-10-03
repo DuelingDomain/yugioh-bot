@@ -8,8 +8,9 @@ battle	battle	all	ready	battle at n>2: attack order, direct attack, damage
 losses-team-lp	losses-team-lp	check	ready	losses, win, draw, team LP, Debug.EliminateDuelist
 elimination	elimination	check	ready	field::eliminate: cards, turns, chain, attack
 elimination-guards	elimination-guards	-	ready	a seat that is not alive gets no prompt and no card
-zones	zones	-	ready	zones at n>2: no Extra Monster Zone mirror, disabled zones
+zones	zones	-	ready	FFA4 shares across Extra Monster Zones; FFA3 and Tag keep separate zones; disabled-zone masks and stock two-seat bytes
 control-change	control-change	check	ready	control change and swap control at n>2, by a global effect (real seats) and by an effect of a card (folded values)
+control-steal-values	control-steal-values	-	ready	Control values and API destinations at every seat
 player-ids	player-ids	check	ready	seats 2 and 3 are real seats, PLAYER_NONE and PLAYER_ALL are not
 tag-partner	tag-partner	@DATA@/cards.tsv @SCRIPTS@ all	ready	Tag partner negation with real cards
 range-fold	range-fold	check	ready	core range fold in field.cpp and effect.cpp; the destroy part runs a card effect (folded), a global effect (real seats) and a global effect with a literal seat

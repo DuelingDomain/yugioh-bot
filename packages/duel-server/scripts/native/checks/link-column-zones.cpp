@@ -58,7 +58,7 @@ static bool lua(OCG_Duel d, const std::string& code) {
 // seat 2 board: X (102, bottom arrow) in the extra monster zone 5, Y (101, top arrow) at 1, Z (100, all arrows) at 2.
 static OCG_Duel board(int n) {
 	OCG_Duel d = make_duel();
-	if(n > 2 && !lua(d, "Debug.SetupDuelists(4,0,1,2,3)")) { std::printf("FAIL setup: %s\n", last_log.c_str()); std::exit(2); }
+	if(n > 2 && !lua(d, (n == 3 ? "Debug.SetupDuelists(3,0,1,2)" : "Debug.SetupDuelists(4,0,1,2,3)"))) { std::printf("FAIL setup: %s\n", last_log.c_str()); std::exit(2); }
 	for(int p = 0; p < n; ++p) {
 		for(int i = 0; i < 10; ++i) {
 			OCG_NewCardInfo info; std::memset(&info, 0, sizeof(info));
@@ -77,7 +77,7 @@ static OCG_Duel board(int n) {
 }
 static void zones(int n) {
 	OCG_Duel d = board(n);
-	const int seats = n > 2 ? 4 : 2;
+	const int seats = n;
 	struct Q { const char* name; const char* call; } qs[] = {
 		{"GetLinkedZone", "c:GetLinkedZone(%d)"},
 		{"GetFreeLinkedZone", "c:GetFreeLinkedZone(%d)"},
@@ -97,8 +97,11 @@ static void zones(int n) {
 		}
 		std::printf("n=%d %-20s seats 0..%d:%s\n", n, q.name, seats - 1, row.c_str());
 		if(n > 2) {
-			for(int cp = 0; cp < 4; ++cp) {
-				if(cp == 2) EXPECT((v[cp] >> 16) == 0, "%s own seat has high bits %08x", q.name, v[cp]);
+			for(int cp = 0; cp < n; ++cp) {
+				if(cp == 2) {
+					if(n == 3) EXPECT((v[cp] >> 16) == 0, "%s own seat has high bits %08x", q.name, v[cp]);
+				} else if(n == 4 && cp == 0)
+					EXPECT(v[cp] == (((v[2] & 0xffff) << 16) | (v[2] >> 16)), "%s across mask differs", q.name);
 				else EXPECT(v[cp] == 0, "%s seat %d is %08x, want 0", q.name, cp, v[cp]);
 			}
 		}

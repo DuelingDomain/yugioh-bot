@@ -1,4 +1,4 @@
-import { activate, expectChain, expectEliminated, expectPrompt, expectResult, pass, select, surrender, type Scenario } from "../../support/dsl.js";
+import { activate, expectChain, expectEliminated, expectPrompt, expectResult, pass, pickOpponent, select, surrender, type Scenario } from "../../support/dsl.js";
 import { stressBoard as board, stressScenario as scenario, stressSetup as setup } from "./domain-nseat-stress.js";
 
 const OUT = { inZone: false, returns: 0, nextCost: 0 };
@@ -11,7 +11,7 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
       p2: { spells: [{ card: "Dust Tornado", pos: "set" }] },
     }),
     rules: format === "tag" ? ["R-TAG-LOSS"] : ["R-FFA-CHAIN", "R-FFA-ELIMINATION"],
-    steps: [activate("Pot of Greed", "p0"), activate("Dust Tornado", "p1"), select("Swords of Revealing Light"),
+    steps: [activate("Pot of Greed", "p0"), activate("Dust Tornado", "p1"), ...(format !== "tag" ? [pickOpponent("p0", "p1")] : []), select("Swords of Revealing Light"),
       expectPrompt({ by: "p2", context: "chain" }), surrender("p1"),
       expectChain("Pot of Greed", "Dust Tornado"), expectPrompt({ by: "p2", context: "chain" }), pass("p2"),
       expectEliminated(format === "tag" ? ["p1", "p3"] : ["p1"]),

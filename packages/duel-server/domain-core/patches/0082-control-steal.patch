@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Release Check <release@localhost>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] control-steal-core final route
+
+---
+diff --git a/card.cpp b/card.cpp
+index 79654ac1..b0375ef0 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -2124,7 +2124,7 @@ std::pair<uint8_t, effect*> card::refresh_control_status() {
+ 	if(eset.size()) {
+ 		effect* peffect = eset.back();
+ 		if(peffect->id >= last_id) {
+-			const uint8_t controler = (uint8_t)peffect->get_value(this);
++			const uint8_t controler = peffect->get_control_value(this);
+ 			// with more than two duelists a control effect for a seat that is not alive is ignored
+ 			if(pduel->game_field->n_duelists == 2 || pduel->game_field->is_alive(controler)) {
+ 				final = controler;
+diff --git a/effect.cpp b/effect.cpp
+index c99d94f8..29319c71 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -11,6 +11,7 @@
+ #include "effect.h"
+ #include "field.h"
+ #include "interpreter.h"
++#include "fold.h"
+ 
+ bool effect_sort_id(const effect* e1, const effect* e2) {
+ 	return e1->id < e2->id;
+@@ -888,6 +889,31 @@ uint8_t effect::get_client_mode() const {
+ 	else
+ 		return EFFECT_CLIENT_MODE_NORMAL;
+ }
++// Only control values are players. Other effect values retain their stock numeric meaning.
++uint8_t effect::get_control_value(card* pcard) {
++	const bool callback = is_flag(EFFECT_FLAG_FUNC_VALUE);
++	// Core-created control/reset effects already contain real seats, even inside a Lua call.
++	if(pduel->game_field->n_duelists == 2 || (!callback && value_player == DUELIST_NONE))
++		return static_cast<uint8_t>(get_value(pcard));
++	const uint8_t P = callback ? get_handler_player() : value_player;
++	uint8_t bound = value_opp;
++	interpreter::scope_guard scope(pduel->lua);
++	// Keep the callback's perspective alive until its returned player has been unfolded.
++	if(!scope.push(P, &bound, false, false, callback ? this : nullptr, true))
++		return static_cast<uint8_t>(get_value(pcard));
++	const auto result = get_value(pcard);
++	if(result < 0 || result > UINT8_MAX)
++		return fold::INVALID;
++	// A single-card control value that names that card's other-side owner must
++	// retain the real owner. Folding loses which opponent owns the card; a bound
++	// opponent or the next-opponent fallback cannot supply that information.
++	const auto* perspective = fold::active(pduel);
++	if(perspective && get_handler() == pcard && result <= 1
++		&& !fold::is_own(*pduel->game_field, perspective->P, static_cast<uint8_t>(result))
++		&& pduel->lua->fold_out(pcard->owner) == result)
++		return pduel->game_field->is_alive(pcard->owner) ? pcard->owner : fold::INVALID;
++	return fold::unfold_action(pduel, static_cast<uint8_t>(result), "EFFECT_SET_CONTROL");
++}
+ lua_Integer effect::get_value(uint32_t extraargs) {
+ 	if(is_flag(EFFECT_FLAG_FUNC_VALUE)) {
+ 		field::zone_mask_scope zone_scope(pduel->game_field, this);
+diff --git a/effect.h b/effect.h
+index 3c0fa36a..7945f1e8 100644
+--- a/effect.h
++++ b/effect.h
+@@ -71,6 +71,9 @@ public:
+ 	int32_t condition{};
+ 	int32_t cost{};
+ 	int32_t target{};
++	// Lua literals keep their creation perspective; core-created values are real seats.
++	uint8_t value_player{ DUELIST_NONE };
++	uint8_t value_opp{ DUELIST_NONE };
+ 	int32_t value{};
+ 	int32_t operation{};
+ 	// Read-only operation metadata: an activated opponent-only field/player effect needs a declaration.
+@@ -123,6 +126,7 @@ public:
+ 	bool has_function_value() const {
+ 		return is_flag(EFFECT_FLAG_FUNC_VALUE);
+ 	}
++	uint8_t get_control_value(card* pcard);
+ 	lua_Integer get_value(uint32_t extraargs = 0);
+ 	lua_Integer get_value(card* pcard, uint32_t extraargs = 0);
+ 	lua_Integer get_value(effect* peffect, uint32_t extraargs = 0);
+diff --git a/libeffect.cpp b/libeffect.cpp
+index 6a3064c0..31363da5 100644
+--- a/libeffect.cpp
++++ b/libeffect.cpp
+@@ -260,6 +260,11 @@ LUA_FUNCTION(SetCost) {
+ }
+ LUA_FUNCTION(SetValue) {
+ 	check_param_count(L, 2);
++	if(pduel->game_field->n_duelists > 2) {
++		const auto* scope = fold::active(pduel);
++		self->value_player = scope ? scope->P : DUELIST_NONE;
++		self->value_opp = scope ? pduel->lua->scope_bound_opp() : DUELIST_NONE;
++	}
+ 	if(self->value && self->is_flag(EFFECT_FLAG_FUNC_VALUE))
+ 		ensure_luaL_stack(luaL_unref, L, LUA_REGISTRYINDEX, self->value);
+ 	if (lua_isfunction(L, 2)) {

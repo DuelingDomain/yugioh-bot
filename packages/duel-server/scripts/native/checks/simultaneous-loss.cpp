@@ -230,7 +230,7 @@ static void check_s1() {
 		"  e:SetCode(4)\n"          // EFFECT_SET_CONTROL
 		"  e:SetProperty(1024)\n"   // EFFECT_FLAG_CANNOT_DISABLE
 		"  local who=a[1]\n"
-		"  e:SetValue(function(e,c) return who end)\n"
+		"  e:SetValue(function(e,c) return e:GetHandlerPlayer() end)\n"
 		"  c:RegisterEffect(e)\n"
 		"end\n");
 	OCG_StartDuel(g.d);
