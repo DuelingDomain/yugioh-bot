@@ -18,8 +18,8 @@ function returns(format: Format, actor: Seat, target: Seat, card: string, code: 
   return defineScenario({
     id: `owner-field-${code}-${format}-${actor}-returns-to-${target}`,
     title: `${label(format)}: ${actor} uses ${card}; the monster returns to ${target}`,
-    source: `${SOURCE} [R-COMMON-SEAT-STATE] the real owner of the target`,
-    rules: ['R-COMMON-SEAT-STATE'], tags: ['multiplayer', format, `card:${code}`],
+    source: `${SOURCE} [R-COMMON-RETURN-TO-OWNER] the target returns to its real owner`,
+    rules: ['R-COMMON-RETURN-TO-OWNER'], tags: ['multiplayer', format, `card:${code}`],
     setup: baseSetup(format, setup),
     steps: [
       ...(knight ? turnsBefore(format, actor) : actor === 'p0' ? [] : [endTurn('p0')]), activate(card, actor),

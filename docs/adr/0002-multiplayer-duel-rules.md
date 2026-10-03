@@ -21,6 +21,7 @@ The FFA rules for "your opponent" are in the free-for-all section. Tag uses the 
 - `[R-COMMON-EMZ]` **Separate Extra Monster Zones (FFA3 and Tag).** Each duelist has their own two Extra Monster Zones (EMZ). FFA3 columns are separate too. As in 1v1 (Master Rule 4 and 5), a duelist may use one EMZ, and may use the second only when the 1v1 rules allow it. Different duelists' EMZ do not block each other. FFA4 uses R-FFA-ACROSS-EMZ (pending engine change).
 - `[R-COMMON-FL-LIST]` The Forbidden & Limited List applies per duelist (per Deck).
 - `[R-COMMON-SEAT-STATE]` **Per-player flags and counters (owner decision Q6).** A flag or counter that a card keeps for each player (for example Curse of the Circle, Wiseman's Chalice, Fatal Abacus) has one slot per seat in free-for-all and one slot per team in Tag. The key is the team in Tag and the seat in free-for-all (rule R2 of the triage).
+- `[R-COMMON-RETURN-TO-OWNER]` **Effects that return a card to its owner.** In every duel format, including 2v2 Tag, an effect that returns a card to its owner's field, hand, Deck, Extra Deck, Graveyard or banishment uses the real owner seat. The controller and the player who applies the effect do not change that destination. Apply the card text for the destination and the fallback when the return is not possible. This rule does not replace `[R-FFA-RETURN-OWNED-CARDS]`, which applies only to elimination.
 
 ## 2v2 Tag (official TCG Tag Duel rules)
 
