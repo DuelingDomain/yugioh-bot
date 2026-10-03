@@ -22,6 +22,7 @@ function probe(format: Format, actor: 0 | 1, [code,card]: typeof CARDS[number]):
  }else if(code===52038441){
   setup[seat(actor)]!.hand=[card];setup[seat(late)]!.hand=[...(setup[seat(late)]!.hand as string[]),"Monster Reborn","Dark Hole"];setup[seat(late)]!.grave=["Beaver Warrior"];setup[seat(other)]!.grave=["Celtic Guardian"];board[seat(other)]!.grave=["Celtic Guardian"];
   for(let j=0;j<late;j++)turn(j);
+  // Monster Reborn reads either GY. Choose the card without an opponent declaration.
   steps.push(activate("Monster Reborn",seat(late)),select({card:"Beaver Warrior",owner:seat(late)}),activate(card,seat(actor)),activate("Dark Hole",seat(late)));
   board[seat(actor)]!.grave=[card];board[seat(late)]!.grave=["Beaver Warrior","Monster Reborn","Dark Hole"];damage(late,1200);
  }else if(code===81385346||code===13574687){
