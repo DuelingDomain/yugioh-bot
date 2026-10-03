@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { packsSentence, poolRowText, secondsText, tallyPool, themeSelectionText } from "../src/components/draft/create/format";
+import { loadedPoolHint, packsSentence, poolRowText, savedPoolIds, secondsText, tallyPool, themeSelectionText } from "../src/components/draft/create/format";
 import type { CardSummary } from "../src/lib/card-types";
 
 const card = (type: string, qty?: number) => ({ id: 1, name: "x", type, frameType: "normal", qty }) as CardSummary;
@@ -16,6 +16,23 @@ describe("new draft summary helpers", () => {
     expect(poolRowText(1, 0)).toBe("1 set");
     expect(poolRowText(0, 1)).toBe("1 passcode");
     expect(poolRowText(0, 0)).toBe("Nothing yet");
+  });
+
+  it("loads a saved pool as its config passcodes plus its main-pool cards", () => {
+    expect(savedPoolIds([5, 5, 6], [6, 7, 7, 8])).toEqual([5, 5, 6, 7, 8]);
+    expect(savedPoolIds([], [7, 8])).toEqual([7, 8]);
+    expect(savedPoolIds([5, 6])).toEqual([5, 6]);
+    expect(savedPoolIds(undefined, undefined)).toEqual([]);
+  });
+
+  it("reports the real count when a saved pool loads", () => {
+    expect(loadedPoolHint("Dark Magician", 0, 100)).toBe(
+      "Loaded Dark Magician: 100 passcodes. Loading replaces the pool below.",
+    );
+    expect(loadedPoolHint("Mixed", 2, 3, 1)).toBe(
+      "Loaded Mixed: 2 sets, 3 passcodes. 1 Extra Deck card isn't loaded; cube drafts deal main-deck cards. Loading replaces the pool below.",
+    );
+    expect(loadedPoolHint("Mixed", 0, 3, 8)).toContain("8 Extra Deck cards aren't loaded");
   });
 
   it("says what the pack numbers add up to, dropping the leftover sentence when there is none", () => {

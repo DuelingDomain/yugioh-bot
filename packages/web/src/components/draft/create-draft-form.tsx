@@ -8,7 +8,7 @@ import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import { PoolBuilder } from "@/components/cards/pool-builder";
 import { ArchetypeAdd } from "./create/archetype-add";
 import { PoolPreview } from "./create/pool-preview";
-import { poolRowText, secondsText } from "./create/format";
+import { loadedPoolHint, poolRowText, savedPoolIds, secondsText } from "./create/format";
 import styles from "./create/create.module.css";
 import type { CardSummary } from "@/lib/card-types";
 import {
@@ -22,7 +22,7 @@ import {
 } from "./draft-config-fields";
 
 type Channel = { id: string; name: string };
-type DraftTemplate = { id: number; name: string; config: DraftConfig };
+type DraftTemplate = { id: number; name: string; config: DraftConfig; extraCount?: number };
 
 export function CreateDraftForm() {
   const router = useRouter();
@@ -76,18 +76,30 @@ export function CreateDraftForm() {
     let cancelled = false;
     fetch("/api/cubes")
       .then((res) => (res.ok ? res.json() : { cubes: [] }))
-      .then((data: { cubes?: Array<{ id: number; name: string; setNames?: string[]; customCardIds?: number[] }> }) => {
-        if (cancelled) return;
-        // Cubes carry their pool as setNames/customCardIds; surface them as loadable
-        // saved pools for the shared cube draft.
-        setTemplates(
-          (data.cubes ?? []).map((c) => ({
-            id: c.id,
-            name: c.name,
-            config: { setNames: c.setNames ?? [], customCardIds: c.customCardIds ?? [] },
-          })),
-        );
-      })
+      .then(
+        (data: {
+          cubes?: Array<{
+            id: number;
+            name: string;
+            setNames?: string[];
+            customCardIds?: number[];
+            mainCardIds?: number[];
+            extraCount?: number;
+          }>;
+        }) => {
+          if (cancelled) return;
+          // A cube's pool is its config sets/passcodes plus the cards in its main pool;
+          // surface both as loadable saved pools for the shared cube draft.
+          setTemplates(
+            (data.cubes ?? []).map((c) => ({
+              id: c.id,
+              name: c.name,
+              config: { setNames: c.setNames ?? [], customCardIds: savedPoolIds(c.customCardIds, c.mainCardIds) },
+              extraCount: c.extraCount ?? 0,
+            })),
+          );
+        },
+      )
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
@@ -131,7 +143,7 @@ export function CreateDraftForm() {
     setSavedName(null);
     const nSets = (c.setNames ?? []).length;
     const nIds = (c.customCardIds ?? []).length;
-    setLoadedHint(`Loaded ${template.name}: ${poolRowText(nSets, nIds)}. Loading replaces the pool below.`);
+    setLoadedHint(loadedPoolHint(template.name, nSets, nIds, template.extraCount ?? 0));
   };
 
   const handleTemplateChange = (tName: string) => {

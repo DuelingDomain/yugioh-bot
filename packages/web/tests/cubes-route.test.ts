@@ -92,6 +92,32 @@ describe("cube API routes", () => {
     expect(body.cubes.map((c: any) => c.name)).toContain("Stun");
   });
 
+  it("lists the main-pool passcodes of an editor-built cube so a saved pool can load them", async () => {
+    await setupDb();
+    const { POST: createCube, GET: listCubes } = await import("../app/api/cubes/route");
+    const created = await createCube(
+      new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Dark Magician" }) }) as any,
+    );
+    const { cube } = await created.json();
+    const { POST: mutate } = await import("../app/api/cubes/[id]/cards/route");
+    await mutate(
+      new Request("http://x", { method: "POST", body: JSON.stringify({ op: "import", codes: [1, 2] }) }) as any,
+      { params: Promise.resolve({ id: String(cube.id) }) },
+    );
+    await createCube(
+      new Request("http://x", {
+        method: "POST",
+        body: JSON.stringify({ name: "Saved", config: { setNames: ["Set A"], customCardIds: [1, 1] } }),
+      }) as any,
+    );
+
+    const body = await (await listCubes()).json();
+    const built = body.cubes.find((c: any) => c.name === "Dark Magician");
+    expect(built).toMatchObject({ mainCount: 1, extraCount: 1, mainCardIds: [1], customCardIds: [] });
+    const saved = body.cubes.find((c: any) => c.name === "Saved");
+    expect(saved).toMatchObject({ setNames: ["Set A"], customCardIds: [1, 1], mainCardIds: [] });
+  });
+
   it("saves a config-backed cube (pool) and rejects a duplicate name", async () => {
     await setupDb();
     const { POST: createCube } = await import("../app/api/cubes/route");

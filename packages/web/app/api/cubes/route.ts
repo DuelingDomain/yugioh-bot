@@ -33,9 +33,14 @@ export async function GET() {
   const counts = db.prepare(
     "select pool, count(*) as n from cube_cards where cube_id = ? group by pool",
   );
+  const mainCards = db.prepare(
+    "select catalog_card_id from cube_cards where cube_id = ? and pool = 'main' order by rowid asc",
+  );
 
   // One shape serves both the Cubes library (main/extra counts) and the saved-pool
-  // loaders in the cube-draft create form / settings (setNames + customCardIds).
+  // loaders in the cube-draft create form / settings (setNames + customCardIds). A cube
+  // built in the editor keeps its cards in cube_cards, not in config, so mainCardIds
+  // carries those passcodes for the loaders.
   const cubes = rows.map((row) => {
     const poolCounts = counts.all(row.id) as Array<{ pool: string; n: number }>;
     const config = JSON.parse(row.config_json || "{}") as { setNames?: string[]; customCardIds?: number[] };
@@ -48,6 +53,7 @@ export async function GET() {
       extraCount: poolCounts.find((p) => p.pool === "extra")?.n ?? 0,
       setNames: Array.isArray(config.setNames) ? config.setNames : [],
       customCardIds: Array.isArray(config.customCardIds) ? config.customCardIds : [],
+      mainCardIds: (mainCards.all(row.id) as Array<{ catalog_card_id: number }>).map((r) => r.catalog_card_id),
     };
   });
 
