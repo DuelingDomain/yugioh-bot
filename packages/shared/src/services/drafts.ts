@@ -594,7 +594,10 @@ export function createDraftService(
         .filter(([id, count]) => count > 0 && !isCapped(held, id))
         .map(([id]) => id);
       if (candidates.length === 0) {
-        markFinished.run(nowIso, draftId, player.player_id);
+        // Exhausting Main must not exclude the player from their Extra rounds.
+        if (phase === "extra" || totalThemeRounds(config) === cardsPerPlayer) {
+          markFinished.run(nowIso, draftId, player.player_id);
+        }
         continue;
       }
 
@@ -723,7 +726,9 @@ export function createDraftService(
 
     // A player never gets more than MAX_COPIES_PER_PLAYER of one card, so a cube with many
     // copies of a few cards cannot fill a deck even when the raw count looks big enough.
-    const requiredReachable = burnUnpicked ? cardsPerPlayer : requiredMain;
+    // Each burned choice can consume a reachable copy too. Requiring enough
+    // capped-reachable copies for all choices is conservative for any pick order.
+    const requiredReachable = requiredMain;
 
     for (const row of rows) {
       if (row.main_size < requiredMain) {
@@ -733,7 +738,7 @@ export function createDraftService(
       }
       if (row.reachable_size < requiredReachable) {
         throw new Error(
-          `Cube ${row.cube_id} gives one player only ${row.reachable_size} main-pool cards (at most ${MAX_COPIES_PER_PLAYER} copies of a card) but needs ${requiredReachable} to fill a ${cardsPerPlayer}-card main deck.`,
+          `Cube ${row.cube_id} gives one player only ${row.reachable_size} main-pool cards (at most ${MAX_COPIES_PER_PLAYER} copies of a card) but needs ${requiredReachable} to fill a ${cardsPerPlayer}-card main deck${burnUnpicked ? " including burned choices (burn on)" : ""}.`,
         );
       }
     }

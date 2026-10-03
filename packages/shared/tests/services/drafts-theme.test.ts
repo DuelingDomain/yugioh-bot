@@ -356,6 +356,24 @@ describe("theme draft — start & assignment", () => {
 });
 
 describe("theme draft — full draft completion", () => {
+  it.each([1, 2])("keeps %i players with exhausted main pools eligible for Extra rounds", (exhausted) => {
+    const { db, drafts, draftId, playerIds, themeIds } = makeThemeDraft({
+      config: { cardsPerPlayer: 3, themePackSize: 1, extraDeckEnabled: true, extraDeckSize: 2 },
+      themes: [{ main: 3, extra: 2 }, { main: 3, extra: 2 }], assign: [0, 1],
+    });
+    drafts.start(draftId);
+    // An active draft can outlive changes to its library pools.
+    for (const id of themeIds.slice(0, exhausted)) {
+      db.prepare("delete from cube_cards where cube_id = ? and pool = 'main'").run(id);
+    }
+    runToCompletion(drafts, draftId, playerIds);
+    expect(drafts.findById(draftId).status).toBe("completed");
+    for (const playerId of playerIds) {
+      expect(drafts.pool(draftId, playerId).filter((card) => card.packRound > 3)).toHaveLength(2);
+    }
+    db.close();
+  });
+
   it("runs a full main-only theme draft to completion (2 players)", () => {
     const { drafts, draftId, playerIds } = makeThemeDraft({
       config: { extraDeckEnabled: false, cardsPerPlayer: 40, themePackSize: 3, themeSelection: "random" },

@@ -244,10 +244,12 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       } else {
         // A player never gets more than 3 copies of one card, so a few card names with many copies cannot fill a deck.
         const mainReachable = playerReachableSize(pools.main);
-        const mainReachableNeeded = config.burnUnpicked ? config.cardsPerPlayer : mainNeeded;
+        // Burned choices also spend reachable copies; excess copies above the
+        // player cap cannot stand in for the choices needed in later rounds.
+        const mainReachableNeeded = mainNeeded;
         if (mainReachable < mainReachableNeeded) {
           errors.push(
-            `A player can take at most ${MAX_COPIES_PER_PLAYER} copies of a card, so this main pool gives ${mainReachable} cards but a ${config.cardsPerPlayer}-card main deck needs ${mainReachableNeeded}. Add more different cards.`,
+            `A player can take at most ${MAX_COPIES_PER_PLAYER} copies of a card, so this main pool gives ${mainReachable} cards but a ${config.cardsPerPlayer}-card main deck needs ${mainReachableNeeded}${config.burnUnpicked ? " including burned choices (burn on)" : ""}. Add more different cards.`,
           );
         }
       }

@@ -346,6 +346,37 @@ describe("per-player copy cap in theme drafts", () => {
     const { start } = themeDraft([heavy, heavy], { cardsPerPlayer: 10, themePackSize: 1 });
     expect(() => start()).toThrow(/at most 3 copies of a card/);
   });
+
+  it("rejects a burn pool whose excess copies hide too few reachable choices", () => {
+    const narrow: Array<[number, number]> = [
+      ...distinctCube(14).map((id): [number, number] => [id, 3]), [15, 99],
+    ];
+    const { drafts, draftId, start, cubesService, cubeIds } = themeDraft([narrow, narrow], {
+      cardsPerPlayer: 40, themePackSize: 3, burnUnpicked: true,
+    });
+    const analysis = cubesService.analyzeCubePools(cubeIds[0], {
+      cardsPerPlayer: 40, themePackSize: 3, burnUnpicked: true, extraDeckEnabled: false, extraDeckSize: 0,
+    });
+    expect(analysis.ok).toBe(false);
+    expect(analysis.errors.join(" ")).toMatch(/burn/i);
+    expect(() => start()).toThrow(/burn/i);
+    expect(drafts.findById(draftId).status).toBe("pending");
+  });
+
+  it("fills a burn deck when the conservative reachable bound is met", () => {
+    const enough: Array<[number, number]> = distinctCube(15).map((id) => [id, 3]);
+    const { drafts, draftId, start, players } = themeDraft([enough, enough], {
+      cardsPerPlayer: 15, themePackSize: 3, burnUnpicked: true,
+    });
+    start();
+    for (let guard = 0; guard < 40 && drafts.findById(draftId).status === "active"; guard += 1) {
+      for (const playerId of players) {
+        const options = drafts.pickOptions(draftId, playerId);
+        if (options.length) drafts.pickCard(draftId, playerId, options[0].id);
+      }
+    }
+    expect(players.map((id) => drafts.pool(draftId, id).length)).toEqual([15, 15]);
+  });
 });
 
 describe("cube copies above the per-player cap", () => {
