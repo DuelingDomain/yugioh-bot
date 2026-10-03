@@ -48,6 +48,7 @@ interface CubeDto {
 type PoolName = "main" | "extra";
 
 interface UndoInfo {
+  removalId: number;
   message: string;
   catalogCardId: number;
   pool: PoolName;
@@ -85,6 +86,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
   const [view, setView] = React.useState<PoolView>(DEFAULT_VIEW);
   const [selectedId, setSelectedId] = React.useState<number | null>(null);
   const [undo, setUndo] = React.useState<UndoInfo | null>(null);
+  const removalSequence = React.useRef(0);
   const [addSheetOpen, setAddSheetOpen] = React.useState(false);
   const [railHidden, setRailHidden] = React.useState(false);
   const layoutRef = React.useRef<HTMLDivElement>(null);
@@ -187,6 +189,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     if (!result) return;
     setSelectedId(null);
     setUndo({
+      removalId: ++removalSequence.current,
       message: `Removed ${name} (×${entry.maxCopies}) from ${pool === "main" ? "Main" : "Extra"}`,
       catalogCardId: entry.catalogCardId,
       pool,
@@ -635,7 +638,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
           <AddCardsBody {...railProps} />
         </CubeBottomSheet>
       )}
-      {undo && <UndoToast message={undo.message} busy={busy} onUndo={() => void undoRemove()} onDismiss={dismissUndo} />}
+      {undo && <UndoToast key={undo.removalId} message={undo.message} busy={busy} onUndo={() => void undoRemove()} onDismiss={dismissUndo} />}
     </SheetRoot>
   );
 }

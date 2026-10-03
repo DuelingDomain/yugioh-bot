@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CubeEditor } from "@/components/cubes/cube-editor";
 import styles from "@/components/cubes/cubes.module.css";
@@ -72,12 +72,16 @@ beforeEach(() => {
           json: async () => ({ cube: { id: 5, name: "Custom", archetype: null, banlist }, ...detail() }),
         } as Response;
       }
+      if (url.endsWith("/api/cards/resolve")) {
+        return { ok: true, json: async () => ({ cards: CARDS }) } as Response;
+      }
       return { ok: true, json: async () => ({ cards: [] }) } as Response;
     }),
   );
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -185,6 +189,35 @@ describe("CubeEditor", () => {
       await waitFor(() => expect(posts).toHaveLength(2));
       expect(posts[1]).toEqual({ op: "add", catalogCardId: 1, pool: "main", maxCopies: 2 });
       await screen.findByRole("button", { name: "Main A, 2 copies" });
+    });
+
+    it("keeps Undo available for ten seconds after a repeated removal with the same message", async () => {
+      main = [{ catalogCardId: 1, pool: "main", maxCopies: 3 }];
+      await open();
+      vi.useFakeTimers();
+
+      fireEvent.click(screen.getByRole("button", { name: "Main A, 3 copies" }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Remove from cube" }));
+      });
+      expect(screen.getByText("Removed Main A (×3) from Main")).toBeInTheDocument();
+
+      act(() => { vi.advanceTimersByTime(9000); });
+      fireEvent.change(screen.getByLabelText("Card name"), { target: { value: "Main A" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Add Main A" }));
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Main A, 3 copies" }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Remove from cube" }));
+      });
+      expect(screen.getByText("Removed Main A (×3) from Main")).toBeInTheDocument();
+
+      act(() => { vi.advanceTimersByTime(9999); });
+      expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
     });
 
     it("shows the Theme Draft check against 42 main and 17 extra", async () => {
