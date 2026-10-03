@@ -1,10 +1,6 @@
-import { describeWithCores, needs } from "../../support/cores.js";
-import { liveNseat } from "../../support/live-nseat.js";
-import { runScenarios } from "../../support/runner.js";
 import { activate, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered,
   expectPickSeats, expectPrompt, expectTurn, normalSummon, pickOpponent,
   type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
-import { domainVariant } from "./domain-variants.js";
 const ELF = "Mystical Elf";
 const SEAL = "Time Seal";
 const YOWIE = "Yowie";
@@ -22,10 +18,10 @@ function board(format: Format, draws: number[], changes: BoardExpect = {}): Step
   }])));
 }
 function proof(format: Format, name: string, setup: Scenario["setup"], steps: Step[]): Scenario {
-  return defineScenario({ id: `w18-${format}-${name}`, title: `${format}: ${name}`,
-    source: "docs/adr/0002-multiplayer-duel-rules.md; R-FFA-OPP-ONE; R-FFA-ACTIVATED-LOCK; card script",
-    tags: ["multiplayer", "w18-reset", format],
-    rules: format.startsWith("ffa") ? ["R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK"] : ["R-COMMON-ONGOING"],
+  return defineScenario({ id: `declared-duration-${format}-${name}`, title: `${format}: ${name}`,
+    source: "docs/adr/0002-multiplayer-duel-rules.md; [R-FFA-OPP-ONE]; [R-FFA-ACTIVATED-LOCK]; [R-FFA-DECLARED-DURATION]; card script",
+    tags: ["multiplayer", "declared-duration", format],
+    rules: format.startsWith("ffa") ? ["R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-DECLARED-DURATION"] : ["R-COMMON-ONGOING"],
     setup: { format, ...setup }, steps });
 }
 function drawLock(format: Format, card = SEAL): Scenario {
@@ -69,6 +65,4 @@ function endLock(format: "ffa3" | "ffa4"): Scenario {
   steps.push(board(format, [...draws], state));
   return proof(format, "boardefly-lock-ends-after-the-declared-turn", setup, steps);
 }
-const scenarios = [drawLock("ffa4"), drawLock("ffa3", YOWIE), drawLock("1v1"), drawLock("tag"), endLock("ffa3"), endLock("ffa4")];
-describeWithCores("W18 reset tests", liveNseat, () => runScenarios("multiplayer/w18-reset", scenarios));
-describeWithCores("W18 Domain reset tests", [liveNseat, ...needs.domainMulti()], () => runScenarios("multiplayer/w18-reset-domain", scenarios.map(domainVariant)));
+export const DECLARED_DURATION_RESET_SCENARIOS = [drawLock("ffa4"), drawLock("ffa3", YOWIE), drawLock("1v1"), drawLock("tag"), endLock("ffa3"), endLock("ffa4")];
