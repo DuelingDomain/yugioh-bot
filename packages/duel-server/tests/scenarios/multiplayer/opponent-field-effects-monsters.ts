@@ -329,8 +329,8 @@ const SPECS: EffectSpec[] = [
   {
     code: 63013339, name: "Sky Striker Ace - Camellia", slug: "sky-striker-ace-camellia", does: "Special Summons itself when it is sent to the Graveyard",
     p0: { hand: ["Tribute to The Doomed", "Giant Rat"], monsters: ["Sky Striker Ace - Camellia"] },
-    steps: (roles) => [activate("Tribute to The Doomed", "p0"), ...(roles.format === "tag" ? [] : [select("Giant Rat")]), select("Sky Striker Ace - Camellia"), yes("p0")],
-    then: (roles) => [select({ card: ELF, owner: roles.tgt })],
+    steps: [activate("Tribute to The Doomed", "p0"), select("Sky Striker Ace - Camellia"), yes("p0")],
+    then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: roles.tgt })] : [],
     p0End: { grave: ["Giant Rat", "Tribute to The Doomed"] },
     tgtEnd: { monsters: ["Sky Striker Ace - Camellia"], grave: [ELF] },
   },
