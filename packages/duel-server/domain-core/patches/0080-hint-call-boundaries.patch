@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Release Check <release@localhost>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] A012 final route
+
+---
+diff --git a/libduel.cpp b/libduel.cpp
+index c773bdd..f68f470 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -3531,12 +3531,9 @@ LUA_STATIC_FUNCTION(Hint) {
+ 		const auto value=lua_get<uint8_t>(L,2);
+ 		const auto desc=lua_get<uint64_t>(L,3);
+ 		const auto* scope=fold::active(pduel);
++		std::vector<uint8_t> recipients;
+ 		auto send=[&](uint8_t seat) {
+-			if(!gf.is_alive(seat)) return;
+-			auto message=pduel->new_message(MSG_HINT);
+-			message->write<uint8_t>(htype);
+-			message->write<uint8_t>(seat);
+-			message->write<uint64_t>(desc);
++			if(gf.is_alive(seat)) recipients.push_back(seat);
+ 		};
+ 		auto opponents=[&](uint8_t actor) {
+ 			if(!gf.is_duelist(actor)) return;
+@@ -3559,6 +3556,20 @@ LUA_STATIC_FUNCTION(Hint) {
+ 		} else if(gf.is_duelist(value)) {
+ 			send(value);
+ 		}
++		// One boundary per Lua call, before its contiguous recipient messages.
++		// The count lets clients deduplicate fanout without losing later equal calls.
++		if(!recipients.empty() && (htype==HINT_EVENT || htype==HINT_MESSAGE)) {
++			auto boundary=pduel->new_message(MSG_HINT);
++			boundary->write<uint8_t>(HINT_LOG_CALL);
++			boundary->write<uint8_t>(DUELIST_NONE);
++			boundary->write<uint64_t>(recipients.size());
++		}
++		for(const auto seat:recipients) {
++			auto message=pduel->new_message(MSG_HINT);
++			message->write<uint8_t>(htype);
++			message->write<uint8_t>(seat);
++			message->write<uint64_t>(desc);
++		}
+ 		return 0;
+ 	}
+ 	auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "Hint");
+diff --git a/ocgapi_constants.h b/ocgapi_constants.h
+index 9f23cef..1f85a43 100644
+--- a/ocgapi_constants.h
++++ b/ocgapi_constants.h
+@@ -301,6 +301,8 @@
+ #define MSG_REMOVE_CARDS         190
+ 
+ /* Duel Hints */
++// N-seat internal metadata: one Lua log-hint call; player=DUELIST_NONE, data=recipient count.
++#define HINT_LOG_CALL   0xf1
+ #define HINT_EVENT      1
+ #define HINT_MESSAGE    2
+ #define HINT_SELECTMSG  3

@@ -526,6 +526,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let nextLogId = 1;
   let nextEventId = 1;
   let lastSelectHint: string | undefined;
+  // HINT_LOG_CALL (0xf1) is internal N-seat metadata, not a UI hint.
+  let logHintRecipientsLeft = 0;
+  let loggedHintCall = false;
   /** Card named by the core's last HINT_CARD: the card whose effect the following prompts belong to. */
   let lastHintCard: number | undefined;
   /** Seat of the core's last HINT_PLACE_SEAT: the owner of the high half of the next place mask. One prompt only. */
@@ -564,14 +567,23 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         sawRetry = true;
         return;
       case OcgMessageType.HINT:
-        if (Number(message.hint_type) === HINT_PLACE_SEAT) {
+        if (multi && Number(message.hint_type) === 0xf1 && message.player === 0xff
+          && message.hint >= 1n && message.hint <= BigInt(seatCount)) {
+          logHintRecipientsLeft = Number(message.hint);
+          loggedHintCall = false;
+        } else if (Number(message.hint_type) === HINT_PLACE_SEAT) {
           lastPlaceSeat = placeSeatHint(message) ?? undefined;
         } else if (message.hint_type === OcgHintType.SELECTMSG) {
           // Placeholders are filled when the prompt is built, against the card the prompt names.
           lastSelectHint = cards.resolveLabel(message.hint) || cards.system(Number(message.hint));
         } else if (message.hint_type === OcgHintType.EVENT || message.hint_type === OcgHintType.MESSAGE) {
           const text = fillPlaceholders(cards.resolveLabel(message.hint) || cards.system(Number(message.hint)) || "", [hintCardName()]);
-          if (text) appendLog(text);
+          const duplicateRecipient = logHintRecipientsLeft > 0 && loggedHintCall;
+          if (logHintRecipientsLeft > 0) {
+            logHintRecipientsLeft -= 1;
+            loggedHintCall = true;
+          }
+          if (text && !duplicateRecipient) appendLog(text);
         } else if (message.hint_type === OcgHintType.CARD) {
           lastHintCard = Number(message.hint) || undefined;
         }
