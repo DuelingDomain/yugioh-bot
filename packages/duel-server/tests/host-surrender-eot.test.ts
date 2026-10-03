@@ -610,6 +610,70 @@ Duel.RegisterEffect(e,${actor})`]);
       }, 60_000);
     }
 
+    for (const action of ["destroy borrowed", "move borrowed", "reset living trap", "shuffle living sets"] as const) {
+      it.each(["ffa3", "ffa4"] as const)(`R-COMMON-SURRENDER-EOT: %s response participants follow the action (${action})`, async (format) => {
+        const closes = action === "destroy borrowed" || action === "move borrowed";
+        const script = action === "reset living trap" ? `local c=Debug.AddCard(28649820,1,1,LOCATION_MZONE,1,POS_FACEUP_DEFENSE)
+local t=Effect.CreateEffect(c)
+t:SetType(EFFECT_TYPE_SINGLE)
+t:SetCode(EFFECT_CHANGE_TYPE)
+t:SetValue(TYPE_MONSTER|TYPE_TRAP|TYPE_EFFECT|TYPE_TRAPMONSTER)
+t:SetReset(RESET_EVENT|RESETS_STANDARD|RESET_TURN_SET)
+c:RegisterEffect(t)` : action === "shuffle living sets" ? `local c=Debug.AddCard(60082869,2,0,LOCATION_SZONE,1,POS_FACEDOWN)
+local d=Debug.AddCard(60082869,2,1,LOCATION_SZONE,2,POS_FACEDOWN)
+local start=Effect.GlobalEffect()
+start:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+start:SetCode(EVENT_STARTUP)
+start:SetOperation(function() local p=Duel.MPActionSeat(1) Duel.MoveToField(c,p,p,LOCATION_SZONE,POS_FACEDOWN,true) end)
+Duel.RegisterEffect(start,1)` : `local c=Debug.AddCard(15025844,2,0,LOCATION_MZONE,1,POS_FACEUP_ATTACK)
+local control=0
+local holder=Effect.CreateEffect(c)
+holder:SetType(EFFECT_TYPE_SINGLE)
+holder:SetCode(EFFECT_SET_CONTROL)
+holder:SetValue(function() return control end)
+c:RegisterEffect(holder)`;
+        const operation = action === "destroy borrowed" ? "Duel.Destroy(c,REASON_EFFECT)"
+          : action === "move borrowed" ? "control=1 local p=Duel.MPActionSeat(1) Duel.MoveToField(c,p,p,LOCATION_MZONE,POS_FACEUP_ATTACK,true)"
+          : action === "reset living trap" ? "Duel.ChangePosition(c,POS_FACEDOWN_DEFENSE)"
+          : "Duel.ShuffleSetCard(Group.FromCards(c,d))";
+        const t = await table(mode, format, true, [`${script}
+local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
+e:SetCountLimit(1)
+e:SetOperation(function() if Duel.GetTurnCount()==1 then ${operation} end end)
+Duel.RegisterEffect(e,1)`]);
+        const responder = t.count - 1;
+        if (closes) expect((await t.view(responder)).seats[0]!.monsters.filter(Boolean)).toHaveLength(2);
+        const occurred = (v: DuelEngineView) => action === "destroy borrowed" ? v.seats[2]!.graveyard.length > 0
+          : action === "move borrowed" ? v.seats[0]!.monsters.filter(Boolean).length === 1
+            && v.seats[1]!.monsters.filter(Boolean).length + v.seats[2]!.monsters.filter(Boolean).length === 3
+          : v.seats[1]!.spells.filter(Boolean).length === (action === "reset living trap" ? 2 : 3);
+        for (let step = 0; step < 50; step++) {
+          const v = await t.view(responder);
+          if (v.phase === "main1" && occurred(v) && v.prompt?.context?.type === "chain") break;
+          await passPrompt(t);
+        }
+        const before = await t.view(responder);
+        expect(before).toMatchObject({ turn: 1, turnSeat: 0, phase: "main1", chain: [] });
+        expect(occurred(before)).toBe(true);
+        expect(before.prompt?.context?.type).toBe("chain");
+        await t.post("surrender", 0);
+        const after = await t.view(responder);
+        expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
+        if (closes) expect(after.prompt?.id).not.toBe(before.prompt!.id);
+        else {
+          expect(after.prompt).toEqual(before.prompt);
+          await t.recover();
+          expect(await t.view(responder)).toEqual(after);
+          expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[responder]).toEqual(after);
+          await t.answer(responder, chooseSurrenderedAnswer(after.prompt!));
+        }
+        await reachMain(t, 1);
+        expect(await t.view(1)).toMatchObject({ turn: 2, turnSeat: 1, result: null });
+      }, 60_000);
+    }
+
     it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s own-turn chain resolves before the next living turn", async (format) => {
       const t = await table(mode, format, true);
       await reachMain(t);

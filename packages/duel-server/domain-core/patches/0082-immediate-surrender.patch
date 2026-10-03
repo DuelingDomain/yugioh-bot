@@ -11,7 +11,15 @@ Other loss reasons retain their existing timing.
 diff --git a/field.h b/field.h
 --- a/field.h
 +++ b/field.h
-@@ -262,6 +262,10 @@
+@@ -40,6 +40,7 @@
+ 	uint32_t reason{};
+ 	uint8_t event_player{};
+ 	uint8_t reason_player{};
++	uint8_t response_seats{};
+ 	uint32_t global_id{};
+ 	bool operator< (const tevent& v) const;
+ };
+@@ -262,6 +263,10 @@
  	event_list single_event;
  	event_list solving_event;
  	event_list sub_solving_event;
@@ -22,16 +30,30 @@ diff --git a/field.h b/field.h
  	chain_list select_chains;
  	chain_array current_chain;
  	int32_t real_chain_count;
-@@ -711,7 +715,8 @@
+@@ -711,7 +716,9 @@
  	// any body runs): then p is not "already out" and the body runs.
  	void eliminate(uint8_t p, uint8_t reason, bool marked = false);
  	// Applies the losses of a duel with more than 2 duelists (Adjust step 1). Sends MSG_WIN at the end.
 -	void check_losses_n();
 +	void check_losses_n(bool surrenders_only = false);
 +	uint8_t response_window_participants() const;
++	uint8_t event_response_participants(const tevent& e, bool include_previous) const;
  	// Calls f(p) for p = 0 .. n_duelists - 1 in ascending order (the stock order: player 0, then 1).
  	template<typename F>
  	void for_each_duelist(F&& f) const {
+@@ -955,9 +962,9 @@
+ 		emplace_process<T>(Step{ 0 }, std::forward<Args>(args)...);
+ 	}
+ 
+-	void raise_event(card* event_card, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value);
+-	void raise_event(card_set event_cards, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value);
+-	void raise_single_event(card* trigger_card, card_set* event_cards, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value);
++	void raise_event(card* event_card, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value, bool include_previous = true);
++	void raise_event(card_set event_cards, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value, bool include_previous = true);
++	void raise_single_event(card* trigger_card, card_set* event_cards, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value, bool include_previous = true);
+ 	int32_t check_event(uint32_t code, tevent* pe = nullptr);
+ 	int32_t check_event_c(effect* peffect, uint8_t playerid, int32_t neglect_con, int32_t neglect_cost, int32_t copy_info, tevent* pe = nullptr);
+ 	int32_t check_hint_timing(effect* peffect);
 diff --git a/libdebug.cpp b/libdebug.cpp
 --- a/libdebug.cpp
 +++ b/libdebug.cpp
@@ -67,6 +89,22 @@ diff --git a/libdebug.cpp b/libdebug.cpp
  }
  }
  
+diff --git a/libduel.cpp b/libduel.cpp
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -1676,9 +1676,9 @@
+ 		card* pcard = ms[i];
+ 		list[seq[i]] = pcard;
+ 		pcard->current.sequence = seq[i];
+-		field->raise_single_event(pcard, nullptr, EVENT_MOVE, pcard->current.reason_effect, pcard->current.reason, pcard->current.reason_player, tp, 0);
+-	}
+-	field->raise_event(pgroup->container, EVENT_MOVE, field->core.reason_effect, 0, field->core.reason_player, tp, 0);
++		field->raise_single_event(pcard, nullptr, EVENT_MOVE, pcard->current.reason_effect, pcard->current.reason, pcard->current.reason_player, tp, 0, false);
++	}
++	field->raise_event(pgroup->container, EVENT_MOVE, field->core.reason_effect, 0, field->core.reason_player, tp, 0, false);
+ 	field->process_single_event();
+ 	field->process_instant_event();
+ 	for(auto* pcard : pgroup->container) {
 diff --git a/operations.cpp b/operations.cpp
 --- a/operations.cpp
 +++ b/operations.cpp
@@ -208,44 +246,57 @@ diff --git a/playerop.cpp b/playerop.cpp
  				pduel->new_message(MSG_RETRY);
  				return FALSE;
  			}
-@@ -493,10 +494,48 @@
+@@ -493,10 +494,61 @@
  		return TRUE;
  	}
  }
-+// Real action events take precedence over the phase/free-chain events in the same window.
-+// A window without a real action belongs to the current turn (phase/idle timing).
-+uint8_t field::response_window_participants() const {
++// Snapshot an action when its event is raised, before later moves change its cards.
++uint8_t field::event_response_participants(const tevent& e, bool include_previous) const {
++	if(n_duelists <= 2 || !e.event_code || e.event_code == EVENT_FREE_CHAIN || e.event_code == EVENT_ADJUST
++		|| e.event_code == EVENT_BREAK_EFFECT || e.event_code == EVENT_CHAIN_END
++		|| e.event_code == EVENT_TURN_END || (e.event_code & 0xfffff000u) == EVENT_PHASE
++		|| (e.event_code & 0xfffff000u) == EVENT_PHASE_START)
++		return 0;
 +	uint8_t seats = 0;
 +	auto add = [&](uint8_t p) { if(is_duelist(p)) seats |= 1u << p; };
-+	auto add_card = [&](card* c) {
++	auto add_card = [&](card* c, bool moved = false) {
 +		if(c && (c->current.location || c->previous.location)) {
 +			add(c->owner);
 +			add(c->current.controler);
-+			if(!c->current.location)
++			if(c->previous.location && (moved || !c->current.location))
 +				add(c->previous.controler);
 +		}
 +	};
-+	for(const auto* events : { &core.point_event, &core.instant_event }) {
-+		for(const auto& e : *events) {
-+			if(!e.event_code || e.event_code == EVENT_FREE_CHAIN || e.event_code == EVENT_ADJUST
-+				|| e.event_code == EVENT_BREAK_EFFECT || e.event_code == EVENT_CHAIN_END
-+				|| e.event_code == EVENT_TURN_END || (e.event_code & 0xfffff000u) == EVENT_PHASE
-+				|| (e.event_code & 0xfffff000u) == EVENT_PHASE_START)
-+				continue;
-+			if(event_player_is_subject(e.event_code)) add(e.event_player);
-+			if(e.reason_effect || e.reason) add(e.reason_player);
-+			if(e.reason_effect) add_card(e.reason_effect->get_handler());
-+			add_card(e.trigger_card);
-+			if(e.event_cards)
-+				for(auto* c : e.event_cards->container) add_card(c);
-+			if(event_is_battle(e.event_code)) {
-+				add_card(core.attacker);
-+				add_card(core.attack_target);
-+				add(core.battle_defender);
-+			}
++	// SSET has both a real setplayer and a literal-zero trap-reset writer. Its cards name the subject.
++	if(e.event_code != EVENT_SSET && event_player_is_subject(e.event_code)) add(e.event_player);
++	// A rule-only event can have a placeholder reason player, rather than an action actor.
++	if(e.reason_effect || (e.reason & ~REASON_RULE)) add(e.reason_player);
++	if(e.reason_effect) add_card(e.reason_effect->get_handler());
++	bool moved = false;
++	if(include_previous) {
++		switch(e.event_code) {
++		case EVENT_MOVE: case EVENT_CONTROL_CHANGED: case EVENT_LEAVE_FIELD:
++		case EVENT_TO_HAND: case EVENT_TO_DECK: case EVENT_TO_GRAVE: case EVENT_REMOVE:
++		case EVENT_RELEASE: case EVENT_DISCARD: case EVENT_DESTROYED:
++			moved = true;
 +		}
 +	}
-+	if(!seats) add(infos.turn_player);
++	add_card(e.trigger_card, moved);
++	if(e.event_cards)
++		for(auto* c : e.event_cards->container) add_card(c, moved);
++	if(event_is_battle(e.event_code)) {
++		add_card(core.attacker);
++		add_card(core.attack_target);
++		add(core.battle_defender);
++	}
++	return seats;
++}
++// Real action events take precedence over phase/free-chain events in the same window.
++uint8_t field::response_window_participants() const {
++	uint8_t seats = 0;
++	for(const auto* events : { &core.point_event, &core.instant_event })
++		for(const auto& e : *events) seats |= e.response_seats;
++	if(!seats && is_duelist(infos.turn_player)) seats |= 1u << infos.turn_player;
 +	return seats;
 +}
 +
@@ -257,7 +308,7 @@ diff --git a/playerop.cpp b/playerop.cpp
  	if(arg.step == 0) {
  		returns.set<int32_t>(0, -1);
  		// a seat that is not alive passes, and only takes a forced chain
-@@ -522,6 +561,13 @@
+@@ -522,6 +574,13 @@
  			}
  			return TRUE;
  		}
@@ -271,7 +322,7 @@ diff --git a/playerop.cpp b/playerop.cpp
  		auto message = pduel->new_message(MSG_SELECT_CHAIN);
  		message->write<uint8_t>(playerid);
  		message->write<uint8_t>(spe_count);
-@@ -561,6 +607,10 @@
+@@ -561,6 +620,10 @@
  	auto disable_field = arg.disable_field;
  	// n_duelists > 2: the seat whose field the opponent zones belong to (DUELIST_NONE = not named, or the own field)
  	const uint8_t target = (n_duelists > 2 && arg.target != playerid) ? arg.target : DUELIST_NONE;
@@ -285,7 +336,46 @@ diff --git a/playerop.cpp b/playerop.cpp
 diff --git a/processor.cpp b/processor.cpp
 --- a/processor.cpp
 +++ b/processor.cpp
-@@ -3912,6 +3912,23 @@
+@@ -210,7 +210,7 @@
+ 	}
+ 	return FALSE;
+ }
+-void field::raise_event(card* event_card, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value) {
++void field::raise_event(card* event_card, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value, bool include_previous) {
+ 	auto& new_event = core.queue_event.emplace_back();
+ 	new_event.trigger_card = nullptr;
+ 	if (event_card) {
+@@ -226,8 +226,9 @@
+ 	new_event.event_player = event_player;
+ 	new_event.event_value = event_value;
+ 	new_event.global_id = infos.event_id;
++	new_event.response_seats = event_response_participants(new_event, include_previous);
+ }
+-void field::raise_event(card_set event_cards, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value) {
++void field::raise_event(card_set event_cards, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value, bool include_previous) {
+ 	auto& new_event = core.queue_event.emplace_back();
+ 	new_event.trigger_card = nullptr;
+ 	auto pgroup = pduel->new_group(std::move(event_cards));
+@@ -240,8 +241,9 @@
+ 	new_event.event_player = event_player;
+ 	new_event.event_value = event_value;
+ 	new_event.global_id = infos.event_id;
++	new_event.response_seats = event_response_participants(new_event, include_previous);
+ }
+-void field::raise_single_event(card* trigger_card, card_set* event_cards, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value) {
++void field::raise_single_event(card* trigger_card, card_set* event_cards, uint32_t event_code, effect* reason_effect, uint32_t reason, uint8_t reason_player, uint8_t event_player, uint32_t event_value, bool include_previous) {
+ 	auto& new_event = core.single_event.emplace_back();
+ 	new_event.trigger_card = trigger_card;
+ 	if (event_cards) {
+@@ -257,6 +259,7 @@
+ 	new_event.event_player = event_player;
+ 	new_event.event_value = event_value;
+ 	new_event.global_id = infos.event_id;
++	new_event.response_seats = event_response_participants(new_event, include_previous);
+ }
+ int32_t field::check_event(uint32_t code, tevent* pe) {
+ 	for(const auto& ev : core.point_event) {
+@@ -3912,6 +3915,23 @@
  	return TRUE;
  }
  bool field::process(Processors::AddChain& arg) {
@@ -309,7 +399,7 @@ diff --git a/processor.cpp b/processor.cpp
  	switch (arg.step) {
  	case 0: {
  		if (!core.new_chains.size())
-@@ -4473,8 +4490,8 @@
+@@ -4473,8 +4493,8 @@
  		for(uint8_t p = 0; p < n_duelists; ++p)
  			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
  		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED). A duelist with a pending loss
@@ -320,7 +410,7 @@ diff --git a/processor.cpp b/processor.cpp
  			if(!(cait->flag & CHAIN_DISABLE_EFFECT)) {
  				auto message = pduel->new_message(MSG_CHAIN_DISABLED);
  				message->write<uint8_t>(cait->chain_count);
-@@ -4812,9 +4829,16 @@
+@@ -4812,9 +4832,16 @@
  // Duel.Win of another team (every living opponent without CANNOT_LOSE_EFFECT). Losses wait while a chain
  // resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
  // else every loser is eliminated in turn order from the turn player.
@@ -339,7 +429,7 @@ diff --git a/processor.cpp b/processor.cpp
  	uint8_t order[MAX_DUELISTS];
  	uint8_t count = 0;
  	for(uint8_t i = 0; i < n_duelists; ++i) {
-@@ -4830,7 +4854,7 @@
+@@ -4830,7 +4857,7 @@
  	};
  	for(uint8_t i = 0; i < count; ++i) {
  		const auto p = order[i];
@@ -348,7 +438,7 @@ diff --git a/processor.cpp b/processor.cpp
  			bool protect = false;
  			for(uint8_t q = 0; q < count; ++q) {
  				if(same_team(order[q], p) && is_player_affected_by_effect(order[q], EFFECT_CANNOT_LOSE_LP))
-@@ -4839,13 +4863,13 @@
+@@ -4839,13 +4866,13 @@
  			if(!protect)
  				mark(p, 1);
  		}
