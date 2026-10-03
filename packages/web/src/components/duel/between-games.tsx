@@ -128,8 +128,8 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   // to decide whether an edit needs un-ready: a stale snapshot or lost Ready answer is unsafe.
   const [knownReady, setKnownReady] = useState<boolean | null>(null);
   const [unreadied, setUnreadied] = useState(false);
-  const unreadySent = useRef(false);
   const unreadying = useRef<Promise<void> | null>(null);
+  const unreadyFailed = useRef(false);
   const working = useRef(false);
   const [moving, setMoving] = useState(false);
   const advancing = useRef(false);
@@ -151,8 +151,6 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     setKnownReady(null);
     if (serverReady) setUnreadied(false);
   }
-  // Re-arm even when a fresh snapshot is still true: another tab may have sent Ready again.
-  useEffect(() => { if (serverReady) unreadySent.current = false; }, [series, serverReady]);
 
   const codesKey = [...deckCodes(current)].sort((a, b) => a - b).join(",");
   useEffect(() => {
@@ -196,10 +194,12 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     onNavigate(nextSlug);
   }
 
-  /** First edit since mount, Ready, or a snapshot showing Ready: always send the idempotent un-ready. */
+  /**
+   * Every edit sends the idempotent un-ready (one at a time): Ready may have been clicked in another tab
+   * without this screen seeing it yet, and only the server knows.
+   */
   function leaveReady() {
-    if (unreadySent.current || unreadying.current) return;
-    unreadySent.current = true;
+    if (unreadying.current) return;
     const wasReady = imReady;
     const before = knownReady;
     if (wasReady) {
@@ -208,15 +208,19 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     }
     unreadying.current = unreadySeries(slug).then(
       (result) => {
+        if (unreadyFailed.current) {
+          unreadyFailed.current = false;
+          setError(null);
+        }
         if (result.nextSlug) follow(result.nextSlug);
         else void refresh();
       },
       (cause: unknown) => {
-        unreadySent.current = false;
         if (wasReady) {
           setKnownReady(before);
           setUnreadied(false);
         }
+        unreadyFailed.current = true;
         setError(cause instanceof Error ? cause.message : "Could not take back your Ready. Try again.");
         // A closed series rejects editing; let the room recover its current state.
         if (cause instanceof DuelRequestError && cause.status === 409) void refresh();
@@ -248,8 +252,6 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
 
   const ready = () => run(async () => {
     if (plan.reason) return;
-    // Any Ready attempt may land on the server, even if its answer is lost.
-    unreadySent.current = false;
     await unreadying.current;
     if (advancing.current) return;
     if (changed) {

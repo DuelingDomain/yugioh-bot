@@ -97,6 +97,8 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("Network down");
     fireEvent.click(await tile("Card 10, Side Deck"));
     await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
+    // Still failing: the error stays.
+    expect(screen.getByRole("alert").textContent).toBe("Network down");
     await waitFor(() => expect(status().textContent).toMatch(/Saving these swaps clears your Ready/));
     expect(ready().disabled).toBe(false);
     fireEvent.click(ready());
@@ -122,7 +124,8 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     expect((screen.getByRole("button", { name: "Go second" }) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => request.resolve({ series: between({ sideReady: [true, true] }), nextSlug: "game-2" }));
     expect(view.onNavigate).toHaveBeenCalledWith("game-2");
-    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
+    // One per swap click; the clicks while Ready was in flight were locked and sent nothing.
+    expect(api.unreadySeries).toHaveBeenCalledTimes(2);
     expect(api.saveSeriesSideDeck).toHaveBeenCalledTimes(1);
   });
 
@@ -156,12 +159,12 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     expect(api.unreadySeries).toHaveBeenCalledTimes(2);
   });
 
-  it("sends un-ready on the first edit even with a not-ready snapshot, only once", async () => {
+  it("sends un-ready on every edit, even with a not-ready snapshot (another tab may have readied)", async () => {
     const view = setup();
     await swap();
     await waitFor(() => expect(view.onChanged).toHaveBeenCalled());
     fireEvent.click(await tile("Card 3, Main Deck"));
-    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
+    expect(api.unreadySeries).toHaveBeenCalledTimes(3);
     expect(status().textContent).not.toMatch(/no longer ready/);
   });
 
@@ -184,7 +187,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     fireEvent.click(ready());
     expect((await screen.findByRole("alert")).textContent).toBe("Ready response lost");
     fireEvent.click(await tile("Card 1, Main Deck"));
-    expect(api.unreadySeries).toHaveBeenCalledTimes(2);
+    expect(api.unreadySeries).toHaveBeenCalledTimes(3);
   });
 
   it("un-readies when an incoming mark is removed or Reset is clicked after Ready", async () => {
@@ -251,7 +254,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     await waitFor(() => expect(status().textContent).toMatch(/You are ready/));
     expect(screen.getByTestId("swap-counter").textContent).toContain("0 out · 0 in");
     fireEvent.click(await tile("Card 10, Main Deck"));
-    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(3));
     // The saved deck catches up; it must preserve the new pending edit.
     view.rerender(view.element(between({ sideReady: [false, false] }), sided));
     expect(screen.getByTestId("swap-counter").textContent).toContain("1 out · 0 in");
@@ -259,5 +262,15 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     fireEvent.click(ready());
     await waitFor(() => expect(api.readySeries).toHaveBeenCalledTimes(2));
     expect(api.saveSeriesSideDeck).toHaveBeenLastCalledWith("game-1", { main: [1, 3, 2], extra: [100, 101], side: [11, 10] });
+  });
+
+  it("clears the un-ready error once a retry succeeds", async () => {
+    api.unreadySeries.mockRejectedValueOnce(new Error("Network down"));
+    setup({ sideReady: [true, false] });
+    fireEvent.click(await tile("Card 2, Main Deck"));
+    expect((await screen.findByRole("alert")).textContent).toBe("Network down");
+    fireEvent.click(await tile("Card 10, Side Deck"));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(status().textContent).toMatch(/no longer ready/);
   });
 });
