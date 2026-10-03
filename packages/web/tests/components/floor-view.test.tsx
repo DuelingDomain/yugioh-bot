@@ -34,7 +34,8 @@ describe("your field", () => {
   it("shows both seats, the opponent's name and the actions of an open match", () => {
     live(sheetTournament);
     const field = screen.getByRole("region", { name: "Your match" });
-    expect(field).toHaveAttribute("id", expect.stringMatching(/^match-\d+$/));
+    expect(field).toHaveAttribute("id", "duel-field");
+    expect(field).toHaveAttribute("data-match-id", "1");
     expect(within(field).getAllByText("Imran").length).toBeGreaterThan(0);
     expect(within(field).getByRole("button", { name: "Start duel" })).toBeInTheDocument();
   });

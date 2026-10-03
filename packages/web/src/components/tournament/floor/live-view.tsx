@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { StatusLine } from "@/components/sheet";
-import { matchAnchorId, type PlayerRatings } from "../sheet-contracts";
+import type { PlayerRatings } from "../sheet-contracts";
 import type { TournamentDetail } from "../types";
 import { ClosingNote } from "../sheet/closing-notes";
 import { ChampionField, DuelField } from "./duel-field";
@@ -85,7 +85,8 @@ export function LiveView({ tournament, tournamentSlug, ratings, isHost, onChange
       <TableStrip tournament={tournament} round={round} viewerId={viewerId} />
       <section
         className={styles.hero}
-        id={hero.kind === "match" ? matchAnchorId(hero.match.id) : "duel-field"}
+        id="duel-field"
+        data-match-id={hero.kind === "match" ? hero.match.id : undefined}
         aria-label="Your match"
         data-testid="duel-field"
         tabIndex={-1}
