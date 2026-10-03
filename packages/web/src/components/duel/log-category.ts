@@ -140,6 +140,7 @@ const TEXT_RULES: ReadonlyArray<readonly [RegExp, LogCategory]> = [
   [/^Player \d+ takes \d+ damage$/, "battle"],
   [/^Player \d+ pays \d+ LP$/, "battle"],
   [/ was destroyed$/, "destroy"],
+  [/ was destroyed and banished$/, "destroy"],
   [/ was sent to the Graveyard$/, "graveyard"],
   [/ was discarded$/, "graveyard"],
   [/ was banished$/, "banish"],

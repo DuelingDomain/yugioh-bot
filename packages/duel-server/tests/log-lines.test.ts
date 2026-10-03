@@ -70,7 +70,7 @@ describe("move log lines", () => {
   });
 
   it("logs discards and hand materials as plain Graveyard sends without a destruction marker", () => {
-    // MOVE has no discard/material reason; the following summon identifies hand materials in the Text log.
+    // The following summon identifies hand materials in the Text log; a Graveyard send alone stays plain.
     expect(moveLogLines(move(1, at(0, OcgLocation.HAND, 0), grave), cards)).toEqual([{ text: "Stardust Dragon was sent to the Graveyard", audience: "all" }]);
     expect(seen([
       ...moveLogLines(move(3, at(0, OcgLocation.HAND, 0), grave), cards),
@@ -83,6 +83,19 @@ describe("move log lines", () => {
   it("says banished for a face-up banish and nothing for a face-down one", () => {
     expect(seen(moveLogLines(move(1, field, at(0, OcgLocation.REMOVED, 0, OcgPosition.FACEUP_ATTACK)), cards), 1)).toEqual(["Stardust Dragon was banished"]);
     expect(moveLogLines(move(1, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.REMOVED, 0, OcgPosition.FACEDOWN_ATTACK)), cards)).toEqual([]);
+  });
+
+  it("marks only public banished field departures for a possible destruction rewrite", () => {
+    for (const location of [OcgLocation.MZONE, OcgLocation.SZONE]) {
+      const from = at(0, location, 1, OcgPosition.FACEDOWN_DEFENSE);
+      expect(moveLogLines(move(1, from, at(0, OcgLocation.REMOVED, 0)), cards)).toEqual([
+        { text: "Stardust Dragon was banished", audience: "all", leftField: true },
+      ]);
+      expect(moveLogLines(move(1, from, at(0, OcgLocation.REMOVED, 0, OcgPosition.FACEDOWN_DEFENSE)), cards)).toEqual([]);
+    }
+    expect(moveLogLines(move(1, grave, at(0, OcgLocation.REMOVED, 0)), cards)).toEqual([
+      { text: "Stardust Dragon was banished", audience: "all" },
+    ]);
   });
 
   it("names a card added to the hand from a public place for everyone", () => {

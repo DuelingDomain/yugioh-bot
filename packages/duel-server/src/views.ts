@@ -361,8 +361,7 @@ export function nextBattleStep(step: DuelBattleStep | null, message: OcgMessage)
 
 /**
  * Prefix of the Debug.Message line the engine's startup script prints when a card is destroyed.
- * ocgcore-wasm drops the MOVE reason from its parsed messages, so this is the only way to tell
- * destruction apart from a release, a cost or a send-to-GY effect.
+ * Supplies destruction cause and source details, including notes that arrive after their MOVE message.
  */
 export const DESTROY_NOTE_PREFIX = "YGD:DESTROY:";
 
@@ -418,6 +417,8 @@ export interface EventContext {
   arrivals: Map<string, number>;
   /** The answer that started the current summon was a Pendulum Summon (a Pendulum Zone card's summon action). */
   pendulumSummon: boolean;
+  /** Reason bits from material MOVE messages since the previous summon. Includes Xyz overlay moves. */
+  materialReasons: number;
 }
 
 interface TrackedMove {
@@ -429,7 +430,7 @@ interface TrackedMove {
 }
 
 export function createEventContext(): EventContext {
-  return { battle: false, released: [0, 0], destroyNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], arrivals: new Map(), pendulumSummon: false };
+  return { battle: false, released: [0, 0], destroyNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], arrivals: new Map(), pendulumSummon: false, materialReasons: 0 };
 }
 
 /** Feed an engine log line to the context; returns true when it was a destruction note. */
@@ -503,11 +504,16 @@ function isFieldLocation(location: number): boolean {
   return location === OcgLocation.MZONE || location === OcgLocation.SZONE;
 }
 
-/**
- * Refine a Special Summon by where the monster came from and its card type:
- * Extra Deck (or the Domain Deck Master Zone) + Fusion/Synchro/Xyz/Link type -> that kind;
- * hand (or Deck Master Zone) + Ritual type -> "ritual"; a Pendulum Summon in progress -> "pendulum".
- */
+// Native reason bits from ygopro-core/ocgapi_constants.h and the pinned constant.lua. REASON_LINK differs
+// from TYPE_LINK (0x4000000): that bit in a MOVE reason is REASON_REDIRECT.
+const REASON_MATERIAL = 0x8;
+const REASON_FUSION = 0x40000;
+const REASON_SYNCHRO = 0x80000;
+const REASON_RITUAL = 0x100000;
+const REASON_XYZ = 0x200000;
+const REASON_LINK = 0x10000000;
+
+/** A method needs matching material reasons, card type and origin; the Pendulum flag takes precedence. */
 function specialSummonKind(ctx: EventContext, message: { controller: number; location: number; sequence: number }, type: number): DuelSummonKind {
   if (ctx.pendulumSummon) return "pendulum";
   const from = ctx.arrivals.get(slotKey(message.controller, message.location, message.sequence));
@@ -516,12 +522,12 @@ function specialSummonKind(ctx: EventContext, message: { controller: number; loc
   const master = from === LOCATION_DECKMASTER || from === 0;
   const extra = from === OcgLocation.EXTRA || master;
   if (extra) {
-    if (type & OcgType.FUSION) return "fusion";
-    if (type & OcgType.SYNCHRO) return "synchro";
-    if (type & OcgType.XYZ) return "xyz";
-    if (type & OcgType.LINK) return "link";
+    if ((type & OcgType.FUSION) && (ctx.materialReasons & REASON_FUSION)) return "fusion";
+    if ((type & OcgType.SYNCHRO) && (ctx.materialReasons & REASON_SYNCHRO)) return "synchro";
+    if ((type & OcgType.XYZ) && (ctx.materialReasons & REASON_XYZ)) return "xyz";
+    if ((type & OcgType.LINK) && (ctx.materialReasons & REASON_LINK)) return "link";
   }
-  if ((from === OcgLocation.HAND || master) && type & OcgType.RITUAL) return "ritual";
+  if ((from === OcgLocation.HAND || master) && (type & OcgType.RITUAL) && (ctx.materialReasons & REASON_RITUAL)) return "ritual";
   return "special";
 }
 
@@ -559,12 +565,13 @@ export function drainDeferredDestroys(ctx: EventContext, cards: CardDatabase, fi
   return out;
 }
 
-/** Called when the engine reaches a prompt: whatever is still unmatched was not a destruction. */
-export function resetEventBatch(ctx: EventContext): void {
+/** Clear batch state; position/place prompts can interrupt a summon after its materials have moved. */
+export function resetEventBatch(ctx: EventContext, continuingSummon = false): void {
   ctx.destroyNotes.length = 0;
   ctx.pendingMoves.length = 0;
   ctx.moves.length = 0;
   ctx.released = [0, 0];
+  if (!continuingSummon) ctx.materialReasons = 0;
 }
 
 export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null): DuelEvent {
@@ -729,6 +736,10 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
     }
     case OcgMessageType.MOVE: {
       const { from, to } = message;
+      // Collect before filtering move events so Xyz overlay materials also prove the method.
+      // patches/ocgcore-wasm+0.1.2.patch parses the trailing reason; the published types do not declare it.
+      const materialReason = (message as typeof message & { reason?: number }).reason ?? 0;
+      if (materialReason & REASON_MATERIAL) ctx.materialReasons |= materialReason;
       if (from.location === OcgLocation.HAND) ctx.handSize[from.controller === 1 ? 1 : 0] = Math.max(0, ctx.handSize[from.controller === 1 ? 1 : 0] - 1);
       if (to.location === OcgLocation.HAND) ctx.handSize[to.controller === 1 ? 1 : 0] += 1;
       if (isFieldLocation(from.location)) ctx.arrivals.delete(slotKey(from.controller, from.location, from.sequence));
@@ -783,6 +794,7 @@ export function observeDuelEvent(
       case OcgMessageType.CHAIN_SOLVED:
       case OcgMessageType.CHAIN_END:
         ctx.resolving = null;
+        ctx.materialReasons = 0;
         break;
       case OcgMessageType.DAMAGE_STEP_END:
       case OcgMessageType.NEW_PHASE:
@@ -799,6 +811,7 @@ export function observeDuelEvent(
       case OcgMessageType.NEW_PHASE:
       case OcgMessageType.NEW_TURN:
         ctx.pendulumSummon = false;
+        ctx.materialReasons = 0;
         break;
       default:
         break;
@@ -826,6 +839,7 @@ export function observeDuelEvent(
       } else if (summonKind === "special" && ctx) {
         summonKind = specialSummonKind(ctx, message, info?.type ?? 0);
       }
+      if (ctx) ctx.materialReasons = 0;
       return {
         id, kind: "summon", seat: message.controller, card: info, text,
         publicText: hidden ? `Player ${message.controller + 1} ${verb} a face-down monster` : text,

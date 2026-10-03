@@ -14,10 +14,10 @@ export interface LogLine {
   text: string;
   audience: "all" | number;
   /**
-   * A card left the field for the Graveyard, Deck or Extra Deck, so it may have been destroyed. ocgcore-wasm
-   * drops the MOVE reason, and the startup script's destruction note can arrive after the MOVE, so the engine
-   * keeps this line and rewrites it to destroyedLogText() if a destroy event for that zone follows before the
-   * next prompt (before any view is built).
+   * A card publicly left the field for the Graveyard, banishment, Deck or Extra Deck, so it may have been
+   * destroyed. The startup script's destruction note can arrive after the MOVE, so the engine keeps this
+   * line and rewrites it if a destroy event for that zone follows before the next prompt (before any view
+   * is built).
    */
   leftField?: true;
 }
@@ -85,13 +85,19 @@ export function destroyedLogText(cards: CardDatabase, code: number): string {
   return `${nameOf(cards, code)} was destroyed`;
 }
 
+/** Destruction whose destination was redirected to face-up banishment. */
+export function destroyedAndBanishedLogText(cards: CardDatabase, code: number): string {
+  return `${nameOf(cards, code)} was destroyed and banished`;
+}
+
 /**
  * Lines for a card that changed place. Field arrivals have their own summon/Set/activation lines, and moves
  * inside one place (shuffles, zone swaps) say nothing.
  *   Graveyard            "X was sent to the Graveyard" (always public). From the field it may later become
  *                        "X was destroyed" (see LogLine.leftField). A card sent from the hand is not called
  *                        discarded: Ritual and Fusion materials leave the hand the same way.
- *   banished face-up     "X was banished" (face-down: nothing)
+ *   banished face-up     "X was banished", or "X was destroyed and banished" when a destruction is reported
+ *                        (face-down: nothing)
  *   hand                 public source: "X returned to Player N's hand" (from the field) or
  *                        "X was added to Player N's hand"; hidden source: a nameless public line, the name to
  *                        that hand's owner only
@@ -111,8 +117,12 @@ export function moveLogLines(message: MoveMessage, cards: CardDatabase): LogLine
       if (fromField) line.leftField = true;
       return [line];
     }
-    case OcgLocation.REMOVED:
-      return isFaceDown(to.position) ? [] : [{ text: `${name()} was banished`, audience: "all" }];
+    case OcgLocation.REMOVED: {
+      if (isFaceDown(to.position)) return [];
+      const line: LogLine = { text: `${name()} was banished`, audience: "all" };
+      if (fromField) line.leftField = true;
+      return [line];
+    }
     case OcgLocation.HAND: {
       if (from.location === OcgLocation.HAND) return [];
       const owner = to.controller;

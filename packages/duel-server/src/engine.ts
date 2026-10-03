@@ -40,7 +40,7 @@ import {
 } from "./views.js";
 import { createDomainCore } from "./domain-core.js";
 import { fillPlaceholders } from "./text.js";
-import { destroyedLogText, moveLogLines, summonLogLines } from "./log-lines.js";
+import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines } from "./log-lines.js";
 
 export interface EngineGameOptions {
   mode: DuelMode;
@@ -308,12 +308,12 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   };
   // Lines for cards that left the field this batch (log-lines.ts LogLine.leftField). A destroy event for the same
   // zone rewrites the line; the list is cleared with the event batch, before any view is built.
-  const leftFieldLines: Array<{ entry: LogEntry; zone: { controller: number; location: number; sequence: number }; code: number }> = [];
+  const leftFieldLines: Array<{ entry: LogEntry; zone: { controller: number; location: number; sequence: number }; code: number; destination: number }> = [];
   const markDestroyedLine = (stored: StoredDuelEvent) => {
     const zone = stored.zone;
     if (stored.kind !== "destroy" || !zone) return;
     // The latest card to leave that zone, and the same card when the event names one: a zone can be emptied by a
-    // Tribute and refilled within one batch. No match leaves "sent to the Graveyard", which is never wrong.
+    // Tribute and refilled within one batch. No match keeps the location-based text.
     const code = stored.card?.code;
     let index = -1;
     for (let i = leftFieldLines.length - 1; i >= 0; i -= 1) {
@@ -325,7 +325,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     }
     if (index < 0) return;
     const [line] = leftFieldLines.splice(index, 1);
-    line!.entry.text = destroyedLogText(cards, line!.code);
+    line!.entry.text = line!.destination === OcgLocation.REMOVED
+      ? destroyedAndBanishedLogText(cards, line!.code)
+      : destroyedLogText(cards, line!.code);
   };
 
   const recordEvent = (message: OcgMessage) => {
@@ -465,7 +467,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         moveReveals(reveals, message.from, message.to, message.card);
         for (const line of moveLogLines(message, cards)) {
           const entry = appendLog(line.text, line.audience);
-          if (line.leftField) leftFieldLines.push({ entry, zone: message.from, code: message.card });
+          if (line.leftField) leftFieldLines.push({ entry, zone: message.from, code: message.card, destination: message.to.location });
         }
         return;
       case OcgMessageType.TOSS_COIN:
@@ -487,7 +489,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
 
   const processUntilWait = () => {
     if (closed) throw new Error("Engine is closed");
-    resetEventBatch(eventContext);
+    // Native materials move before position/place selection, so those prompts continue the same summon.
+    const continuingSummon = pending?.message.type === OcgMessageType.SELECT_POSITION || pending?.message.type === OcgMessageType.SELECT_PLACE;
+    resetEventBatch(eventContext, continuingSummon);
     leftFieldLines.length = 0;
     while (!result) {
       const status = lib.duelProcess(handle);

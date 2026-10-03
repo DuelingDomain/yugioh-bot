@@ -40,8 +40,21 @@ const weak = monsters("level = 4 and atk > 0 and atk <= 1000");
 const strong = monsters("level = 4 and atk >= 1800");
 const high = monsters("level = 6 and atk >= 2000");
 
-async function openGame(a: number[], b: number[]): Promise<EngineGame> {
-  const fill = (head: number[]) => ({ main: [...head, ...weak.slice(10, 45 - head.length)], extra: [], side: [] });
+function cardCodes(...names: string[]): number[] {
+  const db = new Database(`${dataDirectory}/cards.cdb`, { readonly: true });
+  try {
+    return names.map((name) => {
+      const row = db.prepare("SELECT d.id FROM datas d JOIN texts t USING(id) WHERE t.name=? AND d.alias=0 AND (d.ot&3)!=0 LIMIT 1").get(name) as { id: number } | undefined;
+      if (!row) throw new Error(`Missing pinned card: ${name}`);
+      return row.id;
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function openGame(a: number[], b: number[], extra: number[] = []): Promise<EngineGame> {
+  const fill = (head: number[]) => ({ main: [...head, ...weak.slice(10, 45 - head.length)], extra, side: [] });
   return createEngineGame({
     mode: "normal",
     decks: [fill(a), fill(b)],
@@ -100,6 +113,135 @@ function eventsOf(game: EngineGame, viewer: number | null = null): DuelEvent[] {
 }
 
 describe("richer engine events", () => {
+  it("keeps a Contact Fusion procedure without a Fusion reason as a Special Summon", async () => {
+    const [cyberDragon, zwei, fortress] = cardCodes("Cyber Dragon", "Cyber Dragon Zwei", "Chimeratech Fortress Dragon");
+    const game = await openGame([cyberDragon], [zwei], [fortress]);
+    try {
+      drive(game, (w) => {
+        if (w.view.seats[0].monsters.some((card) => card?.code === fortress)) return "stop";
+        if (w.seat === 1 && w.view.turn === 2) {
+          const summon = option(w, "summon:", zwei);
+          if (summon) return { choice: summon };
+        }
+        if (w.seat === 0 && w.view.turn === 3) {
+          for (const code of [fortress, cyberDragon]) {
+            const summon = option(w, "spsummon:", code);
+            if (summon) return { choice: summon };
+          }
+        }
+        return null;
+      });
+      // The pinned contactop uses REASON_COST | REASON_MATERIAL, with no REASON_FUSION.
+      expect(game.view(0).seats[0].graveyard.map((card) => card.code)).toContain(cyberDragon);
+      expect(game.view(0).seats[1].graveyard.map((card) => card.code)).toContain(zwei);
+      for (const viewer of [0, 1, null]) {
+        const view = game.view(viewer);
+        expect(view.events.find((event) => event.kind === "summon" && event.card?.code === fortress)?.summonKind).toBe("special");
+        expect(view.log.map((entry) => entry.text)).toContain("Player 1 Special Summons Chimeratech Fortress Dragon");
+      }
+    } finally {
+      game.close();
+    }
+  });
+
+  it("reports both the original Xyz Summon and Rank-Up-Magic's overlay summon as Xyz", async () => {
+    const [thrasher, dragon, utopia, upgraded, rankUp] = cardCodes(
+      "Photon Thrasher", "Alexandrite Dragon", "Number 39: Utopia", "Number C39: Utopia Ray V", "Rank-Up-Magic Quick Chaos",
+    );
+    const game = await openGame([thrasher, dragon, rankUp], [], [utopia, upgraded]);
+    try {
+      drive(game, (w) => {
+        const field = w.view.seats[0].monsters;
+        if (field.some((card) => card?.code === upgraded)) return "stop";
+        if (w.seat === 0 && w.view.turn === 1) {
+          if (field.some((card) => card?.code === utopia)) {
+            const activate = option(w, "activate:", rankUp);
+            if (activate) return { choice: activate };
+          }
+          for (const [prefix, code] of [["spsummon:", utopia], ["spsummon:", thrasher], ["summon:", dragon]] as const) {
+            const action = option(w, prefix, code);
+            if (action) return { choice: action };
+          }
+          if (w.prompt.kind === "cards") {
+            const target = w.prompt.options.find((entry) => entry.card?.code === upgraded);
+            if (target) return { selected: [target.id] };
+          }
+        }
+        return null;
+      });
+      expect(game.view(0).seats[0].monsters.find((card) => card?.code === upgraded)?.materials?.map((card) => card.code)).toContain(utopia);
+      for (const viewer of [0, 1, null]) {
+        const view = game.view(viewer);
+        for (const code of [utopia, upgraded]) {
+          expect(view.events.find((event) => event.kind === "summon" && event.card?.code === code)?.summonKind).toBe("xyz");
+        }
+        expect(view.log.map((entry) => entry.text)).toContain("Player 1 Xyz Summons Number C39: Utopia Ray V");
+      }
+    } finally {
+      game.close();
+    }
+  });
+
+  it("reports Cyber-Stein summoning a Fusion monster without materials as a Special Summon", async () => {
+    const CYBER_STEIN = 69015963;
+    const FLAME_SWORDSMAN = 45231177;
+    const game = await openGame([CYBER_STEIN], [], [FLAME_SWORDSMAN]);
+    try {
+      drive(game, (w) => {
+        if (w.view.seats[0].monsters.some((card) => card?.code === FLAME_SWORDSMAN)) return "stop";
+        if (w.seat === 0 && w.view.turn === 1) {
+          const summon = option(w, "summon:", CYBER_STEIN);
+          if (summon) return { choice: summon };
+          const activate = option(w, "activate:", CYBER_STEIN);
+          if (activate) return { choice: activate };
+        }
+        return null;
+      });
+      expect(game.view(0).seats[0].lp).toBe(3000);
+      expect(game.view(0).seats[0].graveyard).toEqual([]);
+      for (const viewer of [0, 1, null]) {
+        const view = game.view(viewer);
+        expect(view.events.find((event) => event.kind === "summon" && event.card?.code === FLAME_SWORDSMAN)?.summonKind).toBe("special");
+        expect(view.log.map((entry) => entry.text)).toContain("Player 1 Special Summons Flame Swordsman");
+        expect(view.log.map((entry) => entry.text)).not.toContain("Player 1 Fusion Summons Flame Swordsman");
+      }
+    } finally {
+      game.close();
+    }
+  });
+
+  it("reports destruction redirected to banishment by Dimensional Fissure in the Text log", async () => {
+    const DIMENSIONAL_FISSURE = 81674782;
+    const game = await openGame([weak[0]!, DIMENSIONAL_FISSURE], [RAIGEKI]);
+    try {
+      drive(game, (w) => {
+        if (w.view.seats[0].banished.some((card) => card.code === weak[0])) return "stop";
+        if (w.seat === 0 && w.view.turn === 1) {
+          const summon = option(w, "summon:", weak[0]!);
+          if (summon) return { choice: summon };
+          const activate = option(w, "activate:", DIMENSIONAL_FISSURE);
+          if (activate) return { choice: activate };
+        }
+        if (w.seat === 1 && w.view.turn === 2) {
+          const activate = option(w, "activate:", RAIGEKI);
+          if (activate) return { choice: activate };
+        }
+        return null;
+      });
+      const destroyed = eventsOf(game).find((event) => event.kind === "destroy" && event.card?.code === weak[0]);
+      expect(destroyed).toMatchObject({ cause: "effect", sourceCode: RAIGEKI });
+      expect(game.view(0).seats[0].banished.map((card) => card.code)).toContain(weak[0]);
+      for (const viewer of [0, 1, null]) {
+        const log = game.view(viewer).log.map((entry) => entry.text);
+        expect(log).toContain(`${destroyed!.card!.name} was destroyed and banished`);
+        expect(log).not.toContain(`${destroyed!.card!.name} was banished`);
+        expect(log).not.toContain(`${destroyed!.card!.name} was sent to the Graveyard`);
+      }
+    } finally {
+      game.close();
+    }
+  });
+
   it("reports summon zone, attack target, battle damage and destruction", async () => {
     const game = await openGame([weak[0]!], [strong[0]!]);
     try {

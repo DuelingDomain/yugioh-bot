@@ -159,6 +159,7 @@ describe("log categories: text log lines", () => {
     ["Player 2 Ritual Summons Paladin of White Dragon", "summon"],
     ["Player 1 Pendulum Summons Odd-Eyes Pendulum Dragon", "summon"],
     ["Stardust Dragon was destroyed", "destroy"],
+    ["Stardust Dragon was destroyed and banished", "destroy"],
     ["Raigeki was sent to the Graveyard", "graveyard"],
     ["Pot of Greed was discarded", "graveyard"],
     ["Decode Talker was banished", "banish"],
