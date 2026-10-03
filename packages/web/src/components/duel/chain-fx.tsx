@@ -224,12 +224,16 @@ function resolveAnchor(anchor: ChainAnchor): HTMLElement | null {
 
 const OBSTACLES = "[data-prompt-panel], [data-prompt-surface], [data-feedback-cue]";
 
+/** The top badge is drawn 1.16 times its size. */
+const MAX_SCALE = 1.16;
+/** A badge covered by more than this part of an open prompt is hidden. */
+const BADGE_COVERED = 0.15;
 const MIN_BADGE = 28;
 const MAX_BADGE = 46;
 
 type Box = { left: number; top: number; width: number; height: number };
 /** One link as the read phase of a frame saw it; the write phase applies it. */
-type PlacedLink = { link: ChainLinkState; slot: HTMLElement; box: Box | null; size: number; shift: number; half: "high" | "low"; callout: CalloutPlace | null };
+type PlacedLink = { link: ChainLinkState; slot: HTMLElement; box: Box | null; size: number; shift: number; half: "high" | "low"; callout: CalloutPlace | null; covered: boolean };
 type PlacedMark = { link: ChainLinkState; mark: HTMLElement | undefined; wire: SVGPathElement | undefined; box: Box | null; covered: boolean };
 
 /** The card's visible box: a Defense Position card is turned a quarter inside its portrait zone. */
@@ -305,6 +309,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const ringRefs = useRef(new Map<number, HTMLElement>());
   const tagRefs = useRef(new Map<number, HTMLElement>());
   const gutterRef = useRef({ at: Number.NEGATIVE_INFINITY, px: 0 });
+  /** The full stack's last box, in board pixels: the chips test it to know whether the column would meet a prompt. */
+  const fullBoxRef = useRef<Box | null>(null);
   const wireRefs = useRef(new Map<number, SVGPathElement>());
   const targetRefs = useRef(new Map<string, HTMLElement>());
   const targetWireRefs = useRef(new Map<string, SVGPathElement>());
@@ -329,10 +335,16 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       // Open prompt surfaces and the activation banner, in board pixels: the callout tag and the target marks keep
       // clear of them, so their text stays readable. `data-prompt-surface` marks what a panel is not: the select
       // bar, the "Response needed" pill and the phone prompt dock.
+      // `prompts` is the same list without the banner: a banner passes in a second, so a badge or the stack that
+      // moved for it would only flicker.
       const panels: Box[] = [];
+      const prompts: Box[] = [];
       for (const panel of document.querySelectorAll<HTMLElement>(OBSTACLES)) {
         const rect = panel.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) panels.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        const box = { left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height };
+        panels.push(box);
+        if (!panel.hasAttribute("data-feedback-cue")) prompts.push(box);
       }
       // The pile viewer mounts inside the board box, so it cannot rise above the front layer: hide the layer instead.
       const pileOpen = document.querySelector("[data-pile-viewer]") != null;
@@ -342,10 +354,18 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         gutter = freeGutter(origin);
         gutterRef.current = { at: now, px: gutter };
       }
-      // Life-point plates and the stack's own size, for the chips: they keep clear of both.
-      const size = front ? chainStackSize(gutter, front.dataset.size as "full" | "compact" | undefined) : "full";
-      let chips: { left: number; top: number } | null = null;
+      // The full stack is a column in the left gutter. A prompt surface that meets it turns it into the chips, which
+      // dodge it. Measured on the column itself while it is full; while it is chips, on the column's last box.
       const panelEl = panelRef.current;
+      const previous = front?.dataset.size as "full" | "compact" | undefined;
+      if (front && panelEl && previous === "full") {
+        const own = panelEl.getBoundingClientRect();
+        if (own.width > 4 && own.height > 4) fullBoxRef.current = { left: own.left - origin.left, top: own.top - origin.top, width: own.width, height: own.height };
+      }
+      const blocked = fullBoxRef.current != null && coveredFraction(fullBoxRef.current, prompts) > 0;
+      // Life-point plates and the stack's own size, for the chips: they keep clear of both.
+      const size = front ? chainStackSize(gutter, previous, blocked) : "full";
+      let chips: { left: number; top: number } | null = null;
       if (front && size === "compact" && panelEl) {
         const obstacles = panels.slice();
         for (const plate of document.querySelectorAll<HTMLElement>("[data-lp-seat]")) {
@@ -366,21 +386,25 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         const zone = anchor ? resolveAnchor(anchor) : null;
         const box = zone ? cardBox(origin, zone) : null;
         if (!zone || !box) {
-          placed.push({ link, slot, box: null, size: 0, shift: 0, half: "high", callout: null });
+          placed.push({ link, slot, box: null, size: 0, shift: 0, half: "high", callout: null, covered: false });
           continue;
         }
         const shift = stacked.get(zone) ?? 0;
         stacked.set(zone, shift + 1);
         const size = Math.round(Math.min(MAX_BADGE, Math.max(MIN_BADGE, box.width * 0.46)));
         gap = Math.max(gap, size);
-        centers.set(link.index, badgeCenter(box, size, shift));
+        const center = badgeCenter(box, size, shift);
+        centers.set(link.index, center);
+        // A badge over an open prompt would hide its words: it steps back (the stack and the wire still say the link).
+        const reach = (size * MAX_SCALE) / 2;
+        const covered = coveredFraction({ left: center.x - reach, top: center.y - reach, width: reach * 2, height: reach * 2 }, prompts) > BADGE_COVERED;
         // The callout tag opens away from the nearer board edge, so it stays on screen.
         const half = box.top + box.height / 2 > origin.height / 2 ? "low" : "high";
         const tag = tagRefs.current.get(link.index);
         const callout = tag
           ? placeCallout({ card: box, board: { width: origin.width, height: origin.height }, tag: { width: tag.offsetWidth, height: tag.offsetHeight }, half, panels })
           : null;
-        placed.push({ link, slot, box, size, shift, half, callout });
+        placed.push({ link, slot, box, size, shift, half, callout, covered });
       }
       const marks: PlacedMark[] = [];
       for (const link of targetLinksRef.current) {
@@ -425,7 +449,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           front.style.translate = `${x}px ${y}px`;
         }
       }
-      for (const { link, slot, box, size, shift, half, callout } of placed) {
+      for (const { link, slot, box, size, shift, half, callout, covered } of placed) {
         const ring = ringRefs.current.get(link.index);
         if (!box) {
           if (slot.dataset.placed !== "false") slot.dataset.placed = "false";
@@ -446,6 +470,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           }
           if (el.dataset.placed !== "true") el.dataset.placed = "true";
         }
+        const hide = covered ? "true" : "false";
+        if (slot.dataset.covered !== hide) slot.dataset.covered = hide;
         // The callout tag stays on the board and off every open prompt panel (see placeCallout).
         const tag = tagRefs.current.get(link.index);
         if (tag && callout) {

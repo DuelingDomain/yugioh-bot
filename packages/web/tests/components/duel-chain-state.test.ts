@@ -571,6 +571,9 @@ describe("chain stack size and covered marks", () => {
     expect(chainStackSize(180, "compact")).toBe("compact");
     expect(chainStackSize(169, "full")).toBe("compact");
     expect(chainStackSize(190, "compact")).toBe("full");
+    // A stack that meets a prompt surface is the chips, whatever the gutter says.
+    expect(chainStackSize(300, "full", true)).toBe("compact");
+    expect(chainStackSize(300, undefined, true)).toBe("compact");
   });
 
   it("measures how much of a target an open prompt covers", () => {

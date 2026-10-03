@@ -245,6 +245,38 @@ describe("chain front layer stacking", () => {
       expect(front.style.getPropertyValue("--chain-gutter")).toBe("300px");
     });
 
+    it("steps a badge back while an open prompt sits under it, and shows it again after", () => {
+      const { getByTestId, rerender } = render(withTarget(null));
+      act(() => { vi.advanceTimersByTime(60); });
+      const badge = () => getByTestId("root").querySelector("[data-chain-link='1']") as HTMLElement;
+      expect(badge().dataset.covered).toBe("false");
+      // Link 1 stands on the card at client (100, 400, 60, 80): its badge is at that card's top right corner.
+      rerender(withTarget("120,370,120,50"));
+      act(() => { vi.advanceTimersByTime(60); });
+      expect(badge().dataset.covered).toBe("true");
+      rerender(withTarget(null));
+      act(() => { vi.advanceTimersByTime(60); });
+      expect(badge().dataset.covered).toBe("false");
+    });
+
+    it("turns the full stack into chips when a prompt meets it, and back when the prompt goes", () => {
+      ZONES = { "0:8:0": [420, 400, 60, 80], "1:8:0": [440, 160, 60, 80] };
+      const { getByTestId, rerender } = render(withTarget(null));
+      act(() => { vi.advanceTimersByTime(60); });
+      const front = () => getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
+      expect(front().dataset.size).toBe("full");
+      // The stack column is at client (0, 0, 240, 30) in this mock. A prompt over it makes the chips.
+      rerender(withTarget("0,0,60,60"));
+      act(() => { vi.advanceTimersByTime(60); });
+      expect(front().dataset.size).toBe("compact");
+      // It stays chips while the prompt stays, and does not flip every frame.
+      act(() => { vi.advanceTimersByTime(200); });
+      expect(front().dataset.size).toBe("compact");
+      rerender(withTarget(null));
+      act(() => { vi.advanceTimersByTime(60); });
+      expect(front().dataset.size).toBe("full");
+    });
+
     it("draws the target mark in the front layer, above the prompt, and hides it under a panel", () => {
       const open = render(withTarget(null));
       act(() => { vi.advanceTimersByTime(60); });
@@ -287,6 +319,7 @@ describe("chain front layer stacking", () => {
 
   it("paints the layer above the prompt in the style sheets", () => {
     const sheet = css("chain-fx.module.css");
+    expect(sheet).toMatch(/\.slot\[data-covered="true"\]\s+\.badge\s*\{[^}]*visibility:\s*hidden/);
     expect(sheet).toMatch(/\.front\s*\{[^}]*z-index:\s*var\(--duel-z-chain\)/);
     expect(sheet).toMatch(/\.layer\[data-portal="true"\]\s*\{[^}]*left:\s*0/);
     const globals = readFileSync(join(__dirname, "../../app/globals.css"), "utf8");

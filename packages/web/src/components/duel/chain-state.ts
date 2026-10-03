@@ -470,9 +470,11 @@ const GUTTER_COMPACT_BELOW = 170;
 
 /**
  * Which form the chain stack takes, from the free width left of the board's leftmost zone, pile or LP panel. The
- * two thresholds differ (hysteresis), so a gutter that sits on the line does not flip the stack every frame.
+ * two thresholds differ (hysteresis), so a gutter that sits on the line does not flip the stack every frame. A stack
+ * that would meet an open prompt surface (`blocked`) is always the chips, which dodge it.
  */
-export function chainStackSize(gutter: number, previous: "full" | "compact" | undefined): "full" | "compact" {
+export function chainStackSize(gutter: number, previous: "full" | "compact" | undefined, blocked = false): "full" | "compact" {
+  if (blocked) return "compact";
   if (previous === "full") return gutter < GUTTER_COMPACT_BELOW ? "compact" : "full";
   if (previous === "compact") return gutter >= GUTTER_FULL_MIN ? "full" : "compact";
   return gutter >= GUTTER_FULL_MIN ? "full" : "compact";

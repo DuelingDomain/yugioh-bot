@@ -182,6 +182,8 @@
 }
 /* The highest link is larger and sits on top (the slot z-index is the link number). */
 .slot[data-top="true"] .badge { scale: 1.16; }
+/* Under an open prompt (set by the frame loop): the badge steps back so it never covers the question. */
+.slot[data-covered="true"] .badge { visibility: hidden; }
 
 .num {
   font-family: var(--duel-f-num, "Arial Narrow"), "Arial Narrow", sans-serif;
