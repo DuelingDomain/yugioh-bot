@@ -316,6 +316,24 @@ Debug.AddCard(${burn},0,0,LOCATION_HAND,0,POS_FACEDOWN)`]);
       expect(replayed.seats[2]).toEqual(final);
     }, 60_000);
 
+    it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s uses Surrender as the result reason", async (format) => {
+      const t = await table(mode, format);
+      await t.view();
+      const order = format === "tag" || format === "1v1" ? [1] : Array.from({ length: t.count - 1 }, (_, index) => t.count - 1 - index);
+      for (const seat of order) await t.post("surrender", seat);
+      if (format !== "1v1") {
+        await t.answer(0, { choice: "to_ep" });
+        await t.answer(0, { choice: "no" });
+      }
+      for (let seat = 0; seat < t.count; seat++) {
+        const room = await t.post("view", seat);
+        expect(room.session).toMatchObject({ status: "completed", winnerSeat: 0, resultReason: "Surrender" });
+        expect(room.engine!.result).toMatchObject({ winnerSeat: 0, reason: "Surrender" });
+      }
+      const replay = await t.post("replay", 0) as unknown as DuelReplay;
+      expect(replay.frames.at(-1)!.view.result?.reason).toBe("Surrender");
+    }, 60_000);
+
     it("1v1 surrender still ends the duel at once", async () => {
       const t = await table(mode, "1v1");
       const before = await t.view();
@@ -345,7 +363,7 @@ Debug.AddCard(${burn},0,0,LOCATION_HAND,0,POS_FACEDOWN)`]);
       expect(states(final)).toEqual(["in", "out", "out", "out"]);
       expect(final.result?.winnerSeat).toBe(0);
       expect(final.seats.every((seat) => seat.pendingElimination === false)).toBe(true);
-      expect(final.result?.reason).not.toBe("Surrendered");
+      expect(final.result?.reason).not.toBe("Surrender");
       expect(final.log.some((entry) => entry.text === "end")).toBe(false);
       const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
       expect(replayed.seats[0].result).toMatchObject(final.result!);

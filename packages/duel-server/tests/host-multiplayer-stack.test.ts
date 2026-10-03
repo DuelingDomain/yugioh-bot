@@ -128,7 +128,7 @@ for (const mode of ["normal", "domain"] as const) {
             expect(answered).toBe(true);
           }
         }
-        const result = format === "tag" ? { winnerSeat: 0, winnerTeam: 0, reason: "Surrendered" } : { winnerSeat: 0, reason: "Surrendered" };
+        const result = format === "tag" ? { winnerSeat: 0, winnerTeam: 0, reason: "Surrender" } : { winnerSeat: 0, reason: "Surrender" };
         for (let seat = 0; seat < count; seat++) {
           const final = await t.post("view", { slug: session.slug }, seat);
           expect(final.status).toBe(200);

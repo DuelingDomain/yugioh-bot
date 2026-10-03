@@ -600,7 +600,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         }
         diagnose("win", message.player < seatCount ? message.player : null, `player ${message.player} reason ${message.reason}`);
         const winnerSeat = message.player >= 0 && message.player < seatCount ? message.player : null;
-        const reason = cards.victory(message.reason) ?? `Win reason ${message.reason}`;
+        const reason = message.reason === 0 ? "Surrender" : cards.victory(message.reason) ?? `Win reason ${message.reason}`;
         if (multi) {
           // Tag: `player` is the winning team (its lowest seat).
           const winnerTeam = winnerSeat == null ? null : teamOfSeat(format, winnerSeat);

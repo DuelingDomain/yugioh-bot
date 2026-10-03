@@ -416,6 +416,7 @@ export function createDuelHost(options: {
     winnerSeat: number | null,
     reason: string,
   ): Promise<void> {
+    if (reason === "Surrendered") reason = "Surrender";
     let snapshots: DuelFinalSnapshots;
     try {
       snapshots = await captureSnapshots(game, service.get(slug, guildId).format, winnerSeat, reason);
@@ -1085,7 +1086,8 @@ export function createDuelHost(options: {
     const events = view.events.filter((entry) => entry.id > seen.events);
     for (const entry of log) seen.log = Math.max(seen.log, entry.id);
     for (const entry of events) seen.events = Math.max(seen.events, entry.id);
-    return { ...view, prompt: null, log, events };
+    const result = view.result?.reason === "Surrendered" ? { ...view.result, reason: "Surrender" } : view.result;
+    return { ...view, prompt: null, log, events, result };
   }
 
   async function buildReplay(slug: string, guildId: string, room: DuelRoom): Promise<DuelReplay> {

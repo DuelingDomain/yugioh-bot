@@ -311,7 +311,7 @@ describe("host with more than two seats", () => {
     expect(done.status).toBe("completed");
     expect(done.winnerSeat).toBe(2);
     expect(done.winnerPlayerId).toBe(t.players[2]);
-    expect(done.resultReason).toBe("Surrendered");
+    expect(done.resultReason).toBe("Surrender");
     // Every seat has a saved final board.
     const finalRoom = (await post(t.host, { op: "view", slug: t.slug, guildId: "g1", playerId: t.players[2] })).data;
     expect(finalRoom.engine.result.winnerSeat).toBe(2);
@@ -347,7 +347,7 @@ describe("host with more than two seats", () => {
     // Seat 2 is on team 0; team 1 (seats 1 and 3) wins, lowest seat is 1.
     expect(done.winnerSeat).toBe(1);
     const finalRoom = (await post(t.host, { op: "view", slug: t.slug, guildId: "g1", playerId: t.players[3] })).data;
-    expect(finalRoom.engine.result).toMatchObject({ winnerSeat: 1, winnerTeam: 1, reason: "Surrendered" });
+    expect(finalRoom.engine.result).toMatchObject({ winnerSeat: 1, winnerTeam: 1, reason: "Surrender" });
   });
 
   it("Tag winner_player_id is the human partner when the lowest winning seat is a bot", async () => {
@@ -401,7 +401,7 @@ describe("host eliminates through the core", () => {
     const done = t.duels.get(t.slug, "g1");
     expect(done.status).toBe("completed");
     expect(done.winnerSeat).toBe(2);
-    expect(done.resultReason).toBe("Surrendered");
+    expect(done.resultReason).toBe("Surrender");
   });
 
   it("a time-limit loss uses the time-limit code", async () => {
