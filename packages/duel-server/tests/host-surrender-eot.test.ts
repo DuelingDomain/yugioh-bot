@@ -316,6 +316,47 @@ Debug.AddCard(${burn},0,0,LOCATION_HAND,0,POS_FACEDOWN)`]);
       expect(replayed.seats[2]).toEqual(final);
     }, 60_000);
 
+    it("R-COMMON-SURRENDER-EOT: the queue effect survives the loss of seat 0", async () => {
+      const burn = resolveCard("Tremendous Fire", DATA);
+      const t = await table(mode, "ffa4", true, [`Duel.SetLP(0,400)
+Debug.AddCard(${burn},0,0,LOCATION_HAND,0,POS_FACEDOWN)
+local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_TURN_END)
+e:SetOperation(function() Duel.SelectYesNo(1,30) end)
+Duel.RegisterEffect(e,0)`]);
+      await reachMain(t);
+      await t.post("surrender", 2);
+      const start = await t.view();
+      const activate = start.prompt!.options.find((option) => option.card?.code === burn && option.id.startsWith("activate:"));
+      expect(activate).toBeDefined();
+      await t.answer(0, { choice: activate!.id });
+      for (let step = 0; step < 20; step++) {
+        const view = await t.view(1);
+        if (view.seats[0]!.eliminated && view.prompt?.options.some((option) => option.id === "no")) break;
+        await passPrompt(t);
+      }
+      const early = await t.view(1);
+      expect(early.prompt).not.toBeNull();
+      expect(states(early)).toEqual(["out", "in", "pending", "in"]);
+      expect(early.eliminationOrder).toEqual([[0]]);
+      expect(early.seats[0]!.monsters.filter(Boolean)).toHaveLength(0);
+      for (const seat of early.seats.slice(1)) {
+        expect(seat.monsters.filter(Boolean)).toHaveLength(1);
+        expect(seat.hand).toHaveLength(1);
+      }
+      await t.recover();
+      expect(await t.view(1)).toEqual(early);
+      expect(early.prompt).toMatchObject({ kind: "choice", options: expect.arrayContaining([expect.objectContaining({ id: "no" })]) });
+      await t.answer(1, { choice: "no" });
+      const final = await t.view(1);
+      expect(states(final)).toEqual(["out", "in", "out", "in"]);
+      expect(final).toMatchObject({ turn: 2, turnSeat: 1, result: null, eliminationOrder: [[0], [2]] });
+      expect(final.seats.every((seat) => seat.pendingElimination === false)).toBe(true);
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(replayed.seats[1]).toEqual(final);
+    }, 60_000);
+
     it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s uses Surrender as the result reason", async (format) => {
       const t = await table(mode, format);
       await t.view();
