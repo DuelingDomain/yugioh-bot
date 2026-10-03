@@ -13,7 +13,7 @@ import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 const fetchMock = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
-  fetchMock.mockImplementation(async () => new Response(JSON.stringify({ id: 4, issue: { number: 77, url: "https://github.com/imran443/yugioh-bot/issues/77" } }), { status: 200 }));
+  fetchMock.mockImplementation(async (url: string) => String(url).endsWith("/precheck") ? new Response(JSON.stringify({ knownLimits: [], duplicates: [] })) : new Response(JSON.stringify({ id: 4, issue: { number: 77, url: "https://github.com/imran443/yugioh-bot/issues/77" } }), { status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
   nav.path = "/leaderboard";
   window.history.replaceState(null, "", "/leaderboard");
@@ -38,11 +38,12 @@ describe("floating Report bug button", () => {
   it("sends a page report with the path only outside a duel", async () => {
     render(<BugReportFab />);
     fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
-    fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "Page is slow" } });
+    fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "Page is slow for everyone today" } });
+    fireEvent.change(screen.getByLabelText(/What did you expect\?/), { target: { value: "It should load quickly" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send report" })); });
     expect(await screen.findByRole("link", { name: "#77" })).toBeTruthy();
-    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
-    expect(body).toMatchObject({ description: "Page is slow", path: "/leaderboard" });
+    const body = JSON.parse(fetchMock.mock.calls.filter(([url]) => url === "/api/bug-reports")[0]![1].body as string);
+    expect(body).toMatchObject({ description: "Page is slow for everyone today", path: "/leaderboard" });
     expect(body.duelSlug).toBeUndefined();
     expect(body.context.format).toBeUndefined();
   });
@@ -54,10 +55,11 @@ describe("floating Report bug button", () => {
     expect(getBugReportRoom()).toBe(room);
     expect(screen.getByRole("button", { name: "Report bug" })).toHaveAttribute("data-in-duel", "true");
     fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
-    fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "Chain froze" } });
+    fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "Chain froze and nothing happened" } });
+    fireEvent.change(screen.getByLabelText(/What did you expect\?/), { target: { value: "The chain should resolve" } });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send report" })); });
     await screen.findByTestId("bug-report-done");
-    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    const body = JSON.parse(fetchMock.mock.calls.filter(([url]) => url === "/api/bug-reports")[0]![1].body as string);
     expect(body.duelSlug).toBe(room.session.slug);
     expect(body.context).toMatchObject({ format: "ffa3", seat: room.mySeat });
     fireEvent.keyDown(document, { key: "Escape" });

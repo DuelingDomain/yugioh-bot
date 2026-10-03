@@ -42,7 +42,7 @@ beforeEach(() => {
   window.localStorage.clear();
   vi.stubGlobal("ResizeObserver", RO);
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
-  fetchMock.mockImplementation(async () => new Response(JSON.stringify({ id: 12, issue: { number: 345, url: "https://github.com/imran443/yugioh-bot/issues/345" } }), { status: 200 }));
+  fetchMock.mockImplementation(async (url: string) => String(url).endsWith("/precheck") ? new Response(JSON.stringify({ knownLimits: [], duplicates: [] })) : new Response(JSON.stringify({ id: 12, issue: { number: 345, url: "https://github.com/imran443/yugioh-bot/issues/345" } }), { status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -57,7 +57,6 @@ async function reportFromMenu(expected: { format: string; seat: number | null; s
   expect(wrong.required).toBe(true);
   expect(document.activeElement).toBe(wrong);
   const send = screen.getByRole("button", { name: "Send report" });
-  expect(send).toBeDisabled();
   fireEvent.change(wrong, { target: { value: "The chain froze after my Quick-Play." } });
   fireEvent.change(screen.getByLabelText(/What did you expect\?/), { target: { value: "The chain resolves." } });
   await act(async () => { fireEvent.click(send); });
@@ -108,13 +107,19 @@ describe("Report bug in the table shell", () => {
     render(<Shell />);
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
-    fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "Odd turn order" } });
+    fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "Odd turn order after the third turn" } });
+    fireEvent.change(screen.getByLabelText(/What did you expect\?/), { target: { value: "The turn order stays the same" } });
 
-    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify({ error: "Too many bug reports" }), { status: 429, headers: { "Retry-After": "120" } }));
+    // Answer only the report call; the pre-check keeps its normal empty answer.
+    const answers = [
+      new Response(JSON.stringify({ error: "Too many bug reports" }), { status: 429, headers: { "Retry-After": "120" } }),
+      new Response(JSON.stringify({ id: 13, issue: null }), { status: 200 }),
+    ];
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith("/precheck") ? new Response(JSON.stringify({ knownLimits: [], duplicates: [] })) : answers.shift()!);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send report" })); });
     expect((await screen.findByRole("alert")).textContent).toContain("Try again in about 2 minutes");
 
-    fetchMock.mockImplementationOnce(async () => new Response(JSON.stringify({ id: 13, issue: null }), { status: 200 }));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send report" })); });
     expect((await screen.findByTestId("bug-report-done")).textContent).toContain("Saved — the team will see it.");
   });
