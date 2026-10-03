@@ -180,16 +180,59 @@ function fillGaps(entries: readonly ChainLinkState[], top: number): ChainLinkSta
   return out;
 }
 
+/** The chain as a stack, top of the chain first: the highest link is on top, Chain Link 1 at the bottom. */
+export function chainStackRows(state: ChainState): ChainLinkState[] {
+  return state.links.slice().sort((a, b) => b.index - a.index);
+}
+
 /**
- * The links the board cannot show as a badge: the activation zone is unknown, or the card and its
- * hand / pile are not on the board right now (`lost` holds the indexes the badge layer could not
- * place). The board shows every other link as a badge, and only as a badge, so these are the only
- * links the off-board strip may list. The top of the chain comes first.
+ * The link the stack callout is about: the one that is resolving; between resolutions, the link that resolved last
+ * (the lowest index among the resolved links, since a chain resolves from the top down); while the chain is still
+ * building, the top of the chain (the activation that just happened). null when no chain is open.
  */
-export function strayLinks(state: ChainState, lost: ReadonlySet<number>): ChainLinkState[] {
-  return state.links
-    .filter((link) => lost.has(link.index) || chainAnchor(link) === null)
-    .sort((a, b) => b.index - a.index);
+export function chainFocusLink(state: ChainState): ChainLinkState | null {
+  if (state.links.length === 0) return null;
+  if (state.resolving != null) return state.links[state.resolving - 1] ?? null;
+  const resolved = state.links.find((link) => link.status === "resolved");
+  return resolved ?? state.links[state.links.length - 1];
+}
+
+/** What every surface calls a link's card: its name, or "A card" when the name is unknown. Never a passcode. */
+export function chainCardName(link: Pick<ChainLinkState, "name">): string {
+  return link.name?.trim() || "A card";
+}
+
+export type ChainCallout = {
+  /** "Chain 1" */
+  label: string;
+  title: string;
+  /** "You" / "Opponent" / the player's name. */
+  owner: string;
+  /** What the engine says happened to this link: activation, resolving, resolved or negated. */
+  action: string;
+};
+
+/**
+ * What the callout says about a link, from the real chain data only. MSG_CHAINING carries the card,
+ * its zone, the controller, the chain count and the effect description; it does not say whether the
+ * effect is a trigger, a quick effect or an ignition effect, so an activation is always "activates its
+ * effect" (and "activates an effect" when even the card is unknown).
+ */
+export function chainCallout(
+  link: ChainLinkState,
+  mySeat: number | null,
+  playerName: (seat: number) => string,
+  named = false,
+): ChainCallout {
+  const known = link.name != null || link.code != null;
+  const title = chainCardName(link);
+  const owner = chainSeatLabel(link.seat, mySeat, playerName, named);
+  let action = known ? "activates its effect" : "activates an effect";
+  if (link.negated) action = "was negated";
+  else if (link.status === "resolving") action = "is resolving";
+  else if (link.status === "resolved") action = "resolved";
+  const label = `Chain ${link.index}`;
+  return { label, title, owner, action };
 }
 
 export type ChainAnchor = {
@@ -286,7 +329,7 @@ export function chainStateKey(state: ChainState): string {
 }
 
 type Point = { x: number; y: number };
-type Box = { left: number; top: number; width: number; height: number };
+export type Box = { left: number; top: number; width: number; height: number };
 
 /**
  * Badge geometry, shared with chain-fx.module.css (.badge): the badge hangs on the card's top right
@@ -316,6 +359,115 @@ export function chainWirePath(from: Point, to: Point, minGap: number): string | 
   return `M${r(from.x)} ${r(from.y)} Q${r(cx)} ${r(cy)} ${r(to.x)} ${r(to.y)}`;
 }
 
+export type CalloutPlace = {
+  /** Sideways shift in px that keeps the tag on the board. */
+  dx: number;
+  /** "near": the side it opens on by default; "far": the other side; "hidden": no side is clear of a prompt. */
+  side: "near" | "far" | "hidden";
+};
+
+const CALLOUT_GAP = 8;
+const CALLOUT_EDGE = 4;
+const CALLOUT_CLEAR = 6;
+
+function rectsOverlap(a: Box, b: Box, pad: number): boolean {
+  return a.left < b.left + b.width + pad && a.left + a.width + pad > b.left &&
+    a.top < b.top + b.height + pad && a.top + a.height + pad > b.top;
+}
+
+/**
+ * Where the row of numbered chips goes: the top left corner, moved clear of anything it would cover (a life-point
+ * plate, an open prompt panel). It first slides right past the thing in its way; when the row no longer fits on the
+ * board that way, it goes back to the left edge and drops below it. Ten steps at most, so a crowded board still ends.
+ */
+export function placeChips(
+  size: { width: number; height: number },
+  board: { width: number; height: number },
+  obstacles: readonly Box[],
+): { left: number; top: number } {
+  const EDGE = 4;
+  const GAP = 6;
+  let left = EDGE;
+  let top = EDGE;
+  for (let step = 0; step < 10; step += 1) {
+    const hit = obstacles.find(
+      (o) => left < o.left + o.width + GAP && left + size.width > o.left - GAP && top < o.top + o.height + GAP && top + size.height > o.top - GAP,
+    );
+    if (!hit) break;
+    const right = hit.left + hit.width + GAP;
+    if (right + size.width <= board.width - EDGE) {
+      left = right;
+    } else {
+      left = EDGE;
+      top = hit.top + hit.height + GAP;
+    }
+  }
+  return { left, top: Math.max(EDGE, Math.min(top, Math.max(EDGE, board.height - size.height - EDGE))) };
+}
+
+/**
+ * Where the callout tag of the focus card goes. All boxes are in board pixels. The tag is centred on its card and
+ * opens below it on the upper half of the board (`half` "high") and above it on the lower half. It slides sideways to
+ * stay on the board. It must never sit over an open prompt panel (the Yes/No bar, the card choices): clicks pass
+ * through the tag, so a covered button would still be pressed with the player unable to read it. If the default
+ * side is covered it opens on the other side when that side is on the board and clear, else it is hidden (the stack
+ * panel keeps the same words).
+ */
+export function placeCallout(input: {
+  card: Box;
+  board: { width: number; height: number };
+  tag: { width: number; height: number };
+  half: "high" | "low";
+  panels: readonly Box[];
+}): CalloutPlace {
+  const { card, board, tag, half, panels } = input;
+  const centre = card.left + card.width / 2;
+  const hw = tag.width / 2;
+  const dx = Math.round(Math.max(CALLOUT_EDGE + hw - centre, Math.min(0, board.width - CALLOUT_EDGE - hw - centre)));
+  const left = centre + dx - hw;
+  const below: Box = { left, top: card.top + card.height + CALLOUT_GAP, width: tag.width, height: tag.height };
+  const above: Box = { left, top: card.top - CALLOUT_GAP - tag.height, width: tag.width, height: tag.height };
+  const near = half === "high" ? below : above;
+  const far = half === "high" ? above : below;
+  const clear = (rect: Box) => panels.every((panel) => !rectsOverlap(rect, panel, CALLOUT_CLEAR));
+  if (clear(near)) return { dx, side: "near" };
+  const onBoard = far.top >= 0 && far.top + far.height <= board.height;
+  if (onBoard && clear(far)) return { dx, side: "far" };
+  return { dx, side: "hidden" };
+}
+
+/**
+ * How much of a box the open prompt panels cover, 0 to 1. A target mark under a panel is not drawn over it: the
+ * ring would float on top of the question.
+ */
+export function coveredFraction(box: Box, panels: readonly Box[]): number {
+  const area = box.width * box.height;
+  if (area <= 0) return 0;
+  let covered = 0;
+  for (const panel of panels) {
+    const w = Math.min(box.left + box.width, panel.left + panel.width) - Math.max(box.left, panel.left);
+    const h = Math.min(box.top + box.height, panel.top + panel.height) - Math.max(box.top, panel.top);
+    if (w > 0 && h > 0) covered += w * h;
+  }
+  return Math.min(1, covered / area);
+}
+
+/** Below this many px of free space left of the field, the stack is a row of numbered chips. At or above, a full panel. */
+const GUTTER_FULL_MIN = 190;
+const GUTTER_COMPACT_BELOW = 170;
+
+/**
+ * Which form the chain stack takes, from the free width left of the board's leftmost zone, pile or LP panel. The
+ * two thresholds differ (hysteresis), so a gutter that sits on the line does not flip the stack every frame. A stack
+ * that would meet an open prompt surface (`blocked`) is always the chips, which dodge it.
+ */
+export function chainStackSize(gutter: number, previous: "full" | "compact" | undefined, blocked = false): "full" | "compact" {
+  if (blocked) return "compact";
+  if (previous === "full") return gutter < GUTTER_COMPACT_BELOW ? "compact" : "full";
+  if (previous === "compact") return gutter >= GUTTER_FULL_MIN ? "full" : "compact";
+  return gutter >= GUTTER_FULL_MIN ? "full" : "compact";
+}
+
 /** What a screen reader says for one link, e.g. "Chain Link 2: Card, Opponent, negated. Effect text". */
 export function chainLinkLabel(
   link: ChainLinkState,
@@ -323,23 +475,43 @@ export function chainLinkLabel(
   playerName: (seat: number) => string,
   detail = true,
   named = false,
+  partner: number | null = null,
 ): string {
-  const parts = [`${link.name ?? "Effect"}`, chainSeatLabel(link.seat, mySeat, playerName, named)];
+  const parts = [chainCardName(link), chainSeatLabel(link.seat, mySeat, playerName, named)];
   if (detail) {
     if (link.status === "resolving") parts.push("resolving");
     if (link.negated) parts.push("negated");
     if (link.status === "resolved") parts.push("resolved");
   }
-  const targets = chainTargetLabel(link, mySeat, playerName);
+  const targets = chainTargetLabel(link, mySeat, playerName, { named, partner });
   const text = `Chain Link ${link.index}: ${parts.join(", ")}${targets ? `. ${targets}` : ""}`;
   return detail && link.description ? `${text}. ${link.description}` : text;
 }
 
-/** Coordinates only: looking up target names here could leak a face-down card's identity. */
-export function chainTargetLabel(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string): string | null {
-  if (link.targets.length === 0) return null;
-  const places = link.targets.map((zone) => {
-    const whose = mySeat == null ? `${playerName(zone.controller)}'s ` : zone.controller === mySeat ? "your " : "opponent's ";
+/** Who stands behind the words "your", "partner's" and "opponent's" when a target place is named. */
+export type TargetNaming = {
+  /** A table of 3 or 4: a rival reads by name, never "opponent's". */
+  named?: boolean;
+  /** The viewer's Tag partner: their zones read "partner's". */
+  partner?: number | null;
+};
+
+/**
+ * Where a link's targets are, as short place names ("your Field Zone", "Ryo Sato's Monster Zone 2"). Coordinates
+ * only: looking up target names here could leak a face-down card's identity.
+ */
+export function chainTargetPlaces(
+  link: ChainLinkState,
+  mySeat: number | null,
+  playerName: (seat: number) => string,
+  naming: TargetNaming = {},
+): string[] {
+  return link.targets.map((zone) => {
+    let whose: string;
+    if (mySeat == null) whose = `${playerName(zone.controller)}'s `;
+    else if (zone.controller === mySeat) whose = "your ";
+    else if (naming.partner != null && zone.controller === naming.partner) whose = "partner's ";
+    else whose = naming.named ? `${playerName(zone.controller)}'s ` : "opponent's ";
     let place: string;
     switch (zone.location) {
       case LOCATION_MZONE: place = zone.sequence >= 5 ? `Extra Monster Zone ${zone.sequence - 4}` : `Monster Zone ${zone.sequence + 1}`; break;
@@ -353,7 +525,39 @@ export function chainTargetLabel(link: ChainLinkState, mySeat: number | null, pl
     }
     return `${whose}${place}`;
   });
-  return `Chain Link ${link.index} targets ${places.join(", ")}`;
+}
+
+export function chainTargetLabel(
+  link: ChainLinkState,
+  mySeat: number | null,
+  playerName: (seat: number) => string,
+  naming: TargetNaming = {},
+): string | null {
+  if (link.targets.length === 0) return null;
+  return `Chain Link ${link.index} targets ${chainTargetPlaces(link, mySeat, playerName, naming).join(", ")}`;
+}
+
+export type ChainFlow = {
+  /** The card that activated. */
+  source: string;
+  /** What the engine says the effect does, or null when it sent no text or the card is unknown. */
+  effect: string | null;
+  /** Public target places, empty when the link has none. */
+  targets: string[];
+};
+
+/**
+ * One link as "source, then effect, then targets" for the stack. Only public data: the effect text of an activation
+ * (the card is face-up on the chain once it activates), and target coordinates. An unknown card shows no effect
+ * text, and a target never shows a card name.
+ */
+export function chainFlow(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string, naming: TargetNaming = {}): ChainFlow {
+  const known = link.name != null && link.name.trim() !== "";
+  return {
+    source: chainCardName(link),
+    effect: known ? link.description?.trim() || null : null,
+    targets: chainTargetPlaces(link, mySeat, playerName, naming),
+  };
 }
 
 /**
@@ -366,20 +570,21 @@ export function chainAnnouncement(
   mySeat: number | null,
   playerName: (seat: number) => string,
   named = false,
+  partner: number | null = null,
 ): string | null {
   if (next.links.length === 0) return prev.links.length > 0 ? "Chain ended" : null;
   const top = next.links[next.links.length - 1];
   const prevTop = prev.links[prev.links.length - 1];
   if (!prevTop || prevTop.index !== top.index || prevTop.code !== top.code) {
-    return chainLinkLabel(top, mySeat, playerName, false, named);
+    return chainLinkLabel(top, mySeat, playerName, false, named, partner);
   }
   const targeted = next.links.find((link) => JSON.stringify(link.targets) !== JSON.stringify(prev.links[link.index - 1]?.targets));
-  if (targeted) return chainTargetLabel(targeted, mySeat, playerName) ?? `Chain Link ${targeted.index} has no current targets`;
+  if (targeted) return chainTargetLabel(targeted, mySeat, playerName, { named, partner }) ?? `Chain Link ${targeted.index} has no current targets`;
   const negated = next.links.find((link) => link.negated && !prev.links[link.index - 1]?.negated);
   if (negated) return `Chain Link ${negated.index} was negated`;
   if (next.resolving != null && next.resolving !== prev.resolving) {
     const link = next.links[next.resolving - 1];
-    return `Chain Link ${link.index} resolving: ${link.name ?? "Effect"}, ${chainSeatLabel(link.seat, mySeat, playerName, named)}`;
+    return `Chain Link ${link.index} resolving: ${chainCardName(link)}, ${chainSeatLabel(link.seat, mySeat, playerName, named)}`;
   }
   return null;
 }

@@ -376,7 +376,7 @@ function TableShellBody({
         />
       ) : null}
       <div className={roomStyles.layout}>
-        <div className={roomStyles.notices}>
+        <div className={roomStyles.notices} data-prompt-surface="">
           <div className="pointer-events-auto">{notices}</div>
         </div>
         {narrow ? null : (
@@ -402,6 +402,7 @@ function TableShellBody({
           data-mode={dockMode}
           data-tone={prompt?.context?.type === "chain" ? "chain" : "action"}
           data-idle={dockMode === "idle" ? "true" : "false"}
+          data-prompt-surface={dockMode === "idle" ? undefined : ""}
         >
           <PromptTray
             prompt={prompt}
@@ -436,7 +437,7 @@ function TableShellBody({
                     {fxActive ? <SummonFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
                     {fxActive ? <MoveFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} /> : null}
+                    {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
                     <BattleFx events={engine.events} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
                     <DestroyFx events={engine.events} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />

@@ -30,9 +30,9 @@ function zOf(css: string, selector: string): string | null {
 }
 
 describe("duel layer tokens", () => {
-  it("order the layers: board < board FX < prompts < menus < modals < result", () => {
+  it("order the layers: board < board FX < prompts < chain < menus < modals < result", () => {
     const t = tokens();
-    const order = ["board", "fx", "fx-front", "prompt", "prompt-front", "tooltip", "menu", "confirm", "modal", "result"];
+    const order = ["board", "fx", "fx-front", "prompt", "chain", "prompt-front", "tooltip", "menu", "confirm", "modal", "result"];
     expect(Object.keys(t)).toEqual(order);
     for (let i = 1; i < order.length; i++) expect(t[order[i]], `${order[i]} above ${order[i - 1]}`).toBeGreaterThan(t[order[i - 1]]);
   });
@@ -43,6 +43,12 @@ describe("duel layer tokens", () => {
     // Room for a sublayer under a token without a clash with the next one.
     expect(t.prompt - t["fx-front"]).toBeGreaterThan(1);
   });
+
+  it("puts the chain above the prompt, so a prompt can never cover it, and below the pile viewer", () => {
+    const t = tokens();
+    expect(t.chain).toBeGreaterThan(t.prompt);
+    expect(t.chain).toBeLessThan(t["prompt-front"]);
+  });
 });
 
 describe("duel layers use the tokens", () => {
@@ -51,6 +57,8 @@ describe("duel layers use the tokens", () => {
     ["battle-fx.module.css", ".layer", "var(--duel-z-fx-front)"],
     ["equip-fx.module.css", ".layer", "var(--duel-z-fx)"],
     ["chain-fx.module.css", ".layer", "var(--duel-z-fx)"],
+    // The chain's front layer (badges, callout, stack) sits over the prompt layer.
+    ["chain-fx.module.css", ".front", "var(--duel-z-chain)"],
     ["move-fx.module.css", ".layer", "var(--duel-z-fx)"],
     ["summon-fx.module.css", ".layer", "var(--duel-z-fx)"],
     ["position-fx.module.css", ".layer", "var(--duel-z-fx)"],

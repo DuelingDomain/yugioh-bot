@@ -1479,6 +1479,7 @@ export function PromptCenter(props: PromptCenterProps) {
     body = (
       <div
         className={styles.bar}
+        data-prompt-surface=""
         data-reduced={dataReduced}
         data-place={barPlace.mode}
         data-stack={barPlace.stack ? "true" : "false"}
@@ -1582,6 +1583,7 @@ export function PromptCenter(props: PromptCenterProps) {
     <button
       type="button"
       className={styles.pill}
+      data-prompt-surface=""
       data-tone={tone}
       data-reduced={dataReduced}
       onClick={() => setCollapsed(false)}

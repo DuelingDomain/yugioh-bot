@@ -186,8 +186,8 @@
 
 /*
  * A table of 3 or 4: the "Activate its effect?" bar leaves the middle (where it hid the turn ring and the rival
- * fields) and sits in the lower-left lane, beside your own field. The chain stack moves up, off that lane, so the
- * two never cross. Picks and card lists keep the middle: they are placed against the board, not this slot.
+ * fields) and sits in the lower-left lane, beside your own field. The chain stack moves up, off that lane (its rule is
+ * in chain-fx.module.css: the stack is portaled out of this slot). Picks and card lists keep the middle: they are placed against the board, not this slot.
  */
 .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
   top: auto;
@@ -209,24 +209,6 @@
 .board[data-format="ffa3"] .slot[data-slot="overlay"] :global([data-opponent-bar]) {
   top: 18%;
 }
-.slot[data-slot="fx"] :global([data-chain-panel]) {
-  align-self: flex-start;
-  /* Percentage margins resolve against the narrow dock's width, not the board height. */
-  position: relative;
-  top: 23%;
-  margin-top: 0;
-  max-height: 46%;
-}
-.slot[data-slot="fx"] :global([data-chain-panel][data-priority="true"]) {
-  width: max-content;
-  max-width: min(420px, calc(100% - 24px));
-}
-/* The far seat's LP sits partway down a four-way table. Its chain lane ends above that panel. */
-.board[data-format="ffa4"] .slot[data-slot="fx"] :global([data-chain-panel]) {
-  top: 8px;
-  max-height: calc(30% - 24px);
-  overflow-y: auto;
-}
 /* Expanded responses fit between the side panels and below the far seat's LP. */
 .board[data-format="ffa4"] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
   inset: 39% auto auto 50%;
@@ -239,9 +221,6 @@
 }
 .board[data-format="ffa4"] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) > * {
   flex-shrink: 0;
-}
-.slot[data-slot="fx"] :global([data-chain-panel] [data-testid="priority-chips"]) {
-  flex-wrap: wrap;
 }
 .slot[data-slot="prompt"] :global([data-prompt-panel] [data-testid="priority-chips"]) {
   flex-wrap: wrap;
