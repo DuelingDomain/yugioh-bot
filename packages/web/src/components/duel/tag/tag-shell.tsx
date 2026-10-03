@@ -6,6 +6,7 @@ import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName }
 import { isBattlePhase } from "../constants";
 import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
+import { duelFxClock } from "../fx-clock";
 import { duelFontClasses } from "../fonts";
 import { usePickContinuation } from "../pick-continuation";
 import { useDuelPreferences } from "../preferences";
@@ -138,7 +139,7 @@ export function TagShell(props: TagShellProps) {
   // down (the FX replay nothing), no lock starts but the cursor still moves, so old events never lock the camera later.
   const lastEvent = useRef<number>(lastEventId(engine.events, 0));
   useEffect(() => {
-    const lock = fxActive ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion) : null;
+    const lock = fxActive ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion, duelFxClock.factor()) : null;
     if (!lock) {
       lastEvent.current = lastEventId(engine.events, lastEvent.current);
       return;

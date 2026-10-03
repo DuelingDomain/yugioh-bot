@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { duelFxClock } from "../fx-clock";
 import { isEliminated } from "../multi-seat";
 import {
   cameraActionForKey,
@@ -79,13 +80,13 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
   // FX lock: a new engine event, or a seat that starts to leave.
   const lastId = useRef(maxEventId(engine.events));
   useEffect(() => {
-    const lock = lockForEvents(engine.events, lastId.current);
+    const lock = lockForEvents(engine.events, lastId.current, duelFxClock.factor());
     lastId.current = Math.max(lastId.current, lock?.lastId ?? 0, maxEventId(engine.events));
     if (lock) dispatch({ type: "lock", reason: lock.reason, nowMs: now(), ms: lock.ms });
   }, [engine.events, now]);
   const lastSeats = useRef(engine.seats);
   useEffect(() => {
-    const lock = lockForSeats(lastSeats.current, engine.seats);
+    const lock = lockForSeats(lastSeats.current, engine.seats, duelFxClock.factor());
     lastSeats.current = engine.seats;
     if (lock) dispatch({ type: "lock", reason: lock.reason, nowMs: now(), ms: lock.ms });
   }, [engine.seats, now]);

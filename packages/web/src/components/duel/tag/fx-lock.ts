@@ -1,4 +1,5 @@
 import type { DuelEvent } from "@yugidraft/shared/duels";
+import { scaleLockMs } from "../table/camera-model";
 import type { CameraLockReason } from "../table/types";
 
 /**
@@ -35,8 +36,9 @@ export function lastEventId(events: readonly DuelEvent[], afterId: number): numb
 /**
  * Lock for the events with an id above `afterId`: the strongest reason, the longest time. Null when none locks.
  * With reduced motion the camera never locks (no eased move, no input freeze); use `lastEventId` for the cursor.
+ * `speed` is the viewer's FX rate (`duelFxClock.factor()`): the effects last 1/speed as long, so the lock does too.
  */
-export function lockForEvents(events: readonly DuelEvent[], afterId: number, reducedMotion = false): FxLock | null {
+export function lockForEvents(events: readonly DuelEvent[], afterId: number, reducedMotion = false, speed = 1): FxLock | null {
   if (reducedMotion) return null;
   let reason: CameraLockReason | null = null;
   let ms = 0;
@@ -49,5 +51,5 @@ export function lockForEvents(events: readonly DuelEvent[], afterId: number, red
     if (reason === null || PRIORITY[next] > PRIORITY[reason]) reason = next;
     ms = Math.max(ms, TIMES[next]);
   }
-  return reason === null ? null : { reason, ms, lastId };
+  return reason === null ? null : { reason, ms: scaleLockMs(ms, speed), lastId };
 }
