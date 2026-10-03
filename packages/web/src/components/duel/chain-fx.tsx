@@ -398,7 +398,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         for (const { box } of marks) {
           if (box) obstacles.push({ left: box.left - TARGET_OUTSET, top: box.top - TARGET_OUTSET, width: box.width + TARGET_OUTSET * 2, height: box.height + TARGET_OUTSET * 2 });
         }
-        for (const plate of document.querySelectorAll<HTMLElement>("[data-lp-seat]")) {
+        for (const plate of document.querySelectorAll<HTMLElement>("[data-lp-seat], [data-team-plate]")) {
           const rect = plate.getBoundingClientRect();
           if (rect.width > 4 && rect.height > 4) obstacles.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
         }

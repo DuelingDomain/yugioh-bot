@@ -28,7 +28,7 @@ const CHAIN: DuelChainLink[] = [{ index: 1, seat: 0, code: 11 }, { index: 2, sea
  * prompt slot after it. Each slot is its own stacking context in the real table, so the chain's front layer must
  * not live in either.
  */
-function Table({ withRoot = true, table, panels = [], cue, plate, surface }: { withRoot?: boolean; table?: string; panels?: string[]; cue?: string; plate?: string; surface?: string }) {
+function Table({ withRoot = true, table, panels = [], cue, plate, surface, teamPlate }: { withRoot?: boolean; table?: string; panels?: string[]; cue?: string; plate?: string; surface?: string; teamPlate?: string }) {
   const board = (
     <div data-board data-format={table}>
       <div data-slot="fx">
@@ -38,6 +38,7 @@ function Table({ withRoot = true, table, panels = [], cue, plate, surface }: { w
         <div data-prompt-panel>Activate its effect?</div>
         {panels.map((box) => <div key={box} data-prompt-panel data-box={box}>choices</div>)}
         {plate ? <div data-lp-seat="1" data-box={plate}>5,400</div> : null}
+        {teamPlate ? <div data-team-plate="far" data-box={teamPlate}>Thornveil 9,400</div> : null}
         {surface ? <div data-prompt-surface data-box={surface}>Select 1 card</div> : null}
         {cue ? <div data-feedback-cue data-box={cue}>My Body as a Shield is activating</div> : null}
       </div>
@@ -56,7 +57,7 @@ beforeEach(() => {
     let box = [0, 0, 0, 0];
     if (this.dataset.zones && ZONES[this.dataset.zones]) box = ZONES[this.dataset.zones];
     else if (this.hasAttribute("data-chain-panel")) box = [0, 0, 240, 30];
-    else if (this.hasAttribute("data-prompt-panel") || this.hasAttribute("data-prompt-surface") || this.hasAttribute("data-feedback-cue") || this.hasAttribute("data-lp-seat")) box = (this.dataset.box ?? "0,0,0,0").split(",").map(Number);
+    else if (this.hasAttribute("data-prompt-panel") || this.hasAttribute("data-prompt-surface") || this.hasAttribute("data-feedback-cue") || this.hasAttribute("data-lp-seat") || this.hasAttribute("data-team-plate")) box = (this.dataset.box ?? "0,0,0,0").split(",").map(Number);
     else if (this.hasAttribute("data-duel-fx-speed-root")) box = [20, 10, 1000, 700];
     else if (this.hasAttribute("data-chain-fx") || this.hasAttribute("data-board")) box = [120, 60, 900, 600];
     const [left, top, width, height] = box;
@@ -196,6 +197,13 @@ describe("chain front layer stacking", () => {
       expect(front.dataset.size).toBe("compact");
       expect(front.style.getPropertyValue("--chain-dock-left")).toBe("4px");
       expect(front.style.getPropertyValue("--chain-dock-top")).toBe("4px");
+    });
+
+    it("slide right past the Tag team plate as well", () => {
+      const { getByTestId } = render(<Table table="tag" teamPlate="130,70,160,80" />);
+      act(() => { vi.advanceTimersByTime(60); });
+      const front = getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
+      expect(front.style.getPropertyValue("--chain-dock-left")).toBe("176px");
     });
 
     it("slide right past a life-point plate in that corner", () => {
