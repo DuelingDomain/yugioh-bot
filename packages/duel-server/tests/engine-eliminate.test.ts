@@ -7,6 +7,7 @@ import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { choosePracticeBotAnswer, chooseSurrenderedAnswer } from "../src/practice-bot.js";
 import { engineDataDirectory as dataDirectory } from "./engine-data-dir.js";
 import { currentDomainMultiWasm, currentMultiWasm, describeWithCores, needs } from "./support/cores.js";
+import { compileBoard } from "./support/board.js";
 
 // Surrender uses Debug.SurrenderDuelist. With no chain the loss is immediate, including when another seat holds a prompt.
 // MULTI_WASM and DOMAIN_MULTI_WASM select the proof cores. The core and engine must support the same surrender rule.
@@ -57,6 +58,41 @@ function pass(game: EngineGame, seat: number): void {
 const isOut = (game: EngineGame, seat: number) => game.view(null).seats[seat]!.eliminated === true;
 
 const cases: [DuelFormat][] = [["ffa3"], ["ffa4"], ["tag"]];
+
+describeWithCores("Tag surrender during a resolving operation", [needs.multi(multiWasmPath), ...needs.domainMulti(dataDirectory, domainWasmPath)], () => {
+  it.each(["normal", "domain"] as const)("%s: ends Tag while the other team holds a required choice", async (mode) => {
+    const setup = compileBoard({ mode, format: "tag", p0: { hand: ["Pot of Greed"], ...(mode === "domain" ? { deckMaster: "Mystical Elf" } : {}) },
+      p1: { ...(mode === "domain" ? { deckMaster: "Mystical Elf" } : {}) }, p2: { ...(mode === "domain" ? { deckMaster: "Mystical Elf" } : {}) },
+      p3: { ...(mode === "domain" ? { deckMaster: "Mystical Elf" } : {}) } });
+    const game = await createEngineGame({ ...setup.options, seed: ["1", "2", "3", "4"], dataDirectory,
+      multiWasmBinary: wasmBinary(mode === "domain" ? domainWasmPath : multiWasmPath), startupScripts: [...setup.options.startupScripts!, {
+        name: "tag-required-choice.lua", content: `local c=Duel.GetFieldCard(0,LOCATION_HAND,0)
+for _,e in ipairs({c:GetCardEffect(EVENT_FREE_CHAIN)}) do
+  if (e:GetType()&EFFECT_TYPE_ACTIVATE)~=0 then e:SetOperation(function() Duel.SelectYesNo(Duel.MPActionSeat(1),30) end) end
+end`,
+      }] });
+    try {
+      for (let step = 0; step < 30; step++) {
+        const seat = promptSeat(game)!; const prompt = game.view(seat).prompt!;
+        const activate = prompt.options.find((o) => o.card?.code === 55144522 && o.id.startsWith("activate:"));
+        if (activate) { game.answer(seat, prompt.id, { choice: activate.id }); break; }
+        pass(game, seat);
+      }
+      for (let step = 0; step < 30; step++) {
+        const seat = promptSeat(game)!; const prompt = game.view(seat).prompt!;
+        if (game.view(null).chain?.length === 1 && prompt.options.some((o) => o.id === "yes")) break;
+        pass(game, seat);
+      }
+      const holder = promptSeat(game)!;
+      expect(teamOfSeat("tag", holder)).toBe(1);
+      expect(game.view(holder).prompt?.options.map((o) => o.id)).toEqual(["yes", "no"]);
+      expect(game.view(null).chain).toHaveLength(1);
+      game.eliminate(0, 0);
+      expect(game.view(null).result).toMatchObject({ winnerTeam: 1 });
+      expect(game.view(holder).prompt).toBeNull();
+    } finally { game.close(); }
+  });
+});
 
 describeWithCores("eliminate with a prompt open (multi core)", needs.multi(multiWasmPath), () => {
   async function open(format: DuelFormat): Promise<EngineGame> {

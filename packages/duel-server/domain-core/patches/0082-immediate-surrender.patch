@@ -320,14 +320,15 @@ diff --git a/processor.cpp b/processor.cpp
  			if(!(cait->flag & CHAIN_DISABLE_EFFECT)) {
  				auto message = pduel->new_message(MSG_CHAIN_DISABLED);
  				message->write<uint8_t>(cait->chain_count);
-@@ -4812,9 +4829,15 @@
+@@ -4812,9 +4829,16 @@
  // Duel.Win of another team (every living opponent without CANNOT_LOSE_EFFECT). Losses wait while a chain
  // resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
  // else every loser is eliminated in turn order from the turn player.
 -void field::check_losses_n() {
 -	if(core.chain_solving || !pduel->lua->coroutines.empty())
 +void field::check_losses_n(bool surrenders_only) {
-+	if(core.chain_solving || (!surrenders_only && !pduel->lua->coroutines.empty()))
++	if((core.chain_solving && (!surrenders_only || n_teams == n_duelists))
++		|| (!surrenders_only && !pduel->lua->coroutines.empty()))
  		return;
 +	// Surrenders wait for the whole chain. Other loss reasons keep their timing.
 +	if(n_teams == n_duelists && !core.current_chain.empty()) {
@@ -338,7 +339,7 @@ diff --git a/processor.cpp b/processor.cpp
  	uint8_t order[MAX_DUELISTS];
  	uint8_t count = 0;
  	for(uint8_t i = 0; i < n_duelists; ++i) {
-@@ -4830,7 +4853,7 @@
+@@ -4830,7 +4854,7 @@
  	};
  	for(uint8_t i = 0; i < count; ++i) {
  		const auto p = order[i];
@@ -347,7 +348,7 @@ diff --git a/processor.cpp b/processor.cpp
  			bool protect = false;
  			for(uint8_t q = 0; q < count; ++q) {
  				if(same_team(order[q], p) && is_player_affected_by_effect(order[q], EFFECT_CANNOT_LOSE_LP))
-@@ -4839,13 +4862,13 @@
+@@ -4839,13 +4863,13 @@
  			if(!protect)
  				mark(p, 1);
  		}
