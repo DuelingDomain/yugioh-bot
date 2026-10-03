@@ -61,6 +61,13 @@ local mp_ops={[s.desop]=true,[s.discardop]=true,[s.damop]=true}
 local mp_wrapped={}
 local mp_initial=s.initial_effect
 function s.initial_effect(c)
+	local card_register=Card.RegisterEffect
+	Card.RegisterEffect=function(card,e,...)
+		if card==c and e:GetOperation()==s.maintop then
+			e:SetCondition(function(e) return Duel.MPTurnControls(e:GetHandler()) end)
+		end
+		return card_register(card,e,...)
+	end
 	local reg=Duel.RegisterEffect
 	Duel.RegisterEffect=function(e,p,...)
 		local op=e:GetOperation()
@@ -83,5 +90,6 @@ function s.initial_effect(c)
 	end
 	local ok,err=pcall(mp_initial,c)
 	Duel.RegisterEffect=reg
+	Card.RegisterEffect=card_register
 	if not ok then error(err,0) end
 end
