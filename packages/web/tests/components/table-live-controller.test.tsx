@@ -2,6 +2,7 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
+import { TAG_FIXTURES } from "@/components/duel/tag/fixtures";
 import { useLiveTableController, type LiveTableControllerInput } from "@/components/duel/table/use-live-table-controller";
 import { promptLegalKeys, promptSelectedKeys, usePromptDraft } from "@/components/duel/prompts";
 
@@ -72,5 +73,33 @@ describe("live table controller", () => {
     expect(result.current.controller!.engine.seats).toHaveLength(3);
     rerender({ room: { ...result.current.source.room!, engine: null } });
     expect(result.current.controller).toBeNull();
+  });
+
+  describe("2v2 Tag room", () => {
+    const tagInput = (id: "choose-opponent" | "main", overrides: Partial<LiveTableControllerInput> = {}) => {
+      const room = TAG_FIXTURES.states[id].room;
+      const prompt = room.engine!.prompt;
+      return renderHook(() => {
+        const draft = usePromptDraft(prompt);
+        return useLiveTableController({
+          room, prompt, nameOf: (seat) => room.session.seats[seat].displayName,
+          canAct: true, busy: false, revealed: true, draft,
+          legalKeys: promptLegalKeys(prompt), selectedKeys: promptSelectedKeys(prompt, draft.selected),
+          aim: null, reducedMotion: true, onAnswer: vi.fn(), onActivate: vi.fn(), onInspect: vi.fn(), ...overrides,
+        });
+      }).result.current;
+    };
+
+    it("offers the rival seats when the player can act and the prompt is revealed", () => {
+      const controller = tagInput("choose-opponent")!;
+      expect(controller.viewerSeat).toBe(0);
+      expect([...controller.seatPick!.options.keys()]).toEqual([1, 3]);
+    });
+    it.each([{ canAct: false }, { revealed: false }])("withholds the seat pick while gated: %j", (gate) => {
+      expect(tagInput("choose-opponent", gate)!.seatPick).toBeNull();
+    });
+    it("offers no seat pick for a prompt that does not choose an opponent", () => {
+      expect(tagInput("main")!.seatPick).toBeNull();
+    });
   });
 });
