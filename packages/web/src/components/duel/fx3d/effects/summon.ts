@@ -1,5 +1,6 @@
 import { easeInOutCubic, easeOutCubic, lerp, mulberry32, ramp } from "../ease";
-import { SUMMON3D_TIMELINE, type Summon3dKey, type Summon3dTimeline } from "../timeline";
+import { FIELD_PLACEMENT_SCALE, fieldPlacementMs } from "../../placement-timing";
+import { SUMMON3D_AUTHORED, type Summon3dKey, type Summon3dTimeline } from "../timeline";
 import type { FxTint, Rgb } from "../types";
 import { compose, DEFAULT_TINT, Rig, setColor, type FxFactory, type FxPart } from "./base";
 import { embodiment } from "./embodiment";
@@ -428,7 +429,7 @@ const LANDING: Record<Summon3dKey, { debris: number; second: boolean; column: bo
 
 export function summonFactory(key: Summon3dKey): FxFactory {
   return (env, request) => {
-    const tl = SUMMON3D_TIMELINE[key];
+    const tl = SUMMON3D_AUTHORED[key];
     const tint = key === "heavy" ? (request.tint ?? DEFAULT_TINT) : SUMMON_TINTS[key];
     const rig = new Rig(env, { ...request, tint });
     const land = LANDING[key];
@@ -438,7 +439,8 @@ export function summonFactory(key: Summon3dKey): FxFactory {
       embodiment(rig, tl),
       ...landing(rig, tl.handOver / 1000, { debris: land.debris * (0.6 + 0.4 * rig.strength), second: land.second, column: land.column }),
     ];
-    return compose(rig, parts, tl.total);
+    const effect = compose(rig, parts, tl.total);
+    return { ...effect, durationMs: fieldPlacementMs(effect.durationMs), update: (sec) => effect.update(sec / FIELD_PLACEMENT_SCALE) };
   };
 }
 

@@ -1,229 +1,407 @@
 // @vitest-environment jsdom
-//
-// Integration spec for the tabbed tournament page. Carries forward the
-// behavioral intent of PR #28/#29 (Kanban board, my-matches filter, empty
-// state, accessible report actions, dev Add Bot) adapted to the tabbed
-// architecture: the matches board lives in the All Matches tab, "my
-// matches" is its own tab, and Add Bot lives in the pending lobby.
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TournamentDetail } from "@/components/tournament/types";
+import type { useTournamentWebsocket } from "@/lib/hooks/use-tournament-websocket";
 
-const replace = vi.fn();
+vi.mock("next/font/google", () => {
+  const font = () => ({ className: "font", variable: "font-var", style: {} });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
+const push = vi.fn();
+let handlers: NonNullable<Parameters<typeof useTournamentWebsocket>[1]>;
 let searchParams = new URLSearchParams();
+let routeSlug = "friday-night-12";
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ slug: "goat-cup" }),
-  useRouter: () => ({ replace, push: vi.fn() }),
-  useSearchParams: () => searchParams,
+  useParams: () => ({ slug: routeSlug }), useRouter: () => ({ push, replace: vi.fn() }), useSearchParams: () => searchParams,
 }));
 vi.mock("@/lib/hooks/use-tournament-websocket", () => ({
-  useTournamentWebsocket: () => {},
+  useTournamentWebsocket: (_slug: string, options: typeof handlers) => { handlers = options; },
 }));
+vi.mock("@/components/tournament/standings/standings-section", () => ({ StandingsSection: () => <section id="standings" aria-label="Standings" /> }));
+vi.mock("@/components/tournament/matches/your-match", () => ({ YourMatch: () => <section id="your-match" aria-label="Your match" /> }));
+vi.mock("@/components/tournament/matches/match-queue", () => ({ MatchQueue: () => <section id="matches" aria-label="Matches" /> }));
 
 import TournamentDetailPage from "../../app/(app)/tournament/[slug]/page";
+import { sheetRatings, sheetTournament, threeMatchTournament } from "../fixtures/tournament-sheet";
 
-const tournament = {
-  id: 1,
-  name: "Goat Cup",
-  format: "single_elim",
-  status: "active",
-  createdByUserId: "user-1",
-  participants: [
-    { playerId: 11, displayName: "Alice" },
-    { playerId: 22, displayName: "Bob" },
-    { playerId: 33, displayName: "Carol" },
-    { playerId: 44, displayName: "Dave" },
-  ],
-  isParticipant: true,
-  currentUserPlayerId: 11 as number | null,
-  matches: [
-    { id: 101, matchId: 1001, roundNumber: 1, playerOneId: 11, playerTwoId: 22, playerOneName: "Alice", playerTwoName: "Bob", status: "open", winnerId: null, reporterId: null, metadata: {} },
-    { id: 102, matchId: 1002, roundNumber: 1, playerOneId: 33, playerTwoId: 44, playerOneName: "Carol", playerTwoName: "Dave", status: "completed", winnerId: 33, reporterId: null, metadata: {} },
-    { id: 103, matchId: 1003, roundNumber: 2, playerOneId: 11, playerTwoId: 33, playerOneName: "Alice", playerTwoName: "Carol", status: "pending_approval", winnerId: null, reporterId: 33, metadata: {} },
-  ],
-};
+const SLUG = "/api/tournaments/friday-night-12";
 
-const roundRobinTournament = {
-  id: 2,
-  name: "Round Robin Cup",
-  format: "round_robin",
-  status: "active",
-  createdByUserId: "user-1",
-  participants: [
-    { playerId: 11, displayName: "Alice" },
-    { playerId: 22, displayName: "Bob" },
-    { playerId: 33, displayName: "Carol" },
-  ],
-  isParticipant: false,
-  currentUserPlayerId: null as number | null,
-  matches: [
-    { id: 201, matchId: 2001, roundNumber: 1, playerOneId: 11, playerTwoId: 22, playerOneName: "Alice", playerTwoName: "Bob", status: "open", winnerId: null, reporterId: null, metadata: {} },
-    { id: 202, matchId: 2002, roundNumber: 2, playerOneId: 11, playerTwoId: 33, playerOneName: "Alice", playerTwoName: "Carol", status: "completed", winnerId: 11, reporterId: null, metadata: {} },
-    { id: 203, matchId: 2003, roundNumber: 3, playerOneId: 22, playerTwoId: 33, playerOneName: "Bob", playerTwoName: "Carol", status: "completed", winnerId: 22, reporterId: null, metadata: {} },
-  ],
-};
-
-const singleElimTournament = {
-  id: 3,
-  name: "Single Elim Cup",
-  format: "single_elim",
-  status: "active",
-  createdByUserId: "user-1",
-  participants: [
-    { playerId: 11, displayName: "Alice" },
-    { playerId: 22, displayName: "Bob" },
-    { playerId: 33, displayName: "Carol" },
-    { playerId: 44, displayName: "Dave" },
-  ],
-  isParticipant: false,
-  currentUserPlayerId: null as number | null,
-  matches: [
-    { id: 301, matchId: 3001, roundNumber: 1, playerOneId: 11, playerTwoId: 22, playerOneName: "Alice", playerTwoName: "Bob", status: "completed", winnerId: 11, reporterId: null, metadata: {} },
-    { id: 302, matchId: 3002, roundNumber: 1, playerOneId: 33, playerTwoId: 44, playerOneName: "Carol", playerTwoName: "Dave", status: "completed", winnerId: 33, reporterId: null, metadata: {} },
-    { id: 303, matchId: 3003, roundNumber: 2, playerOneId: 11, playerTwoId: 33, playerOneName: "Alice", playerTwoName: "Carol", status: "open", winnerId: null, reporterId: null, metadata: {} },
-  ],
-};
-
-function stubFetch(overrides?: {
-  currentUserPlayerId?: number | null;
-  status?: string;
-  tournamentData?: typeof tournament;
-}) {
-  const base = overrides?.tournamentData ?? tournament;
-  return vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url === "/api/auth/session") {
-      return Response.json({ user: { id: "user-1" } });
-    }
-    if (url === "/api/tournaments/goat-cup") {
-      return Response.json({
-        ...base,
-        status: overrides?.status ?? base.status,
-        currentUserPlayerId: overrides?.currentUserPlayerId ?? base.currentUserPlayerId,
-      });
-    }
-    if (url === "/api/tournaments/goat-cup/join-bot") {
-      return Response.json({ success: true, displayName: "Bot 1", playerId: 99 });
-    }
-    return Response.json([], { status: 200 });
+function setup(data: TournamentDetail = sheetTournament, userId = "host") {
+  const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url) === "/api/auth/session") return Response.json({ user: { id: userId } });
+    if (String(url) === "/api/leaderboard?scope=all") return Response.json({ rows: sheetRatings });
+    if (String(url) === SLUG && !init?.method) return Response.json(data);
+    return Response.json({});
   });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
-
-function renderPage(tournamentData: typeof tournament) {
-  vi.stubGlobal("fetch", stubFetch({ tournamentData }));
-  render(<TournamentDetailPage />);
+const detailFetches = (fetchMock: ReturnType<typeof setup>) => fetchMock.mock.calls.filter(([url, init]) => String(url) === SLUG && !init?.method);
+function deferred() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((done) => { resolve = done; });
+  return { promise, resolve };
 }
+beforeEach(() => { vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false }))); });
+afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); searchParams = new URLSearchParams(); routeSlug = "friday-night-12"; });
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.clearAllMocks();
-  searchParams = new URLSearchParams();
+describe("TournamentDetailPage one sheet", () => {
+  it("shows the header, the track caption and the three named sections together", async () => {
+    setup(threeMatchTournament);
+    render(<TournamentDetailPage />);
+    expect(await screen.findByRole("heading", { name: "Friday Night Duels #12" })).toBeInTheDocument();
+    expect(screen.getByText("In progress")).toBeInTheDocument();
+    expect(screen.getByText("Round robin", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("6 players")).toBeInTheDocument();
+    expect(screen.getByText("2 of 3 decided")).toBeInTheDocument();
+    expect(screen.queryByText(/Round \d+ of \d+/)).toBeNull();
+    for (const name of ["Your match", "Standings", "Matches"]) expect(screen.getByRole("region", { name })).toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.getByRole("link", { name: "All tournaments" })).toHaveAttribute("href", "/tournaments");
+    expect(screen.getByTestId("tournament-page-shell")).toBeInTheDocument();
+  });
+
+  it("derives elimination progress totals from participants", async () => {
+    setup({ ...threeMatchTournament, format: "single_elim" });
+    render(<TournamentDetailPage />);
+    expect(await screen.findByText("Round 2 of 3")).toBeInTheDocument();
+    expect(screen.getByText("2 of 6 decided")).toBeInTheDocument();
+  });
+
+  it("shows the Decks sheet, deck states and the YOU tag to the host", async () => {
+    setup();
+    render(<TournamentDetailPage />);
+    const players = await screen.findByRole("region", { name: "Decks" });
+    expect(players).toHaveTextContent("organizer only");
+    expect(within(players).getAllByText("Locked")).toHaveLength(3);
+    expect(within(players).getAllByText("Registered")).toHaveLength(2);
+    expect(within(players).getByText("No deck yet")).toBeInTheDocument();
+    expect(within(players).getByText("you")).toBeInTheDocument();
+    for (const player of sheetTournament.participants) expect(within(players).getByRole("link", { name: player.displayName })).toHaveAttribute("href", `/player/${player.playerId}`);
+    expect(screen.getByRole("heading", { name: "Ending early" })).toBeInTheDocument();
+  });
+
+  it("shows another viewer a plain Players list with no organizer tools or deck state", async () => {
+    setup(sheetTournament, "spectator");
+    render(<TournamentDetailPage />);
+    const players = await screen.findByRole("region", { name: "Players" });
+    expect(screen.queryByRole("heading", { name: "Ending early" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Decks" })).toBeNull();
+    expect(players).not.toHaveTextContent(/Locked|Registered|No deck/);
+  });
+
+  it("ends the event only after confirmation and refreshes the same sheet", async () => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "End now" }));
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, end now" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`${SLUG}/complete`, { method: "POST" }));
+    await waitFor(() => expect(detailFetches(fetchMock)).toHaveLength(2));
+    expect(screen.getByRole("region", { name: "Standings" })).toBeInTheDocument();
+  });
+
+  it("cancels only after confirmation, then returns to the tournament list", async () => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, cancel" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(SLUG, { method: "DELETE" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/tournaments"));
+  });
+
+  it("going back from a confirm changes nothing", async () => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "End now" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go back" }));
+    expect(screen.getByRole("button", { name: "End now" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST" || init?.method === "DELETE")).toHaveLength(0);
+  });
+
+  it("saves the deadline through the page's slug and refresh callback", async () => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Edit deadline" }))[0]);
+    fireEvent.change(screen.getByLabelText(/Deadline/), { target: { value: "2099-01-01T12:30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(SLUG, expect.objectContaining({ method: "PUT" })));
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")!;
+    expect(JSON.parse(String((put[1] as RequestInit).body)).deadlineAt).toBe(new Date("2099-01-01T12:30").toISOString());
+    await waitFor(() => expect(detailFetches(fetchMock)).toHaveLength(2));
+  });
+
+  it.each([
+    { reportConfirmWindowHours: 48 },
+    { deadlineAt: "2099-03-01T12:00:00.000Z" },
+  ])("refreshes an open timing editor when server settings change: %j", async patch => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Edit deadline" }))[0]);
+    fireEvent.change(screen.getByLabelText(/Deadline/), { target: { value: "2099-01-01T12:30" } });
+    fireEvent.change(screen.getByLabelText(/Confirm window/), { target: { value: "12" } });
+    const updated = { ...sheetTournament, ...patch };
+    fetchMock.mockResolvedValueOnce(Response.json(updated));
+    act(() => handlers.onMatchUpdated?.());
+    await waitFor(() => expect(screen.getByLabelText(/Confirm window/)).toHaveValue(updated.reportConfirmWindowHours));
+    expect(new Date((screen.getByLabelText(/Deadline/) as HTMLInputElement).value).toISOString()).toBe(new Date(updated.deadlineAt!).toISOString());
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(SLUG, expect.objectContaining({ method: "PUT" })));
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")!;
+    expect(JSON.parse(String(put[1]!.body))).toEqual({
+      deadlineAt: new Date(updated.deadlineAt!).toISOString(),
+      reportConfirmWindowHours: updated.reportConfirmWindowHours,
+    });
+  });
+
+  it.each(["completed", "cancelled"])("renders the closed sheet with no organizer tools in the %s rail", async (status) => {
+    setup({ ...sheetTournament, status });
+    render(<TournamentDetailPage />);
+    await screen.findByRole("heading", { name: sheetTournament.name });
+    const rail = screen.getByRole("complementary", { name: "Event details" });
+    expect(within(rail).getByRole("region", { name: "Rules" })).toHaveTextContent("as played");
+    expect(within(rail).getByRole("region", { name: "Players" })).toBeInTheDocument();
+    expect(within(rail).queryByRole("heading", { name: "Ending early" })).toBeNull();
+    expect(within(rail).queryByRole("region", { name: "Your deck" })).toBeNull();
+  });
+
+  it("keeps the pending lobby and the Add bot request, inside the sheet", async () => {
+    const fetchMock = setup({ ...sheetTournament, status: "pending" });
+    render(<TournamentDetailPage />);
+    expect(await screen.findByRole("heading", { name: /Invite players/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "All tournaments" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Standings" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: /Add bot/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`${SLUG}/join-bot`, { method: "POST" }));
+  });
+
+  it("keeps the sheet and an edited deadline on screen while a websocket refetch is pending", async () => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Edit deadline" }))[0]);
+    fireEvent.change(screen.getByLabelText(/Deadline/), { target: { value: "2099-01-01T12:30" } });
+    const standings = screen.getByRole("region", { name: "Standings" });
+    const update = deferred();
+    fetchMock.mockImplementationOnce(() => update.promise);
+    act(() => handlers.onMatchUpdated?.());
+    expect(screen.getByRole("region", { name: "Standings" })).toBe(standings);
+    expect(screen.getByLabelText(/Deadline/)).toHaveValue("2099-01-01T12:30");
+    await act(async () => update.resolve(Response.json({ ...sheetTournament, name: "Updated event" })));
+    expect(screen.getByRole("heading", { name: "Updated event" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Standings" })).toBe(standings);
+    expect(screen.getByLabelText(/Deadline/)).toHaveValue("2099-01-01T12:30");
+  });
+
+  it.each([404, 500])("keeps old data after a refresh fails with status %s and clears the quiet status on recovery", async (status) => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    await screen.findByRole("region", { name: "Matches" });
+    fetchMock.mockResolvedValueOnce(Response.json({}, { status }));
+    act(() => handlers.onMatchUpdated?.());
+    expect(await screen.findByRole("status")).toHaveTextContent("Couldn't refresh. Showing the last update.");
+    expect(screen.getByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
+    act(() => handlers.onMatchUpdated?.());
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+  });
+
+  it.each([200, 404, 500])("ignores an out-of-order tournament response with status %s", async (status) => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    await screen.findByRole("region", { name: "Matches" });
+    const old = deferred(), latest = deferred();
+    const original = fetchMock.getMockImplementation()!;
+    let requests = 0;
+    fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method
+      ? (++requests === 1 ? old.promise : latest.promise)
+      : original(url, init));
+    act(() => { handlers.onMatchUpdated?.(); handlers.onMatchUpdated?.(); });
+    await act(async () => latest.resolve(Response.json({ ...sheetTournament, name: "Latest" })));
+    await act(async () => old.resolve(Response.json({ ...sheetTournament, name: "Older" }, { status })));
+    expect(screen.getByRole("heading", { name: "Latest" })).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("shows the missing tournament address and recovery links after an initial 404", async () => {
+    routeSlug = "no-such-event";
+    const fetchMock = setup();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url, init) => String(url) === "/api/tournaments/no-such-event"
+      ? Promise.resolve(Response.json({}, { status: 404 }))
+      : original(url, init));
+    render(<TournamentDetailPage />);
+    const title = await screen.findByRole("heading", { name: "No tournament at this address" });
+    expect(title.closest(".ms")).not.toBeNull();
+    expect(screen.getByText("404")).toBeInTheDocument();
+    const address = screen.getByText("/tournament/no-such-event");
+    expect(address.tagName).toBe("CODE");
+    expect(address.parentElement).toHaveTextContent("Nothing on this server matches /tournament/no-such-event. It may have been deleted, or the link has a typo.");
+    expect(screen.getByRole("link", { name: "All tournaments" })).toHaveAttribute("href", "/tournaments");
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Matches" })).toBeNull();
+  });
+
+  it("retries an initial 500 once while busy and renders the tournament on success", async () => {
+    const fetchMock = setup();
+    const original = fetchMock.getMockImplementation()!;
+    const retry = deferred();
+    let requests = 0;
+    fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method
+      ? (++requests === 1 ? Promise.resolve(Response.json({}, { status: 500 })) : retry.promise)
+      : original(url, init));
+    render(<TournamentDetailPage />);
+    const title = await screen.findByRole("heading", { name: "This tournament didn't load" });
+    expect(title.closest(".ms")).not.toBeNull();
+    expect(screen.getByText("Error", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Nothing was changed. Try again, and if it keeps happening, tell whoever runs the bot.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
+    const button = screen.getByRole("button", { name: "Try again" });
+    expect(button).toBeEnabled();
+    act(() => { fireEvent.click(button); fireEvent.click(button); });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    fireEvent.click(button);
+    expect(detailFetches(fetchMock)).toHaveLength(2);
+    await act(async () => retry.resolve(Response.json(sheetTournament)));
+    expect(await screen.findByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "This tournament didn't load" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Matches" })).toBeInTheDocument();
+  });
+
+  it("shows the retry state for an initial network failure", async () => {
+    const fetchMock = setup();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method
+      ? Promise.reject(new TypeError("Failed to fetch"))
+      : original(url, init));
+    render(<TournamentDetailPage />);
+    expect(await screen.findByRole("heading", { name: "This tournament didn't load" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(screen.queryByRole("heading", { name: "No tournament at this address" })).toBeNull();
+  });
+
+  it("lets the viewer try again after a retry also fails", async () => {
+    const fetchMock = setup();
+    const original = fetchMock.getMockImplementation()!;
+    const retry = deferred();
+    let requests = 0;
+    fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method
+      ? (++requests === 1 ? Promise.resolve(Response.json({}, { status: 500 })) : retry.promise)
+      : original(url, init));
+    render(<TournamentDetailPage />);
+    const button = await screen.findByRole("button", { name: "Try again" });
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-busy", "true");
+    await act(async () => retry.resolve(Response.json({}, { status: 500 })));
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute("aria-busy", "false");
+    fetchMock.mockResolvedValueOnce(Response.json(sheetTournament));
+    fireEvent.click(button);
+    expect(await screen.findByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
+  });
+
+  it("announces the initial loading state inside the Match Sheet", async () => {
+    const fetchMock = setup();
+    const original = fetchMock.getMockImplementation()!;
+    const loading = deferred();
+    fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method ? loading.promise : original(url, init));
+    render(<TournamentDetailPage />);
+    const status = screen.getByRole("status", { name: "Loading tournament" });
+    expect(status).toHaveTextContent("Loading tournament");
+    expect(status.closest(".ms")).not.toBeNull();
+    await act(async () => loading.resolve(Response.json(sheetTournament)));
+    expect(await screen.findByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Loading tournament" })).toBeNull();
+  });
+
+  it("refreshes ratings on match updates and status changes, keeping participant refreshes cheap", async () => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    await screen.findByRole("region", { name: "Matches" });
+    const ratingsCalls = () => fetchMock.mock.calls.filter(([url]) => String(url) === "/api/leaderboard?scope=all");
+    expect(ratingsCalls()).toHaveLength(1);
+    act(() => handlers.onParticipantJoined?.({ playerId: 99, displayName: "New player" }));
+    await act(async () => {});
+    expect(ratingsCalls()).toHaveLength(1);
+    act(() => handlers.onMatchUpdated?.());
+    await act(async () => {});
+    expect(ratingsCalls()).toHaveLength(2);
+    fetchMock.mockResolvedValueOnce(Response.json({ ...sheetTournament, status: "completed" }));
+    act(() => handlers.onCompleted?.());
+    await screen.findAllByText("Ended early"); // the fixture has unplayed matches
+    await waitFor(() => expect(ratingsCalls()).toHaveLength(3));
+  });
+
+  it.each(["onParticipantJoined", "onParticipantLeft", "onStarted", "onCancelled", "onCompleted", "onMatchUpdated"] as const)("refetches the tournament on %s", async (event) => {
+    const fetchMock = setup();
+    render(<TournamentDetailPage />);
+    await screen.findByRole("region", { name: "Matches" });
+    act(() => {
+      if (event === "onParticipantJoined") handlers[event]?.({ playerId: 99, displayName: "New player" });
+      else if (event === "onParticipantLeft") handlers[event]?.({ playerId: 99 });
+      else handlers[event]?.();
+    });
+    await waitFor(() => expect(detailFetches(fetchMock)).toHaveLength(2));
+  });
+
+  it("keeps a ratings failure separate from a tournament refresh failure", async () => {
+    const fetchMock = setup();
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url) === "/api/auth/session") return Response.json({ user: { id: "host" } });
+      if (String(url) === SLUG) return Response.json(sheetTournament);
+      if (String(url) === "/api/leaderboard?scope=all") return Response.json({}, { status: 500 });
+      return Response.json({});
+    });
+    render(<TournamentDetailPage />);
+    expect(await screen.findByRole("region", { name: "Decks" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Standings" })).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
 });
 
-describe("TournamentDetailPage (tabbed integration)", () => {
-  it("renders the matches board on the All Matches tab inside a wide shell", async () => {
-    searchParams = new URLSearchParams("tab=all");
-    vi.stubGlobal("fetch", stubFetch());
+describe("old ?tab= links", () => {
+  const scrolls: Array<{ id: string; options: unknown }> = [];
+  beforeEach(() => {
+    scrolls.length = 0;
+    Element.prototype.scrollIntoView = function scroll(this: Element, options?: unknown) { scrolls.push({ id: this.id, options }); };
+  });
 
+  it.each([["standings", "standings"], ["my", "matches"], ["my-matches", "matches"], ["all", "matches"], ["all-matches", "matches"], ["players", "players"]])("?tab=%s scrolls to #%s smoothly", async (tab, id) => {
+    searchParams = new URLSearchParams({ tab });
+    setup(sheetTournament, "spectator");
     render(<TournamentDetailPage />);
-
-    expect(await screen.findByTestId("tournament-round-board")).toBeInTheDocument();
-    expect(screen.getByTestId("tournament-page-shell")).toHaveClass("max-w-[120rem]");
-    expect(screen.getByTestId("tournament-round-board")).toHaveClass("xl:overflow-visible");
-    expect(screen.getByTestId("tournament-round-board-grid")).toHaveClass("xl:grid");
-    expect(screen.getByTestId("tournament-round-board-grid")).toHaveClass("2xl:flex-wrap");
-    expect(screen.getByTestId("tournament-round-column-1")).toBeInTheDocument();
-    expect(screen.getByTestId("tournament-round-column-2")).toBeInTheDocument();
-    expect(screen.getByTestId("tournament-round-column-1")).toHaveClass("2xl:min-w-[28rem]");
-    expect(screen.getByTestId("tournament-match-card-101")).toHaveClass("2xl:p-5");
-    expect(screen.getByTestId("tournament-match-card-header-101")).toHaveClass("lg:flex-col");
-    expect(screen.getByTestId("tournament-match-card-actions-101")).toHaveClass("w-full");
+    await screen.findByRole("region", { name: "Matches" });
+    await waitFor(() => expect(scrolls).toHaveLength(1));
+    expect(scrolls[0]).toEqual({ id, options: { behavior: "smooth", block: "start" } });
   });
 
-  it("My Matches tab shows only the current user's matches", async () => {
-    searchParams = new URLSearchParams("tab=my");
-    vi.stubGlobal("fetch", stubFetch());
-
+  it("scrolls instantly under reduced motion", async () => {
+    searchParams = new URLSearchParams({ tab: "standings" });
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    setup();
     render(<TournamentDetailPage />);
-
-    const board = await screen.findByTestId("tournament-round-board");
-    expect(within(board).getAllByText("Alice").length).toBeGreaterThan(0);
-    expect(within(board).queryByText("Dave")).toBeNull();
+    await waitFor(() => expect(scrolls).toHaveLength(1));
+    expect(scrolls[0].options).toEqual({ behavior: "instant", block: "start" });
   });
 
-  it("My Matches tab shows an empty state when the user has no matches", async () => {
-    searchParams = new URLSearchParams("tab=my");
-    vi.stubGlobal("fetch", stubFetch({ currentUserPlayerId: 99 }));
-
+  it.each(["overview", "nonsense", ""])("?tab=%s stays at the top", async (tab) => {
+    searchParams = new URLSearchParams(tab ? { tab } : {});
+    setup();
     render(<TournamentDetailPage />);
-
-    expect(await screen.findByText(/you do not have any matches/i)).toBeInTheDocument();
+    await screen.findByRole("region", { name: "Matches" });
+    expect(scrolls).toHaveLength(0);
   });
 
-  it("keeps report actions accessible in the board layout", async () => {
-    searchParams = new URLSearchParams("tab=all");
-    vi.stubGlobal("fetch", stubFetch());
-
+  it("scrolls once, not again after a refetch", async () => {
+    searchParams = new URLSearchParams({ tab: "standings" });
+    setup();
     render(<TournamentDetailPage />);
-
-    expect(await screen.findByRole("button", { name: /report/i })).toBeInTheDocument();
-  });
-
-  it("shows Add Bot for the organizer on a pending tournament and calls the route", async () => {
-    const fetchMock = stubFetch({ status: "pending" });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<TournamentDetailPage />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /add bot/i }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/goat-cup/join-bot", { method: "POST" });
-    });
-  });
-
-  it("round-robin overview shows match progress but NOT a round number", async () => {
-    renderPage(roundRobinTournament);
-    expect(await screen.findByText(/2\/3 matches done/i)).toBeTruthy();
-    expect(screen.queryByText(/round \d+ of \d+/i)).toBeNull();
-  });
-
-  it("single-elim overview still shows the current round", async () => {
-    renderPage(singleElimTournament);
-    expect(await screen.findByText(/round 2 of 2/i)).toBeTruthy();
-    expect(screen.getByText(/2\/3 matches done/i)).toBeTruthy();
-  });
-
-  it("active overview shows Recent Results for completed matches", async () => {
-    renderPage(roundRobinTournament);
-    expect(await screen.findByText(/recent results/i)).toBeInTheDocument();
-    // round-robin fixture has two completed matches → at least one "def." line
-    expect(screen.getAllByText(/def\./i).length).toBeGreaterThan(0);
-  });
-
-  it("organizer can cancel an ACTIVE tournament from the Overview", async () => {
-    // tournament fixture: status active, createdByUserId 'user-1' === session user.
-    searchParams = new URLSearchParams("tab=overview");
-    vi.stubGlobal("fetch", stubFetch());
-
-    render(<TournamentDetailPage />);
-
-    expect(await screen.findByRole("button", { name: /cancel tournament/i })).toBeInTheDocument();
-  });
-
-  it("organizer can end an ACTIVE tournament from the Overview", async () => {
-    // tournament fixture: status active, createdByUserId 'user-1' === session user.
-    searchParams = new URLSearchParams("tab=overview");
-    const fetchMock = stubFetch();
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<TournamentDetailPage />);
-
-    fireEvent.click(await screen.findByRole("button", { name: /end tournament now/i }));
-    fireEvent.click(screen.getByRole("button", { name: /yes, end now/i }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/goat-cup/complete", { method: "POST" });
-    });
+    await waitFor(() => expect(scrolls).toHaveLength(1));
+    act(() => handlers.onMatchUpdated?.());
+    await act(async () => {});
+    expect(scrolls).toHaveLength(1);
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useRef, useState } from "react";
 import type { DuelEngineView } from "@yugidraft/shared/duels";
 import { getPhaseBeat } from "./phase-beats";
@@ -20,13 +21,13 @@ export function useFieldTurnSeat(engine: DuelEngineView, turnSeat: number | null
       ? engine.events.filter((event) => event.id > presented.current.eventId)
         .map((event) => getPhaseBeat(event.id)).find((beat) => beat != null)
       : null;
-    const wait = (firstBeat?.startAt ?? 0) - performance.now();
+    const wait = (firstBeat?.startAt ?? 0) - duelFxClock.now();
     if (wait <= 0) {
       show();
       return;
     }
-    const timer = setTimeout(show, wait);
-    return () => clearTimeout(timer);
+    const timer = duelFxClock.setTimeout(show, wait);
+    return () => duelFxClock.clearTimeout(timer);
   }, [engine.turn, engine.events, turnSeat]);
 
   // Finished games and invalid/pre-turn snapshots clear gold synchronously.

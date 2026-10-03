@@ -14,6 +14,8 @@ import {
   PICK_CONTINUATION,
   usePickContinuation,
 } from "@/components/duel/pick-continuation";
+import { duelFxClock } from "@/components/duel/fx-clock";
+import { setAnimationSpeed } from "@/components/duel/animation-speed";
 import { usePromptAnswerable, usePromptReveal } from "@/components/duel/prompt-reveal";
 
 function toggle(overrides: Partial<DuelPrompt> = {}): DuelPrompt {
@@ -95,10 +97,12 @@ describe("keepsPickOpen", () => {
 });
 
 describe("usePickContinuation", () => {
-  beforeEach(() => vi.useFakeTimers());
+  beforeEach(() => {
+    vi.useFakeTimers(); setAnimationSpeed(1); duelFxClock.resetReviewTimeline();
+  });
   afterEach(() => {
     cleanup();
-    vi.useRealTimers();
+    setAnimationSpeed(1); duelFxClock.resetReviewTimeline(); vi.useRealTimers();
   });
 
   const click: DuelAnswer = { selected: ["select:0"] };
@@ -142,6 +146,33 @@ describe("usePickContinuation", () => {
     act(() => void vi.advanceTimersByTime(PICK_CONTINUATION.windowMs + 1));
     rerender({ prompt: toggle({ id: "p2" }) });
     expect(result.current.continuing).toBe(false);
+  });
+
+  it("accepts a network follow-up after 2.5 real seconds at 2x", () => {
+    setAnimationSpeed(2); duelFxClock.resetReviewTimeline();
+    const { result, rerender } = setup(toggle());
+    act(() => result.current.noteAnswer(toggle(), click));
+    rerender({ prompt: null });
+    act(() => void vi.advanceTimersByTime(2500));
+    rerender({ prompt: toggle({ id: "p2" }) });
+    expect(result.current.continuing).toBe(true);
+  });
+
+  it("expires the network window after 4 real seconds at 0.5x", () => {
+    setAnimationSpeed(0.5); duelFxClock.resetReviewTimeline();
+    const { result, rerender } = setup(toggle());
+    act(() => result.current.noteAnswer(toggle(), click));
+    act(() => void vi.advanceTimersByTime(PICK_CONTINUATION.windowMs + 1));
+    rerender({ prompt: toggle({ id: "p2" }) });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("lets the pace change after the visual hold without a network-wait lease", () => {
+    const { result } = setup(toggle());
+    act(() => result.current.noteAnswer(toggle(), click));
+    act(() => void vi.advanceTimersByTime(PICK_CONTINUATION.holdMs + 1));
+    setAnimationSpeed(2);
+    expect(duelFxClock.factor()).toBe(2);
   });
 
   it("Finish ends the pick: the next prompt gets its normal beat", () => {

@@ -113,6 +113,13 @@
 .seg button[aria-pressed="true"] { color: #120d02; background: #b59963; font-weight: 650; }
 .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #d8d0bd; cursor: pointer; }
 
+.pace {
+  position: relative;
+  z-index: 300;
+  width: min(100%, 320px);
+  margin: 0 0 12px;
+}
+
 .caption {
   margin: 0 0 10px;
   padding: 8px 12px;

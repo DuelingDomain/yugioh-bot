@@ -4,6 +4,7 @@ import { cubeReferenceAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createDraftService } from "@yugidraft/shared/services";
+import { broadcaster } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
@@ -67,6 +68,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     `insert into draft_player_cube (draft_id, player_id, cube_id) values (?, ?, ?)
      on conflict (draft_id, player_id) do update set cube_id = excluded.cube_id`,
   ).run(draftRow.id, player.id, cubeId);
+  void broadcaster.draft({ kind: "seats", slug });
 
   return NextResponse.json({ ok: true, cubeId });
 }

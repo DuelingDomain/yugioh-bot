@@ -21,14 +21,18 @@ const NAMES: [string, string] = ["Sulman", "Imran"];
 const BOT_NAMES: [string, string] = ["Sulman", "Practice Bot"];
 const namesOf = (spec: LabSeries) => (spec.vsBot ? BOT_NAMES : NAMES);
 
-/** A side deck with a few real cards: swap a Main card with a Side card, or an Extra card with a Side Extra monster. */
+/** Full sections expose layout regressions that a six-card fixture would hide. */
+const MAIN_CODES = [C.sangan.code, C.kuriboh.code, C.potOfGreed.code, C.monsterReborn.code, C.blueEyes.code, C.darkMagician.code];
+const EXTRA_CODES = [C.darkPaladin.code, C.stardust.code, C.utopia.code];
+const SIDE_CODES = [C.cyberDragon.code, C.summonedSkull.code, C.utopia.code];
 const SIDE_DECK: DuelDeck = {
-  main: [C.sangan.code, C.kuriboh.code, C.potOfGreed.code, C.monsterReborn.code, C.blueEyes.code, C.darkMagician.code],
-  extra: [C.darkPaladin.code, C.stardust.code],
-  side: [C.cyberDragon.code, C.summonedSkull.code, C.utopia.code],
+  main: Array.from({ length: 40 }, (_, i) => MAIN_CODES[i % MAIN_CODES.length]),
+  extra: Array.from({ length: 15 }, (_, i) => EXTRA_CODES[i % EXTRA_CODES.length]),
+  side: Array.from({ length: 15 }, (_, i) => SIDE_CODES[i % SIDE_CODES.length]),
 };
 
 const NO_SIDE_DECK: DuelDeck = { ...SIDE_DECK, side: [] };
+const MAX_SIDE_DECK: DuelDeck = { ...SIDE_DECK, main: Array.from({ length: 60 }, (_, i) => MAIN_CODES[i % MAIN_CODES.length]) };
 
 /** Names and types of the lab cards, so the screen routes Extra Deck monsters without a card database. */
 const KNOWN_CARDS: ReadonlyMap<number, CardMeta> = new Map(
@@ -62,8 +66,8 @@ function summary(spec: LabSeries): DuelSeriesSummary {
     tournamentMatchId: null,
     nextGameAt: between ? new Date(Date.now() + (spec.secondsLeft ?? 45) * 1000).toISOString() : null,
     // The practice bot is ready at once and never sides.
-    // A player with no Side Deck is ready at once, like the practice bot.
-    sideReady: [spec.noSide === true, spec.vsBot ? true : spec.opponentReady === true],
+    // Humans still click Ready when they have no Side Deck.
+    sideReady: [false, spec.vsBot ? true : spec.opponentReady === true],
     hasSide: [spec.noSide !== true, !spec.vsBot],
     // The loser of the game on screen chooses: you when the opponent leads, the opponent when you lead.
     firstChooser: between ? (spec.wins[0] > spec.wins[1] ? 1 : 0) : null,
@@ -79,6 +83,7 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
   // Game 1 is the one you just won or lost: the leader of the score won it. Game 3 of the match was won by the match winner.
   const winnerSeat = spec.wins[0] > spec.wins[1] ? 0 : 1;
   const result = finished ? { winnerSeat, reason: "Life points reached 0" } : null;
+  const deck = spec.noSide ? NO_SIDE_DECK : spec.mainCount === 60 ? MAX_SIDE_DECK : SIDE_DECK;
   return {
     session: {
       id: 1,
@@ -123,7 +128,7 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       result,
     },
     series: summary(spec),
-    mySide: spectator ? null : spec.noSide ? { baseDeck: NO_SIDE_DECK, currentDeck: NO_SIDE_DECK } : { baseDeck: SIDE_DECK, currentDeck: SIDE_DECK },
+    mySide: spectator ? null : { baseDeck: deck, currentDeck: deck },
   };
 }
 
@@ -152,7 +157,7 @@ export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom
   if (spec.screen === "label" || !room.series) return null;
   if (spec.viewer !== "spectator" && (spec.screen === "ready" || spec.screen === "side")) {
     return (
-      <BetweenGamesScreen room={room} slug="fx-lab" knownCards={KNOWN_CARDS} initialMarks={labMarks(spec)}
+      <BetweenGamesScreen room={room} slug="fx-lab" knownCards={KNOWN_CARDS} initialMarks={labMarks(spec)} autoSave={false}
         onChanged={() => undefined} onNavigate={() => undefined} />
     );
   }

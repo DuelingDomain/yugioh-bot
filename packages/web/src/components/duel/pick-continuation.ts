@@ -6,6 +6,7 @@
  * The centred bar must not vanish for a reveal beat between those clicks. A follow-up of the same pick
  * shows at once; only a really new decision keeps its beat (see prompt-reveal.ts).
  */
+import { duelFxClock } from "./fx-clock";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DuelAnswer, DuelPrompt } from "@yugidraft/shared/duels";
 import { isBoardTogglePrompt } from "./prompt-center";
@@ -55,8 +56,8 @@ export type PickContinuation = {
 export function usePickContinuation(prompt: DuelPrompt | null | undefined): PickContinuation {
   const answered = useRef<DuelPrompt | null>(null);
   const decided = useRef<{ id: string | null; continuing: boolean }>({ id: null, continuing: false });
-  const windowTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const windowTimer = useRef<number | null>(null);
+  const holdTimer = useRef<ReturnType<typeof duelFxClock.setTimeout> | null>(null);
   const [waiting, setWaiting] = useState<DuelPrompt | null>(null);
 
   // Decided while rendering, once per prompt id, so the very first frame of a follow-up already shows.
@@ -67,19 +68,19 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined): Pick
   }
 
   const noteAnswer = useCallback((target: DuelPrompt, answer: DuelAnswer) => {
-    if (windowTimer.current) clearTimeout(windowTimer.current);
-    if (holdTimer.current) clearTimeout(holdTimer.current);
+    if (windowTimer.current) window.clearTimeout(windowTimer.current);
+    if (holdTimer.current) duelFxClock.clearTimeout(holdTimer.current);
     if (!keepsPickOpen(target, answer)) {
       answered.current = null;
       setWaiting(null);
       return;
     }
     answered.current = target;
-    windowTimer.current = setTimeout(() => {
+    windowTimer.current = window.setTimeout(() => {
       answered.current = null;
     }, PICK_CONTINUATION.windowMs);
     setWaiting(target);
-    holdTimer.current = setTimeout(() => setWaiting(null), PICK_CONTINUATION.holdMs);
+    holdTimer.current = duelFxClock.setTimeout(() => setWaiting(null), PICK_CONTINUATION.holdMs);
   }, []);
 
   // A newer prompt ends the hold.
@@ -90,8 +91,8 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined): Pick
 
   useEffect(
     () => () => {
-      if (windowTimer.current) clearTimeout(windowTimer.current);
-      if (holdTimer.current) clearTimeout(holdTimer.current);
+      if (windowTimer.current) window.clearTimeout(windowTimer.current);
+      if (holdTimer.current) duelFxClock.clearTimeout(holdTimer.current);
     },
     [],
   );

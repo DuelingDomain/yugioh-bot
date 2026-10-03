@@ -73,12 +73,16 @@ export const MOVE_PACE = {
   placeMaxMs: 860,
   tossMinMs: 680,
   tossMaxMs: 840,
-  drawMs: 740,
+  /** About 10% quicker; 667 preserves the 400 ms floor at minSpeed. */
+  drawMs: 667,
   reducedMs: 150,
   /** The next flight in a group starts when this share of the one before has played. */
   overlap: 0.7,
   /** The next flight starts at least this long after the one before it started. */
   minGapMs: 280,
+  /** Hand entries use 90% of the ordinary stagger and queue cap. */
+  handMinGapMs: 252,
+  handQueueCapMs: 3960,
   /** A queue of flights is compressed to fit in about this long (the slowest speed is minSpeed). */
   queueCapMs: 4400,
   minSpeed: 0.6,
@@ -101,25 +105,25 @@ export const MOVE_PACE = {
  */
 export const ADD_TO_HAND = {
   /** Source (the card strip, a pile, the field) to the showcase spot. */
-  riseMs: 460,
+  riseMs: 414,
   /** The card stays at the showcase spot, label shown. */
-  holdMs: 800,
+  holdMs: 720,
   /** The shortest hold when a backlog is squeezed. */
-  holdMinMs: 600,
+  holdMinMs: 540,
   /** Showcase spot to the hand slot, the last share of it is the small settle. */
-  flyMs: 560,
+  flyMs: 504,
   /** The gold glow ring on the card in the hand after it landed. */
-  glowMs: 520,
+  glowMs: 468,
   /** The label fades in this long after the card started to rise, and out this long before it flies. */
-  labelInMs: 240,
-  labelOutMs: 140,
+  labelInMs: 216,
+  labelOutMs: 126,
   /** The showcase card is this share of the board height tall (and never above maxHeightPx). */
   heightShare: 0.44,
   maxHeightPx: 340,
   /** Reduced motion: a fade in at the showcase spot, a hold, a fade out as the card shows in the hand. */
-  reducedInMs: 160,
-  reducedHoldMs: 800,
-  reducedOutMs: 200,
+  reducedInMs: 144,
+  reducedHoldMs: 720,
+  reducedOutMs: 180,
   /** The strip card a pick came from is remembered this long after the strip closed. */
   pickRectTtlMs: 6000,
   /** A card that left a pile within this long after a strip was seen came from a pick: it starts at the middle. */
@@ -129,6 +133,10 @@ export const ADD_TO_HAND = {
 /* ---------- flips, positions, hand, summon ---------- */
 
 export const CARD_FX = {
+  /** Full activation ghost/flip and ring, and its reduced glow. */
+  activationMs: 800,
+  reducedEffectMs: 320,
+  destroyFlashMs: 420,
   /** A card turns to the other position. */
   turnMs: 600,
   /** A face-down card flips face up and shows its face. */

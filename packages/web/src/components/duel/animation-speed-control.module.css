@@ -1,0 +1,10 @@
+.control { display: grid; gap: 6px; min-width: 0; color: var(--duel-ink, #efe7d5); font-size: 13px; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.heading label { min-width: 0; }
+.heading label span { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.heading button { min-height: 32px; padding: 4px 8px; border: 1px solid var(--duel-rule-lo, #514438); background: transparent; color: inherit; cursor: pointer; }
+.control input { width: 100%; min-width: 0; min-height: 28px; accent-color: #9b7eff; cursor: pointer; }
+.control input:focus-visible, .heading button:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 2px; }
+.ends { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+.ends, .control p { font-size: 11.5px; color: var(--duel-ink-3, #958f81); }
+.control p { margin: 0; line-height: 1.45; }

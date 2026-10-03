@@ -2,6 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDuelFeedbackAudio } from "../../src/components/duel/feedback-audio";
 import { battleTiming } from "../../src/components/duel/attack-styles";
+import { scheduleBattleSound, type ToneOpts, type BurstOpts } from "../../src/components/duel/attack-audio";
+import { setAnimationSpeed } from "../../src/components/duel/animation-speed";
+import { duelFxClock } from "../../src/components/duel/fx-clock";
 
 function param(value = 0) {
   return {
@@ -28,7 +31,7 @@ class FakeContext {
   destination = new FakeNode();
   oscillators = 0;
   sources = 0;
-  sourceNodes: Array<FakeNode & { stop: ReturnType<typeof vi.fn>; onended: null | (() => void) }> = [];
+  sourceNodes: Array<FakeNode & { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; onended: null | (() => void) }> = [];
   master: (FakeNode & { gain: ReturnType<typeof param> }) | null = null;
   gains: Array<FakeNode & { gain: ReturnType<typeof param> }> = [];
   constructor() {
@@ -80,14 +83,78 @@ const battle = {
 };
 
 beforeEach(() => {
+  setAnimationSpeed(1);
+  duelFxClock.resetReviewTimeline();
   created = [];
   (window as unknown as { AudioContext: typeof FakeContext }).AudioContext = FakeContext;
 });
 afterEach(() => {
+  setAnimationSpeed(1);
+  duelFxClock.resetReviewTimeline();
   delete (window as unknown as { AudioContext?: unknown }).AudioContext;
+  vi.restoreAllMocks();
 });
 
 describe("createDuelFeedbackAudio", () => {
+  it("releases stopped audio holds and preserves slowed noise through its full envelope", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    duelFxClock.resetReviewTimeline(); setAnimationSpeed(0.5);
+    const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
+    audio.play("destroy");
+    const noiseNodes = created[0]!.sourceNodes.filter((node) => "buffer" in node && "loop" in node);
+    expect(noiseNodes.length).toBeGreaterThan(0);
+    expect(noiseNodes.every((node) => node.loop)).toBe(true);
+    setAnimationSpeed(2);
+    expect(duelFxClock.factor()).toBe(0.5);
+    audio.stopAll();
+    expect(duelFxClock.factor()).toBe(2);
+    audio.dispose();
+  });
+  it.each([0.5, 2])("schedules attack, counter and LP voices at %sx on the real audio clock", async (speed) => {
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    duelFxClock.resetReviewTimeline();
+    setAnimationSpeed(speed);
+    const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
+    const voices: Array<ToneOpts | BurstOpts> = [];
+    scheduleBattleSound({ tone: (opts) => voices.push(opts), burst: (opts) => voices.push(opts) }, battle, 1.01);
+    audio.playBattle(battle);
+    const expected = voices.flatMap((voice) => Array.from({ length: "vibrato" in voice && voice.vibrato ? 2 : 1 }, () => 1.01 + (voice.start - 1.01) / speed));
+    const starts = created[0]!.sourceNodes.map((node) => node.start.mock.calls[0]![0] as number);
+    expect(starts.sort((a, b) => a - b)).toEqual(expected.sort((a, b) => a - b));
+    audio.dispose();
+  });
+  it.each([20, 39, 41, 100, 200])("drops voices over 30 ms late when joining %i ms into a battle", async (elapsed) => {
+    vi.spyOn(performance, "now").mockReturnValue(1000 + elapsed);
+    const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
+    const voices: Array<ToneOpts | BurstOpts> = [];
+    scheduleBattleSound({ tone: (opts) => voices.push(opts), burst: (opts) => voices.push(opts) }, battle, 1.01 - Math.min(120, elapsed) / 1000);
+    audio.playBattle({ ...battle, startedAt: 1000 });
+    const expected = voices.filter((voice) => 1 - voice.start <= 0.03 && voice.start + voice.duration > 1)
+      .flatMap((voice) => Array.from({ length: "vibrato" in voice && voice.vibrato ? 2 : 1 }, () => Math.max(1, voice.start)));
+    const starts = created[0]!.sourceNodes.map((node) => node.start.mock.calls[0]![0] as number);
+    expect(starts.sort((a, b) => a - b)).toEqual(expected.sort((a, b) => a - b));
+    audio.dispose();
+  });
+
+  it("caps the audio seek at 120 ms after 200 ms of preparation", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(1200);
+    const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
+    const timing = battleTiming("lose", "slash", "beam");
+    audio.playBattle({ ...battle, kind: "lose", defender: { style: "beam", signature: null }, timing, startedAt: 1000 });
+    const starts = created[0]!.sourceNodes.map((node) => node.start.mock.calls[0]![0] as number);
+    expect(starts.some((start) => Math.abs(start - (1.01 + timing.attackerDamageMs / 1000 - 0.12)) < 0.001)).toBe(true);
+    expect(starts.every((start) => start >= created[0]!.currentTime)).toBe(true);
+    audio.dispose();
+  });
+
+  it("preserves the wind-up after a very late join without negative audio timestamps", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(6000);
+    const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
+    audio.playBattle({ ...battle, startedAt: 1000 });
+    expect(created[0]!.sourceNodes.length).toBeGreaterThan(0);
+    expect(created[0]!.sourceNodes.every((node) => node.start.mock.calls[0]![0] >= 1)).toBe(true);
+    audio.dispose();
+  });
   it("stays silent until a user gesture unlocks it", () => {
     const audio = createDuelFeedbackAudio();
     audio.setMuted(false);

@@ -1,5 +1,6 @@
 "use client";
 
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useState, type RefObject } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { getPhaseBeat } from "./phase-beats";
@@ -58,7 +59,7 @@ export function useFieldPriorityReady({
       reducedMotion: false,
       timing: reducedMotion ? { beatMs: REVEAL_TIMING.reducedMs, settleMs: 0 } : undefined,
       pendingAnimations: pendingFieldAnimations,
-      holdMs: () => Math.max(0, ...events.map((event) => (getPhaseBeat(event.id)?.endAt ?? 0) - performance.now())),
+      holdMs: () => Math.max(0, ...events.map((event) => (getPhaseBeat(event.id)?.endAt ?? 0) - duelFxClock.now())),
       signal: controller.signal,
     }).then((done) => {
       if (done && !controller.signal.aborted) setReadyKey(key);

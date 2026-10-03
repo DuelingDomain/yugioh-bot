@@ -19,8 +19,8 @@
  * Timestamps are performance.now() values, the same clock as move-plan.ts.
  */
 import type { DuelEvent } from "@yugidraft/shared/duels";
-import { PHASE_TIMING } from "./duel-timing";
-import { getMovePlan } from "./move-plan";
+import { MOVE_PACE, PHASE_TIMING } from "./duel-timing";
+import { getMovePlan, planMoves } from "./move-plan";
 
 export type PhaseKey = "draw" | "standby" | "main1" | "battle" | "main2" | "end";
 
@@ -95,6 +95,24 @@ export function isOpeningView(view: { revision: number; turn: number; events: re
   return view.events.some((event) => event.kind === "phase" || (event.kind === "move" && event.reason === "draw"));
 }
 
+/** Conservative opening duration, used to skip a late deal rather than spend decision time on it. */
+export function openingPresentationMs(events: readonly DuelEvent[], reduced: boolean): number {
+  const moves = events.filter((event) => event.kind === "move");
+  // An opening with automatic effects is less predictable than the ordinary deal. Present it
+  // only without a decision clock; its normal FX still run when subsequent events arrive.
+  if (moves.some((event) => event.reason !== "draw")) return Infinity;
+  const duration = reduced ? MOVE_PACE.reducedMs : MOVE_PACE.drawMs;
+  const spanAt = (speed: number) => moves.length === 0 ? 0 : duration * speed
+    + (moves.length - 1) * Math.max(duration * speed * MOVE_PACE.overlap, MOVE_PACE.handMinGapMs);
+  const speed = Math.max(MOVE_PACE.minSpeed, Math.min(1, MOVE_PACE.handQueueCapMs / Math.max(1, spanAt(1))));
+  const flights = spanAt(speed);
+  const phases = events.filter((event) => event.kind === "phase" && ["draw", "standby", "main1"].includes(phaseKeyOfText(event.text) ?? ""));
+  const endsAtMain = phases.length > 0 && phaseKeyOfText(phases[phases.length - 1].text) === "main1";
+  const beat = reduced ? PHASE_TIMING.reducedBeatMs : PHASE_TIMING.beatMs;
+  return flights + (moves.length > 0 ? PHASE_TIMING.afterMovesMs : 0)
+    + (phases.length - (endsAtMain ? 1 : 0)) * beat + (endsAtMain ? PHASE_TIMING.releaseLeadMs : 0);
+}
+
 /**
  * Plans the beats of the turn-start phases in the events newer than `cursor`. Returns null when the
  * batch has none. Safe to call again with the same batch (the first plan is returned).
@@ -141,6 +159,10 @@ export function planPhaseBeats(events: readonly DuelEvent[], cursor: number, opt
   if (run.length === 0) return null;
   const known = plans.get(run[0].event.id);
   if (known) return known;
+
+  // A phase consumer can commit before the card layer. Establish its shared flight schedule
+  // before memoising the beats, or missing landing times let the ribbons overtake the deal.
+  if (!options.landAtOf && !(typeof document !== "undefined" && document.hidden)) planMoves(fresh, { now, reduced, duelKey });
 
   let holdPhase: PhaseKey | null = previous;
   for (const event of fresh) {

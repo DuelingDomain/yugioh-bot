@@ -1,5 +1,7 @@
+import { duelFxClock } from "./fx-clock";
 import { zoneKey } from "./constants";
 import { MOVE_PACE } from "./duel-timing";
+import type { BattleClock } from "./battle-clock";
 
 /**
  * The battle hold: a destroyed card stays on its zone until the fight that killed it has landed.
@@ -11,7 +13,7 @@ import { MOVE_PACE } from "./duel-timing";
  * its render phase (before SummonFx, MoveFx and the toast layer plan the same batch); they ask
  * for it when they schedule a destroy, and start that destroy no earlier than the hold.
  *
- * Times are performance.now() stamps. A hold is read, never consumed, so every layer that plans
+ * Times are duelFxClock.now() stamps. A hold is read, never consumed, so every layer that plans
  * the same destroy sees the same answer. It fades on its own once its time has passed.
  */
 
@@ -23,7 +25,9 @@ type Zone = { controller: number; location: number; sequence: number };
 /** How long the shards of a 3D break fall before the card may reach the Graveyard. */
 export const BREAK_SETTLE_MS = MOVE_PACE.breakSettleMs;
 
-const holds = new Map<string, number>();
+type Hold = { at: number | BattleClock; delayMs: number };
+const deadline = (hold: Hold): number => (typeof hold.at === "number" ? hold.at : hold.at.startedAt) + hold.delayMs;
+const holds = new Map<string, Hold>();
 /**
  * Wipe takeovers (see fx3d/effects/wipes): the canvas draws the whole card from `takeAt`, and the card
  * reaches its pile at `moveAt`. Keyed by the zone the card stands on. The page keeps the card whole until
@@ -36,7 +40,7 @@ const claims = new Set<string>();
 const impacts = new Map<number, number>();
 const armedKeys = new Set<string>();
 
-const now = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
+const now = (): number => (typeof performance !== "undefined" ? duelFxClock.now() : duelFxClock.dateNow());
 
 /**
  * Holds the destroy of the card on `zone` until `delayMs` from now. `key` (the attack event and
@@ -44,19 +48,22 @@ const now = (): number => (typeof performance !== "undefined" ? performance.now(
  */
 export type BattleTakeover = { takeAt: number; moveAt: number };
 
-export function armBattleDestroy(key: string, zone: Zone, delayMs: number, at: number = now(), claim3d = false, takeover?: { moveAfterMs: number }): void {
+export function armBattleDestroy(key: string, zone: Zone, delayMs: number, at: number | BattleClock = now(), claim3d = false, takeover?: { moveAfterMs: number }): void {
   if (armedKeys.has(key)) return;
   armedKeys.add(key);
   // Forget the oldest key only: clearing them all could let a repeat render of the current
   // attack arm it again, later, and push its hold back.
   if (armedKeys.size > 200) armedKeys.delete(armedKeys.values().next().value as string);
   const zoneId = zoneKey(zone.controller, zone.location, zone.sequence);
-  holds.set(zoneId, Math.max(holds.get(zoneId) ?? 0, at + delayMs));
+  const hold = { at, delayMs };
+  const knownHold = holds.get(zoneId);
+  if (!knownHold || deadline(hold) >= deadline(knownHold)) holds.set(zoneId, hold);
   if (claim3d) claims.add(zoneId);
   if (takeover) {
+    const startedAt = typeof at === "number" ? at : at.startedAt;
     const known = takeovers.get(zoneId);
-    const moveAt = at + Math.max(delayMs, takeover.moveAfterMs);
-    takeovers.set(zoneId, { takeAt: Math.max(known?.takeAt ?? 0, at + delayMs), moveAt: Math.max(known?.moveAt ?? 0, moveAt) });
+    const moveAt = startedAt + Math.max(delayMs, takeover.moveAfterMs);
+    takeovers.set(zoneId, { takeAt: Math.max(known?.takeAt ?? 0, startedAt + delayMs), moveAt: Math.max(known?.moveAt ?? 0, moveAt) });
   }
 }
 
@@ -83,7 +90,7 @@ export function battleBreakIs3d(zone: Zone | undefined | null, at: number = now(
   return claims.has(id) && battleDestroyAt(zone, at) > 0;
 }
 
-/** Records the absolute time (performance.now()) an attack lands, for the scenes that react to it. */
+/** Records the absolute time (duelFxClock.now()) an attack lands, for the scenes that react to it. */
 export function noteAttackImpact(attackId: number, absMs: number): void {
   impacts.set(attackId, absMs);
   if (impacts.size > 50) impacts.delete(impacts.keys().next().value as number);
@@ -93,12 +100,13 @@ export function attackImpactAt(attackId: number): number {
   return impacts.get(attackId) ?? 0;
 }
 
-/** The time (performance.now()) the destroy of the card on `zone` may break, or 0 when nothing holds it. */
+/** The time (duelFxClock.now()) the destroy of the card on `zone` may break, or 0 when nothing holds it. */
 export function battleDestroyAt(zone: Zone | undefined | null, at: number = now()): number {
   if (!zone) return 0;
   const id = zoneKey(zone.controller, zone.location, zone.sequence);
-  const until = holds.get(id);
-  if (until == null) return 0;
+  const hold = holds.get(id);
+  if (hold == null) return 0;
+  const until = deadline(hold);
   if (until <= at) {
     holds.delete(id);
     claims.delete(id);

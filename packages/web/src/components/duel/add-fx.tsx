@@ -10,36 +10,36 @@
  * keeps the real hand card invisible until `landed` is called, so the card is never seen twice.
  *
  * Privacy: when the face is not known (the opponent searched their Deck) the card is shown as a card
- * back. If the engine reveals it while it is on screen (the hand slot gets a face), it turns over.
+ * back. A structured confirmation turns the showcase over independently of the live hand slot.
  *
  * Reduced motion: no travel. The card fades in at the showcase spot with the label, holds, and fades
  * out as the real card shows in the hand.
  */
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_EXTRA } from "./constants";
-import { findZoneElement } from "./event-queue";
+import { findMoveDestination, followMoveDestination, handArrivalTarget, moveDestinationRotation } from "./event-queue";
 import { artCodeOf } from "./destroy-hide";
 import { buildShowcaseFrames, showcaseBox, showcaseSourceLabel, ADDED_TITLE } from "./add-to-hand";
 import { CARD_FX } from "./duel-timing";
 import { Track } from "./summon-fx";
+import { retargetFlight } from "./live-flight";
 import type { MovePlan } from "./move-plan";
 import fx from "./move-fx.module.css";
 import styles from "./add-fx.module.css";
 
-const CARD_ASPECT = 0.686;
-/** How often the hand slot is checked for a face while the card is on show (a reveal has no event). */
-const REVEAL_POLL_MS = 90;
 const REVEAL_FLIP_MS = 340;
 
 type Props = {
   plan: MovePlan;
+  confirmedCard?: DuelCardInfo;
   overlay: HTMLElement;
   /** The flight reached the hand: the real card may show. */
   landed: () => void;
   done: () => void;
 };
 
-export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
+export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const flipper = useRef<HTMLDivElement>(null);
   const aura = useRef<HTMLSpanElement>(null);
@@ -50,7 +50,10 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
   const doneRef = useRef(done);
   doneRef.current = done;
   const showcase = plan.showcase;
-  const known = plan.event.card != null && plan.event.card.code > 0 ? plan.event.card.code : 0;
+  const known = plan.event.card?.code || confirmedCard?.code || 0;
+  const initialCode = useRef(known);
+  const shownCode = useRef(known);
+  const showing = useRef(known > 0 ? 0 : 180);
   const [code, setCode] = useState(known);
   const [side, setSide] = useState<"you" | "opp">("you");
   const [fullReady, setFullReady] = useState(false);
@@ -58,22 +61,23 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
   const source = showcaseSourceLabel(plan.event.from, plan.event.zone, side);
 
   useLayoutEffect(() => {
-    const dest = findZoneElement(plan.event.zone);
+    const target = handArrivalTarget(plan.event);
     const el = root.current;
     const o = overlay.getBoundingClientRect();
-    const z = dest?.getBoundingClientRect();
-    if (!showcase || !dest || !el || !z || z.width < 4 || z.height < 4 || o.width < 4) {
+    const z = target?.rect;
+    if (!showcase || !target || !el || !z || z.width < 4 || z.height < 4 || o.width < 4) {
       landedRef.current();
       doneRef.current();
       return undefined;
     }
     const reduced = plan.reduced;
     const phases = showcase.phases;
-    const h = z.height;
-    const w = Math.min(z.width, h * CARD_ASPECT);
+    const initialDestination = findMoveDestination(plan.event);
+    const h = initialDestination?.offsetHeight || z.height;
+    const w = initialDestination?.offsetWidth || z.width;
     const cx = z.left - o.left + z.width / 2;
     const cy = z.top - o.top + z.height / 2;
-    const ownerSide: "you" | "opp" = dest.dataset.side === "opp" ? "opp" : "you";
+    const ownerSide = target.side;
     setSide(ownerSide);
     el.style.left = `${cx - w / 2}px`;
     el.style.top = `${cy - h / 2}px`;
@@ -98,7 +102,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       start = { dx: from.left - o.left + from.width / 2 - cx, dy: from.top - o.top + from.height / 2 - cy, scale: Math.max(0.3, from.height / h) };
       fadeIn = false;
     }
-    const endRot = ownerSide === "opp" ? 180 : 0;
+    const endRot = initialDestination ? Math.round(moveDestinationRotation(initialDestination) * 100) / 100 : ownerSide === "opp" ? 180 : 0;
     const frames = (end?: { dx: number; dy: number }) => buildShowcaseFrames({ phases, start, spot, end, endRot, reduced, fadeIn });
 
     // The label sits under the showcase card.
@@ -110,32 +114,11 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     const stageMs = phases.riseMs + phases.holdMs;
     const track = new Track();
     let alive = true;
-    let shownCode = known;
-    // The turn of the card as it shows now: 0 = face, 180 = back.
-    let showing = known > 0 ? 0 : 180;
     const first = frames();
     const opts = (duration: number): KeyframeAnimationOptions => ({ duration, easing: "linear", fill: "both" });
     track.play(el, first.stage, opts(stageMs));
     track.play(aura.current, first.aura, opts(stageMs));
     track.play(label, first.label, opts(stageMs));
-
-    // A reveal shows up as a face in the hand slot: turn the card over when it does.
-    const turnOver = (found: number) => {
-      shownCode = found;
-      showing = 0;
-      setCode(found);
-      if (reduced) {
-        if (flipper.current) flipper.current.style.transform = "rotateY(0deg)";
-        return;
-      }
-      track.play(flipper.current, [{ transform: "rotateY(180deg)" }, { transform: "rotateY(0deg)" }], { duration: REVEAL_FLIP_MS, easing: "ease-in-out", fill: "both" });
-    };
-    const poll = window.setInterval(() => {
-      if (!alive || shownCode > 0) return;
-      const found = artCodeOf(dest);
-      if (found > 0) turnOver(found);
-    }, REVEAL_POLL_MS);
-    track.onDispose(() => window.clearInterval(poll));
 
     let landedOnce = false;
     const land = () => {
@@ -144,28 +127,41 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       landedRef.current();
     };
 
+    let flightEnd = { dx: 0, dy: 0 };
+    let liveFlight: ReturnType<typeof retargetFlight> | undefined;
     track.after(stageMs, () => {
       if (!alive) return;
-      window.clearInterval(poll);
-      // The hand may have re-centred since the card rose: aim at where the slot is now.
-      const now = dest.getBoundingClientRect();
-      const end = now.width >= 4 ? { dx: now.left - o.left + now.width / 2 - cx, dy: now.top - o.top + now.height / 2 - cy } : undefined;
-      const fly = frames(end);
-      // A card goes into the opponent's hand face down unless the hand shows its face.
-      const found = shownCode > 0 ? shownCode : artCodeOf(dest);
-      if (found > 0 && shownCode === 0) {
-        shownCode = found;
-        setCode(found);
+      const current = findMoveDestination(plan.event);
+      const target = handArrivalTarget(plan.event);
+      if (!target) { land(); doneRef.current(); return; }
+      const now = target.rect;
+      flightEnd = { dx: now.left - o.left + now.width / 2 - cx, dy: now.top - o.top + now.height / 2 - cy };
+      const flightCx = cx + flightEnd.dx; const flightCy = cy + flightEnd.dy;
+      // Rebase travel onto the current landing centre. The endpoint transform then has no
+      // translation for the individual fan rotation to rotate away from its engine slot.
+      const fly = reduced ? frames(flightEnd) : buildShowcaseFrames({ phases, start,
+        spot: { ...spot, dx: spot.dx - flightEnd.dx, dy: spot.dy - flightEnd.dy }, endRot, reduced, fadeIn });
+      if (!reduced) {
+        el.style.left = `${flightCx - w / 2}px`;
+        el.style.top = `${flightCy - h / 2}px`;
+        flightEnd = { dx: 0, dy: 0 };
       }
+      // A card goes into the opponent's hand face down unless the hand shows its face.
+      const found = shownCode.current;
       track.play(el, fly.fly, opts(phases.flyMs));
+      if (!reduced) {
+        liveFlight = retargetFlight({ event: plan.event, el, overlay, cx: flightCx, cy: flightCy,
+          duration: phases.flyMs, endRot, fallback: () => handArrivalTarget(plan.event)?.rect });
+        track.onDispose(liveFlight.stop);
+      }
       track.play(aura.current, fly.auraFly, opts(phases.flyMs));
       if (reduced) {
         if (found > 0 && flipper.current) flipper.current.style.transform = "rotateY(0deg)";
         land();
         return;
       }
-      const faceAtEnd = found > 0 && (ownerSide === "you" || artCodeOf(dest) > 0);
-      const a = showing;
+      const faceAtEnd = found > 0 && (ownerSide === "you" || (current != null && artCodeOf(current) > 0));
+      const a = showing.current;
       const b = faceAtEnd ? 0 : 180;
       if (a !== b) {
         track.play(
@@ -175,8 +171,14 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
         );
       }
     });
-    track.after(stageMs + phases.flyMs, () => {
+    const settle = () => {
       if (!alive) return;
+      if (plan.handoff) { el.style.visibility = "hidden"; land(); doneRef.current(); return; }
+      liveFlight?.finish();
+      const current = findMoveDestination(plan.event);
+      const target = handArrivalTarget(plan.event);
+      if (!target) { land(); doneRef.current(); return; }
+      const now = target.rect;
       land();
       if (reduced) {
         doneRef.current();
@@ -185,12 +187,12 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       // The real card takes over under the ghost, which dissolves while the ring of light plays.
       track.play(el, [{ opacity: 1 }, { opacity: 0 }], { duration: CARD_FX.landFadeMs, easing: "ease-out", fill: "both" });
       const r = ring.current;
-      if (r) {
-        const now = dest.getBoundingClientRect();
-        r.style.left = `${now.left - o.left}px`;
-        r.style.top = `${now.top - o.top}px`;
-        r.style.width = `${now.width}px`;
-        r.style.height = `${now.height}px`;
+      if (r && current) {
+        r.style.left = `${now.left - o.left + now.width / 2 - w / 2}px`;
+        r.style.top = `${now.top - o.top + now.height / 2 - h / 2}px`;
+        r.style.width = `${w}px`;
+        r.style.height = `${h}px`;
+        r.style.rotate = `${moveDestinationRotation(current, true)}deg`;
         track.play(
           r,
           [
@@ -201,8 +203,32 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
           { duration: phases.glowMs, easing: "ease-out", fill: "both" },
         );
       }
+      if (current) track.onDispose(followMoveDestination(plan.event, (destination) => ({ destination,
+        visible: destination?.getBoundingClientRect(), layer: overlay.getBoundingClientRect(),
+        rotation: moveDestinationRotation(destination, true), width: destination?.offsetWidth, height: destination?.offsetHeight,
+      }), ({ destination, visible, layer, rotation, width, height }) => {
+        if (!destination) {
+          el.style.visibility = "hidden";
+          if (r) r.style.visibility = "hidden";
+          return;
+        }
+        if (!visible) return;
+        el.style.translate = "0px 0px";
+        el.style.rotate = `${rotation - endRot}deg`;
+        el.style.left = `${visible.left - layer.left + visible.width / 2 - w / 2 - flightEnd.dx}px`;
+        el.style.top = `${visible.top - layer.top + visible.height / 2 - h / 2 - flightEnd.dy}px`;
+        if (r) {
+          const ringW = width || visible.width; const ringH = height || visible.height;
+          r.style.left = `${visible.left - layer.left + visible.width / 2 - ringW / 2}px`;
+          r.style.top = `${visible.top - layer.top + visible.height / 2 - ringH / 2}px`;
+          r.style.width = `${ringW}px`;
+          r.style.height = `${ringH}px`;
+          r.style.rotate = `${rotation}deg`;
+        }
+      }));
       track.after(Math.max(phases.glowMs, CARD_FX.landFadeMs), () => doneRef.current());
-    });
+    };
+    track.after(stageMs + phases.flyMs, settle);
     return () => {
       alive = false;
       track.dispose();
@@ -210,6 +236,23 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     // A showcase is immutable for its whole life: set up once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Confirmations may arrive in a later snapshot while the original showcase is still running.
+  useLayoutEffect(() => {
+    const found = confirmedCard?.code;
+    if (!found || shownCode.current > 0) return undefined;
+    shownCode.current = found;
+    showing.current = 0;
+    setCode(found);
+    setFullReady(false);
+    const track = new Track();
+    if (plan.reduced) {
+      if (flipper.current) flipper.current.style.transform = "rotateY(0deg)";
+    } else {
+      track.play(flipper.current, [{ transform: "rotateY(180deg)" }, { transform: "rotateY(0deg)" }], { duration: REVEAL_FLIP_MS, easing: "ease-in-out", fill: "both" });
+    }
+    return () => track.dispose();
+  }, [confirmedCard?.code, plan.reduced]);
 
   return (
     <>
@@ -226,7 +269,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       </div>
       <div ref={root} className={fx.ghost} data-style="add" data-testid="added-ghost" data-known={code > 0 ? "true" : "false"} style={{ opacity: 0 } as CSSProperties}>
         <span ref={aura} className={styles.aura} style={{ opacity: 0 } as CSSProperties} />
-        <div ref={flipper} className={fx.flipper} style={{ transform: `rotateY(${known > 0 ? 0 : 180}deg)` }}>
+        <div ref={flipper} className={fx.flipper} style={{ transform: `rotateY(${initialCode.current > 0 ? 0 : 180}deg)` }}>
           <div className={`${fx.face} ${styles.face}`}>
             {code > 0 ? (
               <>

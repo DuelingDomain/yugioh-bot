@@ -25,6 +25,7 @@ import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
   clearRevealsAt,
+  confirmationAudience,
   CHAIN_TARGET_NOTE_SCRIPT,
   createEventContext,
   createRevealMap,
@@ -39,6 +40,7 @@ import {
   observeChainTargetEvents,
   observeDuelEvent,
   observeMoveEvents,
+  observeConfirmEvents,
   phaseName,
   playerLabel,
   projectView,
@@ -54,6 +56,7 @@ import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, parse
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
 import { fillPlaceholders } from "./text.js";
 import { firstTurnDrawFor } from "./first-turn-draw.js";
+import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines } from "./log-lines.js";
 
 /** A wasm the engine loaded: the bytes, the file name and the sha256 of the bytes (core identity for reports). */
 export interface LoadedWasm {
@@ -535,15 +538,48 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let sawRetry = false;
   const hintCardName = () => (lastHintCard ? cards.get(lastHintCard)?.name : undefined);
 
-  const appendLog = (text: string, audience: "all" | number = "all") => {
-    log.push({ id: nextLogId++, text, audience });
+  const appendLog = (text: string, audience: "all" | number = "all"): LogEntry => {
+    const entry = { id: nextLogId++, text, audience };
+    log.push(entry);
     if (log.length > 400) log.splice(0, log.length - 400);
+    return entry;
+  };
+  // Lines for cards that left the field this batch (log-lines.ts LogLine.leftField). A destroy event for the same
+  // zone rewrites the line; the list is cleared with the event batch, before any view is built.
+  const leftFieldLines: Array<{ entry: LogEntry; zone: { controller: number; location: number; sequence: number }; code: number; destination: number }> = [];
+  const markDestroyedLine = (stored: StoredDuelEvent) => {
+    const zone = stored.zone;
+    if (stored.kind !== "destroy" || !zone) return;
+    // The latest card to leave that zone, and the same card when the event names one: a zone can be emptied by a
+    // Tribute and refilled within one batch. No match keeps the location-based text.
+    const code = stored.card?.code;
+    let index = -1;
+    for (let i = leftFieldLines.length - 1; i >= 0; i -= 1) {
+      const line = leftFieldLines[i]!;
+      if (line.zone.controller !== zone.controller || line.zone.location !== zone.location || line.zone.sequence !== zone.sequence) continue;
+      if (code !== undefined && line.code !== code) continue;
+      index = i;
+      break;
+    }
+    if (index < 0) return;
+    const [line] = leftFieldLines.splice(index, 1);
+    line!.entry.text = line!.destination === OcgLocation.REMOVED
+      ? destroyedAndBanishedLogText(cards, line!.code)
+      : destroyedLogText(cards, line!.code);
   };
 
   const recordEvent = (message: OcgMessage) => {
     // Moves first: a card's move precedes the summon/set/activate/destroy event it belongs to.
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
+    for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
     const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
+    // The summon line is written here, right after applyMessage, because the summon method is only known now.
+    if (
+      stored?.kind === "summon" &&
+      (message.type === OcgMessageType.SUMMONING || message.type === OcgMessageType.SPSUMMONING || message.type === OcgMessageType.FLIPSUMMONING)
+    ) {
+      for (const line of summonLogLines(message, cards, stored.summonKind, format)) appendLog(line.text, line.audience);
+    }
     if (stored) pushEvent(stored);
     for (const target of observeChainTargetEvents(message, chainMemory, nextEventId, eventContext)) pushEvent(target);
   };
@@ -551,6 +587,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const pushEvent = (stored: StoredDuelEvent) => {
     stored.id = nextEventId;
     nextEventId += 1;
+    markDestroyedLine(stored);
     events.push(stored);
     if (events.length > 400) events.splice(0, events.length - 400);
   };
@@ -654,19 +691,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         return;
       case OcgMessageType.SUMMONING:
       case OcgMessageType.SPSUMMONING:
-      case OcgMessageType.FLIPSUMMONING: {
-        const verb = message.type === OcgMessageType.SUMMONING ? "Normal Summons"
-          : message.type === OcgMessageType.SPSUMMONING ? "Special Summons" : "Flip Summons";
-        const who = playerLabel(format, message.controller);
-        const text = `${who} ${verb} ${cards.get(message.code)?.name ?? `Card ${message.code}`}`;
-        if ((message.position & OcgPosition.FACEDOWN) !== 0) {
-          appendLog(`${who} ${verb} a face-down monster`);
-          if (!isNoDuelist(format, message.controller)) appendLog(text, message.controller);
-        } else {
-          appendLog(text);
-        }
+      case OcgMessageType.FLIPSUMMONING:
+        // Logged by recordEvent once the summon method is known (log-lines.ts summonLogLines).
         return;
-      }
       case OcgMessageType.SET:
         appendLog(`${playerLabel(format, message.controller)} Sets a card`);
         return;
@@ -698,8 +725,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           noteReveal(reveals, message.player, card.controller, card.location, card.sequence, card.code);
           const partner = partnerSeatOf(format, message.player);
           if (partner != null) noteReveal(reveals, partner, card.controller, card.location, card.sequence, card.code);
+          appendLog(`Confirmed ${cards.get(card.code)?.name ?? `Card ${card.code}`}`, confirmationAudience(card, message.player, eventContext));
         }
-        appendLog(`Confirmed ${message.cards.map((card) => cards.get(card.code)?.name ?? `Card ${card.code}`).join(", ")}`, message.player);
         return;
       case OcgMessageType.CONFIRM_DECKTOP:
       case OcgMessageType.CONFIRM_EXTRATOP:
@@ -712,8 +739,17 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         return;
       case OcgMessageType.MOVE:
         moveReveals(reveals, message.from, message.to, message.card);
-        if (message.to.location === OcgLocation.GRAVE || (message.to.location === OcgLocation.REMOVED && (message.to.position & OcgPosition.FACEDOWN) === 0)) {
-          appendLog(`${cards.get(message.card)?.name ?? `Card ${message.card}`} moved`);
+        for (const line of moveLogLines(message, cards, format)) {
+          const entry = appendLog(line.text, line.audience);
+          // Parsed overlay locations name the host's field zone, but the material itself was not on the field.
+          if (line.leftField && message.from.overlay_sequence == null) {
+            leftFieldLines.push({ entry, zone: message.from, code: message.card, destination: message.to.location });
+          }
+        }
+        return;
+      case OcgMessageType.REMOVE_CARDS:
+        for (const card of [...message.cards].sort((a, b) => b.sequence - a.sequence)) {
+          moveReveals(reveals, card, { controller: card.controller, location: 0, sequence: 0 }, 0);
         }
         return;
       case OcgMessageType.TOSS_COIN:
@@ -775,7 +811,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
 
   const processUntilWait = () => {
     if (closed) throw new Error("Engine is closed");
-    resetEventBatch(eventContext);
+    // Native materials move before position/place selection, so those prompts continue the same summon.
+    const continuingSummon = pending?.message.type === OcgMessageType.SELECT_POSITION || pending?.message.type === OcgMessageType.SELECT_PLACE;
+    resetEventBatch(eventContext, continuingSummon);
+    leftFieldLines.length = 0;
     while (!result) {
       const status = lib.duelProcess(handle);
       // The wrapper warns once per message id 200, 201 and 202 (it does not know them). The tap reads them below.
@@ -919,6 +958,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         chain: chainMemory,
         result,
         reveals,
+        handIdentities: eventContext.handIdentities,
         mode: options.mode,
         domainState: readDomainState(),
         ...(multi ? { format, eliminated, leaving: new Set([...leaving].filter(isLeaving)), chain: chainMemory.slice(0, liveChainSize) } : {}),

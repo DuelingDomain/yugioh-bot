@@ -67,8 +67,8 @@ export type LabScript = {
   };
   /** Show the Deck Master rail (a Domain duel). */
   domain?: boolean;
-  /** Whose view: seat 0 is the bottom player. */
-  mySeat?: number;
+  /** Whose view: that seat is at the bottom; null watches with both hands concealed. */
+  mySeat?: number | null;
   /** The Master Rule the board is drawn for (default 5): it decides the Extra Monster and Pendulum zones. */
   masterRule?: DuelMasterRule;
   /** A Best of 3 game: the header shows the game label; `screen` opens a between-games or match screen over the board. */
@@ -111,6 +111,8 @@ export type LabSeries = {
   marks?: "even" | "uneven";
   /** Side deck screen: the player's deck has no Side Deck. */
   noSide?: boolean;
+  /** Stress the between-games layout with a maximum-size Main Deck. */
+  mainCount?: 60;
 };
 
 export type LabCategory = "Attacks" | "Destroy" | "Summons" | "Card moves" | "Chain" | "LP" | "Banners" | "Board states" | "Match";

@@ -1,0 +1,9 @@
+:global(.ms) .cols:global(.db-cols) :global(.db-row .nm) {
+  overflow-wrap: break-word;
+}
+
+@container (max-width: 900px) {
+  :global(.ms) .cols:global(.db-cols) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -5,6 +5,8 @@ import type { DraftConfig } from "@yugidraft/shared/types";
 import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import { PoolBuilder } from "@/components/cards/pool-builder";
 import type { CardSummary } from "@/lib/card-types";
+import { packsSentence } from "./create/format";
+import styles from "./create/create.module.css";
 
 export const CARDS_PER_PLAYER_MIN = 40;
 export const CARDS_PER_PLAYER_MAX = 60;
@@ -104,25 +106,77 @@ interface NumberFieldProps {
   onChange: (value: string) => void;
   min: number;
   max?: number;
+  unit?: string;
 }
 
-function NumberField({ id, label, value, onChange, min, max }: NumberFieldProps) {
+function NumberField({ id, label, value, onChange, min, max, unit }: NumberFieldProps) {
+  const input = (
+    <input
+      className="input"
+      id={id}
+      type="number"
+      inputMode="numeric"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      min={min}
+      max={max}
+    />
+  );
   return (
-    // Full-height flex column so inputs bottom-align across the row even when a
-    // label wraps to two lines (e.g. "Rounds — cards drafted per player").
-    <div className="flex h-full flex-col">
-      <label htmlFor={id} className="mb-1 block text-sm font-medium text-text-primary">
+    <div>
+      <label className="label" htmlFor={id}>
         {label}
       </label>
-      <input
-        id={id}
-        type="number"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        min={min}
-        max={max}
-        className="mt-auto w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none"
+      {unit ? (
+        <span className={styles.unit}>
+          {input}
+          <span aria-hidden="true">{unit}</span>
+        </span>
+      ) : (
+        input
+      )}
+    </div>
+  );
+}
+
+interface PackFieldsProps {
+  value: DraftConfigFieldsValue;
+  onChange: (value: DraftConfigFieldsValue) => void;
+}
+
+/** Cards per player, pack size and pick duration, with the sentence that says what they add up to. */
+export function PackFields({ value, onChange }: PackFieldsProps) {
+  const cardsPerPlayer = parseCardsPerPlayer(value.cardsPerPlayerText);
+  const packSize = parsePackSize(value.packSizeText, cardsPerPlayer);
+  const packsPerPlayer = derivePacksPerPlayer(cardsPerPlayer, packSize);
+
+  return (
+    <div className={`fields ${styles.three}`}>
+      <NumberField
+        id="cards-per-player"
+        label="Cards drafted per player"
+        value={value.cardsPerPlayerText}
+        onChange={(v) => onChange({ ...value, cardsPerPlayerText: v })}
+        min={CARDS_PER_PLAYER_MIN}
+        max={CARDS_PER_PLAYER_MAX}
       />
+      <NumberField
+        id="pack-size"
+        label="Size of each pack"
+        value={value.packSizeText}
+        onChange={(v) => onChange({ ...value, packSizeText: v })}
+        min={PACK_SIZE_MIN}
+      />
+      <NumberField
+        id="pick-seconds"
+        label="Pick duration"
+        unit="seconds"
+        value={value.pickSecondsText}
+        onChange={(v) => onChange({ ...value, pickSecondsText: v })}
+        min={PICK_SECONDS_MIN}
+        max={PICK_SECONDS_MAX}
+      />
+      <p className="hint wide">{packsSentence(cardsPerPlayer, packsPerPlayer, packSize)}</p>
     </div>
   );
 }
@@ -134,49 +188,19 @@ interface DraftConfigFieldsProps {
   onPool?: (cards: CardSummary[], unknownIds: number[], loading: boolean) => void;
 }
 
+/** Pool plus pack fields in one stack. The new draft form lays them out as separate sections instead. */
 export function DraftConfigFields({ value, onChange, poolBuilderShowPreview, onPool }: DraftConfigFieldsProps) {
-  const cardsPerPlayer = parseCardsPerPlayer(value.cardsPerPlayerText);
-  const packSize = parsePackSize(value.packSizeText, cardsPerPlayer);
-  const packsPerPlayer = derivePacksPerPlayer(cardsPerPlayer, packSize);
-
   return (
-    <div className="space-y-4">
-      <PoolBuilder
-        value={{ setNames: value.setNames, customCardText: value.customCardText }}
-        onChange={(pb) => onChange({ ...value, setNames: pb.setNames, customCardText: pb.customCardText })}
-        showPreview={poolBuilderShowPreview}
-        onPool={onPool}
-      />
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <NumberField
-          id="cards-per-player"
-          label="Rounds — cards drafted per player"
-          value={value.cardsPerPlayerText}
-          onChange={(v) => onChange({ ...value, cardsPerPlayerText: v })}
-          min={CARDS_PER_PLAYER_MIN}
-          max={CARDS_PER_PLAYER_MAX}
-        />
-        <NumberField
-          id="pack-size"
-          label="Size of each pack"
-          value={value.packSizeText}
-          onChange={(v) => onChange({ ...value, packSizeText: v })}
-          min={PACK_SIZE_MIN}
-        />
-        <NumberField
-          id="pick-seconds"
-          label="Pick duration (seconds)"
-          value={value.pickSecondsText}
-          onChange={(v) => onChange({ ...value, pickSecondsText: v })}
-          min={PICK_SECONDS_MIN}
-          max={PICK_SECONDS_MAX}
+    <div className={styles.stack}>
+      <div className="fields">
+        <PoolBuilder
+          value={{ setNames: value.setNames, customCardText: value.customCardText }}
+          onChange={(pb) => onChange({ ...value, setNames: pb.setNames, customCardText: pb.customCardText })}
+          showPreview={poolBuilderShowPreview}
+          onPool={onPool}
         />
       </div>
-      <p className="text-xs text-text-secondary">
-        Each player drafts {cardsPerPlayer} cards across {packsPerPlayer} pack
-        {packsPerPlayer !== 1 ? "s" : ""} of {packSize} — extra cards in the last pack are left out.
-      </p>
+      <PackFields value={value} onChange={onChange} />
     </div>
   );
 }

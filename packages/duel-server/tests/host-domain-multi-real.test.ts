@@ -4,7 +4,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { seatCountFor, teamOfSeat, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelRoom } from "@yugidraft/shared/duels";
+import { DUEL_OPENING_GRACE_MS, seatCountFor, teamOfSeat, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelRoom } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { AXE_RAIDER, botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer } from "../src/practice-bot.js";
@@ -178,7 +178,8 @@ describeWithCores("Domain tables through the real host and worker", [needs.cards
   it.each(FORMATS)("%s: a time limit removes only the FFA seat or ends Tag for its team", async (format) => {
     const t = await table(format, seatCountFor(format));
     await t.start();
-    t.time.now += 61_000;
+    // The first decision of a game has the opening grace on top of the 60 second clock bank.
+    t.time.now += 61_000 + DUEL_OPENING_GRACE_MS;
     const after = await t.room();
     if (format === "tag") {
       expect(after.session.status).toBe("completed");

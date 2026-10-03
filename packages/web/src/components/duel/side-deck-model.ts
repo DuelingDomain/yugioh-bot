@@ -4,8 +4,8 @@ import { TYPE_FUSION, TYPE_LINK, TYPE_SYNCHRO, TYPE_XYZ } from "./constants";
 /**
  * Side decking between games of a Best of 3. Pure: the screen keeps a set of marks (cards taken out of
  * the Main or Extra Deck, cards brought in from the Side Deck) and `planSideDeck` turns them into the
- * deck for the next game. The count taken out must equal the count brought in, so the Side Deck never
- * changes size (the server checks the same rules again).
+ * deck for the next game. Main, Extra and Side must each keep their last-game size
+ * (the server checks the same rules again).
  */
 
 export type SwapSection = "main" | "extra";
@@ -76,8 +76,10 @@ export interface SidePlan {
   /** Cards marked out and cards marked in. */
   out: number;
   inn: number;
-  /** Out equals in: the Side Deck keeps its size. */
+  /** Out equals in and Main and Extra each keep their size. */
   balanced: boolean;
+  /** Side destinations cannot be evaluated until every Side card's type is known. */
+  typesReady: boolean;
   /** Section sizes after the marks. */
   counts: DeckCounts;
   /** Where each marked-in card goes, by Side position: Extra Deck monsters go to the Extra Deck. */
@@ -92,7 +94,7 @@ function plural(count: number): string {
 
 /**
  * Apply the marks to `deck` (the deck as of the last game). `types` maps a passcode to its card type
- * bits; a card that is not in the map goes to the Main Deck. `base` is the registered deck: the Main
+ * bits; unknown Side cards stay there and block Ready until their types arrive. `base` is the registered deck: the Main
  * Deck may not drop below 40 cards, or below the base Main size when that is smaller.
  */
 export function planSideDeck(
@@ -108,30 +110,39 @@ export function planSideDeck(
   const goneMain = deck.main.filter((_, index) => outKey.has(`main:${index}`));
   const goneExtra = deck.extra.filter((_, index) => outKey.has(`extra:${index}`));
   const destination = new Map<number, SwapSection>();
+  const typesReady = deck.side.every((code) => types.has(code));
   deck.side.forEach((code, index) => {
     if (!inSet.has(index)) return;
     const type = types.get(code);
-    const section: SwapSection = type != null && isExtraDeckType(type) ? "extra" : "main";
+    if (type == null) return;
+    const section: SwapSection = isExtraDeckType(type) ? "extra" : "main";
     destination.set(index, section);
     (section === "extra" ? extra : main).push(code);
   });
   // The cards that went out join the Side Deck as the cards that came in leave it, so it keeps its length.
   const goneAll = [...goneMain, ...goneExtra];
-  const side = deck.side.filter((_, index) => !inSet.has(index));
+  const side = deck.side.filter((code, index) => !inSet.has(index) || !types.has(code));
   side.push(...goneAll);
   const next: DuelDeck = { ...deck, main, extra, side };
 
   const out = marks.out.length;
   const inn = marks.inn.length;
-  const balanced = out === inn;
+  const balanced = typesReady && out === inn && main.length === deck.main.length && extra.length === deck.extra.length;
   const minMain = Math.min(SIDE_MAIN_MIN, base.main.length);
   let reason: string | null = null;
-  if (out > inn) reason = `Bring in ${plural(out - inn)} from the Side Deck, or put ${plural(out - inn)} back.`;
+  if (!typesReady) reason = "Loading card types…";
+  else if (out > inn) reason = `Bring in ${plural(out - inn)} from the Side Deck, or put ${plural(out - inn)} back.`;
   else if (inn > out) reason = `Take out ${plural(inn - out)} from the Main or Extra Deck, or put ${plural(inn - out)} back.`;
+  else if (main.length !== deck.main.length || extra.length !== deck.extra.length) {
+    const sections: string[] = [];
+    if (main.length !== deck.main.length) sections.push(`the Main Deck at ${deck.main.length} cards`);
+    if (extra.length !== deck.extra.length) sections.push(`the Extra Deck at ${deck.extra.length} cards`);
+    reason = `Keep ${sections.join(" and ")} (last game).`;
+  }
   else if (main.length < minMain) reason = `The Main Deck needs at least ${minMain} cards. It would have ${main.length}.`;
   else if (main.length > SIDE_MAIN_MAX) reason = `The Main Deck holds at most ${SIDE_MAIN_MAX} cards. It would have ${main.length}.`;
   else if (extra.length > SIDE_EXTRA_MAX) reason = `The Extra Deck holds at most ${SIDE_EXTRA_MAX} cards. It would have ${extra.length}.`;
-  return { deck: next, out, inn, balanced, counts: deckCounts(next), destination, reason };
+  return { deck: next, out, inn, balanced, typesReady, counts: deckCounts(next), destination, reason };
 }
 
 function tally(codes: Iterable<number>): Map<number, number> {
@@ -153,9 +164,10 @@ export function sameMultiset(a: DuelDeck, b: DuelDeck): boolean {
   return true;
 }
 
-/** A legal side change: the same cards overall and the same Side Deck size. */
+/** A legal side change: the same cards overall and the same size in every section. */
 export function isValidSideChange(before: DuelDeck, after: DuelDeck): boolean {
-  return before.side.length === after.side.length && sameMultiset(before, after);
+  return before.main.length === after.main.length && before.extra.length === after.extra.length
+    && before.side.length === after.side.length && sameMultiset(before, after);
 }
 
 function sameList(a: readonly number[], b: readonly number[]): boolean {

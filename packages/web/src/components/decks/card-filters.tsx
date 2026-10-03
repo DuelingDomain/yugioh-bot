@@ -24,8 +24,8 @@ import {
   type CardQuery,
   type CardRange,
 } from "@yugidraft/shared/duels";
-import { cx, SheetSegmented } from "@/components/duel/sheet-ui";
-import ui from "@/components/duel/sheet-ui.module.css";
+import { cn } from "@/lib/utils";
+import { DeckSegmented } from "./controls";
 import {
   ABILITY_KEYS,
   FRAME_KEYS,
@@ -129,9 +129,9 @@ function RangeField({ label, range, max, step = 1, onChange }: {
   return (
     <div className={styles.range} role="group" aria-label={label}>
       <label>
-        <span className={ui.srOnly}>{label} minimum</span>
+        <span className={"sr"}>{label} minimum</span>
         <input
-          className={cx(ui.input, styles.rangeInput, ui.num)}
+          className={cn("input", styles.rangeInput, "num")}
           type="number"
           inputMode="numeric"
           min={0}
@@ -144,9 +144,9 @@ function RangeField({ label, range, max, step = 1, onChange }: {
       </label>
       <span className={styles.rangeDash} aria-hidden>–</span>
       <label>
-        <span className={ui.srOnly}>{label} maximum</span>
+        <span className={"sr"}>{label} maximum</span>
         <input
-          className={cx(ui.input, styles.rangeInput, ui.num)}
+          className={cn("input", styles.rangeInput, "num")}
           type="number"
           inputMode="numeric"
           min={0}
@@ -204,14 +204,14 @@ function ArchetypePicker({ query, archetypes, onChange }: {
     <div className={styles.archetype}>
       <div className={styles.combo}>
         <input
-          className={cx(ui.input, styles.comboInput)}
+          className={cn("input", styles.comboInput)}
           role="combobox"
           aria-expanded={expanded}
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
           aria-label="Find an archetype"
-          placeholder={archetypes.length ? "Blue-Eyes, Sky Striker, HERO…" : "Loading archetypes…"}
+          placeholder={archetypes.length ? "Blue-Eyes, Sky Striker…" : "Loading archetypes…"}
           value={text}
           disabled={archetypes.length === 0}
           onChange={(event) => { setText(event.target.value); setOpen(true); setActive(0); }}
@@ -238,7 +238,7 @@ function ArchetypePicker({ query, archetypes, onChange }: {
                 onMouseEnter={() => setActive(index)}
               >
                 <span>{archetype.name}</span>
-                <span className={cx(ui.num, styles.comboCount)}>{archetype.count}</span>
+                <span className={cn("num", styles.comboCount)}>{archetype.count}</span>
               </li>
             ))}
           </ul>
@@ -250,7 +250,7 @@ function ArchetypePicker({ query, archetypes, onChange }: {
             <li key={archetype.name}>
               <button
                 type="button"
-                className={cx(ui.chip, ui.chipAccent, styles.chipButton)}
+                className={cn("chip", "chip-pen", styles.chipButton)}
                 aria-label={`Remove ${archetype.name}`}
                 onClick={() => onChange({ ...query, archetypes: query.archetypes.filter((code) => !archetype.codes.includes(code)) })}
               >
@@ -261,7 +261,7 @@ function ArchetypePicker({ query, archetypes, onChange }: {
           ))}
         </ul>
       ) : null}
-      <SheetSegmented
+      <DeckSegmented
         label="Archetype match"
         hideLabel
         full
@@ -293,7 +293,7 @@ export function CardFilters({ query, archetypes, onChange, hideLimits = false }:
   return (
     <div className={styles.fBody}>
       <Section title="Card">
-        <SheetSegmented label="Card kind" hideLabel full value={query.kind} choices={KIND_CHOICES} onChange={(kind) => set("kind", kind)} />
+        <DeckSegmented label="Card kind" hideLabel full value={query.kind} choices={KIND_CHOICES} onChange={(kind) => set("kind", kind)} />
       </Section>
 
       <Section title="Archetype">
@@ -305,7 +305,7 @@ export function CardFilters({ query, archetypes, onChange, hideLimits = false }:
           <Section
             title="Monster card type"
             aside={query.monsterTypes.length > 1 ? (
-              <SheetSegmented label="Monster type match" hideLabel value={query.monsterTypeMatch} choices={MATCH_CHOICES} onChange={(value) => set("monsterTypeMatch", value)} />
+              <DeckSegmented label="Monster type match" hideLabel value={query.monsterTypeMatch} choices={MATCH_CHOICES} onChange={(value) => set("monsterTypeMatch", value)} />
             ) : null}
           >
             <div className={styles.toggles}>
@@ -339,7 +339,7 @@ export function CardFilters({ query, archetypes, onChange, hideLimits = false }:
             </div>
           </Section>
 
-          <Section title="Monster Type">
+          <Section title="Monster type">
             <div className={styles.toggles}>
               {CARD_RACES.map((race) => (
                 <Toggle key={race.bit} pressed={query.races.includes(race.bit)} onClick={() => set("races", toggle(query.races, race.bit))}>
@@ -353,7 +353,7 @@ export function CardFilters({ query, archetypes, onChange, hideLimits = false }:
             <Section title="Level / Rank">
               <RangeField label="Level or Rank" range={query.level} max={13} onChange={(range) => set("level", range)} />
             </Section>
-            <Section title="Link Rating">
+            <Section title="Link rating">
               <RangeField label="Link Rating" range={query.link} max={8} onChange={(range) => set("link", range)} />
             </Section>
             <Section title="ATK">
@@ -362,20 +362,20 @@ export function CardFilters({ query, archetypes, onChange, hideLimits = false }:
             <Section title="DEF">
               <RangeField label="DEF" range={query.def} max={100000} step={100} onChange={(range) => set("def", range)} />
             </Section>
-            <Section title="Pendulum Scale">
+            <Section title="Pendulum scale">
               <RangeField label="Pendulum Scale" range={query.scale} max={13} onChange={(range) => set("scale", range)} />
             </Section>
           </div>
 
           <Section
-            title="Link Arrows"
+            title="Link arrows"
             aside={(query.arrows & (query.arrows - 1)) !== 0 ? (
-              <SheetSegmented label="Link Arrow match" hideLabel value={query.arrowMatch} choices={MATCH_CHOICES} onChange={(value) => set("arrowMatch", value)} />
+              <DeckSegmented label="Link Arrow match" hideLabel value={query.arrowMatch} choices={MATCH_CHOICES} onChange={(value) => set("arrowMatch", value)} />
             ) : null}
           >
             <div className={styles.arrows}>
               {ARROW_GRID.map((arrow, index) => {
-                if (!arrow) return <span key={index} className={styles.arrowCenter} aria-hidden>LINK</span>;
+                if (!arrow) return <span key={index} className={styles.arrowCenter} aria-hidden>Link</span>;
                 const Icon = arrow.icon;
                 const pressed = (query.arrows & arrow.bit) !== 0;
                 return (
@@ -440,7 +440,7 @@ export function CardFilters({ query, archetypes, onChange, hideLimits = false }:
       )}
 
       <Section title="Card pool">
-        <SheetSegmented label="Card pool" hideLabel full value={query.pool} choices={POOL_CHOICES} onChange={(pool) => set("pool", pool)} />
+        <DeckSegmented label="Card pool" hideLabel full value={query.pool} choices={POOL_CHOICES} onChange={(pool) => set("pool", pool)} />
       </Section>
     </div>
   );

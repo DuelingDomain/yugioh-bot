@@ -30,6 +30,7 @@ const baseState = {
 const samplePack = [
   {
     id: 101,
+    passcode: 44095762,
     name: "Mirror Force",
     type: "Trap Card",
     frameType: "trap",

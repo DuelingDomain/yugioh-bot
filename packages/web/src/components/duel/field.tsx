@@ -566,15 +566,17 @@ function HandStrip({
         data-many={cards.length >= 7 ? "true" : "false"}
         style={vars}
       >
-        {cards.map((card, index) => {
+        {(mine ? cards : [...cards].reverse()).map((card, index) => {
           const keys = [zoneKey(seat, LOCATION_HAND, card.sequence ?? index)];
           const revealed = card.code != null;
           const label = !revealed ? `${ownerLabel} card ${index + 1}` : (card.name ?? `Card ${card.code}`);
           const cardVars: CssVars = { "--i": index };
           return (
             <div
-              key={`${seat}-hand-${card.sequence ?? index}`}
+              key={`${seat}-hand-${card.handId ?? card.sequence ?? index}`}
               className={styles.handCard}
+              data-hand-id={card.handId}
+              data-hand-card="true"
               data-revealed={!mine && revealed ? "true" : undefined}
               style={cardVars}
             >
@@ -594,6 +596,7 @@ function HandStrip({
           );
         })}
       </div>
+      <div className={styles.handSizeProbe} data-hand-size-probe="true" data-side={mine ? "you" : "opp"} aria-hidden="true" />
     </div>
   );
 }

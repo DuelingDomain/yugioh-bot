@@ -1,7 +1,7 @@
 # Legacy 1v1 engine inputs
 
 This folder holds what the legacy 1v1 engine needs, copied from `main` at commit `2a5a959`
-(the merge base of the multiplayer merge). The legacy engine plays 1v1 Standard and Domain duels
+(the merge base of the multiplayer merge). `src/legacy/engine.ts` and `src/legacy/views.ts` were synced to main `09b4196a` (PR #99: engine-order hand, destroy order, summon log lines, Cat's Ear Tribe stats) and `tests/legacy-main` follows the same commit. The legacy engine plays 1v1 Standard and Domain duels
 exactly as production did before the n-seat work. `DUEL_1V1_ENGINE=legacy` selects it (the default).
 
 See `docs/deployment/duel-engine-switch.md` for the switch and for how to roll back.

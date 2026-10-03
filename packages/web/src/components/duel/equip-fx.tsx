@@ -15,18 +15,19 @@
  * elements every frame, so it follows a card that moves or a board that resizes. Pointer and focus
  * are read from the field by delegated listeners, so the zones need no extra handlers.
  */
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { zoneKey } from "./constants";
 import { chainEffectAt } from "./chain-beats";
 import { collectFreshEvents, findZoneElement, maxEventId } from "./event-queue";
 import { equipLinePath, linksTouching, type Box, type EquipLink, type EquipLinks } from "./equip-links";
-import { safeAnimate } from "./safe-animate";
+import { safeFxAnimate as safeAnimate } from "./safe-animate";
 import styles from "./equip-fx.module.css";
 
 export const EQUIP_ATTACH_MS = 650;
 
-const clock = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
+const clock = (): number => (typeof performance !== "undefined" ? duelFxClock.now() : duelFxClock.dateNow());
 
 /** The card's visible box in overlay pixels: a Defense Position card is turned a quarter in its zone. */
 function cardBox(overlay: DOMRect, zone: HTMLElement): Box | null {
@@ -208,7 +209,7 @@ export function EquipFx({ links, events, duelKey, reducedMotion }: EquipFxProps)
       const wait = Math.max(0, chainEffectAt(event.id) - clock());
       pending.current.set(key, wait);
       setAttach((now) => (now.includes(key) ? now : [...now, key]));
-      const timer = window.setTimeout(() => {
+      const timer = duelFxClock.setTimeout(() => {
         timers.current.delete(timer);
         setAttach((now) => now.filter((entry) => entry !== key));
       }, wait + EQUIP_ATTACH_MS + 80);
@@ -218,7 +219,7 @@ export function EquipFx({ links, events, duelKey, reducedMotion }: EquipFxProps)
 
   useEffect(
     () => () => {
-      for (const timer of timers.current) window.clearTimeout(timer);
+      for (const timer of timers.current) duelFxClock.clearTimeout(timer);
       timers.current.clear();
     },
     [],
@@ -249,14 +250,14 @@ export function EquipFx({ links, events, duelKey, reducedMotion }: EquipFxProps)
     };
     const tick = () => {
       measure();
-      raf = requestAnimationFrame(tick);
+      raf = duelFxClock.requestAnimationFrame(tick);
     };
     if (typeof requestAnimationFrame !== "function") {
       measure();
       return undefined;
     }
     tick();
-    return () => cancelAnimationFrame(raf);
+    return () => duelFxClock.cancelAnimationFrame(raf);
   }, [activeCount, hovered, attaching]);
 
   return (

@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { io as ClientIO, type Socket as ClientSocket } from "socket.io-client";
 import { DraftRoomManager } from "../src/rooms.js";
+import { createDraftRoomToken } from "@yugidraft/shared/ws";
 import {
   registerEventHandlers,
   type ClientToServerEvents,
@@ -11,6 +12,7 @@ import {
 
 type TestServer = SocketIOServer<ClientToServerEvents, ServerToClientEvents>;
 type TestClient = ClientSocket<ServerToClientEvents, ClientToServerEvents>;
+const SECRET = "draft-room-test-secret";
 
 type SetupTestServerResult = {
   io: TestServer;
@@ -25,7 +27,7 @@ async function setupTestServer(): Promise<SetupTestServerResult> {
     httpServer,
   );
   const roomManager = new DraftRoomManager();
-  registerEventHandlers(io, roomManager);
+  registerEventHandlers(io, roomManager, { secret: SECRET, canReadDraft: () => true });
 
   return new Promise<SetupTestServerResult>((resolve) => {
     httpServer.listen(() => {
@@ -48,8 +50,10 @@ function waitForConnect(socket: TestClient): Promise<void> {
 }
 
 function emitJoin(client: TestClient, slug: string): Promise<unknown> {
+  const userId = "user-1";
+  const token = createDraftRoomToken({ slug: slug || "draft-1", guildId: "guild-1", userId, expiresAt: Date.now() + 60_000 }, SECRET);
   return new Promise((resolve) => {
-    client.emit("draft:join", { slug }, resolve);
+    client.emit("draft:join", { slug, userId, token }, resolve);
   });
 }
 

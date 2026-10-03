@@ -569,12 +569,21 @@ export function createDuelHost(options: {
     surrendered?: Iterable<number>,
   ): Promise<DecisionClockView> {
     const stopped = new Set<number>(surrendered ?? []);
-    const finish = (turn: number, promptSeat: number | null): DecisionClockView =>
-      stopped.size > 0 ? { turn, promptSeat, stoppedSeats: [...stopped].sort((a, b) => a - b) } : { turn, promptSeat };
     let firstTurn = 0;
+    // The first snapshot of a new game gets the opening grace (clock.ts DUEL_OPENING_GRACE_MS).
+    let opening = false;
+    const finish = (turn: number, promptSeat: number | null): DecisionClockView => {
+      const clockView: DecisionClockView = { turn, promptSeat };
+      if (promptSeat !== null && opening) clockView.opening = true;
+      if (stopped.size > 0) clockView.stoppedSeats = [...stopped].sort((a, b) => a - b);
+      return clockView;
+    };
     for (let seat = 0; seat < seatCount; seat += 1) {
       const view = await game.view(seat);
-      if (seat === 0) firstTurn = view.turn;
+      if (seat === 0) {
+        firstTurn = view.turn;
+        opening = view.revision === 0 && view.turn <= 1;
+      }
       if (view.result) return finish(firstTurn, null);
       // A seat whose loss is only flagged (the core lands it at the next Adjust) has left already: its clock must not run.
       for (const entry of view.seats ?? []) if (entry.eliminated || entry.pendingElimination) stopped.add(entry.seat);
@@ -2139,11 +2148,8 @@ export function createDuelHost(options: {
         if (info.status !== "between_games") throw new RequestError("The series is not between games", 409);
         const updated = series.setFirstChoice(seriesId, guildId, actor, body.choice);
         await emitChange(updated.currentDuelSlug ?? slug, guildId);
-        const advanced = isSeriesDue(updated, now()) ? await advanceSeries(seriesId, guildId) : null;
-        const latest = series.get(seriesId, guildId);
-        const nextSlug = advanced
-          ?? (latest.status === "active" && latest.currentDuelSlug !== slug ? latest.currentDuelSlug : null);
-        return { series: latest, nextSlug };
+        // A turn choice only records the choice. Ready and the deadline own advancement.
+        return { series: updated, nextSlug: null };
       }
       if (info.status !== "between_games") {
         // The next game may already exist (the timer or the other player was first): point the client at it.

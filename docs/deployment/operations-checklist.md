@@ -32,7 +32,7 @@
 
 - Review logs after each deploy: `docker compose -f docker-compose.yml logs --tail=50`
 - Back up `./data/bot.sqlite` daily. The deploy job never overwrites it; engine files live only under `data/duel-engine`.
-- Copy backups off the VM periodically.
+- Keep backups on the VM and remove any previously configured workstation pulls and retained local copies per the [backup runbook](vm-runbook.md#backups).
 - Keep the host OS patched: `apt update && apt upgrade -y`
 - Rotate secrets if ever exposed.
 - Do not run multiple bot replicas against the same SQLite file.

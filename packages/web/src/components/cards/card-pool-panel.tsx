@@ -1,9 +1,10 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useId, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { CardPoolGrid } from "@/components/cards/card-pool-grid";
 import type { CardSummary } from "@/lib/card-types";
+import sheetStyles from "@/components/cards/card-pool-sheet.module.css";
 
 interface CardPoolPanelProps {
   cards: CardSummary[];
@@ -22,6 +23,10 @@ interface CardPoolPanelProps {
   onCardClick?: (card: CardSummary) => void;
   cardActionLabel?: (card: CardSummary) => string;
   cubeEditMode?: boolean;
+  /** "sheet" renders with the Match Sheet look (drafts pages, inside a SheetRoot). Default keeps the current look. */
+  variant?: "default" | "sheet";
+  /** Sheet variant only: extra words after the count, e.g. "2 sets and 36 passcodes". */
+  detail?: string;
 }
 
 function CardPoolPanelBase({
@@ -38,13 +43,48 @@ function CardPoolPanelBase({
   onCardClick,
   cardActionLabel,
   cubeEditMode,
+  variant = "default",
+  detail,
 }: CardPoolPanelProps) {
+  const headingId = useId();
   const distinct = cards.length;
   const totalCopies = useMemo(
     () => cards.reduce((sum, c) => sum + (c.qty ?? 1), 0),
     [cards],
   );
   const showCopies = countMode === "copies" && totalCopies > distinct;
+
+  if (variant === "sheet") {
+    const count = [
+      `${distinct} card${distinct === 1 ? "" : "s"}`,
+      showCopies ? `${totalCopies} copies` : null,
+      detail || null,
+      loading ? "resolving…" : null,
+    ].filter(Boolean).join(" · ");
+    return (
+      <section className={cn("panel panel-pad", sheetStyles.panel, className)} aria-labelledby={headingId}>
+        <h2 className="panel-t">
+          <span id={headingId}>{title}</span>
+          <small aria-live="polite">{count}</small>
+        </h2>
+
+        {error && <div className="banner banner-bad" role="alert"><p>{error}</p></div>}
+
+        <CardPoolGrid
+          cards={cards}
+          loading={loading}
+          unknownIds={unknownIds}
+          emptyMessage={emptyMessage}
+          heightClassName={heightClassName ?? "h-[34rem]"}
+          showSummary={showSummary}
+          onCardClick={onCardClick}
+          cardActionLabel={cardActionLabel}
+          cubeEditMode={cubeEditMode}
+          variant="sheet"
+        />
+      </section>
+    );
+  }
 
   return (
     <div className={cn("@container rounded-xl border border-border bg-surface p-3", className)}>
@@ -73,6 +113,7 @@ function CardPoolPanelBase({
         onCardClick={onCardClick}
         cardActionLabel={cardActionLabel}
         cubeEditMode={cubeEditMode}
+        variant={variant}
       />
     </div>
   );

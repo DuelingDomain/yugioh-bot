@@ -632,7 +632,7 @@ describe("Best of 3", () => {
     expect(app.db.prepare("select count(*) as c from duels where series_id = ?").get(series.id)).toEqual({ c: 2 });
   });
 
-  it("marks a player without side cards as ready and treats an all-empty side window as due", () => {
+  it("waits for explicit Ready even from a player without side cards", () => {
     const app = setup();
     const started = app.series.createChallenge({ guildId: "g1", challengerPlayerId: app.p1, opponentPlayerId: app.p2, bestOf: 3, ranked: false, mode: "normal" });
     app.duels.setDeck(started.duel.slug, "g1", app.p1, validDeck(1, 0));
@@ -640,7 +640,7 @@ describe("Best of 3", () => {
     playGame(app, started.duel.slug, app.p1);
     const summary = app.series.get(started.series.id, "g1");
     expect(summary.hasSide).toEqual([false, true]);
-    expect(summary.sideReady).toEqual([true, false]);
+    expect(summary.sideReady).toEqual([false, false]);
     expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
     expect(app.series.dueNextGames(Date.now() + SERIES_SIDE_WINDOW_MS + 1000, 10)).toHaveLength(1);
   });
@@ -743,16 +743,23 @@ describe("the loser chooses first or second", () => {
     expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p2, "second"), 409);
   });
 
-  it("keeps the next game back until the loser has chosen, even when both are ready", () => {
+  it.each(["first", "second"] as const)("records %s without readying either player when neither has side cards", (choice) => {
     const app = setup();
     const started = app.series.createChallenge({ guildId: "g1", challengerPlayerId: app.p1, opponentPlayerId: app.p2, bestOf: 3, ranked: false, mode: "normal" });
     app.duels.setDeck(started.duel.slug, "g1", app.p1, validDeck(1, 0));
     app.duels.setDeck(started.duel.slug, "g1", app.p2, validDeck(1000, 0));
     playGame(app, started.duel.slug, app.p1);
-    // Neither has side cards: both are ready at once, but the loser still has to choose.
-    expect(app.series.get(started.series.id, "g1").sideReady).toEqual([true, true]);
+    expect(app.series.get(started.series.id, "g1").sideReady).toEqual([false, false]);
     expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
-    app.series.setFirstChoice(started.series.id, "g1", app.p2, "second");
+    expect(app.series.setFirstChoice(started.series.id, "g1", app.p2, choice)).toMatchObject({
+      firstChoice: choice, sideReady: [false, false], status: "between_games",
+    });
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    app.series.setSideReady(started.series.id, "g1", app.p1);
+    app.series.setFirstChoice(started.series.id, "g1", app.p2, choice);
+    expect(app.series.get(started.series.id, "g1").sideReady).toEqual([true, false]);
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    app.series.setSideReady(started.series.id, "g1", app.p2);
     expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
   });
 
@@ -832,9 +839,10 @@ describe("Best of 3 against the practice bot", () => {
     const open = botTable(app);
     const done = playBotGame(app, open.slug, true);
     const summary = app.series.get(done.seriesId!, "g1");
-    expect(summary).toMatchObject({ status: "between_games", wins: [1, 0], sideReady: [true, true], firstChooser: 1, firstChoice: "first" });
+    expect(summary).toMatchObject({ status: "between_games", wins: [1, 0], sideReady: [false, true], firstChooser: 1, firstChoice: "first" });
     expect(summary.nextGameAt).not.toBeNull();
-    // Nobody has a side deck, so the series is due at once (the bot already chose).
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    app.series.setSideReady(done.seriesId!, "g1", app.p1);
     expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
     const game2 = app.series.createNextGame(done.seriesId!, "g1");
     expect(game2.seats.find((seat) => seat.isBot)).toMatchObject({ seat: 0, isBot: true, displayName: "Practice Bot" });
@@ -885,6 +893,18 @@ describe("Best of 3 against the practice bot", () => {
     expectStatus(() => app.series.setSideReady(done.seriesId!, "g1", app.p2), 403);
   });
 
+  it.each(["first", "second"] as const)("keeps the human unready after choosing %s without a Side Deck", (choice) => {
+    const app = setup();
+    const open = botTable(app);
+    const done = playBotGame(app, open.slug, false);
+    const selected = app.series.setFirstChoice(done.seriesId!, "g1", app.p1, choice);
+    expect(selected).toMatchObject({ sideReady: [false, true], firstChoice: choice });
+    const deadline = Date.parse(selected.nextGameAt!);
+    expect(app.series.dueNextGames(deadline - 1, 10)).toEqual([]);
+    expect(app.series.dueNextGames(deadline, 10)).toEqual([{ seriesId: done.seriesId!, guildId: "g1" }]);
+    expect(seatOf(app.series.createNextGame(done.seriesId!, "g1"), app.p1)).toBe(choice === "first" ? 0 : 1);
+  });
+
   it("goes first by default when the human loses and the window ends", () => {
     const app = setup();
     const open = botTable(app);
@@ -925,14 +945,15 @@ describe("Best of 3 against the practice bot", () => {
     expect(app.series.get(done.seriesId!, "g1")).toMatchObject({ status: "completed", wins: [2, 1], winnerPlayerId: app.p1 });
   });
 
-  it("swaps the seats after a draw and is ready at once", () => {
+  it("swaps the seats after a draw and waits for the human's Ready", () => {
     const app = setup();
     const open = botTable(app);
     const before = start(app, open.slug, app.p1);
     const firstBot = botSeatOf(before);
     app.duels.complete(open.slug, "g1", null, "draw");
     const summary = app.series.get(before.seriesId!, "g1");
-    expect(summary).toMatchObject({ status: "between_games", wins: [0, 0], firstChooser: null, sideReady: [true, true] });
+    expect(summary).toMatchObject({ status: "between_games", wins: [0, 0], firstChooser: null, sideReady: [false, true] });
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
     const game2 = app.series.createNextGame(before.seriesId!, "g1");
     expect(botSeatOf(game2)).toBe(firstBot === 0 ? 1 : 0);
   });
@@ -952,6 +973,24 @@ describe("side decking", () => {
     playGame(app, duel.slug, app.p1);
     return series;
   }
+
+  it.each(["grow", "shrink"])("rejects a %s in Main count with the same Side count and card multiset", (direction) => {
+    const app = setup();
+    const started = app.series.createChallenge({ guildId: "g1", challengerPlayerId: app.p1, opponentPlayerId: app.p2, bestOf: 3, ranked: false, mode: "normal" });
+    const deck = { ...validDeck(1), main: [...validDeck(1).main, 500] };
+    app.duels.setDeck(started.duel.slug, "g1", app.p1, deck);
+    app.duels.setDeck(started.duel.slug, "g1", app.p2, validDeck(1000));
+    playGame(app, started.duel.slug, app.p1);
+    const unbalanced = direction === "grow"
+      ? { ...deck, main: [...deck.main, deck.extra[0]!], extra: deck.extra.slice(1) }
+      : { ...deck, main: deck.main.slice(1), extra: [...deck.extra, deck.main[0]!] };
+    expect(() => app.series.setSideDeck(started.series.id, "g1", app.p1, unbalanced))
+      .toThrow("The main deck must keep the same number of cards");
+    expect(app.series.sideState(started.series.id, "g1", app.p1).currentDeck).toEqual(deck);
+    // Expiry advances with the last game's stored deck, including after a rejected submission.
+    const next = app.series.createNextGame(started.series.id, "g1");
+    expect(app.duels.privateState(next.slug, "g1").decks[seatOf(next, app.p1)]).toEqual(deck);
+  });
 
   it("needs the between_games window", () => {
     const app = setup();
@@ -1069,10 +1108,10 @@ describe("side decking", () => {
       () => app.series.setSideDeck(series.id, "g1", app.p1, { ...deck, main: deck.main.slice(2), side: [...deck.side, deck.main[0] as number, deck.main[1] as number] }),
       400,
     );
-    // Same side count, but a card moved from extra to main changes the cards' placement: still the same multiset.
+    // The same multiset and Side count do not permit Main or Extra to change size.
     expect(() =>
       app.series.setSideDeck(series.id, "g1", app.p1, { ...deck, main: [...deck.main, deck.extra[0] as number], extra: [deck.extra[1] as number] }),
-    ).not.toThrow();
+    ).toThrow("The main deck must keep the same number of cards");
   });
 
   it("checks the main deck size against the base deck", () => {

@@ -26,9 +26,14 @@ export function useTournamentWebsocket(slug: string, options: UseTournamentWebso
 
     const socket = io(WS_URL, { autoConnect: true });
     socketRef.current = socket;
+    let hasConnected = false;
 
     socket.on("connect", () => {
       socket.emit("tournament:join", { slug });
+      // Reuse the page's existing refetch callback without firing on first connect.
+      const isReconnect = hasConnected;
+      hasConnected = true;
+      if (isReconnect) optionsRef.current.onMatchUpdated?.();
     });
 
     socket.on("tournament:participant-joined", (payload: { playerId: number; displayName: string }) => {

@@ -76,7 +76,8 @@ function allCards(seat: DuelEngineView["seats"][number]): DuelCard[] {
   return out;
 }
 
-const HIDDEN_KEYS = new Set(["controller", "location", "sequence", "position"]);
+// handId is the opaque animation id of a hand card (hand-identities.ts). It carries no card identity.
+const HIDDEN_KEYS = new Set(["controller", "location", "sequence", "position", "handId"]);
 function isRedacted(card: DuelCard): boolean {
   return Object.keys(card).every((key) => HIDDEN_KEYS.has(key));
 }

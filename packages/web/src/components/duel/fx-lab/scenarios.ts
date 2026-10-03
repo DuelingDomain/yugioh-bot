@@ -1,5 +1,6 @@
 import type { DuelCardInfo, DuelMasterRule } from "@yugidraft/shared/duels";
 import { LOCATION_HAND, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
+import { ADD_TO_HAND } from "../duel-timing";
 import {
   BANISHED,
   DECK,
@@ -23,6 +24,8 @@ import {
 import { CARDS } from "./cards";
 import { SERIES_SCENARIOS } from "./series-scenarios";
 import { PRIORITY_SCENARIOS } from "./priority-scenarios";
+import { OPENING_DEAL_SCENARIOS } from "./opening-deal-scenarios";
+import { BATTLE_EFFECT_SCENARIOS } from "./battle-effect-scenarios";
 
 /**
  * The scenario catalog of the FX lab. Every scenario is a pure builder: it returns a start board and
@@ -481,7 +484,62 @@ const MIRROR_SCENARIOS: LabScenario[] = [
 ];
 
 
+/** Actual server order, including destroy markers deferred until after the resolving link. */
+function destructionSequence(source: DuelCardInfo, trap: boolean, victims: Victim[]): LabScript {
+  const sourceZone = SZ(ME, 1);
+  const initial = board((edits) => {
+    if (trap) edits.push(edit.setSpell(ME, 1, source));
+    for (const victim of victims) edits.push(victim.zone.location === MZ(0, 0).location
+      ? edit.monster(victim.seat, victim.zone.sequence, victim.info) : edit.setSpell(victim.seat, victim.zone.sequence, victim.info));
+  }, { ...myHand, hand: trap ? myHand.hand : [source, ...myHand.hand!] });
+  const why = { cause: "effect" as const, sourceCode: source.code, sourceKind: trap ? "trap" as const : "spell" as const, sourceSeat: ME };
+  const events: EventSpec[] = [];
+  const edits: Edit[] = [];
+  const graves = new Map<number, number>();
+  if (!trap) { events.push(ev.move(ME, source, HAND(ME, 0), sourceZone, "activate")); edits.push(edit.removeHand(ME, 0)); }
+  events.push(ev.activate(ME, source, sourceZone, 1), ev.chain("chain-resolving", ME, source, 1));
+  for (const victim of victims) {
+    const index = graves.get(victim.seat) ?? 0;
+    events.push(ev.toGrave(victim.seat, victim.info, victim.zone, index, why));
+    graves.set(victim.seat, index + 1);
+    edits.push(edit.grave(victim.seat, victim.info), victim.zone.location === MZ(0, 0).location
+      ? edit.monster(victim.seat, victim.zone.sequence, null) : edit.spell(victim.seat, victim.zone.sequence, null));
+  }
+  events.push(ev.chain("chain-resolved", ME, source, 1), ...victims.map((v) => ev.destroy(v.seat, v.info, v.zone, why)),
+    ev.move(ME, source, sourceZone, GY(ME, graves.get(ME) ?? 0), "send"), ev.chainEnd());
+  edits.push(edit.spell(ME, 1, null), edit.grave(ME, source));
+  const sangan = victims.find((v) => v.info.code === C.sangan.code);
+  if (sangan) {
+    events.push(ev.activate(sangan.seat, C.sangan, GY(sangan.seat, 0), 1), ev.chain("chain-resolving", sangan.seat, C.sangan, 1),
+      ev.move(sangan.seat, C.kuriboh, DECK(sangan.seat), HAND(sangan.seat, initial.seats[sangan.seat].hand.length), "other", { addedToHand: true }),
+      ev.chain("chain-resolved", sangan.seat, C.sangan, 1), ev.chainEnd());
+    edits.push(edit.addHand(sangan.seat, C.kuriboh));
+  } else {
+    events.push(ev.draw(ME, C.kuriboh, initial.seats[ME].hand.length - 1));
+    edits.push(edit.addHand(ME, C.kuriboh));
+  }
+  return script(initial, [{ at: 0, events, edits, chain: [] }], 12000);
+}
+
 const DESTROY: LabScenario[] = [
+  {
+    id: "spell-destroy-sequence", category: "Destroy", name: "Spell: activate, destroy, send, trigger",
+    description: "One engine batch: MST enters from the hand and activates, the target breaks and reaches the GY, then MST reaches the GY before a later draw.",
+    build: () => destructionSequence(C.mst, false, [{ seat: OPP, info: C.mirrorForce, zone: SZ(OPP, 2) }]),
+  },
+  {
+    id: "trap-destroy-sequence", category: "Destroy", name: "Set trap: flip, destroy, send, search",
+    description: "A Set Sakuretsu Armor flips and activates fully, destroys Sangan, and reaches the GY before Sangan's search is presented.",
+    build: () => destructionSequence(C.sakuretsu, true, [{ seat: OPP, info: C.sangan, zone: MZ(OPP, 2) }]),
+  },
+  {
+    id: "mass-destroy-sequence", category: "Destroy", name: "Mass destruction: all breaks before flights",
+    description: "Dark Hole activates from the hand. Both fields break before any GY streak, then Dark Hole goes to the GY and Sangan searches.",
+    build: () => destructionSequence(C.darkHole, false, [
+      { seat: ME, info: C.sangan, zone: MZ(ME, 2) },
+      ...[C.celtic, C.harpie, C.blueEyes].map((info, i) => ({ seat: OPP, info, zone: MZ(OPP, i + 1) })),
+    ]),
+  },
   ...WIPES,
   {
     id: "destroy-mst",
@@ -753,6 +811,20 @@ const MOVES: LabScenario[] = [
       3200,
     ),
   ),
+  moveScenario("move-draw-discard", "Draw and discard the same card", "One engine batch draws a card, then discards that same card. The draw finishes before its Graveyard flight begins.", () =>
+    script(
+      board(),
+      [{
+        at: 0,
+        events: [
+          { ...ev.draw(ME, C.heavyStorm, 4), handId: "departed-lab-draw-discard" },
+          ev.move(ME, C.heavyStorm, HAND(ME, 4), GY(ME, 0), "discard"),
+        ],
+        edits: [edit.drawFromDeck(ME), edit.addHand(ME, C.heavyStorm), edit.removeHand(ME, 4), edit.grave(ME, C.heavyStorm)],
+      }],
+      3200,
+    ),
+  ),
   moveScenario("move-opp-draw", "Opponent draws", "The opponent draws a card you cannot see.", () =>
     script(board(), [{ at: 0, events: [ev.draw(OPP, null, 5)], edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null)] }], 2600),
   ),
@@ -776,6 +848,60 @@ const MOVES: LabScenario[] = [
       ],
       4800,
     );
+  }),
+  moveScenario("move-added-discard", "Added to hand, then discarded", "One engine batch adds a searched card, then discards that same card. Its showcase and hand flight finish before its Graveyard flight begins.", () =>
+    script(
+      board(),
+      [{
+        at: 0,
+        events: [
+          { ...ev.addToHand(ME, C.cyberDragon, DECK(ME), HAND(ME, 4)), handId: "departed-lab-added-discard" },
+          ev.move(ME, C.cyberDragon, HAND(ME, 4), GY(ME, 0), "discard"),
+        ],
+        edits: [edit.drawFromDeck(ME), edit.addHand(ME, C.cyberDragon), edit.removeHand(ME, 4), edit.grave(ME, C.cyberDragon)],
+      }],
+      4000,
+    ),
+  ),
+  moveScenario("move-hand-order", "Hand order: engine slots", "A search appends to the hand, then a later engine shuffle moves its landing slot during flight and its glow after landing. A discard closes the gap. An opponent search appends and shuffles in one engine batch; its anonymous arrival still resolves to the appended sleeve.", () => {
+    const initial = board();
+    for (const seat of initial.seats) seat.hand.forEach((card, i) => { card.handId = `lab-${seat.seat}-${i}`; });
+    const arrival = "lab-added";
+    const flightStart = ADD_TO_HAND.riseMs + ADD_TO_HAND.holdMs;
+    const landing = flightStart + ADD_TO_HAND.flyMs;
+    return script(initial, [
+      { at: 0, events: [{ ...ev.addToHand(ME, C.cyberDragon, DECK(ME), HAND(ME, 4)), handId: arrival }],
+        edits: [edit.drawFromDeck(ME), edit.addHand(ME, C.cyberDragon), (b) => {
+          const hand = b.seats[ME].hand;
+          hand[4].handId = arrival;
+        }] },
+      // A later SHUFFLE_HAND batch changes query order without rewriting the original MOVE slot.
+      { at: flightStart + ADD_TO_HAND.flyMs / 2, edits: [(b) => {
+        const hand = b.seats[ME].hand;
+        b.seats[ME].hand = [hand[3], hand[4], hand[0], hand[2], hand[1]];
+        b.seats[ME].hand.forEach((c, i) => { c.sequence = i; });
+      }] },
+      { at: landing + 100, edits: [(b) => {
+        const hand = b.seats[ME].hand;
+        hand.splice(3, 0, hand.splice(1, 1)[0]);
+        hand.forEach((c, i) => { c.sequence = i; });
+      }] },
+      { at: 3200, events: [ev.move(ME, C.cyberDragon, HAND(ME, 3), GY(ME, 0), "discard")],
+        edits: [edit.removeHand(ME, 3), edit.grave(ME, C.cyberDragon)] },
+      { at: 5000, events: [{ ...ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5)), handId: "sleeve-11" }],
+        edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null), (b) => {
+          const hand = b.seats[OPP].hand;
+          // MOVE appends, then SHUFFLE_HAND runs in the same batch. This audience's
+          // queried sleeves keep their order and the arrival still names the live sleeve.
+          hand[5].handId = "sleeve-11";
+          b.seats[OPP].hand = hand.map((sleeve) => ({ ...sleeve }));
+        }] },
+      { at: 5000 + flightStart + ADD_TO_HAND.flyMs / 2, edits: [(b) => {
+        // The public SHUFFLE_HAND snapshot refreshes sleeves in engine slots. The hidden
+        // permutation is private, so neither card codes nor sleeve IDs follow it.
+        b.seats[OPP].hand = b.seats[OPP].hand.map((sleeve) => ({ ...sleeve }));
+        }] },
+    ], 4000);
   }),
   moveScenario("move-added-salvage", "Added to hand: salvage from the Graveyard", "A monster comes back from the Graveyard to the hand.", () => {
     const flow = chainFlow([{ info: C.potOfGreed, seat: ME, zone: SZ(ME, 2) }]);
@@ -808,7 +934,12 @@ const MOVES: LabScenario[] = [
   moveScenario("move-opp-added", "Opponent adds a card to the hand", "A search by the opponent. You see only a card back.", () =>
     script(
       board(),
-      [{ at: 0, events: [ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5))], edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null)] }],
+      [{ at: 0, events: [{ ...ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5)), handId: "sleeve-11" }],
+        edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null), (b) => {
+          // The append and concealed SHUFFLE_HAND share one projected engine snapshot.
+          b.seats[OPP].hand[5].handId = "sleeve-11";
+          b.seats[OPP].hand = b.seats[OPP].hand.map((sleeve) => ({ ...sleeve }));
+        }] }],
       3200,
     ),
   ),
@@ -1319,7 +1450,7 @@ const STATES: LabScenario[] = [
 
 export const LAB_CATEGORIES: readonly LabCategory[] = ["Attacks", "Destroy", "Summons", "Card moves", "Chain", "LP", "Banners", "Board states", "Match"];
 
-export const LAB_SCENARIOS: readonly LabScenario[] = [...ATTACKS, ...DESTROY, ...SUMMONS, ...MOVES, ...CHAIN, ...LP, ...BANNERS, ...STATES, ...PRIORITY_SCENARIOS, ...SERIES_SCENARIOS];
+export const LAB_SCENARIOS: readonly LabScenario[] = [...BATTLE_EFFECT_SCENARIOS, ...ATTACKS, ...DESTROY, ...SUMMONS, ...MOVES, ...OPENING_DEAL_SCENARIOS, ...CHAIN, ...LP, ...BANNERS, ...STATES, ...PRIORITY_SCENARIOS, ...SERIES_SCENARIOS];
 
 export function scenariosIn(category: LabCategory): LabScenario[] {
   return LAB_SCENARIOS.filter((scenario) => scenario.category === category);

@@ -1,5 +1,6 @@
 "use client";
 
+import { duelFxClock } from "./fx-clock";
 import {
   useCallback,
   useEffect,
@@ -353,8 +354,8 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
   // The intro ends on its own; a skip (click, Space, Esc, Tab) jumps to the same frame.
   useEffect(() => {
     if (settled) return undefined;
-    const timer = window.setTimeout(() => setTimedOut(true), INTRO_MS);
-    return () => window.clearTimeout(timer);
+    const timer = duelFxClock.setTimeout(() => setTimedOut(true), INTRO_MS);
+    return () => duelFxClock.clearTimeout(timer);
   }, [settled]);
 
   // Move focus into the dialog, keep it there, and give it back on close.
@@ -422,6 +423,7 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
       aria-describedby={model.reason ? reasonId : undefined}
       tabIndex={-1}
       data-testid="duel-result"
+      data-duel-fx-speed-root
       data-outcome={outcome}
       data-phase={settled ? "settled" : "play"}
       data-reduced={reducedMotion ? "true" : "false"}

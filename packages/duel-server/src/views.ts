@@ -19,6 +19,7 @@ import { partnerSeatOf, seatCountFor, sharedExtraSeatOf, teamOfSeat } from "@yug
 import { raceLabel, type CardDatabase } from "./cards.js";
 import { fillPlaceholders, locationLabel } from "./text.js";
 import type { CoreCapabilities } from "./core-capabilities.js";
+import { HandIdentities } from "./hand-identities.js";
 
 export const LOCATION_DECKMASTER = 0x4000;
 export const DOMAIN_LEAVE_TAX_STEP = 500;
@@ -97,15 +98,24 @@ export function moveReveals(
   const origin = slotKey(from.controller, from.location, from.sequence);
   const fromField = from.location === OcgLocation.MZONE || from.location === OcgLocation.SZONE;
   // A card that was revealed in the hand (or elsewhere off the field) and is then Set face-down is hidden again.
+  // Location 0 is a card that left the game (REMOVE_CARDS).
   const forget =
+    to.location === 0 ||
     to.location === OcgLocation.DECK ||
     (to.location === OcgLocation.EXTRA && isFacedownPosition(to.position)) ||
     ((to.location === OcgLocation.MZONE || to.location === OcgLocation.SZONE) && !fromField && isFacedownPosition(to.position));
   for (const tracked of reveals.values()) {
     const stored = tracked.get(origin);
-    if (stored == null) continue;
     tracked.delete(origin);
-    if (forget || (code !== 0 && stored !== code)) continue;
+    const shiftHand = (controller: number, sequence: number, delta: number) => {
+      const prefix = `${controller}:${OcgLocation.HAND}:`;
+      const changed = [...tracked].filter(([key]) => key.startsWith(prefix) && Number(key.slice(prefix.length)) >= sequence);
+      for (const [key] of changed) tracked.delete(key);
+      for (const [key, value] of changed) tracked.set(`${prefix}${Number(key.slice(prefix.length)) + delta}`, value);
+    };
+    if (from.location === OcgLocation.HAND) shiftHand(from.controller, from.sequence + 1, -1);
+    if (to.location === OcgLocation.HAND) shiftHand(to.controller, to.sequence, 1);
+    if (stored == null || forget || (code !== 0 && stored !== code)) continue;
     tracked.set(slotKey(to.controller, to.location, to.sequence), stored);
   }
 }
@@ -330,7 +340,9 @@ export interface StoredDuelEvent {
   reason?: DuelMoveReason;
   faceDown?: boolean;
   addedToHand?: true;
+  moveId?: number;
   target?: DuelZoneRef;
+  battle?: DuelEvent["battle"];
   targets?: DuelZoneRef[];
   amount?: number;
   cause?: DuelEvent["cause"];
@@ -405,8 +417,7 @@ export function nextBattleStep(step: DuelBattleStep | null, message: OcgMessage)
 
 /**
  * Prefix of the Debug.Message line the engine's startup script prints when a card is destroyed.
- * ocgcore-wasm drops the MOVE reason from its parsed messages, so this is the only way to tell
- * destruction apart from a release, a cost or a send-to-GY effect.
+ * Supplies destruction cause and source details, including notes that arrive after their MOVE message.
  */
 export const DESTROY_NOTE_PREFIX = "YGD:DESTROY:";
 
@@ -474,8 +485,8 @@ interface PendingMove {
 export interface EventContext {
   /** Between a BATTLE message and the end of the damage step, DAMAGE is battle damage. */
   battle: boolean;
-  /** Monsters that left the field for the graveyard/banish without being destroyed, per controller, this batch. */
-  released: number[];
+  /** A MOVE carried RELEASE | SUMMON | MATERIAL for the pending Normal Summon or monster Set. */
+  summonTribute: boolean;
   /** Destruction notes printed by the startup script and not yet matched to a MOVE. */
   destroyNotes: string[];
   /** Coordinates and changed link numbers omitted from the core's BECOME_TARGET messages. */
@@ -488,12 +499,16 @@ export interface EventContext {
   moves: TrackedMove[];
   /** Cards in each hand, so DRAW messages (which carry no sequence) can be given a hand slot. */
   handSize: number[];
+  /** Animation identities of the cards in each hand (engine order stays the truth). */
+  handIdentities: HandIdentities;
   /** Seat and team layout, for who may see a moved card (a Tag partner sees hands and Set cards). */
   format: DuelFormat;
   /** Location each field zone's current card arrived from (zone key -> location bit), kept across batches. */
   arrivals: Map<string, number>;
   /** The answer that started the current summon was a Pendulum Summon (a Pendulum Zone card's summon action). */
   pendulumSummon: boolean;
+  /** Material MOVE reason bits for the current summon group, until SPSUMMONED. Includes Xyz overlays. */
+  materialReasons: number;
 }
 
 interface TrackedMove {
@@ -506,7 +521,21 @@ interface TrackedMove {
 
 export function createEventContext(format: DuelFormat = "1v1"): EventContext {
   const seats = seatCountFor(format);
-  return { battle: false, released: new Array<number>(seats).fill(0), destroyNotes: [], chainTargetNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: new Array<number>(seats).fill(0), format, arrivals: new Map(), pendulumSummon: false };
+  return {
+    battle: false,
+    summonTribute: false,
+    destroyNotes: [],
+    chainTargetNotes: [],
+    resolving: null,
+    pendingMoves: [],
+    moves: [],
+    handSize: new Array<number>(seats).fill(0),
+    handIdentities: new HandIdentities(seats),
+    format,
+    arrivals: new Map(),
+    pendulumSummon: false,
+    materialReasons: 0,
+  };
 }
 
 /** Internal notes arrive during core processing, before its buffered messages are consumed. */
@@ -519,7 +548,7 @@ export function noteChainTargetLog(ctx: EventContext, text: string): boolean {
     return { controller, location, sequence };
   }) : [];
   if (Number.isInteger(index) && index > 0 && rawTargets != null && targets.every((zone) =>
-    Number.isInteger(zone.controller) && zone.controller >= 0 && zone.controller < ctx.released.length && Number.isInteger(zone.location) && zone.location >= 0 &&
+    Number.isInteger(zone.controller) && zone.controller >= 0 && zone.controller < ctx.handSize.length && Number.isInteger(zone.location) && zone.location >= 0 &&
     Number.isInteger(zone.sequence) && zone.sequence >= 0)) ctx.chainTargetNotes.push({ index, targets });
   return true;
 }
@@ -596,11 +625,19 @@ function isFieldLocation(location: number): boolean {
   return location === OcgLocation.MZONE || location === OcgLocation.SZONE;
 }
 
-/**
- * Refine a Special Summon by where the monster came from and its card type:
- * Extra Deck (or the Domain Deck Master Zone) + Fusion/Synchro/Xyz/Link type -> that kind;
- * hand (or Deck Master Zone) + Ritual type -> "ritual"; a Pendulum Summon in progress -> "pendulum".
- */
+// Native reason bits from ygopro-core/ocgapi_constants.h and the pinned constant.lua. REASON_LINK differs
+// from TYPE_LINK (0x4000000): that bit in a MOVE reason is REASON_REDIRECT.
+const REASON_RELEASE = 0x2;
+const REASON_MATERIAL = 0x8;
+const REASON_SUMMON = 0x10;
+const TRIBUTE_MATERIAL_REASON = REASON_RELEASE | REASON_MATERIAL | REASON_SUMMON;
+const REASON_FUSION = 0x40000;
+const REASON_SYNCHRO = 0x80000;
+const REASON_RITUAL = 0x100000;
+const REASON_XYZ = 0x200000;
+const REASON_LINK = 0x10000000;
+
+/** A method needs matching material reasons, card type and origin; the Pendulum flag takes precedence. */
 function specialSummonKind(ctx: EventContext, message: { controller: number; location: number; sequence: number }, type: number): DuelSummonKind {
   if (ctx.pendulumSummon) return "pendulum";
   const from = ctx.arrivals.get(slotKey(message.controller, message.location, message.sequence));
@@ -609,13 +646,18 @@ function specialSummonKind(ctx: EventContext, message: { controller: number; loc
   const master = from === LOCATION_DECKMASTER || from === 0;
   const extra = from === OcgLocation.EXTRA || master;
   if (extra) {
-    if (type & OcgType.FUSION) return "fusion";
-    if (type & OcgType.SYNCHRO) return "synchro";
-    if (type & OcgType.XYZ) return "xyz";
-    if (type & OcgType.LINK) return "link";
+    if ((type & OcgType.FUSION) && (ctx.materialReasons & REASON_FUSION)) return "fusion";
+    if ((type & OcgType.SYNCHRO) && (ctx.materialReasons & REASON_SYNCHRO)) return "synchro";
+    if ((type & OcgType.XYZ) && (ctx.materialReasons & REASON_XYZ)) return "xyz";
+    if ((type & OcgType.LINK) && (ctx.materialReasons & REASON_LINK)) return "link";
   }
-  if ((from === OcgLocation.HAND || master) && type & OcgType.RITUAL) return "ritual";
+  if ((from === OcgLocation.HAND || master) && (type & OcgType.RITUAL) && (ctx.materialReasons & REASON_RITUAL)) return "ritual";
   return "special";
+}
+
+function clearSummonMaterials(ctx: EventContext): void {
+  ctx.materialReasons = 0;
+  ctx.summonTribute = false;
 }
 
 function destroyEvent(id: number, code: number, from: PendingMove["from"], cards: CardDatabase, detail?: DestroyDetail | true, format?: DuelFormat): StoredDuelEvent {
@@ -633,6 +675,7 @@ function destroyEvent(id: number, code: number, from: PendingMove["from"], cards
     revealCardTo: hidden ? audienceOf(format, from.controller) : "all",
     zone: zoneRefOf(format, from),
   };
+  if (from.location === OcgLocation.MZONE) event.fromPosition = from.position;
   if (detail && detail !== true) applyDestroyDetail(event, detail);
   return event;
 }
@@ -644,7 +687,6 @@ export function drainDeferredDestroys(ctx: EventContext, cards: CardDatabase, fi
   for (const move of ctx.pendingMoves) {
     const detail = takeDestroyNote(ctx, move.from, move.resolving);
     if (detail) {
-      if (move.from.location === OcgLocation.MZONE && !isNoDuelist(ctx.format, move.from.controller)) ctx.released[move.from.controller] = (ctx.released[move.from.controller] ?? 0) - 1;
       out.push(destroyEvent(firstId + out.length, move.code, move.from, cards, detail, ctx.format));
     } else remaining.push(move);
   }
@@ -652,13 +694,13 @@ export function drainDeferredDestroys(ctx: EventContext, cards: CardDatabase, fi
   return out;
 }
 
-/** Called when the engine reaches a prompt: whatever is still unmatched was not a destruction. */
-export function resetEventBatch(ctx: EventContext): void {
+/** Clear batch state; position/place prompts can interrupt a summon after its materials have moved. */
+export function resetEventBatch(ctx: EventContext, continuingSummon = false): void {
   ctx.destroyNotes.length = 0;
   ctx.chainTargetNotes.length = 0;
   ctx.pendingMoves.length = 0;
   ctx.moves.length = 0;
-  ctx.released = new Array<number>(ctx.released.length).fill(0);
+  if (!continuingSummon) clearSummonMaterials(ctx);
 }
 
 export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null): DuelEvent {
@@ -675,11 +717,16 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.chainIndex != null) projected.chainIndex = event.chainIndex;
   if (event.zone) projected.zone = { ...event.zone };
   if (event.target) projected.target = { ...event.target };
+  if (event.battle) projected.battle = {
+    attacker: { ...event.battle.attacker },
+    ...(event.battle.target ? { target: { ...event.battle.target } } : {}),
+  };
   if (event.targets) projected.targets = event.targets.map(zoneOf);
   if (event.from) projected.from = { ...event.from };
   if (event.reason) projected.reason = event.reason;
   if (event.faceDown != null) projected.faceDown = event.faceDown;
   if (event.addedToHand) projected.addedToHand = true;
+  if (event.moveId != null) projected.moveId = event.moveId;
   if (event.amount != null) projected.amount = event.amount;
   if (event.cause) projected.cause = event.cause;
   if (event.sourceCode != null) projected.sourceCode = event.sourceCode;
@@ -726,6 +773,39 @@ function zoneOf(place: { controller: number; location: number; sequence: number 
 
 function sameZone(a: DuelZoneRef, b: DuelZoneRef): boolean {
   return a.controller === b.controller && a.location === b.location && a.sequence === b.sequence;
+}
+
+function confirmedMove(card: DuelZoneRef & { code: number }, ctx: EventContext): TrackedMove | undefined {
+  return [...ctx.moves].reverse().find((move) => sameZone(move.to, card) && move.event.card?.code === card.code);
+}
+
+/** Public only when linked to the controller's own Deck-to-hand/field move this batch. */
+export function confirmationAudience(card: DuelZoneRef & { code: number }, recipient: number, ctx: EventContext): "all" | number {
+  const move = confirmedMove(card, ctx);
+  return move && move.from.location === OcgLocation.DECK &&
+    (move.to.location & (OcgLocation.HAND | OcgLocation.ONFIELD)) !== 0 &&
+    move.from.controller === card.controller && move.to.controller === card.controller ? "all" : recipient;
+}
+
+/** Capture one immutable identity per confirmed card, independently of the live RevealMap. */
+export function observeConfirmEvents(message: OcgMessage, cards: CardDatabase, ctx: EventContext, firstId: number): StoredDuelEvent[] {
+  if (message.type !== OcgMessageType.CONFIRM_CARDS) return [];
+  return message.cards.map((card, index) => {
+    const info = cards.get(card.code);
+    const zone = zoneOf(card);
+    const move = confirmedMove(card, ctx);
+    return {
+      id: firstId + index,
+      kind: "confirm",
+      seat: card.controller,
+      card: info ? { ...info } : undefined,
+      zone,
+      moveId: move?.event.id,
+      text: `Confirmed ${info?.name ?? `Card ${card.code}`}`,
+      publicText: "A card was confirmed",
+      revealCardTo: confirmationAudience(card, message.player, ctx),
+    };
+  });
 }
 
 function targetEvent(link: StoredChainLink, id: number): StoredDuelEvent {
@@ -884,7 +964,8 @@ function moveAudience(
 function defaultMoveReason(from: number, to: number): DuelMoveReason {
   if (to === OcgLocation.GRAVE) return from === OcgLocation.HAND ? "discard" : "send";
   if (to === OcgLocation.REMOVED) return "banish";
-  if (to === OcgLocation.HAND) return from === OcgLocation.DECK ? "draw" : "return";
+  // This default is for MSG_MOVE. Actual draws arrive through MSG_DRAW below.
+  if (to === OcgLocation.HAND) return from === OcgLocation.DECK ? "add" : "return";
   if (to === OcgLocation.DECK || to === OcgLocation.EXTRA) return "return";
   return "other";
 }
@@ -914,6 +995,7 @@ function trackMove(
     from: zoneRefOf(ctx.format, from),
     reason,
   };
+  if (from.location === OcgLocation.MZONE) event.fromPosition = from.position;
   if (to.location === OcgLocation.MZONE || to.location === OcgLocation.SZONE || to.location === OcgLocation.REMOVED || to.location === LOCATION_DECKMASTER) {
     event.faceDown = isFacedownPosition(to.position);
   }
@@ -932,6 +1014,23 @@ function trackMove(
  */
 export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx: EventContext, firstId: number): StoredDuelEvent[] {
   switch (message.type) {
+    case OcgMessageType.REMOVE_CARDS:
+      for (const card of [...message.cards].sort((a, b) => b.sequence - a.sequence)) {
+        if (card.location !== OcgLocation.HAND) continue;
+        if (isNoDuelist(ctx.format, card.controller)) continue;
+        ctx.handIdentities.remove(card.controller, card.sequence);
+        ctx.handSize[card.controller] = Math.max(0, (ctx.handSize[card.controller] ?? 0) - 1);
+      }
+      return [];
+    case OcgMessageType.SHUFFLE_HAND:
+      ctx.handIdentities.shuffle(message.player, message.cards);
+      if (message.player >= 0 && message.player < ctx.handSize.length) ctx.handSize[message.player] = message.cards.length;
+      return [];
+    case OcgMessageType.POS_CHANGE:
+      if (message.location === OcgLocation.HAND) {
+        ctx.handIdentities.setPublic(message.controller, message.sequence, message.code, (message.position & OcgPosition.FACEUP) !== 0);
+      }
+      return [];
     case OcgMessageType.DRAW: {
       const seat = message.player;
       const out: StoredDuelEvent[] = [];
@@ -939,21 +1038,37 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
         const from = { controller: seat, location: OcgLocation.DECK as number, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE as number };
         const to = { controller: seat, location: OcgLocation.HAND as number, sequence: (ctx.handSize[seat] ?? 0) + index, position: drawn.position as number };
         out.push(trackMove(ctx, firstId + out.length, cards, drawn.code, from, to, "draw"));
+        ctx.handIdentities.add(seat, drawn.code, to.sequence, firstId + out.length - 1, (drawn.position & OcgPosition.FACEUP) !== 0);
       });
       ctx.handSize[seat] = (ctx.handSize[seat] ?? 0) + message.drawn.length;
       return out;
     }
     case OcgMessageType.MOVE: {
       const { from, to } = message;
+      // Collect before filtering move events so Xyz overlay materials also prove the method.
+      // patches/ocgcore-wasm+0.1.2.patch parses the trailing reason; the published types do not declare it.
+      const materialReason = (message as typeof message & { reason?: number }).reason ?? 0;
+      if (materialReason & REASON_MATERIAL) ctx.materialReasons |= materialReason;
+      if ((materialReason & TRIBUTE_MATERIAL_REASON) === TRIBUTE_MATERIAL_REASON) ctx.summonTribute = true;
+      if (from.location === OcgLocation.HAND && to.location === OcgLocation.HAND && from.controller === to.controller) {
+        ctx.handIdentities.relocate(from.controller, from.sequence, to.sequence);
+        ctx.handIdentities.setPublic(to.controller, to.sequence, message.card, (to.position & OcgPosition.FACEUP) !== 0);
+        return [];
+      }
+      const overlay = OcgLocation.OVERLAY as number;
+      const event = from.location && to.location && from.location !== overlay && to.location !== overlay
+        && !(from.controller === to.controller && from.location === to.location)
+        ? trackMove(ctx, firstId, cards, message.card, from, to, defaultMoveReason(from.location, to.location))
+        : undefined;
+      if (from.location === OcgLocation.HAND) ctx.handIdentities.remove(from.controller, from.sequence);
+      // Skipped moves still update slot identities, but must not claim the next emitted event's id.
+      if (to.location === OcgLocation.HAND) ctx.handIdentities.add(to.controller, message.card, to.sequence, event?.id,
+        (to.position & OcgPosition.FACEUP) !== 0, event?.revealCardTo === "all" ? message.card : undefined);
       if (from.location === OcgLocation.HAND && !isNoDuelist(ctx.format, from.controller)) ctx.handSize[from.controller] = Math.max(0, (ctx.handSize[from.controller] ?? 0) - 1);
       if (to.location === OcgLocation.HAND && !isNoDuelist(ctx.format, to.controller)) ctx.handSize[to.controller] = (ctx.handSize[to.controller] ?? 0) + 1;
       if (isFieldLocation(from.location)) ctx.arrivals.delete(slotKey(from.controller, from.location, from.sequence));
       if (isFieldLocation(to.location)) ctx.arrivals.set(slotKey(to.controller, to.location, to.sequence), from.location);
-      const overlay = OcgLocation.OVERLAY as number;
-      if (!from.location || !to.location || from.location === overlay || to.location === overlay) return [];
-      if (from.controller === to.controller && from.location === to.location) return [];
-      const reason = defaultMoveReason(from.location, to.location);
-      const event = trackMove(ctx, firstId, cards, message.card, from, to, reason);
+      if (!event) return [];
       // A MOVE to a hand is never a draw (draws arrive as DRAW): a card effect added it.
       if (to.location === OcgLocation.HAND && from.location !== OcgLocation.HAND) event.addedToHand = true;
       return [event];
@@ -999,6 +1114,7 @@ export function observeDuelEvent(
       case OcgMessageType.CHAIN_SOLVED:
       case OcgMessageType.CHAIN_END:
         ctx.resolving = null;
+        clearSummonMaterials(ctx);
         if (message.type === OcgMessageType.CHAIN_END) ctx.chainTargetNotes.length = 0;
         break;
       case OcgMessageType.DAMAGE_STEP_END:
@@ -1011,11 +1127,14 @@ export function observeDuelEvent(
         break;
     }
     switch (message.type) {
-      case OcgMessageType.SPSUMMONED:
       case OcgMessageType.SUMMONING:
+        ctx.pendulumSummon = false;
+        break;
+      case OcgMessageType.SPSUMMONED:
       case OcgMessageType.NEW_PHASE:
       case OcgMessageType.NEW_TURN:
         ctx.pendulumSummon = false;
+        clearSummonMaterials(ctx);
         break;
       default:
         break;
@@ -1039,13 +1158,12 @@ export function observeDuelEvent(
       let summonKind: DuelSummonKind =
         message.type === OcgMessageType.SUMMONING ? "normal" : message.type === OcgMessageType.SPSUMMONING ? "special" : "flip";
       if (summonKind === "normal") {
-        const counted = !isNoDuelist(format, message.controller);
-        const released = counted ? ctx?.released[message.controller] ?? 0 : 0;
-        if (released > 0 || (info?.level ?? 0) >= 5) summonKind = "tribute";
-        if (ctx && counted) ctx.released[message.controller] = 0;
+        if (ctx?.summonTribute) summonKind = "tribute";
       } else if (summonKind === "special" && ctx) {
         summonKind = specialSummonKind(ctx, message, info?.type ?? 0);
       }
+      // One procedure can announce multiple Special Summons before a single SPSUMMONED.
+      if (ctx && message.type !== OcgMessageType.SPSUMMONING) clearSummonMaterials(ctx);
       return {
         id, kind: "summon", seat: seatOf(format, message.controller), card: info, text,
         publicText: hidden ? `${who} ${verb} a face-down monster` : text,
@@ -1055,6 +1173,7 @@ export function observeDuelEvent(
       };
     }
     case OcgMessageType.SET: {
+      if (ctx && message.location === OcgLocation.MZONE) clearSummonMaterials(ctx);
       const info = cards.get(message.code);
       const format = ctx?.format;
       const who = playerLabel(format, message.controller);
@@ -1140,6 +1259,24 @@ export function observeDuelEvent(
       if (target) event.target = target;
       return event;
     }
+    case OcgMessageType.DAMAGE_STEP_END:
+      return { id, kind: "battle-end", text: "Damage Step ended", publicText: "Damage Step ended", revealCardTo: "all" };
+    case OcgMessageType.BATTLE: {
+      const stats = (card: NonNullable<typeof message.card>) => ({
+        attack: card.attack, defense: card.defense, position: card.position as number,
+      });
+      const text = "Damage calculation";
+      const event: StoredDuelEvent = {
+        id, kind: "battle", seat: message.card.controller, text, publicText: text,
+        revealCardTo: "all", zone: zoneOf(message.card), battle: { attacker: stats(message.card) },
+      };
+      // The stock wrapper parses the direct-attack sentinel as a zero-location card.
+      if (message.target?.location === OcgLocation.MZONE) {
+        event.target = zoneOf(message.target);
+        event.battle!.target = stats(message.target);
+      }
+      return event;
+    }
     case OcgMessageType.DAMAGE: {
       if (message.amount <= 0) return null;
       const text = `Player ${message.player + 1} takes ${message.amount} damage`;
@@ -1168,7 +1305,6 @@ export function observeDuelEvent(
       };
       const detail = takeDestroyNote(ctx, from);
       if (detail) return destroyEvent(id, message.card, from, cards, detail, ctx.format);
-      if (message.from.location === OcgLocation.MZONE && !isNoDuelist(ctx.format, from.controller)) ctx.released[from.controller] = (ctx.released[from.controller] ?? 0) + 1;
       ctx.pendingMoves.push({ code: message.card, from, resolving: ctx.resolving });
       return null;
     }
@@ -1332,6 +1468,8 @@ export function projectView(args: {
   reveals: RevealMap;
   mode: DuelMode;
   domainState?: DomainSeatState[];
+  /** Hand animation identities (the engine query still decides what the hand holds and in which order). */
+  handIdentities?: HandIdentities;
   /** Seat and team layout. Default `1v1`. More than two seats: the view fills `format`, `team` and `eliminated`. */
   format?: DuelFormat;
   /** Seats that lost while the duel goes on (FFA seat, or every seat of a Tag team). */
@@ -1379,7 +1517,18 @@ export function projectView(args: {
     const spells = projectList(args.viewer, controller, OcgLocation.SZONE, spellQueries, args.cards, args.reveals, partner);
     collectHiddenCodes(hiddenFieldCodes, monsterQueries, monsters);
     collectHiddenCodes(hiddenFieldCodes, spellQueries, spells);
-    const hand = compact(projectList(args.viewer, controller, OcgLocation.HAND, queryLocation(args.lib, args.handle, controller, OcgLocation.HAND), args.cards, args.reveals, partner));
+    const handQueries = queryLocation(args.lib, args.handle, controller, OcgLocation.HAND);
+    // EFFECT_PUBLIC is shared knowledge even in an owner query. Temporary, viewer-scoped
+    // confirmations are intentionally excluded: the engine forgets those on SHUFFLE_HAND.
+    args.handIdentities?.syncPublic(seat, handQueries);
+    const engineHand = compact(projectList(args.viewer, controller, OcgLocation.HAND, handQueries, args.cards, args.reveals, partner));
+    // The query alone determines membership, order and engine coordinates. IDs only keep DOM
+    // nodes and animation destinations attached while the core inserts, removes or shuffles.
+    // A Tag partner sees the hand like its owner, so it follows the owner identities.
+    const hand = engineHand.map((card) => {
+      const handId = args.handIdentities?.at(seat, args.viewer === seat || partner, card.sequence);
+      return handId ? { ...card, handId } : card;
+    });
     const graveyard = compact(projectList(args.viewer, controller, OcgLocation.GRAVE, queryLocation(args.lib, args.handle, controller, OcgLocation.GRAVE), args.cards, args.reveals, partner));
     const banished = compact(projectList(args.viewer, controller, OcgLocation.REMOVED, queryLocation(args.lib, args.handle, controller, OcgLocation.REMOVED), args.cards, args.reveals, partner));
     const extraQueries = queryLocation(args.lib, args.handle, controller, OcgLocation.EXTRA);
@@ -1445,7 +1594,23 @@ export function projectView(args: {
     prompt: projectPrompt(args.prompt, args.viewer, args.promptSeat, seats, args.reveals, hiddenFieldCodes, partnerSeat),
     prioritySeat: args.prompt && !args.result ? args.promptSeat : null,
     chain,
-    events: args.events.map((event) => projectStoredEvent(event, args.viewer)),
+    events: args.events.map((event) => {
+      const projected = projectStoredEvent(event, args.viewer);
+      if (event.kind === "move" && event.zone?.location === OcgLocation.HAND && args.handIdentities) {
+        const seat = event.zone.controller;
+        const entry = args.handIdentities.arrival(seat, args.viewer === seat || partnerSeat === seat, event.id);
+        const visible = entry && seats[seat]?.hand[entry.sequence];
+        // Viewer-scoped confirmations may reveal a different card on an anonymous sleeve.
+        // Retire that audience's correlation without changing spectator/public sleeve history.
+        const mismatched = visible?.code != null && projected.card?.code != null && visible.code !== projected.card.code;
+        // A departed arrival gets an unresolvable id so its flight cannot hide a replacement card.
+        projected.handId = entry && !mismatched ? entry.id : `departed-${event.id}`;
+        if (args.handIdentities.shuffledSinceArrival(seat, event.id)) projected.handShuffled = true;
+        // Keep the original engine message coordinates in history. Flights resolve this ID in the
+        // current query-ordered hand, rather than rewriting past draws/moves after later compaction.
+      }
+      return projected;
+    }),
     log: args.log
       .filter((entry) => entry.audience === "all" || entry.audience === args.viewer)
       .map(({ id, text }) => ({ id, text })),

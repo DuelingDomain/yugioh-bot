@@ -43,12 +43,13 @@ import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
-import { FxBoundary } from "./fx-boundary";
+import { FxBoundary, MoveSourceBoundary } from "./fx-boundary";
 import { BattleFx, type BattleAim } from "./battle-fx";
 import fxStyles from "./battle-fx.module.css";
 import { DuelFeedback } from "./feedback";
 import { duelFontClasses } from "./fonts";
 import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
+import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
 import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
@@ -184,12 +185,21 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // 3 and 4 seat tables: the opponent the player tapped to show large (null = follow the action).
   const [pinnedFocus, setPinnedFocus] = useState<number | null>(null);
   const preferences = useDuelPreferences();
+  useDuelAnimationSpeed(preferences.reducedMotion);
+  const viewerOut = isMultiSeat(data?.engine) && data?.engine?.seats.some((seat) =>
+    seat.seat === data.mySeat && (seat.eliminated === true || seat.pendingElimination === true)) === true;
+  // The server flips to active before it answers Start duel; the pop-up already has the duel then.
+  const ownWindowGate = data && !viewerOut ? ownWindowGateVisible({
+    status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,
+    hasResult: Boolean(data.engine?.result), starting, windowOpened,
+  }) : false;
   // The turn-start phases (and the opening deal) play one beat at a time; nothing can be answered meanwhile.
   const startBeats = useStartBeats({
     engine: data?.engine ?? null,
+    clock: data?.clock,
     duelKey: slug,
     reducedMotion: preferences.reducedMotion,
-    ready: !error && !realtime.recovering,
+    ready: Boolean(data?.engine) && data?.session.status !== "lobby" && !ownWindowGate && !error && !realtime.recovering,
   });
   const catchingUp = syncing || startBeats.active;
   // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
@@ -209,8 +219,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     reducedMotion: preferences.reducedMotion,
     board: boardRef,
   });
-  const viewerOut = isMultiSeat(data?.engine) && data?.engine?.seats.some((seat) =>
-    seat.seat === data.mySeat && (seat.eliminated === true || seat.pendingElimination === true)) === true;
   const viewerSeat = data?.engine?.seats.find((seat) => seat.seat === data.mySeat);
   const viewerLeaving = viewerOut && viewerSeat?.eliminated !== true && viewerSeat?.pendingElimination === true;
   const viewerEliminated = (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true;
@@ -542,11 +550,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     );
   }
   if (!data) return null;
-  // The server flips to active before it answers Start duel; the pop-up already has the duel then.
-  const ownWindowGate = !viewerOut && ownWindowGateVisible({
-    status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,
-    hasResult: Boolean(data.engine?.result), starting, windowOpened,
-  });
   // The next game of a Best of 3 is made in a lobby that starts by itself: no table settings between games.
   if (isStartingNextGame(data) && !showTable && !ownWindowGate) {
     return <NextGameStarting room={data} onShowTable={() => setShowTable(true)} />;
@@ -779,6 +782,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <DuelSettingsSummary session={data.session} />
       <RoomInvite room={data} slug={slug} />
       <h2>Presentation</h2>
+      <DuelAnimationSpeedControl />
       <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
         onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />
       <label className="flex flex-col gap-2">Motion
@@ -850,7 +854,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 
   return (
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
-      data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
+      data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={preferences.reducedMotion ? "true" : "false"}>
       <header className={styles.header}>
@@ -931,7 +935,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
             {engine ? (
-              <>
+              <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
                 {multi ? (
                   <MultiSeatStage key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
                     reducedMotion={preferences.reducedMotion}
@@ -950,18 +954,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
                   topName={playerName(top?.seat ?? 1 - localSeat)} />
                 )}
                 <FxBoundary>
-                {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom}
+                {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
                   soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
                 {!error && !realtime.recovering ? <SummonFx events={engine.events} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
-                {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} /> : null}
+                {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
                 {!error && !realtime.recovering ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
                 {!error && !realtime.recovering ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} /> : null}
                 {!error && !realtime.recovering ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
                 <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
-                  active={!error && !realtime.recovering} aim={battleAim} />
+                  active={!error && !realtime.recovering} aim={battleAim} result={engine.result} battleStep={battleStep} />
                 <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
                   active={!error && !realtime.recovering} mySeat={localSeat} />
                 </FxBoundary>
@@ -980,7 +984,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
                     legalKeys={legalKeys} selectedKeys={selectedKeys}
                     reducedMotion={preferences.reducedMotion} />
                 ) : null}
-              </>
+              </MoveSourceBoundary>
             ) : <p className="p-4">{data.session.status === "active" ? "Waiting for engine view…" : "No saved final board is available for this record."}</p>}
           </div>
         </section>
