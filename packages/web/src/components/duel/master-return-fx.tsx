@@ -20,6 +20,7 @@
  *
  * Reduced motion: no flight, a 200 ms fade-in of the real picture at the dock.
  */
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_REMOVED } from "./constants";
@@ -396,7 +397,7 @@ export function MasterReturnFx({ events, seats, duelKey, reducedMotion, mySeat }
   }, []);
 
   const clearAll = () => {
-    for (const timer of timersRef.current) window.clearTimeout(timer);
+    for (const timer of timersRef.current) duelFxClock.clearTimeout(timer);
     timersRef.current.clear();
     for (const release of releasesRef.current.values()) release();
     releasesRef.current.clear();
@@ -424,7 +425,7 @@ export function MasterReturnFx({ events, seats, duelKey, reducedMotion, mySeat }
     const found = detectMasterReturns(prev, seats, fresh);
     if (found.length === 0) return;
 
-    const now = performance.now();
+    const now = duelFxClock.now();
     const reduced = reducedRef.current;
     // The move layer plans a batch once; planning it here too makes sure its flights are known.
     planMoves(fresh, { now, reduced, duelKey });
@@ -435,7 +436,7 @@ export function MasterReturnFx({ events, seats, duelKey, reducedMotion, mySeat }
       if (reduced) {
         for (const img of images) {
           if (typeof img.animate === "function") {
-            img.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MASTER_RETURN.reducedFadeMs, easing: "ease-out", fill: "backwards" });
+            duelFxClock.animate(img, [{ opacity: 0 }, { opacity: 1 }], { duration: MASTER_RETURN.reducedFadeMs, easing: "ease-out", fill: "backwards" });
           }
         }
         continue;
@@ -454,13 +455,13 @@ export function MasterReturnFx({ events, seats, duelKey, reducedMotion, mySeat }
       // The real picture waits invisible until the copy lands on it.
       const release = hideImages(images);
       releasesRef.current.set(id, release);
-      const failsafe = window.setTimeout(release, Math.max(0, timing.landAt - now) + HIDE_FAILSAFE_MS);
+      const failsafe = duelFxClock.setTimeout(release, Math.max(0, timing.landAt - now) + HIDE_FAILSAFE_MS);
       timersRef.current.add(failsafe);
       const wait = timing.startAt - now;
       if (wait <= 16) {
         setItems((current) => [...current, item].slice(-4));
       } else {
-        const timer = window.setTimeout(() => {
+        const timer = duelFxClock.setTimeout(() => {
           timersRef.current.delete(timer);
           setItems((current) => [...current, item].slice(-4));
         }, wait);
