@@ -263,7 +263,7 @@ describe("reveal gates for a continuing pick", () => {
 
 function menu(overrides: Partial<DuelPrompt> = {}): DuelPrompt {
   return {
-    id: "m1", seat: 0, kind: "choice", title: "Main Phase", context: { type: "action", phase: "main1" },
+    id: "m1", seat: 0, kind: "choice", title: "Main Phase", context: { type: "action", phase: "main" },
     options: [{ id: "summon:0", label: "Normal Summon" }] as DuelPrompt["options"], ...overrides,
   };
 }
