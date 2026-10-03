@@ -9,7 +9,7 @@
 //   orange   summon procedures with EFFECT_FLAG_SPSUM_PARAM and o_range (n=3): seat 0 cannot summon onto seat 1, so the
 //            monster must go to seat 2 (Normal Summon and Special Summon procedure). Needs the card.cpp of FX7 (base7|fix7).
 //   discard  Duel.DiscardDeck with a player that is not a duelist (7, 254) at n=3: no trap, no read out of range, result 0
-//   all      every mode above except orange
+//   all      every mode above except orange; its condition controls expose a core defect
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -87,18 +87,20 @@ static std::string activate_spell(unsigned code, const std::string& target_fn, c
 	       " e1:SetType(EFFECT_TYPE_ACTIVATE)\n e1:SetCode(EVENT_FREE_CHAIN)\n" +
 	       (target_fn.empty() ? "" : " e1:SetTarget(" + target_fn + ")\n") + " e1:SetOperation(" + op_fn + ")\n c:RegisterEffect(e1)\nend\n";
 }
+// The target player is a Lua side in this callback. MPSeat reads its bound real seat.
 static const char* kRestrict =
     "function c119.initial_effect(c)\n"
     " for _,code in ipairs({EFFECT_CANNOT_SUMMON,EFFECT_CANNOT_SPECIAL_SUMMON}) do\n"
     "  local e1=Effect.CreateEffect(c) e1:SetType(EFFECT_TYPE_FIELD) e1:SetCode(code) e1:SetProperty(EFFECT_FLAG_PLAYER_TARGET)\n"
     "  e1:SetRange(LOCATION_SZONE) e1:SetTargetRange(1,0)\n"
-    "  e1:SetTarget(function(e,c,sump,sumtype,sumpos,targetp) return targetp==1 end) c:RegisterEffect(e1)\n"
+    "  e1:SetTarget(function(e,c,sump,sumtype,sumpos,targetp) return Duel.MPSeat(targetp)==1 end) c:RegisterEffect(e1)\n"
     " end\n"
     "end\n";
-static std::string summon_proc(unsigned code, const char* proc_code, const char* type) {
+static std::string summon_proc(unsigned code, const char* proc_code, const char* type, bool with_condition = false) {
 	return "function c" + std::to_string(code) + ".initial_effect(c)\n local e1=Effect.CreateEffect(c) e1:SetType(" + std::string(type) + ")\n"
 	       " e1:SetCode(" + proc_code + ") e1:SetProperty(EFFECT_FLAG_SPSUM_PARAM) e1:SetTargetRange(POS_FACEUP_ATTACK,1)\n"
-	       " e1:SetRange(LOCATION_HAND)\n c:RegisterEffect(e1)\nend\n";
+	       " e1:SetRange(LOCATION_HAND)\n" +
+	       (with_condition ? " e1:SetCondition(function() return true end)\n" : "") + " c:RegisterEffect(e1)\nend\n";
 }
 static void init_scripts() {
 	// 110: registers EFFECT_OPPO_CHOOSES_SPSUMMON_ZONE for its owner, then summons a 111 from its hand to its own field.
@@ -265,6 +267,8 @@ struct Play {
 	std::vector<int> card_seats;   // seat of each SELECT_CARD
 	bool activated = false;
 	bool done = false;
+	int place_hint = -1;
+	int place_hint_player = -1;
 };
 template<typename F>
 static void play(OCG_Duel d, Play& p, F&& on_prompt, uint32_t activate_cmd = 5) {
@@ -273,6 +277,12 @@ static void play(OCG_Duel d, Play& p, F&& on_prompt, uint32_t activate_cmd = 5) 
 	for(int steps = 0; steps < 6000 && !p.done; ++steps) {
 		const int status = advance(d, msgs);
 		for(const auto& m : msgs) {
+			if(m.id == MSG_HINT && m.raw.size() >= 11 && m.raw[1] == HINT_PLACE_SEAT) {
+				uint64_t seat = 0;
+				std::memcpy(&seat, m.raw.data() + 3, 8);
+				p.place_hint = static_cast<int>(seat);
+				p.place_hint_player = m.raw[2];
+			}
 			if(m.id == MSG_CHAINING)
 				in_chain = true;
 			if(m.id == MSG_CHAIN_END)
@@ -290,6 +300,8 @@ static void play(OCG_Duel d, Play& p, F&& on_prompt, uint32_t activate_cmd = 5) 
 			std::fprintf(stderr, "\n");
 		}
 		if(last.id == MSG_SELECT_IDLECMD && last.b1 == 0 && !p.activated) {
+			if(on_prompt(last))
+				continue;
 			p.activated = true;
 			answer_u32(d, (0u << 16) | activate_cmd);
 			continue;
@@ -536,30 +548,142 @@ static void mode_battle() {
 }
 
 // ---- orange: a summon procedure with o_range, seat 0 cannot summon onto seat 1
-static void orange_one(const char* label, uint32_t code, uint32_t idle_cmd) {
+static void orange_one(const char* label, uint32_t code, uint32_t idle_cmd, bool with_condition = false) {
+	const int before = failures;
+	g_log.clear();
+	const std::string saved_script = g_scripts.at(code);
+	if(with_condition)
+		g_scripts[code] = summon_proc(code, idle_cmd == 0 ? "EFFECT_SUMMON_PROC" : "EFFECT_SPSUMMON_PROC",
+		    idle_cmd == 0 ? "EFFECT_TYPE_SINGLE" : "EFFECT_TYPE_FIELD", true);
 	Setup s;
 	s.hand = {{code}, {}, {}};
 	s.szone = {{{119, 1}}, {}, {}};
 	OCG_Duel d = make_ffa3(DUEL_MODE_MR5, s);
+	// Check the fixture before the command: only seat 1 must be blocked.
+	card* target = nullptr;
+	for(card* c : F(d).player[0].list_hand)
+		if(c && c->data.code == code)
+			target = c;
+	EXPECT(target, "%s: the test card is absent from the hand", label);
+	if(target) {
+		const bool blocked = idle_cmd == 0 ? !F(d).is_player_can_summon(0, 0, target, 1) :
+		    !F(d).is_player_can_spsummon(nullptr, 0, POS_FACEUP_ATTACK, 0, 1, target);
+		const bool free = idle_cmd == 0 ? F(d).is_player_can_summon(0, 0, target, 2) :
+		    F(d).is_player_can_spsummon(nullptr, 0, POS_FACEUP_ATTACK, 0, 2, target);
+		EXPECT(blocked && free, "%s: card 119 must block seat 1 and permit seat 2 (blocked=%d free=%d)", label, blocked, free);
+	}
 	Play p;
+	int picked = -1, pick_count = 0;
+	bool place_seen = false, blocked_offered = false;
+	std::vector<int> offered, hints;
 	play(d, p, [&](const Msg& m) {
-		if(m.id == MSG_SELECT_PLACE && p.activated) {
-			answer_place(d, 2, LOCATION_MZONE, 0); // any seat but the summoner is the "other field" half of the mask
+		if(m.id == MSG_SELECT_IDLECMD && m.b1 == 0 && !p.activated) {
+			// Read the two summon lists. Each entry has code, controller, location and sequence.
+			size_t off = 2;
+			int index = -1;
+			for(uint32_t cmd = 0; cmd <= idle_cmd; ++cmd) {
+				if(off + 4 > m.raw.size())
+					break;
+				uint32_t count = 0;
+				std::memcpy(&count, m.raw.data() + off, 4);
+				off += 4;
+				if(count > (m.raw.size() - off) / 10)
+					break;
+				for(uint32_t i = 0; i < count; ++i) {
+					uint32_t offered_code = 0;
+					std::memcpy(&offered_code, m.raw.data() + off + 10 * i, 4);
+					if(cmd == idle_cmd && offered_code == code)
+						index = static_cast<int>(i);
+				}
+				off += 10 * count;
+			}
+			EXPECT(index >= 0, "%s: card %u is not offered for command %u", label, code, idle_cmd);
+			if(index < 0)
+				return false;
+			p.activated = true;
+			answer_u32(d, (static_cast<uint32_t>(index) << 16) | idle_cmd);
 			return true;
 		}
+		if(m.id == MSG_SELECT_OPTION) {
+			const size_t count = m.raw.size() >= 3 ? m.raw[2] : 0;
+			const bool valid = count > 0 && m.raw.size() == 3 + 8 * count;
+			EXPECT(valid, "%s: invalid option message", label);
+			if(!valid)
+				return false;
+			std::vector<int> choices;
+			bool any_pick = false, all_pick = true;
+			for(size_t i = 0; i < count; ++i) {
+				uint64_t desc = 0;
+				std::memcpy(&desc, m.raw.data() + 3 + 8 * i, 8);
+				const bool seat_desc = (desc >> 16) == 0xFFFE;
+				any_pick = any_pick || seat_desc;
+				all_pick = all_pick && seat_desc && desc == (0xFFFE0000ull | (desc & 0xff));
+				choices.push_back(static_cast<int>(desc & 0xff));
+			}
+			if(any_pick) {
+				++pick_count;
+				offered.insert(offered.end(), choices.begin(), choices.end());
+				for(int seat : choices)
+					blocked_offered = blocked_offered || seat == 1;
+				if(blocked_offered)
+					std::printf("CORE DEFECT orange-%s: the opponent pick offers blocked seat 1; ADR 0002 line 76 requires a legal opponent choice.\n", label);
+				EXPECT(all_pick && m.b1 == 0 && choices == std::vector<int>{2},
+				       "%s: the opponent pick must offer only seat 2 (got %s)", label, seats(choices).c_str());
+				int index = 0;
+				for(size_t i = 0; i < choices.size(); ++i)
+					if(choices[i] == 2)
+						index = static_cast<int>(i);
+				picked = choices[index];
+				std::printf("DATA orange-%s pick: offered %s, picked %d\n", label, seats(choices).c_str(), picked);
+				answer_i32(d, index);
+			} else {
+				answer_i32(d, 0); // The first ordinary procedure option.
+			}
+			return true;
+		}
+		if(m.id == MSG_SELECT_PLACE && p.activated) {
+			place_seen = true;
+			const int hint = p.place_hint;
+			hints.push_back(hint);
+			blocked_offered = blocked_offered || hint == 1;
+			std::printf("DATA orange-%s place: chooser %u, hint %d, picked %d, picks %d\n", label, m.b1, hint, picked, pick_count);
+			if(hint == 1 && pick_count == 0) {
+				std::printf("CORE DEFECT orange-%s: blocked seat 1 is offered with no opponent pick; ADR 0002 line 76 requires the summoning player to pick one opponent.\n", label);
+				EXPECT(false, "%s: blocked seat 1 is hinted with no pick (ADR 0002 line 76)", label);
+			}
+			EXPECT(hint == 2 && p.place_hint_player == m.b1, "%s: place hint must name seat 2 for chooser %u (got seat %d, chooser %d)",
+			       label, m.b1, hint, p.place_hint_player);
+			EXPECT(picked < 0 || picked == hint, "%s: hint %d differs from picked seat %d", label, hint, picked);
+			// Use the received seat. A wrong core hint must remain a failed outcome.
+			const int seat = hint >= 0 ? hint : picked;
+			p.place_hint = -1;
+			p.place_hint_player = -1;
+			if(seat < 0 || seat >= 3)
+				return false;
+			answer_place(d, static_cast<uint8_t>(seat), LOCATION_MZONE, 0);
+			return true;
+		}
+		if(m.id == MSG_RETRY)
+			EXPECT(false, "%s: the core refused the command or the received place seat", label);
 		return false;
 	}, idle_cmd);
 	const std::string w0 = where(d, 0, code), w1 = where(d, 1, code), w2 = where(d, 2, code);
-	std::printf("n=3, %s with o_range, seat 0 cannot summon onto seat 1. Monster %u: on seat 0 field %s, seat 1 %s, seat 2 %s; SELECT_PLACE seats %s (want seat 2 mzone)\n",
-	            label, code, w0.c_str(), w1.c_str(), w2.c_str(), seats(p.place_seats).c_str());
-	const bool ok = w2 == "mzone" && w1 != "mzone" && w0 != "mzone";
-	EXPECT(ok, "%s: 118/120 went to seat 0 %s, seat 1 %s, seat 2 %s", label, w0.c_str(), w1.c_str(), w2.c_str());
-	std::printf("RESULT orange-%s %s\n", label, ok ? "PASS" : "FAIL");
+	std::printf("n=3, %s with o_range. Monster %u: seat 0 %s, seat 1 %s, seat 2 %s; opponent picks %s; place hints %s\n",
+	            label, code, w0.c_str(), w1.c_str(), w2.c_str(), seats(offered).c_str(), seats(hints).c_str());
+	EXPECT(place_seen && !blocked_offered, "%s: a place must be offered and blocked seat 1 must not be offered", label);
+	EXPECT(p.done, "%s: the summon did not finish", label);
+	EXPECT(w2 == "mzone" && w1 != "mzone" && w0 != "mzone", "%s: monster %u went to seat 0 %s, seat 1 %s, seat 2 %s",
+	       label, code, w0.c_str(), w1.c_str(), w2.c_str());
+	std::printf("RESULT orange-%s %s\n", label, failures == before ? "PASS" : "FAIL");
 	OCG_DestroyDuel(d);
+	g_scripts[code] = saved_script;
 }
 static void mode_orange() {
 	orange_one("summon", 118, 0);
 	orange_one("spsummon", 120, 1);
+	// A condition uses the real opponent pick path. The same seat restriction must apply.
+	orange_one("summon-condition", 118, 0, true);
+	orange_one("spsummon-condition", 120, 1, true);
 }
 
 // ---- discard: a player value that is not a duelist
