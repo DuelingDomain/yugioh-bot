@@ -478,7 +478,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         moveReveals(reveals, message.from, message.to, message.card);
         for (const line of moveLogLines(message, cards)) {
           const entry = appendLog(line.text, line.audience);
-          if (line.leftField) leftFieldLines.push({ entry, zone: message.from, code: message.card, destination: message.to.location });
+          // Parsed overlay locations name the host's field zone, but the material itself was not on the field.
+          if (line.leftField && message.from.overlay_sequence == null) {
+            leftFieldLines.push({ entry, zone: message.from, code: message.card, destination: message.to.location });
+          }
         }
         return;
       case OcgMessageType.TOSS_COIN:

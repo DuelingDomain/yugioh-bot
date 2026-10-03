@@ -4,6 +4,7 @@ import type { DuelAnswer, DuelCardInfo, DuelEngineView, DuelEvent, DuelPrompt } 
 import { OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
 import type { CardDatabase } from "../src/cards.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
+import * as duelLogLines from "../src/log-lines.js";
 import { choosePracticeBotAnswer } from "../src/practice-bot.js";
 import * as duelViews from "../src/views.js";
 import {
@@ -115,6 +116,54 @@ function eventsOf(game: EngineGame, viewer: number | null = null): DuelEvent[] {
 }
 
 describe("richer engine events", () => {
+  it("logs Gagaga Cowboy's real detach as a Graveyard send without destruction eligibility", async () => {
+    const [thrasher, dragon, cowboy] = cardCodes("Photon Thrasher", "Alexandrite Dragon", "Gagaga Cowboy");
+    const detaches: Array<{ message: Extract<OcgMessage, { type: OcgMessageType.MOVE }>; lines: duelLogLines.LogLine[] }> = [];
+    const original = duelLogLines.moveLogLines;
+    const spy = vi.spyOn(duelLogLines, "moveLogLines").mockImplementation((message, cards) => {
+      const lines = original(message, cards);
+      if (message.card === thrasher && message.from.overlay_sequence != null && message.to.location === OcgLocation.GRAVE) {
+        detaches.push({ message: structuredClone(message), lines: structuredClone(lines) });
+      }
+      return lines;
+    });
+    let game: EngineGame | undefined;
+    try {
+      game = await openGame([thrasher, dragon], [], [cowboy]);
+      drive(game, (w) => {
+        if (w.view.seats[1].lp === 7200) return "stop";
+        if (w.seat !== 0 || w.view.turn !== 1) return null;
+        const activate = option(w, "activate:", cowboy);
+        if (activate) return { choice: activate };
+        for (const [prefix, code] of [["spsummon:", cowboy], ["spsummon:", thrasher], ["summon:", dragon]] as const) {
+          const action = option(w, prefix, code);
+          if (action) return { choice: action };
+        }
+        if (w.prompt.options.some((entry) => entry.id === "pos:4")) return { choice: "pos:4" };
+        if (w.prompt.kind === "cards") {
+          const material = w.prompt.options.find((entry) => entry.card?.code === thrasher);
+          if (material) return { selected: [material.id] };
+        }
+        return null;
+      });
+      const summoned = game.view(0).seats[0].monsters.find((card) => card?.code === cowboy)!;
+      expect(summoned.position).toBe(OcgPosition.FACEUP_DEFENSE);
+      expect(summoned.materials).toHaveLength(1);
+      expect(game.view(0).seats[0].graveyard.map((card) => card.code)).toEqual([thrasher]);
+      expect(detaches).toHaveLength(1);
+      expect(detaches[0].message.from).toMatchObject({ location: OcgLocation.MZONE, sequence: summoned.sequence, overlay_sequence: expect.any(Number) });
+      for (const viewer of [0, 1, null]) {
+        const lines = game.view(viewer).log.map((entry) => entry.text);
+        expect(lines).toContain("Photon Thrasher was sent to the Graveyard");
+        expect(lines).not.toContain("Photon Thrasher was destroyed");
+      }
+      expect(detaches[0].lines).toEqual([{ text: "Photon Thrasher was sent to the Graveyard", audience: "all" }]);
+    } finally {
+      game?.close();
+      spy.mockRestore();
+    }
+  });
+
   it("reports Dark Magician's real two-monster Tribute Summon in the event and Text log", async () => {
     const scenario = materialCountScenarios.find((entry) => entry.kind === "tribute")!;
     const { event, completedView, graveyard, materials } = await runMaterialCountScenario(scenario);

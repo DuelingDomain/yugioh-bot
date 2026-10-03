@@ -16,7 +16,7 @@ const cards: CardDatabase = {
 const at = (controller: 0 | 1, location: OcgLocation, sequence: number, position: OcgPosition = OcgPosition.FACEUP_ATTACK) => ({
   controller, location, sequence, position,
 });
-type Place = ReturnType<typeof at>;
+type Place = ReturnType<typeof at> & { overlay_sequence?: number };
 const move = (card: number, from: Place, to: Place) => ({ type: OcgMessageType.MOVE, card, from, to }) as Extract<OcgMessage, { type: OcgMessageType.MOVE }>;
 const summon = (type: OcgMessageType.SUMMONING | OcgMessageType.SPSUMMONING | OcgMessageType.FLIPSUMMONING, position: OcgPosition) =>
   ({ type, code: 1, controller: 0, location: OcgLocation.MZONE, sequence: 2, position }) as Extract<OcgMessage, { type: typeof type }>;
@@ -67,6 +67,33 @@ describe("move log lines", () => {
   it("keeps a field send distinct from the destruction text the engine rewrites it to", () => {
     expect(moveLogLines(move(1, field, grave), cards)).toEqual([{ text: "Stardust Dragon was sent to the Graveyard", audience: "all", leftField: true }]);
     expect(destroyedLogText(cards, 1)).toBe("Stardust Dragon was destroyed");
+  });
+
+  it.each([
+    [OcgLocation.GRAVE, "Stardust Dragon was sent to the Graveyard"],
+    [OcgLocation.REMOVED, "Stardust Dragon was banished"],
+    [OcgLocation.DECK, "Stardust Dragon returned to the Deck"],
+    [OcgLocation.EXTRA, "Stardust Dragon returned to the Extra Deck"],
+  ] as const)("excludes detached materials sent to location %i from destruction rewrites", (location, text) => {
+    for (const overlay_sequence of [0, 1]) {
+      const material = { ...field, overlay_sequence };
+      expect(moveLogLines(move(1, material, at(0, location, 0)), cards)).toEqual([{ text, audience: "all" }]);
+    }
+  });
+
+  it("calls a detached material added to the hand rather than returned from the field", () => {
+    for (const overlay_sequence of [0, 1]) {
+      const lines = moveLogLines(move(1, { ...field, overlay_sequence }, at(1, OcgLocation.HAND, 0)), cards);
+      expect(lines).toEqual([{ text: "Stardust Dragon was added to Player 2's hand", audience: "all" }]);
+      for (const viewer of [0, 1, null]) expect(seen(lines, viewer)).toEqual(["Stardust Dragon was added to Player 2's hand"]);
+    }
+  });
+
+  it("keeps field attachments and material transfers between hosts silent", () => {
+    const host = { ...at(0, OcgLocation.MZONE, 3), overlay_sequence: 0 };
+    expect(moveLogLines(move(1, field, host), cards)).toEqual([]);
+    expect(moveLogLines(move(1, { ...field, overlay_sequence: 0 }, host), cards)).toEqual([]);
+    expect(moveLogLines(move(1, { ...field, overlay_sequence: 0 }, { ...host, controller: 1 }), cards)).toEqual([]);
   });
 
   it("logs discards and hand materials as plain Graveyard sends without a destruction marker", () => {

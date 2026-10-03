@@ -15,7 +15,8 @@ export interface LogLine {
   audience: "all" | number;
   /**
    * A card publicly left the field for the Graveyard, banishment, Deck or Extra Deck, so it may have been
-   * destroyed. The startup script's destruction note can arrive after the MOVE, so the engine keeps this
+   * destroyed. Xyz materials are excluded even though their parsed location is the host's field zone.
+   * The startup script's destruction note can arrive after the MOVE, so the engine keeps this
    * line and rewrites it if a destroy event for that zone follows before the next prompt (before any view
    * is built).
    */
@@ -110,7 +111,7 @@ export function moveLogLines(message: MoveMessage, cards: CardDatabase): LogLine
   if (!to.location) return [];
   if (from.controller === to.controller && from.location === to.location) return [];
   const name = () => nameOf(cards, message.card);
-  const fromField = FIELD.has(from.location);
+  const fromField = from.overlay_sequence == null && FIELD.has(from.location);
   switch (to.location) {
     case OcgLocation.GRAVE: {
       const line: LogLine = { text: `${name()} was sent to the Graveyard`, audience: "all" };
