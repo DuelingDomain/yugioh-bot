@@ -1,3 +1,4 @@
+import { duelFxClock } from "../fx-clock";
 import * as THREE from "three";
 import { battleSeekMs, joinBattleClock } from "../battle-clock";
 import { ArtStore } from "./art";
@@ -131,19 +132,19 @@ export class Fx3dEngine implements Fx3dApi {
       return Promise.resolve();
     }
     if (request.artCode) this.art.prefetch(request.artCode);
-    const now = performance.now();
+    const now = duelFxClock.now();
     const start = id === "battle"
       ? request.clock ? joinBattleClock(request.clock, now)
         : now - battleSeekMs(request.startedAt ?? now - (request.skipMs ?? 0), now)
       : now - Math.min(600, Math.max(0, request.skipMs ?? 0));
-    const limit = Math.min(instance.durationMs, HARD_LIMIT_MS) - (performance.now() - start);
+    const limit = Math.min(instance.durationMs, HARD_LIMIT_MS) - (duelFxClock.now() - start);
     if (limit <= 0) {
       instance.dispose();
       return Promise.resolve();
     }
     return new Promise<void>((resolve) => {
       const run: Running = { instance, start, resolve, timer: 0, shake: Math.max(0, Math.min(1.6, request.shake ?? 1)) };
-      run.timer = window.setTimeout(() => {
+      run.timer = duelFxClock.setTimeout(() => {
         this.finish(run);
         if (this.running.size === 0) this.stop();
       }, Math.max(0, limit) + BACKSTOP_SLACK_MS);
@@ -225,7 +226,7 @@ export class Fx3dEngine implements Fx3dApi {
 
   private finish(run: Running): void {
     if (!this.running.delete(run)) return;
-    window.clearTimeout(run.timer);
+    duelFxClock.clearTimeout(run.timer);
     try {
       run.instance.dispose();
     } catch {
@@ -238,19 +239,20 @@ export class Fx3dEngine implements Fx3dApi {
   private wake(): void {
     if (this.raf || this.disposed) return;
     this.last = performance.now();
-    this.raf = requestAnimationFrame(this.frame);
+    this.raf = duelFxClock.requestAnimationFrame(this.frame);
   }
 
   private stop(): void {
-    if (this.raf) cancelAnimationFrame(this.raf);
+    if (this.raf) duelFxClock.cancelAnimationFrame(this.raf);
     this.raf = 0;
   }
 
   private readonly frame = (now: number): void => {
     this.raf = 0;
     if (this.disposed || this.lost) return;
-    const dt = now - this.last;
-    this.last = now;
+    const real = performance.now();
+    const dt = real - this.last;
+    this.last = real;
     this.watchSpeed(dt);
     const usesPost = [...this.running].some((run) => run.instance.usesPost);
     if (usesPost) this.post.reset();
@@ -282,7 +284,7 @@ export class Fx3dEngine implements Fx3dApi {
     this.applyShake(shakeX, shakeY, shakeRot);
     this.draw(usesPost ? postSec : null);
     // Idle means no frame request at all: the loop restarts on the next play().
-    if (this.running.size > 0) this.raf = requestAnimationFrame(this.frame);
+    if (this.running.size > 0) this.raf = duelFxClock.requestAnimationFrame(this.frame);
   };
 
   /** `postSec` is set while an effect draws through the post pass (seconds of that effect), else null. */
