@@ -12,7 +12,7 @@ const SEATS: DuelistId[] = ['p0', 'p1', 'p2', 'p3'];
 const CARDS = [10691144, 28454232, 29735721, 49456901];
 const own = (entry: CardEntry): CardRef => typeof entry === 'object' ? entry.card : entry;
 
-describeWithCores('Tag responses bind the opponent who caused the response', liveNseat, () => {
+describeWithCores('Responses bind the opponent who caused the response in Tag, FFA4 and 1v1', liveNseat, () => {
   const cases = CARDS.flatMap(code => [0, 2].flatMap(actor => [1, 3].map(causer => ({ code, actor, causer, format: 'tag' as 'tag' | 'ffa4' | '1v1' }))));
   for (const code of [29735721, 49456901]) for (const format of ['ffa4', '1v1'] as const) {
     cases.push({ code, actor: 0, causer: format === 'ffa4' ? 3 : 1, format });

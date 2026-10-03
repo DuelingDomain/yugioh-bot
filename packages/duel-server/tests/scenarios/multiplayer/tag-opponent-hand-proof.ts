@@ -239,7 +239,7 @@ export function proveTiniaOpponentHand(): void {
             ...(domain ? { deckMaster: { inZone: true, returns: 0, nextCost: 0 } } : {}) };
         }
         const scenario = defineScenario({ id, title: id, source: 'docs/adr/0002-multiplayer-duel-rules.md',
-          rules: ['R-COMMON-OPP-PICK', ...(format === 'tag' ? ['R-TAG-SHARED-CARDS'] : format === 'ffa4' ? ['R-FFA-OPP-ONE'] : [])],
+          rules: ['R-COMMON-OPP-PICK', ...(format === 'tag' ? ['R-TAG-PARTNER', 'R-TAG-SHARED-CARDS'] : format === 'ffa4' ? ['R-FFA-OPP-ONE'] : [])],
           tags: ['multiplayer', 'tag-hand', format, `card:${code}`], setup, steps: [] });
         const game = await createEngineGame({ ...compileBoard(setup).options, dataDirectory: engineDataDirectory,
           multiWasmBinary: domain ? domainNseatWasmBinary() : nseatWasmBinary(), seed: ['1', '2', '3', '4'] });
@@ -295,6 +295,19 @@ export function proveTiniaOpponentHand(): void {
           expect(monsters[0]?.name).toBe('Mystical Elf'); expect(monsters[2]?.code).toBe(code);
           expect(views().some(view => view.events.some(event =>
             event.kind === 'chain-resolving' && event.card?.code === code))).toBe(true);
+          if (format === 'tag') {
+            // The banished card returns to the picked member at this turn's End Phase.
+            run(endTurn(SEATS[causer])); pump();
+            const next = (causer + 1) % count;
+            board[SEATS[opponent]]!.hand = ['Battle Ox', 'Battle Ox', 'Battle Ox'];
+            board[SEATS[opponent]]!.banished = [];
+            const nextBoard = board[SEATS[next]]!;
+            nextBoard.hand = [...nextBoard.hand as CardRef[], own(setup[SEATS[next]]!.deck![0])];
+            nextBoard.deckCount = (nextBoard.deckCount as number) - 1;
+            run(expectBoard(board)); run(expectPrompt({ by: SEATS[next], context: 'action' }));
+            expect(game.view(actor).turnSeat).toBe(next);
+            expect(picked, 'The End Phase return must not ask for another opponent.').toBe(1);
+          }
         } catch (error) {
           console.error(JSON.stringify({ id, prompt: prompt(), states: views().map((view, seat) => view.seats[seat]),
             diagnostics: game.diagnostics() }));
