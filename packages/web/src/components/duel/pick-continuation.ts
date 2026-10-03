@@ -36,13 +36,26 @@ export function continuesPick(previous: DuelPrompt | null | undefined, next: Due
   );
 }
 
+/**
+ * The zone or tribute prompt that follows the player's own action (Normal Summon, Set, Activate...) or their tribute
+ * pick. The player just chose what to place, so the next question is "where": no board effect is playing for it, and
+ * the bar and the zone clicks must not wait for a reveal beat. Any other follow-up (a search after a summon,
+ * a chain window) keeps its beat, because an effect is on screen. Pure, so the rule can be tested.
+ */
+export function continuesPlacement(previous: DuelPrompt | null | undefined, next: DuelPrompt | null | undefined): boolean {
+  if (!previous || !next || previous.id === next.id || previous.seat !== next.seat) return false;
+  if (next.kind === "places") return previous.context?.type === "action" || previous.kind === "tribute";
+  if (next.kind === "tribute") return previous.context?.type === "action";
+  return false;
+}
+
 /** True when `answer` to `prompt` leaves the pick open (a card click); Finish and Cancel end it. */
 export function keepsPickOpen(prompt: DuelPrompt | null | undefined, answer: DuelAnswer): boolean {
   return isBoardTogglePrompt(prompt ?? null) && !answer.finish && !answer.cancel;
 }
 
 export type PickContinuation = {
-  /** The current prompt follows the player's own click on the same pick: show it at once. */
+  /** The current prompt follows the player's own click on the same pick, or their own action (see continuesPlacement): show it at once. */
   continuing: boolean;
   /**
    * The pick just answered, while the engine has not sent a prompt yet. Keep drawing it, buttons off,
@@ -55,6 +68,7 @@ export type PickContinuation = {
 
 export function usePickContinuation(prompt: DuelPrompt | null | undefined): PickContinuation {
   const answered = useRef<DuelPrompt | null>(null);
+  const placing = useRef<DuelPrompt | null>(null);
   const decided = useRef<{ id: string | null; continuing: boolean }>({ id: null, continuing: false });
   const windowTimer = useRef<number | null>(null);
   const holdTimer = useRef<ReturnType<typeof duelFxClock.setTimeout> | null>(null);
@@ -63,24 +77,28 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined): Pick
   // Decided while rendering, once per prompt id, so the very first frame of a follow-up already shows.
   // The answer is used up by the next prompt, whatever it is (an opponent prompt ends the chance).
   if (prompt && decided.current.id !== prompt.id) {
-    decided.current = { id: prompt.id, continuing: continuesPick(answered.current, prompt) };
+    decided.current = { id: prompt.id, continuing: continuesPick(answered.current, prompt) || continuesPlacement(placing.current, prompt) };
     answered.current = null;
+    placing.current = null;
   }
 
   const noteAnswer = useCallback((target: DuelPrompt, answer: DuelAnswer) => {
     if (windowTimer.current) window.clearTimeout(windowTimer.current);
     if (holdTimer.current) duelFxClock.clearTimeout(holdTimer.current);
+    // The answer to an action or a tribute pick may be followed by the zone prompt for that card.
+    placing.current = (target.context?.type === "action" || target.kind === "tribute") && !answer.cancel ? target : null;
     if (!keepsPickOpen(target, answer)) {
       answered.current = null;
       setWaiting(null);
-      return;
+    } else {
+      answered.current = target;
+      setWaiting(target);
+      holdTimer.current = duelFxClock.setTimeout(() => setWaiting(null), PICK_CONTINUATION.holdMs);
     }
-    answered.current = target;
     windowTimer.current = window.setTimeout(() => {
       answered.current = null;
+      placing.current = null;
     }, PICK_CONTINUATION.windowMs);
-    setWaiting(target);
-    holdTimer.current = duelFxClock.setTimeout(() => setWaiting(null), PICK_CONTINUATION.holdMs);
   }, []);
 
   // A newer prompt ends the hold.

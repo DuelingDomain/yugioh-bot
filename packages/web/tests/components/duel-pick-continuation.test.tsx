@@ -10,6 +10,7 @@ vi.mock("next/font/google", () => {
 
 import {
   continuesPick,
+  continuesPlacement,
   keepsPickOpen,
   PICK_CONTINUATION,
   usePickContinuation,
@@ -257,5 +258,107 @@ describe("reveal gates for a continuing pick", () => {
   it("usePromptAnswerable still holds a normal prompt back while busy", () => {
     const { result } = renderHook(() => usePromptAnswerable("p1", false));
     expect(result.current).toBe(false);
+  });
+});
+
+function menu(overrides: Partial<DuelPrompt> = {}): DuelPrompt {
+  return {
+    id: "m1", seat: 0, kind: "choice", title: "Main Phase", context: { type: "action", phase: "main1" },
+    options: [{ id: "summon:0", label: "Normal Summon" }] as DuelPrompt["options"], ...overrides,
+  };
+}
+function places(overrides: Partial<DuelPrompt> = {}): DuelPrompt {
+  return {
+    id: "z1", seat: 0, kind: "places", title: "Select a zone",
+    options: [{ id: "place:0", label: "Zone 1" }] as DuelPrompt["options"], ...overrides,
+  };
+}
+function tribute(overrides: Partial<DuelPrompt> = {}): DuelPrompt {
+  return { id: "t1", seat: 0, kind: "tribute", title: "Select tributes", options: [{ id: "t:0", label: "A" }] as DuelPrompt["options"], ...overrides };
+}
+
+describe("continuesPlacement", () => {
+  it("shows the zone prompt at once after the player's own action", () => {
+    expect(continuesPlacement(menu(), places())).toBe(true);
+  });
+
+  it("shows the tribute prompt at once after the player's own action", () => {
+    expect(continuesPlacement(menu(), tribute())).toBe(true);
+  });
+
+  it("shows the zone prompt at once after the player's tribute pick", () => {
+    expect(continuesPlacement(tribute(), places())).toBe(true);
+  });
+
+  it("keeps the beat for a prompt that follows a chain response or another player", () => {
+    const chain = menu({ context: { type: "chain", forced: false } });
+    expect(continuesPlacement(chain, places())).toBe(false);
+    expect(continuesPlacement(menu({ seat: 1 }), places())).toBe(false);
+  });
+
+  it("keeps the beat for a search or a response after an action", () => {
+    expect(continuesPlacement(menu(), toggle({ id: "x" }))).toBe(false);
+    expect(continuesPlacement(menu(), { ...places(), id: "x", kind: "cards" })).toBe(false);
+    expect(continuesPlacement(menu(), { ...places(), id: "x", kind: "choice" })).toBe(false);
+  });
+
+  it("rejects missing prompts and the same prompt id", () => {
+    expect(continuesPlacement(null, places())).toBe(false);
+    expect(continuesPlacement(menu(), null)).toBe(false);
+    expect(continuesPlacement(menu({ id: "z1" }), places())).toBe(false);
+  });
+});
+
+describe("usePickContinuation after an action", () => {
+  beforeEach(() => { vi.useFakeTimers(); setAnimationSpeed(1); duelFxClock.resetReviewTimeline(); });
+  afterEach(() => { cleanup(); setAnimationSpeed(1); duelFxClock.resetReviewTimeline(); vi.useRealTimers(); });
+
+  function setup(initial: DuelPrompt | null) {
+    return renderHook(({ prompt }: { prompt: DuelPrompt | null }) => usePickContinuation(prompt), { initialProps: { prompt: initial } });
+  }
+
+  it("the zone prompt after Normal Summon continues, and holds no bar while it is on its way", () => {
+    const { result, rerender } = setup(menu());
+    act(() => result.current.noteAnswer(menu(), { choice: "summon:0" }));
+    expect(result.current.waiting).toBeNull();
+    rerender({ prompt: places() });
+    expect(result.current.continuing).toBe(true);
+  });
+
+  it("the zone prompt after a tribute pick continues", () => {
+    const { result, rerender } = setup(tribute());
+    act(() => result.current.noteAnswer(tribute(), { selected: ["t:0"] }));
+    rerender({ prompt: places() });
+    expect(result.current.continuing).toBe(true);
+  });
+
+  it("backing out of the action menu does not skip the next zone prompt's beat", () => {
+    const { result, rerender } = setup(menu());
+    act(() => result.current.noteAnswer(menu(), { cancel: true }));
+    rerender({ prompt: places() });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("an unanswered zone prompt keeps its beat", () => {
+    const { result, rerender } = setup(menu());
+    rerender({ prompt: places() });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("an answer too long ago does not count", () => {
+    const { result, rerender } = setup(menu());
+    act(() => result.current.noteAnswer(menu(), { choice: "summon:0" }));
+    act(() => void vi.advanceTimersByTime(PICK_CONTINUATION.windowMs + 1));
+    rerender({ prompt: places() });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("a search prompt after the action keeps its beat, and uses up the chance", () => {
+    const { result, rerender } = setup(menu());
+    act(() => result.current.noteAnswer(menu(), { choice: "summon:0" }));
+    rerender({ prompt: { ...places(), id: "s1", kind: "cards" } });
+    expect(result.current.continuing).toBe(false);
+    rerender({ prompt: places({ id: "z2" }) });
+    expect(result.current.continuing).toBe(false);
   });
 });
