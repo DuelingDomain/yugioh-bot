@@ -32,11 +32,11 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
       setup: setup(format, { p0: { hand: ["Raigeki"] } }),
       steps: [expectNotOffered("activate", "Raigeki", "p0"), endTurn("p0"), board(format)],
     }),
-    scenario(format, "eliminated-owner-loses-its-zone", {
+    scenario(format, format === "tag" ? "team-loss-ends-duel" : "eliminated-owner-loses-its-zone", {
       setup: setup(format, { [owner]: { monsters: ["Mystical Elf"] } }),
       steps: [surrender(owner), endTurn("p0"), expectEliminated(format === "tag" ? ["p1", "p3"] : [owner]),
         ...(format === "tag" ? [expectResult({ team: 0 })] : [expectTurn("p1", 2)]),
-        board(format, Object.fromEntries((format === "tag" ? ["p1", "p3"] : [owner]).map((s) => [s, { deckMaster: FIELD, hand: [] }]))),
+        ...(format === "tag" ? [] : [board(format, { [owner]: { deckMaster: FIELD, hand: [] } })]),
       ],
     }),
     scenario(format, "opponent-destroys-late-seat-master", {
