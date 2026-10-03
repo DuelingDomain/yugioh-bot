@@ -147,9 +147,9 @@ export function DeadlinePicker({
       {open === "time" && value && (
         <TimePopover
           value={value}
-          onPick={(minutes) => {
+          onPick={(minutes, closePicker = true) => {
             onChange(withMinutes(value, minutes));
-            close(true);
+            if (closePicker) close(true);
           }}
           onClose={(restore) => close(restore)}
         />
@@ -203,9 +203,7 @@ function DatePopover({
   };
 
   const shiftMonth = (delta: number) => {
-    const d = new Date(view.y, view.m + delta, 1);
-    shouldFocus.current = false;
-    setView({ y: d.getFullYear(), m: d.getMonth() });
+    moveFocus(new Date(view.y, view.m + delta, 1));
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -236,13 +234,18 @@ function DatePopover({
     if (!target) return;
     const cur = new Date(Number(target.dataset.day));
     const step = (days: number) => new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + days);
+    const stepMonth = (delta: number) => {
+      const month = cur.getMonth() + delta;
+      const lastDay = new Date(cur.getFullYear(), month + 1, 0).getDate();
+      return new Date(cur.getFullYear(), month, Math.min(cur.getDate(), lastDay));
+    };
     switch (e.key) {
       case "ArrowLeft": e.preventDefault(); moveFocus(step(-1)); break;
       case "ArrowRight": e.preventDefault(); moveFocus(step(1)); break;
       case "ArrowUp": e.preventDefault(); moveFocus(step(-7)); break;
       case "ArrowDown": e.preventDefault(); moveFocus(step(7)); break;
-      case "PageUp": e.preventDefault(); moveFocus(new Date(cur.getFullYear(), cur.getMonth() - 1, cur.getDate())); break;
-      case "PageDown": e.preventDefault(); moveFocus(new Date(cur.getFullYear(), cur.getMonth() + 1, cur.getDate())); break;
+      case "PageUp": e.preventDefault(); moveFocus(stepMonth(-1)); break;
+      case "PageDown": e.preventDefault(); moveFocus(stepMonth(1)); break;
     }
   };
 
@@ -307,7 +310,7 @@ function TimePopover({
   onClose,
 }: {
   value: Date;
-  onPick: (minutes: number) => void;
+  onPick: (minutes: number, closePicker?: boolean) => void;
   onClose: (restoreFocus: boolean) => void;
 }) {
   const options = React.useMemo(() => timeOptions(), []);
@@ -342,36 +345,60 @@ function TimePopover({
         onClose(true);
         break;
       case "Tab":
-        onClose(false);
+        if (!e.shiftKey) onClose(false);
         break;
     }
   };
 
   return (
-    <div
-      ref={ref}
-      className={`dtp dtp-t ${styles.pop} ${styles.times}`}
-      role="listbox"
-      aria-label="Choose a time"
-      tabIndex={0}
-      aria-activedescendant={`deadline-time-${active}`}
-      onKeyDown={onKeyDown}
-    >
-      {options.map((o, i) => (
-        <span
-          key={o.minutes}
-          id={`deadline-time-${i}`}
-          data-i={i}
-          data-active={i === active ? "true" : undefined}
-          className={styles.opt}
-          role="option"
-          aria-selected={o.minutes === current}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onPick(o.minutes)}
-        >
-          {o.label}
-        </span>
-      ))}
+    <div className={`dtp dtp-t ${styles.pop}`}>
+      <input
+        type="time"
+        step={60}
+        className="input"
+        aria-label="Deadline time"
+        defaultValue={`${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`}
+        onChange={(e) => {
+          if (!e.currentTarget.value || !e.currentTarget.validity.valid) return;
+          const [hours, minutes] = e.currentTarget.value.split(":").map(Number);
+          onPick(hours * 60 + minutes, false);
+        }}
+        onBlur={(e) => {
+          if (!ref.current?.contains(e.relatedTarget)) onClose(true);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose(true);
+          }
+        }}
+      />
+      <div
+        ref={ref}
+        className={styles.times}
+        role="listbox"
+        aria-label="Choose a time"
+        tabIndex={0}
+        aria-activedescendant={`deadline-time-${active}`}
+        onKeyDown={onKeyDown}
+      >
+        {options.map((o, i) => (
+          <span
+            key={o.minutes}
+            id={`deadline-time-${i}`}
+            data-i={i}
+            data-active={i === active ? "true" : undefined}
+            className={styles.opt}
+            role="option"
+            aria-selected={o.minutes === current}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onPick(o.minutes)}
+          >
+            {o.label}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
