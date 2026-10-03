@@ -256,7 +256,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   }
 
   /**
-   * Every edit sends the idempotent un-ready (one at a time): Ready may have been clicked in another tab
+   * Outside previews, every edit sends the idempotent un-ready (one at a time): Ready may have been clicked in another tab
    * without this screen seeing it yet, and only the server knows.
    */
   function leaveReady() {
@@ -271,6 +271,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
       setKnownReady(false);
       setUnreadied(true);
     }
+    if (!autoSave) return;
     unreadying.current = unreadySeries(slug).then(
       (result) => {
         if (unreadyFailed.current) {

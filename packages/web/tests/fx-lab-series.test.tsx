@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -154,14 +154,23 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("does not send side-deck writes automatically from a preview", async () => {
+  it.each(["match-side-even", "match-ready"])("does not send side-deck or un-ready writes from the %s preview", async (id) => {
     const fetchMock = vi.fn(async (_url: unknown) => Response.json({ cards: [], missing: [] }));
     vi.stubGlobal("fetch", fetchMock);
     try {
-      const { room, spec } = open("match-side-even");
+      const { room, spec } = open(id);
+      if (id === "match-ready") room.series!.sideReady[0] = true;
       render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
       await act(async () => { await Promise.resolve(); });
       expect(fetchMock.mock.calls.every(([url]) => !String(url).endsWith("/series/side"))).toBe(true);
+      await act(async () => {
+        fireEvent.click(screen.getAllByRole("button", { name: id === "match-ready" ? /, Main Deck$/ : /, Main Deck, going out$/ })[0]);
+      });
+      expect(fetchMock.mock.calls.every(([url]) => !String(url).endsWith("/series/unready"))).toBe(true);
+      expect(fetchMock.mock.calls.every(([url]) => !String(url).endsWith("/series/side"))).toBe(true);
+      expect(screen.getByTestId("swap-counter").textContent).toContain(id === "match-ready" ? "1 out · 0 in" : "1 out · 2 in");
+      if (id === "match-ready") expect(screen.getByTestId("my-side-status").textContent).toMatch(/You are no longer ready/);
+      expect(screen.queryByRole("alert")).toBeNull();
     } finally {
       vi.unstubAllGlobals();
     }
