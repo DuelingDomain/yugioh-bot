@@ -134,9 +134,9 @@ describe("POST /api/bug-reports/precheck", () => {
 
   it("returns a known limit that matches the text and the format", async () => {
     const POST = await route();
-    const res = await POST(post(body({ description: "I surrendered in the 3-way duel but my monsters stayed on the field", expected: "My monsters should leave at once" })));
+    const res = await POST(post(body({ description: "The player was eliminated and his card went to my graveyard", expected: "The card should go to his graveyard" })));
     const json = await res.json();
-    expect(json.knownLimits).toEqual([expect.objectContaining({ id: "ffa-surrender-end-of-turn", explanation: expect.stringContaining("end of the turn") })]);
+    expect(json.knownLimits).toEqual([expect.objectContaining({ id: "eliminated-card-wrong-graveyard", explanation: expect.stringContaining("another player's Graveyard") })]);
     expect(json.duplicates).toEqual([]);
   });
 
