@@ -52,6 +52,16 @@ describe("login error copy", () => {
 });
 
 describe("LoginPage", () => {
+  it("renders Blue-Eyes Ultimate Dragon in the card fan with the existing alternate artworks", async () => {
+    const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
+    const cards = container.querySelectorAll(".si-fan > img");
+    expect(Array.from(cards, (card) => card.getAttribute("src"))).toEqual([
+      "https://images.ygoprodeck.com/images/cards_small/46986418.jpg",
+      "https://images.ygoprodeck.com/images/cards_small/89631146.jpg",
+      "https://images.ygoprodeck.com/images/cards_small/23995346.jpg",
+    ]);
+  });
+
   it("keeps the three cards fanned around the raised center card with the summon circle present", async () => {
     const rules: string[] = [];
     const css = readFileSync(path.resolve(__dirname, "../../../src/styles/match-sheet.css"), "utf8");

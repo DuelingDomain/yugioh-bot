@@ -9,7 +9,7 @@ import { BrandMark } from "./login-marks";
 const FAN = [
   { id: 46986418, alt: "Dark Magician" },
   { id: 89631146, alt: "Blue-Eyes White Dragon" },
-  { id: 72989439, alt: "Blue-Eyes Ultimate Dragon" },
+  { id: 23995346, alt: "Blue-Eyes Ultimate Dragon" },
 ];
 
 interface LoginPageProps {
