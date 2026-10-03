@@ -8,6 +8,8 @@ const list = css("list/drafts-list.module.css");
 const create = css("create/create.module.css");
 const lobby = css("lobby/lobby.module.css");
 const meta = css("meta-line.module.css");
+const summary = css("summary/summary.module.css");
+const pool = postcss.parse(readFileSync(resolve(import.meta.dirname, "../src/components/cards/card-pool-sheet.module.css"), "utf8"));
 
 function declarations(root: postcss.Root, selector: string, container?: string) {
   const result: Record<string, string> = {};
@@ -40,6 +42,19 @@ describe("draft meta lines", () => {
 
 describe("draft list container layouts", () => {
   const phone = "(max-width: 760px)";
+  it("keeps the small New draft action beside the title and puts the subtitle below on phones", () => {
+    const header = ":global(.ms) .head:global(.page-h)";
+    const action = ":global(.ms) .newDraft:global(.btn)";
+    expect(declarations(list, header).display).toBeUndefined();
+    expect(declarations(list, action).height).toBeUndefined();
+    expect(declarations(list, header, phone)).toMatchObject({ display: "grid", "grid-template-columns": "minmax(0, 1fr) auto", "align-items": "center" });
+    expect(declarations(list, ".heading", phone).display).toBe("contents");
+    expect(declarations(list, ".head :global(.t-title)", phone)["grid-area"]).toBe("1 / 1");
+    expect(declarations(list, ".head :global(.page-sub)", phone)["grid-column"]).toBe("1 / -1");
+    expect(declarations(list, action, phone)).toMatchObject({ "grid-area": "1 / 2", "justify-self": "end", height: "34px", padding: "0 13px", "font-size": "13.5px" });
+    expect(declarations(list, ":global(.ms) .newDraft :global(.ic)", phone)).toMatchObject({ width: "14px", height: "14px" });
+  });
+
   it("preserves the desktop columns and places phone progress and action on one line", () => {
     expect(declarations(list, ":global(.ms) .row:global(.tl-row)")["grid-template-columns"]).toBe("minmax(0, 1fr) auto auto");
     expect(declarations(list, ":global(.ms) .row:global(.tl-row)", phone)).toMatchObject({ "grid-template-columns": "minmax(0, 1fr) auto", gap: "12px" });
@@ -65,6 +80,35 @@ describe("draft list container layouts", () => {
     }
     expect(declarations(list, ".mobileKind", phone)).toMatchObject({ display: "block", color: "var(--ink-3)", "font-size": "12.5px" });
     expect(declarations(list, ":global(.ms) .ledger .fin td:first-child", phone)).toMatchObject({ "min-width": "0", "overflow-wrap": "anywhere" });
+  });
+});
+
+describe("draft phone tracks and card pools", () => {
+  it("left-aligns the lobby plates and their caption only in narrow containers", () => {
+    const track = ":global(.ms) .track:global(.trk)";
+    expect(declarations(lobby, track)["justify-items"]).toBeUndefined();
+    expect(declarations(lobby, track, "(max-width: 760px)")).toMatchObject({ width: "100%", "justify-items": "start" });
+    expect(declarations(lobby, ":global(.ms) .track :global(.trk-cap)", "(max-width: 760px)")["text-align"]).toBe("left");
+  });
+
+  it("selects three pool columns, including loading tiles, and truncates phone card names", () => {
+    const phone = "(max-width: 560px)";
+    expect(declarations(pool, ".scroll")["--pool-columns"]).toBeUndefined();
+    expect(declarations(pool, ".scroll", phone)["--pool-columns"]).toBe("3");
+    expect(declarations(pool, ".skel", phone)["grid-template-columns"]).toBe("repeat(3, minmax(0, 1fr))");
+    expect(declarations(pool, ":global(.ms) .tile :global(.ct-n)", phone)).toMatchObject({ display: "block", "min-width": "0", overflow: "hidden", "white-space": "nowrap", "text-overflow": "ellipsis" });
+  });
+
+  it("shows seven finished cards and the phone count in four columns while retaining the desktop preview", () => {
+    const phone = "(max-width: 560px)";
+    expect(declarations(summary, ".cards")["grid-template-columns"]).toBe("repeat(auto-fill, minmax(76px, 1fr))");
+    expect(declarations(summary, ".phoneMore").display).toBe("none");
+    expect(declarations(summary, ".desktopCard").display).toBeUndefined();
+    expect(declarations(summary, ".desktopMore").display).toBeUndefined();
+    expect(declarations(summary, ".cards", phone)["grid-template-columns"]).toBe("repeat(4, minmax(0, 1fr))");
+    expect(declarations(summary, ".desktopCard", phone).display).toBe("none");
+    expect(declarations(summary, ".desktopMore", phone).display).toBe("none");
+    expect(declarations(summary, ".phoneMore", phone).display).toBe("block");
   });
 });
 

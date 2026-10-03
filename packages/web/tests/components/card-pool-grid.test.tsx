@@ -364,7 +364,41 @@ describe("CardPoolGrid memoization", () => {
 });
 
 describe('CardPoolGrid variant="sheet"', () => {
-  beforeEach(() => installVirtualizerJsdomEnv());
+  const viewport = { width: 900, height: 600 };
+  beforeEach(() => {
+    viewport.width = 900;
+    installVirtualizerJsdomEnv(viewport);
+  });
+
+  it.each([
+    [300, "3", 3],
+    [390, "3", 3],
+    [1440, "", 13],
+  ] as const)("lays out full virtual rows at %ipx using the container column choice", (width, columnChoice, columns) => {
+    viewport.width = width;
+    // jsdom cannot evaluate container queries. Supply only the computed CSS choice.
+    const getStyle = window.getComputedStyle.bind(window);
+    const styleSpy = vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+      const computed = getStyle(element, pseudo);
+      if (!element.classList.contains(sheetStyles.scroll)) return computed;
+      const result = document.createElement("div").style;
+      result.cssText = computed.cssText;
+      result.setProperty("--pool-columns", columnChoice);
+      return result;
+    });
+    try {
+      const many = Array.from({ length: 30 }, (_, i) => ({ ...cards[0], id: 1000 + i, name: `Card ${i + 1}` }));
+      render(<CardPoolGrid cards={many} variant="sheet" />);
+      const firstRow = screen.getByTestId("card-pool-grid").firstElementChild as HTMLElement;
+      expect(firstRow).toHaveStyle({ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` });
+      const buttons = within(firstRow).getAllByRole("button", { name: /^Preview Card / });
+      expect(buttons).toHaveLength(columns);
+      expect(buttons[0]).toHaveAccessibleName("Preview Card 30");
+      expect(buttons[columns - 1]).toHaveAccessibleName(`Preview Card ${31 - columns}`);
+    } finally {
+      styleSpy.mockRestore();
+    }
+  });
 
   it("shows the kind tally at the top and a preview tile per card", () => {
     const { container } = render(<CardPoolGrid cards={cards} variant="sheet" />);

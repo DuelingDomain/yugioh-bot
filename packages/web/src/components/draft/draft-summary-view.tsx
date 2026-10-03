@@ -72,6 +72,7 @@ interface DraftSummaryViewProps {
 }
 
 const GROUP_PREVIEW = 12;
+const GROUP_PHONE_PREVIEW = 7;
 
 function PoolGroupView({
   group,
@@ -91,6 +92,7 @@ function PoolGroupView({
   const [expanded, setExpanded] = React.useState(false);
   const shown = expanded ? group.cards : group.cards.slice(0, GROUP_PREVIEW);
   const hidden = group.cards.length - shown.length;
+  const phoneHidden = expanded ? 0 : Math.max(0, group.cards.length - GROUP_PHONE_PREVIEW);
   return (
     <div className={styles.group}>
       <p className={styles.groupHead}>
@@ -98,7 +100,7 @@ function PoolGroupView({
       </p>
       <ul className={styles.cards}>
         {shown.map((card, i) => (
-          <li key={`${card.id}-${i}`}>
+          <li key={`${card.id}-${i}`} className={!expanded && i >= GROUP_PHONE_PREVIEW ? styles.desktopCard : undefined}>
             <button
               type="button"
               aria-label={card.name}
@@ -124,9 +126,16 @@ function PoolGroupView({
           </li>
         ))}
         {hidden > 0 && (
-          <li className={styles.more}>
+          <li className={`${styles.more} ${styles.desktopMore}`}>
             <button type="button" aria-expanded={false} onClick={() => setExpanded(true)}>
               {hidden} more
+            </button>
+          </li>
+        )}
+        {phoneHidden > 0 && (
+          <li className={`${styles.more} ${styles.phoneMore}`}>
+            <button type="button" aria-expanded={false} onClick={() => setExpanded(true)}>
+              {phoneHidden} more
             </button>
           </li>
         )}

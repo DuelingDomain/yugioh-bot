@@ -8,6 +8,7 @@ vi.mock("next/font/google", () => {
 });
 
 import { DraftSummaryView } from "../../src/components/draft/draft-summary-view";
+import styles from "../../src/components/draft/summary/summary.module.css";
 import { installVirtualizerJsdomEnv } from "../helpers/virtualizer-jsdom";
 
 vi.mock("next/image", () => ({
@@ -316,6 +317,43 @@ describe("DraftSummaryView", () => {
         {...props}
       />,
     );
+
+  it.each([
+    ["booster", "Monsters", samplePool[0]],
+    ["booster", "Spells", samplePool[1]],
+    ["booster", "Traps", samplePool[2]],
+    ["booster", "Extra deck", { ...samplePool[0], type: "Fusion Monster", frameType: "fusion" }],
+    ["theme", "Main deck", samplePool[1]],
+    ["theme", "Extra deck", { ...samplePool[0], type: "Fusion Monster", frameType: "fusion" }],
+  ] as const)("supplies desktop and phone counts for %s %s and expands on phones", (mode, title, card) => {
+    const many = Array.from({ length: 15 }, (_, i) => ({ ...card, id: 1000 + i, name: `Card ${i + 1}` }));
+    renderView({ ...baseDraft, config: { ...baseDraft.config, mode } }, { myPool: many });
+    const list = screen.getByRole("button", { name: "Card 1" }).closest("ul")!;
+    expect(list.previousElementSibling).toHaveTextContent(`${title} 15`);
+    expect(within(list).getAllByRole("button", { name: /^Card / })).toHaveLength(12);
+    expect(list.querySelectorAll(`.${styles.desktopCard}`)).toHaveLength(5);
+    const desktopMore = list.querySelector(`.${styles.desktopMore} button`)!;
+    const phoneMore = list.querySelector(`.${styles.phoneMore} button`)!;
+    expect(desktopMore).toHaveTextContent("3 more");
+    expect(phoneMore).toHaveTextContent("8 more");
+    fireEvent.click(phoneMore);
+    expect(within(list).getAllByRole("button", { name: /^Card / })).toHaveLength(15);
+    expect(within(list).queryByRole("button", { name: /more$/ })).toBeNull();
+    expect(list.querySelectorAll(`.${styles.desktopCard}`)).toHaveLength(0);
+  });
+
+  it.each([
+    [7, null, null],
+    [8, null, "1 more"],
+    [12, null, "5 more"],
+    [13, "1 more", "6 more"],
+  ] as const)("supplies the correct preview counts for a group of %i cards", (count, desktopCount, phoneCount) => {
+    const many = Array.from({ length: count }, (_, i) => ({ ...samplePool[1], id: 1000 + i, name: `Card ${i + 1}` }));
+    renderView(baseDraft, { myPool: many });
+    const list = screen.getByRole("button", { name: "Card 1" }).closest("ul")!;
+    expect(list.querySelector(`.${styles.desktopMore} button`)?.textContent ?? null).toBe(desktopCount);
+    expect(list.querySelector(`.${styles.phoneMore} button`)?.textContent ?? null).toBe(phoneCount);
+  });
 
   it.each([
     [45, "45 s"], [60, "1 min"], [90, "1 min 30 s"], [600, "10 min"],

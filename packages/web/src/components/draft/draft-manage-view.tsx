@@ -375,6 +375,7 @@ export function DraftManageView({
           ]} />
         </div>
         <StationTrack
+          className={styles.track}
           stations={stations}
           current={0}
           tone={isCreator ? "mine" : "theirs"}

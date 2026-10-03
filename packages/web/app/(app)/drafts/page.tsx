@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db";
 import { SheetRoot } from "@/components/sheet";
 import { LiveDraftRow, WaitingDraftRow } from "@/components/draft/list/draft-rows";
 import { FinishedLedger } from "@/components/draft/list/finished-ledger";
+import styles from "@/components/draft/list/drafts-list.module.css";
 import {
   groupDrafts,
   listSummaryParts,
@@ -72,8 +73,8 @@ export default async function DraftsPage() {
 
   return (
     <SheetRoot>
-      <header className="page-h sheet-head">
-        <div>
+      <header className={`page-h sheet-head ${styles.head}`}>
+        <div className={styles.heading}>
           <h1 className="t-title">Drafts</h1>
           {drafts.length > 0 && (
             <p className="page-sub">
@@ -87,7 +88,7 @@ export default async function DraftsPage() {
             </p>
           )}
         </div>
-        <Link className="btn btn-primary" href="/drafts/new">
+        <Link className={`btn btn-primary ${styles.newDraft}`} href="/drafts/new">
           <Plus className="ic" aria-hidden="true" />
           New draft
         </Link>

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DraftManageView } from "../../src/components/draft/draft-manage-view";
+import lobbyStyles from "../../src/components/draft/lobby/lobby.module.css";
 import type { CardSummary } from "../../src/lib/card-types";
 import { installVirtualizerJsdomEnv } from "../helpers/virtualizer-jsdom";
 
@@ -83,6 +84,17 @@ describe("DraftManageView — header, players, start", () => {
     { playerId: 1, isCurrentPlayer: true },
     { playerId: 2, isCurrentPlayer: false },
   ];
+
+  it.each([
+    ["booster", ["LB", "DR", "DK"]],
+    ["theme", ["LB", "MN", "EX", "DK"]],
+  ] as const)("uses the flush phone track for a %s lobby", (mode, codes) => {
+    render(<DraftManageView {...baseProps} draft={{ ...baseDraft, config: { ...baseDraft.config, mode, extraDeckEnabled: true } }} />);
+    const plates = screen.getByRole("list", { name: "Draft progress" });
+    expect(plates.closest(".trk")).toHaveClass(lobbyStyles.track);
+    expect(Array.from(plates.querySelectorAll("b"), (plate) => plate.textContent)).toEqual(codes);
+    expect(within(plates).getByText("LB").parentElement).toHaveAttribute("aria-current", "step");
+  });
 
   it("shows the crumb, status, kind and the host's rename pencil", () => {
     render(<DraftManageView {...baseProps} />);
