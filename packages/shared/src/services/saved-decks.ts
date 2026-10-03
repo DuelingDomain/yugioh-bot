@@ -188,6 +188,13 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
      from saved_decks
      where guild_id = ? and owner_user_id = ? and draft_id = ?`,
   );
+  // A deck linked to a draft counts as that player's draft deck: a later delete is not undone
+  // by the backfill (see draft_players.deck_saved_at).
+  const markDraftDeckSaved = db.prepare<[number, string, string]>(
+    `update draft_players set deck_saved_at = current_timestamp
+     where draft_id = ? and deck_saved_at is null
+       and player_id in (select id from players where guild_id = ? and discord_user_id = ?)`,
+  );
   const deleteRow = db.prepare(
     `delete from saved_decks where id = ? and guild_id = ? and owner_user_id = ?`,
   );
@@ -218,6 +225,7 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
       } catch (error) {
         rethrowDraftConstraint(error);
       }
+      if (draftId !== null) markDraftDeckSaved.run(draftId, guildId, ownerUserId);
       return loadOwned(Number(result.lastInsertRowid), guildId, ownerUserId);
     },
 
@@ -240,6 +248,8 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
       } catch (error) {
         rethrowDraftConstraint(error);
       }
+      const linkedDraftId = draftId === undefined ? (existing.draftId ?? null) : draftId;
+      if (linkedDraftId !== null) markDraftDeckSaved.run(linkedDraftId, guildId, ownerUserId);
       return loadOwned(id, guildId, ownerUserId);
     },
 

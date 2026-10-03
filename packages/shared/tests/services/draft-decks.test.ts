@@ -10,6 +10,7 @@ import {
   draftDeckNote,
 } from "../../src/services/draft-decks.js";
 import { createSavedDeckService } from "../../src/services/saved-decks.js";
+import { createTournamentService } from "../../src/services/tournaments.js";
 import { createTournamentDuelService } from "../../src/services/tournament-duels.js";
 
 const EXTRA_IDS = [11, 12];
@@ -188,6 +189,29 @@ describe("a draft deck the player removed", () => {
     const decks = createSavedDeckService(db);
     decks.delete(decks.findByDraft("g1", "u2", draftId)!.id, "g1", "u2");
     expect(createDraftDeckService(db).ensureForUser("g1", "u2")).toEqual([]);
+    db.close();
+  });
+});
+
+describe("a deck made by hand for a draft", () => {
+  it("counts as saved, so deleting it later is not undone", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    seed(db);
+    const alice = addPlayer(db, "u1", "Alice");
+    const bob = addPlayer(db, "u2", "Bob");
+    const { draftId } = playDraft(db, [alice, bob], "u1");
+    // A draft that ended before decks were saved; the player then saves a deck for it by hand.
+    db.prepare("delete from saved_decks").run();
+    db.prepare("update draft_players set deck_saved_at = null").run();
+    const decks = createSavedDeckService(db);
+    const made = decks.create("g1", "u1", { name: "Mine", mode: "normal", deck: { main: [1, 2, 3], extra: [], side: [] }, draftId });
+    expect(db.prepare("select deck_saved_at from draft_players where player_id = ?").get(alice)).not.toEqual({ deck_saved_at: null });
+    expect(db.prepare("select deck_saved_at from draft_players where player_id = ?").get(bob)).toEqual({ deck_saved_at: null });
+
+    decks.delete(made.id, "g1", "u1");
+    expect(createDraftDeckService(db).ensureForUser("g1", "u1")).toEqual([]);
+    expect(decks.findByDraft("g1", "u1", draftId)).toBeNull();
     db.close();
   });
 });
