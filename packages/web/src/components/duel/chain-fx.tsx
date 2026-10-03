@@ -331,6 +331,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         const rect = panel.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) panels.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
       }
+      // The pile viewer mounts inside the board box, so it cannot rise above the front layer: hide the layer instead.
+      const pileOpen = document.querySelector("[data-pile-viewer]") != null;
       let gutter = gutterRef.current.px;
       const now = clock();
       if (front && now - gutterRef.current.at >= GUTTER_EVERY_MS) {
@@ -388,6 +390,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       }
       // ---- Write phase. ----
       if (front) {
+        const suspended = pileOpen ? "true" : "false";
+        if (front.dataset.suspended !== suspended) front.dataset.suspended = suspended;
         if (front.dataset.size !== size) front.dataset.size = size;
         const dock = chips ? `${Math.round(chips.left)},${Math.round(chips.top)}` : "";
         if (front.dataset.dock !== dock) {

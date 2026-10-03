@@ -253,6 +253,30 @@ describe("chain front layer stacking", () => {
     });
   });
 
+  describe("pile viewer", () => {
+    it("hides the front layer while a pile viewer is open, and shows it again when it closes", () => {
+      const { getByTestId } = render(<Table table="ffa3" />);
+      act(() => { vi.advanceTimersByTime(60); });
+      const front = getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
+      expect(front.dataset.suspended).toBe("false");
+      // The viewer mounts inside the board box, under the front layer's z-index: the layer has to yield.
+      const viewer = document.createElement("aside");
+      viewer.setAttribute("data-pile-viewer", "");
+      getByTestId("root").querySelector("[data-board]")!.appendChild(viewer);
+      act(() => { vi.advanceTimersByTime(60); });
+      expect(front.dataset.suspended).toBe("true");
+      viewer.remove();
+      act(() => { vi.advanceTimersByTime(60); });
+      expect(front.dataset.suspended).toBe("false");
+    });
+
+    it("hides the layer in the style sheet too, without waiting for a frame", () => {
+      const sheet = css("chain-fx.module.css");
+      expect(sheet).toMatch(/\.front\[data-suspended="true"\][^{]*\{[^}]*visibility:\s*hidden/);
+      expect(sheet).toMatch(/:global\(\[data-duel-fx-speed-root\]\):has\(:global\(\[data-pile-viewer\]\)\)\s+\.front/);
+    });
+  });
+
   it("paints the layer above the prompt in the style sheets", () => {
     const sheet = css("chain-fx.module.css");
     expect(sheet).toMatch(/\.front\s*\{[^}]*z-index:\s*var\(--duel-z-chain\)/);

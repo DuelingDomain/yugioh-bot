@@ -29,9 +29,13 @@
 
 /* The front layer: badges, the card callout and the chain stack. It is portaled into the duel root, so
    no stacking context of the board, a table slot or the room's prompt dock can trap it: at --duel-z-chain
-   it paints over the prompt, the banners and the piles. The hover card and the menus are portals above
-   the root and are the only things that can still sit over it. */
+   it paints over the prompt and the banners. The hover card and the menus are portals above the root and
+   can still sit over it. The pile viewer mounts inside the board box, so it cannot rise above this layer:
+   while it is open the layer is hidden (the :has rule at once, data-suspended from the frame loop as a
+   fallback for a browser without :has). */
 .front { z-index: var(--duel-z-chain); }
+.front[data-suspended="true"],
+:global([data-duel-fx-speed-root]):has(:global([data-pile-viewer])) .front { visibility: hidden; }
 /* Portaled into the duel root: placed over the board box by the frame loop (translate, width, height). */
 .layer[data-portal="true"] { inset: auto; left: 0; top: 0; }
 
