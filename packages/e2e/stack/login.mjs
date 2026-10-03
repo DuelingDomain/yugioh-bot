@@ -6,7 +6,7 @@ import { authenticatePlayer } from "./login-auth.mjs";
 
 const player = players.find((candidate) => candidate.key === process.argv[2]);
 if (!player) {
-  console.error("Usage: npm run stack:login --workspace=packages/e2e -- p1 (or p2, p3, p4)");
+  console.error("Usage: npm run stack:login --workspace=packages/e2e -- p1 (or p2, p3, p4, p5)");
   process.exit(1);
 }
 

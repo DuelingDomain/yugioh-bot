@@ -42,6 +42,8 @@ export const players = [
   { key: "p2", discordId: "900000000000000102", name: "E2E Bob" },
   { key: "p3", discordId: "900000000000000103", name: "E2E Carol" },
   { key: "p4", discordId: "900000000000000104", name: "E2E Dave" },
+  // Never seated by the four-seat specs: the unseated watcher of a full table.
+  { key: "p5", discordId: "900000000000000105", name: "E2E Eve" },
 ];
 
 export const dbPath = resolve(stackDir, "e2e.sqlite");

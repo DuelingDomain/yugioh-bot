@@ -40,7 +40,7 @@ async function table(format: DuelFormat = "ffa3", eliminated = true) {
     return { status: response.status, data: await response.json() };
   }
   expect((await post({ op: "start" })).status).toBe(200);
-  return { duels, session, post, reads, view, pending: () => { pending = true; } };
+  return { db, duels, session, post, reads, view, pending: () => { pending = true; } };
 }
 
 it.each(["ffa3", "ffa4"] as const)("projects an eliminated %s player through the public worker view and preserves seats", async format => {
@@ -60,14 +60,31 @@ it("rejects a living or merely Leaving player's spectator switch", async () => {
   expect((await t.post({ op: "view", spectate: true })).status).toBe(409);
 });
 
-it("restores the saved public final view instead of a private seat snapshot", async () => {
-  const t = await table();
+function finish(t: Awaited<ReturnType<typeof table>>) {
   const publicView = { ...t.view(null), prioritySeat: null, result: { winnerSeat: 2, reason: "Surrender" }, eliminationOrder: [[0], [1]] };
-  t.duels.complete(t.session.slug, "g", 2, "Surrender", { public: publicView, seats: [t.view(0), t.view(1), t.view(2)] });
-  const result = await t.post({ op: "view", spectate: true });
+  const seats = [t.view(0), t.view(1), t.view(2)].map(seat => ({ ...seat, result: publicView.result }));
+  t.duels.complete(t.session.slug, "g", 2, "Surrender", { public: publicView, seats });
+  return { publicView, seats };
+}
+
+it("restores the saved public final view for an unseated watcher instead of a private seat snapshot", async () => {
+  const t = await table();
+  const { publicView } = finish(t);
+  const watcher = Number(t.db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', 'watcher', 'Watcher')").run().lastInsertRowid);
+  const result = await t.post({ op: "view", spectate: true, playerId: watcher });
   expect(result.status, JSON.stringify(result.data)).toBe(200);
   expect(result.data.engine).toEqual(publicView);
   expect(result.data).toMatchObject({ role: "spectator", mySeat: null, myDeck: null });
+});
+
+it("shows a seated actor their own result when spectate=1 reads a finished duel", async () => {
+  const t = await table();
+  const { seats } = finish(t);
+  const result = await t.post({ op: "view", spectate: true });
+  expect(result.status, JSON.stringify(result.data)).toBe(200);
+  expect(result.data).toMatchObject({ role: "player", mySeat: 0, session: { status: "completed" } });
+  expect(result.data.engine).toMatchObject({ ...seats[0], prioritySeat: null });
+  expect(result.data.engine.result).toEqual({ winnerSeat: 2, reason: "Surrender" });
 });
 
 it("keeps a 1v1 player in its existing role", async () => {

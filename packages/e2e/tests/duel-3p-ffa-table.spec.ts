@@ -366,9 +366,10 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(losers).toHaveLength(2);
     expect(new Set([...losers, engine.result!.winnerSeat]).size).toBe(3);
     const result = alice.page.getByTestId("duel-result");
-    // A lost seat switches to spectating on its own, so it reads the result as a spectator and not as "lose".
-    const outcome = engine.result!.winnerSeat === 0 ? "win" : "spectator";
+    // A seat that auto-spectated still reads its own loss once the duel is over.
+    const outcome = engine.result!.winnerSeat === 0 ? "win" : "lose";
     await expect(result).toHaveAttribute("data-outcome", outcome);
+    await expect(result.locator("[data-tag='you']")).toHaveCount(1);
     await expect(result.locator("[data-place]")).toHaveText(["1st", "2nd", "3rd"]);
     const order = [engine.result!.winnerSeat!, ...[...engine.eliminationOrder!].reverse().flat()];
     const room = await readTable(alice.page, slug);

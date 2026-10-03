@@ -164,6 +164,9 @@ export async function startTable(
 ): Promise<Table> {
   if (humans.length !== decks.length) throw new Error(`startTable: ${humans.length} players but ${decks.length} decks`);
   const [host, ...guests] = humans as [Seat, ...Seat[]];
+  // The host is seat 0 (the creator takes it) and a table has at most 8 seats; the seat labels below rely on both.
+  if (humans.length + (options.bots?.length ?? 0) > 8) throw new Error("startTable: a table has at most 8 seats");
+  for (const seat of options.bots ?? []) if (seat < 1 || seat > 7) throw new Error(`startTable: bot seat ${seat} is outside 1-7 (seat 0 is the host)`);
   const table = uniqueTableName(label);
   const slug = await createTable(host.page, table, options);
   for (const seat of options.bots ?? []) await addBotToSeat(host.page, slug, seat);

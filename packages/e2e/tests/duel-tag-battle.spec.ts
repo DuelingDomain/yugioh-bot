@@ -34,8 +34,9 @@ const teamHits = (events: DuelEvent[], team: number): DuelEvent[] =>
   events.filter((event) => event.kind === "damage" && event.seat != null && teamOf(event.seat) === team && (event.amount ?? 0) > 0);
 
 /**
- * The attacker picks the rival to hit directly. The engine may ask for it (a choice that names rival seats), or may
- * attack at once. The pick goes through the rival chip of the team plate, then a confirm button if the table has one.
+ * The attacker picks the rival to hit directly. The setup gives two open rivals (no monsters on their boards), so the
+ * engine must ask for the pick; an attack that lands at once would skip the digit-key path, so it fails the spec.
+ * The pick goes through the rival chip of the team plate, then a confirm button if the table has one.
  */
 async function pickDirectTarget(page: Page, slug: string, attackerSeat: number, targetSeat: number): Promise<void> {
   const outcome = await expect.poll(async () => {
@@ -48,7 +49,7 @@ async function pickDirectTarget(page: Page, slug: string, attackerSeat: number, 
     const engine = (await readTable(page, slug)).engine!;
     return teamLp(engine, 1 - teamOf(attackerSeat)) < TEAM_LP ? "done" : "pick";
   });
-  if (outcome === "done") return;
+  expect(outcome, "two open rivals: the engine asks which one to hit").toBe("pick");
   // The chip shows its digit; the digit key must choose the same rival as a click does.
   const chip = page.locator(`[data-lp-seat='${targetSeat}'][data-pickable='true']`);
   const key = (await chip.locator("kbd").textContent())?.trim() ?? "";
