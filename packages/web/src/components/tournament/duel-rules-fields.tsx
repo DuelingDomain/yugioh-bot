@@ -3,9 +3,7 @@
 import * as React from "react";
 import { DUEL_BANLIST_OPTIONS, type DuelBestOf, type DuelMode } from "@yugidraft/shared/duels";
 import { turnSecondsChoices, withMode, type DuelRulesValue } from "./duel-rules";
-
-const SELECT_CLASS =
-  "native-select w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none disabled:opacity-60";
+import styles from "./duel-rules-fields.module.css";
 
 const BEST_OF_CHOICES: ReadonlyArray<{ value: DuelBestOf; label: string }> = [
   { value: 3, label: "Best of 3" },
@@ -13,7 +11,8 @@ const BEST_OF_CHOICES: ReadonlyArray<{ value: DuelBestOf; label: string }> = [
 ];
 
 /**
- * Best of + basic duel rules (mode, banlist, turn time) for a tournament.
+ * Best of + basic duel rules (mode, banlist, turn time) for a tournament, on the Match Sheet
+ * form classes. It renders its own `.fields` grid, so it must sit inside a `.ms` root.
  * `draft` keeps only the Best of choice: draft tournaments have fixed rules.
  */
 export function DuelRulesFields({
@@ -29,11 +28,14 @@ export function DuelRulesFields({
   draft?: boolean;
   disabled?: boolean;
 }) {
+  const lengthId = `${idPrefix}-length`;
   return (
-    <div className="space-y-4">
-      <fieldset disabled={disabled}>
-        <legend className="mb-1 block text-sm font-medium text-text-primary">Match length</legend>
-        <div role="radiogroup" aria-label="Match length" className="inline-flex rounded-lg border border-border bg-surface p-0.5">
+    <div className={`fields ${styles.fields}`}>
+      <div className="wide">
+        <span className="label" id={lengthId}>
+          Match length
+        </span>
+        <div role="radiogroup" aria-labelledby={lengthId} className={`seg ${styles.seg}`}>
           {BEST_OF_CHOICES.map((choice) => {
             const selected = value.bestOf === choice.value;
             return (
@@ -42,27 +44,23 @@ export function DuelRulesFields({
                 type="button"
                 role="radio"
                 aria-checked={selected}
+                aria-pressed={selected}
                 disabled={disabled}
                 onClick={() => onChange({ ...value, bestOf: choice.value })}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-accent-primary disabled:cursor-not-allowed ${
-                  selected ? "bg-accent-primary text-white" : "text-text-secondary hover:text-text-primary"
-                }`}
               >
                 {choice.label}
               </button>
             );
           })}
         </div>
-      </fieldset>
+      </div>
 
       {draft ? (
-        <p className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-secondary">
-          Draft rules: no banlist, pool decks only
-        </p>
+        <p className={`wide ${styles.note}`}>Draft rules: no banlist, pool decks only</p>
       ) : (
         <>
           <div>
-            <label htmlFor={`${idPrefix}-mode`} className="mb-1 block text-sm font-medium text-text-primary">
+            <label htmlFor={`${idPrefix}-mode`} className="label">
               Duel mode
             </label>
             <select
@@ -70,14 +68,14 @@ export function DuelRulesFields({
               value={value.mode}
               disabled={disabled}
               onChange={(e) => onChange(withMode(value, e.target.value as DuelMode))}
-              className={SELECT_CLASS}
+              className={`input select ${styles.select}`}
             >
               <option value="normal">Normal</option>
               <option value="domain">Domain</option>
             </select>
           </div>
           <div>
-            <label htmlFor={`${idPrefix}-banlist`} className="mb-1 block text-sm font-medium text-text-primary">
+            <label htmlFor={`${idPrefix}-banlist`} className="label">
               Banlist
             </label>
             <select
@@ -85,7 +83,7 @@ export function DuelRulesFields({
               value={value.banlist}
               disabled={disabled}
               onChange={(e) => onChange({ ...value, banlist: e.target.value })}
-              className={SELECT_CLASS}
+              className={`input select ${styles.select}`}
             >
               {DUEL_BANLIST_OPTIONS.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -95,7 +93,7 @@ export function DuelRulesFields({
             </select>
           </div>
           <div>
-            <label htmlFor={`${idPrefix}-turn`} className="mb-1 block text-sm font-medium text-text-primary">
+            <label htmlFor={`${idPrefix}-turn`} className="label">
               Turn time
             </label>
             <select
@@ -103,7 +101,7 @@ export function DuelRulesFields({
               value={value.turnSeconds}
               disabled={disabled}
               onChange={(e) => onChange({ ...value, turnSeconds: Number(e.target.value) })}
-              className={SELECT_CLASS}
+              className={`input select ${styles.select}`}
             >
               {turnSecondsChoices(value.turnSeconds).map((choice) => (
                 <option key={choice.value} value={choice.value}>
