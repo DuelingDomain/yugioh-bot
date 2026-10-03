@@ -1,5 +1,5 @@
 // The equipped monster fixes the recipient of the next Standby Phase damage.
-import { activate, changePosition, endTurn, expectPrompt, pickOpponent, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { changePosition, endTurn, expectPrompt, pickOpponent, yes, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { baseSetup, everySeat, SEATS, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
