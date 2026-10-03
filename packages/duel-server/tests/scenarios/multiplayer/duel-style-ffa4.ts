@@ -13,7 +13,6 @@ import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 const SKULL = "Summoned Skull";
 const Q8 = `${SOURCE} [R-FFA-OPP-ONE], answers to the ten triage questions, 8 (Tribute of an opponent monster)`;
-const NO_WRAPPER = `${SOURCE} [R-FFA-OPP-ONE], the other cards use the defaults`;
 const OWNER_LP = `${SOURCE}, finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
 const SUMMON = `${SOURCE} [R-COMMON-OPP-PICK], a summon to the field of an opponent: the summoning player picks one opponent`;
 
@@ -48,8 +47,11 @@ export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
   defineScenario({
     id: "no-wrapper-snatch-steal-ffa4-takes-a-monster-of-the-last-opponent",
     title: "FFA4: Snatch Steal equips a monster of the third opponent p3 and takes control of it, p1 and p2 keep all",
-    source: NO_WRAPPER,
-    rules: ["R-FFA-OPP-ONE"],
+    source: `${SOURCE} [R-COMMON-SEP-FIELDS], Snatch Steal control change without an opponent declaration`,
+    // This row proves the control change only. It has no opponent declaration.
+    // Add R-FFA-OPP-ONE only when a pick step proves the declaration order.
+    // equip-filter-pick (triage brief 02) owns the declaration-order change.
+    rules: ["R-COMMON-SEP-FIELDS"],
     tags: ["multiplayer", "no-wrapper", "equip", "steal", "ffa4", "card:45986603"],
     setup: {
       format: "ffa4",

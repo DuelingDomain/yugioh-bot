@@ -239,8 +239,11 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
   defineScenario({
     id: "no-wrapper-snatch-steal-ffa3-takes-a-monster-of-any-opponent",
     title: "FFA3: Snatch Steal equips a monster of the second opponent and takes control of it, the first opponent keeps all",
-    source: NO_WRAPPER,
-    rules: ["R-FFA-OPP-ONE"],
+    source: `${SOURCE} [R-COMMON-SEP-FIELDS], Snatch Steal control change without an opponent declaration`,
+    // This row proves the control change only. It has no opponent declaration.
+    // Add R-FFA-OPP-ONE only when a pick step proves the declaration order.
+    // equip-filter-pick (triage brief 02) owns the declaration-order change.
+    rules: ["R-COMMON-SEP-FIELDS"],
     tags: ["multiplayer", "no-wrapper", "equip", "steal", "ffa3", "card:45986603"],
     setup: {
       format: "ffa3",
