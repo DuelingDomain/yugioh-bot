@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { BugReportServiceError, createBugReportService, createPlayerService } from "@yugidraft/shared/services";
 import { webBaseUrl } from "@/lib/announce-bot";
 import { parseBugReportRequest } from "@/lib/bug-report";
@@ -14,7 +14,7 @@ export const runtime = "nodejs";
  * database. The public issue gets only the report id and the public context. A GitHub failure never loses the report:
  * the answer is still 200 with `issue: null`.
  */
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   const actor = await requireWebAccess();
   if (!actor.ok) return actor.response;
   const guildId = env.discordGuildId;
