@@ -67,7 +67,7 @@ export interface EffectSpec {
   /** Setup of single seats instead of `opp`, `tgt` and `partner` (seat names of the format). */
   seats?: Partial<Record<Seat, DuelistSetup>>;
   /** End state of single seats instead of the derived one. */
-  seatEnd?: Partial<Record<Seat, Zones>>;
+  seatEnd?: Partial<Record<Seat, Zones>> | ((roles: Roles) => Partial<Record<Seat, Zones>>);
   /** The steps up to the opponent pick. They receive the roles of the format. */
   steps: Step[] | ((roles: Roles) => Step[]);
   /** The steps after the pick, for example the answer of a yes/no prompt. */
@@ -140,16 +140,17 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
     for (const seat of roles.opponents) setup[seat] = seat === roles.tgt ? tgtSetup : oppSetup;
     if (roles.partner) setup[roles.partner] = partnerSetup;
     for (const [seat, value] of Object.entries(spec.seats ?? {})) if (seat in setup || seat === roles.partner) setup[seat] = value;
-    const at = (zones: Zones | ((r: Roles) => Zones) | undefined): Zones | undefined => (typeof zones === "function" ? zones(roles) : zones);
+    const at = <T>(value: T | ((r: Roles) => T) | undefined): T | undefined => (typeof value === "function" ? (value as (r: Roles) => T)(roles) : value);
+    const seatEnd = at(spec.seatEnd) ?? {};
     const seatSpec: Partial<Record<Seat, Zones>> = { p0: at(spec.p0End)! };
     for (const seat of roles.others) seatSpec[seat] = at(spec.othersEnd) ?? zonesOf(oppSetup);
     seatSpec[roles.tgt] = at(spec.tgtEnd) ?? merge(zonesOf(tgtSetup), spec.gain);
     if (roles.partner) seatSpec[roles.partner] = at(spec.partnerEnd) ?? zonesOf(partnerSetup);
     for (const [seat, value] of Object.entries(spec.seats ?? {})) {
       if (seat === roles.tgt) seatSpec[seat] = at(spec.tgtEnd) ?? merge(zonesOf(value), spec.gain);
-      else if (seat !== "p0" && !(seat in (spec.seatEnd ?? {}))) seatSpec[seat as Seat] = zonesOf(value);
+      else if (seat !== "p0" && !(seat in (seatEnd))) seatSpec[seat as Seat] = zonesOf(value);
     }
-    Object.assign(seatSpec, spec.seatEnd ?? {});
+    Object.assign(seatSpec, seatEnd);
     const steps = typeof spec.steps === "function" ? spec.steps(roles) : spec.steps;
     const then = typeof spec.then === "function" ? spec.then(roles) : (spec.then ?? []);
     const by = spec.pickBy ?? "p0";
@@ -160,8 +161,8 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
     return defineScenario({
       id: `opponent-field-effects-${format}-${spec.slug}-goes-to-${format === "tag" ? "an-opposing-member" : "the-picked-opponent"}`,
       title: `${FORMAT_LABEL[format]}: ${spec.name} ${spec.does} on the field of ${where} (${roles.tgt}) only; the other seats are unchanged`,
-      source: `${SOURCE} [R-COMMON-OPP-PICK]`,
-      rules: format === "tag" ? ["R-COMMON-OPP-PICK", "R-COMMON-OPP-FIELD", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK", "R-COMMON-OPP-FIELD"],
+      source: `${SOURCE} [R-COMMON-OPP-PICK] ${format === "tag" ? "[R-TAG-SHARED-CARDS]" : "[R-FFA-OPP-ONE]"}`,
+      rules: format === "tag" ? ["R-COMMON-OPP-PICK", "R-TAG-SHARED-CARDS", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK", "R-FFA-OPP-ONE"],
       tags: ["multiplayer", "opponent-field-summon", format, `card:${spec.code}`],
       setup: setup as never,
       steps: [...steps, ...pick, ...then, everySeat(format, Object.fromEntries(Object.entries(seatSpec).map(([seat, zones]) => [seat, expectOf(zones)])))],

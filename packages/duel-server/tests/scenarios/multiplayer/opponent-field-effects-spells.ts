@@ -49,15 +49,16 @@ const SPECS: EffectSpec[] = [
     gain: { monsters: ["Bomb Token"] },
   },
   {
-    code: 83778600, name: "Foolish Revival", slug: "foolish-revival", does: "Special Summons the Summoned Skull of the Graveyard of p1",
+    code: 83778600, name: "Foolish Revival", slug: "foolish-revival", does: "Special Summons a monster from an opponent's Graveyard",
     p0: { spells: [set("Foolish Revival")] },
     opp: {},
     seats: { p1: { grave: [SKULL] }, p2: { grave: [MAGICIAN] }, p3: { grave: [MAGICIAN] } },
     steps: [activate("Foolish Revival", "p0")],
-    then: [select({ card: SKULL, owner: "p1" })],
+    // ADR 0002 R-FFA-OPP-ONE: the Graveyard source and destination are the same opponent.
+    then: (roles) => roles.format === "tag" ? [select({ card: SKULL, owner: "p1" })] : [],
     p0End: { grave: ["Foolish Revival"] },
-    gain: { monsters: [SKULL] },
-    seatEnd: { p1: {} },
+    tgtEnd: (roles) => roles.format === "tag" ? { monsters: [SKULL], grave: [MAGICIAN] } : { monsters: [MAGICIAN], grave: [] },
+    seatEnd: (roles) => roles.format === "tag" ? { p1: {} } : {},
   },
   {
     code: 55465441, name: "Give and Take", slug: "give-and-take", does: "Special Summons the Dark Magician of the Graveyard of p0",
@@ -91,17 +92,18 @@ const SPECS: EffectSpec[] = [
   },
   {
     // R-FFA-OPP-ONE: the opponent monster and summon destination must use the same declared opponent in FFA.
-    // This fixture still takes Blue-Eyes from p1 and summons to another opponent; open core/fixture item.
+    // In FFA, take Summoned Skull from the declared opponent and give Dark Magician to that opponent.
     // Tag uses the opposing-team field rule, R-TAG-SHARED-CARDS.
     code: 73355951, name: "Alpha Summon", slug: "alpha-summon", does: "Special Summons the banished Dark Magician of p0 and takes a banished monster of an opponent to the own field",
     p0: { spells: [set("Alpha Summon")], banished: [MAGICIAN] },
     tgt: { monsters: [ELF], banished: [SKULL] },
     seats: { p1: { monsters: [ELF], banished: ["Blue-Eyes White Dragon"] } },
     steps: [activate("Alpha Summon", "p0")],
-    then: [select(MAGICIAN, { card: "Blue-Eyes White Dragon", owner: "p1" })],
-    p0End: { monsters: ["Blue-Eyes White Dragon"], grave: ["Alpha Summon"] },
-    tgtEnd: { monsters: [ELF, MAGICIAN], banished: [SKULL] },
-    seatEnd: { p1: { monsters: [ELF] } },
+    offered: (roles) => roles.format === "ffa4" ? ["p1", roles.tgt] : roles.opponents,
+    then: (roles) => [select(MAGICIAN, { card: roles.format === "tag" ? "Blue-Eyes White Dragon" : SKULL, owner: roles.format === "tag" ? "p1" : roles.tgt })],
+    p0End: (roles) => ({ monsters: [roles.format === "tag" ? "Blue-Eyes White Dragon" : SKULL], grave: ["Alpha Summon"] }),
+    tgtEnd: (roles) => ({ monsters: [ELF, MAGICIAN], banished: roles.format === "tag" ? [SKULL] : [] }),
+    seatEnd: (roles) => roles.format === "tag" ? { p1: { monsters: [ELF] } } : {},
   },
   {
     code: 6203182, name: "Two Toads with One Sting", slug: "two-toads-with-one-sting", does: "Special Summons the Dark Magician of the Graveyard of the opponent and equips itself to it",
@@ -151,12 +153,12 @@ const SPECS: EffectSpec[] = [
     p0: { spells: [{ card: "Inferno of the Ashened", pos: "up" }], grave: ["King of the Ashened City"] },
     steps: [activate("Inferno of the Ashened", "p0")],
     // R-FFA-OPP-ONE: the field target and Pyro summon must use the same declared opponent in FFA.
-    // This fixture still sends the Elf of p1 and summons to another opponent; open core/fixture item.
+    // The declared opponent loses Elf and receives King in FFA.
     // Tag uses the opposing-team field rule, R-TAG-SHARED-CARDS.
-    then: [select({ card: ELF, owner: "p1" })],
+    then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: "p1" })] : [],
     p0End: { spells: ["Inferno of the Ashened"] },
-    gain: { monsters: ["King of the Ashened City"] },
-    seatEnd: { p1: { grave: [ELF] } },
+    tgtEnd: (roles) => ({ monsters: roles.format === "tag" ? [ELF, "King of the Ashened City"] : ["King of the Ashened City"], grave: roles.format === "tag" ? [] : [ELF] }),
+    seatEnd: (roles) => roles.format === "tag" ? { p1: { grave: [ELF] } } : {},
   },
   {
     code: 80044027, name: "Mikanko Fire Dance", slug: "mikanko-fire-dance", does: "Special Summons a Mikanko to the own field and a monster of the Graveyard of an opponent",
@@ -201,12 +203,13 @@ const SPECS: EffectSpec[] = [
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
     steps: [activate("Terrors of the Overroot", "p0")],
     // R-FFA-OPP-ONE: both targets and the Set destination must use the same declared opponent in FFA.
-    // This fixture still takes the field target from p1 and the Graveyard target from another opponent; open core/fixture item.
+    // In FFA, both targets come from the last opponent, the only seat with a legal pair.
     // Tag uses the opposing-team field rule, R-TAG-SHARED-CARDS.
-    then: [select({ card: ELF, owner: "p1" }, MAGICIAN)],
+    noPick: (roles) => roles.format !== "tag",
+    then: (roles) => [select({ card: ELF, owner: roles.format === "tag" ? "p1" : roles.tgt }, MAGICIAN)],
     p0End: { grave: ["Terrors of the Overroot"] },
-    tgtEnd: { monsters: [ELF, MAGICIAN] },
-    seatEnd: { p1: { grave: [ELF] } },
+    tgtEnd: (roles) => ({ monsters: roles.format === "tag" ? [ELF, MAGICIAN] : [MAGICIAN], grave: roles.format === "tag" ? [] : [ELF] }),
+    seatEnd: (roles) => roles.format === "tag" ? { p1: { grave: [ELF] } } : {},
   },
   {
     code: 85698115, name: "Terrors of the Afterroot", slug: "terrors-of-the-afterroot", does: "Special Summons a monster of an opponent Graveyard",
