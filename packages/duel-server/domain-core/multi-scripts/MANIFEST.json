@@ -18,7 +18,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "2af3694ece08773d3716f1b31eb4bc485dfcf96fc98b700d2363b3c2e2d8763e",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Apply Level -1 to the existing hand monsters of every living duelist, including the Tag partner. Register the stock effect for later hand additions once."
     },
     {
       "code": 1804528,
@@ -4378,7 +4378,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "d6785008d991cb712a5e8c815a1dfaf08d2b2bd508c8cd611c19a7a0e3481480",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Collect eligible cards from every living Extra Deck once. Banish the combined group and keep the stock delayed-return effect."
     },
     {
       "code": 69181753,
@@ -4709,7 +4709,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "087e5964a6158051bb44fa0685192c9d9ed6a029005bd0a2536d5b9177be340e",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "In Tag, discard every living duelist hand together, then each duelist draws its own discarded count. Keep this card forbidden in FFA."
     },
     {
       "code": 73082255,
@@ -4767,7 +4767,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "33446081eef2e3150316717b8ec860ec4f2cb899370a748f84a87aca371afb1c",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "In Tag, each living duelist sends two cards from its own hand, then draws two cards. Keep this card forbidden in FFA."
     },
     {
       "code": 74586817,
