@@ -19,10 +19,11 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("leaderboard view", () => {
   it("shows the season columns, live season, date and player count", () => {
-    render(<LeaderboardView {...props} />);
-    expect(screen.getByText("Season 3 · running")).toBeInTheDocument();
-    expect(screen.getByText("since Tue, Aug 4")).toBeInTheDocument();
-    expect(screen.getByText("11 ranked players")).toBeInTheDocument();
+    const { container } = render(<LeaderboardView {...props} />);
+    const seasonLine = container.querySelector(".lb-sub")!;
+    expect(seasonLine).toHaveTextContent("Season 3 · running");
+    expect(seasonLine).toHaveTextContent("since Tue, Aug 4");
+    expect(seasonLine).toHaveTextContent("11 ranked players");
     const board = screen.getByRole("table", { name: "Season leaderboard" });
     expect(within(board).getAllByRole("columnheader").map((node) => node.textContent)).toEqual([
       "#", "Player", "Tier", "Elo", "Winnings", "W–L", "Win %", "Streak",
@@ -30,15 +31,47 @@ describe("leaderboard view", () => {
   });
 
   it("uses a named season and singular player count", () => {
-    render(<LeaderboardView {...props} rows={referenceRows.slice(0, 1)} activeSeason={{ ...activeSeason, name: "Autumn League" }} />);
-    expect(screen.getByText("Autumn League · running")).toBeInTheDocument();
-    expect(screen.getByText("1 ranked player")).toBeInTheDocument();
+    const { container } = render(<LeaderboardView {...props} rows={referenceRows.slice(0, 1)} activeSeason={{ ...activeSeason, name: "Autumn League" }} />);
+    const seasonLine = container.querySelector(".lb-sub")!;
+    expect(seasonLine).toHaveTextContent("Autumn League · running");
+    expect(seasonLine).toHaveTextContent("1 ranked player");
     expect(screen.getByRole("region", { name: "Top three" }).querySelectorAll("a")).toHaveLength(1);
+  });
+
+  it.each([
+    { season: { ...activeSeason, number: 12 }, label: "Season 12 · running" },
+    { season: { ...activeSeason, name: "Autumn League" }, label: "Autumn League · running" },
+  ])("keeps each season fact with one dot and $label first", ({ season, label }) => {
+    const { container } = render(<LeaderboardView {...props} activeSeason={season} />);
+    const seasonLine = container.querySelector(".lb-sub")!;
+    const facts = Array.from(seasonLine.querySelectorAll(":scope > span > span"));
+    expect(facts.map((fact) => fact.textContent)).toEqual([
+      label, "since Tue, Aug 4", "11 ranked players",
+    ]);
+    expect(facts[0].querySelector(".ssn")).toHaveTextContent(label);
+    for (const fact of facts) {
+      expect(fact.querySelectorAll(".dot")).toHaveLength(1);
+      expect(fact.firstElementChild).toHaveClass("dot");
+      expect(fact.firstElementChild).toHaveAttribute("aria-hidden", "true");
+    }
+  });
+
+  it("omits the date fact when the season start is unavailable", () => {
+    const { container } = render(<LeaderboardView {...props} seasonStartedOn={null} />);
+    const seasonLine = container.querySelector(".lb-sub")!;
+    const facts = seasonLine.querySelectorAll(":scope > span > span");
+    expect(Array.from(facts, (fact) => fact.textContent)).toEqual([
+      "Season 3 · running", "11 ranked players",
+    ]);
+    expect(seasonLine.querySelectorAll(".dot")).toHaveLength(2);
   });
 
   it("drops season statistics from every part of the all-time view", () => {
     const { container } = render(<LeaderboardView {...props} rows={allTimeRows} scope="all" />);
-    expect(screen.getByText("All seasons · ranked by career winnings")).toBeInTheDocument();
+    const facts = container.querySelectorAll(".lb-sub > span > span");
+    expect(facts).toHaveLength(1);
+    expect(facts[0]).toHaveTextContent("All seasons · ranked by career winnings");
+    expect(facts[0].querySelectorAll(".dot")).toHaveLength(1);
     const board = screen.getByRole("table", { name: "All-time leaderboard" });
     expect(within(board).getAllByRole("columnheader").map((node) => node.textContent)).toEqual([
       "#", "Player", "Tier", "Elo", "Career winnings",
@@ -52,7 +85,10 @@ describe("leaderboard view", () => {
 
   it("treats the API's no-season fallback as all-time everywhere", () => {
     const { container } = render(<LeaderboardView {...props} rows={allTimeRows} activeSeason={null} seasonStartedOn={null} />);
-    expect(screen.getByText("No season running · all-time standings")).toBeInTheDocument();
+    const facts = container.querySelectorAll(".lb-sub > span > span");
+    expect(facts).toHaveLength(1);
+    expect(facts[0].querySelector(".ssn")).toHaveTextContent("No season running · all-time standings");
+    expect(facts[0].querySelectorAll(".dot")).toHaveLength(1);
     expect(screen.queryByRole("group", { name: "Leaderboard scope" })).toBeNull();
     expect(screen.queryByRole("columnheader", { name: "Win %" })).toBeNull();
     expect(screen.queryByRole("columnheader", { name: "W–L" })).toBeNull();
