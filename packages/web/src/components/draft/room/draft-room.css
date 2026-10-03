@@ -256,7 +256,19 @@
 
 /* ---------- stage: the room and the table ---------- */
 .dr .stage { position: relative; min-height: 0; overflow: hidden; }
-.dr .stage[data-tall] { overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.dr .stage[data-tall] {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scroll-padding-bottom: calc(var(--disk-h) + max(26px, env(safe-area-inset-bottom)));
+}
+.dr .stage[data-tall] > .disk {
+  position: sticky;
+  left: auto;
+  translate: none;
+  /* Overlay the reserved tray space without adding to the table's scroll height. */
+  margin: calc(0px - var(--disk-h)) auto 0;
+}
 /* the lamp over the table: a warm pool from above, the only warm light in the room.
    It hangs, so it sways a touch; dust drifts through the light. It dims for the last five seconds. */
 .dr .lamp { position: absolute; inset: 0; overflow: hidden; pointer-events: none; transition: opacity 1.2s; }
