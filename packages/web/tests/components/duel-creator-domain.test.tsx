@@ -20,12 +20,19 @@ afterEach(() => {
 });
 
 describe("DuelCreator Domain rule", () => {
-  it("does not promise every duelist a first-turn draw at a Standard FFA3 table", () => {
+  it.each(["tag", "ffa3", "ffa4"])("describes only MR5 without promising every duelist a first-turn draw at a Standard %s table", (format) => {
     render(<DuelCreator multiplayerTables multiCoreReady />);
-    fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "ffa3" } });
-    const note = screen.getByText(/Master Rules use the current card catalog/);
+    fireEvent.change(screen.getByLabelText("Table type"), { target: { value: format } });
+    const note = screen.getByText(/Tag and free-for-all duels use Master Rule 5/);
     expect(note.textContent).not.toContain("every duelist draws");
-    expect(note.textContent).toContain("First-turn draws follow the selected Master Rule.");
+    expect(note.textContent).toContain("First-turn draws follow Master Rule 5.");
+    expect(note.textContent).toContain("current card catalog");
+  });
+
+  it("keeps the selected-rule draw text at a Standard 1v1 table", () => {
+    render(<DuelCreator />);
+    expect(screen.getByText(/Master Rules use the current card catalog/).textContent)
+      .toContain("First-turn draws follow the selected Master Rule.");
   });
 
   it.each([1, 2, 3, 4, 5].map((masterRule) => ({ masterRule })))("uses engine-neutral draw text for 1v1 Domain MR$masterRule", ({ masterRule }) => {
@@ -80,6 +87,7 @@ describe("DuelCreator Domain rule", () => {
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: format } });
     expect(screen.getByLabelText("Domain")).toBeTruthy();
     expect(screen.queryByTestId("domain-blocked")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Tag and free-for-all duels use Master Rule 5.");
     expect(screen.getByRole("status").textContent).toContain("In Domain, every duelist draws on their first turn.");
     fireEvent.click(screen.getByRole("button", { name: /Create game/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
