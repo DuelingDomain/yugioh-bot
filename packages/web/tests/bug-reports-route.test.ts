@@ -1,13 +1,13 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { mockDiscordAccess } from "./fixtures/discord-access";
 
 const auth = vi.fn();
 const tempDirs: string[] = [];
 let discord: ReturnType<typeof mockDiscordAccess>;
-let github: ReturnType<typeof vi.fn>;
+let github: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster: {} }));
 
@@ -68,7 +68,7 @@ describe("POST /api/bug-reports", () => {
     auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
     discord = mockDiscordAccess();
     const discordFetch = globalThis.fetch;
-    github = vi.fn(async () => Response.json({ number: 77, html_url: "https://github.com/imran443/yugioh-bot/issues/77" }, { status: 201 }));
+    github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ number: 77, html_url: "https://github.com/imran443/yugioh-bot/issues/77" }, { status: 201 }));
     vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : discordFetch(url as never)));
     vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", TOKEN);
     vi.stubEnv("BUG_REPORT_GITHUB_REPO", "");
