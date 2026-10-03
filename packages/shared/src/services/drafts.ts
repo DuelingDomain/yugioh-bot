@@ -911,10 +911,23 @@ export function createDraftService(
     );
     const updatePackHolder = db.prepare("update draft_packs set current_holder_seat_index = ? where id = ?");
 
+    // Steps in a row where nobody could pick. With packs on distinct seats, one full turn of the table
+    // shows every pack to every seat, so more idle steps than seats means packs are stacked on one seat
+    // (drafts that started under the old rotation). Then each pack goes back to its origin seat once;
+    // if the table is still stuck after that, the wave ends. This keeps the loop from running forever.
+    let idleSteps = 0;
+    let waveRound = -1;
+    let repaired = false;
+
     for (;;) {
       const draft = findById(draftId);
       if (draft.status !== "active") {
         return;
+      }
+      if (draft.currentPackRound !== waveRound) {
+        waveRound = draft.currentPackRound;
+        idleSteps = 0;
+        repaired = false;
       }
 
       const active = activePlayerRows(draftId);
@@ -939,7 +952,17 @@ export function createDraftService(
 
       // With all seats in rotation, every remaining pack can reach every active
       // player. End a wave only when no active player can take a remaining card.
-      if (!waveHasPickableCard(draftId, currentPackRound, active)) {
+      idleSteps += 1;
+      const stuck = idleSteps > allSeatIndexes(draftId).length + 1;
+      if (stuck && !repaired) {
+        db.prepare(
+          "update draft_packs set current_holder_seat_index = origin_seat_index where draft_id = ? and wave_number = ?",
+        ).run(draftId, currentPackRound);
+        repaired = true;
+        idleSteps = 0;
+        continue;
+      }
+      if (stuck || !waveHasPickableCard(draftId, currentPackRound, active)) {
         if (currentPackRound >= (draft.config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer)) {
           db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
           return;

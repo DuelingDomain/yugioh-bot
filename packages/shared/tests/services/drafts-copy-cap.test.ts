@@ -495,3 +495,25 @@ describe("cube copies above the per-player cap", () => {
     expect(drafts.start(draft.id).status).toBe("active");
   });
 });
+
+describe("a draft that started under the old pack rotation", () => {
+  it("does not loop forever when packs stack on one seat and the first one is capped for everybody", () => {
+    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 1, cardsPerPlayer: 4 }, distinctCube(8));
+    // Old rotation let two packs end up on the same seat. A seat only offers the lowest pack id on it.
+    const packs = db.prepare("select id from draft_packs where draft_id = ? order by id").all(draftId) as Array<{ id: number }>;
+    db.prepare("update draft_packs set current_holder_seat_index = 0 where draft_id = ?").run(draftId);
+    const shadowing = db.prepare("select catalog_card_id as id from draft_cards where draft_pack_id = ?").all(packs[0].id) as Array<{ id: number }>;
+    for (const card of shadowing) {
+      grantCopies(db, draftId, a, card.id, MAX_COPIES_PER_PLAYER);
+      grantCopies(db, draftId, b, card.id, MAX_COPIES_PER_PLAYER);
+    }
+
+    expireNow(db, draftId);
+    drafts.expireCurrentPickStep(draftId);
+
+    const draft = drafts.findById(draftId);
+    const someoneCanPick = drafts.pickOptions(draftId, a).length > 0 || drafts.pickOptions(draftId, b).length > 0;
+    expect(draft.status === "completed" || someoneCanPick).toBe(true);
+    db.close();
+  });
+});
