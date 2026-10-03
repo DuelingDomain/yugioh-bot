@@ -371,13 +371,15 @@ export function AttackConfirm({
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Enter" && event.key !== "Escape") return;
       if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target : null;
+      // Keys inside another dialog (Report a bug) are not for this popover.
+      if (target?.closest("[role='dialog']:not([data-attack-confirm])")) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
         backRef.current();
         return;
       }
-      const target = event.target instanceof Element ? event.target : null;
       // Inside the popover a button activates natively; on a zone, Enter re-aims at that zone.
       if (target?.closest("[data-attack-confirm],[data-zones],input,textarea,select,[contenteditable='true']")) return;
       event.preventDefault();

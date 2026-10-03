@@ -13,11 +13,12 @@ interface PhoneTopBarProps {
   account: ShellAccount;
   menuOpen: boolean;
   onMenuClick: () => void;
+  onReportBug?: () => void;
 }
 
 /** 56px bar shown at phone width only: menu, page title, avatar. */
 export const PhoneTopBar = forwardRef<HTMLButtonElement, PhoneTopBarProps>(function PhoneTopBar(
-  { account, menuOpen, onMenuClick },
+  { account, menuOpen, onMenuClick, onReportBug },
   menuButtonRef,
 ) {
   const pathname = usePathname();
@@ -36,7 +37,7 @@ export const PhoneTopBar = forwardRef<HTMLButtonElement, PhoneTopBarProps>(funct
           <Menu className="ic" aria-hidden="true" />
         </button>
         <p className="ns-title">{pageTitle(pathname, account.playerId)}</p>
-        <AccountMenu account={account} pathname={pathname} variant="phone" />
+        <AccountMenu account={account} pathname={pathname} variant="phone" onReportBug={onReportBug} />
       </header>
     </SheetRoot>
   );

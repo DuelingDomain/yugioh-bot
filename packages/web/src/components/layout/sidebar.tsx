@@ -14,10 +14,11 @@ interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
   account: ShellAccount;
+  onReportBug?: () => void;
 }
 
 /** Desktop sidebar. Hidden by the shell's CSS at phone width, where the top bar and menu take over. */
-export function Sidebar({ collapsed, onToggle, account }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, account, onReportBug }: SidebarProps) {
   const pathname = usePathname();
   const activeHref = activeNavHref(pathname, account.playerId, account.profileSettled);
   const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
@@ -36,7 +37,7 @@ export function Sidebar({ collapsed, onToggle, account }: SidebarProps) {
           <NavList activeHref={activeHref} label="Main navigation" collapsed={collapsed} />
           <div className="ns-foot">
             <SettingsLink activeHref={activeHref} collapsed={collapsed} />
-            <AccountMenu account={account} pathname={pathname} variant="side" />
+            <AccountMenu account={account} pathname={pathname} variant="side" onReportBug={onReportBug} />
           </div>
         </aside>
       </div>

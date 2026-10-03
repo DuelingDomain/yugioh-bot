@@ -78,7 +78,9 @@ export function TagHeader({ session, engine, viewerSeat, nameOf, teamNames, pref
           data-testid="who-pill"
           style={{ "--turn": hexToRgbTriplet(tone.main) } as CSSProperties}
         >
-          {spectator ? `${nameOf(turnSeat)} to play` : myTurn ? "Your turn" : `${nameOf(turnSeat)}'s turn`}
+          <span className={styles.turnLabel}>
+            {spectator ? `${nameOf(turnSeat)} to play` : myTurn ? "Your turn" : `${nameOf(turnSeat)}'s turn`}
+          </span>
           <small>&middot; {teamNames[turnTeam]}</small>
         </span>
       </div>
@@ -86,7 +88,9 @@ export function TagHeader({ session, engine, viewerSeat, nameOf, teamNames, pref
         {headerTools}
         <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={live}>
           {live ? <i className={roomStyles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
-          {live ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
+          <span className={roomStyles.connectionText}>
+            {live ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
+          </span>
         </span>
         {onShowResult ? <button type="button" className={styles.tool} onClick={onShowResult}><span>Show result</span></button> : null}
         {onExit ? <button type="button" className={styles.tool} onClick={onExit}><span>Exit duel</span></button> : null}

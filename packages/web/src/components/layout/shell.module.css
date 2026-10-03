@@ -70,6 +70,15 @@
   margin-left: 68px;
 }
 
+/* ---- Report bug button: past the sidebar, so it covers neither the account menu nor the rail ---- */
+.bugFab {
+  left: calc(236px + 12px);
+}
+
+.frame[data-sidebar-collapsed="true"] .bugFab {
+  left: calc(68px + 12px);
+}
+
 /* ---- Phone top bar (phone width only) ---- */
 .topWrap {
   display: none;
@@ -90,6 +99,11 @@
   .main,
   .frame[data-sidebar-collapsed="true"] .main {
     margin-left: 0;
+  }
+
+  .bugFab,
+  .frame[data-sidebar-collapsed="true"] .bugFab {
+    left: 12px;
   }
 
   /* The board's phone rule for .ns-top sits in a container query, and the shell has no

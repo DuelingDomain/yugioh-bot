@@ -85,4 +85,25 @@
 @media (max-width: 900px) {
   .header { grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 8px; padding: 0 8px 0 12px; }
   .title, .format, .phase, .turnPill small { display: none; }
+  /* The middle column is the one that gives: the turn pill clips instead of running under the header buttons. */
+  .turn { min-width: 0; overflow: hidden; gap: 8px; }
+  .turnPill { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* The label is its own box, so a long name ends in an ellipsis instead of being cut mid-word. */
+.turnLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turnPill { max-width: 100%; }
+
+/* A phone: the brand fills what the turn and the buttons leave, down to a small stub, and the turn column gives way
+   only after that. The turn pill keeps "Your turn" whole, or ends a long name in an ellipsis, while the red Report bug
+   button, a Surrender button, the live lamp and the sound switch stay in view. The brand has a zero flex basis so it
+   never takes a share of the shrink: an equal share would cut a fraction of a pixel from the label ("Your tu..."). */
+@media (max-width: 600px) {
+  .header { display: flex; gap: 8px; padding: 0 8px 0 10px; }
+  .identity { flex: 1 1 0; min-width: 44px; }
+  .turn { flex: 0 1 auto; min-width: 0; overflow: hidden; gap: 6px; }
+  .turn strong { flex: none; font-size: var(--duel-t-body); }
+  .turnPill { padding: 2px 7px; }
+  .turnPill::before { display: none; }
+  .status { flex: none; }
 }

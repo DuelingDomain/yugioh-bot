@@ -346,7 +346,9 @@ function TableShellBody({
           {headerTools}
           <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
             {connectionLabel === "Live" ? <i className={roomStyles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
-            {connectionLabel === "Live" ? spectator ? "Live duel · watching" : "Live duel" : connectionLabel}
+            <span className={roomStyles.connectionText}>
+              {connectionLabel === "Live" ? spectator ? "Live duel · watching" : "Live duel" : connectionLabel}
+            </span>
           </span>
           {hasResult && hideResult ? (
             <button type="button" className={roomStyles.tool} onClick={() => setHideResult(false)}><span>Show result</span></button>

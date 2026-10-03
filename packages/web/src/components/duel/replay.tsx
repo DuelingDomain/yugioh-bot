@@ -121,6 +121,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
       const target = event.target instanceof HTMLElement ? event.target : null;
       const tag = target?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      if (target?.closest("[role='dialog']")) return;
       if (event.key === " " || event.key === "Spacebar") {
         if (tag === "BUTTON" || tag === "A") return;
         event.preventDefault();

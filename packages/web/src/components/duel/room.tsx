@@ -8,6 +8,9 @@ import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "luc
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { SurrenderModal } from "./surrender-modal";
+import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
+import { BugReportMenuButton } from "../bug-report/bug-report-menu-button";
+import { useBugReportRoom } from "../bug-report/room-store";
 import { connectionLabel as labelForConnection } from "./connection-label";
 import { Sheet } from "@/components/ui/sheet";
 import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
@@ -545,6 +548,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onInspect: showInspector,
   });
 
+  useBugReportRoom(data ?? null);
   if (isLoading && !data) return <div className="p-6 text-sm text-text-secondary">Loading table…</div>;
   if (error && !data) {
     const message = error instanceof Error ? error.message : "Could not load this table.";
@@ -674,6 +678,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
       actions: { onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame },
       headerTools: <>
+        <BugReportHeaderButton room={data} />
         <ReportButton slug={slug} />
         {leaveControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error)}
@@ -837,6 +842,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           ))}
         </div>
       ) : null}
+      <BugReportMenuButton room={data} />
       {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy}
         onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
       {canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
@@ -892,8 +898,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           <SeriesGameLabel room={data} />
           <span className={styles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
             {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
-            {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
+            <span className={styles.connectionText}>
+              {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
+            </span>
           </span>
+          <BugReportHeaderButton room={data} />
           <ReportButton slug={slug} />
           {leaveControl}
           {hasResult && hideResult ? (
