@@ -465,6 +465,46 @@ Duel.RegisterEffect(e,0)`]);
       expect(replay.frames.at(-1)!.view.seats.every((seat) => !seat.eliminated)).toBe(true);
     }, 60_000);
 
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s keeps an earlier loser as a spectator after a draw", async (format) => {
+      const earlier = seatCountFor(format) - 1;
+      const t = await table(mode, format, false, [`local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_PHASE_START+PHASE_END)
+e:SetCondition(function() return Duel.GetTurnCount()==2 end)
+e:SetOperation(function()
+  Duel.SelectYesNo(0,30)
+  for p=0,${earlier - 1} do Duel.SetLP(p,0) end
+end)
+Duel.RegisterEffect(e,0)`]);
+      await t.view();
+      await t.post("surrender", earlier);
+      await t.answer(0, { choice: "to_ep" });
+      await t.answer(0, { choice: "no" });
+      expect((await t.post("view", earlier)).role).toBe("spectator");
+      await t.answer(1, { choice: "to_ep" });
+      await t.answer(0, { choice: "no" });
+      await t.answer(0, { choice: "no" });
+      const final = await t.view();
+      expect(final.result?.winnerSeat).toBeNull();
+      expect(final.eliminationOrder).toHaveLength(2);
+      expect(final.eliminationOrder![0]).toEqual([earlier]);
+      expect([...final.eliminationOrder![1]!].sort()).toEqual(Array.from({ length: earlier }, (_, seat) => seat));
+      expect(states(final)).toEqual([...Array(earlier).fill("in"), "out"]);
+      for (let seat = 0; seat < t.count; seat++) {
+        const room = await t.post("view", seat);
+        expect(room.session).toMatchObject({ status: "completed", winnerSeat: null });
+        expect(room.role).toBe(seat === earlier ? "spectator" : "player");
+        expect(room.mySeat).toBe(seat === earlier ? null : seat);
+        expect(room.myDeck === null).toBe(seat === earlier);
+      }
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(states(replayed.spectator)).toEqual(states(final));
+      expect(replayed.spectator.eliminationOrder).toEqual(final.eliminationOrder);
+      await t.recover();
+      expect((await t.post("view", earlier)).role).toBe("spectator");
+      expect((await t.post("view", 1)).role).toBe("player");
+    }, 60_000);
+
     it("R-COMMON-SURRENDER-EOT: an interrupted queue that did not land keeps the player role", async () => {
       const t = await table(mode, "ffa4");
       await t.view();
