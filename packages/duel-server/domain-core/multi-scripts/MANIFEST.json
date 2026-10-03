@@ -313,6 +313,21 @@
       "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
     },
     {
+      "code": 6325660,
+      "file": "c6325660.lua",
+      "name": "Dominus Spark",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "target"
+        ]
+      },
+      "stockSha256": "45be4fffb82ef8f2af4923627b81adf1196e42459114b99fe1def5f60e7bf643",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
+    },
+    {
       "code": 6783559,
       "file": "c6783559.lua",
       "name": "Self-Destruct Ant",
