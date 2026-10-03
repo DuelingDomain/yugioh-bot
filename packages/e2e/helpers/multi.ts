@@ -117,6 +117,10 @@ const PLANS: Record<string, Plan> = {
   "raigeki-dark-hole-ffa4": { wants: [{ verb: "activate", card: "Raigeki" }, { verb: "activate", card: "Dark Hole" }] },
   "raigeki-dark-hole-tag": { wants: [{ verb: "activate", card: "Raigeki" }, { verb: "activate", card: "Dark Hole" }] },
   "ffa3-mind-crush-pick": { wants: [{ verb: "activate", card: "Mind Crush" }], opponent: 2, announce: "Sangan" },
+  "ffa3-rules-opponent-lp": { wants: [{ verb: "activate", card: "Hinotama" }], opponent: 2 },
+  "ffa3-rules-opponent-field": { wants: [{ verb: "activate", card: "Raigeki" }] },
+  "ffa3-rules-activated-lock": { wants: [{ verb: "activate", card: "Abyss Dweller" }, { verb: "activate", card: "Dark Hole" }] },
+  "ffa3-rules-resource-rotation": { wants: [{ verb: "activate", card: "Creature Swap" }] },
   "mind-crush-ffa4-pick": { wants: [{ verb: "activate", card: "Mind Crush" }], opponent: 1, announce: "Sangan" },
   "tag-lp-solemn-partner": { wants: [{ verb: "summon", card: "Celtic Guardian" }] },
   "tag-jinzo-blocks-traps": { wants: [{ verb: "summon", card: "Celtic Guardian" }] },
@@ -127,7 +131,7 @@ const PLANS: Record<string, Plan> = {
   "ffa3-table-chain": { wants: [{ verb: "activate", card: "Heavy Storm" }] },
 };
 
-function planFor(id: string, checklist: string[]): Plan {
+export function planFor(id: string, checklist: string[]): Plan {
   const known = PLANS[id];
   if (known) return { ...known, wants: [...known.wants] };
   const wants: Want[] = [];
@@ -503,8 +507,11 @@ export class PresetRun {
       const session = room.session;
       if (session.status !== "active") {
         this.note(`duel status is ${session.status}: ${session.resultReason ?? "no reason"}`);
-        // A finished duel is a pass. An engine error or a cancel is not.
-        if (session.status === "completed" || engine?.result) this.status = "pass";
+        // Completion proves the preset only after all intended moves were played.
+        if (session.status === "completed" || engine?.result) {
+          if (this.wantsLeft.length === 0) this.status = "pass";
+          else this.fail(`The duel completed before checklist moves were done: ${this.wantsLeft.map((want) => `${want.verb} ${want.card}`).join(", ")}`);
+        }
         else this.fail(`The duel ended with status ${session.status}: ${session.resultReason ?? (room.error ?? "no reason")}`);
         return;
       }
