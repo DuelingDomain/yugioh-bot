@@ -354,6 +354,16 @@ export class Session {
         const count = Math.max(open.prompt.min ?? 1, 1);
         return this.send(stepNo, step, open, { selected: open.prompt.options.slice(0, count).map((o) => o.id) });
       }
+      case "selectCardAt": {
+        const open = this.need(stepNo, step, step.by);
+        if (open.prompt.kind !== "cards") this.fail(stepNo, step, "This prompt does not select cards.");
+        const want = ZONES[step.zone];
+        const picks = open.prompt.options.filter(
+          (o) => o.controller === seatOf(step.owner) && o.location === want.location && o.sequence === want.sequence,
+        );
+        if (picks.length !== 1) this.fail(stepNo, step, `Card at ${step.owner}.${step.zone} needs exactly one legal option; got ${picks.length}.`);
+        return this.send(stepNo, step, open, { selected: [picks[0].id] });
+      }
       case "zone": {
         const open = this.need(stepNo, step, step.by);
         if (open.prompt.kind !== "places") this.fail(stepNo, step, "This prompt does not select zones.");

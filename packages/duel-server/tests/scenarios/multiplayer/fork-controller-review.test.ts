@@ -7,7 +7,7 @@ import { liveNseat } from '../../support/live-nseat.js';
 import { runScenarios } from '../../support/runner.js';
 import { Session, domainNseatWasmBinary, nseatWasmBinary } from '../../support/session.js';
 import { engineDataDirectory } from '../../engine-data-dir.js';
-import { activate, choose, endTurn, expectPrompt, pickOpponent, zone, type Scenario } from '../../support/dsl.js';
+import { activate, choose, endTurn, expectPrompt, pickOpponent, selectCardAt, type Scenario } from '../../support/dsl.js';
 import { defineScenarioWithFfaFirstDraw as defineScenario } from './ffa-first-draw.js';
 import { baseSetup, everySeat, turnsBefore, type Format, type Seat } from './seat-kit.js';
 import { domainVariant } from './domain-variants.js';
@@ -25,7 +25,7 @@ const forks = formats.flatMap(format => {
     }),
     steps: [activate('Mimighoul Fork', 'p0'),
       pickOpponent(target, 'p0'),
-      expectPrompt({ by: 'p0', kind: 'cards' }), zone(target, 'm0', 'p0'),
+      expectPrompt({ by: 'p0', kind: 'cards' }), selectCardAt(target, 'm0', 'p0'),
       expectPrompt({ by: target }), choose('Send', target),
       everySeat(format, { p0: { grave: ['Mimighoul Fork'] }, p1: { monsters: ['Celtic Guardian'], hand: { count: 0 } },
         [target]: { monsters: ['Mystical Elf'], grave: ['Battle Ox'], hand: { count: 2 }, zones: { m1: { card: 'Mystical Elf', pos: 'set' } } } }),
@@ -39,7 +39,7 @@ const forks = formats.flatMap(format => {
       [target]: { monsters: [null, { card: 'Mystical Elf', pos: 'set' }] },
     }),
     steps: [activate('Mimighoul Fork', 'p0'), pickOpponent(target, 'p0'),
-      zone(target, 'm0', 'p0'), expectPrompt({ by: target }), choose('Send', target),
+      selectCardAt(target, 'm0', 'p0'), expectPrompt({ by: target }), choose('Send', target),
       everySeat(format, { p0: { grave: ['Mimighoul Fork'] },
         p1: { monsters: ['Celtic Guardian'], grave: ['Battle Ox'], hand: { count: 2 } },
         [target]: { monsters: ['Mystical Elf'], hand: { count: 0 }, zones: { m1: { card: 'Mystical Elf', pos: 'set' } } } }),
@@ -54,7 +54,7 @@ const forks = formats.flatMap(format => {
     }), deckSize: 3 },
     steps: [...turnsBefore(format, target), activate('Pot of Greed', target), endTurn(target),
       activate('Mimighoul Fork', 'p0'), pickOpponent(target, 'p0'),
-      zone(target, 'm0', 'p0'), choose('Attack', 'p0'),
+      selectCardAt(target, 'm0', 'p0'), choose('Attack', 'p0'),
       everySeat(format, { p0: { grave: ['Mimighoul Fork'], hand: { count: 1 } }, p1: { monsters: ['Celtic Guardian'], hand: { count: 1 } },
         ...(format !== 'ffa3' ? { p2: { hand: { count: 1 } } } : {}),
         [target]: { monsters: ['Battle Ox', 'Mystical Elf'], grave: ['Pot of Greed'], deckCount: 0, hand: { count: 3 },

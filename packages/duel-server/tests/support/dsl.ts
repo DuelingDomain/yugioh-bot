@@ -118,6 +118,7 @@ export type Step =
   | { op: "surrender"; seat: DuelistId; reason?: number }
   | { op: "choose"; match: string; by?: DuelistId }
   | { op: "select"; sels: CardSel[]; by?: DuelistId }
+  | { op: "selectCardAt"; owner: DuelistId; zone: Zone; by?: DuelistId }
   | { op: "auto"; by?: DuelistId }
   | { op: "zone"; owner: DuelistId; zone: Zone; by?: DuelistId }
   | { op: "position"; pos: "atk" | "def" | "set"; by?: DuelistId }
@@ -186,6 +187,8 @@ export const eliminate = (seat: DuelistId, reason = 0): Step => ({ op: "surrende
 export const choose = (match: string, by?: DuelistId): Step => ({ op: "choose", match, by });
 /** Answer a card-selection prompt (cards, tributes, materials). */
 export const select = (...sels: CardSel[]): Step => ({ op: "select", sels });
+/** Select an existing field card by public coordinates, including an opponent's face-down card. */
+export const selectCardAt = (owner: DuelistId, zone: Zone, by?: DuelistId): Step => ({ op: "selectCardAt", owner, zone, by });
 /** Answer a selection prompt with the first legal options. */
 export const auto = (by?: DuelistId): Step => ({ op: "auto", by });
 export const zone = (owner: DuelistId, z: Zone, by?: DuelistId): Step => ({ op: "zone", owner, zone: z, by });
