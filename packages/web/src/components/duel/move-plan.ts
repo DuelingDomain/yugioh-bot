@@ -31,6 +31,7 @@ import { MOVE_PACE } from "./duel-timing";
 import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type ShowcaseOrigin, type ShowcasePhases } from "./add-to-hand";
 import { chainEffectAt } from "./chain-beats";
 import { findZoneElement, findMoveDestination, handArrivalTarget, moveDestinationRect } from "./event-queue";
+import { artCodeOf } from "./destroy-hide";
 
 export const MOVE_TIMING = {
   placeMin: MOVE_PACE.placeMinMs,
@@ -480,6 +481,7 @@ export type ZoneSnapshot = {
 };
 
 const snapshots = new Map<string, ZoneSnapshot>();
+const snapshotCards = new Map<string, { code: number; owner: boolean }>();
 const handRails = new Map<string, ZoneSnapshot>();
 const departureSnapshots = new Map<number, ZoneSnapshot | null>();
 const DEPARTURE_SNAPSHOT_CAP = 512;
@@ -487,12 +489,14 @@ const DEPARTURE_SNAPSHOT_CAP = 512;
 /** A new board must not reuse another duel's coordinates or event IDs. */
 export function clearZoneSnapshots(): void {
   snapshots.clear();
+  snapshotCards.clear();
   handRails.clear();
   departureSnapshots.clear();
 }
 
 export function captureZoneSnapshots(root: ParentNode = document): void {
   snapshots.clear();
+  snapshotCards.clear();
   handRails.clear();
   root.querySelectorAll<HTMLElement>("[data-zones]").forEach((el) => {
     const r = moveDestinationRect(el);
@@ -506,6 +510,7 @@ export function captureZoneSnapshots(root: ParentNode = document): void {
     for (const key of (el.dataset.zones ?? "").split(/\s+/)) {
       if (!key) continue;
       snapshots.set(key, snap);
+      snapshotCards.set(key, { code: artCodeOf(el), owner: el.closest<HTMLElement>("[data-hand-id]")?.dataset.handId?.startsWith("hand-") === true });
     }
   });
   root.querySelectorAll<HTMLElement>("[data-hand-seat]").forEach((el) => {
@@ -524,12 +529,16 @@ export function captureZoneSnapshots(root: ParentNode = document): void {
 /** Called before a batch commits. Each engine removal compacts its hand, but keeps the original rect. */
 export function captureDepartureSnapshots(events: readonly DuelEvent[], root: ParentNode = document): void {
   captureZoneSnapshots(root);
-  const hands = new Map<number, Array<ZoneSnapshot | null>>();
+  type HandSource = { snapshot: ZoneSnapshot; code: number };
+  const hands = new Map<number, Array<HandSource | null>>();
+  const ownedHands = new Set<number>();
   for (const [key, snapshot] of snapshots) {
     const [seat, location, sequence] = key.split(":").map(Number);
     if (location !== LOCATION_HAND) continue;
     const hand = hands.get(seat) ?? [];
-    hand[sequence] = snapshot;
+    const card = snapshotCards.get(key);
+    hand[sequence] = { snapshot, code: card?.code ?? 0 };
+    if (card?.owner) ownedHands.add(seat);
     hands.set(seat, hand);
   }
   for (const event of events) {
@@ -537,14 +546,24 @@ export function captureDepartureSnapshots(events: readonly DuelEvent[], root: Pa
     const from = event.from!;
     const to = event.zone!;
     const sourceHand = from.location === LOCATION_HAND ? hands.get(from.controller) : undefined;
-    const source = from.location === LOCATION_HAND ? sourceHand?.[from.sequence] ?? null : getZoneSnapshot(from);
+    let sourceSequence = from.sequence;
+    const indexed = sourceHand?.[sourceSequence];
+    const code = event.card?.code ?? 0;
+    if (ownedHands.has(from.controller) && indexed?.snapshot.side === "you" && indexed.code > 0 && code > 0 && indexed.code !== code) {
+      // SHUFFLE_HAND has no projected event. An owner can still identify its departed card in
+      // the old DOM; consume that copy once. Opponent/spectator sleeves stay slot-bound, and a
+      // missing old card never borrows the indexed replacement's geometry or membership.
+      sourceSequence = sourceHand!.findIndex((entry) => entry?.snapshot.side === "you" && entry.code === code);
+    }
+    const sourceEntry = sourceHand?.[sourceSequence] ?? null;
+    const source = from.location === LOCATION_HAND ? sourceEntry?.snapshot ?? null : getZoneSnapshot(from);
     departureSnapshots.set(event.id, source);
-    if (from.location === LOCATION_HAND) sourceHand?.splice(from.sequence, 1);
+    if (from.location === LOCATION_HAND && sourceSequence >= 0) sourceHand?.splice(sourceSequence, 1);
     if (to.location === LOCATION_HAND) {
       const hand = hands.get(to.controller) ?? [];
       // A card added and removed within this batch has no old DOM anchor; its preceding flight
       // supplies the hand source. Never read a replacement at its original message coordinate.
-      hand.splice(to.sequence, 0, from.location === LOCATION_HAND ? source : null);
+      hand.splice(to.sequence, 0, from.location === LOCATION_HAND ? sourceEntry : null);
       hands.set(to.controller, hand);
     }
   }
