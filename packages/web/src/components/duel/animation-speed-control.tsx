@@ -20,6 +20,7 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
     });
     const rated = new WeakSet<Animation>();
     const isCssAnimation = (anim: Animation) => typeof CSSAnimation !== "undefined" && anim instanceof CSSAnimation;
+    // Only sweep calls this, and it passes CSSAnimation instances only.
     const retimeAnimation = (anim: Animation) => {
       const endTime = Number(anim.effect?.getComputedTiming().endTime ?? 0);
       if (endTime === Infinity) {
@@ -45,25 +46,23 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
         if (target?.closest("[data-duel-fx-speed-root]")) retimeAnimation(anim);
       }
     };
-    // Many cards can start in one frame: coalesce their animationstart events into one sweep.
-    let disposed = false;
-    let sweepQueued = false;
+    // Many cards can start in one frame: the browser fires one animationstart per card, all with the same timeline time.
+    // Sweep synchronously on the first event of a frame and skip the rest. Without a usable timeline time (jsdom) every event sweeps.
+    let lastSweepTime: unknown = null;
     const onStart = (event: Event) => {
-      if (sweepQueued || !(event.target instanceof Element) || !event.target.closest("[data-duel-fx-speed-root]")) return;
-      sweepQueued = true;
-      queueMicrotask(() => {
-        sweepQueued = false;
-        if (!disposed) sweep();
-      });
+      if (!(event.target instanceof Element) || !event.target.closest("[data-duel-fx-speed-root]")) return;
+      const time: unknown = document.timeline?.currentTime ?? null;
+      if (time !== null && time === lastSweepTime) return;
+      lastSweepTime = time;
+      sweep();
     };
     // The room may initially render a loading state. Delegation also covers its later board mount.
     document.addEventListener("animationstart", onStart, true);
     // Capture positive CSS delays when styles are created, before animationstart fires.
     const observer = new MutationObserver(sweep);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-status", "data-reduced"] });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-status", "data-reduced", "data-duel-fx-speed-root"] });
     sweep();
     return () => {
-      disposed = true;
       unsubscribe();
       loops.clear();
       observer.disconnect();
