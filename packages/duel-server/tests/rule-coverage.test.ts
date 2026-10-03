@@ -267,3 +267,10 @@ describe("the real repository", () => {
     expect(refs.filter((r) => r.ref.kind === "outcome").every((r) => !r.ref.test.startsWith("src/presets/") && !r.ref.test.startsWith("mp-"))).toBe(true);
   });
 });
+
+it("counts the real host immediate surrender proof", async () => {
+  const { refs } = await collect();
+  const proof = refs.find((entry) => entry.rule === "R-COMMON-SURRENDER-EOT" && entry.ref.kind === "host-outcome");
+  expect(proof?.ref.test).toBe("tests/host-surrender-eot.test.ts");
+  expect(buildRows([{ id: "R-COMMON-SURRENDER-EOT", title: "Immediate surrender" }], refs)[0]?.status).toBe("covered");
+});

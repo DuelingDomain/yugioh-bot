@@ -32,7 +32,7 @@ class RealEngineWorker implements DuelGameWorker {
     this.game!.answer(seat, promptId, answer);
     this.answers += 1;
   }
-  async eliminate(seat: number, reason: number) { this.game!.eliminate(seat, reason); }
+  async eliminate(seat: number, reason: number, atTurnEnd = false) { this.game!.eliminate(seat, reason, atTurnEnd); }
   async search(query: string): Promise<DuelCardInfo[]> { return this.game!.searchCards(query); }
   async close() {
     this.stopped = true;
@@ -91,7 +91,7 @@ async function table(format: DuelFormat, humans: number, botSeats: number[] = []
 const state = (view: DuelEngineView) => view.seats.map((seat) => (seat.eliminated ? "out" : seat.pendingElimination ? "pending" : "in"));
 
 describeWithCores("FFA4 host with the real engine", [needs.multi(multiWasmPath), needs.installedMulti(DATA)], () => {
-  it("the last two seats give up one after the other: the first only flags, the second ends the duel with the holder of the prompt as winner", async () => {
+  it("the other seats surrender and the holder wins at once", async () => {
     const t = await table("ffa4", 4);
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
     expect(await t.holder(4)).toBe(0);
@@ -100,10 +100,10 @@ describeWithCores("FFA4 host with the real engine", [needs.multi(multiWasmPath),
     expect((await t.surrender(2)).status).toBe(200);
     expect(t.duels.get(t.slug, "g1").status).toBe("active");
     const middle = await t.view(0);
-    expect(state(middle)).toEqual(["in", "in", "pending", "pending"]);
+    expect(state(middle)).toEqual(["in", "in", "out", "out"]);
     expect(middle.result ?? null).toBeNull();
     expect(middle.prompt?.seat).toBe(0);
-    // p1 gives up: p0 is the only living seat and wins, also if p0 never answers.
+    // p1 gives up too. The last living seat wins without another answer.
     expect((await t.surrender(1)).status).toBe(200);
     const session = t.duels.get(t.slug, "g1");
     expect(session.status).toBe("completed");
@@ -156,7 +156,7 @@ describeWithCores("FFA4 host with the real engine", [needs.multi(multiWasmPath),
     }
     expect(status).toBe("completed");
     // Higher starting LP keeps the real duel open past the old per-call cap.
-    expect(t.worker.answers).toBeGreaterThan(128);
+    expect(t.worker.answers, `Answers: ${t.worker.answers}`).toBeGreaterThan(128);
     const view = await t.view(0);
     // Exactly one seat is left, it is the winner, the seat of the human is out (it gave up) and no prompt is open.
     const living = state(view).flatMap((entry, seat) => (entry === "in" ? [seat] : []));

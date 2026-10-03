@@ -21,7 +21,7 @@ import { engineDataDirectory } from "../tests/fuzz/config.js";
 import { describeCard } from "../tests/support/card-catalog.js";
 import { captureBoard, renderPresetDraft, renderScenario, type Capture, type CardLookup } from "./lib/board-capture.js";
 import { loadSource, replaySource, type DuelSource } from "./lib/replay-source.js";
-import { createEngineGame, eliminationCodeOf } from "../src/engine.js";
+import { createEngineGame, eliminationCodeOf, eliminationAtTurnEnd } from "../src/engine.js";
 import { engineSeed } from "../tests/fuzz/rng.js";
 import { savedFuzzFirstTurnDraw } from "./lib/fuzz-draw-rule.js";
 import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, seatCountFor, type DuelDeck, type DuelEngineView, type DuelFormat } from "@yugidraft/shared/duels";
@@ -233,7 +233,7 @@ export async function replaySeats(source: NSource, dataDirectory: string, step: 
         );
       }
       if (elimination === null) game.answer(command.seat, command.promptId, command.answer);
-      else game.eliminate(command.seat, elimination);
+      else game.eliminate(command.seat, elimination, eliminationAtTurnEnd(command.promptId));
     }
     return { step, seats: Array.from({ length: source.seatCount }, (_, seat) => game.view(seat)), spectator: game.view(null) };
   } finally {

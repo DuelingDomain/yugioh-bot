@@ -108,8 +108,7 @@ columns. Migration adds `format` with the default `'1v1'`, so every old producti
 row is 1v1 and the server infers its draw rule. Production needs no action.
 The FFA check and repair below are for the staging database only.
 
-Before 2026-10-02 (this change), staging ran this branch before and after `0fb46df`,
-but never `d4338a2` or a later commit.
+Staging ran this branch before and after `0fb46df`, but never `d4338a2` or a later commit.
 Only FFA gained the new draw rule at `0fb46df`. Thus an old
 Domain 1v1 or Tag record with no flag uses the stock rule: no turn-1 draw at MR3-MR5,
 and a turn-1 draw at MR1/MR2. The server infers this rule in both modes. No database

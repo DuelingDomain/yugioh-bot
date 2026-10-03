@@ -48,7 +48,7 @@ import {
 import { createDomainCore } from "./domain-core.js";
 import { readCoreCapabilities } from "./core-capabilities.js";
 import { chooseSurrenderedAnswer } from "./practice-bot.js";
-import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, parseDuelistMessages, rawMessageCapture, withoutDuelistParseWarnings, type RawDuelistMessage } from "./raw-messages.js";
+import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, MSG_SURRENDER_WINDOW_CLOSED, parseDuelistMessages, rawMessageCapture, withoutDuelistParseWarnings, type RawDuelistMessage } from "./raw-messages.js";
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
 import { fillPlaceholders } from "./text.js";
 import { firstTurnDrawFor } from "./first-turn-draw.js";
@@ -172,13 +172,20 @@ export function acceptsResult(current: DuelEngineView["result"]): boolean {
 }
 
 /**
- * A host-driven elimination is journaled like an answer with `promptId` `eliminate:<win reason code>`.
+ * A host loss uses `eliminate:<reason>` for immediate surrender or a time-limit loss, or `eliminate-eot:<reason>`
+ * for a retired turn-end surrender. Retired commands are detected and refused by eliminate().
  * Returns the code, or null for an ordinary answer. Every journal replayer uses this.
  */
 export const ELIMINATE_PROMPT_PREFIX = "eliminate:";
+export const ELIMINATE_EOT_PROMPT_PREFIX = "eliminate-eot:";
+/** True only for a retired saved surrender that used the turn-end rule. */
+export function eliminationAtTurnEnd(promptId: string): boolean {
+  return promptId.startsWith(ELIMINATE_EOT_PROMPT_PREFIX);
+}
 export function eliminationCodeOf(promptId: string): number | null {
-  if (!promptId.startsWith(ELIMINATE_PROMPT_PREFIX)) return null;
-  const code = Number(promptId.slice(ELIMINATE_PROMPT_PREFIX.length));
+  const prefix = eliminationAtTurnEnd(promptId) ? ELIMINATE_EOT_PROMPT_PREFIX : ELIMINATE_PROMPT_PREFIX;
+  if (!promptId.startsWith(prefix)) return null;
+  const code = Number(promptId.slice(prefix.length));
   return Number.isInteger(code) && code >= 0 ? code : null;
 }
 
@@ -190,15 +197,13 @@ export interface EngineGame {
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
   searchCards(query: string): DuelCardInfo[];
   /**
-   * Eliminate a duelist (FFA surrender). Runs `Debug.EliminateDuelist(seat, reason)` between process calls.
-   * The core applies the loss at its next Adjust, so the loss is not instant:
-   * - The open prompt belongs to the leaving seat (or its Tag team): the engine answers for it (a pass, or the
-   *   first legal choice) until the core reports the loss. Those answers are not journaled; replay repeats them.
-   * - The open prompt belongs to another seat: that prompt stays open, the view marks the seat with
-   *   `pendingElimination`, and the loss lands after that seat answers.
-   * Throws when the core has no such function (or the duel has fewer than three seats).
+   * Surrender removes a duelist immediately through Debug.SurrenderDuelist, or flags the loss while the
+   * current chain finishes. Leaving seats auto-pass; required choices use the deterministic fallback.
+   * A living seat's current choice stays open. Debug.EliminateDuelist keeps time-limit timing unchanged.
+   * `atTurnEnd` identifies retired journal commands, which are refused instead of replayed at a new time.
+   * Throws when the core lacks the required function (or the duel has fewer than three seats).
    */
-  eliminate(seat: number, reason: number): void;
+  eliminate(seat: number, reason: number, atTurnEnd?: boolean): void;
   /** The last entries (oldest first) of the triage ring buffer. For the host report only, never for a view. */
   diagnostics(): EngineDiagnostic[];
   /** Core identity (wasm sha and file) and the counters since the last prompt. For reports and triage only. */
@@ -495,6 +500,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const lp: number[] = Array.from({ length: seatCount }, () => team.startingLP);
   const lpOf = (seat: number) => lp[teamOfSeat(format, seat)] ?? 0;
   const eliminated = new Set<number>();
+  const eliminationReasons = new Map<number, number>();
   const eliminationOrder: number[][] = [];
   let eliminationGroup: number[] | null = null;
   /** Seats (a whole team in Tag) after `eliminate()` whose loss the core has not reported yet. */
@@ -517,6 +523,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   /** Links of the chain that are still on it: the wrapper cannot read the chain when there are more than two seats. */
   let liveChainSize = 0;
   let pending: PendingPrompt | null = null;
+  let closedResponseSeat: number | null = null;
   let result: DuelEngineView["result"] = null;
   let closed = false;
   const log: LogEntry[] = [];
@@ -605,12 +612,16 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         }
         diagnose("win", message.player < seatCount ? message.player : null, `player ${message.player} reason ${message.reason}`);
         const winnerSeat = message.player >= 0 && message.player < seatCount ? message.player : null;
-        const reason = cards.victory(message.reason) ?? `Win reason ${message.reason}`;
+        const reason = message.reason === 0 ? "Surrender" : cards.victory(message.reason) ?? `Win reason ${message.reason}`;
         if (multi) {
           // Tag: `player` is the winning team (its lowest seat).
           const winnerTeam = winnerSeat == null ? null : teamOfSeat(format, winnerSeat);
           // A Tag duel ends with MSG_WIN only (no message 200 for the losing team): every seat of another team is out.
-          if (winnerSeat != null) for (let seat = 0; seat < seatCount; seat++) if (teamOfSeat(format, seat) !== winnerTeam) eliminated.add(seat);
+          if (winnerSeat !== null) {
+            for (let seat = 0; seat < seatCount; seat++) {
+              if (teamOfSeat(format, seat) !== winnerTeam) eliminated.add(seat);
+            }
+          }
           result = { winnerSeat, winnerTeam, reason };
           appendLog(winnerSeat == null ? `Draw (${reason})` : format === "tag" ? `Team ${winnerTeam! + 1} wins (${reason})` : `Player ${winnerSeat + 1} wins (${reason})`);
           return;
@@ -735,6 +746,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   /** A multi-duelist message that the wrapper drops: MSG_DUELIST_ELIMINATED (200) and MSG_ATTACK_DUELIST (201). */
   const applyRaw = (raw: RawDuelistMessage) => {
     if (raw.type !== MSG_DUELIST_ELIMINATED) eliminationGroup = null;
+    if (raw.type === MSG_SURRENDER_WINDOW_CLOSED) {
+      if (raw.duelist < seatCount) closedResponseSeat = raw.duelist;
+      return;
+    }
     if (raw.type === MSG_DUELIST_ELIMINATED) {
       // A seat is 0..seatCount-1. Anything else (0xFF, "no duelist") eliminates nobody.
       if (raw.duelist >= seatCount) {
@@ -750,10 +765,13 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           eliminationOrder.push(eliminationGroup);
         }
         eliminationGroup.push(...newlyLost);
-        for (const seat of newlyLost) eliminated.add(seat);
+        for (const seat of newlyLost) {
+          eliminated.add(seat);
+          eliminationReasons.set(seat, raw.reason);
+        }
       }
       diagnose("msg200", raw.duelist, `reason ${raw.reason}`);
-      const reason = cards.victory(raw.reason) ?? `Win reason ${raw.reason}`;
+      const reason = raw.reason === 0 ? "Surrender" : cards.victory(raw.reason) ?? `Win reason ${raw.reason}`;
       appendLog(format === "tag" ? `Team ${teamOfSeat(format, raw.duelist) + 1} is eliminated (${reason})` : `Player ${raw.duelist + 1} is eliminated (${reason})`);
     } else if (raw.type === MSG_ATTACK_DUELIST) {
       // The core writes 0xFF when a direct attack has no defender duelist (no seat to name).
@@ -783,7 +801,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     resetEventBatch(eventContext);
     while (!result) {
       const status = lib.duelProcess(handle);
-      // The wrapper warns once per message id 200, 201 and 202 (it does not know them). The tap reads them below.
+      // The wrapper warns once per message id 200, 201, 202 and 203 (it does not know them). The tap reads them below.
       const messages = tap ? withoutDuelistParseWarnings(() => lib.duelGetMessage(handle)) : lib.duelGetMessage(handle);
       callsSinceLastPrompt += 1;
       messagesSinceLastPrompt += messages.length;
@@ -862,8 +880,16 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     }
   };
 
-  /** Automatic answers for a leaving seat per call: the core reports the loss at its next Adjust, long before this. */
+  /** Bound automatic answers while the current chain or cut-short turn finishes. */
   const LEAVING_ANSWER_LIMIT = 200;
+
+  const mustCloseResponseWindow = () => pending?.seat === closedResponseSeat
+    && (pending?.message.type === OcgMessageType.SELECT_EFFECTYN
+      || pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced);
+
+  // Keep the existing cut-short optional-chain policy for LP, deck and time-limit losses.
+  const mustPassOtherCutShortTurn = () => eliminated.has(turnSeat) && eliminationReasons.get(turnSeat) !== 0
+    && liveChainSize === 0 && pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced;
 
   /**
    * While the open prompt belongs to a seat that is leaving, answer it for that seat (the answer that changes
@@ -871,8 +897,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
    * a journal replay of the same commands gives the same answers.
    */
   const answerForLeavingSeats = () => {
-    for (let step = 0; pending && !result && isLeaving(pending.seat); step += 1) {
+    for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow() || mustPassOtherCutShortTurn()); step += 1) {
       const current = pending;
+      closedResponseSeat = null;
       if (step >= LEAVING_ANSWER_LIMIT) {
         throw new Error(`Seat ${current.seat} is still in the duel after ${LEAVING_ANSWER_LIMIT} automatic answers (open prompt ${current.id}, ${current.prompt.kind})`);
       }
@@ -927,6 +954,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // Disabled zones are public board facts. The field is set only for seats that have one.
       if (multi) projected.eliminationOrder = eliminationOrder.map((group) => [...group]);
       for (const entry of projected.seats) {
+        if (multi) entry.pendingElimination = !result && !eliminated.has(entry.seat)
+          && isLeaving(entry.seat);
         const mask = disabledZones.get(entry.seat);
         if (mask) entry.disabledZones = mask;
       }
@@ -951,29 +980,53 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       answerForLeavingSeats();
       revision += 1;
     },
-    eliminate(seat, reason) {
+    eliminate(seat, reason, atTurnEnd = false) {
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (!multi) throw new Error("Only duels with more than two seats can eliminate a duelist");
       if (!Number.isInteger(seat) || seat < 0 || seat >= seatCount) throw new Error("Invalid seat");
       if (eliminated.has(seat) || leaving.has(seat)) throw new EngineAnswerError("Seat is already eliminated");
+      if (atTurnEnd) throw new EngineAnswerError("This saved duel uses the retired turn-end surrender rule");
+      if (!Number.isInteger(reason) || reason < 0 || reason > 255) throw new Error("Invalid loss reason");
       // Check before the core is touched, so a throw cannot leave the duel half changed.
       if (!pending) throw new Error("The core waits for an answer but the engine has no open prompt");
-      if (!lib.loadScript(handle, "duel-probe-eliminate.lua", "assert(Debug.EliminateDuelist~=nil)")) {
+      const surrender = reason === 0;
+      if (!lib.loadScript(handle, "duel-probe-eliminate.lua", surrender
+        ? "assert(Debug.EliminateDuelist~=nil and Debug.SurrenderDuelist~=nil)"
+        : "assert(Debug.EliminateDuelist~=nil)")) {
         errors.length = 0;
-        throw new Error("This duel core has no Debug.EliminateDuelist");
+        throw new Error(surrender ? "This duel core has no Debug.EliminateDuelist immediate surrender support" : "This duel core has no Debug.EliminateDuelist");
       }
-      if (!lib.loadScript(handle, "duel-eliminate.lua", `Debug.EliminateDuelist(${seat},${Math.trunc(reason)})`)) {
+      // LoadScript appends messages to the last process buffer. Read only the
+      // suffix it adds, so the old prompt and its events are not counted twice.
+      const oldMessages = tap ? withoutDuelistParseWarnings(() => lib.duelGetMessage(handle)) : lib.duelGetMessage(handle);
+      const oldBytes = tap?.take().at(-1)?.byteLength ?? 0;
+      if (!lib.loadScript(handle, "duel-eliminate.lua", surrender
+        ? `Debug.SurrenderDuelist(${seat})`
+        : `Debug.EliminateDuelist(${seat},${Math.trunc(reason)})`)) {
         const detail = errors.join("; ");
         errors.length = 0;
         throw new Error(`Failed to eliminate seat ${seat}${detail ? `: ${detail}` : ""}`);
       }
       diagnose("eliminate", seat, `reason ${Math.trunc(reason)}`);
-      // The loss is only flagged in the core. It lands at the next Adjust, which runs after the open prompt is answered.
       for (const gone of format === "tag" ? seatsOfTeam(format, teamOfSeat(format, seat)) : [seat]) leaving.add(gone);
+      const fresh = (tap ? withoutDuelistParseWarnings(() => lib.duelGetMessage(handle)) : lib.duelGetMessage(handle)).slice(oldMessages.length);
+      const extras = tap?.take().flatMap((buffer) => parseDuelistMessages(buffer.subarray(oldBytes)).extras) ?? [];
+      // Each call is a new loss window, also when an empty seat produces only message 200.
+      eliminationGroup = null;
+      let nextExtra = 0;
+      fresh.forEach((message, index) => {
+        while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
+        applyMessage(message);
+        recordEvent(message);
+      });
+      while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
+      flushDeferredDestroys();
+      if (result) pending = null;
       // Do not run the core here. A call with no new response is no no-op: the core takes the old response buffer as the answer
       // of the open prompt (a chain window gets a pass), so the prompt of ANOTHER seat would be answered without that seat.
-      // The open prompt stays. If its seat is the one that leaves, answerForLeavingSeats answers it with a real response.
+      // Living choices stay open. The core identifies an optional response to the departed
+      // turn player; only that window and prompts held by leavers receive automatic answers.
       answerForLeavingSeats();
       revision += 1;
     },

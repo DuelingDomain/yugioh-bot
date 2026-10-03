@@ -111,8 +111,7 @@ Worker recovery and all journal replay paths use this saved flag. The engine res
 bundle and Lua overlay. A rule change alone does not change an existing duel's draw flag.
 
 Old records have no saved flag. Production ran `main`; after migration, all its old duels are 1v1
-and need no action. Before 2026-10-02 (this change), staging ran this branch before and after `0fb46df`,
-but never `d4338a2` or a later commit.
+and need no action. Staging ran this branch before and after `0fb46df`, but never `d4338a2` or a later commit.
 Only FFA gained the new draw rule at `0fb46df`. Standard and Domain
 1v1 and Tag therefore used the stock Master Rule draw flag: MR1/MR2 drew on turn 1; MR3-MR5 did not.
 The server infers those old rules. No backfill is needed for Domain 1v1 or Tag records.
@@ -129,14 +128,12 @@ to find ambiguous active FFA duels and let them finish. The FFA repair is for st
 To restore an old replay, first establish the server
 rule used at its start from deployment records, then save the flag in its setup: `true` for Standard or
 Domain FFA under `0fb46df`, `false` for either FFA mode before that change. The per-row SQL statement is
-in [the runbook](vm-runbook.md#first-turn-draw-records-2026-10-02). Do not set an old flag from
+in [the production runbook](vm-runbook.md#first-turn-draw-records-2026-10-02). Do not set an old flag from
 the current mode or creation date alone. This change does not alter existing database rows.
 Rollback: an older server ignores the key and can drop it on its next setup write. Keep a backup of the
 saved flags; a later upgrade can again refuse an FFA record whose flag was lost.
 
-**Developers:** Local/test databases that ran builds from `d4338a2` up to, but not including, `42e66c3`
-may hold Domain 1v1/Tag duels with no saved flag. These duels drew on turn 1.
-Interrupt or delete those duels, or set the flag to `true` with this statement for each verified local/test row.
+**Developers:** Local/test databases that ran `d4338a2..42e66c3` may hold Domain 1v1/Tag duels that drew on turn 1 with no saved flag; interrupt/delete those duels, or set the flag to `true` with this statement for each verified local/test row.
 
 ```sql
 UPDATE duels

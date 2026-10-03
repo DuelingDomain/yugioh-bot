@@ -9,7 +9,7 @@ import { parseJournalText } from "./journal-file.js";
 import { resolve } from "node:path";
 import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, type DuelAnswer, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode, type DuelSettings } from "@yugidraft/shared/duels";
 import { createDomainCore } from "../../src/domain-core.js";
-import { createEngineGame, eliminationCodeOf, registerDomainCoreFactory } from "../../src/engine.js";
+import { createEngineGame, eliminationCodeOf, eliminationAtTurnEnd, registerDomainCoreFactory } from "../../src/engine.js";
 import { engineSeed } from "../../tests/fuzz/rng.js";
 import { savedFirstTurnDraw } from "../../src/first-turn-draw.js";
 import { savedFuzzFirstTurnDraw } from "./fuzz-draw-rule.js";
@@ -169,7 +169,7 @@ export async function replaySource(
         );
       }
       if (elimination === null) game.answer(command.seat, command.promptId, command.answer);
-      else game.eliminate(command.seat, elimination);
+      else game.eliminate(command.seat, elimination, eliminationAtTurnEnd(command.promptId));
       if (visit?.(read(game, done + 1))) return read(game, done + 1);
     }
     return read(game, done);
