@@ -33,7 +33,7 @@ async function evidence(page: Page, slug: string, info: TestInfo, name: string, 
 async function shot(page: Page, slug: string, info: TestInfo, name: string) {
   await tableShot(page, slug, info, `r3-surrender-${name}`);
   const directory = process.env.E2E_SURRENDER_SHOT_DIR;
-  if (info.repeatEachIndex === 1 && directory) {
+  if (info.repeatEachIndex === 0 && directory) {
     mkdirSync(directory, { recursive: true });
     copyFileSync(info.outputPath(`live-ffa3-r3-surrender-${name}.png`), join(directory, `surrender-${name}.png`));
   }
@@ -94,8 +94,7 @@ test.describe("FFA surrender and spectators", () => {
     const log = await evidence(bob.page, slug, info, "surrender-ordered-live-turns", [before, pending, after, watched]);
     expect(log.filter(entry => entry.promptType === "action").map(entry => [entry.turn, entry.turnSeat]).filter((entry, index, entries) => index === 0 || entry[0] !== entries[index - 1]![0])).toEqual([[1, 0], [2, 1], [3, 2], [4, 1]]);
     await alice.page.reload();
-    await expect(alice.page.getByText("You are spectating", { exact: true })).toBeVisible();
-    expect((await publicRoom(alice.page, slug)).engine!.prompt).toBeNull();
+    await expectAutoSpectating(alice.page, slug);
     await surrender(bob.page);
     const result = alice.page.getByTestId("duel-result");
     await expect(result).toHaveAttribute("data-outcome", "spectator");
@@ -131,8 +130,7 @@ test.describe("FFA surrender and spectators", () => {
     await expect(turnLabel(alice.page)).toHaveText("Turn 4");
     await expect(alice.page.locator("[data-arc='3']")).toHaveAttribute("data-lit", "true");
     await alice.page.reload();
-    await expect(alice.page.getByText("You are spectating", { exact: true })).toBeVisible();
-    expect((await publicRoom(alice.page, slug)).engine!.prompt).toBeNull();
+    await expectAutoSpectating(alice.page, slug);
     await surrender(dan.page);
     await expect.poll(async () => (await readTable(bob.page, slug)).engine!.turnSeat).toBe(1);
     await surrender(bob.page);
@@ -258,12 +256,18 @@ test.describe("FFA surrender and spectators", () => {
       });
     }
 
-    test(`${format}: surrender at your own action prompt immediately hands off to the next live seat`, async ({ player }, info) => {
+    // The current engine settles this path by auto-passing the open action prompt.
+    // Own-turn surrender while another seat owns a chain prompt is covered below.
+    test(`current engine: ${format}: own action-prompt surrender auto-passes and hands off to the next live seat`, async ({ player }, info) => {
       const seats = await humans(player, format);
       const { slug } = await startTable(seats, `${format} immediate own-turn surrender`, seats.map(normalDeck), { ...options, format });
       const alice = seats[0]!;
       const nextSeat = format === "ffa4" ? 2 : 1;
-      if (format === "ffa4") await surrender(seats[1]!.page);
+      if (format === "ffa4") {
+        await surrender(seats[1]!.page);
+        expect(viewSeat(await readTable(alice.page, slug), 1)).toMatchObject({ eliminated: false, pendingElimination: true });
+      }
+      const posts = actionPosts(alice.page, slug);
       const response = alice.page.waitForResponse(reply => reply.url().endsWith(`/api/duels/${slug}/surrender`) && reply.request().method() === "POST");
       await surrender(alice.page);
       const accepted = await (await response).json() as DuelRoom;
@@ -271,8 +275,38 @@ test.describe("FFA surrender and spectators", () => {
       expect(viewSeat(accepted, 0).eliminated).toBe(true);
       expect(viewSeat(accepted, 0).pendingElimination).not.toBe(true);
       expect(accepted.engine).toMatchObject({ turn: 2, turnSeat: nextSeat });
+      expect(accepted.engine!.prompt).toBeNull();
       if (format === "ffa4") expect(viewSeat(accepted, 1).eliminated).toBe(true);
       await expectAutoSpectating(alice.page, slug);
+      expect(posts.count).toBe(0);
+    });
+
+    test(`current engine: ${format}: surrender at an offered chain response auto-passes without a browser answer`, async ({ player }, info) => {
+      const seats = await humans(player, format);
+      const [alice, bob] = seats as [Seat, Seat, ...Seat[]];
+      const { slug } = await startTable(seats, `${format} auto-pass Leaving response`, [
+        { main: withFiller(["Pot of Greed"], 40) },
+        { main: withFiller(["Ash Blossom & Joyous Spring"], 40) }, ...seats.slice(2).map(normalDeck),
+      ], { ...options, format });
+      await expectRealCore(alice.page, slug, "practice", info, 0);
+      const posts = actionPosts(bob.page, slug);
+      await useCard(alice.page, handCard(alice.page, "Pot of Greed"), "Activate");
+      await pickLegalZone(alice.page, "st");
+      await expect(bob.page.locator("[data-prompt-panel]").getByRole("button", { name: "No", exact: true })).toBeVisible();
+      const offered = await readTable(bob.page, slug);
+      expect(offered.engine!.prompt).toMatchObject({ seat: 1, context: { type: "chain" } });
+      expect(offered.engine!.prompt!.options.some(option => option.card?.name === "Ash Blossom & Joyous Spring")).toBe(true);
+      await surrender(bob.page);
+      await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("action");
+      const after = await readTable(alice.page, slug);
+      expect(after.engine).toMatchObject({ turn: 1, turnSeat: 0, chain: [] });
+      expect(viewSeat(after, 1).eliminated).toBe(true);
+      expect(viewSeat(after, 0).hand).toHaveLength(viewSeat(offered, 0).hand.length + 2);
+      expect(after.engine!.log.some(entry => entry.text === "Player 1 drew 2 card(s)")).toBe(true);
+      await expectAutoSpectating(bob.page, slug);
+      expect(posts.count).toBe(0);
+      const log = await evidence(alice.page, slug, info, "Leaving-response-auto-passed", [offered, after]);
+      expect(log.some(entry => entry.promptId === offered.engine!.prompt!.id && entry.promptSeat === 1 && entry.promptType === "chain")).toBe(true);
     });
 
     for (const reason of ["LP", "deck-out"] as const) {
