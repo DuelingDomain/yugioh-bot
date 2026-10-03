@@ -159,7 +159,8 @@ export function TagShell(props: TagShellProps) {
     dispatch: dispatchCamera,
     anchorSeat: layout.anchorSeat,
     pinned: camera.pinned,
-    suspended,
+    // The result screen owns the keys while it is shown.
+    suspended: suspended || showResult,
     yields: tagCameraYields({ aiming: flow.aiming, seatKeys: flow.seatKeys, centeredUnrevealed }),
   });
 

@@ -321,6 +321,18 @@ describe("TagShell result", () => {
     expect(onExit).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves the camera keys alone while the result screen is shown, not only because it is modal", async () => {
+    vi.useFakeTimers();
+    const { container } = render(<Shell id="result" />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    const screen = document.body.querySelector("[data-testid='duel-result']") as HTMLElement;
+    expect(screen).not.toBeNull();
+    // The key hook also stops on any aria-modal node; take that guard away to test the shell's own flag.
+    for (const node of document.querySelectorAll("[aria-modal]")) node.removeAttribute("aria-modal");
+    press("3");
+    expect(stagePress(container, 2)).toBe("false");
+  });
+
   it("keeps the Rooftop result banner for the preview only", () => {
     const { container } = render(<Shell id="result" preview />);
     expect(container.querySelector("[role='dialog'][aria-label='Duel result']")).not.toBeNull();
