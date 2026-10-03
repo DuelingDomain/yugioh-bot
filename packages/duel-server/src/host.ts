@@ -1051,16 +1051,19 @@ export function createDuelHost(options: {
         return project(slug, guildId, playerId);
       }
     }
-    // An interruption can have no final board. Do not restore a surrendered player's private view.
-    const savedLosses = new Set([
-      ...(setup.setup?.surrenderedSeats ?? []),
-      ...setup.commands.filter((input) => eliminationReasonOf(input.command) !== null).map((input) => input.seat),
-    ]);
-    const noBoardLoss = room.engine === null && room.session.status === "interrupted" && room.session.format !== "1v1"
-      && [...savedLosses].some((gone) => room.session.format === "tag"
-        ? teamOfSeat("tag", gone) === teamOfSeat("tag", room.mySeat ?? -1)
-        : gone === room.mySeat);
-    if (room.mySeat !== null && (room.engine?.seats.find((seat) => seat.seat === room.mySeat)?.eliminated || noBoardLoss)) {
+    // With no final board, replay the journal to check that the loss did land.
+    let noBoardLoss = false;
+    if (room.mySeat !== null && room.engine === null && room.session.status === "interrupted" && room.session.format !== "1v1") {
+      const publicReplay = await replay(slug, guildId, { ...room, role: "spectator", mySeat: null, myDeck: null });
+      const last = publicReplay.frames.at(-1)?.view ?? null;
+      markLegacyLosses(last);
+      noBoardLoss = last?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated) === true;
+    }
+    // The final loss ends play. Only earlier losses give the automatic spectator role.
+    const spectator = room.session.status === "completed"
+      ? room.engine?.eliminationOrder?.slice(0, -1).some((group) => group.includes(room.mySeat ?? -1)) === true
+      : room.engine?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated) === true;
+    if (room.mySeat !== null && (spectator || noBoardLoss)) {
       room.role = "spectator";
       room.mySeat = null;
       room.myDeck = null;
