@@ -247,9 +247,9 @@ docker compose -f docker-compose.yml down
 
 ## Backups
 
-The root systemd service runs the repo's `scripts/backup/dueling-backup` with Python's SQLite backup API, including committed WAL writes without stopping the app or requiring the SQLite CLI. The timer runs daily at **07:30 UTC**, with up to ten minutes of random delay and catch-up after downtime. Snapshots are integrity checked, mode 0600, and paired with SHA-256 sidecars in `/var/backups/yugioh-bot` (directory mode 0700). `DUELING_BACKUP_SRC` and `DUELING_BACKUP_DIR` override the source and destination. Deploys update the script used by the service; re-copy the units if their configuration changes.
+The root systemd service runs the repo's `scripts/backup/dueling-backup` to back up `/opt/yugioh-bot/data/bot.sqlite` with Python's SQLite backup API, including committed WAL writes without stopping the app or requiring the SQLite CLI. The timer runs daily at **07:30 UTC**, with up to ten minutes of random delay and catch-up after downtime. Snapshots are integrity checked, mode 0600, and paired with SHA-256 sidecars in `/var/backups/yugioh-bot` (directory mode 0700). `DUELING_BACKUP_SRC` and `DUELING_BACKUP_DIR` override the source and destination. Deploys update the script used by the service; re-copy the units if their configuration changes.
 
-After a successful backup or verified pull, each side keeps the newest N automatic `bot-YYYYmmdd-HHMMSSZ.sqlite` files by UTC filename and deletes older ones with their sidecars. N defaults to **7** and must be an integer >= 1: set `DUELING_BACKUP_KEEP` in a systemd service drop-in on the VM, or `KEEP` in the workstation script's environment. Manual and other-named files are preserved. Completion lines include `kept` and `total_bytes` for retained automatic SQLite files, excluding sidecars and manual files.
+After a successful backup, the server keeps the newest N automatic `bot-YYYYmmdd-HHMMSSZ.sqlite` files by UTC filename and deletes older ones with their sidecars. `DUELING_BACKUP_KEEP` defaults to **7** and must be an integer >= 1; set it in a systemd service drop-in on the VM. Manual and other-named files are preserved. Completion lines include `kept` and `total_bytes` for retained automatic SQLite files, excluding sidecars and manual files.
 
 **VM install** — from the deployed checkout:
 
@@ -263,25 +263,22 @@ sudo systemctl start "$unit.service"
 sudo journalctl -u "$unit.service" --no-pager -n 30
 ```
 
-**Workstation install** — WSL needs `rsync`, `ssh`, `sha256sum`, and `python3`; the SSH alias `dueling-system` must reach the VM as root with a key and trusted host key. `LOCAL_DIR` defaults to `/home/imran/backups/dueling-system`; `pull.log` there keeps at most 1,000 lines. Optional `MIRROR_DIR` copies to a Windows-accessible directory without deleting older mirrored files. Set environment overrides inside the installed script for scheduled runs. Exit 2 warns of no automatic backup or a newest backup older than 36 hours (available files still mirror); other nonzero exits report errors.
-
-From the repo in WSL:
-
-```bash
-script=pull-dueling-backup.sh
-mkdir -p ~/bin
-cp "scripts/backup/$script" "$HOME/bin/$script"
-chmod +x "$HOME/bin/$script"
-"$HOME/bin/$script"
-```
-
-Adjust the distro, Linux user, script path, and time variables at the top of the registration script for your WSL setup. From **Windows PowerShell**, in a Windows-accessible checkout:
+**Workstation migration** — backups now stay on the VM. If you used the previous workstation setup, deleting the repo's pull tooling does not remove the installed script or Windows scheduled task. Run these commands in **Windows PowerShell**, as the Windows user who registered the task (use your configured task name if changed):
 
 ```powershell
-.\scripts\backup\register-pull-task.ps1
+$taskName = 'Dueling System backup pull'
+Stop-ScheduledTask -TaskName $taskName
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
 ```
 
-The task defaults to **21:00 local time** as the current Windows user while logged on, without storing a password; missed runs catch up when a network is available. Registration replaces that user's task of the same name.
+Confirm the task is absent in Task Scheduler and no pull is still running in WSL. Before deleting the installed script, note any `LOCAL_DIR` or `MIRROR_DIR` overrides. In the WSL distro and Linux account used by the task, remove the copied script and retained workstation backups, including sidecars and `pull.log` (adjust these paths if customized):
+
+```bash
+rm -f -- "$HOME/bin/pull-dueling-backup.sh"
+rm -rf -- /home/imran/backups/dueling-system
+```
+
+Also delete retained SQLite backups and SHA-256 sidecars from any configured `MIRROR_DIR` and other workstation copies.
 
 **RESTORE** — run as root on the VM, choose an existing backup below, and stop on any failed command. Pause the timer and take a fresh snapshot before verifying the chosen backup. Keep the original database and WAL/SHM together in the dated folder; only remove these live files after all four writers stop.
 
