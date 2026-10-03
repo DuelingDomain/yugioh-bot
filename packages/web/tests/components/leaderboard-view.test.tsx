@@ -123,12 +123,21 @@ describe("leaderboard view", () => {
     render(<LeaderboardView {...props} />);
     const card = screen.getByRole("region", { name: "Your season" });
     expect(within(card).getByText("#5")).toBeInTheDocument();
-    expect(within(card).getByText("To pass Toon Tina")).toBeInTheDocument();
+    expect(within(card).getByText("Gap to Toon Tina")).toBeInTheDocument();
     expect(within(card).getByText("22 winnings")).toBeInTheDocument();
     expect(within(card).getByText("15–9 · 63%")).toBeInTheDocument();
         expect(card).not.toHaveTextContent("best");
     expect(screen.getByRole("img", { name: "Gold tier, 84 of 250 points through" })).toBeInTheDocument();
     expect(card).toHaveTextContent("166 Elo to Platinum");
+  });
+
+  it("labels tied winnings as a zero gap", () => {
+    const rows = referenceRows.map((row) => row.playerId === 5 ? { ...row, winnings: 198 } : row);
+    render(<LeaderboardView {...props} rows={rows} />);
+    const card = screen.getByRole("region", { name: "Your season" });
+    expect(within(card).getByText("Gap to Toon Tina")).toBeInTheDocument();
+    expect(within(card).getByText("0 winnings")).toBeInTheDocument();
+    expect(within(card).queryByText(/^To pass /)).toBeNull();
   });
 
   it("shows Top tier with a full meter for Diamond", () => {

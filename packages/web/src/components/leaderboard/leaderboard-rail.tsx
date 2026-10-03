@@ -56,7 +56,7 @@ export function YourSeasonPanel({ position, scope }: { position: PlayerPosition 
         <LpTally items={items} />
         {(above || scope === "season") && (
           <dl className="rows">
-            {above && <div><dt>To pass {above.displayName}</dt><dd>{gap!.toLocaleString()} winnings</dd></div>}
+            {above && <div><dt>Gap to {above.displayName}</dt><dd>{gap!.toLocaleString()} winnings</dd></div>}
             {scope === "season" && (
               <>
                 <div><dt>Record</dt><dd>{row.wins}–{row.losses} · {row.winRate}%</dd></div>

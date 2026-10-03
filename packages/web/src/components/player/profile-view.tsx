@@ -7,7 +7,7 @@ import { getTierProgress } from "@/components/leaderboard/leaderboard-model";
 import { ProfileAchievements } from "./profile-achievements";
 import { ProfileHeader } from "./profile-header";
 import { ProfileWinnings } from "./profile-winnings";
-import { getEloGuide, winningsThisWeek, type AwardEntry, type Profile, type ProfileScope } from "./profile-model";
+import { getEloGuide, parseStamp, winningsThisWeek, type AwardEntry, type Profile, type ProfileScope } from "./profile-model";
 import styles from "./profile.module.css";
 
 export interface ProfileViewProps {
@@ -17,13 +17,14 @@ export interface ProfileViewProps {
   isMe?: boolean;
   /** False when no season is running: the API then only has all-time standings. */
   hasSeason?: boolean;
+  seasonStartedAt?: string | null;
 }
 
 function Signed({ n }: { n: number }) {
   return <span className={`lp-d ${n < 0 ? "down" : "up"}`}>{n < 0 ? `−${Math.abs(n)}` : `+${n}`}</span>;
 }
 
-export function ProfileView({ profile: initialProfile, leaderboardRank: initialRank, isMe = false, hasSeason = true }: ProfileViewProps) {
+export function ProfileView({ profile: initialProfile, leaderboardRank: initialRank, isMe = false, hasSeason = true, seasonStartedAt = null }: ProfileViewProps) {
   const [scope, setScope] = useState<ProfileScope>(hasSeason ? "season" : "all");
   const [profile, setProfile] = useState<Profile>(initialProfile);
   const [rank, setRank] = useState<number | null>(initialRank);
@@ -56,7 +57,9 @@ export function ProfileView({ profile: initialProfile, leaderboardRank: initialR
   const total = profile.wins + profile.losses;
   const winRate = total > 0 ? Math.round((profile.wins / total) * 100) : 0;
   const recent = profile.recent as AwardEntry[];
-  const week = season ? winningsThisWeek(recent) : null;
+  const week = season && seasonStartedAt
+    ? winningsThisWeek(recent.filter((entry) => parseStamp(entry.created_at).getTime() >= parseStamp(seasonStartedAt).getTime()))
+    : null;
   const tier = getTierProgress(profile.rating);
   const placeLabel = rank !== null
     ? `#${rank} ${season ? "this season" : "all-time"}`

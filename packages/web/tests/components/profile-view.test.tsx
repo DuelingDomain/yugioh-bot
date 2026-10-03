@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("next/font/google", () => {
@@ -28,6 +28,7 @@ const profile = {
 } as unknown as Profile;
 
 beforeEach(() => window.localStorage.clear());
+afterEach(() => vi.restoreAllMocks());
 
 describe("profile view", () => {
   it("shows the four season readouts with the tier, Elo and place", () => {
@@ -44,6 +45,22 @@ describe("profile view", () => {
     expect(lps.textContent).toContain("540");
     expect(screen.getByRole("img", { name: "84 of 250 Elo through Gold" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "all tiers" })).toHaveAttribute("href", "/leaderboard#tiers");
+  });
+
+  it("counts only active-season awards in the weekly winnings delta", () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-27T00:00:00Z"));
+    const recent: AwardEntry[] = [
+      { kind: "match", points: 8, created_at: "2026-09-26 10:00:00", tournament_id: null, tournament_name: null },
+      { kind: "match", points: 3, created_at: "2026-09-24 10:00:00", tournament_id: null, tournament_name: null },
+      { kind: "placement", points: 100, created_at: "2026-09-24 09:59:59", tournament_id: 11, tournament_name: "Friday Night Duels #11" },
+    ];
+    const { container } = render(
+      <ProfileView profile={{ ...profile, winnings: 11, recent }} leaderboardRank={5} seasonStartedAt="2026-09-24 10:00:00" />,
+    );
+    const winnings = container.querySelector(".pf-lps .lp")!;
+    expect(winnings.querySelector(".lp-v b")!.textContent).toBe("11");
+    expect(winnings.querySelector(".lp-d")!.textContent).toBe("+11");
+    expect(within(screen.getByRole("region", { name: "Winnings earned" })).getByText("+100")).toBeInTheDocument();
   });
 
   it("drops record and streak in the all-time view and without a season", () => {

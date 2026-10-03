@@ -37,12 +37,13 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
   const me = db
     .prepare("select id from players where discord_user_id = ? and guild_id = ?")
     .get(session.user.id, guildId) as { id: number } | undefined;
-  const hasSeason = Boolean(createSeasonService(db).getActive(guildId));
+  const season = createSeasonService(db).getActive(guildId);
+  const hasSeason = Boolean(season);
 
   const profile = scoring.getProfile(guildId, playerId, "season");
   const leaderboard = scoring.getLeaderboard(guildId, "season");
   const posIdx = leaderboard.findIndex((r) => r.playerId === playerId);
   const leaderboardRank = posIdx >= 0 ? posIdx + 1 : null;
 
-  return <ProfileView profile={profile} leaderboardRank={leaderboardRank} isMe={me?.id === playerId} hasSeason={hasSeason} />;
+  return <ProfileView profile={profile} leaderboardRank={leaderboardRank} isMe={me?.id === playerId} hasSeason={hasSeason} seasonStartedAt={season?.startedAt ?? null} />;
 }
