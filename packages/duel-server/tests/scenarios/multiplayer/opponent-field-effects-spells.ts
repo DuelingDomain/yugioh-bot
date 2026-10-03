@@ -90,7 +90,9 @@ const SPECS: EffectSpec[] = [
     gain: { monsters: ["Gladiator Beast Retiari"] },
   },
   {
-    // The target is every opponent's banished monster (R-COMMON-OPP-FIELD): p0 takes the Blue-Eyes of p1, the monster of p0 goes to the picked opponent only.
+    // R-FFA-OPP-ONE: the opponent monster and summon destination must use the same declared opponent in FFA.
+    // This fixture still takes Blue-Eyes from p1 and summons to another opponent; open core/fixture item.
+    // Tag uses the opposing-team field rule, R-TAG-SHARED-CARDS.
     code: 73355951, name: "Alpha Summon", slug: "alpha-summon", does: "Special Summons the banished Dark Magician of p0 and takes a banished monster of an opponent to the own field",
     p0: { spells: [set("Alpha Summon")], banished: [MAGICIAN] },
     tgt: { monsters: [ELF], banished: [SKULL] },
@@ -144,7 +146,9 @@ const SPECS: EffectSpec[] = [
     code: 62767644, name: "Inferno of the Ashened", slug: "inferno-of-the-ashened", does: "sends a card of an opponent to the Graveyard and Special Summons a Pyro monster of p0",
     p0: { spells: [{ card: "Inferno of the Ashened", pos: "up" }], grave: ["King of the Ashened City"] },
     steps: [activate("Inferno of the Ashened", "p0")],
-    // The card to send can be of any opponent (R-COMMON-OPP-FIELD): p0 sends the Mystical Elf of p1, the Pyro monster goes to the picked opponent only.
+    // R-FFA-OPP-ONE: the field target and Pyro summon must use the same declared opponent in FFA.
+    // This fixture still sends the Elf of p1 and summons to another opponent; open core/fixture item.
+    // Tag uses the opposing-team field rule, R-TAG-SHARED-CARDS.
     then: [select({ card: ELF, owner: "p1" })],
     p0End: { spells: ["Inferno of the Ashened"] },
     gain: { monsters: ["King of the Ashened City"] },
@@ -192,7 +196,9 @@ const SPECS: EffectSpec[] = [
     p0: { spells: [set("Terrors of the Overroot")] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
     steps: [activate("Terrors of the Overroot", "p0")],
-    // The targets are the Elf of p1 (field) and the Dark Magician in the Graveyard of the picked opponent: targets may be of any opponent (R-COMMON-OPP-FIELD); the card is Set on the field of the picked opponent.
+    // R-FFA-OPP-ONE: both targets and the Set destination must use the same declared opponent in FFA.
+    // This fixture still takes the field target from p1 and the Graveyard target from another opponent; open core/fixture item.
+    // Tag uses the opposing-team field rule, R-TAG-SHARED-CARDS.
     then: [select({ card: ELF, owner: "p1" }, MAGICIAN)],
     p0End: { grave: ["Terrors of the Overroot"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
