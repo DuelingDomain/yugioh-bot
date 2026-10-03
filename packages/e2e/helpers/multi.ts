@@ -10,6 +10,7 @@ import type { TimelineEntry } from "./timeline";
 import { checklistVerdicts, publicCodesOf, scanLeaks, type BoardSeat, type Leak, type StepRecord, type Verdict } from "./multi-verdict";
 import { stallMsFromEnv } from "./watch";
 import { expect } from "@playwright/test";
+import { expectRooftop } from "./tag";
 
 // Evidence runner for the multi-seat scenario presets. One `PresetRun` drives one preset in a real browser:
 // seat 0 (the test user) and one spectator page, the walk through the checklist over the room API, one snapshot for each
@@ -443,6 +444,10 @@ export class PresetRun {
         await expect(this.seat0.page.locator(`[data-table-stage='${this.expectedFormat}']`)).toBeVisible();
         await expect(this.seat0.page.locator("[data-table-shell]")).toBeVisible();
         await expect(this.seat0.page.locator("[data-lp-seat]")).toHaveCount(this.expectedFormat === "ffa3" ? 3 : 4);
+      }
+      if (this.expectedFormat === "tag") {
+        await expectRooftop(this.seat0.page);
+        await expect(this.seat0.page.locator("[data-table-stage='tag'] [data-lp-seat]")).toHaveCount(4);
       }
     } catch (error) {
       this.note(`seat 0 page did not show the duel field: ${String(error).slice(0, 200)}`, "error");
