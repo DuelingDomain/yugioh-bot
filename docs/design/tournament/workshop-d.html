@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solid Vision Workshop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@500;600;700&family=Sofia+Sans+Extra+Condensed:wght@500;600&family=Sofia+Sans+Semi+Condensed:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ground: #070b15;
+  --floor: #050811;
+  --panel: #0a1120;
+  --panel-2: #0e1729;
+  --panel-3: #132037;
+  --rule-rgb: 181 153 99;
+  --rule-lo: rgb(var(--rule-rgb) / 0.16);
+  --rule: rgb(var(--rule-rgb) / 0.3);
+  --ink: #efe7d5;
+  --ink-2: #c3bba8;
+  --ink-3: #958f81;
+  --beam: 198 182 255;
+  --pen: #9b7eff;
+  --pen-ink: #c6b6ff;
+  --pen-fill: #5733d1;
+  --chain: #e4b64f;
+  --chain-ink: #f4d690;
+  --f-d: "Oxanium", system-ui, sans-serif;
+  --f-n: "Sofia Sans Extra Condensed", system-ui, sans-serif;
+  --f-ui: "Sofia Sans Semi Condensed", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  background:
+    radial-gradient(64rem 30rem at 50% -10rem, rgb(var(--beam) / 0.1), transparent 70%),
+    var(--ground);
+  color: var(--ink);
+  font: 400 17px/1.55 var(--f-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+a { color: inherit; }
+img { display: block; max-width: 100%; }
+:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 3px; border-radius: 4px; }
+.wrap { width: min(1240px, 100% - 32px); margin: 0 auto; }
+
+/* ---------- top ---------- */
+.top { padding: 56px 0 0; }
+.top h1 {
+  margin: 0;
+  font: 700 clamp(46px, 8vw, 92px)/0.95 var(--f-d);
+  letter-spacing: -0.01em;
+  color: #f4efe2;
+  text-shadow: 0 0 44px rgb(var(--beam) / 0.3);
+}
+.top .lede { max-width: 62ch; margin: 18px 0 0; color: var(--ink-2); font-size: 19px; }
+.cta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 26px; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 20px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--pen-fill);
+  color: #fff;
+  font: 600 17px/1 var(--f-ui);
+  text-decoration: none;
+}
+.btn:hover { filter: brightness(1.12); }
+.btn.ghost { border-color: var(--rule); background: transparent; color: var(--ink); }
+.btn.ghost:hover { border-color: rgb(var(--rule-rgb) / 0.6); filter: none; }
+
+.hero { margin: 44px 0 0; padding: 0 0 56px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.27fr); gap: 20px; align-items: end; }
+
+/* ---------- screenshots ---------- */
+figure { margin: 0; }
+.shot {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 30px 60px rgb(0 0 0 / 0.55), 0 0 90px rgb(var(--beam) / 0.05);
+  aspect-ratio: 1440 / 900;
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.35;
+}
+.shot.ph { aspect-ratio: 390 / 844; border-radius: 18px; }
+.shot img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+figcaption { margin-top: 8px; color: var(--ink-3); font-size: 14px; }
+
+/* ---------- try it ---------- */
+.try { padding: 30px 0 34px; border-top: 1px solid var(--rule-lo); border-bottom: 1px solid var(--rule-lo); }
+.try h2 { margin: 0 0 6px; font: 600 26px/1.2 var(--f-d); }
+.try .go { max-width: 70ch; margin: 0 0 18px; color: var(--ink); font-size: 18px; }
+.try .go b { color: var(--pen-ink); font-weight: 600; }
+.ctl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.ctl li { padding: 12px 14px; border: 1px solid var(--rule-lo); border-radius: 10px; background: var(--panel); }
+.ctl b { display: block; font-weight: 600; }
+.ctl span { color: var(--ink-3); font-size: 15px; }
+
+/* ---------- sections ---------- */
+.part { padding: 72px 0; border-bottom: 1px solid var(--rule-lo); }
+.part > .wrap { display: grid; grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr); gap: 52px; align-items: start; }
+.part h2 { margin: 0; font: 600 34px/1.08 var(--f-d); letter-spacing: -0.005em; }
+.part h2::before { content: ""; display: block; width: 44px; height: 2px; margin-bottom: 16px; background: linear-gradient(90deg, var(--pen), transparent); }
+.part.solo > .wrap { grid-template-columns: minmax(0, 1fr); }
+.part .text p { max-width: 52ch; margin: 14px 0 0; color: var(--ink-2); }
+.part .text ul { max-width: 52ch; margin: 14px 0 0; padding-left: 20px; color: var(--ink-2); }
+.part .text li + li { margin-top: 6px; }
+.part .text b { color: var(--ink); font-weight: 600; }
+.note { max-width: 52ch; margin-top: 18px; padding: 12px 14px; border-left: 2px solid var(--chain); background: rgb(228 182 79 / 0.06); color: var(--ink-2); font-size: 15.5px; }
+.note b { color: var(--chain-ink); }
+
+.figs { display: grid; gap: 14px; }
+.figs.pair { grid-template-columns: minmax(0, 1fr) minmax(0, 0.3fr); align-items: end; }
+.figs.pair-wide { grid-template-columns: minmax(0, 1fr) minmax(0, 0.34fr); align-items: end; }
+.figs.stack { grid-template-columns: minmax(0, 1fr); }
+.figs.one-phone { grid-template-columns: minmax(0, 0.46fr); }
+
+.marks { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 16px; color: var(--ink-2); font-size: 15px; }
+.marks span { display: inline-flex; align-items: center; gap: 8px; }
+.marks i { width: 14px; height: 20px; border-radius: 3px; border: 1px solid var(--c); background: var(--f, transparent); }
+
+/* ---------- build notes ---------- */
+.build { padding: 80px 0; border-bottom: 1px solid var(--rule-lo); }
+.build h2 { margin: 0; font: 600 40px/1.05 var(--f-d); }
+.build > .wrap > p { max-width: 62ch; margin: 14px 0 0; color: var(--ink-2); }
+.group { margin-top: 34px; }
+.group h3 { margin: 0; font: 600 24px/1.2 var(--f-d); }
+.group.need h3 { color: var(--pen-ink); }
+.group.have h3 { color: var(--chain-ink); }
+.rows { margin-top: 12px; border-top: 1px solid var(--rule-lo); }
+.row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--rule-lo); }
+.row h4 { margin: 0; font-size: 17px; font-weight: 600; }
+.row p { margin: 4px 0 0; max-width: 78ch; color: var(--ink-2); font-size: 15.5px; }
+.tag { align-self: start; justify-self: start; padding: 3px 10px; border-radius: 99px; font-size: 14px; font-weight: 600; white-space: nowrap; }
+.tag.have { background: rgb(228 182 79 / 0.14); color: var(--chain-ink); }
+.tag.need { background: rgb(155 126 255 / 0.16); color: var(--pen-ink); }
+.group.need .rows { border-top-color: rgb(155 126 255 / 0.4); }
+
+/* ---------- questions ---------- */
+.ask { padding: 80px 0 96px; }
+.ask .box { max-width: 820px; padding: 30px 32px; border: 1px solid rgb(155 126 255 / 0.4); border-radius: 16px; background: radial-gradient(40rem 16rem at 0% 0%, rgb(var(--beam) / 0.08), transparent 70%), var(--panel); }
+.ask h2 { margin: 0; font: 600 34px/1.1 var(--f-d); }
+.ask h3 { margin: 22px 0 0; font: 600 20px/1.3 var(--f-ui); color: var(--ink); }
+.ask p { max-width: 64ch; margin: 10px 0 0; color: var(--ink-2); }
+.ask .opts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.ask .opt { padding: 14px 16px; border: 1px solid var(--rule-lo); border-radius: 10px; background: var(--panel-2); }
+.ask .opt b { display: block; font-size: 17px; }
+.ask .opt span { color: var(--ink-2); font-size: 15.5px; }
+.ask .keep { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--rule-lo); color: var(--ink); }
+
+footer { padding: 0 0 48px; color: var(--ink-3); font-size: 14.5px; }
+
+/* ---------- smaller screens ---------- */
+@media (max-width: 960px) {
+  .part > .wrap { grid-template-columns: minmax(0, 1fr); gap: 26px; }
+  .ctl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .top { padding-top: 36px; }
+  .top .lede { font-size: 17.5px; }
+  .hero { margin-top: 30px; padding-bottom: 8px; grid-template-columns: minmax(0, 1fr); }
+  .hero .ph-wrap { width: 56%; }
+  .part { padding: 52px 0; }
+  .part h2 { font-size: 28px; }
+  .ctl { grid-template-columns: minmax(0, 1fr); }
+  .figs.pair, .figs.pair-wide { grid-template-columns: minmax(0, 1fr) minmax(0, 0.42fr); }
+  .figs.one-phone { grid-template-columns: minmax(0, 0.7fr); }
+  .build h2, .ask h2 { font-size: 30px; }
+  .row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .ask .opts { grid-template-columns: minmax(0, 1fr); }
+  .ask .box { padding: 20px; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <h1>Solid Vision</h1>
+    <p class="lede">The tournament page is a duel field drawn in light. It shows every match being played, puts your duel first, and fills in as duels finish.</p>
+    <div class="cta">
+      <a class="btn ghost" href="#try">Try it</a>
+      <a class="btn ghost" href="#build">What it takes to build</a>
+      <a class="btn ghost" href="#ask">Questions for you</a>
+    </div>
+    <div class="hero">
+      <figure>
+        <img src="shots/d-1440-live.webp" width="1440" height="900" alt="The tournament page at 1440 wide. A strip across the top shows every table in the round. Under it, your match is a tilted duel field with five round zones on each side.">
+      </figure>
+      <figure class="ph-wrap">
+        <img src="shots/d-390-live-vp.webp" width="390" height="844" alt="The same page on a phone. The field lies flat with your row and their row of five zones.">
+      </figure>
+    </div>
+  </div>
+</header>
+
+<section class="try" id="try" aria-labelledby="try-h">
+  <div class="wrap">
+    <h2 id="try-h">Try it</h2>
+    <p class="go">Open <b>d.html</b> in this folder and use the grey <b>Mock controls</b> tab on the right edge.</p>
+    <ul class="ctl">
+      <li><b>Format</b><span>Round robin or single elimination.</span></li>
+      <li><b>State</b><span>Lobby, live, waiting on you, or finished.</span></li>
+      <li><b>Viewer</b><span>Player, where you are Imran, or spectator, a guild member who isn't playing.</span></li>
+      <li><b>Host tools</b><span>On or off. When it's on, you're the host.</span></li>
+      <li><b>A duel finishes</b><span>Simulates the duel system sending a finished game. Press it more than once.</span></li>
+      <li><b>Reset</b><span>Puts the page back the way it started.</span></li>
+      <li><b>Animations</b><span>Full, Calm or Off.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section class="part" id="field" aria-labelledby="field-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="field-h">Your night on one field</h2>
+      <p>You stand at the near edge of a duel field and your opponent stands at the far edge. The field between you is drawn in light, with your half in violet.</p>
+      <p>Your row of five zones is your five rounds. Each zone shows how that round went or what's coming:</p>
+      <div class="marks">
+        <span style="--c: var(--chain); --f: rgb(228 182 79 / 0.25)"><i></i>A win is a gold locator card</span>
+        <span style="--c: var(--ink-3); --f: rgb(149 143 129 / 0.25)"><i></i>A loss is a face-down card</span>
+        <span style="--c: var(--pen); --f: transparent"><i></i>The current round glows</span>
+        <span style="--c: var(--rule); --f: transparent"><i></i>Upcoming rounds show who you play</span>
+      </div>
+      <p>A locator card carries the monogram of the player you beat. Your opponent's row at the far edge works the same way, so you can see how their night is going.</p>
+    </div>
+    <div class="figs stack">
+      <figure>
+        <img src="shots/d-1440-live.webp" width="1440" height="900" alt="Your duel field at 1440 wide. Both rows show five round zones with gold locator cards for wins, a face-down card for a loss, and a glowing current round.">
+        <figcaption>The big field at the top is your match.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="tables" aria-labelledby="tables-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="tables-h">Every table, live</h2>
+      <p>Every table in the round sits in a strip across the top, so you see them all straight away. Your table comes first. Each card shows both players, the game score, the best of 3 marks and a status such as Game 2 in progress. Under the strip, your own match is the big field.</p>
+      <p>A tournament from a 12 player draft has six tables. On desktop they wrap into rows. On a phone they sit in one row that scrolls sideways inside itself, and the page never scrolls sideways.</p>
+      <p>A 12 player round robin has 11 rounds. Your field shows five of them: two before the current round, the current one and two after. A small counter at each end holds the rest, such as "Rounds 1 to 3: 2 wins". The mock has five rounds, so it shows them all.</p>
+    </div>
+    <div class="figs stack">
+      <figure>
+        <img src="shots/d-1440-live.webp" width="1440" height="900" alt="The strip of tables at the top. Each shows two players, a game score and a status.">
+        <figcaption>The strip at the top is the whole round. Your table is first.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="watch" aria-labelledby="watch-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="watch-h">Watch any duel</h2>
+      <p>Anyone can watch a game in progress, whether they're in the tournament or not. A table only gets a Watch button while a game is being played. Between games there is no button, and you never see one on your own match.</p>
+      <p>If you're not playing this round, there is no big field. Every table shows at the same size, and each one also shows the two players' rounds as small cards, so you can see how their night is going.</p>
+      <p>In the mock, Watch only shows a small note that says "Opens the duel to watch."</p>
+    </div>
+    <div class="figs pair">
+      <figure>
+        <img src="shots/d-1440-live-spectator-grid.webp" width="1440" height="900" alt="A spectator's view. A heading says Round 3 of 5, every table, over an even grid of fields. The live match has a Watch button.">
+        <figcaption>A spectator sees every table at the same size.</figcaption>
+      </figure>
+      <figure>
+        <img src="shots/d-390-spectator-vp.webp" width="390" height="844" alt="The same view on a phone, with the tables in a row that scrolls sideways.">
+        <figcaption>On a phone.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="duel" aria-labelledby="duel-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="duel-h">Straight into your duel</h2>
+      <p>Before your match starts, the main button under your seat says Start duel. Once a game is in progress, or between games, it says Open duel. The middle of your field says which: "Game 2 in progress" or "Between games. Game 3 next."</p>
+      <p>The buttons sit under your seat, next to what you gain or lose with a win or a loss. Tournament games use the deck you registered, so there's no deck step.</p>
+    </div>
+    <div class="figs stack">
+      <figure>
+        <img src="shots/d-1440-live.webp" width="1440" height="900" alt="Under your seat on the near edge: what you gain or lose, then the main button and a quiet line to report a result.">
+        <figcaption>Your buttons sit under your seat.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="results" aria-labelledby="results-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="results-h">Results come from the duel</h2>
+      <p>The duel system sends each finished game to this page live. Nobody types a score in. When a match ends, this happens:</p>
+      <ul>
+        <li>The score on that table rolls to its final value.</li>
+        <li>A gold locator card resolves out of the table like a hologram, from a thin line of light.</li>
+        <li>It flies to the winner's row in the standings. If it's your match, it lands in your round zone on the field instead.</li>
+        <li>The table says Final and its Watch button fades out. Rows re-sort, and the results feed gets a new line at the top.</li>
+      </ul>
+      <p>When one game ends and the match goes on, only that table's score rolls and it reads "Between games."</p>
+    </div>
+    <div class="figs stack">
+      <figure>
+        <img src="shots/d-1440-moment-table.webp" width="1440" height="900" alt="Partway through a result. A gold locator card has resolved over a table and is flying toward the winner's row in the standings.">
+        <figcaption>A locator card in flight from a table to the standings.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="hand" aria-labelledby="hand-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="hand-h">When a result is reported by hand</h2>
+      <p>Under your buttons is one quiet line: "Played off the site? Report a result." It's a backup for games that weren't played in the duel room.</p>
+      <p>When someone reports, the other player sees the score in a gold frame. The page says, for example, "Kestrel reported by hand that they won 2 to 1." Confirm and Deny sit under your seat.</p>
+      <p>If they do nothing, the result confirms itself after the confirm window. The mock shows 23 hours.</p>
+    </div>
+    <div class="figs stack">
+      <figure>
+        <img src="shots/d-1440-confirm.webp" width="1440" height="900" alt="The waiting-on-you state. The middle of the field shows the reported score in a gold frame, with Confirm and Deny under your seat.">
+        <figcaption>The reported score is the loudest thing on the page.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="champion" aria-labelledby="champion-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="champion-h">The champion</h2>
+      <p>When the tournament ends, the field becomes the champion's field. Only the far half is lit, in gold, and the champion's five rounds all hold gold locator cards.</p>
+      <p>Across the middle it says who won the tournament, with their record. Standings below show the final ranks. Back to the draft is the only link left.</p>
+    </div>
+    <div class="figs stack">
+      <figure>
+        <img src="shots/d-1440-done.webp" width="1440" height="900" alt="The finished tournament. The far half of the field is lit gold and the champion's name is across the middle.">
+        <figcaption>The champion's field.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="single" aria-labelledby="single-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="single-h">Single elimination</h2>
+      <p>The field has three zones: Round 1, Round 2 and the Final. Under it is your road, a path of three stops. Each stop holds that round's matches as pairs of monograms with scores, your path is traced in violet, and a bye is a single chip that says Bye.</p>
+      <p>Round 2 isn't drawn until round 1 ends. Until then the page says "Round 2 is drawn when Kestrel and duel.josh finish." Once it's drawn, a bye reads "Bye this round. You go straight to the final."</p>
+      <p>The live round 1 match still has its Watch button.</p>
+    </div>
+    <div class="figs stack">
+      <figure>
+        <img src="shots/d-1440-se-live.webp" width="1440" height="900" alt="Single elimination while round 1 is still running. The field shows Round 1, Round 2 and Final, and your road runs below it.">
+        <figcaption>Round 1 is still running.</figcaption>
+      </figure>
+      <figure>
+        <img src="shots/d-1440-se-done.webp" width="1440" height="900" alt="The finished single elimination bracket with the champion across the field.">
+        <figcaption>Finished.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="host" aria-labelledby="host-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="host-h">Before it starts, and host tools</h2>
+      <p>In the lobby only your half of the field is lit. Their half is a dashed outline that says your first opponent is drawn when the host starts. Below the field, "Who's in" lists everyone with Deck in or No deck yet, and a Leave button on your own row.</p>
+      <p>The invite link has a Copy link button, and players can also join from Discord with /tournament join. Someone who hasn't joined sees a Join the tournament button.</p>
+      <p>As host, the lobby has a row with Start the tournament, Add a bot, Announce in Discord and Cancel the tournament. Once it's live, Host tools opens a drawer with everyone's deck status, End now and Cancel the tournament.</p>
+      <p>Each red button says what it does. End now leaves unplayed matches unplayed and records no champion. Cancel the tournament removes it for everyone, results and Elo included.</p>
+    </div>
+    <div class="figs stack">
+      <figure>
+        <img src="shots/d-1440-lobby-host.webp" width="1440" height="900" alt="The lobby as host. Only your half of the field is lit. Below are the players who have joined, the invite link, and the host row.">
+        <figcaption>The lobby, as host.</figcaption>
+      </figure>
+      <figure>
+        <img src="shots/d-1440-host.webp" width="1440" height="900" alt="A live tournament with the host drawer open, showing deck status, End now and Cancel the tournament.">
+        <figcaption>The host drawer.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="part solo" id="motion" aria-labelledby="motion-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="motion-h">Animations, your call</h2>
+      <p>The Animations button has three settings:</p>
+      <ul>
+        <li><b>Full.</b> Your current round zone breathes, the field's glow drifts very slowly, live dots pulse, and the result moment plays in full.</li>
+        <li><b>Calm.</b> The result moment is shorter and simpler. Nothing loops.</li>
+        <li><b>Off.</b> Nothing moves. Changes happen at once.</li>
+      </ul>
+      <p>It follows the device's reduced-motion setting, so it starts on Calm if your device asks for less motion. Only transform and opacity move, so nothing is slow to draw.</p>
+    </div>
+  </div>
+</section>
+
+<section class="part" id="phone" aria-labelledby="phone-h">
+  <div class="wrap">
+    <div class="text">
+      <h2 id="phone-h">On a phone</h2>
+      <p>The field lies flat. Your row and their row of five zones sit one above the other, with the deck zone above each row.</p>
+      <p>A sticky bar at the bottom holds your duel buttons: Start duel or Open duel, or Confirm and Deny when a result needs you. The tables row scrolls sideways inside itself, so the page doesn't.</p>
+      <p>Host tools opens a full-height sheet. Below the field come the standings, then the rail's sections: Waiting to confirm, Results and Rules.</p>
+    </div>
+    <div class="figs one-phone">
+      <figure>
+        <img src="shots/d-390-live-vp.webp" width="390" height="844" alt="The page on a phone with the field flat and the duel buttons in a bar at the bottom.">
+        <figcaption>The duel buttons stay in reach.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="build" id="build" aria-labelledby="build-h">
+  <div class="wrap">
+    <h2 id="build-h">What it takes to build</h2>
+    <p>Most of what the page needs already exists. One part is different: watching a tournament duel needs a change in the duel system. Here are both lists.</p>
+
+    <div class="group have">
+      <h3>Already in the app</h3>
+      <div class="rows">
+        <div class="row"><span class="tag have">In the app</span><div><h4>Each tournament match is a duel series</h4><p>The series knows its current game and its duel link, which is what the tables and your buttons need.</p></div></div>
+        <div class="row"><span class="tag have">In the app</span><div><h4>Tournament games use the registered deck</h4><p>So there's no deck step before a duel.</p></div></div>
+        <div class="row"><span class="tag have">In the app</span><div><h4>The duel server tells this page what happened</h4><p>It sends a message when a game moves a match, and another when the tournament finishes.</p></div></div>
+        <div class="row"><span class="tag have">In the app</span><div><h4>Elo ratings</h4><p>They exist already, so the field can show tiers and ratings.</p></div></div>
+      </div>
+    </div>
+
+    <div class="group need">
+      <h3>Needs work</h3>
+      <div class="rows">
+        <div class="row"><span class="tag need">Needs work</span><div><h4>Opening tournament duels to watchers</h4><p>Tournament duels are invite-only today, so watching needs a change in the duel system. The current bracket's Watch link already fails for anyone who isn't playing.</p></div></div>
+        <div class="row"><span class="tag need">Needs work</span><div><h4>What a spectator sees in a duel</h4><p>Check this before opening it up. Players' hands must stay hidden.</p></div></div>
+        <div class="row"><span class="tag need">Needs work</span><div><h4>Fresh data on the tournament page</h4><p>Make sure the page refreshes its data when a game result arrives, and again after a reconnect.</p></div></div>
+        <div class="row"><span class="tag need">Needs work</span><div><h4>Elo stakes on the field</h4><p>The field shows what you gain or lose. The page has to work that out from the Elo ratings for your match.</p></div></div>
+        <div class="row"><span class="tag need">Needs work</span><div><h4>The tables row for big tournaments</h4><p>It wraps into rows on desktop and scrolls sideways inside its own row on a phone. It also needs the rule that shows five rounds around the current one.</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="ask" id="ask" aria-labelledby="ask-h">
+  <div class="wrap">
+    <div class="box">
+      <h2 id="ask-h">Questions for you</h2>
+      <h3>Can I change tournament duels so anyone can watch?</h3>
+      <p>It touches the duel system. Tournament duels are invite-only today, and the Watch buttons only work if that changes.</p>
+      <div class="opts">
+        <div class="opt"><b>Yes</b><span>Watch buttons work for everyone. I check what a spectator sees first.</span></div>
+        <div class="opt"><b>No</b><span>The tables still show every score and status. The Watch buttons come out.</span></div>
+      </div>
+      <p class="keep">The draft room keeps its Cube night look, which you asked for. This page sits beside it.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">Mock only. No app code was changed.</div>
+</footer>
+
+</body>
+</html>
