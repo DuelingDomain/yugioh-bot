@@ -433,6 +433,48 @@ const timeSealFfa3 = defineScenario({
   ],
 });
 
+const timeSealFfa3P2 = defineScenario({
+  id: "r3-ffa3-time-seal-declares-p2-and-skips-only-its-next-draw",
+  title: "FFA3: p0 declares p2 for Time Seal: p1 draws on both turns, p2 skips its first draw and draws on its second turn",
+  source: TIME_SEAL_RULE,
+  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-FIRST-DRAW"],
+  tags: ["multiplayer", "late-cards", "turn-count", "r3", "ffa3", "card:35316708"],
+  setup: { format: "ffa3", p0: timeSealSetup },
+  steps: [
+    activate(TIME_SEAL, "p0"),
+    expectPrompt({ by: "p0", context: "opponent" }),
+    expectPickSeats(["p1", "p2"], "p0"),
+    pickOpponent("p2", "p0"),
+    everySeat("ffa3", {
+      p0: { hand: [], deckCount: 20, grave: [TIME_SEAL] },
+      p1: { hand: [], deckCount: 20 },
+      p2: { hand: [], deckCount: 20 },
+    }),
+    endTurn("p0"), expectTurn("p1", 2),
+    // p1 is the next seat, but the lock applies only to the declared p2.
+    everySeat("ffa3", {
+      p0: { hand: [], deckCount: 20, grave: [TIME_SEAL] },
+      p1: { hand: [ELF], deckCount: 19 },
+      p2: { hand: [], deckCount: 20 },
+    }),
+    endTurn("p1"), expectTurn("p2", 3),
+    // p2 skips one draw. Its hand and Deck do not change.
+    everySeat("ffa3", {
+      p0: { hand: [], deckCount: 20, grave: [TIME_SEAL] },
+      p1: { hand: [ELF], deckCount: 19 },
+      p2: { hand: [], deckCount: 20 },
+    }),
+    endTurn("p2"), expectTurn("p0", 4),
+    endTurn("p0"), expectTurn("p1", 5),
+    endTurn("p1"), expectTurn("p2", 6),
+    everySeat("ffa3", {
+      p0: { hand: [ELF], deckCount: 19, grave: [TIME_SEAL] },
+      p1: { hand: [ELF, ELF], deckCount: 18 },
+      p2: { hand: [ELF], deckCount: 19 },
+    }),
+  ],
+});
+
 // p1 leaves before its turn. The lock stays bound to p1, so p2 draws on both of its turns.
 const timeSealCutShort = defineScenario({
   id: "r3-ffa3-time-seal-declared-opponent-leaves-the-lock-does-not-move",
@@ -618,6 +660,7 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   foolishRevivalOtherGrave("ffa3"),
   foolishRevivalOtherGrave("tag"),
   timeSealFfa3,
+  timeSealFfa3P2,
   timeSealCutShort,
   appointerFfa3,
   appointerTag,
