@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
+import { MetaLine } from "@/components/meta-line/meta-line";
 import { formatLabel, playersLabel, tournamentHref, type TournamentListItem } from "./tournaments-list-model";
 import styles from "./tournament-row.module.css";
 
@@ -13,20 +14,23 @@ export function TournamentRow({ tournament, variant }: { tournament: TournamentL
     <Link href={tournamentHref(tournament)} className={`tl-row ${styles.row}`}>
       <div>
         <p className="tl-name">{tournament.name}</p>
-        <p className="tl-meta">
-          {variant === "running" ? (
-            <span className="live-pill">In progress</span>
-          ) : (
-            <span className="status">
-              <span className="lamp" data-s="open" aria-hidden="true" />
-              Open to join
-            </span>
-          )}
-          <span className="dot" aria-hidden="true" />
-          {formatLabel(tournament.format)}
-          <span className="dot" aria-hidden="true" />
-          {playersLabel(tournament.participantCount)}
-        </p>
+        <MetaLine
+          className="tl-meta"
+          items={[
+            {
+              content: variant === "running" ? (
+                <span className="live-pill">In progress</span>
+              ) : (
+                <span className="status">
+                  <span className="lamp" data-s="open" aria-hidden="true" />
+                  Open to join
+                </span>
+              ),
+            },
+            { content: formatLabel(tournament.format) },
+            { content: playersLabel(tournament.participantCount) },
+          ]}
+        />
       </div>
       <div className="tl-side">
         <ChevronRight className="ic" aria-hidden="true" />
