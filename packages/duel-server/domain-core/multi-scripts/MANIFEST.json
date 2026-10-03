@@ -2397,7 +2397,7 @@
         "flipop"
       ],
       "stockSha256": "d8429c88bb7922c1f0fe1887aabe4073fb78b057d260459a719a4d6621fb2118",
-      "note": "Script fix (R1 each opponent, R-COMMON-EACH-PLAYER, lead decision 2026-10-01): the End Phase effect (registered with Duel.RegisterEffect) flips the face-down monsters of the opponents and the stock operation lets ONE opponent (Duel.Draw(1-tp,ct)) draw for all of them. The operation groups the face-down monsters by real controller seat (aux.MPForEachController): each opponent changes its OWN monsters to face-up Defense Position and draws 1 card for each of its own; in Tag each opposing member does the same. The activation and the condition are stock. Not part of R1 or R2 (a script fix, as Raging Cloudian)."
+      "note": "Script fix (R-FFA-OPP-ONE, owner decision 2026-10-02): Book of Eclipse declares one opponent at activation in FFA. The first flip affects every field. The delayed effect stores the declared seat, flips only its face-down monsters and lets that opponent draw for them. It does nothing if that seat is eliminated. Tag flips and draws per opposing controller. Requires C3."
     },
     {
       "code": 35569555,
