@@ -77,7 +77,7 @@ export function TournamentRulesForm({
       aria-label="Duel rules"
       className="space-y-3 rounded-xl border border-border bg-surface p-4"
     >
-      <h3 className="font-body text-sm font-semibold uppercase tracking-wider text-text-secondary">
+      <h3 className="font-body text-sm font-semibold text-text-secondary">
         Duel rules
       </h3>
       {error && <p className="text-sm text-accent-cta">{error}</p>}

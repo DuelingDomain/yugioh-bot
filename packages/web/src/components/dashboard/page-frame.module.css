@@ -1,0 +1,14 @@
+/* The page bar runs edge to edge, so the sheet root gives up its own padding and the body takes it. */
+:global(.ms).root {
+  padding: 0;
+  background: var(--floor);
+  min-height: 100%;
+}
+.body {
+  display: grid;
+  gap: clamp(28px, 4cqi, 44px);
+  align-content: start;
+  min-width: 0;
+  padding: clamp(18px, 3.2cqi, 36px) clamp(16px, 3.2cqi, 40px) 56px;
+}
+.body > * { min-width: 0; }

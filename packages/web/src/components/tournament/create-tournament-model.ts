@@ -84,10 +84,10 @@ export function formatTime(d: Date): string {
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
-/** "Fri, Oct 9 · 11 PM" for the summary; whole hours drop the minutes. */
+/** "Fri, Oct 9, 11 PM" for the summary; whole hours drop the minutes. */
 export function formatClosesAt(d: Date): string {
   const time = d.getMinutes() === 0 ? d.toLocaleTimeString("en-US", { hour: "numeric" }) : formatTime(d);
-  return `${formatDateShort(d)} · ${time}`;
+  return `${formatDateShort(d)}, ${time}`;
 }
 
 /** The time choices: half-hour steps, plus 11:59 PM. */

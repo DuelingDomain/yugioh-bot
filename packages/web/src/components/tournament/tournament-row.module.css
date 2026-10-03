@@ -1,15 +1,59 @@
-/* The row's board grid assumes a track column; the list has no per-row match counts yet,
-   so the row is name + side. Doubled class names keep this ahead of the board's own rule. */
-:global(.ms) .row:global(.tl-row) { grid-template-columns: minmax(0, 1fr) auto; }
-.row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
-.row > :global(.tl-side) { align-self: center; justify-self: end; }
-.row:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
-.fin a { color: inherit; }
-.fin a:hover { text-decoration: underline; text-underline-offset: 3px; }
-.fin a:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; border-radius: 3px; }
-.more { background: none; border: 0; cursor: pointer; color: var(--ink-3); font: inherit; font-size: 12.5px; letter-spacing: 0; text-decoration: underline; text-underline-offset: 3px; }
+/* Floor rows for the tournaments list and the dashboard. The tournament name is a link whose
+   ::after covers the whole row; the strip and the duel action sit above that cover. */
+.row:hover { border-bottom-color: rgb(var(--beam) / 0.3); }
+.row:focus-within { background: rgb(var(--beam) / 0.04); }
+:global(.ms) .row > :global(.sv-row-in) { padding-block: 14px; }
+.lead { grid-column: 1; display: grid; place-items: center; }
+.id { grid-column: 2; min-width: 0; }
+.name {
+  display: block;
+  font: 600 18px/1.25 var(--f-display);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+.name::after { content: ""; position: absolute; inset: 0; }
+.name:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; border-radius: 3px; }
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 14px;
+  margin: 4px 0 0;
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.strip { grid-column: 3; position: relative; display: flex; align-items: center; justify-content: flex-end; min-width: 0; }
+.stack { display: inline-flex; align-items: center; }
+.stack > :global(.sv-mono) { margin-left: -8px; box-shadow: 0 0 0 2px var(--floor); }
+.stack > :global(.sv-mono):first-child { margin-left: 0; }
+.stackMore { margin-left: 8px; color: var(--ink-3); font: 600 15px/1 var(--f-num); }
+.act { grid-column: 4; position: relative; z-index: 2; display: flex; justify-content: flex-end; min-width: 0; }
+.actionWrap { display: grid; gap: 6px; justify-items: end; max-width: 260px; }
+.actionBtns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.actionError { margin: 0; color: var(--loss-ink); font-size: 13.5px; line-height: 1.35; text-align: right; }
+
+@container (max-width: 620px) {
+  :global(.ms) .row > :global(.sv-row-in) { padding-block: 10px; }
+  .lead { grid-area: lead; }
+  .id { grid-area: id; }
+  .strip { grid-area: strip; justify-content: flex-start; margin-top: 8px; }
+  .act { grid-area: act; }
+  .name { font-size: 17px; }
+}
+
+/* finished tournaments */
+.finName { font: 600 17px/1.3 var(--f-display); }
+@container (max-width: 620px) {
+  .finName { grid-area: nm; }
+  .finFormat { grid-area: fm; }
+  .finPlayers { grid-area: pl; }
+}
+.more {
+  background: none; border: 0; padding: 14px 4px; cursor: pointer;
+  color: var(--ink-2); font: inherit; font-size: 14.5px;
+  text-decoration: underline; text-underline-offset: 3px;
+}
 .more:hover { color: var(--ink); }
-.more:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
-.fin tr { position: relative; }
-.fin a::after { content: ""; position: absolute; inset: 0; }
-.fin td:first-child { white-space: normal; min-width: 160px; }
+.more:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; border-radius: 3px; }
