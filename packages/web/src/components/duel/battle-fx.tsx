@@ -20,6 +20,7 @@ import { duelFontClasses } from "./fonts";
 import { armLpHold } from "./life-points";
 import { battleCalculation } from "./battle-calculation";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
+import { duelFxClock } from "./fx-clock";
 import styles from "./battle-fx.module.css";
 
 /**
@@ -606,7 +607,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       if (event.id > after && event.kind === "attack" && event.zone && (!latest || event.id > latest.id)) latest = event;
     }
     if (latest && !capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
-    const stamp = performance.now();
+    const stamp = duelFxClock.now();
     const incoming: PendingAttack | null = latest ? { attack: latest, capture: capturesRef.current.get(latest.id) ?? null, at: stamp } : null;
     const ready = [pendingRef.current, incoming].find((entry) => entry != null && battleTrigger(events, entry.attack, stamp - entry.at).action === "play") ?? null;
     if (ready) {
@@ -658,7 +659,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     // A burst (reload, poll catch-up) declares only the newest attack, never the old ones.
     let latest: DuelEvent | null = null;
     for (const event of fresh) if (event.kind === "attack" && event.zone) latest = event;
-    const stamp = performance.now();
+    const stamp = duelFxClock.now();
     let incoming: PendingAttack | null = null;
     if (latest) {
       const capture = capturesRef.current.get(latest.id) ?? captureAttack(latest, prevIndexRef.current, indexSeats(seats));
@@ -684,7 +685,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     const three = route?.three === true && !reducedRef.current && getSharedFx3d() != null;
     const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, resolved, three) : null;
     if (next && capture) {
-      const clock = route?.clock ?? { startedAt: performance.now() };
+      const clock = route?.clock ?? { startedAt: duelFxClock.now() };
       joinBattleClock(clock);
       // The 3D fight can outlast the DOM one: its shards keep falling after the last break.
       const long3d = three ? startBattle3d(capture, next, clock, controllersRef.current) : 0;
@@ -705,9 +706,9 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     const { targetBreakMs, attackerBreakMs } = play.fx.timing;
     const lastBreak = Math.max(targetBreakMs ?? 0, attackerBreakMs ?? 0);
     const lifeMs = play.reduced ? play.totalMs : Math.max(play.totalMs, lastBreak > 0 ? lastBreak + DESTROY_TAIL_MS : 0);
-    const elapsed = play.fx.startedAt == null ? 0 : Math.max(0, performance.now() - play.fx.startedAt);
-    const timer = window.setTimeout(() => setPlay((current) => (current?.seq === play.seq ? null : current)), Math.max(0, lifeMs + 60 - elapsed));
-    return () => window.clearTimeout(timer);
+    const elapsed = play.fx.startedAt == null ? 0 : Math.max(0, duelFxClock.now() - play.fx.startedAt);
+    const timer = duelFxClock.setTimeout(() => setPlay((current) => (current?.seq === play.seq ? null : current)), Math.max(0, lifeMs + 60 - elapsed));
+    return () => duelFxClock.clearTimeout(timer);
   }, [play]);
 
   if (!mounted) return null;
