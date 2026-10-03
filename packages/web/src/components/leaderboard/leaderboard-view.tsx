@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { MetaLine } from "@/components/meta-line/meta-line";
 import { LpTally, SheetRoot, type LpTallyItem } from "@/components/sheet";
 import {
   getPlayerPosition,
@@ -58,21 +59,18 @@ export function LeaderboardView({
       <header className="lb-head sheet-head">
         <div>
           <h1 className="t-title">Leaderboard</h1>
-          <p className="lb-sub">
-            {!activeSeason ? (
-              <span className="ssn">No season running · all-time standings</span>
-            ) : effectiveScope === "all" ? (
-              <span>All seasons · ranked by career winnings</span>
-            ) : (
-              <>
-                <span className="ssn">{activeSeason.name ?? `Season ${activeSeason.number}`} · running</span>
-                <span className="dot" aria-hidden="true" />
-                <span>since {seasonStartedOn}</span>
-                <span className="dot" aria-hidden="true" />
-                <span>{playerCount}</span>
-              </>
-            )}
-          </p>
+          <MetaLine
+            className="lb-sub"
+            items={!activeSeason ? [
+              { content: <span className="ssn">No season running · all-time standings</span> },
+            ] : effectiveScope === "all" ? [
+              { content: <span>All seasons · ranked by career winnings</span> },
+            ] : [
+              { content: <span className="ssn">{activeSeason.name ?? `Season ${activeSeason.number}`} · running</span> },
+              ...(seasonStartedOn ? [{ content: <span>since {seasonStartedOn}</span> }] : []),
+              { content: <span>{playerCount}</span> },
+            ]}
+          />
         </div>
         {activeSeason && (
           <div className="seg" role="group" aria-label="Leaderboard scope">

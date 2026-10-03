@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ className: "font", variable: "font-var", style: {} });
@@ -9,7 +9,9 @@ vi.mock("next/font/google", () => {
 });
 
 import { ProfileView } from "@/components/player/profile-view";
-import type { Profile } from "@/components/player/profile-model";
+import { ProfileWinnings } from "@/components/player/profile-winnings";
+import type { AwardEntry, Profile } from "@/components/player/profile-model";
+import styles from "@/components/player/profile.module.css";
 
 const profile = {
   playerId: 5, displayName: "Imran", rating: 1184, rank: { name: "Gold", min: 1100, nextAt: 1350 },
@@ -80,8 +82,93 @@ describe("profile view", () => {
   it("shows no progress on someone else's profile", () => {
     render(<ProfileView profile={profile} leaderboardRank={5} />);
     expect(screen.queryByText("540 of 1,000")).toBeNull();
-    expect(screen.queryByText("Not yet")).toBeNull();
+    expect(screen.getAllByText("Not yet")).toHaveLength(4);
+    expect(screen.queryByRole("img", { name: /percent/ })).toBeNull();
     expect(screen.getByText("Earn 1,000 winnings across all seasons.")).toBeInTheDocument();
+  });
+
+  it("toggles every achievement through data-expanded and aria-expanded without changing the order or count", () => {
+    render(<ProfileView profile={profile} leaderboardRank={5} isMe />);
+    const section = screen.getByRole("region", { name: "Achievements" });
+    const button = within(section).getByRole("button", { name: "Show all 6" });
+    const tiles = within(section).getAllByRole("listitem");
+    expect(tiles).toHaveLength(6);
+    expect(section).toHaveAttribute("data-expanded", "false");
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById(button.getAttribute("aria-controls")!)).toContainElement(tiles[0]);
+
+    fireEvent.click(button);
+    expect(section).toHaveAttribute("data-expanded", "true");
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(button).toHaveTextContent("Show fewer");
+    expect(within(section).getAllByRole("listitem")).toEqual(tiles);
+    expect(within(section).getByText("2 of 6 unlocked")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Winnings earned" })).toHaveAttribute("data-expanded", "false");
+
+    fireEvent.click(button);
+    expect(section).toHaveAttribute("data-expanded", "false");
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(button).toHaveTextContent("Show all 6");
+  });
+
+  it("toggles winnings independently and keeps all ten entries and their event headings in order", () => {
+    const recent: AwardEntry[] = [
+      { kind: "placement", points: 15, created_at: "2026-09-24 10:00:00", tournament_id: 11, tournament_name: "Friday Night Duels #11" },
+      { kind: "match", points: 5, created_at: "2026-09-23 10:00:00", tournament_id: 11, tournament_name: "Friday Night Duels #11" },
+      { kind: "match", points: 7, created_at: "2026-09-22 10:00:00", tournament_id: null, tournament_name: null },
+      { kind: "match", points: 8, created_at: "2026-09-21 10:00:00", tournament_id: null, tournament_name: null },
+      ...Array.from({ length: 6 }, (_, i) => ({
+        kind: "match", points: i + 9, created_at: "2026-09-20 10:00:00", tournament_id: 10, tournament_name: "Friday Night Duels #10",
+      })),
+    ];
+    render(<ProfileView profile={{ ...profile, recent }} leaderboardRank={5} isMe />);
+    const section = screen.getByRole("region", { name: "Winnings earned" });
+    const button = within(section).getByRole("button", { name: "Show 10" });
+    const rows = within(section).getAllByRole("listitem");
+    expect(rows).toHaveLength(13);
+    expect([rows[0], rows[3], rows[6]].map((row) => row.textContent)).toEqual([
+      "Friday Night Duels #11", "Ranked matches", "Friday Night Duels #10",
+    ]);
+    expect(rows.slice(1, 3).map((row) => row.querySelector(".up")!.textContent)).toEqual(["+15", "+5"]);
+    expect(rows[4].querySelector(".up")).toHaveTextContent("+7");
+    // The compact CSS must keep the first three entries and only their headings.
+    expect(rows.filter((row) => !row.classList.contains(styles.collapsedItem))).toEqual([
+      rows[0], rows[1], rows[2], rows[3], rows[4],
+    ]);
+    expect(section).toHaveAttribute("data-expanded", "false");
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById(button.getAttribute("aria-controls")!)).toContainElement(rows[0]);
+
+    fireEvent.click(button);
+    expect(section).toHaveAttribute("data-expanded", "true");
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(button).toHaveTextContent("Show fewer");
+    expect(within(section).getAllByRole("listitem")).toEqual(rows);
+    expect(screen.getByRole("region", { name: "Achievements" })).toHaveAttribute("data-expanded", "false");
+
+    fireEvent.click(button);
+    expect(section).toHaveAttribute("data-expanded", "false");
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(button).toHaveTextContent("Show 10");
+  });
+
+  it("uses the real winnings count in the expansion link", () => {
+    const recent: AwardEntry[] = Array.from({ length: 4 }, () => ({
+      kind: "match", points: 5, created_at: "2026-09-24 10:00:00", tournament_id: null, tournament_name: null,
+    }));
+    render(<ProfileWinnings recent={recent} />);
+    expect(screen.getByRole("button", { name: "Show 4" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("omits the winnings toggle when there are at most three entries", () => {
+    render(<ProfileView profile={profile} leaderboardRank={5} />);
+    expect(within(screen.getByRole("region", { name: "Winnings earned" })).queryByRole("button")).toBeNull();
+  });
+
+  it("keeps the empty winnings state without an expansion link", () => {
+    render(<ProfileWinnings recent={[]} />);
+    expect(screen.getByRole("heading", { name: "No winnings yet" })).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("lights new unlocks once, after the first visit has recorded the list", async () => {

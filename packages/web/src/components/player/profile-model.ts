@@ -109,8 +109,30 @@ const CRITERIA: Record<string, string> = {
 
 const WINNINGS_GOALS: Record<string, number> = { winnings_1000: 1000, winnings_5000: 5000 };
 
-// Locked tiles keep a fixed order so a pair of steps always sits together.
-const LOCKED_ORDER = ["streak_10", "winnings_1000", "winnings_5000", "champion_x3", "giant_slayer"];
+// Ties and tiles without countable progress keep a predictable order.
+const LOCKED_ORDER = ["first_tournament_win", "streak_10", "winnings_1000", "winnings_5000", "champion_x3", "giant_slayer"];
+
+/** One order at every width: new, then earned (each newest first), then locked by progress. */
+export function orderAchievements(views: readonly AchievementView[]): AchievementView[] {
+  const stamp = (view: AchievementView) => view.unlockedAt ? parseStamp(view.unlockedAt).getTime() : 0;
+  const ratio = (view: AchievementView) => view.progress && view.progress.goal > 0
+    ? view.progress.value / view.progress.goal
+    : -1;
+  const lockedOrder = (view: AchievementView) => {
+    const index = LOCKED_ORDER.indexOf(view.key);
+    return index < 0 ? LOCKED_ORDER.length : index;
+  };
+  return [...views].sort((a, b) => {
+    const aLocked = a.state === "off";
+    const bLocked = b.state === "off";
+    if (aLocked !== bLocked) return aLocked ? 1 : -1;
+    if (!aLocked) {
+      if (a.state !== b.state) return a.state === "new" ? -1 : 1;
+      return stamp(b) - stamp(a);
+    }
+    return ratio(b) - ratio(a) || lockedOrder(a) - lockedOrder(b);
+  });
+}
 
 export function buildAchievements(opts: {
   unlocked: Array<{ achievement_key: string; unlocked_at: string }>;
@@ -125,7 +147,7 @@ export function buildAchievements(opts: {
     const unlockedAt = dates.get(achievement.key) ?? null;
     const goal = WINNINGS_GOALS[achievement.key];
     let progress: AchievementView["progress"] = null;
-    if (unlockedAt === null && goal !== undefined && opts.isOwner) {
+    if (unlockedAt === null && goal !== undefined) {
       const value = Math.min(opts.careerWinnings, goal);
       const toGo = goal - value;
       progress = { value, goal, toGo, close: value / goal >= 0.9 };
@@ -142,13 +164,9 @@ export function buildAchievements(opts: {
     };
   });
 
-  const stamp = (v: AchievementView) => (v.unlockedAt ? parseStamp(v.unlockedAt).getTime() : 0);
-  const fresher = views.filter((v) => v.state === "new").sort((a, b) => stamp(b) - stamp(a));
-  const earned = views.filter((v) => v.state === "on").sort((a, b) => stamp(b) - stamp(a));
-  const locked = views
-    .filter((v) => v.state === "off")
-    .sort((a, b) => LOCKED_ORDER.indexOf(a.key) - LOCKED_ORDER.indexOf(b.key));
-  return [...fresher, ...earned, ...locked];
+  const ordered = orderAchievements(views);
+  // Sort by career progress for every viewer, then keep its display owner-only.
+  return opts.isOwner ? ordered : ordered.map((view) => ({ ...view, progress: null }));
 }
 
 export const seenKey = (playerId: number) => `achievements:seen:${playerId}`;

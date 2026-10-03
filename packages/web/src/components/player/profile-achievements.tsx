@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Check, Coins, Crown, Flame, Medal, Swords, Trophy, type LucideIcon } from "lucide-react";
 import { NewChip, SummonCircle } from "@/components/sheet";
 import {
@@ -22,7 +22,7 @@ function Tile({ view }: { view: AchievementView }) {
   const Icon = ICONS[view.icon] ?? Trophy;
   const { progress } = view;
   return (
-    <li data-a={view.state} className={[view.state !== "off" ? styles.earned : "", progress?.close ? "close" : ""].filter(Boolean).join(" ") || undefined}>
+    <li data-a={view.state} className={progress?.close ? "close" : undefined}>
       {view.state === "new" && <NewChip className="newchip">New</NewChip>}
       <span className="medal">
         {view.state === "new" && <SummonCircle />}
@@ -33,10 +33,10 @@ function Tile({ view }: { view: AchievementView }) {
       {view.unlockedAt ? (
         <span className="ad"><Check className="ic sm" aria-hidden />{formatDay(view.unlockedAt)}</span>
       ) : progress ? (
-        <>
+        <span className={styles.progressLine}>
           <span className="ad">
-            {progress.close && <b>{progress.toGo.toLocaleString()} to go</b>}
-            {progress.close ? " · " : ""}{progress.value.toLocaleString()} of {progress.goal.toLocaleString()}
+            {progress.close && <span className={styles.progressDetail}><b>{progress.toGo.toLocaleString()} to go</b> · </span>}
+            {progress.value.toLocaleString()} of {progress.goal.toLocaleString()}
           </span>
           <span
             className="meter"
@@ -46,10 +46,10 @@ function Tile({ view }: { view: AchievementView }) {
           >
             <i style={{ width: `${Math.round((progress.value / progress.goal) * 1000) / 10}%` }} />
           </span>
-        </>
-      ) : view.isOwnerLocked ? (
-        <span className="ad">Not yet</span>
-      ) : null}
+        </span>
+      ) : (
+        <span className={view.isOwnerLocked ? "ad" : styles.mobileOnly}>Not yet</span>
+      )}
     </li>
   );
 }
@@ -61,6 +61,8 @@ export function ProfileAchievements({ playerId, isMe, achievements, careerWinnin
   careerWinnings: number;
 }) {
   const [fresh, setFresh] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
   const unlockedKeys = useMemo(() => achievements.map((a) => a.achievement_key), [achievements]);
 
   // "New" is decided on this device, on your own profile only. The first visit
@@ -90,7 +92,7 @@ export function ProfileAchievements({ playerId, isMe, achievements, careerWinnin
   const newCount = views.filter((v) => v.state === "new").length;
 
   return (
-    <section aria-labelledby="pf-ach">
+    <section className={styles.achievements} aria-labelledby="pf-ach" data-expanded={expanded}>
       <div className="sec-h">
         <h2 className="sec-t" id="pf-ach">Achievements</h2>
         <span className="sec-aux">
@@ -98,9 +100,20 @@ export function ProfileAchievements({ playerId, isMe, achievements, careerWinnin
           {unlocked} of {views.length} unlocked
         </span>
       </div>
-      <ul className="ach">
+      <ul className={`ach ${styles.tiles}`} id={listId}>
         {views.map((view) => <Tile key={view.key} view={view} />)}
       </ul>
+      {views.length > 3 && (
+        <button
+          type="button"
+          className={styles.expandLink}
+          aria-controls={listId}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "Show fewer" : `Show all ${views.length}`}
+        </button>
+      )}
     </section>
   );
 }
