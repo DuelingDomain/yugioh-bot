@@ -94,7 +94,7 @@ export function SlotZone({ tournament, zone, playerId, viewerId, size, width, fo
  * A player's round zones on the field: one card per round with an opponent caption, at most 5 shown
  * with a counter at each end for the rest.
  */
-export function ZoneRow({ tournament, playerId, viewerId, heroId, total, current, name }: {
+export function ZoneRow({ tournament, playerId, viewerId, heroId, total, current, name, onPick }: {
   tournament: TournamentDetail;
   playerId: number;
   viewerId: number | null;
@@ -102,6 +102,8 @@ export function ZoneRow({ tournament, playerId, viewerId, heroId, total, current
   total: number;
   current: number;
   name: string;
+  /** On the viewer's own row: puts an open match of theirs on the field. Their other open zones become buttons. */
+  onPick?: (matchId: number) => void;
 }) {
   const zones = zonesFor(tournament, playerId, total, heroId);
   const win = roundWindow(total, current);
@@ -113,7 +115,13 @@ export function ZoneRow({ tournament, playerId, viewerId, heroId, total, current
       {before && <span className={styles.rcount}>{before.full}</span>}
       {shown.map((zone) => (
         <div key={zone.round} className={styles.zn}>
-          <SlotZone tournament={tournament} zone={zone} playerId={playerId} viewerId={viewerId} width="var(--field-zw)" />
+          {onPick && playerId === viewerId && zone.match && zone.match.id !== heroId && zone.kind !== "win" && zone.kind !== "loss" && zone.kind !== "bye" && zone.kind !== "none" ? (
+            <button type="button" className={styles.zpick} data-match-id={zone.match.id} aria-label={`${zoneLabel(tournament, zone, viewerId)}. Show this match.`} onClick={() => onPick(zone.match!.id)}>
+              <SlotZone tournament={tournament} zone={zone} playerId={playerId} viewerId={viewerId} width="var(--field-zw)" focusable={false} />
+            </button>
+          ) : (
+            <SlotZone tournament={tournament} zone={zone} playerId={playerId} viewerId={viewerId} width="var(--field-zw)" />
+          )}
           <span className={styles.zl}>
             {tournament.format === "single_elim" ? (() => {
               const [round, sub] = eliminationCaption(tournament, zone);

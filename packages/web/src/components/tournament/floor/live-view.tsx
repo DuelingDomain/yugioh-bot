@@ -1,12 +1,15 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { StatusLine } from "@/components/sheet";
 import { matchAnchorId, type PlayerRatings } from "../sheet-contracts";
 import type { TournamentDetail } from "../types";
 import { ClosingNote } from "../sheet/closing-notes";
 import { ChampionField, DuelField } from "./duel-field";
-import { champion, confirmLine, heroCase, pageRound, tournamentEnding } from "./floor-model";
+import { champion, confirmLine, heroCase, openMatchesOf, pageRound, tournamentEnding } from "./floor-model";
 import { NearBox } from "./near-box";
+import { OtherMatches } from "./other-matches";
+import { SELECT_MATCH_EVENT } from "./select-match";
 import { SpectatorGrid, TableStrip } from "./tables";
 import styles from "./floor.module.css";
 
@@ -43,6 +46,16 @@ export function LiveView({ tournament, tournamentSlug, ratings, isHost, onChange
 }) {
   const viewerId = tournament.currentUserPlayerId;
   const ending = tournamentEnding(tournament);
+  // The match the viewer picked. heroMatch ignores it once that match is no longer one of their open matches.
+  const [picked, setPicked] = useState<number | null>(null);
+  useEffect(() => {
+    const onSelect = (event: Event) => {
+      const id = (event as CustomEvent<number>).detail;
+      if (typeof id === "number") setPicked(id);
+    };
+    window.addEventListener(SELECT_MATCH_EVENT, onSelect);
+    return () => window.removeEventListener(SELECT_MATCH_EVENT, onSelect);
+  }, []);
   const closed = { tournament, tournamentSlug, ratings, isHost, onChanged };
 
   if (ending) {
@@ -61,14 +74,15 @@ export function LiveView({ tournament, tournamentSlug, ratings, isHost, onChange
     );
   }
 
-  const hero = heroCase(tournament, viewerId);
+  const hero = heroCase(tournament, viewerId, picked);
   if (hero.kind === "spectator" || viewerId === null) {
     return <SpectatorGrid tournament={tournament} round={pageRound(tournament, viewerId)} viewerId={viewerId} />;
   }
+  const round = pageRound(tournament, viewerId, picked);
 
   return (
     <>
-      <TableStrip tournament={tournament} round={pageRound(tournament, viewerId)} viewerId={viewerId} />
+      <TableStrip tournament={tournament} round={round} viewerId={viewerId} />
       <section
         className={styles.hero}
         id={hero.kind === "match" ? matchAnchorId(hero.match.id) : "duel-field"}
@@ -76,8 +90,11 @@ export function LiveView({ tournament, tournamentSlug, ratings, isHost, onChange
         data-testid="duel-field"
         tabIndex={-1}
       >
-        <DuelField tournament={tournament} tournamentSlug={tournamentSlug} hero={hero} viewerId={viewerId} ratings={ratings} isHost={isHost} onChanged={onChanged} narrow={narrow} />
+        <DuelField tournament={tournament} tournamentSlug={tournamentSlug} hero={hero} viewerId={viewerId} ratings={ratings} isHost={isHost} onChanged={onChanged} narrow={narrow} onPick={setPicked} />
       </section>
+      {hero.kind === "match" && (
+        <OtherMatches tournament={tournament} matches={openMatchesOf(tournament, viewerId)} shownId={hero.match.id} viewerId={viewerId} onPick={setPicked} />
+      )}
     </>
   );
 }

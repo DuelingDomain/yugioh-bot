@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -10,6 +10,7 @@ vi.mock("next/font/google", () => {
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import { SheetRoot } from "@/components/sheet";
+import { requestMatch } from "@/components/tournament/floor/select-match";
 import { LiveView } from "@/components/tournament/floor/live-view";
 import { SpectatorGrid, TableStrip } from "@/components/tournament/floor/tables";
 import type { Match, TournamentDetail } from "@/components/tournament/types";
@@ -142,5 +143,72 @@ describe("the field as drawn in the mock", () => {
       expect(table.querySelector('[role="img"][aria-label^="Best of"]')).not.toBeNull();
     }
     expect(container).toHaveTextContent("Game 2 in progress");
+  });
+});
+
+// A round robin makes every round at the start. Imran has two open matches here, in rounds 1 and 3.
+const twoOpen: TournamentDetail = { ...sheetTournament, matches: sheetTournament.matches.map((m) => (m.id === 2 ? { ...m, roundNumber: 3 } : m)) };
+
+describe("a player with more than one open match", () => {
+  it("lists the other open matches under the field and keeps the first one on it", () => {
+    live(twoOpen);
+    const field = screen.getByRole("region", { name: "Your match" });
+    expect(field).toHaveTextContent("Round 1. Not started.");
+    expect(within(field).getByRole("button", { name: "Start duel" })).toBeInTheDocument();
+    const list = screen.getByRole("region", { name: "Your other matches" });
+    const buttons = within(list).getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveAccessibleName("Round 3, against BlueEyesBen. Show this match.");
+    expect(list).not.toHaveTextContent("Marik_Mains");
+  });
+
+  it("puts a picked match on the field with its own actions, and the tables of that round", () => {
+    live(twoOpen);
+    fireEvent.click(screen.getByRole("button", { name: /Round 3, against BlueEyesBen/ }));
+    const field = screen.getByRole("region", { name: "Your match" });
+    expect(field).toHaveTextContent("Round 3. Not started.");
+    expect(within(field).getByRole("button", { name: "Start duel" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("table-strip")).getByRole("heading", { level: 2 })).toHaveTextContent(/^Round 3\./);
+    // The match that left the field is in the list now.
+    expect(screen.getByRole("button", { name: /Round 1, against Marik_Mains/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Round 3, against BlueEyesBen/ })).toBeNull();
+  });
+
+  it("puts a match on the field when a zone of a round still to play is clicked", () => {
+    live(twoOpen);
+    const field = screen.getByRole("region", { name: "Your match" });
+    fireEvent.click(within(field).getByRole("button", { name: /Round 3, plays BlueEyesBen\. Show this match\./ }));
+    expect(screen.getByRole("region", { name: "Your match" })).toHaveTextContent("Round 3. Not started.");
+  });
+
+  it("follows a request from another part of the page, like a Play cell", () => {
+    live(twoOpen);
+    act(() => requestMatch(2));
+    expect(screen.getByRole("region", { name: "Your match" })).toHaveTextContent("Round 3. Not started.");
+  });
+
+  it("ignores a request for a match that is not an open match of the viewer", () => {
+    live(twoOpen);
+    act(() => requestMatch(3)); // decided
+    act(() => requestMatch(11)); // somebody else's
+    expect(screen.getByRole("region", { name: "Your match" })).toHaveTextContent("Round 1. Not started.");
+  });
+
+  it("falls back to the first open match once the picked one is decided", () => {
+    const { rerender } = live(twoOpen);
+    act(() => requestMatch(2));
+    const decided = { ...twoOpen, matches: twoOpen.matches.map((m) => (m.id === 2 ? { ...m, status: "completed", winnerId: 5 } : m)) };
+    rerender(
+      <SheetRoot>
+        <LiveView tournament={decided} tournamentSlug="friday-night-12" ratings={ratings} isHost={false} onChanged={() => {}} narrow={false} />
+      </SheetRoot>,
+    );
+    expect(screen.getByRole("region", { name: "Your match" })).toHaveTextContent("Round 1. Not started.");
+    expect(screen.queryByRole("region", { name: "Your other matches" })).toBeNull();
+  });
+
+  it("shows no list when the viewer has one open match", () => {
+    live({ ...sheetTournament, matches: sheetTournament.matches.map((m) => (m.id === 2 ? { ...m, status: "completed", winnerId: 5 } : m)) });
+    expect(screen.queryByRole("region", { name: "Your other matches" })).toBeNull();
   });
 });

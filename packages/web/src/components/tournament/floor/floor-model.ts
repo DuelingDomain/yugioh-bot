@@ -84,8 +84,8 @@ export function currentRound(tournament: Pick<TournamentDetail, "matches">): num
  * unless a reply they owe comes first). Anyone else: the lowest round with an open match, else the last round.
  * Rounds of a round robin are not gated, so open matches can sit in rounds 1, 4 and 5 at once.
  */
-export function pageRound(tournament: TournamentDetail, viewerId: number | null): number {
-  const mine = heroMatch(tournament, viewerId);
+export function pageRound(tournament: TournamentDetail, viewerId: number | null, preferredId: number | null = null): number {
+  const mine = heroMatch(tournament, viewerId, preferredId);
   return mine ? mine.roundNumber : currentRound(tournament);
 }
 
@@ -135,18 +135,30 @@ function heroPriority(match: Match, playerId: number): number {
   return 3; // reported by the viewer, waiting on the opponent
 }
 
-/** The one match the viewer's field is drawn for, or null when nothing of theirs is unfinished. */
-export function heroMatch(tournament: TournamentDetail, playerId: number | null): Match | null {
-  if (playerId === null || !tournament.isParticipant) return null;
+/**
+ * Every unfinished match of the viewer, the one the field would show first at the head. A round robin makes
+ * all rounds at the start, so a player can have several of these at once and may act on any of them.
+ */
+export function openMatchesOf(tournament: TournamentDetail, playerId: number | null): Match[] {
+  if (playerId === null || !tournament.isParticipant) return [];
   const candidates = tournament.matches.filter((match) => playsIn(match, playerId) && !isByeMatch(match) && match.status !== "completed");
-  if (candidates.length === 0) return null;
-  return [...candidates].sort((a, b) => heroPriority(a, playerId) - heroPriority(b, playerId) || a.roundNumber - b.roundNumber || a.id - b.id)[0];
+  return candidates.sort((a, b) => heroPriority(a, playerId) - heroPriority(b, playerId) || a.roundNumber - b.roundNumber || a.id - b.id);
+}
+
+/**
+ * The one match the viewer's field is drawn for, or null when nothing of theirs is unfinished.
+ * `preferredId` is the match the viewer picked (a zone, a Play cell or the list under the field). It wins
+ * when it is still one of their open matches, so a stale pick falls back to the default.
+ */
+export function heroMatch(tournament: TournamentDetail, playerId: number | null, preferredId: number | null = null): Match | null {
+  const open = openMatchesOf(tournament, playerId);
+  return open.find((match) => match.id === preferredId) ?? open[0] ?? null;
 }
 
 /** The three viewer cases of the brief, with the idle reason for a player who has no match. */
-export function heroCase(tournament: TournamentDetail, playerId: number | null): HeroCase {
+export function heroCase(tournament: TournamentDetail, playerId: number | null, preferredId: number | null = null): HeroCase {
   if (playerId === null || !tournament.isParticipant) return { kind: "spectator" };
-  const match = heroMatch(tournament, playerId);
+  const match = heroMatch(tournament, playerId, preferredId);
   if (match) return { kind: "match", match };
   const mine = tournament.matches.filter((m) => playsIn(m, playerId)).sort((a, b) => b.roundNumber - a.roundNumber || b.id - a.id);
   const last = mine[0];

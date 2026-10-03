@@ -221,3 +221,16 @@ a.tc:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 .closedConfirm { padding: 18px 40px 0; display: grid; gap: 4px; max-width: 900px; }
 @container (max-width: 760px) { .closedConfirm { padding: 14px 16px 0; } }
 .hero:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: -2px; }
+
+/* Your other open matches. They glow when you point at them; no outlines. */
+.zpick { display: inline-block; padding: 0; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; cursor: pointer; transition: filter 0.15s, box-shadow 0.15s; }
+.zpick:hover, .zpick:focus-visible { outline: none; filter: drop-shadow(0 0 8px rgb(var(--beam) / 0.7)); box-shadow: 0 0 14px rgb(var(--beam) / 0.35); }
+.others { padding: 12px 40px 16px; background: var(--floor); border-bottom: 1px solid var(--rule-lo); }
+.othersHead { margin: 0 0 8px; font: 500 14px/1.2 var(--f-ui); color: var(--ink-3); }
+.othersList { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.otherBtn { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 14px 6px 8px; border: 0; border-radius: 10px; background: rgb(var(--beam) / 0.08); color: var(--ink); font: inherit; text-align: left; cursor: pointer; box-shadow: 0 0 12px rgb(var(--beam) / 0.18); transition: box-shadow 0.15s, background 0.15s; }
+.otherBtn:hover, .otherBtn:focus-visible { outline: none; background: rgb(var(--beam) / 0.14); box-shadow: 0 0 18px rgb(var(--beam) / 0.5); }
+.otherText { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.otherText b { font-weight: 600; font-size: 15px; }
+.otherText span { color: var(--ink-3); font-size: 13.5px; }
+@container (max-width: 760px) { .others { padding: 10px 16px 12px; } }
