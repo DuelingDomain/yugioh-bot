@@ -67,12 +67,16 @@ describe("multiplayer card catalog", () => {
     expect(MULTIPLAYER_FORBIDDEN.length).toBeGreaterThanOrEqual(25);
   });
 
-  it("puts activated opponent-field cards in the one-opponent group with the current rule", () => {
+  it("puts opponent-field cards in the one-opponent group with the declaration or response rule", () => {
     for (const code of [12580477, 18144506, 44095762, 2314238, 14532163, 35480699, 55063751, 69162969, 66788016, 88240808]) {
       const row = SCENARIOS.find((scenario) => scenario.code === code);
       expect(row?.group, String(code)).toBe("one");
       expect(row?.binding, String(code)).toBeDefined();
-      expect(row?.rules, String(code)).toContain("R-FFA-OPP-ONE");
+      expect(row?.rules, String(code)).toContain(row?.binding === "event-opponent" ? "R-FFA-OPP-RESPONSE" : "R-FFA-OPP-ONE");
+    }
+    for (const row of GROUP_ONE.filter((scenario) => scenario.binding === "event-opponent")) {
+      expect(row.rules, row.id).not.toContain("R-FFA-OPP-ONE");
+      expect(row.rules, row.id).toContain("R-FFA-OPP-RESPONSE");
     }
     expect(SCENARIOS.find((scenario) => scenario.code === 14532163)?.rules).not.toContain("R-COMMON-ALL-BOTH");
     expect(SCENARIOS.find((scenario) => scenario.code === 44095762)?.rules).toContain("R-FFA-OPP-RESPONSE");

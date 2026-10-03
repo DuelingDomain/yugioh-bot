@@ -84,7 +84,7 @@ const EXTRA_RULES: Record<number, string[]> = {
 const rulesOf = (group: "all" | "one", row: Row): string[] => {
   const extra = EXTRA_RULES[row.code] ?? [];
   const base = row.code === 31036355 ? [] : group === "one"
-    ? ["R-FFA-OPP-ONE", ...(row.binding === "explicit-pick" ? ["R-COMMON-OPP-PICK"] : [])]
+    ? [row.binding === "event-opponent" ? "R-FFA-OPP-RESPONSE" : "R-FFA-OPP-ONE", ...(row.binding === "explicit-pick" ? ["R-COMMON-OPP-PICK"] : [])]
     : row.code === 70095154 ? ["R-FFA-OPP-ONE"] // Cyber Dragon: one opponent meeting its condition is enough.
     : row.code === 32807846 ? ["R-COMMON-OPP-PICK"] // Informational hints still reach every opponent.
     : extra.includes("R-COMMON-ONGOING") || extra.includes("R-COMMON-CONT-NEG") ? []
