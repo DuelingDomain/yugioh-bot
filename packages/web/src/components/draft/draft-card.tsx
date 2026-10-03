@@ -71,7 +71,7 @@ export function DraftCard({ draft }: { draft: DraftCardProps }) {
         </div>
         {isLinkable && (
           <span className="text-sm font-semibold text-accent-primary hover:text-accent-secondary">
-            {draft.status === "active" ? "Open Draft Room" : draft.status === "pending" ? "Manage Draft" : draft.status === "cancelled" ? "View Summary" : "View Deck"}
+            {draft.status === "active" ? "Open draft room" : draft.status === "pending" ? "Manage draft" : draft.status === "cancelled" ? "View summary" : "View deck"}
           </span>
         )}
       </div>
