@@ -324,6 +324,8 @@ describe("the overlay files", () => {
     const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPAttackedSeat", "MPSeatOf", "MPBindSeat", "MPNthDuelist", "MPSeat", "MPChainSeat", "MPSharedZones", "MPAcrossSeat", "MPSeatBinding"]);
     coreApi.add("MPActionSeat");
     coreApi.add("MPOwnerSeat");
+    coreApi.add("MPTurnSeat");
+    coreApi.add("MPTurnControls");
     for (const card of cards) {
       for (const [, helper] of text(card).matchAll(/\baux\.(MP\w+)/g)) {
         expect(helperText, `${card.file}: aux.${helper}`).toContain(`function aux.${helper}(`);

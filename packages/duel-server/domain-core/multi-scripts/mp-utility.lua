@@ -118,6 +118,29 @@ function aux.MPForEachDuelist(fn)
 	Duel.MPNthDuelist(0)
 end
 
+-- All living duelists choose from the real turn seat, in normal turn order.
+-- Keep MPForEachDuelist actor-first for effects whose card text requires it.
+function aux.MPForEachDuelistFromTurn(fn)
+	if Duel.MPMode()==0 or not Duel.MPNthDuelist then return aux.MPForEachDuelist(fn) end
+	local turn=Duel.MPTurnSeat()
+	local order,first={},1
+	local i=1
+	while true do
+		local ok,seat=Duel.MPNthDuelist(i)
+		if not ok then break end
+		order[#order+1]={index=i,seat=seat}
+		if seat==turn then first=#order end
+		i=i+1
+	end
+	Duel.MPNthDuelist(0)
+	for offset=0,#order-1 do
+		local item=order[(first+offset-1)%#order+1]
+		local ok,seat=Duel.MPNthDuelist(item.index)
+		if ok and fn(Duel.MPMode()==2 and mp_team(seat) or 0,seat) then break end
+	end
+	Duel.MPNthDuelist(0)
+end
+
 -- The same loop for code that can run in a GLOBAL effect (a check that a card registers in initial_effect, a turn-end or adjust handler).
 -- A global effect has no scope player, so Duel.MPNthDuelist gives nothing there and aux.MPForEachDuelist would run fn zero times.
 -- Here the Lua values are real seats (no fold): fn(tp_i,seat_i) runs for every seat 0 to 3 that is in the duel and has LP > 0, in seat
