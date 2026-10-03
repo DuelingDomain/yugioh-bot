@@ -1,0 +1,33 @@
+/* Phone layout for the leaderboard. The boards' own container rules hide
+   ledger columns at phone width; the phone pane swaps the whole list, so the
+   two lists are switched here on the same container (the SheetRoot). */
+.phoneOnly { display: none; }
+@container (max-width: 600px) {
+  .phoneOnly { display: block; }
+  .deskOnly { display: none; }
+}
+
+.busy { position: relative; }
+.busy[aria-busy="true"] { opacity: 0.55; }
+
+/* Whole row is the link: the name link stretches over its row. */
+.ledgerBox :global(.ledger) tbody tr { position: relative; }
+.rowLink { color: inherit; text-decoration: none; }
+.rowLink::after { content: ""; position: absolute; inset: 0; }
+.rowLink:focus-visible { outline: none; }
+.rowLink:focus-visible::after { outline: 2px solid var(--ink); outline-offset: -2px; border-radius: 4px; }
+
+.pin { position: sticky; bottom: 12px; z-index: 2; }
+.pin a { color: inherit; }
+.pin a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.phoneReadouts { margin-bottom: 18px; }
+.error { margin-bottom: 14px; color: var(--loss-ink); }
+.note { margin-top: 10px; }
+.stkIcon { width: 14px; height: 14px; }
+.tierRow { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.tierRow > span:last-child { color: var(--ink-3); }
+.guide { display: grid; gap: 12px; }
+@media (prefers-reduced-motion: reduce) {
+  .busy { transition: none; }
+}

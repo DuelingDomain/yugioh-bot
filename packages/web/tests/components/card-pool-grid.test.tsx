@@ -3,6 +3,7 @@ import React from "react";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CardPoolGrid, getPopupPosition } from "../../src/components/cards/card-pool-grid";
+import sheetStyles from "../../src/components/cards/card-pool-sheet.module.css";
 import { installVirtualizerJsdomEnv } from "../helpers/virtualizer-jsdom";
 
 const imageRenders = vi.hoisted(() => ({ count: 0 }));
@@ -359,5 +360,136 @@ describe("CardPoolGrid memoization", () => {
     fireEvent.click(screen.getByText(/bump/));
 
     expect(imageRenders.count).toBe(tilesAfterMount);
+  });
+});
+
+describe('CardPoolGrid variant="sheet"', () => {
+  const viewport = { width: 900, height: 600 };
+  beforeEach(() => {
+    viewport.width = 900;
+    installVirtualizerJsdomEnv(viewport);
+  });
+
+  it.each([
+    [300, "3", 3],
+    [390, "3", 3],
+    [1440, "", 13],
+  ] as const)("lays out full virtual rows at %ipx using the container column choice", (width, columnChoice, columns) => {
+    viewport.width = width;
+    // jsdom cannot evaluate container queries. Supply only the computed CSS choice.
+    const getStyle = window.getComputedStyle.bind(window);
+    const styleSpy = vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) => {
+      const computed = getStyle(element, pseudo);
+      if (!element.classList.contains(sheetStyles.scroll)) return computed;
+      const result = document.createElement("div").style;
+      result.cssText = computed.cssText;
+      result.setProperty("--pool-columns", columnChoice);
+      return result;
+    });
+    try {
+      const many = Array.from({ length: 30 }, (_, i) => ({ ...cards[0], id: 1000 + i, name: `Card ${i + 1}` }));
+      render(<CardPoolGrid cards={many} variant="sheet" />);
+      const firstRow = screen.getByTestId("card-pool-grid").firstElementChild as HTMLElement;
+      expect(firstRow).toHaveStyle({ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` });
+      const buttons = within(firstRow).getAllByRole("button", { name: /^Preview Card / });
+      expect(buttons).toHaveLength(columns);
+      expect(buttons[0]).toHaveAccessibleName("Preview Card 30");
+      expect(buttons[columns - 1]).toHaveAccessibleName(`Preview Card ${31 - columns}`);
+    } finally {
+      styleSpy.mockRestore();
+    }
+  });
+
+  it("shows the kind tally at the top and a preview tile per card", () => {
+    const { container } = render(<CardPoolGrid cards={cards} variant="sheet" />);
+    expect(container.querySelector('[data-k="monster"] b')?.textContent).toBe("1");
+    expect(container.querySelector('[data-k="spell"] b')?.textContent).toBe("1");
+    expect(container.querySelector('[data-k="trap"] b')?.textContent).toBe("1");
+    expect(screen.getByRole("button", { name: /preview bujingi crane/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /preview mirror force/i })).toBeTruthy();
+  });
+
+  it("keeps search, labelled filter groups and aria-pressed", () => {
+    render(<CardPoolGrid cards={cards} variant="sheet" />);
+    const kind = screen.getByRole("group", { name: "Kind" });
+    expect([kind.className, screen.getByRole("group", { name: "Tributes" }).className]).toEqual([
+      `seg ${sheetStyles.kindSeg}`,
+      `seg ${sheetStyles.tributeSeg}`,
+    ]);
+    expect(within(kind).getByRole("button", { name: "All" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.change(screen.getByLabelText(/search cards/i), { target: { value: "mirror" } });
+    expect(screen.queryByRole("button", { name: /preview bujingi crane/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /preview mirror force/i })).toBeTruthy();
+    expect(screen.getByText(/showing 1 of 3 cards/i)).toBeTruthy();
+  });
+
+  it("narrows by kind and clears the filters", () => {
+    render(<CardPoolGrid cards={cards} variant="sheet" />);
+    fireEvent.click(within(screen.getByRole("group", { name: "Kind" })).getByRole("button", { name: "Traps" }));
+    expect(screen.queryByRole("button", { name: /preview monster reborn/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /clear filters/i }));
+    expect(screen.getByRole("button", { name: /preview monster reborn/i })).toBeTruthy();
+  });
+
+  it("narrows by tribute tier and shows the tier counts", () => {
+    render(<CardPoolGrid cards={leveledCards} variant="sheet" />);
+    const noTribute = screen.getByRole("button", { name: /^no tribute$/i });
+    expect(noTribute.textContent).toMatch(/1/);
+    fireEvent.click(noTribute);
+    expect(screen.getByRole("button", { name: /preview low monster/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /preview mid monster/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^2 tributes$/i }));
+    expect(screen.getByRole("button", { name: /preview high monster/i })).toBeTruthy();
+  });
+
+  it("sorts by name", () => {
+    render(<CardPoolGrid cards={cards} variant="sheet" />);
+    fireEvent.click(within(screen.getByRole("group", { name: "Sort" })).getByRole("button", { name: "Name" }));
+    const names = screen.getAllByRole("button", { name: /^preview/i }).map((b) => b.getAttribute("aria-label"));
+    expect(names).toEqual(["Preview Bujingi Crane", "Preview Mirror Force", "Preview Monster Reborn"]);
+  });
+
+  it("shows copy counts on tiles, in the chain colour when not three", () => {
+    const { container } = render(<CardPoolGrid cards={[{ ...cards[0], qty: 3 }, { ...cards[1], qty: 2 }]} variant="sheet" />);
+    const xs = Array.from(container.querySelectorAll(".ct-x"));
+    expect(xs.map((x) => x.textContent)).toEqual(["×2", "×3"]);
+    expect(xs[0].classList.contains("lo")).toBe(true);
+    expect(xs[1].classList.contains("lo")).toBe(false);
+  });
+
+  it("opens the preview popup on hover through a portal outside the sheet", () => {
+    const { container } = render(<CardPoolGrid cards={cards} variant="sheet" />);
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /preview mirror force/i }));
+    const popupName = screen.getAllByText("Mirror Force").find((el) => !container.contains(el));
+    expect(popupName).toBeTruthy();
+    expect(popupName?.closest(".ms")?.parentElement).toBe(document.body);
+  });
+
+  it("uses the click action label when the grid is a picker", () => {
+    const onCardClick = vi.fn();
+    render(<CardPoolGrid cards={cards} variant="sheet" onCardClick={onCardClick} cardActionLabel={(c) => `Remove ${c.name} from pool`} />);
+    fireEvent.click(screen.getByRole("button", { name: /remove mirror force from pool/i }));
+    expect(onCardClick).toHaveBeenCalledWith(cards[1]);
+  });
+
+  it("covers the empty, no-match, loading and unknown-passcode states", () => {
+    const { rerender } = render(<CardPoolGrid cards={[]} variant="sheet" emptyMessage="Nothing here yet." />);
+    expect(screen.getByText("Nothing here yet.")).toBeTruthy();
+    rerender(<CardPoolGrid cards={[]} variant="sheet" loading />);
+    expect(screen.getByTestId("card-pool-grid-skeleton")).toBeTruthy();
+    rerender(<CardPoolGrid cards={cards} variant="sheet" loading />);
+    expect(screen.getByText(/updating/i)).toBeTruthy();
+    rerender(<CardPoolGrid cards={cards} variant="sheet" unknownIds={[99999999]} />);
+    expect(screen.getByLabelText(/passcode 99999999 not in catalog yet/i)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/search cards/i), { target: { value: "zzzzz" } });
+    expect(screen.getByLabelText(/passcode 99999999/i)).toBeTruthy();
+  });
+
+  it("windows a large pool", () => {
+    const many: CardSummary[] = Array.from({ length: 400 }, (_, i) => ({
+      id: i + 1, name: `Card ${i + 1}`, type: "Spell Card", frameType: "spell", effectText: "", imageUrl: "u", imageUrlSmall: "s",
+    }));
+    render(<CardPoolGrid cards={many} variant="sheet" />);
+    expect(screen.getAllByRole("button", { name: /^preview card/i }).length).toBeLessThan(400);
   });
 });

@@ -7,7 +7,7 @@ const LIMIT_NAMES = ["Forbidden", "Limited", "Semi-Limited"] as const;
 export function LimitBadge({ limit }: { limit: 0 | 1 | 2 | 3 }) {
   if (limit === 3) return null;
   return (
-    <span className={styles.limit} data-limit={limit} title={LIMIT_NAMES[limit]}>
+    <span className={styles["de-lim"]} data-l={limit} title={LIMIT_NAMES[limit]}>
       {limit === 0 ? <Ban size={11} strokeWidth={2.4} aria-hidden /> : limit}
     </span>
   );

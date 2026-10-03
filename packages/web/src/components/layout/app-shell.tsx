@@ -1,14 +1,100 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
-import { TopBar } from "./topbar";
+import { PhoneTopBar } from "./phone-top-bar";
 import { MobileDrawer } from "./mobile-drawer";
+import { useShellAccount } from "./use-shell-account";
+import { PHONE_MAX_WIDTH } from "./shell-model";
+import styles from "./shell.module.css";
 
-export function AppShell({ children }: { children: ReactNode }) {
+const COLLAPSED_KEY = "yugidraft:sidebar-collapsed";
+
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeCollapsed(value: boolean) {
+  try {
+    window.localStorage.setItem(COLLAPSED_KEY, value ? "1" : "0");
+  } catch {
+    // Storage can be blocked; the choice then lasts for this visit only.
+  }
+}
+
+function ShellFrame({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(false);
+  const pathname = usePathname();
+  const account = useShellAccount();
+
+  // A page change (including the back button) closes the phone menu.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
+  // Read after mount so the server render and the first client render agree.
+  useEffect(() => {
+    setSidebarCollapsed(readCollapsed());
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((c) => {
+      writeCollapsed(!c);
+      return !c;
+    });
+  }, []);
+
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+
+  // Close the phone menu when the window grows past phone width.
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const mq = window.matchMedia?.(`(min-width: ${PHONE_MAX_WIDTH + 1}px)`);
+    if (!mq) return;
+    const onChange = () => {
+      if (mq.matches) setDrawerOpen(false);
+    };
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [drawerOpen]);
+
+  // The page behind the dialog can't be reached; focus returns to the menu button.
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (frame) frame.inert = drawerOpen;
+    if (wasOpen.current && !drawerOpen) menuButtonRef.current?.focus();
+    wasOpen.current = drawerOpen;
+  }, [drawerOpen]);
+
+  return (
+    <>
+      <div
+        ref={frameRef}
+        className={`${styles.frame} min-h-screen bg-bg-deep text-text-primary`}
+        data-sidebar-collapsed={sidebarCollapsed ? "true" : "false"}
+      >
+        <PhoneTopBar ref={menuButtonRef} account={account} menuOpen={drawerOpen} onMenuClick={() => setDrawerOpen(true)} />
+        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} account={account} />
+        <main className={styles.main}>
+          <div className="mx-auto p-4 sm:p-6 lg:p-8">{children}</div>
+        </main>
+      </div>
+      <MobileDrawer open={drawerOpen} onClose={closeDrawer} account={account} />
+    </>
+  );
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   // Keep the field's inspector and Domain rail usable instead of squeezing them
@@ -22,26 +108,5 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <main className="min-h-screen bg-bg-deep text-text-primary">{children}</main>;
   }
 
-  return (
-    <div
-      className="min-h-screen bg-bg-deep text-text-primary"
-      data-sidebar-collapsed={sidebarCollapsed ? "true" : "false"}
-    >
-      <TopBar
-        onMenuClick={() => setDrawerOpen(true)}
-        onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
-        sidebarCollapsed={sidebarCollapsed}
-      />
-      <Sidebar collapsed={sidebarCollapsed} />
-      <MobileDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-      />
-      <main className="app-shell-content">
-        <div className="mx-auto p-4 sm:p-6 lg:p-8">
-          {children}
-        </div>
-      </main>
-    </div>
-  );
+  return <ShellFrame>{children}</ShellFrame>;
 }

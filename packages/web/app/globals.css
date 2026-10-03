@@ -49,6 +49,12 @@ html {
   color-scheme: dark;
 }
 
+/* The phone top bar in shell.module.css is sticky and 56px tall, so in-page jumps and focus
+   scrolling stop below it. Keep this breakpoint in step with shell.module.css. */
+@media (max-width: 820px) {
+  html { scroll-padding-top: 72px; }
+}
+
 body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
@@ -96,39 +102,6 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
-  }
-}
-
-@media (min-width: 768px) {
-  .app-shell-content {
-    margin-left: 14rem;
-    transition: margin-left 200ms ease-out;
-  }
-
-  [data-sidebar-collapsed="true"] .app-shell-content {
-    margin-left: 4rem;
-  }
-
-  [data-sidebar-collapsed="true"] .sidebar-label {
-    display: none;
-  }
-
-  .sidebar-logo-text {
-    display: inline;
-  }
-
-  [data-sidebar-collapsed="true"] .sidebar-logo-text {
-    display: none;
-  }
-
-  .sidebar-nav {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-  }
-
-  [data-sidebar-collapsed="true"] .sidebar-nav {
-    padding-left: 0.25rem;
-    padding-right: 0.25rem;
   }
 }
 

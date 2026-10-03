@@ -84,7 +84,7 @@ export interface HistoryTile {
   /** Id of the first event in the group. Stable React key. */
   key: number;
   lastEventId: number;
-  kind: "summon" | "set" | "activate" | "attack" | "damage" | "destroy" | "move" | "position" | "heal";
+  kind: "summon" | "set" | "activate" | "attack" | "damage" | "destroy" | "move" | "position" | "heal" | "confirm";
   seat: number | null;
   /** The subject: summoned / set / activated card, the attacker, or the destroyed card. */
   card: HistoryCard | null;
@@ -209,7 +209,7 @@ export function shouldResetHistory(state: HistoryState, events: readonly DuelEve
   return events.length > 0 && max < state.lastId;
 }
 
-const MOVE_SHOWN: ReadonlySet<DuelMoveReason> = new Set(["draw", "discard", "banish", "send", "return"]);
+const MOVE_SHOWN: ReadonlySet<DuelMoveReason> = new Set(["draw", "add", "discard", "banish", "send", "return"]);
 
 /** Summons whose cost or materials are sent away just before the monster arrives. */
 const MATERIAL_SUMMONS: ReadonlySet<SummonKind> = new Set(["tribute", "fusion", "synchro", "link", "ritual"]);
@@ -545,12 +545,25 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
         }
         break;
       }
+      case "confirm": {
+        // A confirmation is historical knowledge, never live field-slot memory.
+        if (!event.card) break;
+        const added = tileAt(event.moveId);
+        if (added?.kind === "move" && added.move?.dest === "hand" && added.move.reason !== "draw") {
+          patch(added.key, (tile) => ({ ...tile, card: event.card!, lastEventId: event.id }));
+        } else {
+          items.push(make(event, index, "confirm", event.card));
+        }
+        break;
+      }
       case "move": {
-        if (!event.reason || !MOVE_SHOWN.has(event.reason)) break;
+        // Older events marked effect additions but still called deck-to-hand moves draws.
+        const reason = event.addedToHand && event.reason === "draw" ? "add" : event.reason;
+        if (!reason || !MOVE_SHOWN.has(reason)) break;
         const dest = moveDest(event.zone?.location);
         const seat = event.seat ?? event.zone?.controller ?? null;
         const last = items[items.length - 1];
-        if (event.reason === "draw" && last && last.type === "tile" && last.kind === "move" &&
+        if (reason === "draw" && last && last.type === "tile" && last.kind === "move" &&
             last.move?.reason === "draw" && last.seat === seat) {
           patch(last.key, (tile) => ({
             ...tile,
@@ -561,8 +574,8 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
         }
         const tile = make(event, index, "move", event.card ?? null);
         tile.seat = seat;
-        tile.move = { dest, reason: event.reason, count: 1, faceDown: event.faceDown === true };
-        if (event.reason !== "draw") {
+        tile.move = { dest, reason, count: 1, faceDown: event.faceDown === true };
+        if (reason !== "draw") {
           const source = resolvingSource();
           if (source) {
             tile.move.cause = "effect";

@@ -38,3 +38,10 @@ describe("DraftCard draft-type indicator", () => {
     expect(screen.getByText("Round 7")).toBeInTheDocument();
   });
 });
+
+describe("DraftCard player count", () => {
+  it("says 1 player, never 1 players", () => {
+    render(<DraftCard draft={base({ playerCount: 1 })} />);
+    expect(screen.getByText("1 player")).toBeInTheDocument();
+  });
+});

@@ -9,21 +9,29 @@ vi.mock("next/image", () => ({
     <img alt={alt} {...props} />
   ),
 }));
+vi.mock("next/font/google", () => {
+  const font = () => ({ className: "font-class", variable: "font-var", style: {} });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
 
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
 describe("SettingsPage", () => {
-  it("renders announcement toggles without the card pools manager", async () => {
+  it("renders the season and announcement sections without the card pools manager or switches", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/settings") return Response.json({});
-      return Response.json({}, { status: 404 });
+      if (url === "/api/settings") {
+        return Response.json({ guildId: "g1", announceChannelId: null });
+      }
+      if (url === "/api/admin/season") return Response.json({ season: null });
+      return Response.json({ channels: [] });
     }));
     render(<SettingsPage />);
-    screen.getByRole("heading", { name: /settings/i });
-    // AnnouncementToggles renders its headings after the fetch resolves
-    await screen.findByRole("heading", { name: /draft announcements/i });
+    screen.getByRole("heading", { level: 1, name: /settings/i });
+    screen.getByRole("heading", { name: "Season" });
+    screen.getByRole("heading", { name: "Announcements" });
+    await screen.findByRole("heading", { name: "What the bot posts" });
+    expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByRole("heading", { name: /card pools/i })).toBeNull();
-    expect(screen.queryByText(/no saved pools yet/i)).toBeNull();
   });
 });

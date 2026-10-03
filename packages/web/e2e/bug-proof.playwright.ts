@@ -13,14 +13,15 @@ const json = (value: unknown) => JSON.stringify(value, null, 2);
 const zoneKey = (option: { controller?: number; location?: number; sequence?: number }) =>
   `${option.controller}:${option.location}:${option.sequence}`;
 
-async function scenarios(bug: ProofBug): Promise<ProofCase[]> {
+export async function prepareProofCases(bug: ProofBug): Promise<ProofCase[]> {
   if (bug === 1 || bug === 2) {
     const result = await deckRevealViews(bug === 1 ? "search" : "set");
     return (["opponent", "spectator"] as const).map((viewer) => ({
       id: viewer, bug, mySeat: viewer === "opponent" ? 1 : null,
       title: bug === 1 ? `Reinforcement of the Army search · ${viewer}` : `Ogama Set from Deck · ${viewer}`,
       engine: result[viewer], targetCode: result.card.code!, targetName: result.card.name!,
-      replayFrom: result.event.id - 1,
+      // The latest identity event may be a confirmation: replay its linked move too.
+      replayFrom: (result.event.moveId ?? result.event.id) - 1,
       setZone: bug === 2 ? zoneKey(result.card) : undefined,
     }));
   }
@@ -52,7 +53,7 @@ async function scenarios(bug: ProofBug): Promise<ProofCase[]> {
 export async function runBugProof(bug: ProofBug) {
   const artifacts = resolve(process.env.PROOF_DIR ?? "/tmp/yugioh-proofs", `bug-${bug}`);
   await mkdir(artifacts, { recursive: true });
-  const cases = await scenarios(bug);
+  const cases = await prepareProofCases(bug);
   const snapshots = resolve(artifacts, "snapshots.json");
   await writeFile(snapshots, json({ cases }));
   for (const s of cases) console.log(JSON.stringify({ bug, phase: "snapshot", scenario: s.id,
@@ -88,7 +89,7 @@ export async function runBugProof(bug: ProofBug) {
         await page.clock.pauseAt(new Date("2026-01-01T00:00:01Z"));
       }
       const names = cardNames(s);
-      await page.route("**/api/cards/*/image?*", async (route: { request(): { url(): string }; fulfill(options: object): Promise<void> }) => {
+      await page.route("**/api/cards/*/image*", async (route: { request(): { url(): string }; fulfill(options: object): Promise<void> }) => {
         const code = /\/cards\/(\d+)\//.exec(route.request().url())?.[1] ?? "0";
         const label = (names[code] ?? `Card ${code}`).replace(/[<>&"]/g, "");
         await route.fulfill({ contentType: "image/svg+xml", body: `<svg xmlns="http://www.w3.org/2000/svg" width="180" height="260">
@@ -154,6 +155,9 @@ export async function runBugProof(bug: ProofBug) {
     // Check desired fixed behavior only AFTER all cases/steps have their screenshots.
     for (const row of evidence) {
       const label = `${row.scenario}${bug === 4 ? ` (${row.step} selected)` : ""}`;
+      if (bug === 1 || bug === 2) {
+        check(row.confirmationBannerCount === 0, `${label}: confirmation must not also show a feedback banner`);
+      }
       if (bug === 1) {
         check(row.historyShowsTarget || row.revealShowsTarget, `${label}: confirmed Kojikocy is invisible in history and showcase`);
         const addition = row.historyRows.find((entry) => entry.showsTargetArt || entry.text.includes("Kojikocy"))

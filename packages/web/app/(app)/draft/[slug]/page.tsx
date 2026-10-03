@@ -4,13 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DraftManageView } from "@/components/draft/draft-manage-view";
 import { DraftSummaryView } from "@/components/draft/draft-summary-view";
-import { CardGrid } from "@/components/draft/card-grid";
-import { DraftCardPreview } from "@/components/draft/draft-card-preview";
-import { TimerBar } from "@/components/draft/timer-bar";
-import { SeatList } from "@/components/draft/seat-list";
-import { PoolPanel } from "@/components/draft/pool-panel";
-import { CubeLobbyPanel } from "@/components/cubes/cube-lobby-panel";
-import { CubeDraftBuilder } from "@/components/cubes/cube-draft-builder";
+import { DraftRoom } from "@/components/draft/room/draft-room";
+import { DraftFinale } from "@/components/draft/room/finale";
 import { useDraftStore } from "@/lib/stores/draft-store";
 import { useDraftWebsocket } from "@/lib/hooks/use-draft-websocket";
 import { useDraftCountdown } from "@/lib/hooks/use-draft-countdown";
@@ -53,6 +48,8 @@ interface DraftData {
     uniqueThemes?: boolean;
     extraDeckEnabled?: boolean;
     extraDeckSize?: number;
+    alternatePassDirection?: boolean;
+    themePackSize?: number;
   };
   phase?: "main" | "extra";
   themeProgress?: { main: number; mainTotal: number; extra: number; extraTotal: number };
@@ -121,11 +118,15 @@ export default function DraftDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+  // The room is shown while the draft is active; finishing it from the room ends on the finale.
+  const [wasInRoom, setWasInRoom] = useState(false);
+  const [finaleClosed, setFinaleClosed] = useState(false);
+
   const setFromServer = useDraftStore((s) => s.setFromServer);
   const storeCompleted = useDraftStore((s) => s.completed);
   // Live drafted count (updates optimistically on each pick), so the theme phase
   // indicator stays in lock-step with the Your Pool / DRAFTED counters.
-  const draftedCount = useDraftStore((s) => s.myPool.length);
+  const storePool = useDraftStore((s) => s.myPool);
 
   const fetchDraft = useCallback(async () => {
     try {
@@ -189,6 +190,10 @@ export default function DraftDetailPage() {
   useEffect(() => {
     fetchDraft();
   }, [fetchDraft]);
+
+  useEffect(() => {
+    if (draft?.status === DRAFT_STATUS.active) setWasInRoom(true);
+  }, [draft?.status]);
 
   useEffect(() => {
     if (storeCompleted && draft?.status === DRAFT_STATUS.active) {
@@ -269,11 +274,6 @@ export default function DraftDetailPage() {
 
   const isCreator = currentUserId === draft.createdByUserId;
   const isParticipant = draft.isParticipant;
-  const totalDraftCards =
-    (draft.config.cardsPerPlayer ?? 40) +
-    (draft.config.mode === "theme" && (draft.config.extraDeckEnabled ?? true)
-      ? draft.config.extraDeckSize ?? 15
-      : 0);
 
   const handleJoin = async () => {
     const res = await fetch(`/api/drafts/${slug}/join`, { method: "POST" });
@@ -294,168 +294,49 @@ export default function DraftDetailPage() {
   };
 
   const isThemeDraft = draft.config.mode === "theme";
-  // Live phase, derived from the optimistic drafted count so labels + progress
-  // update the instant a pick lands (not only on the next full fetch).
-  const themeMainTotal = draft.config.cardsPerPlayer ?? 40;
-  const themeExtraTotal = (draft.config.extraDeckEnabled ?? true) ? draft.config.extraDeckSize ?? 15 : 0;
-  const themeInExtra = isThemeDraft && draftedCount >= themeMainTotal && themeExtraTotal > 0;
 
   if (draft.status === "pending") {
     return (
-      <div>
-        {isThemeDraft && (
-          <div className="mx-auto max-w-[1800px] px-4 pt-4 sm:px-6 lg:px-8">
-            {isCreator ? (
-              <CubeDraftBuilder
-                slug={slug}
-                allowedCubes={draft.allowedCubes ?? []}
-                uniqueThemes={draft.config.uniqueThemes ?? true}
-                onChanged={() => void fetchDraft()}
-              />
-            ) : (
-              draft.allowedCubes && (
-                <CubeLobbyPanel
-                  slug={slug}
-                  allowedCubes={draft.allowedCubes}
-                  themeSelection={draft.config.themeSelection ?? "player_pick"}
-                  onClaimed={() => void fetchDraft()}
-                />
-              )
-            )}
-          </div>
-        )}
-        <DraftManageView
-          draft={draft}
-          slug={slug}
-          isCreator={isCreator}
-          isParticipant={isParticipant}
-          onStart={handleStart}
-          onCancel={handleCancel}
-          onUpdate={handleUpdate}
-          onJoin={handleJoin}
-          onAddBot={handleAddBot}
-          isDev={process.env.NODE_ENV !== "production"}
-        />
-      </div>
+      <DraftManageView
+        draft={draft}
+        slug={slug}
+        isCreator={isCreator}
+        isParticipant={isParticipant}
+        onStart={handleStart}
+        onCancel={handleCancel}
+        onUpdate={handleUpdate}
+        onJoin={handleJoin}
+        onAddBot={handleAddBot}
+        onChanged={() => void fetchDraft()}
+        isDev={process.env.NODE_ENV !== "production"}
+      />
     );
   }
 
   if (draft.status === "active") {
     return (
-      <div>
-        {/* Full-width sticky timer — visible at ALL screen sizes, centered */}
-        <div className="sticky top-14 z-40 border-b border-border bg-bg-deep/95 backdrop-blur-sm px-4 py-3">
-          <div className="mx-auto max-w-[1800px]">
-            {isThemeDraft && (() => {
-              const inExtra = themeInExtra;
-              const current = inExtra ? Math.min(draftedCount - themeMainTotal, themeExtraTotal) : Math.min(draftedCount, themeMainTotal);
-              const target = inExtra ? themeExtraTotal : themeMainTotal;
-              const pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
-              return (
-                <div className="mb-2 flex items-center gap-3 text-sm">
-                  <span
-                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${inExtra ? "bg-accent-gold/15 text-accent-gold" : "bg-accent-primary/15 text-accent-primary"}`}
-                  >
-                    {inExtra ? "Extra Deck" : "Main Deck"}
-                  </span>
-                  <span className="shrink-0 tabular-nums text-text-secondary">
-                    <span className="font-medium text-text-primary">{current}</span> / {target}
-                  </span>
-                  <div className="h-1 max-w-[14rem] flex-1 overflow-hidden rounded-full bg-bg-elevated">
-                    <div
-                      className={`h-full rounded-full transition-[width] duration-500 ${inExtra ? "bg-accent-gold" : "bg-accent-primary"}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  {!inExtra && themeExtraTotal > 0 && (
-                    <span className="hidden shrink-0 text-xs text-text-secondary sm:inline">
-                      then Extra {themeExtraTotal}
-                    </span>
-                  )}
-                </div>
-              );
-            })()}
-            <TimerBar className="rounded-none border-0 bg-transparent p-0" totalDraftCards={totalDraftCards} />
-          </div>
-        </div>
-
-        <div className="mx-auto max-w-[1800px] p-4 sm:p-6 lg:p-8">
-          <div className="mb-6 sm:hidden">
-            <SeatList />
-          </div>
-
-          <div className="grid gap-8 xl:grid-cols-[15rem_minmax(0,1fr)_clamp(22rem,18rem+12vw,32rem)]">
-            {/* Left aside — SeatList only (TimerBar moved to sticky top) */}
-            <aside className="hidden flex-col gap-4 xl:flex">
-              <SeatList />
-            </aside>
-
-            <section className="min-w-0">
-              <div className="mb-6">
-                {draft.config.setNames && draft.config.setNames.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {draft.config.setNames.map((setName) => (
-                      <span
-                        key={setName}
-                        className="rounded-full border border-accent-primary/25 bg-accent-primary/10 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-accent-primary"
-                      >
-                        {setName}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border/50 pt-3 text-sm text-text-secondary">
-                  {isThemeDraft ? (
-                    <span className="font-medium text-text-primary">
-                      {themeInExtra ? "Extra Deck" : "Main Deck"} pick
-                    </span>
-                  ) : (
-                    <span className="font-medium text-text-primary">
-                      Pack {draft.packRound ?? draft.currentPackRound ?? 1}, Pick{" "}
-                      {draft.pickStep ?? draft.currentPickStep ?? 1}
-                    </span>
-                  )}
-                  <span>
-                    <span className="tabular-nums text-text-primary">{draft.currentPack?.length ?? 0}</span>{" "}
-                    {isThemeDraft ? "choices" : "cards"} this pick
-                  </span>
-                  <span>
-                    <span className="tabular-nums text-text-primary">{draft.playerCount}</span> players
-                  </span>
-                  <span>
-                    <span className="tabular-nums text-text-primary">
-                      {draft.pickSeconds ?? draft.config.pickSeconds ?? 60}s
-                    </span>{" "}
-                    timer
-                  </span>
-                </div>
-              </div>
-              <CardGrid />
-            </section>
-
-            {/* sm–xl intermediate aside — TimerBar removed, SeatList + PoolPanel kept */}
-            <aside className="hidden w-full shrink-0 flex-col gap-4 sm:flex xl:hidden">
-              <SeatList />
-              <PoolPanel />
-            </aside>
-
-            <aside className="hidden xl:block">
-              <PoolPanel />
-            </aside>
-          </div>
-
-          <DraftCardPreview />
-
-          <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-bg-deep/95 backdrop-blur-sm p-4 sm:hidden">
-            <PoolPanel />
-          </div>
-
-          <div className="h-20 sm:hidden" />
-        </div>
-      </div>
+      <DraftRoom slug={slug} name={draft.name} config={draft.config} isParticipant={isParticipant} />
     );
   }
+
+  const finalePool = draft.status === DRAFT_STATUS.completed && draft.myPool?.length ? draft.myPool : storePool;
+  const showFinale = wasInRoom && !finaleClosed && draft.status === DRAFT_STATUS.completed && isParticipant && finalePool.length > 0;
+  const finaleExtra = isThemeDraft ? Math.max(0, finalePool.length - (draft.config.cardsPerPlayer ?? 40)) : 0;
+  const downloadYdk = async () => {
+    try {
+      const ydk = await handleExportYdk();
+      const url = URL.createObjectURL(new Blob([ydk], { type: "text/plain" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${draft.name.replace(/\s+/g, "_")}.ydk`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      /* the summary view shows export errors */
+    }
+  };
 
   return (
     <div>
@@ -468,6 +349,17 @@ export default function DraftDetailPage() {
         onDelete={handleDelete}
         myPool={draft.myPool}
       />
+      {showFinale && (
+        <DraftFinale
+          slug={slug}
+          pool={finalePool}
+          theme={isThemeDraft}
+          extraCount={finaleExtra}
+          canBuild
+          onExport={() => void downloadYdk()}
+          onClose={() => setFinaleClosed(true)}
+        />
+      )}
     </div>
   );
 }

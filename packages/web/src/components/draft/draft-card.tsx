@@ -67,7 +67,7 @@ export function DraftCard({ draft }: { draft: DraftCardProps }) {
       <div className="mt-4 flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-text-secondary">
           <Users className="h-4 w-4" />
-          <span>{draft.playerCount} players</span>
+          <span>{draft.playerCount} {draft.playerCount === 1 ? "player" : "players"}</span>
         </div>
         {isLinkable && (
           <span className="text-sm font-semibold text-accent-primary hover:text-accent-secondary">

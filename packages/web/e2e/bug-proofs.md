@@ -18,7 +18,7 @@ node --import tsx packages/web/e2e/material-count.playwright.ts
 ```
 
 Use the paths to your own installed Playwright/Chromium if these cached paths differ. Run all three
-commands to collect evidence for each bug; set `PROOF_WIDTH=390` for phone-width shots. JSON lines on stdout and `evidence.json` contain
+commands; each exits zero when its bug stays fixed. Set `PROOF_WIDTH=390` for phone-width shots. JSON lines on stdout and `evidence.json` contain
 the actual DOM copy, visible identity, title/instruction, counter state, Confirm availability and screenshot paths.
 
 | Script | Engine scenario | Screenshots beneath `$PROOF_DIR` |

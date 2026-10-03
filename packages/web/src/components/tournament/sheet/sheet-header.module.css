@@ -1,0 +1,4 @@
+@container (max-width: 760px) {
+  :global(.ms) .track:global(.trk) { width: 100%; justify-items: start; }
+  :global(.ms) .track :global(.trk-cap) { text-align: left; }
+}
