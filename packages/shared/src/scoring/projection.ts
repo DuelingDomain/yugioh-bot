@@ -1,4 +1,4 @@
-import { nextRating } from "./elo.js";
+import { eloStakes } from "./elo.js";
 import { matchWinPoints } from "./winnings.js";
 
 export type MatchProjection = {
@@ -13,10 +13,11 @@ export function projectMatch(opts: {
   oppElo: number;
   seasonMultiplier: number;
 }): MatchProjection {
+  const stakes = eloStakes(opts.myElo, opts.oppElo);
   return {
     winWinnings: matchWinPoints(opts),
-    winRating: nextRating(opts.myElo, opts.oppElo, 1) - opts.myElo,
+    winRating: stakes.win,
     loseWinnings: 0,
-    loseRating: nextRating(opts.myElo, opts.oppElo, 0) - opts.myElo,
+    loseRating: stakes.loss,
   };
 }

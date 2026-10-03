@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import {
+  loadDeckRegistrations,
   parseSavedDeckId,
   readSavedDeckBody,
   requireSavedDeckActor,
   savedDeckErrorResponse,
+  withRegistration,
 } from "@/lib/saved-decks";
 import { getDb } from "@/lib/db";
 import { checkDraftDeckWrite, readDraftId, registerDraftDeck } from "../draft-deck";
@@ -23,7 +25,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const ctx = await ownedDeckContext(params);
   if (!ctx.ok) return ctx.response;
   try {
-    return NextResponse.json({ deck: ctx.actor.decks.get(ctx.id, ctx.actor.guildId, ctx.actor.ownerUserId) });
+    const deck = ctx.actor.decks.get(ctx.id, ctx.actor.guildId, ctx.actor.ownerUserId);
+    return NextResponse.json({ deck: withRegistration(deck, loadDeckRegistrations(ctx.actor.guildId, ctx.actor.ownerUserId)) });
   } catch (error) {
     return savedDeckErrorResponse(error);
   }
@@ -56,14 +59,15 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         draftId,
       });
       const warning = registerDraftDeck(checked.draft, deck);
-      return NextResponse.json(warning ? { deck, warning } : { deck });
+      const shown = withRegistration(deck, loadDeckRegistrations(ctx.actor.guildId, ctx.actor.ownerUserId));
+      return NextResponse.json(warning ? { deck: shown, warning } : { deck: shown });
     }
     const deck = ctx.actor.decks.update(ctx.id, ctx.actor.guildId, ctx.actor.ownerUserId, {
       name: body.name,
       mode: body.mode,
       deck: body.deck,
     });
-    return NextResponse.json({ deck });
+    return NextResponse.json({ deck: withRegistration(deck, loadDeckRegistrations(ctx.actor.guildId, ctx.actor.ownerUserId)) });
   } catch (error) {
     return savedDeckErrorResponse(error);
   }
