@@ -8,7 +8,7 @@ export function SurrenderModal({ open, busy, multiplayer = false, onClose, onCon
 }) {
   return <Modal open={open} onClose={onClose} title="Surrender">
     <p className="text-sm text-text-secondary">{multiplayer
-      ? "This queues your surrender. Your seat shows Leaving until you are eliminated. Then you can stay and watch, or leave the room."
+      ? "During your own turn, you leave immediately. Otherwise, your seat shows Leaving until the end of this turn and you cannot act. Once eliminated, you automatically spectate the remaining duel."
       : "This ends the duel. Confirm surrender?"}</p>
     <div className="mt-4 flex gap-2">
       <Button type="button" variant="danger" loading={busy} onClick={onConfirm}>Surrender</Button>

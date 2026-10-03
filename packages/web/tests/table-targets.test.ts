@@ -57,9 +57,16 @@ describe("targetChoices", () => {
     expect(targetChoices(attack([monsterOption("own", 0, 0)]), THREE, 0, nameOf)).toEqual([]);
   });
 
-  it("leaves out eliminated seats and seats that are leaving", () => {
+  it("leaves out eliminated seats and keeps offered targets on Leaving seats", () => {
     const eng = engine([seatView(0), seatView(1, { eliminated: true }), seatView(2, { pendingElimination: true })]);
-    expect(targetChoices(attack([monsterOption("a", 1, 0), monsterOption("c", 2, 1)]), eng, 0, nameOf)).toEqual([]);
+    const choices = targetChoices(attack([monsterOption("a", 1, 0), monsterOption("c", 2, 1)]), eng, 0, nameOf);
+    expect(choices).toEqual([{ seat: 2, zones: ["2:4:1"], direct: false, optionIds: ["c"], label: "Mika" }]);
+    expect(autoFollowSeat(choices, eng, 0)).toEqual({ seat: 2, reason: "Pick a target" });
+  });
+
+  it("does not offer any targets to a Leaving viewer, even with a stale prompt", () => {
+    const eng = engine([seatView(0, { pendingElimination: true }), seatView(1), seatView(2)]);
+    expect(targetChoices(attack([monsterOption("a", 1, 0)]), eng, 0, nameOf)).toEqual([]);
   });
 
   it("falls back to a numbered name and skips options with no seat", () => {

@@ -700,23 +700,12 @@
   .logPane { height: min(72dvh, 600px); }
 }
 
-/* Keep the elimination decision above the field without changing its height. */
-.eliminatedChoice {
-  position: absolute;
-  z-index: var(--duel-z-modal);
-  left: 50%;
-  bottom: max(24px, env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  width: max-content;
-  max-width: calc(100% - 32px);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid rgb(var(--duel-rule-rgb) / 0.6);
-  border-radius: 8px;
+/* Keep the queued surrender state visible above the table. */
+.leavingNotice {
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgb(var(--duel-rule-rgb) / 0.6);
   background: var(--duel-sheet, #15151d);
-  box-shadow: 0 8px 32px #0008;
+  color: var(--duel-text, #eee);
   font-size: 14px;
 }

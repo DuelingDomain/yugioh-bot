@@ -264,7 +264,7 @@ function PendulumCells({ view, name, callbacks }: { view: DuelSeatView; name: st
  */
 export function FocusedSeatPick({ view, name, pick }: { view: DuelSeatView; name: string; pick?: SeatPick | null }) {
   const seat = view.seat;
-  if (view.eliminated === true || view.pendingElimination === true || pick?.options.has(seat) !== true) return null;
+  if (view.eliminated === true || pick?.options.has(seat) !== true) return null;
   return (
     <div className={styles.focusPick} data-pickable="true" data-seat={seat} data-testid={`seat-focus-pick-${seat}`}>
       <span className={styles.focusName}>{name}</span>
@@ -371,7 +371,7 @@ export function SeatBoard({
   const spells = [0, 1, 2, 3, 4].map((sequence) => view.spells[sequence] ?? null);
   const handKeys = view.hand.length === 0 ? [zoneKey(seat, LOCATION_HAND, 0)] : view.hand.map(cardKey);
   const relationText = RELATION_LABEL[relation];
-  const pickable = !eliminated && !leaving && pick?.options.has(seat) === true;
+  const pickable = !eliminated && pick?.options.has(seat) === true;
 
   return (
     <section className={styles.board} aria-label={`${name} board`} data-seat={seat} data-relation={relation}
