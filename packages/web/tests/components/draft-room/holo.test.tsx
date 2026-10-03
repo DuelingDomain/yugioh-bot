@@ -6,7 +6,7 @@ import { Holo, type HoloTarget } from "../../../src/components/draft/room/holo";
 import * as motion from "../../../src/components/draft/room/motion";
 
 const card: HoloTarget["card"] = {
-  id: 60, name: "Lower card", type: "Effect Monster", frameType: "effect", attribute: "DARK",
+  id: 60, passcode: 100060, name: "Lower card", type: "Effect Monster", frameType: "effect", attribute: "DARK",
   level: 4, atk: 1000, def: 1000, effectText: "Does a thing.",
   imageUrl: "/c/60.jpg", imageUrlSmall: "/c/60s.jpg",
 };

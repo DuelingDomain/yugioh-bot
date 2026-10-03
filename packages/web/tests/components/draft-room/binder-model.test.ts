@@ -3,6 +3,7 @@ import { EMPTY_FILTER, filterWords, matchesFilter, orderEntries, poolEntries, ty
 
 const card = (id: number, name: string, frameType: string, over: Partial<RoomCard> = {}): RoomCard => ({
   id,
+  passcode: id + 100000,
   name,
   type: "Effect Monster",
   frameType,

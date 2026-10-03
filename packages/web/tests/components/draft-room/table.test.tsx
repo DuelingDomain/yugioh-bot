@@ -18,7 +18,7 @@ vi.mock("next/link", () => ({ default: ({ children, ...props }: React.ComponentP
 import { DraftRoom } from "../../../src/components/draft/room/draft-room";
 
 const makeCard = (id: number) => ({
-  id, name: `Card ${id}`, type: "Effect Monster", frameType: "effect", attribute: "DARK",
+  id, passcode: id + 100000, name: `Card ${id}`, type: "Effect Monster", frameType: "effect", attribute: "DARK",
   level: 4, atk: 1000, def: 1000, effectText: "Does a thing.",
   imageUrl: `/c/${id}.jpg`, imageUrlSmall: `/c/${id}s.jpg`,
 });

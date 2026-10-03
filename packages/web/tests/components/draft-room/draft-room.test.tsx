@@ -19,6 +19,7 @@ import { DraftRoom } from "../../../src/components/draft/room/draft-room";
 
 const mk = (id: number, over: Record<string, unknown> = {}) => ({
   id,
+  passcode: id + 100000,
   name: `Card ${id}`,
   type: "Effect Monster",
   frameType: "effect",
