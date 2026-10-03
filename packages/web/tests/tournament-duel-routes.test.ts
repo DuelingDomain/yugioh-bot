@@ -123,6 +123,21 @@ describe("tournament match duel and result routes", () => {
     expect(announcer.announce).toHaveBeenCalledTimes(1);
   });
 
+  it("duel: maps the decks of both seats before it starts the series", async () => {
+    const s = seed();
+    const mapDraftTournamentDecks = vi.fn(async (..._args: unknown[]) => {});
+    vi.doMock("@/lib/draft-deck-codes", () => ({ mapDraftTournamentDecks }));
+    const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
+    auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
+    const res = await POST(post({}), ctx(s.tmId));
+    vi.doUnmock("@/lib/draft-deck-codes");
+    expect(res.status).toBe(201);
+    expect(mapDraftTournamentDecks).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ tournamentId: s.tournamentId, guildId: "g1", playerIds: expect.arrayContaining([s.a, s.b]) }),
+    );
+  });
+
   it("duel: an outsider cannot start the series", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
 import { announceDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
+import { mapDraftTournamentDecks } from "@/lib/draft-deck-codes";
 import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { broadcaster } from "@/lib/notify";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -26,13 +27,23 @@ export async function POST(
       .get(slug, actor.guildId) as { id: number; name: string } | undefined;
     if (!tournament) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const slot = Number.isInteger(tournamentMatchId)
-      ? (db.prepare("select tournament_id from tournament_matches where id = ?").get(tournamentMatchId) as
-          | { tournament_id: number }
+      ? (db
+          .prepare("select tournament_id, player_one_id, player_two_id from tournament_matches where id = ?")
+          .get(tournamentMatchId) as
+          | { tournament_id: number; player_one_id: number | null; player_two_id: number | null }
           | undefined)
       : undefined;
     if (!slot || slot.tournament_id !== tournament.id) {
       return NextResponse.json({ error: "Match not found" }, { status: 404 });
     }
+
+    // A draft tournament's auto-registered decks hold catalog ids: map both seats' decks to
+    // engine codes before the series copies them.
+    await mapDraftTournamentDecks(db, {
+      tournamentId: tournament.id,
+      guildId: actor.guildId,
+      playerIds: [slot.player_one_id, slot.player_two_id].filter((id): id is number => id !== null),
+    });
 
     const { series, duel, created } = createDuelSeriesService(db).startTournamentMatch({
       guildId: actor.guildId,

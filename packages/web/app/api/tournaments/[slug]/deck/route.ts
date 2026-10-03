@@ -56,46 +56,6 @@ async function loadCaller(slug: string) {
   return { ok: true as const, db, tournament, player, userId: session.user.id };
 }
 
-/**
- * An auto-registered draft deck holds catalog ids. The host maps them to engine passcodes (about
- * 1 in 100 differ); when the registered copy changes, register the mapped one so the duel start
- * loads every card. An unlocked deck only; a host that is down or a deck with issues is left alone.
- */
-async function healDraftRegistration(input: {
-  tournamentDuels: ReturnType<typeof createTournamentDuelService>;
-  tournament: TournamentRow;
-  player: { id: number };
-  rules: ReturnType<ReturnType<typeof createTournamentDuelService>["rules"]>;
-  registration: NonNullable<ReturnType<ReturnType<typeof createTournamentDuelService>["registration"]>>;
-}) {
-  const { tournamentDuels, tournament, player, rules, registration } = input;
-  if (registration.savedDeckId === null) return null;
-  try {
-    const checked = await callDuelHost({
-      op: "check-deck",
-      guildId: tournament.guild_id,
-      playerId: player.id,
-      deck: registration.deck,
-      mode: rules.mode,
-      masterRule: rules.masterRule,
-      settings: rules.settings,
-    });
-    if (!checked.ok) return null;
-    const { deck, report } = checked.data as { deck?: DuelDeck; report?: DuelDeckValidation };
-    if (!deck || !report || !Array.isArray(report.issues) || report.issues.length > 0) return null;
-    if (JSON.stringify(deck) === JSON.stringify(registration.deck)) return null;
-    return tournamentDuels.registerDeck({
-      tournamentId: tournament.id,
-      playerId: player.id,
-      savedDeckId: registration.savedDeckId,
-      deck,
-    });
-  } catch (error) {
-    console.warn("[api/tournaments/[slug]/deck] could not map the draft deck codes:", error);
-    return null;
-  }
-}
-
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
     const { slug } = await params;
@@ -111,10 +71,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       backfillDraftDecks(tournament.guild_id, userId, db);
       linkDraftDeck(tournament.id, player.id, db);
     }
-    let registration = tournamentDuels.registration(tournament.id, player.id);
-    if (rules.draftId !== null && registration && !registration.lockedAt) {
-      registration = (await healDraftRegistration({ tournamentDuels, tournament, player, rules, registration })) ?? registration;
-    }
+    const registration = tournamentDuels.registration(tournament.id, player.id);
 
     const savedDecks = createSavedDeckService(db);
     let decks = savedDecks.list(tournament.guild_id, userId).filter((deck) => deck.mode === rules.mode);

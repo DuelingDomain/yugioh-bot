@@ -99,23 +99,16 @@ describe("draft deck hooks in the tournament routes", () => {
     expect(((await res.json()) as { deckNote: unknown }).deckNote).toBeNull();
   });
 
-  it("deck GET maps the registered draft deck to engine codes while it is unlocked", async () => {
+  it("deck GET does not call the host: mapping happens when the series starts", async () => {
     const s = seed({ draft: true, registered: true });
-    const mapped = { main: [2001, 2002, 2003], extra: [], side: [] };
-    callDuelHost.mockResolvedValue({ ok: true, data: { deck: mapped, report: { issues: [] } } });
-    const { GET } = await import("../app/api/tournaments/[slug]/deck/route");
-    const res = await GET(get(), ctx);
-    const body = (await res.json()) as { registration: { deck: unknown; savedDeckId: number } };
-    expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "check-deck", deck: DECK }));
-    expect(body.registration).toMatchObject({ savedDeckId: s.savedId, deck: mapped });
-  });
-
-  it("deck GET keeps the registered deck when the host is down", async () => {
-    seed({ draft: true, registered: true });
     const { GET } = await import("../app/api/tournaments/[slug]/deck/route");
     const res = await GET(get(), ctx);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { registration: { deck: unknown } }).registration.deck).toEqual(DECK);
+    expect(callDuelHost).not.toHaveBeenCalled();
+    expect(((await res.json()) as { registration: { savedDeckId: number; deck: unknown } }).registration).toMatchObject({
+      savedDeckId: s.savedId,
+      deck: DECK,
+    });
   });
 
   it("join links the player's draft deck right after the entry is made", async () => {
