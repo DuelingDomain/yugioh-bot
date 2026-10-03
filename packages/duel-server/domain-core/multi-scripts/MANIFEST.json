@@ -1531,6 +1531,21 @@
       "stockSha256": "eac8f85e4ff240ce74911b852e0c01b4a6c3c7c9eec26f0e164b8441a6e8d1b9"
     },
     {
+      "code": 22404570,
+      "file": "c22404570.lua",
+      "name": "Power Patron Shade of the Final Hour",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "sptg"
+        ]
+      },
+      "stockSha256": "04503dd0b78d49efdbaffc4dd7a5d841fe8b0d5e2851479c0361c7da10dcf9d6",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
+    },
+    {
       "code": 22593417,
       "file": "c22593417.lua",
       "name": "Topologic Gumblar Dragon",
@@ -4044,7 +4059,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil★Twins Ki-sikil & Lil-la",
+      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"
