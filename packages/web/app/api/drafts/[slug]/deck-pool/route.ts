@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { createSavedDeckService } from "@yugidraft/shared/services";
 import { findDraftDeckContext, loadDraftDeckPool } from "../../draft-deck-pool";
+import { draftReadAccess } from "@/lib/draft-access";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,8 @@ export async function GET(
 
     const { slug } = await params;
     const db = getDb();
+    const denied = draftReadAccess(db, slug, guildId, session.user.id);
+    if (denied) return denied;
     const found = findDraftDeckContext(db, guildId, session.user.id, { slug });
     if (!found.ok) return found.response;
     const { draft } = found;

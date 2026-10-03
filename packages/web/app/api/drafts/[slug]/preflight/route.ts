@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
+import { draftReadAccess } from "@/lib/draft-access";
 import { createCardCatalogService, createDraftService, createCubeService } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
@@ -15,6 +16,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   const { slug } = await params;
   const db = getDb();
   const guildId = env.discordGuildId;
+  const denied = draftReadAccess(db, slug, guildId, session.user.id);
+  if (denied) return denied;
 
   const draftRow = db
     .prepare("select id from drafts where web_slug = ? and guild_id = ?")
