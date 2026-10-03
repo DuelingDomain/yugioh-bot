@@ -17,7 +17,6 @@ import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { InvitePanel } from "./lobby/invite-panel";
 import { LobbySeats } from "./lobby/lobby-seats";
-import { PoolHead } from "./lobby/pool-head";
 import {
   plural,
   poolSources,
@@ -490,7 +489,6 @@ export function DraftManageView({
           {!isTheme &&
             (isEditingConfig ? (
               <div className={styles.poolWrap}>
-                <PoolHead cards={editPoolCards} loading={editPoolLoading} detail={poolDetail} />
                 <CardPoolPanel
                   variant="sheet"
                   title="Card pool"
@@ -507,7 +505,6 @@ export function DraftManageView({
             ) : (
               slug && (
                 <div className={styles.poolWrap}>
-                  <PoolHead cards={poolCards ?? []} loading={poolCards === null && !poolError} detail={poolDetail} />
                   <CardPoolPanel
                     variant="sheet"
                     title="Card pool"

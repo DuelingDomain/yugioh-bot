@@ -37,10 +37,6 @@
 
 /* The card pool: the same panel, re-drawn. Filters become quiet underlined tabs; the scroll box loses its fill. */
 .poolWrap { min-width: 0; }
-:global(.ms) .poolWrap :global(.panel-t) { display: none; }
-.poolHead { margin-bottom: 4px; }
-:global(.ms) .poolWrap.poolWrap :global(.panel) { border-top: 0; }
-:global(.ms) .poolWrap.poolWrap :global(.panel-pad) { padding-top: 12px; }
 /* Each filter row is one line that scrolls inside its own box, never the page. */
 :global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"] { display: flex; flex-wrap: nowrap; gap: 0 18px; flex: 0 1 auto; max-width: 100%; min-width: 0; border: 0; border-radius: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 :global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"]::-webkit-scrollbar { display: none; }
