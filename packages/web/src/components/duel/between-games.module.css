@@ -87,7 +87,9 @@
 .empty { color: var(--duel-ink-2); font-size: 13px; }
 .cards {
   display: grid;
-  grid-template-columns: repeat(20, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  width: 100%;
+  min-width: 0;
   gap: 4px;
   /* Cap the art even on a wide monitor; height scales down on short screens. */
   max-width: calc(20 * clamp(44px, 8.5dvh, 76px) + 19 * 4px);
