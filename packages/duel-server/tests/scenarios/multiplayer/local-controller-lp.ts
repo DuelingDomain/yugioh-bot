@@ -37,6 +37,6 @@ function probe(format: Format, actor: 0 | 1, [code,card]: typeof CARDS[number]):
   for(let j=0;j<n;j++)turn((actor+j)%n);damage(late,500);
  }
  steps.push(expectBoard(board));
- return defineScenario({id:`local-controller-lp-${code}-${format}-p${actor}`,title:`${card}: the real card controller receives the stated damage`,source:SOURCE + " [R-COMMON-SEP-FIELDS]" + (format === "tag" ? " [R-TAG-LP]" : "") + (format === "tag" && code === 75249652 ? " [R-TAG-PARTNER]" : ""),rules:["R-COMMON-SEP-FIELDS",...(format === "tag" ? ["R-TAG-LP"] : []),...(format === "tag" && code === 75249652 ? ["R-TAG-PARTNER"] : [])],tags:["multiplayer","local-controller-lp",format,`card:${code}`],setup,steps});
+ return defineScenario({id:`local-controller-lp-${code}-${format}-p${actor}`,title:`${card}: the real card controller receives the stated damage`,source:SOURCE + " [R-COMMON-CTRL]" + (format === "tag" ? " [R-TAG-LP]" : "") + (format === "tag" && code === 75249652 ? " [R-TAG-PARTNER]" : ""),rules:["R-COMMON-CTRL",...(format === "tag" ? ["R-TAG-LP"] : []),...(format === "tag" && code === 75249652 ? ["R-TAG-PARTNER"] : [])],tags:["multiplayer","local-controller-lp",format,`card:${code}`],setup,steps});
 }
 export const LOCAL_CONTROLLER_LP_SCENARIOS=CARDS.flatMap(card=>([["ffa3",0],["ffa4",0],["tag",0],["tag",1]] as const).map(([format,actor])=>probe(format,actor,card)));
