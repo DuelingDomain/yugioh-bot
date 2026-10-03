@@ -1715,10 +1715,9 @@ export function createDuelHost(options: {
     room.engine = view;
     const publicView = cached?.get(-1);
     if (room.mySeat !== null && [...cached!.values()].some((known) => known.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated))) {
-      room.role = "spectator";
-      room.mySeat = null;
-      room.myDeck = null;
-      room.engine = publicView ?? null;
+      // Keep the actor's player role until an explicit Watch request. A stale board
+      // must still use public cards once another cached view proves elimination.
+      room.engine = publicView ? { ...publicView, prompt: null } : null;
     }
     return { ...room, stale: true };
   }

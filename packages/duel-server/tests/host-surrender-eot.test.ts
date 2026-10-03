@@ -143,7 +143,9 @@ for (const mode of ["normal", "domain"] as const) {
       const leaver = t.count - 1;
       const room = await t.post("surrender", leaver);
       expect(states(room.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === leaver ? "out" : "in"));
-      expect(room).toMatchObject({ role: "spectator", mySeat: null, myDeck: null });
+      expect(room).toMatchObject({ role: "player", mySeat: leaver });
+      expect(room.myDeck).not.toBeNull();
+      expect(await t.post("view", leaver, { spectate: true })).toMatchObject({ role: "spectator", mySeat: null, myDeck: null, mySide: null, engine: { prompt: null } });
       expect(await t.view()).toMatchObject({ turn: before.turn, turnSeat: 0, phase: "main1", result: null });
       expect((await t.view()).prompt?.id).toBe(before.prompt?.id);
       expect(t.source().commands.map((command) => command.promptId)).toEqual(["eliminate:0"]);
@@ -239,7 +241,8 @@ Duel.RegisterEffect(e,0)`]);
       expect(final.seats[1]!.hand).toHaveLength(2);
       expect(final.seats[leaver]!.monsters.filter(Boolean)).toHaveLength(0);
       expect(final.seats.every((seat) => !seat.pendingElimination)).toBe(true);
-      expect((await t.post("view", leaver)).role).toBe("spectator");
+      expect((await t.post("view", leaver)).role).toBe("player");
+      expect((await t.post("view", leaver, { spectate: true })).role).toBe("spectator");
     }, 60_000);
 
     it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s the last living player wins without an answer", async (format) => {
@@ -407,7 +410,7 @@ end`]);
       expect(before.chain).toHaveLength(1);
       expect(before.prompt?.options.map((option) => option.id)).toEqual(["opt:0", "opt:1"]);
       const room = await t.post("surrender", 0);
-      expect(room).toMatchObject({ role: "spectator", mySeat: null });
+      expect(room).toMatchObject({ role: "player", mySeat: 0 });
       expect(room.engine).toMatchObject({ turn: 2, turnSeat: 1, chain: [], result: null });
       expect(states(room.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 ? "out" : "in"));
       // The link already started. Its effect finishes after the deterministic
@@ -429,7 +432,7 @@ end`]);
       expect(before.chain).toEqual([]);
       expect(before.prompt?.kind).toBe("places");
       const room = await t.post("surrender", 0);
-      expect(room).toMatchObject({ role: "spectator", mySeat: null,
+      expect(room).toMatchObject({ role: "player", mySeat: 0,
         engine: { turn: 2, turnSeat: 1, chain: [], result: null } });
       expect(room.engine!.seats[0]!.spells.filter(Boolean)).toHaveLength(0);
       expect(room.engine!.log.some((line) => line.text.includes("Pot of Greed is activating") || line.text.includes("drew 2"))).toBe(false);
@@ -856,7 +859,8 @@ end`]);
       const t = await table(mode, format, false, [END_PHASE_RECOVER]);
       const before = await t.view();
       const room = await t.post("surrender", 0);
-      expect(room.role).toBe(format === "tag" ? "player" : "spectator");
+      expect(room.role).toBe("player");
+      expect(room.mySeat).toBe(0);
       expect(states(room.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 || (format === "tag" && seat === 2) ? "out" : "in"));
       const commands = t.service.privateState(t.session.slug, "g").commands;
       expect(commands.map((entry) => entry.command.promptId)).toEqual(["eliminate:0"]);
@@ -868,7 +872,7 @@ end`]);
       if (format === "tag") expect(room.session).toMatchObject({ status: "completed", winnerSeat: 1 });
       else expect(room.engine).toMatchObject({ turn: 2, turnSeat: 1, result: null });
       const replayed = await replaySource(t.source(), DATA, commands.length);
-      expect(format === "tag" ? replayed.seats[0] : replayed.spectator).toEqual(room.engine);
+      expect(replayed.seats[0]).toEqual(room.engine);
       for (const seat of replayed.spectator.seats) if (!seat.eliminated) {
         expect(seat.monsters.filter(Boolean)).toHaveLength(1);
         expect(seat.hand).toHaveLength(1);
@@ -942,7 +946,7 @@ Duel.RegisterEffect(e,0)`]);
       else expect(room.engine).toMatchObject({ turn: 2, turnSeat: 1, phase: "main1", result: null });
       expect(t.source().commands.map((command) => command.promptId)).toEqual(["eliminate:0"]);
       const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
-      expect(format === "tag" ? replayed.seats[0] : replayed.spectator).toEqual(room.engine);
+      expect(replayed.seats[0]).toEqual(room.engine);
     }, 60_000);
 
     it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s uses Surrender as the result reason", async (format) => {
@@ -1046,22 +1050,26 @@ Duel.RegisterEffect(e,0)`]);
       expect((await t.view()).eliminationOrder).toEqual([[3], [2]]);
     }, 60_000);
 
-    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s keeps only earlier losers as spectators on the result screen", async (format) => {
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s keeps every loser in their own player result room", async (format) => {
       const t = await table(mode, format);
       await t.view();
       const earlier = format === "ffa3" ? [2] : [3, 2];
       for (const seat of earlier) await t.post("surrender", seat);
       await t.answer(0, { choice: "to_ep" });
       await t.answer(0, { choice: "no" });
-      for (const seat of earlier) expect((await t.post("view", seat)).role).toBe("spectator");
+      for (const seat of earlier) {
+        expect((await t.post("view", seat)).role).toBe("player");
+        expect((await t.post("view", seat, { spectate: true })).role).toBe("spectator");
+      }
       await t.post("surrender", 1);
       for (let step = 0; step < 10 && t.service.get(t.session.slug, "g").status === "active"; step++) await passPrompt(t);
       for (let seat = 0; seat < t.count; seat++) {
         const room = await t.post("view", seat);
         expect(room.session).toMatchObject({ status: "completed", winnerSeat: 0 });
-        expect(room.role).toBe(earlier.includes(seat) ? "spectator" : "player");
-        expect(room.mySeat).toBe(earlier.includes(seat) ? null : seat);
-        expect(room.myDeck === null).toBe(earlier.includes(seat));
+        expect(room.role).toBe("player");
+        expect(room.mySeat).toBe(seat);
+        expect(room.myDeck).not.toBeNull();
+        expect(await t.post("view", seat, { spectate: true })).toMatchObject({ role: "player", mySeat: seat });
         expect(states(room.engine!)).toEqual(Array.from({ length: t.count }, (_, index) => index === 0 ? "in" : "out"));
         if (seat === 0) expect(room.engine!.seats[0]!.hand[0]!.code).not.toBeNull();
       }
@@ -1069,7 +1077,7 @@ Duel.RegisterEffect(e,0)`]);
       expect(replay).toMatchObject({ role: "player", mySeat: 1 });
       await t.recover();
       expect((await t.post("view", 1)).role).toBe("player");
-      expect((await t.post("view", earlier[0])).role).toBe("spectator");
+      expect((await t.post("view", earlier[0], { spectate: true })).role).toBe("player");
     }, 60_000);
 
     it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s keeps draw seats as players", async (format) => {
@@ -1102,7 +1110,7 @@ Duel.RegisterEffect(e,0)`]);
       expect(replay.frames.at(-1)!.view.seats.every((seat) => seat.eliminated === (format !== "tag"))).toBe(true);
     }, 60_000);
 
-    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s keeps an earlier loser as a spectator after a draw", async (format) => {
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s keeps an earlier loser in their own player room after a draw", async (format) => {
       const earlier = seatCountFor(format) - 1;
       const t = await table(mode, format, false, [`local e=Effect.GlobalEffect()
 e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
@@ -1117,7 +1125,7 @@ Duel.RegisterEffect(e,0)`]);
       await t.post("surrender", earlier);
       await t.answer(0, { choice: "to_ep" });
       await t.answer(0, { choice: "no" });
-      expect((await t.post("view", earlier)).role).toBe("spectator");
+      expect((await t.post("view", earlier, { spectate: true })).role).toBe("spectator");
       await t.answer(1, { choice: "to_ep" });
       await t.answer(0, { choice: "no" });
       await t.answer(0, { choice: "no" });
@@ -1130,15 +1138,15 @@ Duel.RegisterEffect(e,0)`]);
       for (let seat = 0; seat < t.count; seat++) {
         const room = await t.post("view", seat);
         expect(room.session).toMatchObject({ status: "completed", winnerSeat: null });
-        expect(room.role).toBe(seat === earlier ? "spectator" : "player");
-        expect(room.mySeat).toBe(seat === earlier ? null : seat);
-        expect(room.myDeck === null).toBe(seat === earlier);
+        expect(room.role).toBe("player");
+        expect(room.mySeat).toBe(seat);
+        expect(room.myDeck).not.toBeNull();
       }
       const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
       expect(states(replayed.spectator)).toEqual(states(final));
       expect(replayed.spectator.eliminationOrder).toEqual(final.eliminationOrder);
       await t.recover();
-      expect((await t.post("view", earlier)).role).toBe("spectator");
+      expect((await t.post("view", earlier, { spectate: true })).role).toBe("player");
       expect((await t.post("view", 1)).role).toBe("player");
     }, 60_000);
 
@@ -1203,14 +1211,15 @@ Duel.RegisterEffect(e,0)`]);
       await t.view();
       const ended = await t.post("surrender", 3);
       expect(states(ended.engine!)).toEqual(["in", "in", "in", "out"]);
+      await t.post("view", 3, { spectate: true });
       const worker = t.workers.at(-1)!;
       worker.holdViews = true;
       try {
         const stale = await t.post("view", 3) as DuelRoom & { stale: boolean };
         expect(stale.stale).toBe(true);
-        expect(stale.role).toBe("spectator");
-        expect(stale.mySeat).toBeNull();
-        expect(stale.myDeck).toBeNull();
+        expect(stale.role).toBe("player");
+        expect(stale.mySeat).toBe(3);
+        expect(stale.myDeck).not.toBeNull();
         expect(stale.engine!.prompt).toBeNull();
         expect(stale.engine!.seats.flatMap((seat) => seat.hand).every((card) => card.code == null)).toBe(true);
       } finally {
@@ -1218,7 +1227,7 @@ Duel.RegisterEffect(e,0)`]);
       }
     }, 60_000);
 
-    it.each([false, true])("R-COMMON-SURRENDER-EOT: an interruption with no final board keeps the spectator role (chain %s)", async (chain) => {
+    it.each([false, true])("R-COMMON-SURRENDER-EOT: an interruption with no final board keeps the own player role (chain %s)", async (chain) => {
       const t = await table(mode, "ffa4", chain);
       const leaver = chain ? 0 : 3;
       await reachMain(t);
@@ -1240,14 +1249,14 @@ Duel.RegisterEffect(e,0)`]);
       t.service.interrupt(t.session.slug, "g", "Test interruption");
       await t.recover();
       const room = await t.post("view", leaver);
-      expect(room.role).toBe("spectator");
-      expect(room.mySeat).toBeNull();
-      expect(room.myDeck).toBeNull();
+      expect(room.role).toBe("player");
+      expect(room.mySeat).toBe(leaver);
+      expect(room.myDeck).not.toBeNull();
       expect(room.engine).toBeNull();
       const replay = await t.post("replay", leaver) as unknown as DuelReplay;
-      expect(replay.role).toBe("spectator");
-      expect(replay.mySeat).toBeNull();
-      expect(replay.frames[1]!.view.seats.flatMap((seat) => seat.hand).every((card) => card.code == null)).toBe(true);
+      expect(replay.role).toBe("player");
+      expect(replay.mySeat).toBe(leaver);
+      expect(replay.frames[1]!.view.seats.filter((seat) => seat.seat !== leaver).flatMap((seat) => seat.hand).every((card) => card.code == null)).toBe(true);
     }, 60_000);
 
     it("R-COMMON-SURRENDER-EOT: the report journal replays the immediate loss at its saved step", async () => {
