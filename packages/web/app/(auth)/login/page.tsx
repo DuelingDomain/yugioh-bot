@@ -54,7 +54,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 <Info className="ic" aria-hidden="true" />
               )}
               <div>
-                <b style={{ color: "var(--ink)", fontWeight: 450 }}>{message.title}</b> {message.body}
+                <b style={{ color: "var(--ink)", fontWeight: 450 }}>{message.title}</b>{" "}{message.body}
                 {message.code && <span className="code">Error: {message.code}</span>}
               </div>
             </div>

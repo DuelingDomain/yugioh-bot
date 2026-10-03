@@ -53,12 +53,14 @@ describe("LoginPage", () => {
     render(await LoginPage({ searchParams: Promise.resolve({ error: "Configuration" }) }));
     screen.getByRole("heading", { level: 1, name: "YugiDraft" });
     screen.getByText(/Discord shares your name, avatar and email/);
+    expect(screen.getByRole("alert").textContent).toContain("Couldn't sign you in. The problem");
     expect(screen.getByRole("alert")).toHaveTextContent("Error: Configuration");
     screen.getByRole("button", { name: "Sign in with Discord" });
   });
   it("announces a cancel politely", async () => {
     render(await LoginPage({ searchParams: Promise.resolve({ error: "OAuthCallbackError" }) }));
     expect(screen.getByRole("status")).toHaveTextContent("Sign-in didn't finish.");
+    expect(screen.getByRole("status").textContent).toContain("Sign-in didn't finish. If you pressed Cancel");
   });
 });
 

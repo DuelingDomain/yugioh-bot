@@ -24,8 +24,24 @@ describe("SeasonControl", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({}, { status: 500 })));
     render(<SeasonControl />);
     await screen.findByText("Couldn't load the season.");
+    expect(screen.getByRole("alert").textContent).toContain("season. Nothing has changed.");
     screen.getByRole("button", { name: "Retry" });
     expect(screen.queryByRole("button", { name: /start/i })).toBeNull();
+  });
+
+  it.each(["Season 3", "season 3", "SEASON 3", "  SeAsOn 3  "])("omits the redundant season name %j", async (name) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ season: { ...active, name } })));
+    render(<SeasonControl />);
+    expect(await screen.findByRole("heading", { level: 3, name: "Season 3" })).toHaveTextContent(/^Season 3$/);
+  });
+
+  it.each([
+    { name: "Autumn", title: "Season 3 · Autumn" },
+    { name: "Season 30", title: "Season 3 · Season 30" },
+  ])("keeps the distinct season name $name", async ({ name, title }) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ season: { ...active, name } })));
+    render(<SeasonControl />);
+    expect(await screen.findByRole("heading", { level: 3, name: title })).toBeInTheDocument();
   });
 
   it("offers Start when no season runs and posts the optional name", async () => {
@@ -47,7 +63,9 @@ describe("SeasonControl", () => {
     render(<SeasonControl />);
     fireEvent.click(await screen.findByRole("button", { name: "End season" }));
     screen.getByText("End Season 3?");
-    screen.getByText(/starts by itself/);
+    expect(screen.getByText("Standings freeze.").parentElement?.textContent).toContain("freeze. They're kept");
+    expect(screen.getByText("Nothing resets.").parentElement?.textContent).toContain("resets. Elo");
+    expect(screen.getByText(/starts by itself/).parentElement?.textContent).toContain("itself on the next approved match");
     expect(fetchMock.mock.calls.some(([, i]) => i?.method === "POST")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "End Season 3" }));
     await screen.findByText("No season running");

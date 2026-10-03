@@ -10,15 +10,15 @@ export function WelcomePanel() {
         <ol className="db-steps">
           <li>
             Join a tournament
-            <small><code className="cmd">/event join</code> or open one from Tournaments</small>
+            <small><code className="cmd">/event join</code>{" "}or open one from Tournaments</small>
           </li>
           <li>
             Join a draft
-            <small><code className="cmd">/draft join</code> or pick one from Drafts</small>
+            <small><code className="cmd">/draft join</code>{" "}or pick one from Drafts</small>
           </li>
           <li>
             Challenge someone
-            <small><code className="cmd">/duel</code> with their name</small>
+            <small><code className="cmd">/duel</code>{" "}with their name</small>
           </li>
         </ol>
       </div>

@@ -59,7 +59,8 @@ describe("AnnouncementToggles", () => {
     render(<AnnouncementToggles />);
     const select = await screen.findByLabelText("Post to");
     fireEvent.change(select, { target: { value: "" } });
-    screen.getByText("Two kinds of post are skipped.");
+    const banner = screen.getByText("Two kinds of post are skipped.").closest(".banner");
+    expect(banner?.textContent).toContain("skipped. Results");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([, i]) => i?.method === "PUT")).toBe(true));
     const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")!;
@@ -79,6 +80,7 @@ describe("AnnouncementToggles", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({}, { status: 500 })));
     render(<AnnouncementToggles />);
     await screen.findByText("Couldn't load announcement settings.");
+    expect(screen.getByRole("alert").textContent).toContain("settings. Try again");
     screen.getByRole("button", { name: "Retry" });
   });
 });
