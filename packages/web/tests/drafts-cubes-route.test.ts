@@ -55,6 +55,12 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
     expect(added.cube.name).toBe("Stun");
     expect(added.allowedCubeIds).toContain(added.cube.id);
 
+    // A cube made inside a theme draft is a theme cube.
+    const typeCheck = new (await import("better-sqlite3")).default(process.env.DATABASE_PATH!);
+    const stored = typeCheck.prepare("select config_json from cubes where id = ?").get(added.cube.id) as { config_json: string };
+    typeCheck.close();
+    expect(JSON.parse(stored.config_json).draftType).toBe("theme");
+
     // config_json reflects the new allowed cube
     const Database = (await import("better-sqlite3")).default;
     const verify = new Database(process.env.DATABASE_PATH!);
@@ -89,6 +95,11 @@ describe("POST/DELETE /api/drafts/[slug]/cubes (draft cubes)", () => {
     expect(attachRes.status).toBe(201);
     const attached = await attachRes.json();
     expect(attached.allowedCubeIds).toContain(libCubeId);
+    // Attaching leaves the library cube's type alone (still no type, so "any").
+    const untouched = new Database(process.env.DATABASE_PATH!);
+    const attachedRow = untouched.prepare("select config_json from cubes where id = ?").get(libCubeId) as { config_json: string | null };
+    untouched.close();
+    expect(JSON.parse(attachedRow.config_json || "{}").draftType).toBeUndefined();
 
     // Detach — removed from the draft but the cube row survives.
     const detachRes = await DELETE(

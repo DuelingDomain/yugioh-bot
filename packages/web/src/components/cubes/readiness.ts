@@ -87,3 +87,59 @@ export function cardsToRaise(entries: readonly PoolEntry[], short: number): numb
 export function clampCopies(value: number): number {
   return Math.min(MAX_COPIES, Math.max(MIN_COPIES, Math.round(value)));
 }
+
+/**
+ * Cube draft (booster) readiness. The same rule as the server's `analyzeCube`: every card name in
+ * the cube, main and extra together, goes in the packs; a card name shows up once per wave and a
+ * player can be given 3 copies of it at most, so one player can reach `names × min(waves, 3)` cards.
+ */
+export const BOOSTER_DEFAULT_CARDS = 40;
+export const BOOSTER_DEFAULT_PACK_SIZE = 15;
+/** A draft needs two players at least. */
+export const BOOSTER_MIN_PLAYERS = 2;
+
+export interface BoosterSettings {
+  cardsPerPlayer?: number;
+  packSize?: number;
+  packsPerPlayer?: number;
+}
+
+export interface BoosterReadiness {
+  /** Different card names in the cube, main and extra together. */
+  names: number;
+  cardsPerPlayer: number;
+  packSize: number;
+  /** Packs each player opens. */
+  waves: number;
+  /** Cards one player can reach, and cards the deck needs. */
+  reach: PoolReadiness;
+  /** Different cards the cube has, and the most two players need (`2 × pack size`). */
+  names2: PoolReadiness;
+  /** Most players the cube can seat: names ÷ pack size, rounded down. */
+  maxPlayers: number;
+  state: "blocked" | "ready";
+}
+
+function positive(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+export function boosterReadiness(names: number, settings: BoosterSettings = {}): BoosterReadiness {
+  const cardsPerPlayer = positive(settings.cardsPerPlayer, BOOSTER_DEFAULT_CARDS);
+  const packSize = positive(settings.packSize, BOOSTER_DEFAULT_PACK_SIZE);
+  const waves = positive(settings.packsPerPlayer, Math.max(1, Math.ceil(cardsPerPlayer / packSize)));
+  const needed = Math.min(cardsPerPlayer, waves * packSize);
+  const reach = pool(names * Math.min(waves, PLAYER_COPY_CAP), needed);
+  const names2 = pool(names, BOOSTER_MIN_PLAYERS * packSize);
+  const maxPlayers = Math.floor(names / packSize);
+  return {
+    names,
+    cardsPerPlayer,
+    packSize,
+    waves,
+    reach,
+    names2,
+    maxPlayers,
+    state: reach.short > 0 || names2.short > 0 ? "blocked" : "ready",
+  };
+}

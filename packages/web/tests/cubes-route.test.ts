@@ -323,6 +323,91 @@ describe("cube API routes", () => {
     expect(collide.status).toBe(409);
   });
 
+  describe("cube type", () => {
+    const post = async (body: object) => {
+      const { POST } = await import("../app/api/cubes/route");
+      return POST(new Request("http://x/api/cubes", { method: "POST", body: JSON.stringify(body) }) as any);
+    };
+    const put = async (id: number, body: object) => {
+      const { PUT } = await import("../app/api/cubes/[id]/route");
+      return PUT(new Request(`http://x/api/cubes/${id}`, { method: "PUT", body: JSON.stringify(body) }) as any, {
+        params: Promise.resolve({ id: String(id) }),
+      });
+    };
+    const getOne = async (id: number) => {
+      const { GET } = await import("../app/api/cubes/[id]/route");
+      return (
+        await GET(new Request(`http://x/api/cubes/${id}`) as any, { params: Promise.resolve({ id: String(id) }) })
+      ).json();
+    };
+    const listed = async (name: string) => {
+      const { GET } = await import("../app/api/cubes/route");
+      return (await (await GET()).json()).cubes.find((c: any) => c.name === name);
+    };
+
+    it("defaults to any for a cube made without a type", async () => {
+      await setupDb();
+      const res = await post({ kind: "blank", name: "Plain" });
+      expect(res.status).toBe(201);
+      expect((await res.json()).cube.draftType).toBe("any");
+      expect((await listed("Plain")).draftType).toBe("any");
+      expect((await getOne(await cubeIdOf("Plain"))).cube.draftType).toBe("any");
+    });
+
+    it("stores the chosen type on a blank cube and on a saved config cube", async () => {
+      await setupDb();
+      const blank = await post({ kind: "blank", name: "Themed", draftType: "theme" });
+      expect((await blank.json()).cube.draftType).toBe("theme");
+      expect((await listed("Themed")).draftType).toBe("theme");
+
+      const saved = await post({ name: "Pool", draftType: "booster", config: { setNames: [], customCardIds: [1] } });
+      const { cube } = await saved.json();
+      expect(cube.draftType).toBe("booster");
+      expect(cube.config.customCardIds).toEqual([1]);
+      expect((await listed("Pool")).draftType).toBe("booster");
+    });
+
+    it("rejects an unknown type with 400 and creates nothing", async () => {
+      await setupDb();
+      const res = await post({ kind: "blank", name: "Bad", draftType: "ladder" });
+      expect(res.status).toBe(400);
+      expect(await listed("Bad")).toBeUndefined();
+    });
+
+    it("PUT changes the type, keeps the other config keys and the name", async () => {
+      await setupDb();
+      await post({ name: "Pool", config: { setNames: ["Set A"], customCardIds: [7] } });
+      const id = await cubeIdOf("Pool");
+      // The create route keeps only the pool; pack settings arrive from elsewhere (a draft's saved config).
+      const Database = (await import("better-sqlite3")).default;
+      const raw = new Database(process.env.DATABASE_PATH!);
+      raw
+        .prepare("update cubes set config_json = ? where id = ?")
+        .run(JSON.stringify({ setNames: ["Set A"], customCardIds: [7], cardsPerPlayer: 45, packSize: 9 }), id);
+      raw.close();
+      const res = await put(id, { draftType: "booster" });
+      expect(res.status).toBe(200);
+      const { cube } = await getOne(id);
+      expect(cube.draftType).toBe("booster");
+      expect(cube.name).toBe("Pool");
+      expect(cube.settings).toMatchObject({ cardsPerPlayer: 45, packSize: 9 });
+      const list = await listed("Pool");
+      expect(list.setNames).toEqual(["Set A"]);
+      expect(list.customCardIds).toEqual([7]);
+    });
+
+    it("PUT with a bad type or an empty body is 400, and a rename still works", async () => {
+      await setupDb();
+      await post({ kind: "blank", name: "Alpha", draftType: "theme" });
+      const id = await cubeIdOf("Alpha");
+      expect((await put(id, { draftType: "nope" })).status).toBe(400);
+      expect((await put(id, {})).status).toBe(400);
+      expect((await getOne(id)).cube.draftType).toBe("theme");
+      expect((await put(id, { name: "Alpha Prime" })).status).toBe(200);
+      expect((await getOne(id)).cube.draftType).toBe("theme");
+    });
+  });
+
   it("DELETE removes a cube; 404 on already-gone", async () => {
     await setupDb();
     const { POST: createCube } = await import("../app/api/cubes/route");

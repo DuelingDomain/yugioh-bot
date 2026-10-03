@@ -248,4 +248,30 @@ describe("CreateDraftForm", () => {
     expect(screen.getByRole("button", { name: "Refresh the set list" })).toBeInTheDocument();
     expect(screen.getByLabelText("Sets")).toBeInTheDocument();
   });
+
+  it("lists saved pools for cube drafts and plain cubes, not cubes made for theme drafts", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/discord/channels") return Response.json({ channels: [] });
+      if (String(input) === "/api/cubes") {
+        return Response.json({
+          cubes: [
+            { id: 1, name: "Goat", setNames: [], customCardIds: [1], draftType: "booster" },
+            { id: 2, name: "Open", setNames: [], customCardIds: [2], draftType: "any" },
+            { id: 3, name: "Older", setNames: [], customCardIds: [3] },
+            { id: 4, name: "Despia cube", setNames: [], customCardIds: [4], draftType: "theme" },
+          ],
+        });
+      }
+      return Response.json({}, { status: 404 });
+    }));
+    render(<CreateDraftForm />);
+
+    const picker = await screen.findByLabelText(/saved pool/i);
+    await waitFor(() => expect(picker.querySelectorAll("option").length).toBeGreaterThan(1));
+    const names = Array.from(picker.querySelectorAll("option"), (o) => o.textContent ?? "");
+    expect(names.some((n) => n.includes("Goat"))).toBe(true);
+    expect(names.some((n) => n.includes("Open"))).toBe(true);
+    expect(names.some((n) => n.includes("Older"))).toBe(true);
+    expect(names.some((n) => n.includes("Despia cube"))).toBe(false);
+  });
 });

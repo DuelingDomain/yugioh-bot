@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Plus, Search } from "lucide-react";
+import type { CubeDraftType } from "@/lib/cube-type";
 import { CubeLobbyPanel } from "./cube-lobby-panel";
 import styles from "@/components/draft/lobby/lobby.module.css";
 
@@ -12,6 +13,8 @@ interface AllowedCube {
   mainCount: number;
   extraCount: number;
   sampleImages?: string[];
+  /** Absent in an old response: a cube with no type is "any". */
+  draftType?: CubeDraftType;
 }
 
 interface CubeDraftBuilderProps {
@@ -45,9 +48,10 @@ export function CubeDraftBuilder({
   const reqId = React.useRef(0);
   const ids = React.useId();
 
-  // Existing library cubes that aren't already in this draft.
+  // Existing library cubes that aren't already in this draft. A theme draft takes theme cubes and
+  // plain ones; a cube made for cube drafts (booster) stays out of the list.
   const attachedIds = React.useMemo(() => new Set(allowedCubes.map((c) => c.id)), [allowedCubes]);
-  const attachable = library.filter((c) => !attachedIds.has(c.id));
+  const attachable = library.filter((c) => !attachedIds.has(c.id) && c.draftType !== "booster");
 
   const loadLibrary = React.useCallback(() => {
     fetch("/api/cubes")
