@@ -1,5 +1,179 @@
 # Multiplayer browser proof, review corrections (2026-10-02)
 
+## Latest review fixes and accepted verification (2026-10-02; UTC 2026-10-03)
+
+This section supersedes all historical totals, gap statements and implementation-scope
+claims below. The older sections retain their original runs and must not receive credit
+for later fixes. Verified implementation HEAD: `7d4c5680fc0cba63bcf8559011b8903263dbc1ea`. The closing report commit
+changes documentation only. No engine rule logic, core, Lua overlay or multi-script was
+changed; no live stack, engine-owner worktree, push, PR or main merge was used.
+
+All independent review findings were applied. The registry finding enumerated **22**
+missing IDs despite calling them 19; all 22 are in the sorted allowlist. Surrender now
+waits for its successful POST, placement/action snapshots are polled, and each Domain
+bot join is awaited. FFA4 own-turn handoff no longer summons before Alice gives up:
+seat 1 is polled as Leaving, then seats 0 and 1 are out and seat 2 gets turn 2. That
+corrected path passed twice. Dweller's four-prompt loop accepts declaration before or
+after the cost, proves the Elf detached before annotation, and then asserts declaration;
+the Creature Swap selection is awaited. No correct finding was rejected.
+
+The eliminated-player choice is an absolute overlay, with no field layout shift. Before
+the choice, both multiplayer stages say only **You are eliminated.** The FFA3 watch test
+captures the live `spectating` screenshot. New FFA4 watch coverage proves public privacy,
+live turns, reload and four persisted placings `[2,1,3,0]`. Both watch tests passed twice.
+The choice and live spectator screenshots were visually checked; generated shots and
+traces are removed during cleanup, with no exports outside this worktree.
+
+`R-FFA-SURRENDER` records confirmed owner timing in ADR-0002 and labels all six surrender
+expected failures in the repeated batch. Finding 6 received a separate current-engine
+control and an owner-rule expected test for a seat that is already Leaving before Pot
+of Greed could offer its Ash Blossom response. The future assertion accepts either
+human answers or automatic passes while retaining the seat until the turn boundary;
+it does not choose Q1 policy. Today that seat is eliminated before the later response.
+Existing engine code already auto-passes responses open at surrender, so the probe
+was corrected to a later response. UI permission for Leaving prompts remains unchanged
+pending Q1. The elimination report credits Pot of Greed for surrender during chain
+construction; Dust Tornado is explicitly **current engine only**.
+
+### Requested HEAD matrix
+
+One exclusive stack-lock session built the production stack, ran all six multiplayer
+specs with `--repeat-each=2 --retries=0 --workers=1`, then all eleven 1v1 spec files once
+with `--repeat-each=1 --retries=0 --workers=1`. The stack stopped before lock release.
+All sessions used
+`E2E_DUEL_DATA_DIR=/home/sulman633/orca/workspaces/yugioh-bot/n-player-ui/data/duel-engine-snap`.
+`E2E_MANUAL=1` derived the verified wrapper manifest under `.stack`; snapshot bytes are
+unchanged. The local card-image cache and `E2E_BOT_STEP_MS=250` were used. Optional
+`E2E_PROMPT_TRACE=1` reads debug state and never answers prompts.
+
+Multiplayer start: `2026-10-03T00:01:17.473Z`; duration **2835.036 s**.
+1v1 start: `2026-10-03T00:47:00.519Z`; duration **204.895 s**.
+Every result has retry 0; Playwright reports zero flaky results. Authentication setup
+passes are excluded from the table (four in each batch).
+
+| Spec | Ordinary passed | Expected failures (rule IDs) | Skipped | Unexpected failures |
+| --- | ---: | --- | ---: | ---: |
+| `duel-3p-ffa-table.spec.ts` | 18 | 2 × `R-FFA-NO-ATTACK`, 2 × `R-FFA-OPP-RESPONSE` | 0 | 0 |
+| `duel-3p-ffa-surrender.spec.ts` | 19 | 6 × `R-FFA-SURRENDER` | 0 | 1 |
+| `duel-3p-ffa-rules.spec.ts` | 22 | 2 × `R-FFA-OPP-ONE`, 2 × `R-FFA-ACTIVATED-LOCK`, 2 × `R-FFA-RESOURCE-ROTATION`, 2 × `R-FFA-ACROSS-EMZ` | 0 | 0 |
+| `duel-3p-ffa-elimination.spec.ts` | 26 | 4 × `R-FFA-RETURN-OWNED-CARDS`, 2 × `R-FFA-ELIMINATION` | 0 | 0 |
+| `duel-4p-ffa.spec.ts` | 12 | 2 × `R-FFA-NO-ATTACK`, 2 × `R-FFA-OPP-ONE` | 0 | 0 |
+| `duel-presets-multi.spec.ts` | 44 | 0 | 8 | 0 |
+| `card-chain-hand-trap.spec.ts` | 1 | 0 | 0 | 0 |
+| `card-face-down-privacy.spec.ts` | 1 | 0 | 0 | 0 |
+| `card-pendulum-summon.spec.ts` | 0 | 0 | 0 | 1 |
+| `card-trap-battle.spec.ts` | 1 | 0 | 0 | 0 |
+| `duel-1v1-match.spec.ts` | 1 | 0 | 0 | 0 |
+| `duel-domain.spec.ts` | 0 | 0 | 0 | 1 |
+| `duel-practice-bot-spectator.spec.ts` | 1 | 0 | 0 | 0 |
+| `duel-prompts.spec.ts` | 1 | 0 | 0 | 1 |
+| `duel-reconnect.spec.ts` | 1 | 0 | 0 | 0 |
+| `duel-win-spectator.spec.ts` | 1 | 0 | 0 | 0 |
+| `live-tables-rules.spec.ts` | 1 | 0 | 0 | 0 |
+
+Multiplayer totals: **141 ordinary passes, 28 expected failures, 8 skips, 1 unexpected**.
+1v1 totals: **9 ordinary passes, 0 expected failures, 0 skips, 3 unexpected**.
+Combined duel-test totals: **150 ordinary passes, 28 expected failures, 8 skips,
+4 unexpected**. Expected failures are unresolved rules, not successful ADR behavior.
+All 28 fail at the intended engine-state assertion, rather than a UI timeout. Tag
+accounts for all eight skips. Preset smoke passes do not prove checklist items marked
+`unchecked` or `not-reached`. Earlier interrupted diagnostic runs are excluded.
+
+The multiplayer unexpected failure is the first repetition of
+`current engine: ffa4 no-chain surrender lands after summon placement in the same Main Phase`.
+The watcher observed revision 0 at turn 1/Main Phase with zero accepted action answers
+for **20.691 s**, declared a stall and closed all contexts while the test awaited the
+placement prompt. Its second repetition passed. A separate short locked run at the
+same HEAD with `E2E_STALL_MS=60000`, identical assertions, two repetitions and no retries
+passed **2/2** (plus four auth passes; 34.490 s). This diagnostic does not replace the
+failure in the full matrix. Nearby `SQLITE_BUSY` bot-journal errors were also recorded;
+their causal relationship to this watchdog failure is unproven.
+
+### Finding 7 and other 1v1 observations
+
+`ae1453bb` and HEAD both ran `duel-domain.spec.ts` and `duel-prompts.spec.ts` against the
+same immutable cores. Both fail identically: Domain holds prompt `p10-12`, turn 3/End
+Phase, hand 7, a one-card discard; the order case holds `p2-4`, turn 1/Main Phase,
+three options with min/max 3. `firstTurnDrawFor("domain", 5)` enables the first-turn
+draw, giving the initial five cards plus draws on turns 1 and 3. The Deck Master does
+not consume a hand card, so the unhandled hand-limit discard blocks turn 4. The 1v1
+creator says first-turn draws follow the selected Master Rule, conflicting with this
+MR5 Domain host flag. The order UI says `0 of 3 ordered`; the spec asks for `selected`.
+Neither 1v1 behavior, creator text, draw flags nor 1v1 specs were changed. Q3 is deferred.
+
+The third HEAD 1v1 failure is
+`a Pendulum Summon is shown as a Pendulum Summon on every screen` at its `Finish` click,
+`card-pendulum-summon.spec.ts:45`. Trace: toggle prompt `p5-7`, three options, none
+selected, `finishable=false`. It passed in the earlier HEAD diagnostic run; the final
+failure is retained and its cause is not established. The earlier diagnostic practice
+bot test also once failed at an unawaited placement prompt and passed in the final
+batch; no 1v1 repair was made.
+
+Core SHA-256 values after verification match the baseline/snapshot:
+
+| Core | SHA-256 |
+| --- | --- |
+| Standard multiplayer | `896d6528b16227e1702088c42da8570a6c394be9c0dd93ad4f2aac9951e5c22e` |
+| Domain multiplayer | `f1f8adaeaff21328970ffe894bf70cd86cc3afa18731a8aae4a397206824e2cb` |
+| Standard 1v1 | `00b4b9e79da85ccf06042877247af25e82ff1493525f8af8f47ca8b5b2614ab1` |
+| Domain 1v1 | `16f60edf2c1e246886d1962fad32238fde0dd969c36bc959251df488c83aefc7` |
+
+### Units, typecheck, review and remaining work
+
+The full web command `npx vitest run -c packages/web/vitest.config.ts --maxWorkers=2
+--testTimeout=15000` passed **2,638/2,638** tests. The first full two-worker run had one
+five-second timeout in `PUT refuses a locked deck`; that file passed **6/6** in a focused
+rerun before the complete green run. The unrestricted-worker diagnostic was interrupted
+after unrelated load timeouts and is excluded from accepted unit evidence.
+
+With shared built and real cores required, duel-server `presets.test.ts` passed **78/78**,
+`host-nseat.test.ts` passed **40/40**, and `engine-nseat.test.ts` passed **39/40**: total
+**157 passed, 1 unexpected failure, 0 skips**. The remaining journal-replay fixture
+omits saved `firstTurnDraw`; replay refuses to guess an old FFA draw policy and fails
+`journaled eliminations > replay-journal.ts applies an eliminate command instead of checking the prompt id`
+at line 475. That fixture and host first-turn-draw work remain with Q6's engine owner.
+`npm run typecheck` passed all **6/6** tasks after the final source fix. Production
+stack builds passed with existing dynamic file-tracing warnings. Read-only code review
+found no code blockers; its historical-report attribution correction is included here.
+
+Still not done: Q1 Leaving prompt/automatic-pass policy and any corresponding UI
+permission change; Q2 immediate own-turn handoff policy; Q3 Domain 1v1 draw decision;
+Q5 LP/deck-out spectator-choice coverage and Leaving-page exit policy; Q6 host draw
+and replay-fixture fixes. Q4 is addressed by the new ADR rule ID. The expected engine
+rules in the table, token exception, broader return-card locations/fallbacks, links
+already resolving, additional ended-turn counters and full Domain/Tag matches remain
+outside this review fix. Standard MR5 FFA currently skips its first draw; historical
+first-draw claims below do not establish R-FFA-FIRST-DRAW at this HEAD.
+
+Generated web builds/coverage, shared stack data, this worker's screenshots/videos,
+Playwright traces/test-results/reports, the isolated baseline copy, and rebuilt
+`packages/{duel-server,shared,ws}/dist` are cleaned under the exclusive lock with the
+isolated ports stopped. The build-generated `next-env.d.ts` import is restored. Compact
+sanitized summaries, read-only observations and validation logs remain under ignored
+`.status/review-fixes/`; the core snapshot is retained.
+
+### Review implementation commits
+
+The closing documentation commit is omitted from this self-recorded list.
+
+| Commit | Subject |
+| --- | --- |
+| `88aef41c` | test: include multiplayer rule and elimination presets |
+| `e0c0630a` | test: wait for surrender requests to complete |
+| `8189eabd` | test: remove early elimination from FFA4 surrender handoff |
+| `83446d00` | test: poll surrender placement and action prompts |
+| `dfcd76da` | test: handle opponent declaration before Dweller cost |
+| `d1d5a5df` | test: label the turn boundary watch proof as owner rule |
+| `fc8cabdc` | test: wait for each Domain bot seat to join |
+| `501a2507` | docs: record surrender timing and correct rule evidence |
+| `8db77c24` | fix: overlay the eliminated player choice without shifting the field |
+| `5f219c3a` | test: capture live spectator views and cover FFA4 watching |
+| `4698ca15` | test: expose Leaving response stalls without choosing owner policy |
+| `4a0de27c` | test: capture prompt traces and investigate existing 1v1 failures |
+| `7d4c5680` | test: probe responses offered after a seat starts Leaving |
+
+## Historical reports retained below
+
 This report replaces the earlier u9 proof. It distinguishes ADR assertions, current-engine
 behavior, and API-driven preset smoke runs. No engine rules, core files, Lua overlays,
 or web files were edited by this worker. ADR-0002 was copied from the read-only engine
@@ -80,7 +254,7 @@ none is a UI timeout. They demonstrate the unresolved rule difference.
 | an eliminated player can leave the room while the other duelists keep playing | 1 pass | 1 pass | Leave room navigates to `/duels`; remaining duel continues to turn 4 with original seat IDs. |
 | current engine: FFA3/FFA4 no-chain summon-placement controls | 2 passes | 2 passes | Same-turn elimination described above, engine snapshots and full prompt logs. |
 | FFA3/FFA4 owner rule: Leaving through a summon until end of turn | 2 expected failures | 2 expected failures | Engine eliminates before end of turn. |
-| FFA3/FFA4 surrender during your own turn passes to the next live seat in order | 2 passes | 2 passes | Next action prompt is turn 2/seat 1 in FFA3; seat 2 in FFA4 after seat 1 queues surrender; seats 0 and 1 are both eliminated at handoff, without an intervening summon. Eliminated seat cannot act. |
+| FFA3/FFA4 surrender during your own turn passes to the next live seat in order | 2 passes | 2 passes | Historical setup: Alice summons after seat 1 surrenders, so seat 1 is already eliminated before Alice gives up. Next action prompt is turn 2/seat 1 in FFA3 and turn 2/seat 2 in FFA4. Eliminated seat cannot act. The corrected no-summon path is credited only in the latest review verification above. |
 | FFA3/FFA4 R-FFA-ELIMINATION: surrender during an open chain | 2 passes | 2 passes | Bob's chain-response prompt stays unchanged; Alice is Leaving and her monster remains while the chain is open. Bob clicks No, so no negation confounds the test. Alice's Pot of Greed link produces no two-card draw; after the chain ends Alice is eliminated and her monster is removed in engine and UI. |
 
 The FFA3 watch path proves a clear **Stay and watch / Leave room** choice after actual
@@ -337,7 +511,7 @@ rule; the other thirteen tests use exactly three seats.
 | R-COMMON-OPP-PICK | Hinotama offers both rival chips, excludes self, and damages only the chosen seat 2: engine and `[data-lp-value]` show [8000,8000,7500]. Only the spent spell enters GY. | LP clause proven, complementing the earlier Mind Crush hand proof. |
 | R-FFA-TRIGGERS | All three monsters leave together. On seat 0's turn, links form [0,1,2] and resolve [2,1,0]; on seat 1's turn, they form [1,2,0] and resolve [0,2,1]. Real chain events, prompt logs, visible three-link chains, choosing chips, human search selection, LP and GY counts agree. | Two turn origins proven. |
 | R-FFA-NEGATE | Seat 2's Solemn Judgment negates seat 0's Raigeki. A human counter-trap window holds links [0,2] for chip/chain inspection; the human declines. Engine records link 1 negated; both rival monsters survive in engine and UI, seat 2 pays to 4,000 LP, and Raigeki/Solemn enter their own GYs. | Third-seat spell activation negation proven. |
-| R-FFA-ACTIVATED-LOCK | A bounded prompt loop accepts declaration before or after the detach cost; the Elf is in the GY before annotation, then the expected failure asserts that an opponent was declared. The current control resolves Dweller, destroys it and both rival trigger monsters with Dark Hole, and proves neither rival GY trigger activates; GY counts are [3,1,1], LP/fields agree. Desired follow-up permits the undeclared seat's trigger. | One-opponent lock pending; current all-opponent lock proven. |
+| R-FFA-ACTIVATED-LOCK | In these historical runs, Dweller's detach cost is proven before the expected failure at the missing declaration prompt. The later bounded-loop correction is described only in the latest review verification above. The current control resolves Dweller, destroys it and both rival trigger monsters with Dark Hole, and proves neither rival GY trigger activates; GY counts are [3,1,1], LP/fields agree. Desired follow-up permits the undeclared seat's trigger. | One-opponent lock pending; current all-opponent lock proven. |
 | R-FFA-RESOURCE-ROTATION | The human answers real selection/placement prompts before annotation. Intended monster order is [Silver Fang, Mystical Elf, Battle Ox]. Current engine gives [Battle Ox, Mystical Elf, Silver Fang]; per-card controller, browser art identity, LP and GY counts agree. | Three-seat rotation pending; current pair swap proven. |
 | R-COMMON-EMZ | Both rival left EMZ start occupied. The human really Link Summons Spider using Elf into its own left or right EMZ, then Imduk using Battle Ox into its own arrow-linked main zone 1 or 3. Both rivals' Spiders remain; the second own EMZ stays empty. Summon events, zones, art identity, Extra Deck count, LP and GY counts agree. | Real independence and local-arrow placement proven for both own EMZ. |
 | R-FFA-ACROSS-EMZ | A real FFA4 Link summon reaches placement before annotation. The intended assertion excludes seat 0's left EMZ because seat 2's right EMZ is occupied. Current engine offers both own EMZ and permits the left placement; engine/UI identity, LP and GY counts agree. | Across-seat blocking pending; current independent placement proven. |
