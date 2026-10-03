@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { createBugReportService, createPlayerService, type BugReport } from "@yugidraft/shared/services";
+import { createBugReportService, type BugReport } from "@yugidraft/shared/services";
 import { parseBugReportRequest } from "@/lib/bug-report";
 import { listOpenFromAppIssues } from "@/lib/bug-report-github";
 import { candidateFromRow, isSameDuelMoment, takePrecheckSlot } from "@/lib/bug-reports/precheck";
 import { matchKnownLimits } from "@/lib/bug-reports/known-limits";
 import { formatFromTitle, rankCandidates, type DuplicateCandidate } from "@/lib/bug-reports/similarity";
+import { readJsonBody } from "@/lib/bug-reports/read-body";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
@@ -27,12 +28,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Too many checks. Try again soon." }, { status: 429, headers: { "Retry-After": String(slot.retryAfterSeconds) } });
   }
 
-  let raw: unknown;
-  try {
-    raw = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
-  }
+  const read = await readJsonBody(request);
+  if (!read.ok) return read.response;
+  const raw = read.value;
   const parsed = parseBugReportRequest(raw);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error, ...(parsed.fieldErrors ? { fieldErrors: parsed.fieldErrors } : {}) }, { status: 400 });
   const report = parsed.value;
@@ -42,10 +40,11 @@ export async function POST(request: Request) {
   const knownLimits = matchKnownLimits(text, { format, duelMode: report.context.duelMode });
 
   const db = getDb();
-  const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
+  // A read only look-up: a player with no row has no reports, and a check must not create the row. -1 matches no player.
+  const playerId = (db.prepare("select id from players where guild_id = ? and discord_user_id = ?").get(guildId, actor.userId) as { id: number } | undefined)?.id ?? -1;
   const reports = createBugReportService(db);
   const sameDuelRows: BugReport[] = report.duelSlug
-    ? reports.listWithIssueInDuel(guildId, report.duelSlug, player.id).filter((row) => isSameDuelMoment(row, { turn: report.context.turn }))
+    ? reports.listWithIssueInDuel(guildId, report.duelSlug, playerId).filter((row) => isSameDuelMoment(row, { turn: report.context.turn }))
     : [];
   const sameDuelNumbers = new Set(sameDuelRows.map((row) => row.githubIssueNumber!));
 

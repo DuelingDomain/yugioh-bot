@@ -108,6 +108,30 @@ describe("POST /api/bug-reports/precheck", () => {
     expect((await POST(post("{nope"))).status).toBe(400);
   });
 
+  it("413 for a body over the size cap, by content-length or by the bytes read, with no GitHub call", async () => {
+    const POST = await route();
+    const huge = JSON.stringify(body({ description: "x".repeat(200_000) }));
+    expect((await POST(post(huge))).status).toBe(413);
+    const lying = new Request("http://x/api/bug-reports/precheck", { method: "POST", body: huge, headers: { "content-length": "10" } });
+    expect((await POST(lying)).status).toBe(413);
+    const declared = new Request("http://x/api/bug-reports/precheck", { method: "POST", body: "{}", headers: { "content-length": "999999" } });
+    expect((await POST(declared)).status).toBe(413);
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it("only reads: a player with no row is not created, and nothing is saved", async () => {
+    auth.mockResolvedValue({ user: { id: "123456789012345678", name: "Newcomer" } });
+    vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", "");
+    await addReport({ player: 3, slug: "duel-a", turn: 3, description: "The chain froze and the duel never went on after my effect", issue: 8 });
+    const { getDb } = await import("../src/lib/db");
+    const count = (table: string) => (getDb().prepare(`select count(*) as n from ${table}`).get() as { n: number }).n;
+    const before = { players: count("players"), reports: count("bug_reports") };
+    const res = await (await route())(post(body()));
+    expect(res.status).toBe(200);
+    expect((await res.json()).duplicates.map((d: { number: number; sameDuel: boolean }) => [d.number, d.sameDuel])).toEqual([[8, true]]);
+    expect({ players: count("players"), reports: count("bug_reports") }).toEqual(before);
+  });
+
   it("returns a known limit that matches the text and the format", async () => {
     const POST = await route();
     const res = await POST(post(body({ description: "I surrendered in the 3-way duel but my monsters stayed on the field", expected: "My monsters should leave at once" })));

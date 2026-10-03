@@ -33,6 +33,11 @@ async function seed() {
   db.close();
 }
 
+/** What GitHub answers to "create issue": the labels are part of it. */
+const created = (number: number, labels: string[] = ["bug", "needs-triage", "from-app"]) => ({
+  number, html_url: `https://github.com/imran443/yugioh-bot/issues/${number}`, labels: labels.map((name) => ({ name })),
+});
+
 const body = (extra: Record<string, unknown> = {}) => ({
   description: "Seraphina Quill here: the turn never ended",
   expected: "It should end",
@@ -68,7 +73,7 @@ describe("POST /api/bug-reports", () => {
     auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
     discord = mockDiscordAccess();
     const discordFetch = globalThis.fetch;
-    github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ number: 77, html_url: "https://github.com/imran443/yugioh-bot/issues/77" }, { status: 201 }));
+    github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json(created(77), { status: 201 }));
     vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : discordFetch(url as never)));
     vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", TOKEN);
     vi.stubEnv("BUG_REPORT_GITHUB_REPO", "");
@@ -110,6 +115,16 @@ describe("POST /api/bug-reports", () => {
     expect(github).not.toHaveBeenCalled();
   });
 
+  it("413 for a body over the size cap, and nothing is saved or sent", async () => {
+    const POST = await route();
+    const huge = JSON.stringify(body({ description: "x".repeat(200_000) }));
+    expect((await POST(post(huge))).status).toBe(413);
+    const declared = new Request("http://x/api/bug-reports", { method: "POST", body: "{}", headers: { "content-length": "999999" } });
+    expect((await POST(declared)).status).toBe(413);
+    expect(await rows()).toHaveLength(0);
+    expect(github).not.toHaveBeenCalled();
+  });
+
   it("400 with a field error for a short description and a missing expectation, and nothing is saved", async () => {
     const POST = await route();
     const res = await POST(post(body({ description: "It broke", expected: "" })));
@@ -138,6 +153,37 @@ describe("POST /api/bug-reports", () => {
     expect(call!.payload.title.startsWith("[Bug] [FFA3] ")).toBe(true);
     expect(call!.payload.body).toContain("https://duel.example.com/duels/duel-a/replay");
     expect(call!.payload.body).toContain("`Report #1`");
+  });
+
+  it("builds the replay link only from NEXTAUTH_URL or AUTH_URL, never from the request", async () => {
+    const POST = await route();
+    vi.stubEnv("NEXTAUTH_URL", "");
+    vi.stubEnv("AUTH_URL", "https://auth.example.com/");
+    vi.stubEnv("WEB_URL", "https://web-url.example.com");
+    await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body()) }));
+    expect(githubCalls()[0]!.payload.body).toContain("https://auth.example.com/duels/duel-a/replay");
+  });
+
+  it("leaves the replay link out when no public URL is configured, even if the request has an origin", async () => {
+    const POST = await route();
+    vi.stubEnv("NEXTAUTH_URL", "");
+    vi.stubEnv("AUTH_URL", "");
+    vi.stubEnv("WEB_URL", "https://web-url.example.com");
+    const res = await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body()) }));
+    expect(res.status).toBe(200);
+    const text = githubCalls()[0]!.payload.body as string;
+    expect(text).not.toContain("## Replay");
+    expect(text).not.toContain("evil.example");
+    expect(text).not.toContain("web-url.example.com");
+    expect(text).not.toContain("localhost");
+    expect(text).toContain("`Report #1`");
+  });
+
+  it("ignores a configured URL that is not http or https", async () => {
+    const POST = await route();
+    vi.stubEnv("NEXTAUTH_URL", "javascript:alert(1)");
+    await POST(post(body()));
+    expect(githubCalls()[0]!.payload.body).not.toContain("## Replay");
   });
 
   it("keeps private data out of the public issue", async () => {
@@ -186,16 +232,53 @@ describe("POST /api/bug-reports", () => {
     expect(row!.github_error).not.toContain(TOKEN);
   });
 
-  it("retries once without labels when GitHub refuses them", async () => {
+  it("retries once without labels when GitHub refuses them (422), and records a warning", async () => {
     github
       .mockResolvedValueOnce(Response.json({ message: "Validation Failed" }, { status: 422 }))
-      .mockResolvedValueOnce(Response.json({ number: 78, html_url: "https://github.com/imran443/yugioh-bot/issues/78" }, { status: 201 }));
+      .mockResolvedValueOnce(Response.json(created(78, []), { status: 201 }));
     const POST = await route();
     expect(await (await POST(post(body()))).json()).toMatchObject({ issue: { number: 78 } });
     const calls = githubCalls();
     expect(calls).toHaveLength(2);
     expect(calls[0]!.payload.labels).toBeDefined();
     expect(calls[1]!.payload.labels).toBeUndefined();
+    expect((await rows())[0]).toMatchObject({ github_issue_number: 78, github_error: expect.stringContaining("without them") });
+  });
+
+  it("does not retry without labels on a 403 (often a rate limit): one call, no issue, the error is kept", async () => {
+    github.mockResolvedValue(Response.json({ message: "API rate limit exceeded" }, { status: 403 }));
+    const POST = await route();
+    expect(await (await POST(post(body()))).json()).toEqual({ id: 1, issue: null });
+    expect(github).toHaveBeenCalledTimes(1);
+    expect((await rows())[0]).toMatchObject({ github_issue_number: null, github_error: expect.stringContaining("403") });
+  });
+
+  it("records a warning when GitHub made the issue without the from-app label", async () => {
+    github.mockResolvedValue(Response.json(created(79, ["bug"]), { status: 201 }));
+    const POST = await route();
+    expect(await (await POST(post(body()))).json()).toMatchObject({ issue: { number: 79 } });
+    expect((await rows())[0]).toMatchObject({ github_issue_number: 79, github_error: expect.stringContaining("from-app label") });
+  });
+
+  it("records a warning when the answer holds no labels at all", async () => {
+    github.mockResolvedValue(Response.json({ number: 80, html_url: "https://github.com/imran443/yugioh-bot/issues/80" }, { status: 201 }));
+    const POST = await route();
+    await POST(post(body()));
+    expect((await rows())[0]!.github_error).toContain("from-app label");
+  });
+
+  it("clears the cached list of open issues after it opens a new issue", async () => {
+    const lists = () => github.mock.calls.filter(([url, init]) => String(url).includes("/issues?state=open") && !init?.method).length;
+    github.mockImplementation(async (url: string, init?: RequestInit) =>
+      init?.method === "POST" ? Response.json(created(77), { status: 201 }) : Response.json([]));
+    const { listOpenFromAppIssues } = await import("../src/lib/bug-report-github");
+    await listOpenFromAppIssues();
+    await listOpenFromAppIssues();
+    expect(lists()).toBe(1);
+    const POST = await route();
+    expect((await POST(post(body()))).status).toBe(200);
+    await listOpenFromAppIssues();
+    expect(lists()).toBe(2);
   });
 
   it("uses BUG_REPORT_GITHUB_REPO when it is valid", async () => {
@@ -244,7 +327,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
   function serve(issue: Record<string, unknown> | number = raw(), commentStatus = 201) {
     github.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).endsWith("/comments")) return Response.json(commentStatus === 201 ? { id: 1 } : { message: `no ${TOKEN}` }, { status: commentStatus });
-      if (init?.method === "POST") return Response.json({ number: 77, html_url: "https://github.com/imran443/yugioh-bot/issues/77" }, { status: 201 });
+      if (init?.method === "POST") return Response.json(created(77), { status: 201 });
       return typeof issue === "number" ? Response.json({ message: "Not Found" }, { status: issue }) : Response.json(issue);
     });
   }
@@ -287,6 +370,17 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     expect(comment!.body.body.startsWith("**+1** from `Report #1`")).toBe(true);
     expect(comment!.body.body).toContain("https://duel.example.com/duels/duel-a/replay");
     expect(comment!.body.body).toContain("Player 2 draws 1 card");
+  });
+
+  it("leaves the replay link out of the +1 comment when no public URL is configured", async () => {
+    serve();
+    vi.stubEnv("NEXTAUTH_URL", "");
+    vi.stubEnv("AUTH_URL", "");
+    const POST = await route();
+    expect((await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body({ duplicateOf: ISSUE })) }))).status).toBe(200);
+    const text = String(comments()[0]!.body.body);
+    expect(text).not.toContain("## Replay");
+    expect(text).not.toContain("evil.example");
   });
 
   it("keeps private data out of the comment", async () => {
@@ -363,6 +457,33 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     expect(row).toMatchObject({ duplicate_of: ISSUE, github_issue_number: ISSUE });
     expect(row!.github_error).toContain("403");
     expect(row!.github_error).not.toContain(TOKEN);
+  });
+
+  it("429 for a player who is out of reports, before any GitHub call", async () => {
+    serve();
+    const { getDb } = await import("../src/lib/db");
+    const insert = getDb().prepare("insert into bug_reports (guild_id, player_id, created_at, path, description, context_json) values (?, 1, ?, '/', 'older', '{}')");
+    for (let i = 0; i < 5; i += 1) insert.run(GUILD, new Date(Date.now() - 60_000 + i).toISOString());
+    const POST = await route();
+    const res = await POST(post(body({ duplicateOf: ISSUE })));
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(github).not.toHaveBeenCalled();
+    expect(await rows()).toHaveLength(5);
+  });
+
+  it("limits the target checks that end in 409 (10 in 10 minutes) and stops calling GitHub", async () => {
+    serve(raw({ state: "closed" }));
+    const POST = await route();
+    for (let i = 0; i < 10; i += 1) expect((await POST(post(body({ duplicateOf: 12 })))).status).toBe(409);
+    expect(github).toHaveBeenCalledTimes(10);
+    const res = await POST(post(body({ duplicateOf: 12 })));
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(github).toHaveBeenCalledTimes(10);
+    // A new issue (no duplicateOf) is not affected by the target check limit.
+    expect((await POST(post(body()))).status).toBe(200);
+    expect(await rows()).toHaveLength(1);
   });
 
   it("counts a +1 in the same limit of 5 reports in 10 minutes", async () => {

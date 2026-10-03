@@ -5,7 +5,8 @@ const ISSUE_LABELS = ["bug", "needs-triage", "from-app"];
 const TIMEOUT_MS = 10_000;
 
 export type IssueResult =
-  | { ok: true; number: number; url: string }
+  /** `warning`: the issue exists but is not as asked (for example the from-app label is missing); the route records it. */
+  | { ok: true; number: number; url: string; warning?: string }
   | { ok: false; error: string };
 
 function githubHeaders(token: string): Record<string, string> {
@@ -24,10 +25,31 @@ export function bugReportRepo(): string {
   return configured && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(configured) ? configured : DEFAULT_REPO;
 }
 
+function hasFromAppLabel(labels: unknown): boolean {
+  return Array.isArray(labels) && labels.some((label) => (typeof label === "string" ? label : (label as { name?: unknown } | null)?.name) === "from-app");
+}
+
+/**
+ * The public web address for the replay link, from NEXTAUTH_URL or AUTH_URL only (no trailing slash), or undefined. The
+ * request's own origin is never used: the issue is public, and a Host header the client chose must not reach it.
+ */
+export function bugReportBaseUrl(): string | undefined {
+  const configured = process.env.NEXTAUTH_URL?.trim() || process.env.AUTH_URL?.trim();
+  if (!configured) return undefined;
+  try {
+    const url = new URL(configured);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.origin + url.pathname.replace(/\/+$/, "") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Opens one GitHub issue for a saved report. Never throws: a missing token, a network error or a GitHub refusal comes
  * back as `{ ok: false, error }` so the report stays saved. The error text never holds the token. If GitHub refuses the
- * labels (422 or 403), the issue is sent once more without them.
+ * labels (422), the issue is sent once more without them. A 403 is not retried: it is often a rate limit, and a second
+ * call would only use more quota. The labels in the answer are checked: with no from-app label the issue is still
+ * reported as made, with a `warning`, because duplicate checks only list issues that have that label.
  */
 export async function createGithubIssue(input: IssueBodyInput, redact: readonly string[]): Promise<IssueResult> {
   const token = process.env.BUG_REPORT_GITHUB_TOKEN?.trim();
@@ -49,17 +71,26 @@ export async function createGithubIssue(input: IssueBodyInput, redact: readonly 
 
   try {
     let response = await post(ISSUE_LABELS);
-    if (response.status === 422 || response.status === 403) response = await post(null);
+    let retriedWithoutLabels = false;
+    if (response.status === 422) {
+      response = await post(null);
+      retriedWithoutLabels = true;
+    }
     if (!response.ok) {
       const detail = await response.json().then((json: unknown) =>
         json && typeof json === "object" && "message" in json && typeof json.message === "string" ? json.message : "", () => "");
       return { ok: false, error: scrub(`GitHub answered ${response.status}${detail ? `: ${detail}` : ""}`) };
     }
-    const issue = (await response.json()) as { number?: unknown; html_url?: unknown };
+    const issue = (await response.json()) as { number?: unknown; html_url?: unknown; labels?: unknown };
     if (typeof issue.number !== "number" || typeof issue.html_url !== "string") {
       return { ok: false, error: "GitHub answered without an issue number" };
     }
-    return { ok: true, number: issue.number, url: issue.html_url };
+    const warning = hasFromAppLabel(issue.labels)
+      ? undefined
+      : retriedWithoutLabels
+        ? "GitHub refused the labels, so the issue was made without them (no from-app label)"
+        : "The issue was made without the from-app label, so duplicate checks will not list it";
+    return { ok: true, number: issue.number, url: issue.html_url, ...(warning ? { warning } : {}) };
   } catch (error) {
     const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
     return { ok: false, error: timedOut ? "GitHub did not answer within 10 seconds" : scrub(`GitHub request failed: ${error instanceof Error ? error.message : "unknown error"}`) };
@@ -93,10 +124,16 @@ export type IssueCheckResult =
 
 const LIST_TTL_MS = 60_000;
 let listCache: { repo: string; at: number; issues: FromAppIssue[] } | null = null;
+/** The refresh that is running now, so callers that arrive during it share one GitHub call. */
+let listInflight: { repo: string; promise: Promise<IssueListResult> } | null = null;
+/** Counts resets: a refresh that began before a reset must not write its (older) list into the cache. */
+let listGeneration = 0;
 
-/** Clears the 60 second issue list cache (tests, and after the report route comments on an issue). */
+/** Clears the 60 second issue list cache (tests, and after the report route opens a new issue). */
 export function resetGithubIssueCache(): void {
+  listGeneration += 1;
   listCache = null;
+  listInflight = null;
 }
 
 /** The description part of an issue body made by `buildIssueBody`, without the code fence. */
@@ -118,14 +155,27 @@ function toFromAppIssue(raw: unknown): FromAppIssue | null {
 }
 
 /**
- * The open issues the app filed, newest 100, cached for 60 seconds. Never throws. Needs the token: with none, or when
- * GitHub fails, it answers `{ ok: false }` and the caller falls back to the saved reports.
+ * The open issues the app filed, newest 100, cached for 60 seconds. Callers that come while the list is being read share
+ * that one call. Never throws. Needs the token: with none, or when GitHub fails, it answers `{ ok: false }` and the
+ * caller falls back to the saved reports.
  */
 export async function listOpenFromAppIssues(): Promise<IssueListResult> {
   const token = process.env.BUG_REPORT_GITHUB_TOKEN?.trim();
   if (!token) return { ok: false, error: "BUG_REPORT_GITHUB_TOKEN is not set" };
   const repo = bugReportRepo();
   if (listCache && listCache.repo === repo && Date.now() - listCache.at < LIST_TTL_MS) return { ok: true, issues: listCache.issues };
+  if (listInflight && listInflight.repo === repo) return listInflight.promise;
+  const generation = listGeneration;
+  const promise = fetchOpenFromAppIssues(repo, token).then((result) => {
+    if (result.ok && generation === listGeneration) listCache = { repo, at: Date.now(), issues: result.issues };
+    if (listInflight?.promise === promise) listInflight = null;
+    return result;
+  });
+  listInflight = { repo, promise };
+  return promise;
+}
+
+async function fetchOpenFromAppIssues(repo: string, token: string): Promise<IssueListResult> {
   try {
     const response = await fetch(`https://api.github.com/repos/${repo}/issues?state=open&labels=from-app&per_page=100`, {
       signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -134,9 +184,7 @@ export async function listOpenFromAppIssues(): Promise<IssueListResult> {
     if (!response.ok) return { ok: false, error: (await errorDetail(response)).split(token).join("[token]").slice(0, 300) };
     const raw = (await response.json()) as unknown;
     if (!Array.isArray(raw)) return { ok: false, error: "GitHub answered with an unexpected list" };
-    const issues = raw.map(toFromAppIssue).filter((issue): issue is FromAppIssue => issue !== null);
-    listCache = { repo, at: Date.now(), issues };
-    return { ok: true, issues };
+    return { ok: true, issues: raw.map(toFromAppIssue).filter((issue): issue is FromAppIssue => issue !== null) };
   } catch (error) {
     return { ok: false, error: failure(error, token) };
   }
