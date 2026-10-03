@@ -2,14 +2,21 @@ import type { Scenario } from "../../support/dsl.js";
 import { mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll } from 'vitest';
 import { currentEngineDataDirectory } from '../../engine-data-dir.js';
-// Private test labels. A real Tribute hint cannot satisfy the actor observer.
-const source = currentEngineDataDirectory();
-export const seatProofData = mkdtempSync(join(tmpdir(), 'owner-seat-proof-'));
-for (const name of readdirSync(source)) if (name !== 'strings.conf') symlinkSync(join(source, name), join(seatProofData, name));
-writeFileSync(join(seatProofData, 'strings.conf'), readFileSync(join(source, 'strings.conf'), 'utf8') + '\n!system 65535 SEAT_PROOF_ACTOR_OK\n!system 65534 SEAT_PROOF_CONFIRM_OK\n');
-afterAll(() => rmSync(seatProofData, { recursive: true, force: true }));
+// Private labels are created only when a test needs them.
+export function createSeatProofData(): { directory: string; cleanup: () => void } {
+  const source = currentEngineDataDirectory();
+  const directory = mkdtempSync(join(tmpdir(), 'owner-seat-proof-'));
+  try {
+    for (const name of readdirSync(source))
+      if (name !== 'strings.conf') symlinkSync(join(source, name), join(directory, name));
+    writeFileSync(join(directory, 'strings.conf'), readFileSync(join(source, 'strings.conf'), 'utf8') + '\n!system 65535 SEAT_PROOF_ACTOR_OK\n!system 65534 SEAT_PROOF_CONFIRM_OK\n');
+    return { directory, cleanup: () => rmSync(directory, { recursive: true, force: true }) };
+  } catch (error) {
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
 
 // DECISIONS (evening 2026-10-02): Standard MR4/5 skips only the opening draw;
 // Domain draws on the opening turn in every format. Each proof starts in MR5.

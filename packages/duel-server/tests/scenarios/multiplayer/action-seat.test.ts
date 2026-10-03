@@ -1,5 +1,5 @@
-import { seatProofData, applySeatProofDrawRule } from "./seat-proof-data.js";
-import { expect, it } from "vitest";
+import { createSeatProofData, applySeatProofDrawRule } from "./seat-proof-data.js";
+import { afterAll, expect, it } from "vitest";
 import { createEngineGame } from "../../../src/engine.js";
 import { compileBoard } from "../../support/board.js";
 import { resolveCard } from "../../support/card-catalog.js";
@@ -9,6 +9,9 @@ import { liveNseat } from "../../support/live-nseat.js";
 import { currentEngineDataDirectory } from "../../engine-data-dir.js";
 import { expectLog, expectNoLog } from "../../support/dsl.js";
 import { ACTION_SEAT_PROOFS } from "./action-seat.js";
+
+const seatProofData = createSeatProofData();
+afterAll(seatProofData.cleanup);
 
 describeWithCores("action seat proofs", liveNseat, () => {
   for (const proof of ACTION_SEAT_PROOFS) it(proof.scenario.id, async () => {
@@ -64,7 +67,7 @@ describeWithCores("action seat proofs", liveNseat, () => {
         end)
         Duel.RegisterEffect(check,0)
       end`;
-    const game = await createEngineGame({ ...compiled.options, dataDirectory: seatProofData, multiScriptsDirectory: process.env.SEAT_PROBE_OVERLAY, multiWasmBinary: nseatWasmBinary(), seed: ["1","2","3","4"] });
+    const game = await createEngineGame({ ...compiled.options, dataDirectory: seatProofData.directory, multiScriptsDirectory: process.env.SEAT_PROBE_OVERLAY, multiWasmBinary: nseatWasmBinary(), seed: ["1","2","3","4"] });
     try {
       const session = new Session(scenario,game);
       session.reachMainPhase(); session.startRecording();
