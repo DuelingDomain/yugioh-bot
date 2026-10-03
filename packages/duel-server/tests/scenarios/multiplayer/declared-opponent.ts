@@ -17,10 +17,11 @@ function board(f: Format, spec: BoardExpect): Step {
     hand: [],
     deckCount: 20, ...spec[s] }])));
 }
-function scenario(f: Format, name: string, setup: Scenario["setup"], steps: Step[]): Scenario {
+function scenario(f: Format, name: string, setup: Scenario["setup"], steps: Step[],
+  rules = [f === "tag" ? "R-TAG-SHARED-CARDS" : "R-FFA-OPP-ONE"]): Scenario {
   return defineScenario({ id: `declared-opponent-${f}-${name}`, title: `${f}: ${name}`,
     source: "Owner answers 2026-10-02; docs/adr/0002-multiplayer-duel-rules.md",
-    rules: ["R-COMMON-OPP-PICK"], tags: ["multiplayer", "declared-opponent", f], setup: { format: f, ...setup }, steps });
+    rules, tags: ["multiplayer", "declared-opponent", f], setup: { format: f, ...setup }, steps });
 }
 function wipe(f: Format, card: string): Scenario {
   const st = card === "Harpie's Feather Duster";
@@ -49,7 +50,7 @@ function allWipe(f: Format, card: string): Scenario {
   const result: BoardExpect = {};
   for (const s of seats(f)) result[s] = { monsters: st ? [mon[s]] : [], spells: st ? [] : [spell],
     ...(bounce ? { hand: [spell] } : {}), grave: [...(s === "p0" ? [card] : []), ...(!bounce ? [st ? spell : mon[s]] : [])] };
-  return scenario(f, `all-${card.toLowerCase().replace(/ /g, "-")}`, setup, [activate(card, "p0"), board(f, result)]);
+  return scenario(f, `all-${card.toLowerCase().replace(/ /g, "-")}`, setup, [activate(card, "p0"), board(f, result)], ["R-COMMON-EACH-PLAYER"]);
 }
 function legalOnly(f: Format): Scenario {
   const target: Seat = f === "ffa4" ? "p3" : f === "tag" ? "p3" : "p2";
@@ -84,7 +85,8 @@ function mirror(f: Format): Scenario {
     const draws = s === "p0" || f === "tag" || s === "p3" ? 1 : 2;
     result[s] = { hand: Array(draws).fill("Mystical Elf"), deckCount: 20 - draws, monsters: hit ? [] : [mon[s]], grave: [...(hit ? [mon[s]] : []), ...(s === "p1" ? ["Mirror Force"] : [])] }; }
   steps.push(board(f, result));
-  return scenario(f, "mirror-force-by-third-duelist-only-hits-attacker", setup, steps);
+  return scenario(f, "mirror-force-by-third-duelist-only-hits-attacker", setup, steps,
+    [f === "tag" ? "R-TAG-SHARED-CARDS" : "R-FFA-OPP-RESPONSE"]);
 }
 function torrential(f: Format): Scenario {
   const setup: Scenario["setup"] = { p0: { spells: [{ card: "Torrential Tribute", pos: "set" }] }, p1: { hand: [mon.p1] } };
@@ -92,7 +94,7 @@ function torrential(f: Format): Scenario {
   const result: BoardExpect = {};
   for (const s of seats(f)) result[s] = { grave: [mon[s], ...(s === "p0" ? ["Torrential Tribute"] : [])],
     ...(s === "p1" ? { hand: ["Mystical Elf"], deckCount: 19 } : {}) };
-  return scenario(f, "torrential-still-hits-every-seat", setup, [endTurn("p0"), normalSummon(mon.p1, "p1"), activate("Torrential Tribute", "p0"), board(f, result)]);
+  return scenario(f, "torrential-still-hits-every-seat", setup, [endTurn("p0"), normalSummon(mon.p1, "p1"), activate("Torrential Tribute", "p0"), board(f, result)], ["R-COMMON-EACH-PLAYER"]);
 }
 function banished(f: Format): Scenario {
   const card = "Terrors of the Underroot";
