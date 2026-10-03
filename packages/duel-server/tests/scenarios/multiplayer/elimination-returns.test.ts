@@ -9,6 +9,7 @@ import { nseatWasmBinary, Session } from "../../support/session.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { runScenarios } from "../../support/runner.js";
 import { ELIMINATION_RETURN_PROOFS, type ReturnProof } from "./elimination-returns.js";
+import { defineScenarioWithFfaFirstDraw } from "./ffa-first-draw.js";
 
 // Capture the real API for queries. Every duel, response and query uses the actual wasm.
 // Views hide lost seats, so a view alone cannot prove that chain cleanup kept a card out.
@@ -37,8 +38,7 @@ describeWithCores("live elimination returns", liveNseat, () => {
   for (const mode of ["normal", "domain"] as const) {
     describeWithCores(mode, mode === "domain" ? needs.domainMulti() : [], () => {
       runScenarios("owner zones and stock controls", ELIMINATION_RETURN_PROOFS, async (input) => {
-        const scenario = input as ReturnProof;
-        const setup = { ...scenario.setup, mode };
+        const setup = { ...input.setup, mode };
         if (mode === "domain") {
           const masters = ["Axe Raider", "Celtic Guardian", "Battle Ox", "Giant Soldier of Stone"];
           for (const [index, seat] of ["p0", "p1", "p2", ...(setup.format === "ffa3" ? [] : ["p3"])].entries()) {
@@ -46,6 +46,8 @@ describeWithCores("live elimination returns", liveNseat, () => {
             setup[id] = { ...setup[id], deckMaster: masters[index] };
           }
         }
+        // Domain draws on turn 1 in FFA and Tag. Add that card to the exact checks.
+        const scenario = defineScenarioWithFfaFirstDraw({ ...input, setup }) as ReturnProof;
         const compiled = compileBoard(setup);
         const bytes = mode === "domain" ? readFileSync(currentDomainMultiWasm()) : undefined;
         const binary = bytes ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) : nseatWasmBinary();

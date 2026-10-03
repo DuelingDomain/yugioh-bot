@@ -81,7 +81,8 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
         expectEliminated(...(format === "tag" ? ["p1", "p3"] as const : ["p1"] as const)),
         ...(format === "tag" ? [expectResult({ team: 0 })] : []),
         expectBoard({
-          p0: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], hand: { count: format === "tag" ? 0 : 3 }, deckCount: format === "tag" ? 20 : 17,
+          // Standard MR5 skips the opening draw. The surviving Pot of Greed draws two cards.
+          p0: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], hand: { count: format === "tag" ? 0 : 2 }, deckCount: format === "tag" ? 20 : 18,
             spells: format === "tag" ? ["Swords of Revealing Light", "Pot of Greed"] : ["Swords of Revealing Light"], grave: format === "tag" ? [] : ["Pot of Greed"] },
           p1: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], hand: [], deckCount: 0 }, p2: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], spells: ["Dust Tornado"], hand: [], deckCount: 20 },
           ...(format === "ffa3" ? {} : { p3: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], hand: [], deckCount: format === "tag" ? 0 : 20 } }),
