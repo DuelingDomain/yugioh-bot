@@ -10,7 +10,6 @@ vi.mock("next/font/google", () => {
 });
 
 import { DuelField } from "@/components/duel/field";
-import { zoneMarkLook } from "@/components/duel/pick-glow";
 import { LOCATION_HAND, LOCATION_MZONE, POS_FACEUP_ATTACK, zoneKey } from "@/components/duel/constants";
 
 afterEach(cleanup);
@@ -45,13 +44,6 @@ const HAND = zoneKey(0, LOCATION_HAND, 0);
 const zoneOf = (container: HTMLElement, key: string) =>
   container.querySelector(`[data-zones~="${key}"]`) as HTMLElement;
 
-describe("zoneMarkLook", () => {
-  it("glows a card, wherever it is, and keeps the outline only on an empty zone", () => {
-    expect(zoneMarkLook({ occupied: true })).toBe("glow");
-    expect(zoneMarkLook({ occupied: false })).toBe("ring");
-  });
-});
-
 describe("DuelField card glow", () => {
   it("gives a selectable field card a usable glow and a tag, and no outline", () => {
     const { container } = board({ legal: [MZ] });
@@ -80,12 +72,21 @@ describe("DuelField card glow", () => {
     expect(zoneOf(container, zoneKey(0, LOCATION_MZONE, 2)).querySelector("span[aria-hidden]")).toBeNull();
   });
 
-  it("keeps the outline on an empty legal zone", () => {
+  it("glows an empty legal zone, with a tag and no outline", () => {
     const empty = zoneKey(0, LOCATION_MZONE, 3);
     const { container } = board({ legal: [empty] });
     const zone = zoneOf(container, empty);
-    expect(zone.querySelector("[data-state]")).toBeNull();
-    expect(zone.querySelector('[class*="ring"]')).not.toBeNull();
+    expect(zone.querySelector("[data-state]")?.getAttribute("data-state")).toBe("usable");
+    expect(zone.querySelector('[class*="ring"]')).toBeNull();
+    expect(zone.querySelector("svg")).not.toBeNull();
+  });
+
+  it("shows a picked empty zone with the picked glow and a check", () => {
+    const empty = zoneKey(0, LOCATION_MZONE, 3);
+    const { container } = board({ legal: [empty], selected: [empty] });
+    const zone = zoneOf(container, empty);
+    expect(zone.querySelector("[data-state]")?.getAttribute("data-state")).toBe("picked");
+    expect(zone.querySelector('[class*="ring"]')).toBeNull();
   });
 
   it("glows a hand card that can be used now, with no outline and a tag", () => {

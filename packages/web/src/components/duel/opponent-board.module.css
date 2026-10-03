@@ -447,8 +447,9 @@
 }
 
 .count[data-legal="true"] {
-  border: 1px dashed var(--pen);
+  border-color: var(--pen);
   color: var(--pen-ink);
+  box-shadow: 0 0 7px rgb(155 126 255 / 0.85), 0 0 13px rgb(155 126 255 / 0.32);
 }
 
 .count[data-selected="true"] {
@@ -490,17 +491,18 @@
   height: calc(var(--cw) * 86 / 59);
 }
 
+/* A zone or card you can pick: a glow (the shared look of field.module.css), never a dashed outline. */
 .ring {
   position: absolute;
-  inset: -2px;
-  border: 1.5px dashed var(--pen);
+  inset: -1px;
   border-radius: 4px;
+  box-shadow: 0 0 7px rgb(155 126 255 / 0.85), 0 0 13px rgb(155 126 255 / 0.32);
   pointer-events: none;
 }
 
 .cell[data-selected="true"] .ring {
-  border-style: solid;
   background: rgb(155 126 255 / 0.18);
+  box-shadow: 0 0 5px 1px rgb(244 214 144 / 0.85), 0 0 10px 2px rgb(155 126 255 / 1), 0 0 16px 3px rgb(155 126 255 / 0.5);
 }
 
 .mark {

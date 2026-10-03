@@ -1195,23 +1195,7 @@
 
 /* ---------- legal and selected: an outline shape and a tag, never colour alone ---------- */
 
-/* An empty zone you can pick: a 2px dashed outline (a zone, not a card; a card gets .glow below). */
-.ring {
-  position: absolute;
-  inset: -5px;
-  z-index: 4;
-  border: 2px dashed var(--pen);
-  border-radius: calc(var(--r) + 3px);
-  box-shadow: 0 0 0 1px rgb(7 11 21 / 0.75);
-  pointer-events: none;
-}
-
-.zone[data-selected="true"] .ring {
-  inset: -5px;
-  border: 2px solid var(--pen);
-}
-
-/* A card you can use or pick: a glow around it, no outline line. The box sits on the card edge and only its
+/* A zone or a card you can use or pick: a glow around it, no outline line and no dashed cut-out. The box sits on the card edge and only its
    shadow shows (an outer shadow is never drawn under the box), so the art stays clear on light or dark cards.
    The felt and the zones do not clip (overflow: visible), so the halo is not cut. --gl scales the halo where
    room is tight (Deck Master dock, hand).
@@ -1389,13 +1373,18 @@
   color: #fff;
 }
 
+/* An empty zone you can pick keeps its own border and gets a soft purple fill; the glow (.glow) is the cue. */
 .zone[data-legal="true"][data-occupied="false"] .frame {
-  border: 1px dashed var(--pen);
   background: var(--pen-soft);
 }
 
-.zone[data-legal="true"][data-occupied="false"][data-selected="true"] .frame {
-  border: 2px solid var(--pen);
+/* A zone you can use lights up at once: the 0.3 s border and 0.2 s fill fades of a plain frame are cut to nothing, and the
+   lift of a usable card to 80 ms. (Entering hover keeps the normal 0.18 s move.) */
+.zone[data-legal="true"]:not(:hover) .frame {
+  transition:
+    border-color 0s,
+    background-color 0s,
+    transform 80ms var(--ease);
 }
 
 .zone[data-legal="true"][data-occupied="true"] .frame {

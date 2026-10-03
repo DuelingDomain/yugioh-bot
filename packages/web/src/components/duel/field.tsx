@@ -13,7 +13,6 @@ import { deriveFieldActivity } from "./field-activity";
 import { useFieldPriorityReady } from "./field-priority";
 import { useFieldTurnSeat } from "./field-turn";
 import { LifePoints } from "./life-points";
-import { zoneMarkLook } from "./pick-glow";
 import { pileSummonTone } from "./summon-circle-model";
 import { SummonCircle, SummonGlow } from "./summon-circle";
 import {
@@ -209,31 +208,24 @@ function NibIcon() {
 
 /**
  * Legal or selected zones get a signal that is not colour alone: a glow on a card, in the hand too (soft and
- * pulsing when it can be used or picked, steady and stronger when picked) or a dashed outline on an empty zone, plus a tag
- * (a nib, or a check once picked).
+ * pulsing when it can be used or picked, steady and stronger when picked), on an empty zone too (never a dashed outline),
+ * plus a tag (a nib, or a check once picked).
  * A legal pile with a summoning circle already shows that signal, so it skips the glow and tag until selected.
  */
 function ZoneMarks({
   legal,
   selected,
   circle = false,
-  occupied,
 }: {
   legal: boolean;
   selected: boolean;
   circle?: boolean;
-  occupied: boolean;
 }) {
   if (!legal && !selected) return null;
   if (circle && !selected) return null;
-  const look = zoneMarkLook({ occupied });
   return (
     <>
-      {look === "glow" ? (
-        <span className={styles.glow} data-state={selected ? "picked" : "usable"} aria-hidden="true" />
-      ) : (
-        <span className={styles.ring} aria-hidden="true" />
-      )}
+      <span className={styles.glow} data-state={selected ? "picked" : "usable"} aria-hidden="true" />
       <span className={styles.mark} aria-hidden="true">
         {selected ? <Check size={11} strokeWidth={2.4} /> : <NibIcon />}
       </span>
@@ -343,7 +335,7 @@ function ZoneSlot({
             </span>
           ) : null}
           <EquipChip role={equipRole} flip={flip} />
-          <ZoneMarks legal={legal} selected={selected} occupied={card != null} />
+          <ZoneMarks legal={legal} selected={selected} />
         </div>
         {pileCount != null ? <PileLabel kind={kind} count={pileCount} /> : null}
       </button>
@@ -468,7 +460,7 @@ function PileSlot({
               <SummonCircle tone={circleTone} />
             </>
           ) : null}
-          <ZoneMarks legal={legal} selected={selected} circle={circleTone != null} occupied={count > 0} />
+          <ZoneMarks legal={legal} selected={selected} circle={circleTone != null} />
         </div>
         <PileLabel kind={kind} count={count} />
       </button>
@@ -1276,7 +1268,7 @@ function MasterDock({
           >
             <div className={styles.masterArt} data-master-dock={view.seat} data-away={status === "Elsewhere" ? "true" : "false"}>
               <img src={cardArtUrl(master.card.code, "full")} alt="" draggable={false} />
-              <ZoneMarks legal={legal} selected={selected} occupied />
+              <ZoneMarks legal={legal} selected={selected} />
             </div>
             <div className={styles.masterId}>
               <b className={styles.masterName}>{master.card.name}</b>
