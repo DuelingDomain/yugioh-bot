@@ -12,6 +12,7 @@ import {
   continuesPick,
   continuesPlacement,
   keepsPickOpen,
+  placesBeforeChain,
   PICK_CONTINUATION,
   usePickContinuation,
 } from "@/components/duel/pick-continuation";
@@ -277,6 +278,48 @@ function tribute(overrides: Partial<DuelPrompt> = {}): DuelPrompt {
   return { id: "t1", seat: 0, kind: "tribute", title: "Select tributes", options: [{ id: "t:0", label: "A" }] as DuelPrompt["options"], ...overrides };
 }
 
+const HAND = 0x02;
+const MZONE = 0x04;
+function menuWith(...options: Array<{ id: string; location?: number; type?: number }>): DuelPrompt {
+  return menu({
+    options: options.map((o) => ({
+      id: o.id, label: o.id, location: o.location,
+      card: o.type == null ? undefined : { code: 1, name: "C", description: "", type: o.type, attack: 0, defense: 0, level: 0, attribute: 0, race: "" },
+    })) as DuelPrompt["options"],
+  });
+}
+
+describe("placesBeforeChain", () => {
+  it("is true for a summon, a set and a special summon", () => {
+    for (const id of ["summon:0", "mset:0", "sset:0", "spsummon:0"]) {
+      expect(placesBeforeChain(menuWith({ id }), { choice: id }), id).toBe(true);
+    }
+  });
+
+  it("is true for a Spell or Trap activated from the hand", () => {
+    expect(placesBeforeChain(menuWith({ id: "activate:0", location: HAND, type: 0x2 }), { choice: "activate:0" })).toBe(true);
+    expect(placesBeforeChain(menuWith({ id: "activate:0", location: HAND, type: 0x4 }), { choice: "activate:0" })).toBe(true);
+  });
+
+  it("is false for a monster effect, or a Spell/Trap already on the field", () => {
+    expect(placesBeforeChain(menuWith({ id: "activate:0", location: MZONE, type: 0x1 }), { choice: "activate:0" })).toBe(false);
+    expect(placesBeforeChain(menuWith({ id: "activate:0", location: HAND, type: 0x1 }), { choice: "activate:0" })).toBe(false);
+    expect(placesBeforeChain(menuWith({ id: "activate:0", location: MZONE, type: 0x2 }), { choice: "activate:0" })).toBe(false);
+    expect(placesBeforeChain(menuWith({ id: "activate:0", location: HAND }), { choice: "activate:0" })).toBe(false);
+  });
+
+  it("is false for battle and phase actions, a position change and a cancel", () => {
+    for (const id of ["attack:0", "to_bp", "to_ep", "pos:0", "shuffle"]) {
+      expect(placesBeforeChain(menuWith({ id }), { choice: id }), id).toBe(false);
+    }
+    expect(placesBeforeChain(menu(), { cancel: true })).toBe(false);
+  });
+
+  it("is true for a tribute pick", () => {
+    expect(placesBeforeChain(tribute(), { selected: ["t:0"] })).toBe(true);
+  });
+});
+
 describe("continuesPlacement", () => {
   it("shows the zone prompt at once after the player's own action", () => {
     expect(continuesPlacement(menu(), places())).toBe(true);
@@ -360,5 +403,69 @@ describe("usePickContinuation after an action", () => {
     expect(result.current.continuing).toBe(false);
     rerender({ prompt: places({ id: "z2" }) });
     expect(result.current.continuing).toBe(false);
+  });
+});
+
+describe("usePickContinuation: only a zone that follows a placing action skips the beat", () => {
+  beforeEach(() => { vi.useFakeTimers(); setAnimationSpeed(1); duelFxClock.resetReviewTimeline(); });
+  afterEach(() => { cleanup(); setAnimationSpeed(1); duelFxClock.resetReviewTimeline(); vi.useRealTimers(); });
+
+  function setup(initial: DuelPrompt | null, revision = 1) {
+    return renderHook(
+      ({ prompt, rev }: { prompt: DuelPrompt | null; rev: number }) => usePickContinuation(prompt, rev),
+      { initialProps: { prompt: initial, rev: revision } },
+    );
+  }
+
+  it("a Normal Summon and a Set go straight to the zones", () => {
+    for (const id of ["summon:0", "mset:0"]) {
+      const first = menuWith({ id });
+      const { result, rerender } = setup(first);
+      act(() => result.current.noteAnswer(first, { choice: id }));
+      rerender({ prompt: places({ id: `z-${id}` }), rev: 2 });
+      expect(result.current.continuing, id).toBe(true);
+    }
+  });
+
+  it("a Spell from the hand goes straight to its zone", () => {
+    const first = menuWith({ id: "activate:0", location: HAND, type: 0x2 });
+    const { result, rerender } = setup(first);
+    act(() => result.current.noteAnswer(first, { choice: "activate:0" }));
+    rerender({ prompt: places(), rev: 2 });
+    expect(result.current.continuing).toBe(true);
+  });
+
+  it("a monster effect that later asks for a zone keeps its beat", () => {
+    const first = menuWith({ id: "activate:0", location: MZONE, type: 0x1 });
+    const { result, rerender } = setup(first);
+    act(() => result.current.noteAnswer(first, { choice: "activate:0" }));
+    rerender({ prompt: places(), rev: 2 });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("a battle or phase action never skips the beat of a later zone prompt", () => {
+    const first = menuWith({ id: "to_ep" });
+    const { result, rerender } = setup(first);
+    act(() => result.current.noteAnswer(first, { choice: "to_ep" }));
+    rerender({ prompt: places(), rev: 2 });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("a Summon answer, then a revision with no prompt for this player, then a zone prompt keeps its beat", () => {
+    const first = menuWith({ id: "summon:0" });
+    const { result, rerender } = setup(first);
+    act(() => result.current.noteAnswer(first, { choice: "summon:0" }));
+    rerender({ prompt: null, rev: 2 });
+    rerender({ prompt: places(), rev: 3 });
+    expect(result.current.continuing).toBe(false);
+  });
+
+  it("a null prompt on the same revision does not end the chance", () => {
+    const first = menuWith({ id: "summon:0" });
+    const { result, rerender } = setup(first);
+    act(() => result.current.noteAnswer(first, { choice: "summon:0" }));
+    rerender({ prompt: null, rev: 1 });
+    rerender({ prompt: places(), rev: 2 });
+    expect(result.current.continuing).toBe(true);
   });
 });

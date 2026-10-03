@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { DuelAnswer, DuelPrompt } from "@yugidraft/shared/duels";
 import { isBoardTogglePrompt } from "./prompt-center";
 import { GATE_TIMING } from "./duel-timing";
+import { LOCATION_HAND, TYPE_SPELL, TYPE_TRAP } from "./constants";
 
 export const PICK_CONTINUATION = {
   /** A follow-up prompt counts only when it arrives within this time of the player's own click. */
@@ -49,6 +50,27 @@ export function continuesPlacement(previous: DuelPrompt | null | undefined, next
   return false;
 }
 
+/** Action choices that ask for a zone before anything can go on the chain. */
+const PLACING_ACTIONS = ["summon:", "mset:", "sset:", "spsummon:"];
+
+/**
+ * The answer to `target` is an action that asks "where" before any chain can start: a Normal or Special Summon, a Set,
+ * or a Spell/Trap card activated from the hand. A monster effect, a battle action or a phase change is not: a chain
+ * or an effect may play first, so the zone prompt that follows later (an effect's own) keeps its beat. A tribute pick
+ * always leads to the zone of the card being summoned.
+ */
+export function placesBeforeChain(target: DuelPrompt, answer: DuelAnswer): boolean {
+  if (answer.cancel) return false;
+  if (target.kind === "tribute") return true;
+  if (target.context?.type !== "action" || !answer.choice) return false;
+  const choice = answer.choice;
+  if (PLACING_ACTIONS.some((prefix) => choice.startsWith(prefix))) return true;
+  if (!choice.startsWith("activate:")) return false;
+  const option = target.options.find((candidate) => candidate.id === choice);
+  const type = option?.card?.type ?? 0;
+  return option?.location === LOCATION_HAND && (type & (TYPE_SPELL | TYPE_TRAP)) !== 0;
+}
+
 /** True when `answer` to `prompt` leaves the pick open (a card click); Finish and Cancel end it. */
 export function keepsPickOpen(prompt: DuelPrompt | null | undefined, answer: DuelAnswer): boolean {
   return isBoardTogglePrompt(prompt ?? null) && !answer.finish && !answer.cancel;
@@ -66,9 +88,15 @@ export type PickContinuation = {
   noteAnswer: (prompt: DuelPrompt, answer: DuelAnswer) => void;
 };
 
-export function usePickContinuation(prompt: DuelPrompt | null | undefined): PickContinuation {
+/**
+ * `revision` is the engine revision of the room. A new revision with no prompt for this player means the engine moved on
+ * (a chain, an opponent's turn, an effect that resolves): the chance of a quick zone prompt is over.
+ */
+export function usePickContinuation(prompt: DuelPrompt | null | undefined, revision?: number | null): PickContinuation {
   const answered = useRef<DuelPrompt | null>(null);
-  const placing = useRef<DuelPrompt | null>(null);
+  const placing = useRef<{ prompt: DuelPrompt; revision: number | null | undefined } | null>(null);
+  const latestRevision = useRef(revision);
+  latestRevision.current = revision;
   const decided = useRef<{ id: string | null; continuing: boolean }>({ id: null, continuing: false });
   const windowTimer = useRef<number | null>(null);
   const holdTimer = useRef<ReturnType<typeof duelFxClock.setTimeout> | null>(null);
@@ -76,8 +104,11 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined): Pick
 
   // Decided while rendering, once per prompt id, so the very first frame of a follow-up already shows.
   // The answer is used up by the next prompt, whatever it is (an opponent prompt ends the chance).
+  if (!prompt && placing.current && revision != null && placing.current.revision != null && revision !== placing.current.revision) {
+    placing.current = null;
+  }
   if (prompt && decided.current.id !== prompt.id) {
-    decided.current = { id: prompt.id, continuing: continuesPick(answered.current, prompt) || continuesPlacement(placing.current, prompt) };
+    decided.current = { id: prompt.id, continuing: continuesPick(answered.current, prompt) || continuesPlacement(placing.current?.prompt, prompt) };
     answered.current = null;
     placing.current = null;
   }
@@ -85,8 +116,8 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined): Pick
   const noteAnswer = useCallback((target: DuelPrompt, answer: DuelAnswer) => {
     if (windowTimer.current) window.clearTimeout(windowTimer.current);
     if (holdTimer.current) duelFxClock.clearTimeout(holdTimer.current);
-    // The answer to an action or a tribute pick may be followed by the zone prompt for that card.
-    placing.current = (target.context?.type === "action" || target.kind === "tribute") && !answer.cancel ? target : null;
+    // The answer to a summon, a set, a Spell/Trap activation or a tribute pick is followed by the zone prompt for that card.
+    placing.current = placesBeforeChain(target, answer) ? { prompt: target, revision: latestRevision.current } : null;
     if (!keepsPickOpen(target, answer)) {
       answered.current = null;
       setWaiting(null);

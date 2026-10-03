@@ -289,7 +289,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // is disabled, so a panel shown early looks ready and is dead.
   // A follow-up of the player's own material pick skips both waits and shows at once (its buttons stay off while busy).
   // Between the click and that prompt the last bar stays up (pick.waiting), buttons off.
-  const pick = usePickContinuation(prompt);
+  const pick = usePickContinuation(prompt, data?.engine?.revision);
   const revealBeat = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion, skip: pick.continuing });
   const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp, pick.continuing);
   const revealed = revealBeat && answerable;

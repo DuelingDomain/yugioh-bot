@@ -144,7 +144,7 @@ function TableShellBody({
     const blocked = roomBusy || supplied.busy || (centerKind(supplied.prompt) != null && !supplied.revealed);
     return blocked ? { ...supplied, busy: true, canAct: false, seatPick: null } : supplied;
   }, [roomBusy, supplied]);
-  const localPick = usePickContinuation(pickContinuation ? null : given.prompt);
+  const localPick = usePickContinuation(pickContinuation ? null : given.prompt, given.engine.revision);
   const pick = pickContinuation ?? localPick;
   const onAnswer = useCallback<TableController["onAnswer"]>((answer) => {
     if (given.busy || !given.canAct || !given.prompt) return;
