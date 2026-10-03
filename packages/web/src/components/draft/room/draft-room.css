@@ -1118,6 +1118,7 @@
   .dr .seatstrip {
     /* Leave the arrow's 22px and its 8px inset outside the start fade. */
     --strip-start: 30px;
+    --strip-snap: calc(var(--strip-start) + 4px);
     --strip-mask: none;
     display: flex;
     align-items: center;
@@ -1129,7 +1130,7 @@
     overscroll-behavior-x: contain;
     scrollbar-width: none;
     scroll-snap-type: x proximity;
-    scroll-padding-left: var(--strip-start);
+    scroll-padding-left: var(--strip-snap);
     -webkit-mask-image: var(--strip-mask);
     mask-image: var(--strip-mask);
     border-bottom: 1px solid var(--rule-lo);
@@ -1153,7 +1154,7 @@
   .dr .seatstrip .dir svg { width: 18px; height: 12px; }
   .dr[data-dir="-1"] .seatstrip .dir svg { transform: scaleX(-1); }
   .dr[data-mode="theme"] .seatstrip .dir { display: none; }
-  .dr[data-mode="theme"] .seatstrip { --strip-start: 0px; }
+  .dr[data-mode="theme"] .seatstrip { --strip-start: 0px; --strip-snap: 8px; }
   .dr .chip-seat { position: relative; flex: 1 0 44px; min-width: 0; display: grid; justify-items: center; gap: 3px; scroll-snap-align: start; }
   .dr .chip-seat .av { width: 28px; height: 28px; font-size: 11.5px; }
   .dr .chip-seat[data-state="picking"] .av { animation: dr-breathe 1.6s ease-in-out infinite; }
