@@ -16,6 +16,7 @@
  * case the reveal here is skipped. Reduced motion: the new state fades in over 150 ms.
  * Everything is a Web Animation on a pointer-transparent overlay.
  */
+import { duelFxClock } from "./fx-clock";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "./constants";
@@ -342,7 +343,7 @@ export function PositionFx({ events, duelKey, reducedMotion }: PositionFxProps) 
     if (fresh.length === 0) return;
     if (typeof document !== "undefined" && document.hidden) return;
 
-    const now = typeof performance !== "undefined" ? performance.now() : 0;
+    const now = typeof performance !== "undefined" ? duelFxClock.now() : 0;
     const planned: Item[] = [];
     let step = 0;
     for (const event of fresh) {
