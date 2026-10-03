@@ -293,8 +293,14 @@ export async function collect(root = packageRoot) {
   const refs = scenarioRefs(await loadScenarios(root));
   const hostProof = "tests/host-rule-forbidden.test.ts";
   const hostPath = join(root, hostProof);
-  if (existsSync(hostPath) && readFileSync(hostPath, "utf8").includes("R-COMMON-FL-LIST: $mode $format refuses seat $seat and starts after repair")) {
-    refs.push({ rule: "R-COMMON-FL-LIST", ref: { test: hostProof, kind: "host-outcome" } });
+  const hostRulesPath = join(root, "tests/host-rule-forbidden.rules.ts");
+  if (existsSync(hostPath) && existsSync(hostRulesPath)) {
+    const metadata = await import(pathToFileURL(hostRulesPath).href) as {
+      HOST_FORBIDDEN_RULE_IDS: readonly string[];
+    };
+    for (const rule of metadata.HOST_FORBIDDEN_RULE_IDS) {
+      refs.push({ rule, ref: { test: hostProof, kind: "host-outcome" } });
+    }
   }
   for (const file of presetFiles(root)) {
     const name = relative(root, file);
