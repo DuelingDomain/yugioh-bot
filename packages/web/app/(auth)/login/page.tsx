@@ -38,7 +38,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </span>
           <h1 className="si-brand sheet-head">
             <BrandMark />
-            YugiDraft
+            Duelists Kingdom
           </h1>
           <p className="si-sub">
             Drafts, tournaments and duels for your Discord server. Sign in with the account you use there.
@@ -63,7 +63,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <LoginButton />
           </form>
           <p className="si-fine">
-            Discord shares your name, avatar and email. YugiDraft can&apos;t read or send messages as you.
+            Discord shares your name, avatar and email. Duelists Kingdom can&apos;t read or send messages as you.
           </p>
         </div>
       </main>

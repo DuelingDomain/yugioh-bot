@@ -10,7 +10,7 @@ web
 Yu-Gi-Oh players in organized Discord communities. They draft cards together (booster, cube, or theme drafts), then duel each other in the browser with the decks they drafted or imported. Secondary audience: organizers who run tournaments, and spectators who watch duels. Players use the duel field on desktop and on phones, and both must be equally good.
 
 ## Product Purpose
-Yugidraft is the play surface for a Discord community: drafts, tournaments, and duels start and notify through Discord, and the web app is where people actually play. The duel field runs a full automatic rules engine (ygopro core, Master Rule 5) so players only make legal choices; the engine owns rules, the UI owns clarity. Success is a duel that is fast to play, easy to read at a glance, and memorable at its big moments.
+Duelists Kingdom is the play surface for a Discord community: drafts, tournaments, and duels start and notify through Discord, and the web app is where people actually play. The duel field runs a full automatic rules engine (ygopro core, Master Rule 5) so players only make legal choices; the engine owns rules, the UI owns clarity. Success is a duel that is fast to play, easy to read at a glance, and memorable at its big moments.
 
 ## Positioning
 - Draft then duel: the same community and the same app take a player from drafting a pool to dueling with it.
@@ -34,7 +34,7 @@ Yugidraft is the play surface for a Discord community: drafts, tournaments, and 
 - Stack: Next.js 16 App Router, React client components, CSS modules. three.js is allowed for signature moments.
 
 ## Brand Commitments
-- Name: Yugidraft.
+- Name: Duelists Kingdom.
 - The Obsidian Arena look is user-approved and binding: navy-black obsidian surface, fine antique-gold lines, restrained purple for active and selected states. Reference: `designs/duel-ui/nexus-classic/variation-2-obsidian-arena.webp`.
 - Rejected looks: slate-blue backgrounds, temple or tomb scenery, generic AI-dashboard styling.
 

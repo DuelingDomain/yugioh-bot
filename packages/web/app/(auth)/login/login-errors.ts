@@ -22,7 +22,7 @@ export function describeLoginError(error: string | undefined): LoginMessage | nu
       return {
         tone: "bad",
         title: "Couldn't sign you in.",
-        body: "The problem is on YugiDraft's side, not your Discord account. Try again in a minute. If it keeps happening, tell whoever runs the bot.",
+        body: "The problem is on Duelists Kingdom's side, not your Discord account. Try again in a minute. If it keeps happening, tell whoever runs the bot.",
         code: "Configuration",
       };
     case "GuildMembershipRequired":

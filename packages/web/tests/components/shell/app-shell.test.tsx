@@ -75,10 +75,18 @@ describe("AppShell frame", () => {
     expect(screen.getByText("Tournaments", { selector: ".ns-title" })).toBeTruthy();
   });
 
-  it("falls back to YugiDraft for the phone title", () => {
+  it("falls back to Duelists Kingdom for the phone title", () => {
     mockUsePathname.mockReturnValue("/nowhere");
     render(<AppShell><p>x</p></AppShell>);
-    expect(screen.getByText("YugiDraft", { selector: ".ns-title" })).toBeTruthy();
+    expect(screen.getByText("Duelists Kingdom", { selector: ".ns-title" })).toBeTruthy();
+  });
+
+  it("names the sidebar and the phone menu Duelists Kingdom", async () => {
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    expect(container.querySelector(".ns-side .ns-word")?.textContent).toBe("Duelists Kingdom");
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    const dialog = await screen.findByRole("dialog", { name: "Navigation" });
+    expect(dialog.querySelector(".ns-word")?.textContent).toBe("Duelists Kingdom");
   });
 
   it("restores the collapsed state from storage after mount", async () => {

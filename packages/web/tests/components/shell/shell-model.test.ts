@@ -24,7 +24,7 @@ describe("shell model", () => {
     expect(pageTitle("/settings")).toBe("Settings");
     expect(pageTitle("/player/7", 7)).toBe("Your profile");
     expect(pageTitle("/player/8", 7)).toBe("Player");
-    expect(pageTitle("/")).toBe("YugiDraft");
+    expect(pageTitle("/")).toBe("Duelists Kingdom");
   });
 
   it("groups every nav link once, Settings excluded", () => {

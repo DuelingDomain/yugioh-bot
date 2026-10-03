@@ -85,9 +85,9 @@ describe("LoginPage", () => {
     ]);
   });
 
-  it("names YugiDraft, says what Discord shares, and shows the code", async () => {
+  it("names Duelists Kingdom, says what Discord shares, and shows the code", async () => {
     render(await LoginPage({ searchParams: Promise.resolve({ error: "Configuration" }) }));
-    screen.getByRole("heading", { level: 1, name: "YugiDraft" });
+    screen.getByRole("heading", { level: 1, name: "Duelists Kingdom" });
     screen.getByText(/Discord shares your name, avatar and email/);
     expect(screen.getByRole("alert").textContent).toContain("Couldn't sign you in. The problem");
     expect(screen.getByRole("alert")).toHaveTextContent("Error: Configuration");
