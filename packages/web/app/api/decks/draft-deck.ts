@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import { checkDeckAgainstPool, type DuelDeck, type SavedDeck } from "@yugidraft/shared/duels";
 import { createTournamentDuelService, TournamentDuelError } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
+import { broadcaster } from "@/lib/notify";
 import { DRAFT_EXTRA_MAX, DRAFT_MAIN_MAX } from "@/components/decks/pool-model";
 import {
   draftMainMinimum,
@@ -120,6 +121,11 @@ export function registerDraftDeck(draft: DraftDeckContext, saved: SavedDeck): st
       savedDeckId: saved.id,
       deck: saved.deck,
     });
+    const tournament = db.prepare("select web_slug from tournaments where id = ?")
+      .get(draft.tournamentId) as { web_slug: string | null } | undefined;
+    if (tournament?.web_slug) {
+      void broadcaster.tournament({ kind: "match-updated", slug: tournament.web_slug });
+    }
     return undefined;
   } catch (error) {
     // The first game locked the deck after the check above.

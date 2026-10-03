@@ -1,234 +1,153 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, type TabDef } from "@/components/ui/tabs";
+import { AlertTriangle, Compass, RotateCw } from "lucide-react";
+import { SheetRoot } from "@/components/sheet";
 import { useTournamentWebsocket } from "@/lib/hooks/use-tournament-websocket";
-import { TournamentLobby } from "@/components/tournament/tournament-lobby";
-import { OverviewTab } from "@/components/tournament/overview-tab";
-import { MyMatchesTab } from "@/components/tournament/my-matches-tab";
-import { AllMatchesTab } from "@/components/tournament/all-matches-tab";
-import { PlayersTab } from "@/components/tournament/players-tab";
-import { StandingsTab } from "@/components/tournament/standings-tab";
-import { deriveMyMatches } from "@/components/tournament/use-my-matches";
+import { TournamentSheet } from "@/components/tournament/sheet/tournament-sheet";
+import { buildPlayerRatings } from "@/components/tournament/sheet/sheet-model";
+import type { PlayerRatings } from "@/components/tournament/sheet-contracts";
 import type { TournamentDetail } from "@/components/tournament/types";
 
 export default function TournamentDetailPage() {
   const params = useParams();
   const slug = typeof params.slug === "string" ? params.slug : "";
-  const router = useRouter();
   const searchParams = useSearchParams();
-
-  const [tournament, setTournament] = useState<TournamentDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<{ slug: string; tournament: TournamentDetail } | null>(null);
+  const [error, setError] = useState<{ slug: string; status: number | null } | null>(null);
+  const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [ratings, setRatings] = useState<PlayerRatings>(() => new Map());
+  const tournamentRequest = useRef(0);
+  const tournamentInFlight = useRef(false);
+  const ratingsRequest = useRef(0);
+  const lastStatus = useRef<string | undefined>(undefined);
+  const tournament = loaded?.slug === slug ? loaded.tournament : null;
 
   useEffect(() => {
-    fetch("/api/auth/session")
-      .then((r) => r.json())
-      .then((s) => {
-        if (s?.user?.id) setCurrentUserId(s.user.id);
-      })
-      .catch(() => {});
+    let active = true;
+    fetch("/api/auth/session").then((response) => response.json()).then((session) => {
+      if (active && session?.user?.id) setCurrentUserId(session.user.id);
+    }).catch(() => {});
+    return () => { active = false; };
   }, []);
 
-  const fetchTournament = useCallback(() => {
+  // Refetching never blanks the page: the last good tournament stays until a newer one arrives.
+  const fetchTournament = useCallback(async () => {
     if (!slug) return;
-    setLoading(true);
-    fetch(`/api/tournaments/${slug}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load tournament");
-        return res.json();
-      })
-      .then((data: TournamentDetail) => {
-        setTournament(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
+    const request = ++tournamentRequest.current;
+    tournamentInFlight.current = true;
+    setLoadingSlug(slug);
+    try {
+      const response = await fetch(`/api/tournaments/${slug}`);
+      if (!response.ok) {
+        if (request === tournamentRequest.current) setError({ slug, status: response.status });
+        return;
+      }
+      const data: TournamentDetail = await response.json();
+      if (request !== tournamentRequest.current) return;
+      setLoaded({ slug, tournament: data });
+      setError(null);
+    } catch {
+      if (request !== tournamentRequest.current) return;
+      setError({ slug, status: null });
+    } finally {
+      if (request === tournamentRequest.current) {
+        tournamentInFlight.current = false;
+        setLoadingSlug(null);
+      }
+    }
   }, [slug]);
 
   useEffect(() => {
-    fetchTournament();
+    lastStatus.current = undefined;
+    void fetchTournament();
+    // Invalidate requests from an old slug or a component that has unmounted.
+    return () => { tournamentRequest.current++; tournamentInFlight.current = false; };
   }, [fetchTournament]);
 
+  const fetchRatings = useCallback(async () => {
+    const request = ++ratingsRequest.current;
+    try {
+      const response = await fetch("/api/leaderboard?scope=all");
+      if (!response.ok) throw new Error("Failed to load ratings");
+      const data = await response.json();
+      if (request === ratingsRequest.current) setRatings(buildPlayerRatings(data.rows));
+    } catch {
+      // Keep the last good ratings when a refresh fails; the initial map is already empty.
+    }
+  }, []);
+  useEffect(() => {
+    void fetchRatings();
+    return () => { ratingsRequest.current++; };
+  }, [fetchRatings]);
+  // A finished tournament changes ratings, so reload them when the status moves.
+  useEffect(() => {
+    if (!tournament) return;
+    if (lastStatus.current !== undefined && lastStatus.current !== tournament.status) void fetchRatings();
+    lastStatus.current = tournament.status;
+  }, [tournament, fetchRatings]);
+
   useTournamentWebsocket(slug, {
-    onParticipantJoined: () => fetchTournament(),
-    onParticipantLeft: () => fetchTournament(),
-    onStarted: () => fetchTournament(),
-    onCancelled: () => fetchTournament(),
-    onCompleted: () => fetchTournament(),
-    onMatchUpdated: () => fetchTournament(),
+    onParticipantJoined: () => { void fetchTournament(); },
+    onParticipantLeft: () => { void fetchTournament(); },
+    onStarted: () => { void fetchTournament(); },
+    onCancelled: () => { void fetchTournament(); },
+    onCompleted: () => { void fetchTournament(); },
+    onMatchUpdated: () => { void fetchTournament(); void fetchRatings(); },
   });
 
-  if (loading) {
+  if (!tournament) {
+    const initialError = error?.slug === slug ? error : null;
+    const missing = initialError?.status === 404;
     return (
-      <div>
-        <div className="mx-auto max-w-4xl p-6">
-          <div className="flex items-center justify-center py-20">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-primary border-t-transparent" />
-          </div>
+      <SheetRoot>
+        <div className="nf">
+          {initialError ? (
+            <>
+              <p className="nf-code">
+                {missing ? <Compass className="ic" aria-hidden="true" /> : <AlertTriangle className="ic" style={{ color: "var(--loss-ink)" }} aria-hidden="true" />}
+                {missing ? "404" : "Error"}
+              </p>
+              <h1 className="t-title">{missing ? "No tournament at this address" : "This tournament didn't load"}</h1>
+              {missing ? (
+                <p>Nothing on this server matches{" "}<code>/tournament/{slug}</code>.{" "}It may have been deleted, or the link has a typo.</p>
+              ) : (
+                <p>Nothing was changed. Try again, and if it keeps happening, tell whoever runs the bot.</p>
+              )}
+              <div className="acts">
+                {missing ? (
+                  <Link className="btn btn-primary" href="/tournaments">All tournaments</Link>
+                ) : (
+                  <button className="btn btn-primary" type="button" disabled={loadingSlug === slug} aria-busy={loadingSlug === slug} onClick={() => {
+                    if (!tournamentInFlight.current) void fetchTournament();
+                  }}>
+                    <RotateCw className="ic" aria-hidden="true" />Try again
+                  </button>
+                )}
+                <Link className="btn btn-quiet" href="/dashboard">Dashboard</Link>
+              </div>
+            </>
+          ) : (
+            <p className="ref" role="status" aria-label="Loading tournament">Loading tournament…</p>
+          )}
         </div>
-      </div>
-    );
-  }
-
-  if (error || !tournament) {
-    return (
-      <div>
-        <div className="mx-auto max-w-4xl p-6">
-          <div className="rounded-lg border border-accent-cta/20 bg-accent-cta/10 p-6 text-accent-cta">
-            {error ?? "Tournament not found"}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function getFormatLabel(format: string): string {
-    if (format === "round_robin") return "Round Robin";
-    if (format === "single_elim") return "Single Elimination";
-    return format;
-  }
-
-  function getStatusVariant(status: string): "default" | "danger" | "success" | "warning" {
-    if (status === "active") return "success";
-    if (status === "pending") return "warning";
-    if (status === "cancelled") return "danger";
-    return "default";
-  }
-
-  const formatLabel = getFormatLabel(tournament.format);
-  const statusVariant = getStatusVariant(tournament.status);
-  const isCreator = currentUserId === tournament.createdByUserId;
-
-  const isActive = tournament.status === "active";
-  const allowedTabs = isActive
-    ? ["overview", "my", "all", "players", "standings"]
-    : ["all", "players", "standings"];
-  const defaultTab = isActive ? "overview" : "standings";
-  const rawTab = searchParams.get("tab") ?? "";
-  const activeTab = allowedTabs.includes(rawTab) ? rawTab : defaultTab;
-
-  function handleTabChange(id: string) {
-    router.replace(`/tournament/${slug}?tab=${id}`);
-  }
-
-  const myMatchCount = tournament ? deriveMyMatches(tournament).needsMeCount : 0;
-  const tabs: TabDef[] = isActive
-    ? [
-        { id: "overview", label: "Overview" },
-        { id: "my", label: "My Matches", badge: myMatchCount > 0 ? myMatchCount : undefined },
-        { id: "all", label: "All Matches" },
-        { id: "players", label: "Players" },
-        { id: "standings", label: "Standings" },
-      ]
-    : [
-        { id: "all", label: "All Matches" },
-        { id: "players", label: "Players" },
-        { id: "standings", label: "Standings" },
-      ];
-
-  function renderPanel() {
-    if (activeTab === "overview")
-      return (
-        <OverviewTab
-          tournament={tournament!}
-          tournamentSlug={slug}
-          isHost={isCreator}
-          currentUserPlayerId={tournament!.currentUserPlayerId}
-          onChanged={fetchTournament}
-          onGoToStandings={() => handleTabChange("standings")}
-        />
-      );
-    if (activeTab === "my")
-      return (
-        <MyMatchesTab
-          tournament={tournament!}
-          tournamentSlug={slug}
-          onChanged={fetchTournament}
-        />
-      );
-    if (activeTab === "all")
-      return (
-        <AllMatchesTab
-          tournament={tournament!}
-          tournamentSlug={slug}
-          isHost={isCreator}
-          onChanged={fetchTournament}
-        />
-      );
-    if (activeTab === "players")
-      return (
-        <PlayersTab
-          tournament={tournament!}
-          tournamentSlug={slug}
-          isCreator={isCreator}
-          currentUserPlayerId={tournament!.currentUserPlayerId}
-          onChanged={fetchTournament}
-        />
-      );
-    if (activeTab === "standings") return <StandingsTab tournamentSlug={slug} />;
-    return null;
-  }
-
-  const header = (
-    <div className="mb-6">
-      <Link
-        href="/tournaments"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-secondary"
-      >
-        <ChevronLeft className="h-4 w-4" />
-        All Tournaments
-      </Link>
-
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl text-text-primary sm:text-3xl">
-            {tournament.name}
-          </h1>
-          <div className="mt-2 flex items-center gap-3">
-            <Badge variant={statusVariant}>{tournament.status}</Badge>
-            <span className="text-sm text-text-muted">{formatLabel}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  if (tournament.status === "pending") {
-    return (
-      <div>
-        <div className="mx-auto max-w-4xl p-4 sm:p-6 lg:p-8">
-          {header}
-          <TournamentLobby
-            tournament={tournament}
-            tournamentSlug={slug}
-            isCreator={isCreator}
-            currentUserId={currentUserId}
-            onChanged={fetchTournament}
-          />
-        </div>
-      </div>
+      </SheetRoot>
     );
   }
 
   return (
-    <div>
-      <div
-        data-testid="tournament-page-shell"
-        className="mx-auto max-w-[120rem] p-4 sm:p-6 lg:p-8 2xl:px-10"
-      >
-        {header}
-        <Tabs tabs={tabs} value={activeTab} onChange={handleTabChange} />
-        {renderPanel()}
-      </div>
-    </div>
+    <TournamentSheet
+      key={slug}
+      tournament={tournament}
+      tournamentSlug={slug}
+      isHost={currentUserId === tournament.createdByUserId}
+      ratings={ratings}
+      onChanged={fetchTournament}
+      refreshFailed={error?.slug === slug}
+      tab={searchParams.get("tab")}
+    />
   );
 }

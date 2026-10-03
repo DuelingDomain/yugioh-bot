@@ -1,174 +1,109 @@
 // @vitest-environment jsdom
-import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { Sidebar } from "../../src/components/layout/sidebar";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { LinkStub, fontMock, ready, loading } from "./shell/helpers";
 
-// Mock next/navigation so usePathname is controllable per test
-vi.mock("next/navigation", () => ({
-  usePathname: vi.fn(),
-}));
-
-// Mock next/link with a plain anchor so jsdom doesn't need a router
-vi.mock("next/link", () => ({
-  default: ({
-    href,
-    children,
-    ...props
-  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
-    <a href={href} {...props}>
-      {children}
-    </a>
-  ),
-}));
+vi.mock("next/font/google", () => fontMock());
+vi.mock("next/navigation", () => ({ usePathname: vi.fn() }));
+vi.mock("next/link", () => ({ default: LinkStub }));
+vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
 
 import { usePathname } from "next/navigation";
+import { Sidebar } from "../../src/components/layout/sidebar";
+
 const mockUsePathname = vi.mocked(usePathname);
 
-// ---------------------------------------------------------------------------
-// Active-state tests (regression for Bug 2: two items active on /dashboard)
-// ---------------------------------------------------------------------------
-describe("Sidebar — active nav item highlighting", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+function current() {
+  return screen.getAllByRole("link").filter((l) => l.getAttribute("aria-current") === "page");
+}
+
+describe("Sidebar current page", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    ["/dashboard", "Dashboard"],
+    ["/tournaments", "Tournaments"],
+    ["/tournament/friday-night", "Tournaments"],
+    ["/drafts", "Drafts"],
+    ["/drafts/123", "Drafts"],
+    ["/draft/some-slug", "Drafts"],
+    ["/leaderboard", "Leaderboard"],
+    ["/settings", "Settings"],
+    ["/themes", "Cubes"],
+    ["/player/9", "Leaderboard"],
+  ])("%s lights %s and nothing else", (path, label) => {
+    mockUsePathname.mockReturnValue(path);
+    render(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} />);
+    const lit = current();
+    expect(lit).toHaveLength(1);
+    expect(lit[0]).toHaveAccessibleName(label);
   });
 
-  it("marks only Dashboard as active when on /dashboard", () => {
+  it("lights your name, not a link, on your own profile", () => {
+    mockUsePathname.mockReturnValue("/player/7");
+    render(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} />);
+    expect(current()).toHaveLength(0);
+    expect(screen.getByRole("button", { name: /account menu, imran/i })).toHaveAttribute("data-on");
+  });
+
+  it("does not light Drafts on /dashboard", () => {
     mockUsePathname.mockReturnValue("/dashboard");
-    render(<Sidebar collapsed={false} />);
-
-    const dashboardLink = screen.getByRole("link", { name: /dashboard/i });
-    const draftsLink = screen.getByRole("link", { name: /drafts/i });
-
-    expect(dashboardLink).toHaveAttribute("aria-current", "page");
-    expect(draftsLink).not.toHaveAttribute("aria-current", "page");
-  });
-
-  it("does not mark Drafts as active when on /dashboard (regression)", () => {
-    mockUsePathname.mockReturnValue("/dashboard");
-    render(<Sidebar collapsed={false} />);
-
-    const draftsLink = screen.getByRole("link", { name: /drafts/i });
-    expect(draftsLink).not.toHaveAttribute("aria-current", "page");
-  });
-
-  it("marks Tournaments as active when on /tournaments", () => {
-    mockUsePathname.mockReturnValue("/tournaments");
-    render(<Sidebar collapsed={false} />);
-
-    const tournamentsLink = screen.getByRole("link", { name: /tournaments/i });
-    expect(tournamentsLink).toHaveAttribute("aria-current", "page");
-  });
-
-  it("marks Drafts as active when on /drafts", () => {
-    mockUsePathname.mockReturnValue("/drafts");
-    render(<Sidebar collapsed={false} />);
-
-    const draftsLink = screen.getByRole("link", { name: /drafts/i });
-    expect(draftsLink).toHaveAttribute("aria-current", "page");
-  });
-
-  it("marks Drafts as active on nested /drafts/123 route", () => {
-    mockUsePathname.mockReturnValue("/drafts/123");
-    render(<Sidebar collapsed={false} />);
-
-    const draftsLink = screen.getByRole("link", { name: /drafts/i });
-    expect(draftsLink).toHaveAttribute("aria-current", "page");
-  });
-
-  it("does not mark Dashboard active when on /drafts", () => {
-    mockUsePathname.mockReturnValue("/drafts");
-    render(<Sidebar collapsed={false} />);
-
-    const dashboardLink = screen.getByRole("link", { name: /dashboard/i });
-    expect(dashboardLink).not.toHaveAttribute("aria-current", "page");
-  });
-
-  it("marks at most one item active for any route", () => {
-    mockUsePathname.mockReturnValue("/dashboard");
-    render(<Sidebar collapsed={false} />);
-
-    const activeLinks = screen
-      .getAllByRole("link")
-      .filter((l) => l.getAttribute("aria-current") === "page");
-    expect(activeLinks).toHaveLength(1);
+    render(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} />);
+    expect(screen.getByRole("link", { name: /drafts/i })).not.toHaveAttribute("aria-current");
   });
 });
 
-// ---------------------------------------------------------------------------
-// Collapsed / expanded state tests (regression for Bug 1: collapse blocked)
-// ---------------------------------------------------------------------------
-describe("Sidebar — collapsed state", () => {
-  beforeEach(() => {
-    mockUsePathname.mockReturnValue("/dashboard");
+describe("Sidebar structure", () => {
+  beforeEach(() => mockUsePathname.mockReturnValue("/dashboard"));
+
+  it("groups Leaderboard under Compete and Decks and Cubes under Build", () => {
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} />);
+    const kids = Array.from(container.querySelectorAll(".ns-nav .ns-g, .ns-nav .ns-i")).map((n) => n.textContent);
+    expect(kids).toEqual([
+      "Dashboard",
+      "Compete",
+      "Tournaments",
+      "Drafts",
+      "Duels",
+      "Leaderboard",
+      "Build",
+      "Decks",
+      "Cubes",
+    ]);
+    expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
   });
 
-  it("applies md:w-56 when not collapsed", () => {
-    const { container } = render(<Sidebar collapsed={false} />);
-    const aside = container.querySelector("aside");
-    expect(aside?.className).toContain("md:w-56");
+  it("has a labelled navigation and no sign in button", () => {
+    render(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} />);
+    expect(screen.getByRole("navigation", { name: /main navigation/i })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
   });
 
-  it("applies md:w-16 when collapsed", () => {
-    const { container } = render(<Sidebar collapsed={true} />);
-    const aside = container?.querySelector("aside");
-    expect(aside?.className).toContain("md:w-16");
+  it("collapse button reports and toggles", () => {
+    const onToggle = vi.fn();
+    const { rerender } = render(<Sidebar collapsed={false} onToggle={onToggle} account={ready} />);
+    const btn = screen.getByRole("button", { name: "Collapse sidebar" });
+    expect(btn).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(btn);
+    expect(onToggle).toHaveBeenCalledOnce();
+    rerender(<Sidebar collapsed={true} onToggle={onToggle} account={ready} />);
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("starts below the topbar (md:top-14) so the toggle button is accessible", () => {
-    const { container } = render(<Sidebar collapsed={false} />);
-    const aside = container.querySelector("aside");
-    // Must have md:top-14 — NOT md:inset-y-0 — so the sidebar doesn't
-    // obscure the topbar toggle button (Bug 1 regression).
-    expect(aside?.className).toContain("md:top-14");
-    expect(aside?.className).not.toContain("md:inset-y-0");
+  it("collapsed: marks the rail and keeps every link's name", () => {
+    const { container } = render(<Sidebar collapsed={true} onToggle={vi.fn()} account={ready} />);
+    expect(container.querySelector(".ns")).toHaveAttribute("data-c");
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-label", "Dashboard");
   });
 
-  it("shows labels as visible text when expanded", () => {
-    mockUsePathname.mockReturnValue("/dashboard");
-    render(<Sidebar collapsed={false} />);
-
-    // Labels must NOT have sr-only when expanded
-    const dashboardLabel = screen.getByText("Dashboard");
-    expect(dashboardLabel.className).not.toContain("sr-only");
+  it("expanded: no data-c and no tooltips", () => {
+    const { container } = render(<Sidebar collapsed={false} onToggle={vi.fn()} account={ready} />);
+    expect(container.querySelector(".ns")).not.toHaveAttribute("data-c");
+    expect(container.querySelector(".ns-tip")).toBeNull();
   });
 
-  it("hides labels with sr-only when collapsed", () => {
-    mockUsePathname.mockReturnValue("/dashboard");
-    render(<Sidebar collapsed={true} />);
-
-    // In collapsed mode all label spans get sr-only
-    const dashboardLabel = screen.getByText("Dashboard");
-    expect(dashboardLabel.className).toContain("sr-only");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Accessibility
-// ---------------------------------------------------------------------------
-describe("Sidebar — accessibility", () => {
-  beforeEach(() => {
-    mockUsePathname.mockReturnValue("/dashboard");
-  });
-
-  it("has a nav element with an accessible label", () => {
-    render(<Sidebar collapsed={false} />);
-    const nav = screen.getByRole("navigation", { name: /main navigation/i });
-    expect(nav).toBeTruthy();
-  });
-
-  it("renders all three nav items", () => {
-    render(<Sidebar collapsed={false} />);
-    expect(screen.getByRole("link", { name: /dashboard/i })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /tournaments/i })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /drafts/i })).toBeTruthy();
-  });
-
-  it("active item gets title attribute when collapsed for tooltip", () => {
-    mockUsePathname.mockReturnValue("/dashboard");
-    render(<Sidebar collapsed={true} />);
-
-    const dashboardLink = screen.getByRole("link", { name: /dashboard/i });
-    expect(dashboardLink).toHaveAttribute("title", "Dashboard");
+  it("shows a placeholder while the session loads", () => {
+    render(<Sidebar collapsed={false} onToggle={vi.fn()} account={loading} />);
+    expect(screen.getByLabelText("Loading your account")).toHaveAttribute("aria-busy", "true");
   });
 });

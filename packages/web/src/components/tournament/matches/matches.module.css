@@ -1,0 +1,21 @@
+/* Local pieces the board stylesheet has no class for. Everything else uses the board classes. */
+.countdown { font-family: var(--f-num); font-size: 16px; font-weight: 450; color: var(--ember-hi); }
+.number { font-family: var(--f-num); font-size: 16px; font-weight: 450; color: var(--ink); }
+.error { margin-top: 8px; grid-column: 1 / -1; }
+.stack { display: grid; gap: 8px; }
+.deckline { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; color: var(--ink-2); font-size: 13px; }
+.deckline strong { color: var(--ink); font-weight: 500; }
+.also { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; color: var(--ink-3); font-size: 13px; }
+.also a { color: var(--pen-ink); }
+.caught { display: flex; align-items: center; gap: 10px; padding: 14px 16px; color: var(--ink-2); font-size: 14px; border: 1px solid var(--rule-lo); border-radius: 10px; }
+.reopenActs { justify-content: flex-end; }
+
+/* The Set result dialog renders through SheetPortal, which has no size container of its own. */
+.overlay {
+  position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 18px;
+  background: radial-gradient(70% 70% at 50% 40%, rgb(17 26 48 / 0.82), rgb(4 6 11 / 0.92));
+  container-type: inline-size;
+  overflow-y: auto;
+}
+.overlay > :global(.dialog) { width: min(460px, 100%); }
+.winnerName { display: inline-flex; align-items: center; gap: 8px; }

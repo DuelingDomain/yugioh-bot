@@ -1,7 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Button } from "@/components/ui/button";
+import { AlertTriangle, Lock, RotateCw, RefreshCw } from "lucide-react";
+import { ConfirmPanel, DangerRow, DangerZone, SheetPanel } from "@/components/sheet";
+import { toUtcIso } from "@/lib/utils";
 
 type Season = {
   id: number;
@@ -12,15 +14,29 @@ type Season = {
   endedAt: string | null;
 };
 
-type LeaderboardRow = {
-  playerId: number;
-  displayName: string;
-  winnings: number;
-};
+const DAY_MS = 86_400_000;
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+/** Day 1 is the day it started. */
+export function seasonDay(startedAt: string, now: number = Date.now()): number {
+  const started = new Date(toUtcIso(startedAt)).getTime();
+  if (Number.isNaN(started)) return 1;
+  return Math.max(1, Math.floor((now - started) / DAY_MS) + 1);
+}
+
+function seasonTitle(season: Season) {
+  const title = `Season ${season.number}`;
+  const name = season.name?.trim();
+  return name && name.toLowerCase() !== title.toLowerCase() ? `${title} · ${name}` : title;
+}
 
 export function SeasonControl() {
+  // undefined = loading, null = no season running
   const [season, setSeason] = React.useState<Season | null | undefined>(undefined);
-  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState(false);
 
   const [seasonName, setSeasonName] = React.useState("");
   const [startLoading, setStartLoading] = React.useState(false);
@@ -30,20 +46,18 @@ export function SeasonControl() {
   const [endError, setEndError] = React.useState<string | null>(null);
   const [confirmEnd, setConfirmEnd] = React.useState(false);
 
-  const [lastChampion, setLastChampion] = React.useState<LeaderboardRow | null>(null);
-
   const fetchSeason = React.useCallback(async () => {
-    setLoadError(null);
+    setLoadError(false);
     try {
       const res = await fetch("/api/admin/season");
       if (!res.ok) {
-        setLoadError("Failed to load season status.");
+        setLoadError(true);
         return;
       }
       const data = (await res.json()) as { season: Season | null };
       setSeason(data.season);
     } catch {
-      setLoadError("Failed to load season status.");
+      setLoadError(true);
     }
   }, []);
 
@@ -51,7 +65,9 @@ export function SeasonControl() {
     void fetchSeason();
   }, [fetchSeason]);
 
-  const handleStart = async () => {
+  const handleStart = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (startLoading) return;
     setStartError(null);
     setStartLoading(true);
     try {
@@ -67,26 +83,15 @@ export function SeasonControl() {
       }
       setSeason(data.season ?? null);
       setSeasonName("");
-      setLastChampion(null);
+    } catch {
+      setStartError("Couldn't start a season. Try again.");
     } finally {
       setStartLoading(false);
     }
   };
 
-  const fetchLastChampion = async () => {
-    try {
-      const res = await fetch("/api/leaderboard?scope=all");
-      if (!res.ok) return;
-      const data = (await res.json()) as { rows: LeaderboardRow[] };
-      if (data.rows.length > 0) {
-        setLastChampion(data.rows[0]);
-      }
-    } catch {
-      // best-effort
-    }
-  };
-
   const handleEnd = async () => {
+    if (!season) return;
     setEndError(null);
     setEndLoading(true);
     try {
@@ -97,122 +102,169 @@ export function SeasonControl() {
       });
       const data = (await res.json()) as { season?: Season; error?: string };
       if (!res.ok || data.error) {
-        setEndError(data.error ?? `Failed to end season (${res.status}).`);
+        setEndError(`Couldn't end Season ${season.number}. It's still running. Try again.`);
         return;
       }
       setSeason(data.season ?? null);
       setConfirmEnd(false);
-      await fetchLastChampion();
+    } catch {
+      setEndError(`Couldn't end Season ${season.number}. It's still running. Try again.`);
     } finally {
       setEndLoading(false);
     }
   };
 
-  const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  const retry = () => {
+    setSeason(undefined);
+    void fetchSeason();
+  };
 
-  return (
-    <section className="rounded-xl border border-border bg-surface p-6">
-      <h2 className="mb-4 font-display text-lg text-text-primary">Season</h2>
-
-      {loadError && <p className="mb-3 text-sm text-destructive">{loadError}</p>}
-
-      {season === undefined && !loadError && (
-        <p className="mb-4 text-sm text-text-secondary">Loading season status...</p>
-      )}
-
-      {season !== undefined && (
-        <div className="mb-4 rounded-lg border border-border bg-bg-elevated/40 px-4 py-3">
-          {season?.status === "active" ? (
-            <div>
-              <p className="text-sm font-semibold text-text-primary">
-                Season {season.number}{season.name ? ` — ${season.name}` : ""}
-              </p>
-              <p className="text-xs text-text-muted">Started {formatDate(season.startedAt)}</p>
-            </div>
-          ) : (
-            <p className="text-sm text-text-secondary">No active season</p>
+  let body: React.ReactNode;
+  if (loadError && season === undefined) {
+    body = (
+      <div className="banner banner-bad" role="alert">
+        <AlertTriangle className="ic" aria-hidden="true" />
+        <div>
+          <b>Couldn&apos;t load the season.</b>{" "}
+          Nothing has changed. Try again in a moment.
+        </div>
+        <button className="btn btn-secondary btn-sm" type="button" style={{ marginLeft: "auto" }} onClick={retry}>
+          <RotateCw className="ic sm" aria-hidden="true" />
+          Retry
+        </button>
+      </div>
+    );
+  } else if (season === undefined) {
+    body = (
+      <div className="panel panel-pad season-card" aria-busy="true" aria-label="Loading season">
+        <div style={{ display: "grid", gap: 10 }}>
+          <span className="sk" style={{ width: "22%" }} />
+          <span className="sk" style={{ width: "46%", height: 22 }} />
+        </div>
+        <div style={{ display: "grid", gap: 10, paddingTop: 14, borderTop: "1px solid var(--rule-lo)" }}>
+          <span className="sk" style={{ width: "58%" }} />
+          <span className="sk" style={{ width: "40%" }} />
+        </div>
+      </div>
+    );
+  } else if (season?.status === "active") {
+    body = confirmEnd ? (
+      <ConfirmPanel
+          title={`End Season ${season.number}?`}
+          confirmLabel={`End Season ${season.number}`}
+          cancelLabel="Keep it running"
+          onConfirm={() => void handleEnd()}
+          onCancel={() => {
+            setConfirmEnd(false);
+            setEndError(null);
+          }}
+          busy={endLoading}
+        >
+          <ul className="endlist">
+            <li>
+              <Lock className="ic sm" aria-hidden="true" />
+              <span><b>Standings freeze.</b>{" "}They&apos;re kept as Season {season.number}&apos;s final table.</span>
+            </li>
+            <li>
+              <RefreshCw className="ic sm" aria-hidden="true" />
+              <span><b>Nothing resets.</b>{" "}Elo, tiers, career winnings and achievements carry on.</span>
+            </li>
+            <li>
+              <AlertTriangle className="ic sm" aria-hidden="true" />
+              <span>
+                <b>Season {season.number + 1} starts by itself</b>{" "}
+                on the next approved match, with no name, unless you start it here first.
+              </span>
+            </li>
+          </ul>
+          {endError && (
+            <p className="ferr" role="alert">
+              <AlertTriangle className="ic sm" aria-hidden="true" />
+              {endError}
+            </p>
           )}
-        </div>
-      )}
-
-      {lastChampion && (
-        <div className="mb-4 rounded-lg border border-accent-primary/30 bg-accent-primary/10 px-4 py-3">
-          <p className="text-sm text-text-primary">
-            Last season champion:{" "}
-            <span className="font-semibold">{lastChampion.displayName}</span>{" "}
-            <span className="text-text-muted">({lastChampion.winnings} pts)</span>
-          </p>
-        </div>
-      )}
-
-      <div className="space-y-6">
-        {/* Start Season */}
-        {season?.status !== "active" && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-text-primary">Start New Season</h3>
-            <div>
-              <label htmlFor="season-name" className="mb-1 block text-xs text-text-secondary">
-                Season name (optional)
-              </label>
+      </ConfirmPanel>
+    ) : (
+      <SheetPanel
+        className="season-card"
+        headingLevel={3}
+        title={seasonTitle(season)}
+        aside={<small className="ssn">{`running · day ${seasonDay(season.startedAt)}`}</small>}
+        bodyClassName="stack"
+      >
+        <dl className="rows">
+          <div>
+            <dt>Started</dt>
+            <dd>{formatDate(season.startedAt)}</dd>
+          </div>
+        </dl>
+        <DangerZone className="in-sheet">
+          <DangerRow
+            title={`End Season ${season.number}`}
+            description="Freezes the standings as its final table. Nothing resets."
+            action={
+              <button
+                className="btn btn-danger btn-sm"
+                type="button"
+                onClick={() => {
+                  setEndError(null);
+                  setConfirmEnd(true);
+                }}
+              >
+                End season
+              </button>
+            }
+          />
+        </DangerZone>
+      </SheetPanel>
+    );
+  } else {
+    body = (
+      <div className="panel panel-pad season-card">
+        <p style={{ color: "var(--ink-3)", fontSize: 13 }}>No season running</p>
+        <form
+          onSubmit={(e) => void handleStart(e)}
+          style={{ display: "grid", gap: 12, paddingTop: 14, borderTop: "1px solid var(--rule-lo)" }}
+        >
+          <div>
+            <label className="label" htmlFor="season-name">
+              Name for the next season <span style={{ color: "var(--ink-3)" }}>optional</span>
+            </label>
+            <div style={{ display: "flex", gap: 10 }}>
               <input
+                className="input"
                 id="season-name"
                 type="text"
                 value={seasonName}
                 onChange={(e) => setSeasonName(e.target.value)}
-                placeholder="e.g. Spring 2025"
-                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent-primary focus:outline-none"
+                placeholder="e.g. Autumn Circuit"
               />
+              <button className="btn btn-primary" type="submit" style={{ flex: "none" }} disabled={startLoading} aria-busy={startLoading || undefined}>
+                Start season
+              </button>
             </div>
-            {startError && <p className="text-sm text-destructive">{startError}</p>}
-            <Button
-              variant="primary"
-              size="sm"
-              loading={startLoading}
-              onClick={() => void handleStart()}
-            >
-              Start Season
-            </Button>
           </div>
-        )}
-
-        {/* End Season */}
-        {season?.status === "active" && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-text-primary">End Season</h3>
-            {endError && <p className="text-sm text-destructive">{endError}</p>}
-            {confirmEnd ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-text-secondary">End Season {season.number}?</span>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  loading={endLoading}
-                  onClick={() => void handleEnd()}
-                >
-                  Confirm End
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={endLoading}
-                  onClick={() => setConfirmEnd(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            ) : (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => { setEndError(null); setConfirmEnd(true); }}
-              >
-                End Season
-              </Button>
-            )}
-          </div>
-        )}
+          <p className="small" style={{ color: "var(--ink-3)" }}>
+            Or leave it. The next approved match starts a new season with no name.
+          </p>
+          {startError && (
+            <p className="ferr" role="alert">
+              <AlertTriangle className="ic sm" aria-hidden="true" />
+              {startError}
+            </p>
+          )}
+        </form>
       </div>
+    );
+  }
+
+  return (
+    <section className="set-sec" aria-labelledby="set-season">
+      <div className="set-intro">
+        <h2 id="set-season">Season</h2>
+        <p>Leaderboard winnings and records count per season. Elo, career winnings and achievements never reset.</p>
+      </div>
+      <div className="stack" style={{ gap: 16 }}>{body}</div>
     </section>
   );
 }

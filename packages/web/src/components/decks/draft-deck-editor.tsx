@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { cx, sheetButtonClass, sheetRoot } from "@/components/duel/sheet-ui";
-import ui from "@/components/duel/sheet-ui.module.css";
+import { cn } from "@/lib/utils";
+import { SheetRoot } from "@/components/sheet";
 import { getDraftDeckPool } from "./api";
 import { SavedDeckEditor } from "./editor";
+import { useEditorViewport } from "./editor-viewport";
 import type { DraftDeckPool } from "./pool-model";
 import styles from "./editor.module.css";
 
@@ -16,6 +17,7 @@ import styles from "./editor.module.css";
 export function DraftDeckEditor({ slug }: { slug: string }) {
   const [pool, setPool] = useState<DraftDeckPool | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { editorRef } = useEditorViewport(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,17 +34,17 @@ export function DraftDeckEditor({ slug }: { slug: string }) {
 
   if (error) {
     return (
-      <div className={cx(sheetRoot, styles.editor, styles.center)}>
-        <p role="alert" className={ui.alert}>{error}</p>
-        <Link href={`/draft/${slug}`} className={sheetButtonClass("secondary")}>Back to the draft</Link>
-      </div>
+      <SheetRoot className={cn(styles.host, styles.center)} data-pool>
+        <p ref={editorRef} role="alert" className="banner banner-bad">{error}</p>
+        <Link href={`/draft/${slug}`} className="btn btn-secondary">Back to the draft</Link>
+      </SheetRoot>
     );
   }
   if (!pool) {
     return (
-      <div className={cx(sheetRoot, styles.editor, styles.center)}>
-        <p className={ui.hint}>Loading your draft pool…</p>
-      </div>
+      <SheetRoot className={cn(styles.host, styles.center)} data-pool>
+        <p ref={editorRef} className="small">Loading your draft pool…</p>
+      </SheetRoot>
     );
   }
   return (

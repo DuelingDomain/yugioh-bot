@@ -1,65 +1,34 @@
-/* Deck editor card preview: the left pane shows the card under the pointer, large enough to read. */
-
-.preview {
-  display: grid;
-  align-content: start;
-  gap: 10px;
-  padding: 18px 18px 16px;
-}
-
-/* The art takes at most about 45% of the pane height, so most card text fits below it without scrolling.
-   .art also carries the global card-frame rule (app/globals.css): true ratio, no crop, hairline radius. */
+/* The board's card reader. Full card art keeps its printed frame. */
+.de-card { display: grid; align-content: start; gap: 10px; }
 .art {
-  width: min(100%, 360px, calc(31dvh - 16px));
-  margin: 0 auto 6px;
+  position: relative;
+  width: min(100%, 200px);
+  margin: 0 auto;
+  aspect-ratio: 421 / 614;
+  border-radius: 3px;
   background: #06080e;
-  box-shadow: 0 14px 34px rgb(0 0 0 / 0.55);
+  box-shadow: 0 0 0 1px rgb(239 231 213 / 0.1), 0 24px 40px -24px #000;
 }
 .art > img {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 3px;
 }
+.de-art { justify-self: center; }
 .full { opacity: 0; transition: opacity 120ms ease-out; }
 .full[data-loaded="true"] { opacity: 1; }
-
-.name {
-  color: var(--duel-ink);
-  font-size: 21px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  line-height: 1.2;
-  overflow-wrap: anywhere;
-}
-
-.facts {
-  display: grid;
-  gap: 2px;
-  color: var(--duel-ink-2);
-  font-size: 14px;
-  line-height: 1.4;
-}
-.combat {
-  padding-top: 3px;
-  color: var(--duel-ink);
-  font-size: 22px;
-  line-height: 1.1;
-}
-
-.text {
-  padding-top: 10px;
-  border-top: 1px solid var(--duel-rule-lo);
-  color: var(--duel-ink);
-  font-size: 15px;
-  line-height: 1.55;
-  white-space: pre-line;
-  overflow-wrap: anywhere;
-}
-
-.code {
-  color: var(--duel-ink-3);
-  font-size: 12.5px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .full { transition: none; }
-}
+.de-cn { font: 400 20px/1.15 var(--f-disp); letter-spacing: -0.005em; overflow-wrap: anywhere; }
+.de-facts { display: flex; flex-wrap: wrap; gap: 3px 10px; color: var(--ink-3); font-size: 12.5px; }
+.de-text { color: var(--ink-2); font-size: 13.5px; line-height: 1.55; white-space: pre-line; overflow-wrap: anywhere; }
+.de-pc { color: var(--ink-4); font-size: 12px; }
+.de-card[data-compact] { grid-template-columns: 72px minmax(0, 1fr); gap: 5px 12px; padding-right: 36px; }
+.de-card[data-compact] .de-art { grid-column: 1; grid-row: 1 / 4; width: 72px; margin: 0; }
+.de-card[data-compact] .de-cn { grid-column: 2; }
+.de-card[data-compact] .de-facts { grid-column: 2; align-content: start; }
+.copySummary { grid-column: 2; }
+.de-card[data-compact] .de-text, .de-card[data-compact] .de-pc { grid-column: 1 / -1; }
+.de-card[data-compact] .de-text { max-height: 4.65em; overflow: auto; margin-top: 8px; }
+@media (prefers-reduced-motion: reduce) { .full { transition: none; } }

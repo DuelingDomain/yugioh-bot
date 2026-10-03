@@ -51,6 +51,9 @@ const KIND_LABEL: Record<string, string> = {
   position: "Position",
 };
 
+type ConfirmationAnnouncement = { id: number; text: string };
+const MAX_CONFIRMATION_ANNOUNCEMENTS = 400;
+
 function publicCard(event: DuelEvent): DuelCardInfo | null {
   const card = event.card;
   if (card == null || card.code <= 0) return null;
@@ -177,6 +180,7 @@ export function DuelFeedback({
   replayFrom = null,
 }: DuelFeedbackProps) {
   const [current, setCurrent] = useState<{ event: DuelEvent; durationMs: number } | null>(null);
+  const [confirmations, setConfirmations] = useState<ConfirmationAnnouncement[]>([]);
   const currentRef = useRef<DuelEvent | null>(null);
   const queueRef = useRef<DuelEvent[]>([]);
   const cursorRef = useRef<number | null>(null);
@@ -286,6 +290,7 @@ export function DuelFeedback({
       }
       currentRef.current = null;
       setCurrent(null);
+      setConfirmations([]);
       for (const timer of holdTimersRef.current) window.clearTimeout(timer);
       holdTimersRef.current.clear();
       audioRef.current?.stopAll();
@@ -301,6 +306,7 @@ export function DuelFeedback({
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
     const toasts: DuelEvent[] = [];
+    const announcements: ConfirmationAnnouncement[] = [];
     const now = performance.now();
     // The phases of a turn start come one beat at a time, after the cards that come before them have landed.
     planPhaseBeats(events, before, { now, reduced: reducedRef.current, duelKey });
@@ -318,9 +324,16 @@ export function DuelFeedback({
       }
     };
     for (const event of fresh) {
+      // MoveFx owns the confirmation picture. Keep its public identity accessible without
+      // queuing a second banner or a sound (confirm has no audio mapping).
+      if (event.kind === "confirm") {
+        const card = publicCard(event);
+        if (card) announcements.push({ id: event.id, text: event.text.trim() || `Confirmed ${card.name}` });
+        continue;
+      }
       // The battle layer draws damage on the life points; MoveFx draws card movement and
       // PositionFx the turn or flip of a monster: none of them get a toast.
-      if (event.kind === "damage" || event.kind === "move" || event.kind === "equip" || isPositionEvent(event)) continue;
+      if (event.kind === "target" || event.kind === "damage" || event.kind === "move" || event.kind === "equip" || isPositionEvent(event)) continue;
       // When the board plays it: the chain beat of a chain event (ChainFx), or the moment a link's
       // own effect may start (chain-beats.ts). 0 when nothing holds it, as in the replay.
       const chainAt = Math.max(chainBeatAt(event.id), chainEffectAt(event.id));
@@ -353,25 +366,37 @@ export function DuelFeedback({
       }
       toasts.push(event);
     }
+    if (announcements.length > 0) {
+      setConfirmations((current) => {
+        // Strict Mode may replay the initial effects; each event remains one live-log addition.
+        const have = new Set(current.map((entry) => entry.id));
+        return [...current, ...announcements.filter((entry) => !have.has(entry.id))].slice(-MAX_CONFIRMATION_ANNOUNCEMENTS);
+      });
+    }
     if (toasts.length === 0) return;
     queueRef.current.push(...toasts);
     startNextRef.current();
   }, [duelKey, events]);
 
   return (
-    <div
-      className={styles.overlay}
-      data-phase={current?.event.kind === "phase" ? "true" : "false"}
-      role="status"
-    >
-      {current ? (
-        <FeedbackCue
-          key={current.event.id}
-          event={current.event}
-          reducedMotion={reducedMotion}
-          durationMs={current.durationMs}
-        />
-      ) : null}
-    </div>
+    <>
+      <div
+        className={styles.overlay}
+        data-phase={current?.event.kind === "phase" ? "true" : "false"}
+        role="status"
+      >
+        {current ? (
+          <FeedbackCue
+            key={current.event.id}
+            event={current.event}
+            reducedMotion={reducedMotion}
+            durationMs={current.durationMs}
+          />
+        ) : null}
+      </div>
+      <div className={styles.sr} role="log" aria-label="Card confirmations" aria-live="polite" aria-relevant="additions">
+        {confirmations.map((entry) => <p key={entry.id}>{entry.text}</p>)}
+      </div>
+    </>
   );
 }

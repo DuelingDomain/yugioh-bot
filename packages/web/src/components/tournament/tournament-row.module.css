@@ -1,0 +1,15 @@
+/* The row's board grid assumes a track column; the list has no per-row match counts yet,
+   so the row is name + side. Doubled class names keep this ahead of the board's own rule. */
+:global(.ms) .row:global(.tl-row) { grid-template-columns: minmax(0, 1fr) auto; }
+.row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.row > :global(.tl-side) { align-self: center; justify-self: end; }
+.row:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+.fin a { color: inherit; }
+.fin a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.fin a:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; border-radius: 3px; }
+.more { background: none; border: 0; cursor: pointer; color: var(--ink-3); font: inherit; font-size: 12.5px; letter-spacing: 0; text-decoration: underline; text-underline-offset: 3px; }
+.more:hover { color: var(--ink); }
+.more:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+.fin tr { position: relative; }
+.fin a::after { content: ""; position: absolute; inset: 0; }
+.fin td:first-child { white-space: normal; min-width: 160px; }

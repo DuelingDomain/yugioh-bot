@@ -29,7 +29,6 @@ import {
   tint,
   toggled,
   urgencyFor,
-  countKinds,
   type Kind,
   type RoomCard,
   type RoomConfigLike,
@@ -561,7 +560,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   );
 
   const dial = dialModel(pool, sizes);
-  const poolCounts = useMemo(() => countKinds(pool), [pool]);
   const last = useMemo(() => {
     const out: Partial<Record<Kind, RoomCard>> = {};
     for (const c of [...pool].reverse()) {
@@ -607,8 +605,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const pickable = !!reading && turn === "picking";
 
   /* ---------- keys: 1-9 choose, arrows move, Enter picks, / searches, Esc closes ---------- */
-  const latest = useRef({ rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, doPick, select, openSheet, closeSheets });
-  latest.current = { rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, doPick, select, openSheet, closeSheets };
+  const latest = useRef({ rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets });
+  latest.current = { rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const L = latest.current;
@@ -618,7 +616,12 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const num = parseNumberKey(e.key);
-      if (num != null || e.key.startsWith("Arrow")) setKbd(true);
+      if (num != null || e.key.startsWith("Arrow")) {
+        if (L.motionOpen || L.sheet != null || L.drawerOpen) return;
+        if (e.key.startsWith("Arrow") && e.target instanceof Element && !e.target.closest(".tcard") &&
+          e.target.closest('button, a[href], [role="button"], [role="tab"], [contenteditable="true"]')) return;
+        setKbd(true);
+      }
       if (e.key === "/") {
         e.preventDefault();
         if (L.phone || L.drawer) L.openSheet("binder");
@@ -641,8 +644,10 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         else if (e.key === "ArrowDown") i = Math.min(order.length - 1, i + cols);
         L.select(order[i], true);
       } else if (e.key === "Enter") {
-        // a focused button handles its own Enter
-        if (e.target instanceof Element && e.target.closest("button")) return;
+        // focused controls handle their own Enter; table cards use the room shortcut
+        if (e.target instanceof Element && e.target.closest(
+          'a[href], button, [role="button"]:not(.tcard), [role="tab"], [role="menuitem"], summary, [contenteditable]:not([contenteditable="false"])',
+        )) return;
         if (L.selectedId != null && L.turn === "picking") {
           e.preventDefault();
           L.doPick(L.selectedId);
@@ -807,7 +812,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               of={dial.of}
               label={dial.label}
               phaseCounts={dial.counts}
-              poolCounts={poolCounts}
+              poolCounts={dial.counts}
               last={last}
               active={filter.kinds}
               landed={landed}

@@ -26,7 +26,7 @@ function lobby(options: Parameters<typeof makeSeriesRoom>[0], mySeat: number | n
   room.session.seats[0].ready = ready[0];
   room.session.seats[1].ready = ready[1];
   const handlers = {
-    onJoin: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn(),
+    onTakeSeat: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn(),
   };
   render(<RoomLobby room={room} slug="game-1" busy={false} actionError={null} {...handlers} />);
   return handlers;
@@ -87,6 +87,7 @@ describe("RoomLobby for a casual series", () => {
 
 describe("RoomLobby practice bot note", () => {
   const NOTE = "Games against the practice bot do not count. This table plays one game and records nothing.";
+  const BEST_OF_3_NOTE = "Best of 3 works against the practice bot, with side decking between games. The match never counts.";
 
   function openTable(extra: { bestOf?: 1 | 3; ranked?: boolean; bot?: boolean; seats?: number }) {
     const room = makeSeriesRoom({ series: null, status: "lobby", mySeat: 0 });
@@ -95,15 +96,16 @@ describe("RoomLobby practice bot note", () => {
     room.session.ranked = extra.ranked ?? false;
     room.session.seats = room.session.seats.slice(0, extra.seats ?? 1);
     if (extra.bot) room.session.seats.push({ seat: 1, playerId: null, displayName: "Practice Bot", ready: true, isBot: true } as never);
-    const handlers = { onJoin: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
+    const handlers = { onTakeSeat: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
     render(<RoomLobby room={room} slug="game-1" busy={false} actionError={null} {...handlers} />);
     return handlers;
   }
 
-  it("shows the note beside Add practice bot on a Best of 3 table", () => {
+  it("says on a Best of 3 table that the match against the practice bot has side decking and never counts", () => {
     openTable({ bestOf: 3 });
     expect(screen.getByRole("button", { name: /Add practice bot/ })).toBeTruthy();
-    expect(screen.getByText(NOTE)).toBeTruthy();
+    expect(screen.getByText(BEST_OF_3_NOTE)).toBeTruthy();
+    expect(screen.queryByText(NOTE)).toBeNull();
   });
 
   it("shows the note on a ranked table", () => {
@@ -114,7 +116,7 @@ describe("RoomLobby practice bot note", () => {
   it("shows the note once the bot is seated", () => {
     openTable({ bestOf: 3, bot: true });
     expect(screen.queryByRole("button", { name: /Add practice bot/ })).toBeNull();
-    expect(screen.getByText(NOTE)).toBeTruthy();
+    expect(screen.getByText(BEST_OF_3_NOTE)).toBeTruthy();
   });
 
   it("stays quiet on a plain Best of 1 unranked table", () => {
@@ -126,6 +128,7 @@ describe("RoomLobby practice bot note", () => {
   it("stays quiet on a Best of 3 table with two human players", () => {
     openTable({ bestOf: 3, seats: 2 });
     expect(screen.queryByText(NOTE)).toBeNull();
+    expect(screen.queryByText(BEST_OF_3_NOTE)).toBeNull();
   });
 });
 
@@ -135,7 +138,7 @@ describe("RoomLobby remove practice bot", () => {
     room.session.settings = defaultDuelSettings("normal");
     room.session.seats = room.session.seats.slice(0, 1);
     if (options.bot !== false) room.session.seats.push({ seat: 1, playerId: null, displayName: "Practice Bot", ready: true, isBot: true } as never);
-    const handlers = { onJoin: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
+    const handlers = { onTakeSeat: vi.fn(), onAddBot: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onMarkReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
     render(<RoomLobby room={room} slug="game-1" busy={false} actionError={null} {...handlers} />);
     return handlers;
   }

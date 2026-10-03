@@ -1,6 +1,11 @@
-:80 {
+{$SITE_DOMAIN} {
     handle /socket.io/* {
         reverse_proxy ws:3001
     }
     reverse_proxy web:3000
+}
+
+# Canonical host, including old HTTP IP links posted in Discord.
+www.{$SITE_DOMAIN}, http:// {
+    redir https://{$SITE_DOMAIN}{uri} 308
 }

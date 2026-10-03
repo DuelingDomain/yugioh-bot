@@ -22,7 +22,7 @@
  * Reduced motion: no travel, a 150 ms fade at the destination.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import type { DuelEvent } from "@yugidraft/shared/duels";
+import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
 import { collectFreshEvents, findZoneElement, maxEventId } from "./event-queue";
 import {
@@ -38,6 +38,7 @@ import { beginDestroyHide, beginPileHold, startDestroyHideGuard } from "./destro
 import { SHARDS, Track } from "./summon-fx";
 import { CARD_FX } from "./duel-timing";
 import { ShowcaseGhost } from "./add-fx";
+import { ConfirmGhost, CONFIRM_MS } from "./confirm-fx";
 
 export type MoveFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -644,6 +645,10 @@ function useHandFlip(boardOf: () => HTMLElement | null, reducedRef: { current: b
 export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: MoveFxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<MovePlan[]>([]);
+  const [confirmations, setConfirmations] = useState<DuelEvent[]>([]);
+  const [confirmedCards, setConfirmedCards] = useState<Map<number, DuelCardInfo>>(new Map());
+  const confirmUntilRef = useRef(0);
+  const shownConfirmationsRef = useRef<Set<number>>(new Set());
   const [overlay, setOverlay] = useState<HTMLDivElement | null>(null);
   const cursorRef = useRef<number | null>(null);
   const keyRef = useRef(duelKey);
@@ -686,6 +691,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
       clearAll();
       // A remount (React strict mode) reads the first events again, so a replayed opening is not lost.
       cursorRef.current = null;
+      confirmUntilRef.current = 0;
     },
     [],
   );
@@ -697,6 +703,10 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
       clearAll();
       resetMoveSchedule(duelKey);
       setItems([]);
+      setConfirmations([]);
+      setConfirmedCards(new Map());
+      confirmUntilRef.current = 0;
+      shownConfirmationsRef.current.clear();
     }
     if (cursorRef.current == null) {
       cursorRef.current = replayRef.current ?? maxEventId(events) ?? 0;
@@ -709,8 +719,40 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
 
     const now = performance.now();
     planMoves(fresh, { now, reduced: reducedRef.current, duelKey });
+    const confirmedMoves = fresh.filter((event) => event.kind === "confirm" && event.moveId != null && event.card);
+    if (confirmedMoves.length > 0) {
+      setConfirmedCards((current) => {
+        // Keep identities for queued showcases even after their events leave the rolling window.
+        const next = new Map([...current].filter(([id]) => getMovePlan(id) != null));
+        for (const event of confirmedMoves) next.set(event.moveId!, event.card!);
+        return next;
+      });
+    }
     const started: MovePlan[] = [];
     for (const event of fresh) {
+      if (event.kind === "confirm" && event.card?.code) {
+        const move = event.moveId != null ? getMovePlan(event.moveId) : null;
+        // An active addition uses this identity in its showcase, including later snapshots.
+        if (move?.showcase && now < move.landAt) continue;
+        const startAt = Math.max(now, move?.landAt ?? now, confirmUntilRef.current);
+        confirmUntilRef.current = startAt + CONFIRM_MS;
+        const show = () => {
+          // Record presentation, not scheduling: cleanup cancels queued timers, so those cards
+          // must still be eligible when Strict Mode rebuilds the queue from its replay cursor.
+          if (shownConfirmationsRef.current.has(event.id)) return;
+          shownConfirmationsRef.current.add(event.id);
+          setConfirmations((current) => [...current, event]);
+        };
+        if (startAt <= now) show();
+        else {
+          const timer = window.setTimeout(() => {
+            timersRef.current.delete(timer);
+            show();
+          }, startAt - now);
+          timersRef.current.add(timer);
+        }
+        continue;
+      }
       const plan = event.kind === "move" ? getMovePlan(event.id) : null;
       // A big summon draws its own arrival (SummonFx): no ghost, and it hides the real card itself.
       if (!plan || plan.silent) continue;
@@ -760,6 +802,12 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
   const finish = (id: number) => {
     release(id);
     setItems((current) => current.filter((item) => item.id !== id));
+    setConfirmedCards((current) => {
+      if (!current.has(id)) return current;
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
   };
 
   return (
@@ -767,12 +815,15 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
       {overlay
         ? items.map((plan) => (
             plan.style === "add" ? (
-              <ShowcaseGhost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
+              <ShowcaseGhost key={plan.id} plan={plan} confirmedCard={confirmedCards.get(plan.id)} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
             ) : (
               <Ghost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
             )
           ))
         : null}
+      {overlay ? confirmations.map((event) => (
+        <ConfirmGhost key={event.id} event={event} overlay={overlay} done={() => setConfirmations((current) => current.filter((item) => item.id !== event.id))} />
+      )) : null}
     </div>
   );
 }

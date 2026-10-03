@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftStore } from "../../../src/lib/stores/draft-store";
 
@@ -127,6 +127,121 @@ describe("DraftRoom", () => {
     fireEvent.keyDown(document.body, { key: "Enter" });
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toEqual({ cardId: 3 });
+  });
+
+  it("does not pick the selected card when Enter is pressed on the focused Back to drafts link", async () => {
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    fireEvent.click(card(1));
+    expect(card(1)).toHaveAttribute("data-sel");
+    const link = screen.getByRole("link", { name: "Back to drafts" });
+    act(() => link.focus());
+    expect(link).toHaveFocus();
+
+    const event = createEvent.keyDown(link, { key: "Enter" });
+    fireEvent(link, event);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    expect(card(1)).toHaveAttribute("data-sel");
+  });
+
+  it("chooses a card by digit while a filter button has focus", async () => {
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    const filter = screen.getByRole("button", { name: "0 Monsters. Show them." });
+    act(() => filter.focus());
+    fireEvent.click(filter);
+    expect(filter).toHaveFocus();
+
+    const event = createEvent.keyDown(filter, { key: "3" });
+    fireEvent(filter, event);
+    expect(card(3)).toHaveAttribute("data-sel");
+    expect(card(3)).toHaveFocus();
+    expect(event.defaultPrevented).toBe(true);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "2"])(
+    "leaves focus and selection alone for %s in the Animations dialog",
+    async (key) => {
+      renderRoom();
+      await waitFor(() => expect(card(1)).toBeTruthy());
+      act(() => card(1).focus());
+      fireEvent.click(screen.getByRole("button", { name: /animations/i }));
+      const menu = screen.getByRole("dialog", { name: "Animations" });
+      const chosen = within(menu).getByRole("button", { pressed: true });
+      expect(chosen).toHaveFocus();
+
+      const event = createEvent.keyDown(chosen, { key });
+      fireEvent(chosen, event);
+      expect(chosen).toHaveFocus();
+      expect(card(1)).toHaveAttribute("data-sel");
+      expect(card(2)).not.toHaveAttribute("data-sel");
+      expect(event.defaultPrevented).toBe(false);
+    },
+  );
+
+  it.each([
+    { control: "binder breakdown toggle", role: "button", name: /Breakdown/ },
+    { control: "tray counter", role: "button", name: "0 Monsters. Show them." },
+    { control: "room link", role: "link", name: "Back to drafts" },
+  ])("leaves arrow navigation alone when the $control has focus", async ({ role, name }) => {
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    act(() => card(1).focus());
+    const control = screen.getByRole(role, { name });
+    act(() => control.focus());
+
+    for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
+      const event = createEvent.keyDown(control, { key });
+      fireEvent(control, event);
+      expect(control).toHaveFocus();
+      expect(card(1)).toHaveAttribute("data-sel");
+      expect(card(2)).not.toHaveAttribute("data-sel");
+      expect(event.defaultPrevented).toBe(false);
+    }
+  });
+
+  it.each(["phone", "drawer"])("ignores card navigation while the %s binder overlay is open", async (viewport) => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === (viewport === "phone" ? "(max-width: 900px)" : "(max-width: 1359px) and (min-width: 901px)"),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    try {
+      renderRoom();
+      await waitFor(() => expect(card(1)).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: "Your picks: 0 of 6. Open your picks." }));
+      const room = screen.getByRole("dialog", { name: "Draft room" });
+      expect(room).toHaveAttribute(viewport === "phone" ? "data-sheet" : "data-binder", viewport === "phone" ? "binder" : "");
+
+      for (const key of ["ArrowRight", "2"]) {
+        const event = createEvent.keyDown(document.body, { key });
+        fireEvent(document.body, event);
+        expect(card(1)).not.toHaveAttribute("data-sel");
+        expect(card(2)).not.toHaveAttribute("data-sel");
+        expect(event.defaultPrevented).toBe(false);
+      }
+
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(room).not.toHaveAttribute(viewport === "phone" ? "data-sheet" : "data-binder");
+      fireEvent.keyDown(document.body, { key: "ArrowRight" });
+      expect(card(1)).toHaveFocus();
+      expect(card(1)).toHaveAttribute("data-sel");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("moves between focused table cards with arrow keys", async () => {
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    act(() => card(1).focus());
+    const event = createEvent.keyDown(card(1), { key: "ArrowRight" });
+    fireEvent(card(1), event);
+    expect(card(2)).toHaveFocus();
+    expect(card(2)).toHaveAttribute("data-sel");
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("does not pick when it is no longer your turn", async () => {
@@ -378,31 +493,6 @@ describe("DraftRoom", () => {
   });
 
   it.each([
-    { extraPicks: 0, gradient: "conic-gradient(rgb(255 255 255 / 0.07) 0% 100%)" },
-    {
-      extraPicks: 5,
-      gradient: "conic-gradient(var(--k-extra) 0% 33.33333333333333%, rgb(255 255 255 / 0.07) 33.33333333333333% 100%)",
-    },
-  ])("uses only $extraPicks extra picks in the theme dial after forty main picks", async ({ extraPicks, gradient }) => {
-    localStorage.setItem("yugidraft-room-motion", "off");
-    load({
-      myPool: [
-        ...Array.from({ length: 40 }, (_, i) => mk(i + 100)),
-        ...Array.from({ length: extraPicks }, (_, i) => mk(i + 200, { type: "Fusion Monster", frameType: "fusion" })),
-      ],
-    });
-    renderRoom({ ...config, mode: "theme", cardsPerPlayer: 40, extraDeckSize: 15 });
-
-    const dial = await screen.findByRole("button", { name: `Your picks: ${extraPicks} of 15. Open your picks.` });
-    const face = dial.querySelector<HTMLElement>(".face")!;
-    expect(face.textContent).toBe(String(extraPicks));
-    expect(within(dial).getByText("of 15 extra")).toBeTruthy();
-    expect(face.style.getPropertyValue("--mix")).toBe(gradient);
-    expect(screen.getByRole("button", { name: "40 Monsters. Show them." })).toBeTruthy();
-    expect(screen.getByRole("button", { name: `${extraPicks} Extra deck. Show them.` })).toBeTruthy();
-  });
-
-  it.each([
     { name: "booster", mode: "booster" as const },
     { name: "cube", mode: undefined },
   ])("preserves the whole-pool ring and counters in $name mode", async ({ mode }) => {
@@ -427,6 +517,37 @@ describe("DraftRoom", () => {
     for (const label of ["Monsters", "Spells", "Traps", "Extra deck"]) {
       expect(screen.getByRole("button", { name: `1 ${label}. Show them.` })).toBeTruthy();
     }
+  });
+
+  it("resets the theme tray counts and dial mix for the Extra Deck phase", async () => {
+    const main = [
+      mk(10), mk(11),
+      mk(12, { type: "Normal Spell Card", frameType: "spell" }),
+      mk(13, { type: "Normal Trap Card", frameType: "trap" }),
+    ];
+    load({ myPool: main.slice(0, 3) });
+    renderRoom({ ...config, mode: "theme", cardsPerPlayer: 4, extraDeckSize: 2 });
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    const tray = within(screen.getByRole("region", { name: "Draft table" }));
+    expect(tray.getByRole("button", { name: "2 Monsters. Show them." })).toBeTruthy();
+    expect(tray.getByRole("button", { name: "1 Spells. Show them." })).toBeTruthy();
+
+    act(() => useDraftStore.setState({ myPool: main } as never));
+    expect(tray.getByRole("button", { name: "Your picks: 0 of 2. Open your picks." })).toBeTruthy();
+    for (const kind of ["Monsters", "Spells", "Traps", "Extra deck"]) {
+      expect(tray.getByRole("button", { name: `0 ${kind}. Show them.` })).toBeTruthy();
+    }
+
+    act(() => useDraftStore.setState({
+      myPool: [...main, mk(14, { type: "Fusion Monster", frameType: "fusion" })],
+    } as never));
+    const dial = tray.getByRole("button", { name: "Your picks: 1 of 2. Open your picks." });
+    expect(tray.getByRole("button", { name: "1 Extra deck. Show them." })).toBeTruthy();
+    for (const kind of ["Monsters", "Spells", "Traps"]) {
+      expect(tray.getByRole("button", { name: `0 ${kind}. Show them.` })).toBeTruthy();
+    }
+    const mix = dial.querySelector<HTMLElement>(".face")!.style.getPropertyValue("--mix");
+    expect(mix.match(/\d+(?:\.\d+)?%/g)).toEqual(["0%", "50%", "50%", "100%"]);
   });
 
   it("restores the page behind it on unmount", async () => {

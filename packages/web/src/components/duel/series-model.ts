@@ -16,6 +16,34 @@ export function seriesPlayerIndex(room: Pick<DuelRoom, "session" | "mySeat">, se
   return index === 0 ? 0 : index === 1 ? 1 : null;
 }
 
+/** The series index (0 or 1) of the seat on screen. The practice bot is index 1 and has no player id. */
+export function seatSeriesIndex(series: Pick<DuelSeriesSummary, "playerIds">, seat: { playerId: number | null; isBot?: boolean } | undefined): 0 | 1 | null {
+  if (!seat) return null;
+  if (seat.isBot) return 1;
+  const index = seat.playerId == null ? -1 : series.playerIds.indexOf(seat.playerId);
+  return index === 0 ? 0 : index === 1 ? 1 : null;
+}
+
+/** Who won a finished series, as a series index; null for a draw or an open series. */
+export function seriesWinnerIndex(series: Pick<DuelSeriesSummary, "winnerPlayerId" | "playerIds" | "status" | "vsBot" | "wins">): 0 | 1 | null {
+  if (series.winnerPlayerId != null) {
+    const index = series.playerIds.indexOf(series.winnerPlayerId);
+    return index === 0 ? 0 : index === 1 ? 1 : null;
+  }
+  // The practice bot has no player id: it won when the series is over and its score leads.
+  return series.vsBot && series.status === "completed" && series.wins[1] > series.wins[0] ? 1 : null;
+}
+
+/**
+ * The note for a table that may play the practice bot, or null when nothing needs saying. A Best of 3
+ * against the bot is a full match with side decking; it never counts, like every bot game.
+ */
+export function practiceBotNote(bestOf: 1 | 3): string {
+  return bestOf === 3
+    ? "Best of 3 works against the practice bot, with side decking between games. The match never counts."
+    : "Games against the practice bot do not count. This table plays one game and records nothing.";
+}
+
 export function isSeriesOpen(series: Pick<DuelSeriesSummary, "status">): boolean {
   return series.status === "active" || series.status === "between_games";
 }
@@ -35,13 +63,14 @@ export function seriesLengthLabel(series: Pick<DuelSeriesSummary, "bestOf">): st
 }
 
 /** Badge text for the kind of match: tournament, ranked or unranked. */
-export function seriesKindLabel(series: Pick<DuelSeriesSummary, "tournamentId" | "ranked">): string {
-  return series.tournamentId != null ? "Tournament" : series.ranked ? "Ranked" : "Unranked";
+export function seriesKindLabel(series: Pick<DuelSeriesSummary, "tournamentId" | "ranked"> & { vsBot?: boolean }): string {
+  return series.vsBot ? "Practice" : series.tournamentId != null ? "Tournament" : series.ranked ? "Ranked" : "Unranked";
 }
 
 /** What the finished series did with the result; null while it is still open or was cancelled. */
 export function seriesRecordLabel(series: DuelSeriesSummary): string | null {
   if (series.status !== "completed") return null;
+  if (series.vsBot) return "Practice match. No result recorded";
   if (series.winnerPlayerId == null) return "Draw. No result recorded";
   if (series.tournamentId != null) return "Recorded to the bracket";
   return series.ranked ? "Ranked result recorded" : "Unranked";
@@ -57,8 +86,8 @@ export function seriesOutcome(series: DuelSeriesSummary, index: 0 | 1 | null): S
   if (series.status === "cancelled") return { headline: "Series cancelled", detail: "No result was recorded." };
   if (series.status !== "completed") return null;
   const score = seriesScoreForViewer(series, index);
-  const winnerIndex = series.winnerPlayerId == null ? -1 : series.playerIds.indexOf(series.winnerPlayerId);
-  if (winnerIndex < 0) return { headline: "Series drawn", detail: `Final score ${score}` };
+  const winnerIndex = seriesWinnerIndex(series);
+  if (winnerIndex == null) return { headline: "Series drawn", detail: `Final score ${score}` };
   const name = series.displayNames[winnerIndex];
   const headline = index == null ? `${name} wins the series` : winnerIndex === index ? "You win the series" : `${name} wins the series`;
   return { headline, detail: `Final score ${score}` };
@@ -79,15 +108,22 @@ export function formatCountdown(seconds: number): string {
 }
 
 /**
- * The slug a seated series player should follow. Set when the series is still open and its latest
- * game is another duel than the one on screen. A finished series never moves anyone, so match
- * history can still open an old game.
+ * The slug the viewer should follow. Set when the series is still open and its latest game is
+ * another duel than the one on screen. A seated series player always follows. A spectator follows
+ * only with `followAsSpectator`: the room sets it once the spectator has watched this game while it
+ * was the series' current game, so someone who opens an older game from history stays on it. A
+ * finished series never moves anyone.
  */
-export function nextGameTarget(room: Pick<DuelRoom, "session" | "mySeat" | "series">, slug: string): string | null {
+export function nextGameTarget(
+  room: Pick<DuelRoom, "session" | "mySeat" | "series">,
+  slug: string,
+  options: { followAsSpectator?: boolean } = {},
+): string | null {
   const series = room.series;
   if (!series || !isSeriesOpen(series)) return null;
   if (!series.currentDuelSlug || series.currentDuelSlug === slug) return null;
-  return seriesPlayerIndex(room, series) == null ? null : series.currentDuelSlug;
+  if (seriesPlayerIndex(room, series) != null) return series.currentDuelSlug;
+  return options.followAsSpectator ? series.currentDuelSlug : null;
 }
 
 /** True when the side-deck window is open for this game: the series waits between games on this duel. */
@@ -142,9 +178,9 @@ export interface BetweenGamesInfo {
 
 /**
  * What the between-games screen says: how the last game ended, which game is next and who goes
- * first in it. The loser of the last game goes first; after a draw or an interrupted game the seats
- * swap (the same rule as `createNextGame` in the shared series service). Null unless the series
- * waits between games on this duel.
+ * first in it. After a decided game the loser chooses to go first or second (default first); after
+ * a draw or an interrupted game the seats swap (the same rules as `createNextGame` in the shared
+ * series service). Null unless the series waits between games on this duel.
  */
 export function betweenGamesInfo(room: Pick<DuelRoom, "session" | "mySeat" | "series">, slug: string): BetweenGamesInfo | null {
   const series = room.series;
@@ -153,26 +189,74 @@ export function betweenGamesInfo(room: Pick<DuelRoom, "session" | "mySeat" | "se
   const played = room.session.gameNumber ?? series.gameNumber;
   const score = seriesCompactScore(series, index);
   const { session } = room;
-  const winnerId = session.winnerPlayerId
-    ?? (session.winnerSeat == null ? null : session.seats.find((seat) => seat.seat === session.winnerSeat)?.playerId ?? null);
-  const winnerIndex = winnerId == null ? -1 : series.playerIds.indexOf(winnerId);
+  // The winner is the seat that won; the practice bot has no player id, so go through the seat.
+  const winnerSeat = session.winnerSeat != null
+    ? session.seats.find((seat) => seat.seat === session.winnerSeat)
+    : session.winnerPlayerId != null ? session.seats.find((seat) => seat.playerId === session.winnerPlayerId) : undefined;
+  const winnerIndex = seatSeriesIndex(series, winnerSeat);
 
   let result: string;
-  let firstIndex: number;
-  let why: string;
-  if (session.status === "completed" && winnerIndex >= 0) {
+  let first: string;
+  if (session.status === "completed" && winnerIndex != null) {
     const won = index == null ? series.displayNames[winnerIndex] : winnerIndex === index ? "you" : series.displayNames[winnerIndex];
     result = `Game ${played} won by ${won} · ${score}`;
-    firstIndex = winnerIndex === 0 ? 1 : 0;
-    why = `the loser of game ${played} goes first`;
+    first = firstLine(series, index, winnerIndex === 0 ? 1 : 0);
   } else {
     result = session.status === "completed" ? `Game ${played} was a draw · ${score}` : `Game ${played} did not finish · ${score}`;
-    const second = session.seats.find((seat) => seat.seat === 1)?.playerId;
-    firstIndex = second == null ? 0 : Math.max(0, series.playerIds.indexOf(second));
-    why = "the seats swap";
+    const secondIndex = seatSeriesIndex(series, session.seats.find((seat) => seat.seat === 1));
+    // The seats swap: the player in seat 1 now goes first.
+    const firstIndex = secondIndex ?? 0;
+    first = `${index != null && firstIndex === index ? "You go" : `${series.displayNames[firstIndex]} goes`} first (the seats swap)`;
   }
+  return { result, next: `Game ${played + 1} of ${series.bestOf}`, first };
+}
+
+/** Who goes first after a decided game; `loserIndex` is the loser, who chooses. */
+function firstLine(series: DuelSeriesSummary, index: 0 | 1 | null, loserIndex: 0 | 1): string {
+  const chooser = series.firstChooser ?? loserIndex;
+  if (series.firstChooser == null) {
+    // A series saved before the choice existed: the loser goes first.
+    const who = index != null && chooser === index ? "You go" : `${series.displayNames[chooser]} goes`;
+    return `${who} first (default order)`;
+  }
+  const iChoose = index != null && chooser === index;
+  if (series.firstChoice == null) {
+    return iChoose ? "You choose to go first or second" : opponentChoosingText(series, index);
+  }
+  const firstIndex = series.firstChoice === "first" ? chooser : chooser === 0 ? 1 : 0;
   const who = index != null && firstIndex === index ? "You go" : `${series.displayNames[firstIndex]} goes`;
-  return { result, next: `Game ${played + 1} of ${series.bestOf}`, first: `${who} first (${why})` };
+  const by = iChoose ? "you chose" : index == null ? `${series.displayNames[chooser]} chose` : "the opponent chose";
+  return `${who} first (${by} to go ${series.firstChoice})`;
+}
+
+function opponentChoosingText(series: Pick<DuelSeriesSummary, "displayNames" | "firstChooser">, index: 0 | 1 | null): string {
+  if (index == null && series.firstChooser != null) return `${series.displayNames[series.firstChooser]} is choosing to go first or second…`;
+  return "Opponent is choosing to go first or second…";
+}
+
+/** True when the viewer lost the last game and chooses to go first or second now. */
+export function viewerChoosesFirst(series: DuelSeriesSummary, index: 0 | 1 | null): boolean {
+  return series.status === "between_games" && index != null && series.firstChooser === index;
+}
+
+export interface OpponentFirstStatus {
+  text: string;
+  /** The opponent has chosen. */
+  done: boolean;
+}
+
+/** The other player's first or second choice: "Opponent is choosing to go first or second…" and then the result. */
+export function opponentFirstStatus(series: DuelSeriesSummary, index: 0 | 1 | null): OpponentFirstStatus | null {
+  if (series.status !== "between_games" || series.firstChooser == null) return null;
+  if (index == null) {
+    return series.firstChoice == null
+      ? { text: opponentChoosingText(series, index), done: false }
+      : { text: `${series.displayNames[series.firstChooser]} chose to go ${series.firstChoice}`, done: true };
+  }
+  if (series.firstChooser === index) return null;
+  return series.firstChoice == null
+    ? { text: opponentChoosingText(series, index), done: false }
+    : { text: `Opponent chose to go ${series.firstChoice}`, done: true };
 }
 
 export interface OpponentSideStatus {
@@ -186,4 +270,75 @@ export function opponentSideStatus(series: DuelSeriesSummary, index: 0 | 1 | nul
   if (series.sideReady[index === 0 ? 1 : 0]) return { text: "Opponent ready", ready: true };
   // No deadline: an interrupted game. Nobody is siding, the opponent has not clicked Ready.
   return { text: series.nextGameAt == null ? "Opponent is not ready" : "Opponent is siding…", ready: false };
+}
+
+export interface SeriesReadyRow {
+  name: string;
+  ready: boolean;
+  /** "Ready", "Side decking…" or, with no deadline running, "Not ready". */
+  text: string;
+}
+
+/** Both players' Ready state between games, in `playerIds` order. */
+export function seriesReadyRows(series: DuelSeriesSummary): SeriesReadyRow[] {
+  return ([0, 1] as const).map((index) => {
+    const ready = series.sideReady[index];
+    const text = ready ? "Ready" : series.nextGameAt == null ? "Not ready" : "Side decking…";
+    return { name: series.displayNames[index], ready, text };
+  });
+}
+
+export type SpectatorSeriesStatus =
+  | {
+      kind: "siding";
+      headline: string;
+      detail: string;
+      players: SeriesReadyRow[];
+      /** The spectator moves to the next game when it starts. */
+      follow: true;
+    }
+  | {
+      kind: "next-live";
+      headline: string;
+      nextSlug: string;
+      /** The spectator may open the next game; private admission carries over. */
+      follow: true;
+    };
+
+/**
+ * What a spectator's end screen says about an open series: side decking (or waiting for Ready) on
+ * this game, or that a later game is already being played. Null for a player, for a decided or
+ * cancelled series (`seriesOutcome` covers those) and while this game is still the one in play.
+ */
+export function spectatorSeriesStatus(
+  room: Pick<DuelRoom, "session" | "mySeat" | "series">,
+  slug: string,
+): SpectatorSeriesStatus | null {
+  const series = room.series;
+  if (!series || !isSeriesOpen(series) || seriesPlayerIndex(room, series) != null) return null;
+  if (isBetweenGames({ series }, slug)) {
+    const next = `Game ${series.gameNumber + 1} of ${series.bestOf}`;
+    const timed = series.nextGameAt != null;
+    const choosing = series.firstChooser != null && series.firstChoice == null;
+    return {
+      kind: "siding",
+      headline: timed ? "Side decking in progress" : "Waiting for both players",
+      detail: timed
+        ? choosing
+          ? `${next} starts when both players are ready and the first/second choice is made, or the timer runs out.`
+          : `${next} starts when both players are ready or the timer runs out.`
+        : `${next} starts when both players click Ready.`,
+      players: seriesReadyRows(series),
+      follow: true,
+    };
+  }
+  if (series.status === "active" && series.currentDuelSlug && series.currentDuelSlug !== slug) {
+    return {
+      kind: "next-live",
+      headline: `Game ${series.gameNumber} of ${series.bestOf} is live`,
+      nextSlug: series.currentDuelSlug,
+      follow: true,
+    };
+  }
+  return null;
 }

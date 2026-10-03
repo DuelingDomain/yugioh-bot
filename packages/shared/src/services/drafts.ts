@@ -1,7 +1,8 @@
+import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
 import { generateWebSlug } from "../util/web-slug.js";
-import { analyzeCube, buildDeal, seededShuffle } from "./deal.js";
+import { analyzeCube, buildDeal, seededShuffle, type ShuffleSeed } from "./deal.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
 export type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
@@ -129,11 +130,6 @@ function deadlineIso(now: Date, seconds: number) {
   return new Date(now.getTime() + seconds * 1000).toISOString();
 }
 
-/** Deterministic per-(draft, player, round) seed so theme packs are reproducible. */
-function themeRoundSeed(draftId: number, playerId: number, roundNumber: number): number {
-  return ((draftId * 73856093) ^ (playerId * 19349663) ^ (roundNumber * 83492791)) >>> 0;
-}
-
 function isExtraDeckCatalogRow(row: CatalogRow) {
   return (
     extraDeckFrameTypes.has(row.frame_type) ||
@@ -147,9 +143,11 @@ function isExtraDeckCatalogRow(row: CatalogRow) {
 
 export function createDraftService(
   db: Database.Database,
-  options: { random?: () => number } = {},
+  options: { random?: () => number; seedSource?: () => ShuffleSeed } = {},
 ) {
   const random = options.random ?? Math.random;
+  // Deals, assignments and theme packs are persisted; their seeds stay in memory.
+  const seedSource = options.seedSource ?? (() => randomBytes(32).toString("hex"));
   const seatOrder = (playerIds: number[], config: DraftConfig): number[] => {
     if (!config.randomizeSeats) return playerIds;
 
@@ -544,7 +542,7 @@ export function createDraftService(
         continue;
       }
 
-      const chosen = seededShuffle(candidates, themeRoundSeed(draftId, player.player_id, roundNumber)).slice(
+      const chosen = seededShuffle(candidates, seedSource()).slice(
         0,
         themePackSize,
       );
@@ -617,7 +615,7 @@ export function createDraftService(
       }
     }
 
-    const shuffled = seededShuffle(allowed, draftId);
+    const shuffled = seededShuffle(allowed, seedSource());
     const used = new Set<number>(claims.values());
     let cursor = 0;
     const nextTheme = (): number => {
@@ -776,7 +774,7 @@ export function createDraftService(
       throw new Error(analysis.errors.join(" "));
     }
 
-    const packs = buildDeal(cubeCardIds, { players, waves, packSize, draftId });
+    const packs = buildDeal(cubeCardIds, { players, waves, packSize, seed: seedSource() });
     const insertCube = db.prepare(
       "insert into draft_deal (draft_id, position, catalog_card_id) values (?, ?, ?)",
     );
