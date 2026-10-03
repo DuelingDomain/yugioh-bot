@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { LinkStub, fontMock, stubFetch } from "./helpers";
 
 vi.mock("next/font/google", () => fontMock());
@@ -56,7 +56,10 @@ describe("AppShell frame", () => {
     mockUsePathname.mockReturnValue("/tournaments");
     stubFetch();
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it("renders sidebar, phone top bar and page; the page is not inside .ms", () => {
     const { container } = render(
@@ -145,5 +148,58 @@ describe("AppShell frame", () => {
     render(<AppShell><p>x</p></AppShell>);
     await waitFor(() => expect(screen.queryByLabelText("Loading your account")).toBeNull());
     expect(screen.queryByText(/sign in/i)).toBeNull();
+  });
+
+  it.each([401, 500, "network"] as const)("keeps profile availability unknown after a %s lookup failure", async (failure) => {
+    mockUsePathname.mockReturnValue("/player/7");
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      if (input === "/api/auth/session") return Response.json({ user: { name: "Imran" } });
+      if (failure === "network") throw new Error("Network failure");
+      return new Response(null, { status: failure });
+    });
+    await act(async () => {
+      render(<AppShell><p>x</p></AppShell>);
+    });
+
+    expect(screen.queryByText("No profile yet")).toBeNull();
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(within(nav).getByRole("link", { name: "Leaderboard" })).not.toHaveAttribute("aria-current");
+    fireEvent.click(screen.getAllByRole("button", { name: "Account menu, Imran" })[0]);
+    expect(screen.queryByText(/you get a profile after your first match/i)).toBeNull();
+
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    const drawer = screen.getByRole("dialog", { name: "Navigation" });
+    expect(within(drawer).getByRole("link", { name: "Leaderboard" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("shows no profile only after a confirmed 404", async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => input === "/api/auth/session"
+      ? Response.json({ user: { name: "Imran" } })
+      : new Response(null, { status: 404 }));
+    await act(async () => {
+      render(<AppShell><p>x</p></AppShell>);
+    });
+
+    expect(screen.getByText("No profile yet")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Account menu, Imran" })[0]);
+    expect(screen.getByRole("menuitem", { name: "Your profile" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText(/you get a profile after your first match/i)).toBeTruthy();
+  });
+
+  it("links and highlights your profile after a successful lookup", async () => {
+    mockUsePathname.mockReturnValue("/player/7");
+    await act(async () => {
+      render(<AppShell><p>x</p></AppShell>);
+    });
+
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(within(nav).getByRole("link", { name: "Leaderboard" })).not.toHaveAttribute("aria-current");
+    const sidebar = screen.getByRole("complementary", { name: "Sidebar" });
+    const accountButton = within(sidebar).getByRole("button", { name: "Account menu, Imran" });
+    expect(accountButton).toHaveAttribute("data-on");
+    fireEvent.click(accountButton);
+    expect(screen.getByRole("menuitem", { name: "Your profile" })).toHaveAttribute("href", "/player/7");
   });
 });

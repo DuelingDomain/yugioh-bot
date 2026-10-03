@@ -9,7 +9,7 @@ export interface ShellAccount {
   image: string | null;
   /** null until /api/player/me answers, or when this person has no profile. */
   playerId: number | null;
-  /** True once /api/player/me has answered, so "no profile yet" is known. */
+  /** True after a successful lookup or a confirmed 404; false on failure. */
   profileSettled: boolean;
 }
 
@@ -31,13 +31,17 @@ export function useShellAccount(): ShellAccount {
         if (live) setAccount((a) => ({ ...a, status: "error" }));
       });
     fetch("/api/player/me")
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => {
+        if (r.status === 404) return null;
+        if (!r.ok) throw new Error("Profile lookup failed");
+        return r.json();
+      })
       .then((d: { playerId?: number } | null) => {
         if (!live) return;
         setAccount((a) => ({ ...a, playerId: d?.playerId ? d.playerId : null, profileSettled: true }));
       })
       .catch(() => {
-        if (live) setAccount((a) => ({ ...a, profileSettled: true }));
+        // A failed lookup leaves profile availability unknown.
       });
     return () => {
       live = false;

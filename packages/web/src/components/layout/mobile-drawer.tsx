@@ -23,7 +23,7 @@ function DrawerDialog({ onClose, account }: Omit<MobileDrawerProps, "open">) {
   const pathname = usePathname();
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const activeHref = activeNavHref(pathname, account.playerId);
+  const activeHref = activeNavHref(pathname, account.playerId, account.profileSettled);
 
   // Focus moves to Close when the dialog mounts.
   useEffect(() => {

@@ -39,8 +39,9 @@ export function isOwnProfile(pathname: string, playerId: number | null): boolean
  * (/tournament/x -> Tournaments), someone else's profile lights Leaderboard,
  * and /themes lights Cubes. Your own profile lights none: your name does.
  */
-export function activeNavHref(pathname: string, playerId: number | null = null): string | null {
+export function activeNavHref(pathname: string, playerId: number | null = null, profileSettled = true): string | null {
   if (profilePlayerId(pathname) !== null) {
+    if (!profileSettled) return null;
     return isOwnProfile(pathname, playerId) ? null : "/leaderboard";
   }
   if (pathname === "/tournament" || pathname.startsWith("/tournament/")) return "/tournaments";

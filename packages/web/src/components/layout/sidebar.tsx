@@ -19,7 +19,7 @@ interface SidebarProps {
 /** Desktop sidebar. Hidden by the shell's CSS at phone width, where the top bar and menu take over. */
 export function Sidebar({ collapsed, onToggle, account }: SidebarProps) {
   const pathname = usePathname();
-  const activeHref = activeNavHref(pathname, account.playerId);
+  const activeHref = activeNavHref(pathname, account.playerId, account.profileSettled);
   const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
 
   return (

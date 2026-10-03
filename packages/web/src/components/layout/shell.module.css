@@ -31,11 +31,28 @@
 
 .side > .nsWrap :global(.ns-side) {
   height: 100%;
+  overflow-y: auto;
+}
+
+/* Keep the account menu outside the rail's scroll clipping. */
+.side > .nsWrap :global(.ns-menu) {
+  position: fixed;
+  right: auto;
+  width: 215px;
+}
+
+.side[data-collapsed="true"] > .nsWrap :global(.ns-menu) {
+  left: 76px;
+  width: 284px;
 }
 
 /* Collapsed rail: the label shows as a tooltip on hover and keyboard focus. */
 .side > .nsWrap :global(.ns-tip) {
   display: none;
+  position: fixed;
+  left: 72px;
+  top: auto;
+  translate: none;
 }
 
 .side > .nsWrap :global(.ns-i):hover > :global(.ns-tip),
