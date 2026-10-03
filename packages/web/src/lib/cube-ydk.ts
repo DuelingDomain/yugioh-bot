@@ -18,6 +18,12 @@ const copiesById = (pools: CubePools): Map<number, number> =>
 const totalCopies = (pools: CubePools): number =>
   [...pools.main, ...pools.extra].reduce((sum, c) => sum + c.maxCopies, 0);
 
+/** A list with no section header is a plain passcode list: read it as `#main`. A ydke:// link is left alone. */
+function startInMain(text: string): string {
+  const clean = text.replace(/^\uFEFF/, "");
+  return clean.trim().toLowerCase().startsWith("ydke://") ? clean : `#main\n${clean}`;
+}
+
 /**
  * Merge a YDK file into a cube through the passcode import. Main and side lines go to the main
  * pool unless the card is an Extra Deck monster; `#extra` lines go to the extra pool. Copies
@@ -25,7 +31,7 @@ const totalCopies = (pools: CubePools): number =>
  * is written, and written together, so a failed lookup leaves the cube as it was.
  */
 export async function importYdkIntoCube(cubes: CubeService, cubeId: number, text: string): Promise<YdkImportResult> {
-  const ydk = parseDeckText(text.replace(/^\uFEFF/, ""));
+  const ydk = parseDeckText(startInMain(text));
   const before = totalCopies(cubes.getCubePools(cubeId));
   const existing = copiesById(cubes.getCubePools(cubeId));
   const groups: Array<{ codes: number[]; pool?: "extra" }> = [

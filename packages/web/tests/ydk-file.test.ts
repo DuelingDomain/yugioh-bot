@@ -117,6 +117,18 @@ describe("importYdkIntoCube", () => {
     expect(pairs(cubes.getCubePools(cube.id).main)).toEqual([[1, 1]]);
   });
 
+  it("reads a plain passcode list with no #main header as the main section", async () => {
+    const { cubes, cube } = setup();
+    const res = await importYdkIntoCube(cubes, cube.id, "1\n1\n3\n");
+    expect(pairs(cubes.getCubePools(cube.id).main)).toEqual([[1, 2], [3, 1]]);
+    expect(res).toMatchObject({ added: 2, copies: 3 });
+    // A header later in the file still moves the reader on.
+    const more = await importYdkIntoCube(cubes, cube.id, "1\n#extra\n2\n");
+    expect(pairs(cubes.getCubePools(cube.id).main)).toEqual([[1, 3], [3, 1]]);
+    expect(pairs(cubes.getCubePools(cube.id).extra)).toEqual([[2, 1]]);
+    expect(more.added).toBe(2);
+  });
+
   it("treats a passcode the card database rejects with HTTP 400 as unknown, and writes nothing twice", async () => {
     const { cubes, cube } = setup(async () => ({ ok: false, status: 400, async json() { return {}; } }) as Response);
     const text = "#main\n1\n1\n777\n#extra\n2\n888\n";
