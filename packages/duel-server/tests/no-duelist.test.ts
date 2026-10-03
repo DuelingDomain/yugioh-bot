@@ -97,6 +97,24 @@ describe.each(multiFormats)("%s: 0xFF controller in event messages", (format) =>
     expect(ctx.handSize).toHaveLength(length);
   });
 
+  it("a Tribute material MOVE (MOVE reason) from no duelist marks the next Normal Summon as a Tribute Summon", () => {
+    const ctx = createEventContext(format);
+    const length = ctx.handSize.length;
+    // REASON_RELEASE | REASON_MATERIAL | REASON_SUMMON, parsed by patches/ocgcore-wasm+0.1.2.patch.
+    const release = { type: OcgMessageType.MOVE, card: 5, from: place(NONE, OcgLocation.MZONE, 1), to: place(NONE, OcgLocation.GRAVE, 0, OcgPosition.FACEUP), reason: 0x1a } as unknown as OcgMessage;
+    expect(() => observeMoveEvents(release, cards, ctx, 1)).not.toThrow();
+    expect(ctx.summonTribute).toBe(true);
+    expect(ctx.handSize).toHaveLength(length);
+    const stored = observeDuelEvent(summon(OcgMessageType.SUMMONING, NONE), cards, [], 2, ctx)!;
+    expect(stored.summonKind).toBe("tribute");
+    expect(stored.seat).toBeUndefined();
+    expect(stored.text).toContain("No duelist");
+    // A material reason without the summon bits is not a Tribute.
+    const other = createEventContext(format);
+    observeMoveEvents({ ...release, reason: 0x2 } as unknown as OcgMessage, cards, other, 1);
+    expect(other.summonTribute).toBe(false);
+  });
+
   it("a face-down summon with no duelist is visible to nobody", () => {
     const stored = observeDuelEvent(summon(OcgMessageType.SPSUMMONING, NONE, OcgPosition.FACEDOWN_DEFENSE), cards, [], 1, createEventContext(format))!;
     expect(stored.revealCardTo).toEqual([]);
