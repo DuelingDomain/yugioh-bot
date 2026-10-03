@@ -75,7 +75,7 @@ export function opponentPickOptions(
   for (const option of prompt.options) {
     if (option.controller == null || picks.has(option.controller)) continue;
     const view = engine?.seats.find((seat) => seat.seat === option.controller);
-    if (view && (isEliminated(view) || view.pendingElimination === true)) continue;
+    if (isEliminated(view)) continue;
     picks.set(option.controller, option.id);
   }
   return picks;

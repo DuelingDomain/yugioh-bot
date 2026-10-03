@@ -64,11 +64,11 @@ describe("opponent pick helpers", () => {
     expect([...opponentPickOptions(pickPrompt([1, 3]))]).toEqual([[1, "opt:0"], [3, "opt:1"]]);
   });
 
-  it("leaves out eliminated and leaving seats and options with no seat", () => {
+  it("keeps Leaving seats offered by the engine and leaves out eliminated seats and options with no seat", () => {
     const engine = makeEngine("ffa4", 4, { 1: { eliminated: true }, 2: { pendingElimination: true } });
     const prompt = pickPrompt([1, 2, 3]);
     prompt.options.push({ id: "opt:9", label: "Nobody" });
-    expect([...opponentPickOptions(prompt, engine)]).toEqual([[3, "opt:2"]]);
+    expect([...opponentPickOptions(prompt, engine)]).toEqual([[2, "opt:1"], [3, "opt:2"]]);
   });
 
   it("returns nothing for any other prompt", () => {
@@ -145,11 +145,22 @@ describe("MultiSeatStage with an opponent pick", () => {
     stage(makeEngine("ffa4", 4, { 1: { eliminated: true } }), 0, { seatPick: picks([1, 2]), focusSeat: 1 });
     expect(screen.queryByTestId("seat-focus-pick-1")).toBeNull();
     cleanup();
-    stage(makeEngine("ffa4", 4, { 1: { pendingElimination: true } }), 0, { seatPick: picks([1, 2]), focusSeat: 1 });
-    expect(screen.queryByTestId("seat-focus-pick-1")).toBeNull();
-    cleanup();
     stage(makeEngine("ffa4", 4), 0, { focusSeat: 1 });
     expect(screen.queryByTestId("seat-focus-pick-1")).toBeNull();
+  });
+
+  it("keeps Leaving focused and compact opponents selectable with their badges", () => {
+    const onPick = vi.fn();
+    stage(makeEngine("ffa4", 4, { 1: { pendingElimination: true }, 2: { pendingElimination: true } }), 0,
+      { seatPick: picks([1, 2], onPick), focusSeat: 1 });
+    fireEvent.click(within(screen.getByTestId("seat-focus-pick-1")).getByRole("button"));
+    expect(onPick).toHaveBeenLastCalledWith(1);
+    const compact = screen.getByTestId("seat-board-2");
+    expect(within(compact).getByText("Leaving")).toBeTruthy();
+    fireEvent.click(within(compact).getByRole("button", { name: "Choose Cy as the opponent" }));
+    expect(onPick).toHaveBeenLastCalledWith(2);
+    fireEvent.click(screen.getByTestId("seat-strip-pick-2"));
+    expect(onPick).toHaveBeenLastCalledWith(2);
   });
 
   it("Tag: the focused opposing seat can be picked from its bar", () => {

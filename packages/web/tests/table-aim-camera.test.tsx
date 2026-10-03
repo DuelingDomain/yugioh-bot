@@ -31,14 +31,21 @@ beforeAll(() => {
 });
 afterEach(cleanup);
 
-function Shell({ id, camera, lock }: { id: keyof typeof FFA3_FIXTURES.states; camera?: Partial<CameraState>; lock?: CameraLockReason | null }) {
-  const controller = useFixtureController(FFA3_FIXTURES.states[id], { reducedMotion: true });
+function Shell({ id, camera, lock, leavingSeat }: { id: keyof typeof FFA3_FIXTURES.states; camera?: Partial<CameraState>; lock?: CameraLockReason | null; leavingSeat?: number }) {
+  const source = FFA3_FIXTURES.states[id];
+  const fixture = leavingSeat == null ? source : { ...source, room: { ...source.room, engine: { ...source.room.engine!,
+    seats: source.room.engine!.seats.map(seat => ({ ...seat, pendingElimination: seat.seat === leavingSeat })) } } };
+  const controller = useFixtureController(fixture, { reducedMotion: true });
   return <TableShell controller={controller} initialCamera={camera} initialLock={lock} />;
 }
 const press = (key: string, init: KeyboardEventInit = {}) => act(() => void fireEvent.keyDown(window, { key, ...init }));
 const stageOf = (container: HTMLElement) => container.querySelector("[data-table-stage]")!;
 
 describe("camera keys on the 3-way shell", () => {
+  it("keeps a Leaving rival's field available to focus", () => {
+    const { container } = render(<Shell id="main" leavingSeat={1} camera={{ mode: "focus", focusSeat: 1 }} />);
+    expect(stageOf(container)).toHaveAttribute("data-camera-mode", "focus");
+  });
   it("opens a reloaded elimination view at home with the full centred turn ring", () => {
     const { container } = render(<Shell id="elimination" />);
     expect(stageOf(container).getAttribute("data-camera-mode")).toBe("home");

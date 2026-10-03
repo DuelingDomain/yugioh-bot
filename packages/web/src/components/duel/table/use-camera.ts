@@ -64,7 +64,7 @@ function typing(target: EventTarget | null): boolean {
 export function useCamera({ controller, layout, initial, initialLock = null, aiming, seatKeys, suspended = false, now = Date.now }: UseCameraOptions): UseCamera {
   const { engine, prompt, viewerSeat, nameOf } = controller;
   const out = useMemo(
-    () => engine.seats.filter((view) => isEliminated(view) || view.pendingElimination === true).map((view) => view.seat),
+    () => engine.seats.filter(isEliminated).map((view) => view.seat),
     [engine.seats],
   );
   const env = useRef<{ layout: TableLayout; ctx: CameraContext }>({ layout, ctx: { out } });
