@@ -20,7 +20,8 @@ function swiftwindPantherWarrior(format: Format, tribute: boolean): Scenario {
   const action: Step[] = tribute
     ? [
       activate(PANTHER, holder),
-      // R-COMMON-OPP-PICK: the LP read declares an opponent before the activator Tributes a monster.
+      // Swiftwind has no LP read or opponent reference; its effect uses the activator's own cards.
+      // The fix2 core still asks for an opponent before the Tribute. This is an open core/overlay item.
       ...(format !== "tag" ? [pickOpponent("p0", holder)] : []),
       select({ card: ELF, owner: holder, from: "mzone" }),
       select({ card: WIZARD, owner: holder, from: "deck", nth: 0 }),
