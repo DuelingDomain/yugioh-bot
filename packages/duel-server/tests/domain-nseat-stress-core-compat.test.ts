@@ -9,6 +9,7 @@ import { Session } from "./support/session.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 import { scenarios as TWO_SEAT_CASES } from "./scenarios/cases/domain.js";
 import { DOMAIN_NSEAT_STRESS_CHAIN } from "./scenarios/multiplayer/domain-nseat-stress-chain.js";
+import { firstDrawSourceFor } from "./scenarios/multiplayer/ffa-first-draw.js";
 import { SEATS, type Format } from "./scenarios/multiplayer/seat-kit.js";
 import { defineScenario, endTurn, expectBoard, expectNotOffered, select, specialSummon, type Scenario, type Step } from "./support/dsl.js";
 
@@ -31,7 +32,9 @@ vi.mock("ocgcore-wasm", async (original) => {
 });
 
 describeWithCores("Domain core patch keeps Standard and two-seat rules", [liveNseat, ...needs.domainMulti()], () => {
-  for (const base of DOMAIN_NSEAT_STRESS_CHAIN.filter((s) => s.setup.format !== "tag")) {
+  for (const domain of DOMAIN_NSEAT_STRESS_CHAIN.filter((s) => s.setup.format !== "tag")) {
+    // The Domain fixture counts the extra FFA first draw. Standard MR3-5 skips it, so run the scenario as written.
+    const base = firstDrawSourceFor(domain);
     it(`Standard: ${base.id}`, async () => {
       const setup = { ...base.setup, mode: "normal" as const };
       for (const seat of SEATS[setup.format as Format]) {

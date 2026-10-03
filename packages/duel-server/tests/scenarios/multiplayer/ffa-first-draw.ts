@@ -5,6 +5,12 @@ import { defineScenario, type CardRef, type Scenario } from "../../support/dsl.j
 
 type FirstDrawFixture = { card?: CardRef; destination?: "hand" | "grave" | "banished" };
 const firstDrawFixtures = new WeakMap<Scenario, FirstDrawFixture>();
+const firstDrawSources = new WeakMap<Scenario, Scenario>();
+
+/** The scenario as written, before the wrapper added the Domain first draw. A Standard run needs it, because Standard MR3-5 skips that draw. */
+export function firstDrawSourceFor(scenario: Scenario): Scenario {
+  return firstDrawSources.get(scenario) ?? scenario;
+}
 
 /** Keep the requested draw fixture until a Standard source becomes a Domain variant. */
 export function firstDrawFixtureFor(scenario: Scenario): FirstDrawFixture | undefined {
@@ -20,6 +26,7 @@ export function defineScenarioWithFfaFirstDraw(
     || scenario.setup.skipOpeningDraw || scenario.setup.turn === "p1"
     || scenario.tags?.includes("ffa-first-draw-included")) return defineScenario(scenario);
   const updated = structuredClone(scenario);
+  firstDrawSources.set(updated, scenario);
   updated.tags = [...(updated.tags ?? []), "ffa-first-draw-included"];
   const deck = updated.setup.p0?.deck ?? [];
   const separateFirstDraw = deck.length > 0 && updated.setup.deckSize === undefined;
