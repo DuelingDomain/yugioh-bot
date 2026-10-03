@@ -245,12 +245,12 @@ export const FFA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa4-four-way-chain-order",
-    title: "FFA4: after p2 adds a link the turn player p0 answers first, then p1 and p3, and the chain resolves in reverse",
+    title: "FFA4: after p2 adds a link the turn player p0 answers first, then p1, p2 and p3, and the chain resolves in reverse",
     source: `${SOURCE} [R-FFA-CHAIN]`,
     rules: ["R-FFA-CHAIN"],
     tags: ["multiplayer", "chain", "ffa4", "card:19613556", "card:60082869"],
     // Every seat holds a Dust Tornado, so every window is a real prompt. Under the ADR order the windows are p1, p2 (the turn
-    // player p0 added Heavy Storm, so the next seat goes first), then after the link of p2: p0 (turn player first), p1, p3. A plain
+    // player p0 added Heavy Storm, so the next seat goes first), then after the link of p2: p0 (turn player first), p1, p2, p3. A plain
     // "next seat after the one who added the link" order would give p3, p0, p1 there.
     setup: {
       format: "ffa4",
@@ -259,7 +259,7 @@ export const FFA_SCENARIOS: Scenario[] = [
         spells: [{ card: "Dust Tornado", pos: "set" }, ...[0, 1].map(() => ({ card: "Swords of Revealing Light", pos: "up" as const }))],
       },
       p1: { spells: [{ card: "Dust Tornado", pos: "set" }] },
-      p2: { spells: [{ card: "Dust Tornado", pos: "set" }] },
+      p2: { spells: [{ card: "Dust Tornado", pos: "set" }, { card: "Dust Tornado", pos: "set" }] },
       p3: { spells: [{ card: "Dust Tornado", pos: "set" }] },
     },
     steps: [
@@ -270,16 +270,17 @@ export const FFA_SCENARIOS: Scenario[] = [
       pickOpponent("p0", "p2"),
       select({ card: "Swords of Revealing Light", nth: 0 }),
       expectChain("Heavy Storm", "Dust Tornado"),
-      pass("p0"),
-      pass("p1"),
-      pass("p3"),
-      expectResponseOrder("p1", "p2", "p0", "p1", "p3"),
+      expectPrompt({ by: "p0", context: "chain" }), pass("p0"),
+      expectPrompt({ by: "p1", context: "chain" }), pass("p1"),
+      expectPrompt({ by: "p2", context: "chain" }), pass("p2"),
+      expectPrompt({ by: "p3", context: "chain" }), pass("p3"),
+      expectResponseOrder("p1", "p2", "p0", "p1", "p2", "p3"),
       expectResolved("Dust Tornado", "Heavy Storm"),
       // Dust Tornado of p2 destroyed one Swords. Heavy Storm then destroyed the other Spells and Traps, the set ones too.
       expectBoard({
         p0: { spells: { count: 0 }, grave: { include: ["Heavy Storm", "Swords of Revealing Light", "Dust Tornado"] } },
         p1: { spells: { count: 0 }, grave: ["Dust Tornado"] },
-        p2: { spells: { count: 0 }, grave: ["Dust Tornado"] },
+        p2: { spells: { count: 0 }, grave: ["Dust Tornado", "Dust Tornado"] },
         p3: { spells: { count: 0 }, grave: ["Dust Tornado"] },
       }),
     ],
