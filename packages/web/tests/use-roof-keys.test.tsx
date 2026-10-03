@@ -3,12 +3,11 @@ import React from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useRoofKeys } from "@/components/duel/tag/use-roof-keys";
-import type { TagKeyState } from "@/components/duel/tag/live-tag";
 
 afterEach(cleanup);
 
-function Probe({ paused, dispatch, pinned = false }: { paused?: TagKeyState; dispatch: (action: unknown) => void; pinned?: boolean }) {
-  useRoofKeys({ dispatch, anchorSeat: 0, pinned, paused });
+function Probe({ suspended, yields, dispatch, pinned = false }: { suspended?: boolean; yields?: boolean; dispatch: (action: unknown) => void; pinned?: boolean }) {
+  useRoofKeys({ dispatch, anchorSeat: 0, pinned, suspended, yields });
   return (
     <div>
       <input aria-label="chat" />
@@ -36,27 +35,16 @@ describe("useRoofKeys", () => {
   });
 
   it.each([
-    ["a seat pick", { seatPick: { seats: [1, 3] } }],
-    ["an aim", { aim: { from: 0 } }],
-    ["a card menu", { menu: { card: 1 } }],
-    ["the pile viewer", { pile: { open: true } }],
-    ["a dialog", { dialog: true }],
-    ["suspended input", { inputSuspended: true }],
-  ] as const)("ignores digits and Tab while %s is open", (_name, paused) => {
+    ["input is suspended", { suspended: true }],
+    ["the camera yields to an aim or a seat pick", { yields: true }],
+  ] as const)("ignores digits and Tab when %s", (_name, flags) => {
     const dispatch = vi.fn();
-    render(<Probe dispatch={dispatch} paused={paused} />);
+    render(<Probe dispatch={dispatch} {...flags} />);
     const digit = press("2");
     const tab = press("Tab");
     expect(dispatch).not.toHaveBeenCalled();
     expect(digit.defaultPrevented).toBe(false);
     expect(tab.defaultPrevented).toBe(false);
-  });
-
-  it("treats a closed pile as not open", () => {
-    const dispatch = vi.fn();
-    render(<Probe dispatch={dispatch} paused={{ pile: { open: false } }} />);
-    press("1");
-    expect(dispatch).toHaveBeenCalledWith({ type: "focus", seat: 0 });
   });
 
   it("takes Tab and Shift+Tab as focus steps when nothing is open", () => {
@@ -109,12 +97,12 @@ describe("useRoofKeys", () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it("follows the paused flag as it changes and keeps the other camera keys", () => {
+  it("follows the yield flag as it changes and keeps the other camera keys", () => {
     const dispatch = vi.fn();
-    const { rerender } = render(<Probe dispatch={dispatch} paused={{ seatPick: {} }} />);
+    const { rerender } = render(<Probe dispatch={dispatch} yields />);
     press("4");
     expect(dispatch).not.toHaveBeenCalled();
-    rerender(<Probe dispatch={dispatch} paused={{}} />);
+    rerender(<Probe dispatch={dispatch} yields={false} />);
     press("4");
     press("k");
     expect(dispatch).toHaveBeenNthCalledWith(1, { type: "focus", seat: 3 });

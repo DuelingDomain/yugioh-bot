@@ -300,7 +300,7 @@ export interface RoofKeyMods {
 
 /**
  * Keyboard map. Returns null for keys the roof camera does not use. It is pure: it does not know about open picks,
- * aims or dialogs. The live table binds it through `useRoofKeys` (use-roof-keys.ts), which pauses it with `tagKeysPaused`.
+ * aims or dialogs. The live table binds it through `useRoofKeys` (use-roof-keys.ts), which gates it with `suspended` and `yields`.
  */
 export function roofKeyAction(key: string, ctx: RoofKeyContext, mods: RoofKeyMods = {}): CameraAction | null {
   if (mods.ctrl || mods.meta || mods.alt) return null;
