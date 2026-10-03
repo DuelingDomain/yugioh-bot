@@ -5,6 +5,7 @@ import { battleSeekMs } from "./battle-clock";
 import type { DuelEventKind, DuelFxCue } from "./event-queue";
 
 type Voice = {
+  releasePace?: () => void;
   osc: AudioScheduledSourceNode;
   gain: GainNode;
   /** Every node the voice made (filters, sends, the vibrato LFO): disconnected when it ends. */
@@ -71,6 +72,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     voices.push(voice);
     collecting?.push(voice);
     voice.osc.onended = () => {
+      voice.releasePace?.();
       const index = voices.indexOf(voice);
       if (index >= 0) voices.splice(index, 1);
       // Nothing holds a finished voice in the graph (the send buses and the LFO stay connected otherwise).
@@ -87,6 +89,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
   function fadeOut(list: readonly Voice[]): void {
     const now = ctx?.currentTime ?? 0;
     for (const voice of list) {
+      voice.releasePace?.();
       try {
         const gain = voice.gain.gain;
         // Hold the level where it is, then glide to silence; a bare cancel would jump the envelope.
@@ -175,6 +178,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     audio: AudioContext,
     dest: GainNode,
     opts: ToneOpts,
+    releasePace?: () => void,
   ): void {
     const osc = audio.createOscillator();
     const gain = audio.createGain();
@@ -213,7 +217,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
       lfo.stop(t + opts.duration + 0.02);
       nodes.push(lfo, depth);
     }
-    addVoice({ osc, gain, nodes });
+    addVoice({ osc, gain, nodes, releasePace });
     osc.start(t);
     osc.stop(t + opts.duration + 0.02);
   }
@@ -235,6 +239,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     audio: AudioContext,
     dest: GainNode,
     opts: BurstOpts,
+    releasePace?: () => void,
   ): void {
     if (!noise) {
       noise = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.5), audio.sampleRate);
@@ -243,6 +248,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     }
     const src = audio.createBufferSource();
     src.buffer = noise;
+    src.loop = true;
     const filter = audio.createBiquadFilter();
     filter.type = opts.filter;
     if (opts.q != null) filter.Q.setValueAtTime(opts.q, opts.start);
@@ -260,7 +266,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     const nodes: AudioNode[] = [src, filter, gain];
     const send = sendTo(audio, gain, opts.send);
     if (send) nodes.push(send);
-    addVoice({ osc: src, gain, nodes });
+    addVoice({ osc: src, gain, nodes, releasePace });
     src.start(opts.start);
     src.stop(opts.start + opts.duration + 0.02);
   }
@@ -401,8 +407,6 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     const rate = duelFxClock.factor();
     const remaining = <T extends { start: number; duration: number }>(opts: T): T | null => {
       // Convert FX-relative scheduling to the real AudioContext clock without changing pitch.
-      const virtualEnd = (opts.start - origin + opts.duration) * 1000;
-      duelFxClock.retain(virtualEnd);
       opts = { ...opts, start: origin + (opts.start - origin) / rate, duration: opts.duration / rate,
         ...("attack" in opts && typeof opts.attack === "number" ? { attack: opts.attack / rate } : {}) };
       // A restarted envelope or pitch sweep sounds like a new hit. Join only near onset.
@@ -412,8 +416,8 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
       return end > start ? { ...opts, start, duration: end - start } : null;
     };
     return {
-      tone: (opts) => { const live = remaining(opts); if (live) tone(audio, dest, { ...live, attack: Math.min(live.attack ?? 0.012, live.duration / 2) }); },
-      burst: (opts) => { const live = remaining(opts); if (live) burst(audio, dest, live); },
+      tone: (opts) => { const live = remaining(opts); if (live) tone(audio, dest, { ...live, attack: Math.min(live.attack ?? 0.012, live.duration / 2) }, duelFxClock.retain((live.start + live.duration - audio.currentTime) * 1000 * rate)); },
+      burst: (opts) => { const live = remaining(opts); if (live) burst(audio, dest, live, duelFxClock.retain((live.start + live.duration - audio.currentTime) * 1000 * rate)); },
     };
   }
 

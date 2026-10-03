@@ -96,6 +96,20 @@ afterEach(() => {
 });
 
 describe("createDuelFeedbackAudio", () => {
+  it("releases stopped audio holds and preserves slowed noise through its full envelope", async () => {
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    duelFxClock.resetReviewTimeline(); setAnimationSpeed(0.5);
+    const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
+    audio.play("destroy");
+    const noiseNodes = created[0]!.sourceNodes.filter((node) => "buffer" in node) as Array<typeof created[0]["sourceNodes"][number] & { loop: boolean }>;
+    expect(noiseNodes.length).toBeGreaterThan(0);
+    expect(noiseNodes.every((node) => node.loop)).toBe(true);
+    setAnimationSpeed(2);
+    expect(duelFxClock.factor()).toBe(0.5);
+    audio.stopAll();
+    expect(duelFxClock.factor()).toBe(2);
+    audio.dispose();
+  });
   it.each([0.5, 2])("schedules attack, counter and LP voices at %sx on the real audio clock", async (speed) => {
     vi.spyOn(performance, "now").mockReturnValue(0);
     duelFxClock.resetReviewTimeline();
