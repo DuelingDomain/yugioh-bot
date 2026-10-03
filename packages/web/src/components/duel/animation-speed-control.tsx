@@ -19,10 +19,8 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
       }
     });
     const rated = new WeakSet<Animation>();
+    const isCssAnimation = (anim: Animation) => typeof CSSAnimation !== "undefined" && anim instanceof CSSAnimation;
     const retimeAnimation = (anim: Animation) => {
-      const cssAnimation = typeof CSSAnimation !== "undefined" && anim instanceof CSSAnimation;
-      // UI hover, focus and input transitions keep real-time feedback and take no FX lease.
-      if (!cssAnimation) return;
       const endTime = Number(anim.effect?.getComputedTiming().endTime ?? 0);
       if (endTime === Infinity) {
         if (!loops.has(anim)) {
@@ -35,27 +33,37 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
         duelFxClock.rateAnimation(anim, endTime);
       }
     };
-    const retime = (target: Element) => {
-      for (const anim of target.getAnimations?.() ?? []) retimeAnimation(anim);
-    };
-    const onStart = (event: Event) => {
-      if (event.target instanceof Element && event.target.closest("[data-duel-fx-speed-root]")) retime(event.target);
-    };
-    // The room may initially render a loading state. Delegation also covers its later board mount.
-    document.addEventListener("animationstart", onStart, true);
     // Element.getAnimations() walks every document animation, so asking per element is quadratic. One document sweep per batch is enough.
     const sweep = () => {
+      // No duel room is mounted (chat, toasts, other pages): skip the animation walk and its style flush.
+      if (!document.querySelector("[data-duel-fx-speed-root]")) return;
       for (const anim of document.getAnimations?.() ?? []) {
         if (rated.has(anim) || loops.has(anim)) continue;
+        // UI hover, focus and input transitions keep real-time feedback and take no FX lease.
+        if (!isCssAnimation(anim)) continue;
         const target = (anim.effect as KeyframeEffect | null)?.target;
         if (target?.closest("[data-duel-fx-speed-root]")) retimeAnimation(anim);
       }
     };
+    // Many cards can start in one frame: coalesce their animationstart events into one sweep.
+    let disposed = false;
+    let sweepQueued = false;
+    const onStart = (event: Event) => {
+      if (sweepQueued || !(event.target instanceof Element) || !event.target.closest("[data-duel-fx-speed-root]")) return;
+      sweepQueued = true;
+      queueMicrotask(() => {
+        sweepQueued = false;
+        if (!disposed) sweep();
+      });
+    };
+    // The room may initially render a loading state. Delegation also covers its later board mount.
+    document.addEventListener("animationstart", onStart, true);
     // Capture positive CSS delays when styles are created, before animationstart fires.
     const observer = new MutationObserver(sweep);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-status", "data-reduced"] });
     sweep();
     return () => {
+      disposed = true;
       unsubscribe();
       loops.clear();
       observer.disconnect();
