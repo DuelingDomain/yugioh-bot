@@ -60,7 +60,7 @@
   align-items: center;
   gap: 8px;
   height: 67px;
-  padding: 0 10px 0 14px;
+  padding: 0 6px 0 12px;
 }
 
 .aside[data-rail="true"] .brand {
