@@ -369,7 +369,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   function applyRecord(record: SavedDeckView) {
     setSavedId(record.id);
-    setRegistration(readRegistration(record.registration));
+    if (record.registration !== undefined) setRegistration(readRegistration(record.registration));
     setName(record.name);
     setMode(record.mode);
     setSelection({ deck: cloneDeck(record.deck), masterOrigin: null });

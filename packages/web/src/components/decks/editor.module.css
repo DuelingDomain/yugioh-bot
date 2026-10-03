@@ -251,7 +251,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-status { grid-column: 2; grid-row: 2; margin: 0 0 4px 7px; font-size: 12px; gap: 6px; }
   .de-status[data-tone="bad"] { max-width: none; }
   .de-acts { display: contents; }
-  .de-acts > .de-hist, .de-import, :global(.ms) .de-export { display: none; }
+  .de-acts > .de-hist, .de-import, :global(.ms) :global(.sv-btn).de-export { display: none; }
   .de-more { grid-column: 3; grid-row: 1 / 3; }
   .de-save { grid-column: 4; grid-row: 1 / 3; }
   .de-prow { grid-column: 1 / -1; grid-row: 3; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 6px 0 10px 6px; border-bottom: 1px solid var(--rule-lo); }
@@ -270,7 +270,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-size { width: 92px; }
   .de-sh { gap: 8px; }
   .de-clear { display: flex; }
-  :global(.ms) .de-clear button { width: 38px; min-height: 38px; padding: 0; }
+  :global(.ms) .de-clear :global(.sv-btn.quiet) { width: 38px; height: 38px; min-height: 38px; padding: 0; }
   .de-clear span { display: none; }
   .de-hist { padding: 0; border: 0; }
   .de-empty-wide { display: none; }

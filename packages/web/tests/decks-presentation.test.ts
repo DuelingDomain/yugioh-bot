@@ -14,9 +14,10 @@ describe("deck editor presentation", () => {
     expect(phone).toMatch(/:global\(\.ms\)\s+\.de-tabs\s*\{[^}]*display:\s*grid/);
   });
 
-  it("scopes phone button sizing and hiding to beat the foundation's .ms .btn", () => {
+  it("scopes phone button sizing and hiding to beat the kit's .ms .sv-btn", () => {
     expect(phone).toMatch(/:global\(\.ms\)\s+\.de-back\s*\{[^}]*width:\s*34px;[^}]*height:\s*44px;[^}]*padding:\s*0/);
-    expect(phone).toMatch(/:global\(\.ms\)\s+\.de-export\s*\{[^}]*display:\s*none/);
+    expect(phone).toMatch(/:global\(\.ms\)\s+:global\(\.sv-btn\)\.de-export\s*\{[^}]*display:\s*none/);
+    expect(phone).toMatch(/:global\(\.ms\)\s+\.de-clear\s+:global\(\.sv-btn\.quiet\)\s*\{[^}]*width:\s*38px;[^}]*padding:\s*0/);
   });
 
   it("lets draft hosts fill the viewport below their measured top without a frame", () => {
