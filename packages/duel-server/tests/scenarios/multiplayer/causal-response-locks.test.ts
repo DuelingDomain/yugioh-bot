@@ -7,7 +7,7 @@ import { describeWithCores, needs } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { Session, domainNseatWasmBinary, nseatWasmBinary } from "../../support/session.js";
-import { activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, no, yes, normalSummon, pickOpponent, zone, type DuelistId, type Scenario, type Step, type BoardExpect } from "../../support/dsl.js";
+import { activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, no, yes, normalSummon, pickOpponent, select, zone, type DuelistId, type Scenario, type Step, type BoardExpect } from "../../support/dsl.js";
 const ELF="Mystical Elf", RAT="Giant Rat", OX="Battle Ox", AXE="Axe Raider", OGRE="Ogre of the Scarlet Sorrow", TUALATIN="Tualatin";
 const SKIP_DRAW=`local e=Effect.GlobalEffect(); e:SetType(EFFECT_TYPE_FIELD); e:SetCode(EFFECT_SKIP_DP); e:SetProperty(EFFECT_FLAG_PLAYER_TARGET); e:SetTargetRange(1,1); Duel.RegisterEffect(e,0)`;
 function proof(format:"ffa3"|"ffa4"|"tag",domain:boolean,ogre:boolean):Scenario {
@@ -31,15 +31,24 @@ function proof(format:"ffa3"|"ffa4"|"tag",domain:boolean,ogre:boolean):Scenario 
   } else {
     setup.p0!.hand=[TUALATIN];setup.p0!.monsters=[ELF,ELF];setup.p1!.monsters=[OX,OX];
     for(const seat of seats.slice(1)){setup[seat]!.hand=[RAT];board[seat]!.hand=[RAT];}
-    for(const seat of seats.slice(2))setup[seat]!.monsters=tag ? [] : [ELF,OX];
+    for(const seat of seats.slice(2))setup[seat]!.monsters=tag && seat==="p2" ? [] : [ELF,OX];
+    if(tag){
+      // The partner's monsters enter after the Battle Phase starts. They must not
+      // prevent the loss of the two original monsters from triggering Tualatin.
+      setup.p2!.grave=[ELF,OX];
+      setup.p2!.spells=[{card:"Call of the Haunted",pos:"set"},{card:"Oasis of Dragon Souls",pos:"set"}];
+    }
     for(const seat of seats)steps.push(endTurn(seat));steps.push(endTurn("p0"));
-    steps.push(changePhase("battle","p1"),attack({card:OX,nth:0},{card:ELF,owner:"p0",nth:0},"p1"),attack({card:OX,nth:0},{card:ELF,owner:"p0",nth:0},"p1"),activate(TUALATIN,"p0"),zone("p0","m0","p0"),choose("Face-up Attack","p0"),expectPrompt({by:"p0",kind:"cards"}),choose("EARTH","p0"),changePhase("main2","p1"),expectNotOffered("normalSummon",RAT,"p1"),endTurn("p1"),expectOffered("normalSummon",RAT,"p2"),normalSummon(RAT,"p2"));
+    steps.push(changePhase("battle","p1"),attack({card:OX,nth:0},{card:ELF,owner:"p0",nth:0},"p1"));
+    if(tag)steps.push(activate("Call of the Haunted","p2"),select({card:ELF,owner:"p2",from:"grave"}),activate("Oasis of Dragon Souls","p2"),select({card:OX,owner:"p2",from:"grave"}),expectPrompt({by:"p1",offers:["yes","no"]}),yes("p1"),select({card:ELF,owner:"p0",nth:0}));
+    steps.push(attack({card:OX,nth:0},{card:ELF,owner:"p0",nth:0},"p1"),activate(TUALATIN,"p0"),zone("p0","m0","p0"),choose("Face-up Attack","p0"),expectPrompt({by:"p0",kind:"cards"}),choose("EARTH","p0"),changePhase("main2","p1"),expectNotOffered("normalSummon",RAT,"p1"),endTurn("p1"),expectOffered("normalSummon",RAT,"p2"),normalSummon(RAT,"p2"));
     board.p0!.lp=tag ? 14200 : 6200;board.p0!.monsters=[TUALATIN];board.p0!.grave=[ELF,ELF];board.p1!.grave=[OX,OX];
-    board.p2!.monsters=[...(tag ? [] : [ELF]),RAT];board.p2!.grave=tag ? [] : [OX];board.p2!.hand=[];
-    if(tag)board.p2!.lp=14200;
+    board.p2!.monsters=[ELF,RAT];board.p2!.grave=[OX,...(tag ? ["Oasis of Dragon Souls"] : [])];board.p2!.hand=[];
+    if(tag){board.p2!.lp=14200;board.p2!.spells=["Call of the Haunted"];}
     if(format!=="ffa3") {
       steps.push(endTurn("p2"),tag ? expectNotOffered("normalSummon",RAT,"p3") : expectOffered("normalSummon",RAT,"p3"));
       if(!tag){steps.push(normalSummon(RAT,"p3"));board.p3!.monsters=[ELF,RAT];board.p3!.grave=[OX];board.p3!.hand=[];}
+      else {board.p3!.monsters=[ELF];board.p3!.grave=[OX];}
     }
   }
   steps.push(expectBoard(board));
@@ -49,7 +58,21 @@ async function run(scenario:Scenario) {
   const compiled=compileBoard(scenario.setup);
   const content=SKIP_DRAW+(scenario.id.includes("ogre") ? readFileSync(new URL("./fixtures/ogre-lock-observer.lua",import.meta.url),"utf8").replace("FIXTURE_SEAT_COUNT",String(scenario.setup.format==="ffa3" ? 3 : 4)) : "");
   const game=await createEngineGame({...compiled.options,dataDirectory:engineDataDirectory,multiWasmBinary:scenario.setup.mode==="domain" ? domainNseatWasmBinary() : nseatWasmBinary(),startupScripts:[...compiled.options.startupScripts!,{name:"response-lock-observer.lua",content}],seed:["1","2","3","4"]});
-  try{const session=new Session(scenario,game);session.reachMainPhase();session.startRecording();scenario.steps.forEach((step,index)=>session.run(step,index+1));}finally{game.close();}
+  try{
+    const session=new Session(scenario,game);session.reachMainPhase();session.startRecording();
+    scenario.steps.forEach((step,index)=>{
+      if(scenario.id.includes("tualatin-tag") && (step.op==="phase" || step.op==="attack")) {
+        // Decline routine windows from the two revival Traps. The explicit Trap
+        // activations and the Tualatin trigger retain their real prompts below.
+        for(let guard=0;guard<40;guard++){
+          const open=Array.from({length:compiled.options.decks.length},(_,seat)=>({seat,prompt:game.view(seat).prompt})).find(row=>row.prompt);
+          if(!open?.prompt || open.prompt.context?.type!=="chain" || open.prompt.context.forced)break;
+          game.answer(open.seat,open.prompt.id,{cancel:true});
+        }
+      }
+      session.run(step,index+1);
+    });
+  }finally{game.close();}
 }
 describeWithCores("causal response locks on both cores",[liveNseat,...needs.domainMulti()],()=>runScenarios("causal-response-locks",[false,true].flatMap(domain=>(["ffa3","ffa4","tag"] as const).flatMap(format=>[proof(format,domain,true),proof(format,domain,false)])),run));
 
