@@ -34,8 +34,7 @@ describe("DuelCreator Domain rule", () => {
     fireEvent.change(screen.getByLabelText("Master Rules"), { target: { value: String(masterRule) } });
     expect(screen.getByRole("status").textContent).not.toContain("every duelist draws");
     expect(screen.getByRole("status").textContent).not.toContain("First-turn draws follow the selected Master Rule.");
-    expect(screen.getByRole("status").textContent).toContain("In 1v1 Domain, the server rules control the draw on turn 1.");
-    expect(screen.getByRole("status").textContent).toContain("All other duelists draw on their first turn.");
+    expect(screen.getByRole("status").textContent).toContain("In 1v1 Domain, the duelist who goes first draws at Master Rule 1 and 2; at Master Rule 3 to 5 this depends on the server engine. The second duelist always draws.");
   });
 
   it("offers Standard and Domain at a 1v1 table", () => {

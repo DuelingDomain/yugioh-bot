@@ -318,7 +318,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                         {/* The host does not send its 1v1 engine choice to the creator. */}
                         {format !== "1v1"
                           ? " In Domain, every duelist draws on their first turn."
-                          : " In 1v1 Domain, the server rules control the draw on turn 1. All other duelists draw on their first turn."}
+                          : " In 1v1 Domain, the duelist who goes first draws at Master Rule 1 and 2; at Master Rule 3 to 5 this depends on the server engine. The second duelist always draws."}
                       </span>
                     </p>
                   ) : (
