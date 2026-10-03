@@ -219,7 +219,7 @@ Duel.RegisterEffect(e,0)`]);
       expect(t.service.privateState(t.session.slug, "g").clock?.activeSeat).not.toBe(leaver);
       await t.recover();
       expect(await t.view()).toEqual(pending);
-      await t.post("respond", leaver, { command: { revision: pending.revision, promptId: "old", answer: { choice: "pass" } } }, 409);
+      await t.post("respond", leaver, { command: { revision: pending.revision, promptId: "old", answer: { choice: "chain:pass" } } }, 409);
       for (let step = 0; step < 25 && (await t.view()).chain?.length; step++) {
         const during = await t.view();
         expect(during.seats[leaver]!.eliminated).toBe(false);
@@ -281,7 +281,7 @@ end`]);
       for (let step = 0; step < 10 && (await t.view()).chain!.length < 2; step++) await passPrompt(t);
       expect((await t.view()).chain?.map((link) => link.seat)).toEqual([0, 1]);
       // All seats except the turn player surrender. Seat 1's unresolved link
-      // has no effect; the living turn player's lower link must still draw two.
+      // resolves normally; the living turn player's lower link must still draw two.
       for (let seat = t.count - 1; seat >= 1; seat--) await t.post("surrender", seat);
       const pending = await t.view();
       expect(pending.result).toBeNull();
@@ -291,7 +291,7 @@ end`]);
       expect(final).toMatchObject({ turn: 1, turnSeat: 0, chain: [], prompt: null,
         result: { winnerSeat: 0, reason: "Surrender" } });
       expect(final.seats[0]!.hand).toHaveLength(2);
-      expect(final.log.some((line) => line.text.startsWith("Player 2 drew"))).toBe(false);
+      expect(final.log.some((line) => line.text.startsWith("Player 2 drew 1"))).toBe(true);
       expect(states(final)).toEqual(["in", ...Array(t.count - 1).fill("out")]);
       expect(final.eliminationOrder).toEqual([Array.from({ length: t.count - 1 }, (_, index) => index + 1)]);
       // The raw core names a team also in FFA; the host's final snapshot names the winner seat.
@@ -596,8 +596,8 @@ end`]);
       expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 ? "out" : "in"));
       expect(final).toMatchObject({ turn: 2, turnSeat: 1, result: null });
       const deckCount = t.service.privateState(t.session.slug, "g").decks[0]!.main.length;
-      // Pot of Greed must not draw two cards after its owner has flagged a loss.
-      expect(final.log.some((line) => line.text.includes("drew 2"))).toBe(false);
+      // Pot of Greed resolves normally before its owner leaves.
+      expect(final.log.some((line) => line.text.includes("drew 2"))).toBe(true);
       for (const seat of final.seats) if (!seat.eliminated) {
         expect(seat.hand).toHaveLength(1);
         expect(seat.monsters.filter(Boolean)).toHaveLength(1);

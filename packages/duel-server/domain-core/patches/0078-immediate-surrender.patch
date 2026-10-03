@@ -1,20 +1,17 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: yugidraft <yugidraft@localhost>
 Date: Sat, 3 Oct 2026 00:00:00 +0000
-Subject: [PATCH] core: apply FFA surrender at once outside an open chain
+Subject: [PATCH] core: immediate FFA surrender with normal chain resolution
 
-Debug.SurrenderDuelist flags a surrender and checks only pending
-surrenders. It preserves living seats' open choices and does not settle LP,
-Deck or effect-win losses of an unfinished operation. Current chains
-finish before removal. Pending losses still suppress unresolved links.
-Debug.EliminateDuelist keeps its old timing for time-limit losses.
-Suspended pre-chain activations and summons cancel safely on removal.
-Living opponent picks reject removed seats.
+Surrender waits for the whole open chain, including the leaver links.
+Without a chain it removes the seat immediately. It preserves living
+choices and only closes response windows that involve the leaving turn seat.
+Other loss reasons retain their existing timing.
 
 diff --git a/field.h b/field.h
 --- a/field.h
 +++ b/field.h
-@@ -688,7 +688,7 @@
+@@ -711,7 +711,7 @@
  	// any body runs): then p is not "already out" and the body runs.
  	void eliminate(uint8_t p, uint8_t reason, bool marked = false);
  	// Applies the losses of a duel with more than 2 duelists (Adjust step 1). Sends MSG_WIN at the end.
@@ -23,77 +20,6 @@ diff --git a/field.h b/field.h
  	// Calls f(p) for p = 0 .. n_duelists - 1 in ascending order (the stock order: player 0, then 1).
  	template<typename F>
  	void for_each_duelist(F&& f) const {
-diff --git a/processor.cpp b/processor.cpp
---- a/processor.cpp
-+++ b/processor.cpp
-@@ -3911,6 +3911,23 @@
- 	return TRUE;
- }
- bool field::process(Processors::AddChain& arg) {
-+	// Immediate surrender may remove a new chain while its pre-chain choice is open.
-+	// Resume only that entry, never a replacement at the front of the queue.
-+	if(n_duelists > 2 && (arg.step <= 2 || arg.step >= 10)) {
-+		if(!arg.pending_chain_started) {
-+			if(core.new_chains.empty())
-+				return TRUE;
-+			arg.pending_chain_started = true;
-+			arg.pending_chain_id = core.new_chains.front().chain_id;
-+			arg.pending_handler = core.new_chains.front().triggering_effect->get_handler();
-+		}
-+		if(core.new_chains.empty() || core.new_chains.front().chain_id != arg.pending_chain_id) {
-+			arg.pending_handler->set_status(STATUS_CHAINING, FALSE);
-+			if(!core.new_chains.empty())
-+				emplace_process<Processors::AddChain>();
-+			return TRUE;
-+		}
-+	}
- 	switch (arg.step) {
- 	case 0: {
- 		if (!core.new_chains.size())
-@@ -4811,9 +4828,15 @@
- // Duel.Win of another team (every living opponent without CANNOT_LOSE_EFFECT). Losses wait while a chain
- // resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
- // else every loser is eliminated in turn order from the turn player.
--void field::check_losses_n() {
--	if(core.chain_solving || !pduel->lua->coroutines.empty())
-+void field::check_losses_n(bool surrenders_only) {
-+	if(core.chain_solving || (!surrenders_only && !pduel->lua->coroutines.empty()))
- 		return;
-+	// Surrenders wait for the whole chain. Other loss reasons keep their timing.
-+	if(!core.current_chain.empty()) {
-+		for(uint8_t p = 0; p < n_duelists; ++p)
-+			if(player[p].pending_loss == 0x100)
-+				return;
-+	}
- 	uint8_t order[MAX_DUELISTS];
- 	uint8_t count = 0;
- 	for(uint8_t i = 0; i < n_duelists; ++i) {
-@@ -4829,7 +4852,7 @@
- 	};
- 	for(uint8_t i = 0; i < count; ++i) {
- 		const auto p = order[i];
--		if(lp_ref(p) <= 0) {
-+		if(!surrenders_only && lp_ref(p) <= 0) {
- 			bool protect = false;
- 			for(uint8_t q = 0; q < count; ++q) {
- 				if(same_team(order[q], p) && is_player_affected_by_effect(order[q], EFFECT_CANNOT_LOSE_LP))
-@@ -4838,13 +4861,13 @@
- 			if(!protect)
- 				mark(p, 1);
- 		}
--		if(core.overdraw[p] && !is_player_affected_by_effect(p, EFFECT_CANNOT_LOSE_DECK))
-+		if(!surrenders_only && core.overdraw[p] && !is_player_affected_by_effect(p, EFFECT_CANNOT_LOSE_DECK))
- 			mark(p, 2);
--		if(player[p].pending_loss)
-+		if(player[p].pending_loss && (!surrenders_only || player[p].pending_loss == 0x100))
- 			mark(p, static_cast<uint8_t>(player[p].pending_loss & 0xFF));
- 	}
- 	// Duel.Win: only when the winner does not lose in the same window.
--	if(core.win_player != 5) {
-+	if(!surrenders_only && core.win_player != 5) {
- 		const uint8_t w = core.win_player;
- 		if(is_alive(w) && !loses[w]) {
- 			for(uint8_t i = 0; i < count; ++i) {
 diff --git a/libdebug.cpp b/libdebug.cpp
 --- a/libdebug.cpp
 +++ b/libdebug.cpp
@@ -104,7 +30,7 @@ diff --git a/libdebug.cpp b/libdebug.cpp
 +// A host surrender can remove a seat while a living seat's prompt stays open.
 +// Only pending surrenders are checked here: an unfinished operation must
 +// finish before its LP, Deck or effect-win losses are checked. An open chain
-+// always defers the removal; pending_loss still suppresses unresolved links.
++// always defers the removal; surrender links resolve normally.
 +LUA_STATIC_FUNCTION(SurrenderDuelist) {
 +	check_param_count(L, 1);
 +	auto& field = pduel->game_field;
@@ -113,7 +39,7 @@ diff --git a/libdebug.cpp b/libdebug.cpp
 +		lua_error(L, "Debug.SurrenderDuelist: only in a duel of more than 2 duelists.");
 +	if(!field->is_alive(p))
 +		lua_error(L, "Debug.SurrenderDuelist: the duelist is not in the duel.");
-+	field->player[p].pending_loss = 0x100;
++	field->player[p].pending_loss = 0x200;
 +	field->check_losses_n(true);
 +	return 0;
 +}
@@ -121,22 +47,6 @@ diff --git a/libdebug.cpp b/libdebug.cpp
  }
  }
  
-diff --git a/processor_unit.h b/processor_unit.h
---- a/processor_unit.h
-+++ b/processor_unit.h
-@@ -275,8 +275,11 @@
- };
- struct AddChain : public Process<false> {
- 	bool is_activated_effect;
-+	bool pending_chain_started;
-+	uint16_t pending_chain_id;
-+	card* pending_handler;
- 	AddChain(uint16_t step_) :
--		Process(step_), is_activated_effect(false) {}
-+		Process(step_), is_activated_effect(false), pending_chain_started(false), pending_chain_id(0), pending_handler(nullptr) {}
- };
- struct SolveChain : public Process<false> {
- 	bool skip_trigger;
 diff --git a/operations.cpp b/operations.cpp
 --- a/operations.cpp
 +++ b/operations.cpp
@@ -153,7 +63,7 @@ diff --git a/operations.cpp b/operations.cpp
  }
  
  int32_t field::negate_chain(uint8_t chaincount) {
-@@ -1939,6 +1945,17 @@
+@@ -2077,6 +2083,17 @@
  	return TRUE;
  }
  bool field::process(Processors::SummonRule& arg) {
@@ -171,7 +81,7 @@ diff --git a/operations.cpp b/operations.cpp
  	auto sumplayer = arg.sumplayer;
  	auto target = arg.target;
  	auto summon_procedure_effect = arg.summon_procedure_effect;
-@@ -2634,6 +2651,15 @@
+@@ -2772,6 +2789,15 @@
  	return TRUE;
  }
  bool field::process(Processors::MonsterSet& arg) {
@@ -187,7 +97,7 @@ diff --git a/operations.cpp b/operations.cpp
  	auto setplayer = arg.setplayer;
  	auto target = arg.target;
  	auto summon_procedure_effect = arg.summon_procedure_effect;
-@@ -2993,6 +3019,13 @@
+@@ -3131,6 +3157,13 @@
  	return TRUE;
  }
  bool field::process(Processors::SpellSet& arg) {
@@ -201,7 +111,7 @@ diff --git a/operations.cpp b/operations.cpp
  	auto setplayer = arg.setplayer;
  	auto toplayer = arg.toplayer;
  	auto target = arg.target;
-@@ -3228,6 +3261,15 @@
+@@ -3366,6 +3399,15 @@
  	return TRUE;
  }
  bool field::process(Processors::SpSummonRule& arg) {
@@ -217,7 +127,7 @@ diff --git a/operations.cpp b/operations.cpp
  	auto sumplayer = arg.sumplayer;
  	auto target = arg.target;
  	auto summon_type = arg.summon_type;
-@@ -3266,6 +3308,8 @@
+@@ -3404,6 +3446,8 @@
  			pduel->lua->proc_take_pick(peffect, returns.at<int32_t>(0));
  		} else {
  			peffect = core.select_effects[returns.at<int32_t>(0)];
@@ -226,7 +136,7 @@ diff --git a/operations.cpp b/operations.cpp
  			// F5: a procedure that puts the monster on an opponent's field binds one opponent first
  			if(n_duelists > 2 && pduel->lua->proc_ask_pick(peffect, sumplayer)) {
  				arg.step = 0;
-@@ -3820,6 +3864,14 @@
+@@ -3958,6 +4002,14 @@
  	uint8_t nocheck = (target->spsummon_param >> 16) & 0xff;
  	uint8_t nolimit = (target->spsummon_param >> 8) & 0xff;
  	uint8_t positions = target->spsummon_param & 0xff;
@@ -241,7 +151,7 @@ diff --git a/operations.cpp b/operations.cpp
  	switch(arg.step) {
  	case 0: {
  		if(target->is_affected_by_effect(EFFECT_REVIVE_LIMIT) && !target->is_status(STATUS_PROC_COMPLETE)) {
-@@ -5226,6 +5278,11 @@
+@@ -5364,6 +5416,11 @@
  	uint8_t playerid = (target->to_field_param >> 16) & 0xff;
  	uint8_t location = (target->to_field_param >> 8) & 0xff;
  	uint8_t positions = (target->to_field_param) & 0xff;
@@ -281,3 +191,101 @@ diff --git a/playerop.cpp b/playerop.cpp
  	if(arg.step == 0) {
  		if(count == 0) {
  			auto message = pduel->new_message(MSG_HINT);
+diff --git a/processor.cpp b/processor.cpp
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -3912,6 +3912,23 @@
+ 	return TRUE;
+ }
+ bool field::process(Processors::AddChain& arg) {
++	// Immediate surrender may remove a new chain while its pre-chain choice is open.
++	// Resume only that entry, never a replacement at the front of the queue.
++	if(n_duelists > 2 && (arg.step <= 2 || arg.step >= 10)) {
++		if(!arg.pending_chain_started) {
++			if(core.new_chains.empty())
++				return TRUE;
++			arg.pending_chain_started = true;
++			arg.pending_chain_id = core.new_chains.front().chain_id;
++			arg.pending_handler = core.new_chains.front().triggering_effect->get_handler();
++		}
++		if(core.new_chains.empty() || core.new_chains.front().chain_id != arg.pending_chain_id) {
++			arg.pending_handler->set_status(STATUS_CHAINING, FALSE);
++			if(!core.new_chains.empty())
++				emplace_process<Processors::AddChain>();
++			return TRUE;
++		}
++	}
+ 	switch (arg.step) {
+ 	case 0: {
+ 		if (!core.new_chains.size())
+@@ -4473,8 +4490,8 @@
+ 		for(uint8_t p = 0; p < n_duelists; ++p)
+ 			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
+ 		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED). A duelist with a pending loss
+-		// (Debug.EliminateDuelist) is out already: its loss lands in check_losses_n only after the chain, but its links must not act.
+-		if(n_duelists > 2 && is_duelist(cait->triggering_player) && (player[cait->triggering_player].eliminated || player[cait->triggering_player].pending_loss)) {
++		// (Debug.EliminateDuelist) is out already. A surrender (0x200) waits for the whole chain and its links act normally.
++		if(n_duelists > 2 && is_duelist(cait->triggering_player) && (player[cait->triggering_player].eliminated || (player[cait->triggering_player].pending_loss && player[cait->triggering_player].pending_loss != 0x200))) {
+ 			if(!(cait->flag & CHAIN_DISABLE_EFFECT)) {
+ 				auto message = pduel->new_message(MSG_CHAIN_DISABLED);
+ 				message->write<uint8_t>(cait->chain_count);
+@@ -4812,9 +4829,15 @@
+ // Duel.Win of another team (every living opponent without CANNOT_LOSE_EFFECT). Losses wait while a chain
+ // resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
+ // else every loser is eliminated in turn order from the turn player.
+-void field::check_losses_n() {
+-	if(core.chain_solving || !pduel->lua->coroutines.empty())
++void field::check_losses_n(bool surrenders_only) {
++	if(core.chain_solving || (!surrenders_only && !pduel->lua->coroutines.empty()))
+ 		return;
++	// Surrenders wait for the whole chain. Other loss reasons keep their timing.
++	if(!core.current_chain.empty()) {
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			if(player[p].pending_loss == 0x200)
++				return;
++	}
+ 	uint8_t order[MAX_DUELISTS];
+ 	uint8_t count = 0;
+ 	for(uint8_t i = 0; i < n_duelists; ++i) {
+@@ -4830,7 +4853,7 @@
+ 	};
+ 	for(uint8_t i = 0; i < count; ++i) {
+ 		const auto p = order[i];
+-		if(lp_ref(p) <= 0) {
++		if(!surrenders_only && lp_ref(p) <= 0) {
+ 			bool protect = false;
+ 			for(uint8_t q = 0; q < count; ++q) {
+ 				if(same_team(order[q], p) && is_player_affected_by_effect(order[q], EFFECT_CANNOT_LOSE_LP))
+@@ -4839,13 +4862,13 @@
+ 			if(!protect)
+ 				mark(p, 1);
+ 		}
+-		if(core.overdraw[p] && !is_player_affected_by_effect(p, EFFECT_CANNOT_LOSE_DECK))
++		if(!surrenders_only && core.overdraw[p] && !is_player_affected_by_effect(p, EFFECT_CANNOT_LOSE_DECK))
+ 			mark(p, 2);
+-		if(player[p].pending_loss)
++		if(player[p].pending_loss && (!surrenders_only || player[p].pending_loss == 0x200))
+ 			mark(p, static_cast<uint8_t>(player[p].pending_loss & 0xFF));
+ 	}
+ 	// Duel.Win: only when the winner does not lose in the same window.
+-	if(core.win_player != 5) {
++	if(!surrenders_only && core.win_player != 5) {
+ 		const uint8_t w = core.win_player;
+ 		if(is_alive(w) && !loses[w]) {
+ 			for(uint8_t i = 0; i < count; ++i) {
+diff --git a/processor_unit.h b/processor_unit.h
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -276,8 +276,11 @@
+ };
+ struct AddChain : public Process<false> {
+ 	bool is_activated_effect;
++	bool pending_chain_started;
++	uint16_t pending_chain_id;
++	card* pending_handler;
+ 	AddChain(uint16_t step_) :
+-		Process(step_), is_activated_effect(false) {}
++		Process(step_), is_activated_effect(false), pending_chain_started(false), pending_chain_id(0), pending_handler(nullptr) {}
+ };
+ struct SolveChain : public Process<false> {
+ 	bool skip_trigger;
