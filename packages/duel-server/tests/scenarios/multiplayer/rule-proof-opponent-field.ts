@@ -13,7 +13,7 @@ function clearField(format: Format, actor: Seat, spells: boolean): Scenario {
     monsters: ["Mystical Elf"], spells: [{ card: "Dark Hole", pos: "set" }], hand: seat === actor ? [card] : [],
   };
   return defineScenario({ id: `rule-proof-${format}-all-opposing-${spells ? "spells" : "monsters"}-${actor}`,
-    title: `${format}: ${actor} clears the declared opponent's ${spells ? "Set Spell" : "monster"} with ${card}`,
+    title: `${format}: ${actor} clears ${format === "tag" ? "the opposing team's" : "the declared opponent's"} ${spells ? "Set Spells" : "monsters"} with ${card}`,
     source: SOURCE + (format === "tag" ? " [R-TAG-PARTNER] [R-TAG-SHARED-CARDS]" : " [R-FFA-OPP-ONE]"),
     rules: format === "tag" ? ["R-TAG-PARTNER", "R-TAG-SHARED-CARDS"] : ["R-FFA-OPP-ONE"],
     tags: ["multiplayer", format, spells ? "card:18144506" : "card:12580477"], setup,
