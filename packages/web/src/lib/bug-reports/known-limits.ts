@@ -30,18 +30,6 @@ export const KNOWN_LIMITS: readonly KnownLimit[] = [
     formats: ["ffa3", "ffa4"],
   },
   {
-    id: "domain-multiplayer-not-live",
-    title: "Domain 3-way and 4-way duels are not on production yet",
-    explanation:
-      "Domain duels with three or four players are not available on the live site yet. Only Standard 3-way and 4-way tables can be created.",
-    patterns: [
-      /\bdomain\b[^.\n]*\b(3|4|three|four)[\s-]*(way|player|players)\b/i,
-      /\b(3|4|three|four)[\s-]*(way|player|players)\b[^.\n]*\bdomain\b/i,
-      /\bdomain\b[^.\n]*\b(ffa|free[\s-]for[\s-]all|multiplayer|multi-player)\b/i,
-      /\b(ffa|free[\s-]for[\s-]all|multiplayer|multi-player)\b[^.\n]*\bdomain\b/i,
-    ],
-  },
-  {
     id: "eliminated-card-wrong-graveyard",
     title: "A card of an eliminated player in an open chain can go to the wrong Graveyard",
     explanation:
