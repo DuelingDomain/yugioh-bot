@@ -10,6 +10,7 @@
   box-sizing: border-box;
   /* Keep in step with POPUP_HEIGHT in lib/card-popup-position.ts. */
   max-height: min(360px, calc(100vh - 32px));
+  max-height: min(360px, calc(100dvh - 32px)); /* dvh follows the phone's visible height; vh above is the fallback */
   overflow: hidden;
   padding: 12px;
   border: 1px solid var(--rule-hi, rgb(239 231 213 / 0.2));

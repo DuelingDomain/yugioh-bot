@@ -69,7 +69,9 @@ describe("CardHoverPopup", () => {
     const { rerender } = render(<CardHoverPopup card={card} position={{ left: 0, top: 0 }} imageError onImageError={() => {}} />);
     expect(screen.getByText(/destroy all attack/i).getAttribute("tabindex")).toBeNull();
     rerender(<CardHoverPopup card={card} position={{ left: 0, top: 0 }} imageError onImageError={() => {}} dismissible onDismiss={() => {}} />);
-    expect(screen.getByText(/destroy all attack/i).getAttribute("tabindex")).toBe("0");
+    const text = screen.getByText(/destroy all attack/i);
+    expect(text.getAttribute("tabindex")).toBe("0");
+    expect(screen.getByRole("region", { name: "Mirror Force card text" })).toBe(text);
   });
 });
 
@@ -83,6 +85,7 @@ describe("card-hover-popup.module.css", () => {
 
   it("caps the panel height to the window and scrolls the text inside it", () => {
     expect(body(".panel")).toMatch(/max-height:\s*min\(360px,\s*calc\(100vh - 32px\)\)/);
+    expect(body(".panel")).toMatch(/max-height:\s*min\(360px,\s*calc\(100dvh - 32px\)\)/);
     expect(body(".text")).toMatch(/overflow-y:\s*auto/);
     expect(body(".text")).toMatch(/min-height:\s*0/);
   });

@@ -81,7 +81,7 @@ export function CardHoverPopup({ card, position, imageError, onImageError, dismi
                 {card.def !== undefined && <span>DEF {card.def}</span>}
               </p>
             )}
-            <p className={styles.text} tabIndex={dismissible ? 0 : undefined} aria-label={dismissible ? `${card.name} card text` : undefined}>{card.effectText}</p>
+            <p className={styles.text} tabIndex={dismissible ? 0 : undefined} role={dismissible ? "region" : undefined} aria-label={dismissible ? `${card.name} card text` : undefined}>{card.effectText}</p>
           </div>
         </div>
       </div>

@@ -39,7 +39,7 @@ export function DangerConfirm({
 }) {
   const backRef = React.useRef<HTMLButtonElement>(null);
   const headingId = React.useId();
-  // True when the confirm was opened with a pointer: the auto-focused back button then shows no ring until a key is pressed.
+  // True when the confirm was opened with a pointer: the auto-focused back button then shows no ring until a key is pressed or focus leaves it.
   const [pointerOpened, setPointerOpened] = React.useState(() => !lastInputWasKeyboard);
   React.useEffect(() => {
     backRef.current?.focus();
@@ -55,6 +55,8 @@ export function DangerConfirm({
           className={cn(svButtonClass("ghost"), styles.back)}
           data-pointer-focus={pointerOpened || undefined}
           onKeyDown={() => setPointerOpened(false)}
+          // Once focus leaves, a later Tab back is keyboard focus and must show the ring.
+          onBlur={() => setPointerOpened(false)}
           onClick={onBack}
           disabled={busy}
         >
