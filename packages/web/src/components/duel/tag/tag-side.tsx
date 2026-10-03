@@ -10,7 +10,7 @@ import { CardInspector } from "../inspector";
 import { livePileCards } from "../pile-focus";
 import { PileViewer } from "../pile-viewer";
 import { optionsForCard, PromptTray } from "../prompts";
-import { useDuelPreferences, type DuelPreferences } from "../preferences";
+import type { DuelPreferences } from "../preferences";
 import roomStyles from "../room.module.css";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
 import { MatchSheetLog } from "../text-log";
@@ -50,8 +50,8 @@ export type TagSideProps = Pick<TableShellProps, "connection" | "settingsTools">
   /** The controller the board uses (menu and aim aware), so the tray, the master docks and the pile act like the board. */
   controller: TableController;
   ui: TagSideUi;
-  /** The room's preferences, so the header sound toggle and the Settings tab agree. Default: this component's own. */
-  preferences?: DuelPreferences;
+  /** The shell's one `useDuelPreferences()` object, so the header sound toggle and the Settings tab agree. */
+  preferences: DuelPreferences;
   /** The phone sheet. Pass both to let the shell suspend its keys while the sheet is open; else it is local. */
   sheetOpen?: boolean;
   onSheetOpenChange?: (open: boolean) => void;
@@ -73,7 +73,7 @@ export function TagSide({
   ui,
   connection,
   settingsTools,
-  preferences: given,
+  preferences,
   sheetOpen: sheetOpenProp,
   onSheetOpenChange,
   tray,
@@ -84,8 +84,6 @@ export function TagSide({
   const session = room.session;
   const domain = session.mode === "domain";
   const narrow = useIsNarrow();
-  const own = useDuelPreferences();
-  const preferences = given ?? own;
   const [localOpen, setLocalOpen] = useState(false);
   const sheetOpen = sheetOpenProp ?? localOpen;
   const setSheetOpen = (open: boolean) => {

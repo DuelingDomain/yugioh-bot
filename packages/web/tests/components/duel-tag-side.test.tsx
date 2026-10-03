@@ -9,6 +9,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+import { useDuelPreferences } from "@/components/duel/preferences";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useTableUi } from "@/components/duel/table/use-table-ui";
@@ -34,9 +35,10 @@ function cardsOf(seat: number, state: TableFixtureState): DuelCard[] {
 function Harness({ state, pileSeat, settingsTools }: { state: TableFixtureState; pileSeat?: number; settingsTools?: React.ReactNode }) {
   const base = useFixtureController(state, { reducedMotion: true });
   const ui = useTableUi(base);
+  const preferences = useDuelPreferences();
   return (
     <div>
-      <TagSide controller={ui.controller} ui={ui} settingsTools={settingsTools} />
+      <TagSide controller={ui.controller} ui={ui} preferences={preferences} settingsTools={settingsTools} />
       {pileSeat != null ? (
         <button type="button" onClick={() => ui.inspectCard({ type: "pile", title: "Graveyard", cards: cardsOf(pileSeat, state) })}>open pile</button>
       ) : null}
@@ -109,7 +111,8 @@ describe("TagSide narrow layout", () => {
     function Controlled() {
       const base = useFixtureController(stateWith("normal"), { reducedMotion: true });
       const ui = useTableUi(base);
-      return <TagSide controller={ui.controller} ui={ui} onSheetOpenChange={onSheetOpenChange} />;
+      const preferences = useDuelPreferences();
+      return <TagSide controller={ui.controller} ui={ui} preferences={preferences} onSheetOpenChange={onSheetOpenChange} />;
     }
     render(<Controlled />);
     fireEvent.click(screen.getByRole("button", { name: "Card" }));
