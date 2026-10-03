@@ -4,6 +4,7 @@ import * as React from "react";
 import { Search, X, Grid3X3, RefreshCw } from "lucide-react";
 import { SetBrowserModal } from "./set-browser-modal";
 import { cn } from "@/lib/utils";
+import styles from "./create/create.module.css";
 
 type SetResult = {
   setName: string;
@@ -14,9 +15,11 @@ type SetResult = {
 type SetPickerProps = {
   selectedSets: string[];
   onSetsChange: (sets: string[]) => void;
+  /** id of the search input, so a label can point at it. */
+  inputId?: string;
 };
 
-export function SetPicker({ selectedSets, onSetsChange }: SetPickerProps) {
+export function SetPicker({ selectedSets, onSetsChange, inputId = "pool-set-search" }: SetPickerProps) {
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<SetResult[]>([]);
   const [showResults, setShowResults] = React.useState(false);
@@ -99,87 +102,76 @@ export function SetPicker({ selectedSets, onSetsChange }: SetPickerProps) {
 
   return (
     <div>
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary" />
+      <div className={styles.search}>
+        <span className={styles.in}>
+          <Search className="ic sm" aria-hidden="true" />
           <input
+            className="input"
+            id={inputId}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search sets..."
-            className="w-full rounded-lg border border-border bg-surface py-2 pl-10 pr-3 text-sm text-text-primary placeholder:text-text-secondary focus:border-accent-primary focus:outline-none"
+            placeholder="Search sets"
+            autoComplete="off"
           />
-          {loading && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2">
-              <div className="h-4 w-4 motion-safe:animate-spin rounded-full border-2 border-accent-primary border-t-transparent" />
-            </div>
-          )}
           {showResults && results.length > 0 && (
-            <div className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-border bg-[#141929] shadow-card">
+            <ul className={styles.suggest} aria-label="Matching sets">
               {results.map((set) => (
-                <button
-                  key={set.setName}
-                  type="button"
-                  onClick={() => handleSelect(set.setName)}
-                  className={cn(
-                    "flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-bg-elevated",
-                    selectedSets.includes(set.setName) && "text-accent-primary"
-                  )}
-                >
-                  <div className="flex-1">
-                    <div className="font-medium">{set.setName}</div>
-                    <div className="text-xs text-text-secondary">
+                <li key={set.setName}>
+                  <button type="button" onClick={() => handleSelect(set.setName)}>
+                    {set.setName}
+                    {selectedSets.includes(set.setName) && <span className={styles.added}> Added</span>}
+                    <small>
                       {set.setCode} &middot; {set.cardCount} cards
-                    </div>
-                  </div>
-                  {selectedSets.includes(set.setName) && (
-                    <span className="text-xs text-accent-primary">Added</span>
-                  )}
-                </button>
+                    </small>
+                  </button>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
-        </div>
+        </span>
         <button
+          className={`btn btn-secondary ${styles.browseBtn}`}
           type="button"
+          aria-label="Browse sets"
           onClick={() => setBrowserOpen(true)}
-          className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated hover:text-text-primary"
         >
-          <Grid3X3 className="h-4 w-4" />
-          Browse
+          <Grid3X3 className="ic sm" aria-hidden="true" />
+          <span className={styles.browseText}>Browse</span>
         </button>
         <button
+          className={`btn btn-secondary ${styles.ib}`}
           type="button"
           onClick={handleSync}
           disabled={syncing}
+          aria-label="Refresh the set list"
           title="Sync set list from YGOPRODeck"
-          className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated hover:text-text-primary disabled:opacity-50"
         >
-          <RefreshCw className={cn("h-4 w-4", syncing && "motion-safe:animate-spin")} />
+          <RefreshCw className={cn("ic sm", syncing && styles.spin)} aria-hidden="true" />
         </button>
       </div>
+      {loading && (
+        <p className="hint" role="status">
+          Searching sets
+        </p>
+      )}
       {syncError && (
-        <p className="mt-1 text-xs text-accent-cta">{syncError}</p>
+        <p className="ferr" role="alert">
+          {syncError}
+        </p>
       )}
 
       {selectedSets.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <ul className={styles.chips} aria-label="Sets in the pool">
           {selectedSets.map((setName) => (
-            <span
-              key={setName}
-              className="inline-flex items-center gap-1 rounded-full bg-accent-primary/20 px-3 py-1 text-sm text-accent-primary"
-            >
+            <li key={setName} className="chip chip-pen">
               {setName}
-              <button
-                type="button"
-                onClick={() => handleRemove(setName)}
-                className="ml-1 hover:text-white"
-              >
-                <X className="h-3 w-3" />
+              <button type="button" onClick={() => handleRemove(setName)} aria-label={`Remove ${setName}`}>
+                <X className="ic sm" aria-hidden="true" />
               </button>
-            </span>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       <SetBrowserModal
