@@ -77,12 +77,14 @@ describe("starting a draft tournament series", () => {
     }
   });
 
-  it("maps both players' draft decks and starts the series", async () => {
+  it("links both players' draft decks, maps them and starts the series", async () => {
     const s = seed();
     callDuelHost.mockResolvedValue({ ok: true, data: { deck: MAPPED, report: { issues: [] } } });
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
     const res = await POST(post(), ctx(s.tmId));
     expect(res.status).toBe(201);
+    expect(linkDraftDeck).toHaveBeenCalledWith(s.tournamentId, s.a, expect.anything());
+    expect(linkDraftDeck).toHaveBeenCalledWith(s.tournamentId, s.b, expect.anything());
     const series = s.db.prepare("select deck0_json, deck1_json from duel_series").get() as { deck0_json: string; deck1_json: string };
     expect(JSON.parse(series.deck0_json)).toEqual(MAPPED);
     expect(JSON.parse(series.deck1_json)).toEqual(MAPPED);
@@ -115,11 +117,12 @@ describe("starting a draft tournament series", () => {
     expect(locked(s.db)).toBe(0);
   });
 
-  it("checks who may start before it maps any deck", async () => {
+  it("checks who may start before it links or maps any deck", async () => {
     const s = seed();
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
     auth.mockResolvedValue({ user: { id: "u-x", name: "Outsider" } });
     expect((await POST(post(), ctx(s.tmId))).status).toBe(403);
+    expect(linkDraftDeck).not.toHaveBeenCalled();
     expect(callDuelHost).not.toHaveBeenCalled();
     // The organizer may start it.
     callDuelHost.mockResolvedValue({ ok: true, data: { deck: MAPPED, report: { issues: [] } } });
@@ -133,5 +136,6 @@ describe("starting a draft tournament series", () => {
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
     expect((await POST(post(), ctx(s.tmId))).status).toBe(404);
     expect(callDuelHost).not.toHaveBeenCalled();
+    expect(linkDraftDeck).not.toHaveBeenCalled();
   });
 });

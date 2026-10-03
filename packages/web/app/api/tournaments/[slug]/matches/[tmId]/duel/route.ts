@@ -3,6 +3,7 @@ import { createDuelSeriesService } from "@yugidraft/shared/services";
 import { announceDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
 import { mapDraftTournamentDecks } from "@/lib/draft-deck-codes";
+import { linkDraftDeck } from "@/lib/draft-decks";
 import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { broadcaster } from "@/lib/notify";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -54,6 +55,9 @@ export async function POST(
     }
 
     const playerIds = [slot.player_one_id, slot.player_two_id];
+    // A player who joined from the Discord button and never opened the page has no deck on the
+    // entry yet: register their draft deck first.
+    for (const playerId of playerIds) linkDraftDeck(tournament.id, playerId, db);
     // A draft tournament's auto-registered decks hold catalog ids: map both seats' decks to engine
     // codes before the series copies and locks them. If that cannot be done, nothing is started.
     const mapped = await mapDraftTournamentDecks(db, { tournamentId: tournament.id, guildId: actor.guildId, playerIds });
