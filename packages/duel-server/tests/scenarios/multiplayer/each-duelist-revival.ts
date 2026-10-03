@@ -60,7 +60,7 @@ function revival(format: Format, actor: 0 | 1, code: number, card: string): Scen
   steps.push(activate(card, seat(actor)));
   if (!battle && !banished) steps.push(zone(seat(actor), "s0", seat(actor)));
   for (let k = 0; k < n; k++) {
-    const i = (actor + k) % n;
+    const i = ((battle ? attacker : banished ? 0 : actor) + k) % n;
     steps.push(expectPickOptions([
       ...PAIRS[i].map(name => ({ seat: seat(i), card: name })),
       ...(battle && i === actor ? [{ seat: seat(i), card: "Giant Rat" }] : []),

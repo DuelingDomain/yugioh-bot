@@ -19,7 +19,7 @@ function s.target(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
 	if chkc then return false end
 	if chk==0 then return mp_can_target(e,tp) end
 	local g=Group.CreateGroup()
-	aux.MPForEachDuelist(function(tp_i,seat_i)
+	aux.MPForEachDuelistFromTurn(function(tp_i,seat_i)
 		local function filter(c) return Duel.MPSeatOf(c)==seat_i and s.spfilter(c,e,tp_i) end
 		if Duel.GetLocationCount(tp_i,LOCATION_MZONE)>0
 			and Duel.IsExistingTarget(filter,tp_i,LOCATION_GRAVE,0,1,nil) then
@@ -37,7 +37,7 @@ end
 -- Each target is summoned for its own duelist. All summons complete together.
 function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	local g=Duel.GetTargetCards(e)
-	aux.MPForEachDuelist(function(tp_i,seat_i)
+	aux.MPForEachDuelistFromTurn(function(tp_i,seat_i)
 		local tg=Duel.GetFieldGroup(tp_i,LOCATION_GRAVE,0):Filter(function(c)
 			return Duel.MPSeatOf(c)==seat_i and g:IsContains(c)
 		end,nil)
