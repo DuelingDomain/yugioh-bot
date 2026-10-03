@@ -57,12 +57,57 @@ function pending<T>() {
   return { promise, resolve };
 }
 
+describe("BetweenGamesScreen: Not ready button", () => {
+  it.each([false, true])("takes Ready back with no edit while the timer runs (opponent ready: %s)", async (theirs) => {
+    const view = setup({ sideReady: [true, theirs] });
+    expect(screen.queryByRole("button", { name: "Ready" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Not ready" }));
+    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
+    expect(api.unreadySeries).toHaveBeenCalledWith("game-1");
+    // Ready is offered again at once and the player can edit.
+    await waitFor(() => expect(ready().disabled).toBe(false));
+    expect(screen.queryByRole("button", { name: "Not ready" })).toBeNull();
+    expect(status().textContent).toMatch(/You are no longer ready/);
+    await waitFor(() => expect(view.onChanged).toHaveBeenCalled());
+    expect(api.readySeries).not.toHaveBeenCalled();
+    expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
+    // Editing afterwards works and Ready sends the new deck.
+    await swap();
+    fireEvent.click(ready());
+    await waitFor(() => expect(api.readySeries).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows Ready, not Not ready, for a player who is not ready", async () => {
+    setup({ sideReady: [false, true] });
+    await waitFor(() => expect(ready().disabled).toBe(false));
+    expect(screen.queryByRole("button", { name: "Not ready" })).toBeNull();
+  });
+
+  it("follows the series when the game already started", async () => {
+    api.unreadySeries.mockResolvedValue({ series: between(), nextSlug: "game-2" });
+    const view = setup({ sideReady: [true, true] });
+    fireEvent.click(screen.getByRole("button", { name: "Not ready" }));
+    await waitFor(() => expect(view.onNavigate).toHaveBeenCalledWith("game-2"));
+  });
+
+  it("keeps the player ready and shows the error when the request fails", async () => {
+    api.unreadySeries.mockRejectedValue(new Error("Could not reach the server"));
+    setup({ sideReady: [true, false] });
+    fireEvent.click(screen.getByRole("button", { name: "Not ready" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Could not reach the server");
+    expect(screen.getByRole("button", { name: "Not ready" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ready" })).toBeNull();
+  });
+});
+
 describe("BetweenGamesScreen: editing after Ready", () => {
   it("takes Ready back on the first mark, before saving, and only once while un-ready is in flight", async () => {
     const request = pending<unknown>();
     api.unreadySeries.mockReturnValue(request.promise);
     const view = setup({ sideReady: [true, true] });
-    expect(ready().disabled).toBe(true);
+    // Ready shows as Not ready while the player is ready and has no pending swaps.
+    expect(screen.queryByRole("button", { name: "Ready" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Not ready" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(await tile("Card 2, Main Deck"));
     expect(api.unreadySeries).toHaveBeenCalledWith("game-1");
     expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
@@ -216,7 +261,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     await tile("Card 1, Main Deck");
     fireEvent.click(ready());
     await waitFor(() => expect(status().textContent).toMatch(/You are ready/));
-    await waitFor(() => expect(ready().getAttribute("aria-busy")).not.toBe("true"));
+    await screen.findByRole("button", { name: "Not ready" });
     view.unmount();
     setup();
     fireEvent.click(await tile("Card 2, Main Deck"));

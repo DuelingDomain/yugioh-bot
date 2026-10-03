@@ -331,6 +331,13 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     }
   }
 
+  /** Takes Ready back with no edit, so the player can change the deck again before the timer ends. */
+  function notReady() {
+    if (busy || moving || advancing.current || !imReady) return;
+    setError(null);
+    leaveReady();
+  }
+
   const ready = () => run(async () => {
     if (plan.reason) return;
     const readyGeneration = generation.current;
@@ -372,7 +379,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const status = imReady && changed
     ? "Saving these swaps clears your Ready. Click Ready again when you are done."
     : imReady
-    ? (theirReady ? "Both players are ready." : "You are ready. Waiting for your opponent.")
+    ? (theirReady ? "Both players are ready." : "You are ready. Waiting for your opponent. Click Not ready to change your deck.")
     : unreadied ? "You are no longer ready. Finish your swaps, then click Ready again."
     : interrupted ? "The last game did not finish. Both players must click Ready to play on."
       : !hasSide ? "Your deck has no Side Deck, so there is nothing to change. Click Ready."
@@ -486,10 +493,16 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
               {readyReason ?? (unreadied || (imReady && changed) ? null : status)}
             </p>
             <div className={styles.buttons}>
-              <SheetButton kind="primary" size="lg" loading={busy && !confirmCancel} disabled={(imReady && !changed) || busy || moving || readyReason != null}
-                aria-describedby="between-reason" onClick={() => void ready()}>
-                Ready
-              </SheetButton>
+              {imReady && !changed ? (
+                <SheetButton kind="secondary" size="lg" disabled={busy || moving} aria-describedby="between-reason" onClick={notReady}>
+                  Not ready
+                </SheetButton>
+              ) : (
+                <SheetButton kind="primary" size="lg" loading={busy && !confirmCancel} disabled={busy || moving || readyReason != null}
+                  aria-describedby="between-reason" onClick={() => void ready()}>
+                  Ready
+                </SheetButton>
+              )}
               <SheetButton kind="secondary" disabled={locked || (!changed && sameDeck(current, resetDeck))} onClick={reset}>
                 Reset to the deck from last game
               </SheetButton>

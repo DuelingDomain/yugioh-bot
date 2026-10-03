@@ -166,7 +166,8 @@ describe("BetweenGamesScreen: what it shows", () => {
         expect(screen.getByTestId("my-side-status").textContent).toBe(mine ? "You are ready." : "You are not ready.");
         expect(screen.getByTestId("opponent-side-status").textContent).toBe(theirs ? "Opponent ready" : "Opponent is siding…");
         expect(screen.queryByText("Both players are ready.") != null).toBe(mine && theirs);
-        expect(readyButton().disabled).toBe(mine);
+        expect(screen.queryByRole("button", { name: "Not ready" }) != null).toBe(mine);
+        expect(screen.queryByRole("button", { name: "Ready" }) != null).toBe(!mine);
         cleanup();
       }
     }
