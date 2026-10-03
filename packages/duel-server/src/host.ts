@@ -173,7 +173,8 @@ function freezeView(
   view: DuelEngineView,
   result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string },
 ): DuelEngineView {
-  return { ...view, prompt: null, result };
+  return { ...view, prompt: null, result,
+    seats: view.seats.map((seat) => seat.pendingElimination ? { ...seat, pendingElimination: false } : seat) };
 }
 
 export interface DuelHost {

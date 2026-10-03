@@ -931,6 +931,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // Disabled zones are public board facts. The field is set only for seats that have one.
       if (multi) projected.eliminationOrder = eliminationOrder.map((group) => [...group]);
       for (const entry of projected.seats) {
+        if (multi) entry.pendingElimination = !result && !eliminated.has(entry.seat)
+          && (isLeaving(entry.seat) || queuedSurrenders.has(entry.seat));
         const mask = disabledZones.get(entry.seat);
         if (mask) entry.disabledZones = mask;
       }

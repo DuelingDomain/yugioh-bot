@@ -109,7 +109,7 @@ Duel.RegisterEffect(e,0)`);
 
 const states = (view: DuelEngineView) => view.seats.map((seat) => seat.eliminated ? "out" : seat.pendingElimination ? "pending" : "in");
 const allIn = (view: DuelEngineView, count: number) => {
-  expect(states(view)).toEqual(Array(count).fill("in"));
+  expect(view.seats.map((seat) => seat.eliminated)).toEqual(Array(count).fill(false));
   for (const seat of view.seats) {
     expect(seat.monsters.filter(Boolean).map((card) => card!.code)).toEqual([32452818]);
     expect(seat.hand).toHaveLength(1);
@@ -165,6 +165,34 @@ for (const mode of ["normal", "domain"] as const) {
       if (format !== "tag") expect(queuedFrame.seats.flatMap((seat) => seat.hand).every((card) => card.code == null)).toBe(true);
     }, 60_000);
 
+    it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s shows the queue until the loss lands", async (format) => {
+      const t = await table(mode, format);
+      const leaver = format === "tag" ? 1 : t.count - 1;
+      await t.view();
+      await t.post("surrender", leaver);
+      const checkQueue = async () => {
+        const views = await Promise.all([null, ...Array.from({ length: t.count }, (_, seat) => seat)].map((seat) => t.workers.at(-1)!.view(seat)));
+        for (const view of views) {
+          expect(view.seats.map((seat) => seat.eliminated)).toEqual(Array(t.count).fill(false));
+          expect(view.seats.map((seat) => seat.pendingElimination)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === leaver));
+        }
+      };
+      await checkQueue();
+      await t.recover();
+      await checkQueue();
+      await t.answer(0, { choice: "to_ep" });
+      await checkQueue();
+      await t.answer(0, { choice: "no" });
+      for (let seat = 0; seat < t.count; seat++) {
+        const view = await t.view(seat);
+        expect(view.seats.map((seat) => seat.pendingElimination)).toEqual(Array(t.count).fill(false));
+        expect(view.seats.map((seat) => seat.eliminated)).toEqual(Array.from({ length: t.count }, (_, seat) =>
+          format === "tag" ? teamOfSeat(format, seat) === 1 : seat === leaver));
+      }
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(replayed.spectator.seats.map((seat) => seat.pendingElimination)).toEqual(Array(t.count).fill(false));
+    }, 60_000);
+
     it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s keeps the open-chain loss rule", async (format) => {
       const t = await table(mode, format, true);
       await reachMain(t);
@@ -202,6 +230,8 @@ for (const mode of ["normal", "domain"] as const) {
     it.each([0, 3])("R-COMMON-SURRENDER-EOT: Tag seat %s ends an open chain at once", async (leaver) => {
       const t = await table(mode, "tag", true);
       await reachMain(t);
+      const pending = await t.post("surrender", 2);
+      expect(pending.engine!.seats[2]!.pendingElimination).toBe(true);
       const start = await t.view();
       const activate = start.prompt!.options.find((option) => option.card?.code === 55144522 && option.id.startsWith("activate:"));
       await t.answer(0, { choice: activate!.id });
@@ -217,6 +247,7 @@ for (const mode of ["normal", "domain"] as const) {
       expect(t.source().commands).toEqual(commands);
       for (const seat of room.engine!.seats) {
         expect(seat.eliminated).toBe(false);
+        expect(seat.pendingElimination).toBe(false);
         expect(seat.hand).toHaveLength(seat.seat === 0 ? 0 : 1);
         expect(seat.monsters.filter(Boolean)).toHaveLength(1);
       }
@@ -254,11 +285,11 @@ Debug.AddCard(${burn},0,0,LOCATION_HAND,0,POS_FACEDOWN)`]);
       await activateCard(t, burn);
       const early = await t.view();
       expect(early.phase).toBe("main1");
-      expect(states(early)).toEqual(["in", "out", "in", "in"]);
+      expect(states(early)).toEqual(["in", "out", "in", "pending"]);
       expect(early.seats.map((seat) => seat.lp)).toEqual([8000, 0, 8000, 8000]);
       expect((await t.post("view", 1)).role).toBe("spectator");
       await t.answer(0, { choice: "to_ep" });
-      expect(states(await t.view())).toEqual(["in", "out", "in", "in"]);
+      expect(states(await t.view())).toEqual(["in", "out", "in", "pending"]);
       await t.answer(0, { choice: "no" });
       const final = await t.view();
       expect(states(final)).toEqual(["in", "out", "in", "out"]);
@@ -313,6 +344,7 @@ Debug.AddCard(${burn},0,0,LOCATION_HAND,0,POS_FACEDOWN)`]);
       expect(final.phase).toBe("main1");
       expect(states(final)).toEqual(["in", "out", "out", "out"]);
       expect(final.result?.winnerSeat).toBe(0);
+      expect(final.seats.every((seat) => seat.pendingElimination === false)).toBe(true);
       expect(final.result?.reason).not.toBe("Surrendered");
       expect(final.log.some((entry) => entry.text === "end")).toBe(false);
       const replayed = await replaySource(t.source(), DATA, t.source().commands.length);

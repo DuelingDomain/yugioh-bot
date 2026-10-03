@@ -114,7 +114,7 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
     expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[leaver] })).status).toBe(200);
     const during = await t.view(t.host, holder);
     expect(during.prompt?.id).toBe(before.prompt?.id);
-    expect(during.seats[leaver]).toMatchObject({ eliminated: false });
+    expect(during.seats[leaver]).toMatchObject({ eliminated: false, pendingElimination: true });
     expect(t.duels.get(t.slug, "g1").status).toBe("active");
 
     // Rebuild with the prompt still open: same view, same pending flag.
@@ -130,7 +130,7 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
     expect(answered.status).toBe(200);
     const after = await Promise.all([0, 1, 2, 3].map((seat) => t.view(host2, seat)));
     expect(after[0]!.seats[leaver]!.eliminated).toBe(true);
-    expect(after[0]!.seats[leaver]!.pendingElimination).toBeUndefined();
+    expect(after[0]!.seats[leaver]!.pendingElimination).toBe(false);
 
     const worker3 = new RealEngineWorker();
     const host3 = makeHost(t.db, worker3);

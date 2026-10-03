@@ -100,7 +100,7 @@ describeWithCores("FFA4 host with the real engine", [needs.multi(multiWasmPath),
     expect((await t.surrender(2)).status).toBe(200);
     expect(t.duels.get(t.slug, "g1").status).toBe("active");
     const middle = await t.view(0);
-    expect(state(middle)).toEqual(["in", "in", "in", "in"]);
+    expect(state(middle)).toEqual(["in", "in", "pending", "pending"]);
     expect(middle.result ?? null).toBeNull();
     expect(middle.prompt?.seat).toBe(0);
     // p1 gives up too. All seats stay until p0 ends the current turn.
