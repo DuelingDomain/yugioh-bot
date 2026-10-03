@@ -377,7 +377,7 @@ const SPECS: EffectSpec[] = [
     tgt: { monsters: [MAGICIAN, ELF] },
     steps: (roles) => [
       activate("Monster Reborn", "p0"),
-      // Space-Time Police declares the opponent before its opponent-only target selection.
+      // Monster Reborn reads either GY. The declaration is for Space-Time Police's banish trigger.
       ...(roles.format !== "tag" ? [pickOpponent(roles.others[0], "p0")] : [select({ card: ELF, owner: roles.others[0] })]),
       ...(["p0", "p1", "p2", "p3"] as const).slice(0, (["p0", "p1", "p2", "p3"] as const).indexOf(roles.tgt)).map((seat) => endTurn(seat)),
       attack(MAGICIAN, { card: "Space-Time Police", owner: "p0" }, roles.tgt),
