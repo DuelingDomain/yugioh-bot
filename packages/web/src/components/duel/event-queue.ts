@@ -1,3 +1,4 @@
+import { reportDuelClientError } from "./client-error";
 import type { SceneCueName } from "./fx3d/scene-plan";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import type { BattleSoundPlan } from "./attack-audio";
@@ -282,8 +283,24 @@ function queueDestinationFrame(): void {
   destinationFrame = window.requestAnimationFrame(() => {
     destinationFrame = undefined;
     // Every geometry read precedes every style write, however many flights/rings are active.
-    const samples = [...destinationFollowers].map((follower) => ({ follower, sample: follower.read() }));
-    for (const { follower, sample } of samples) if (destinationFollowers.has(follower)) follower.write(sample);
+    const samples: Array<{ follower: DestinationFollower; sample: unknown }> = [];
+    for (const follower of [...destinationFollowers]) {
+      try {
+        samples.push({ follower, sample: follower.read() });
+      } catch (error) {
+        destinationFollowers.delete(follower);
+        reportDuelClientError(error);
+      }
+    }
+    for (const { follower, sample } of samples) {
+      if (!destinationFollowers.has(follower)) continue;
+      try {
+        follower.write(sample);
+      } catch (error) {
+        destinationFollowers.delete(follower);
+        reportDuelClientError(error);
+      }
+    }
     queueDestinationFrame();
   });
 }
