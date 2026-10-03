@@ -167,6 +167,25 @@ describe("BattleFx", () => {
     expect(document.querySelector('[data-battle-stat="target"]')?.textContent).toBe("100 DEF");
   });
 
+  it.each([false, true])("hides active calculation plates outside the Damage Step (reduced motion: %s)", reducedMotion => {
+    const before = seatsOf(warrior, machine, 4);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={reducedMotion} seats={before} battleStep="battle" />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 200, defense: 2100, position: 1 }, target: { attack: 2400, defense: 100, position: 4 } } };
+    const events = [phase, attack, calculation, { id: 4, kind: "destroy", text: "", zone: attack.target, cause: "battle" } as DuelEvent];
+    for (const battleStep of ["damage", "damage-calculation"] as const) {
+      rerender(<BattleFx events={events} reducedMotion={reducedMotion} seats={before} battleStep={battleStep} />);
+      expect(document.querySelector('[data-battle-stat="attacker"]')?.textContent).toBe("200 ATK");
+      expect(document.querySelector('[data-battle-stat="target"]')?.textContent).toBe("100 DEF");
+    }
+    // The same animation is still mounted when the next engine window returns to the Battle Step.
+    for (const battleStep of ["battle", "start", "end", null] as const) {
+      rerender(<BattleFx events={events} reducedMotion={reducedMotion} seats={before} battleStep={battleStep} />);
+      expect(playLayer()).not.toBeNull();
+      expect(document.querySelector('[data-battle-stat]')).toBeNull();
+    }
+  });
+
   it.each([0, 1, null])("uses the changed defender pose for DOM and canvas playback for viewer %s", viewer => {
     const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;
     node.dataset.side = viewer === 1 ? "you" : "opp";

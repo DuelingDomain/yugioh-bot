@@ -73,6 +73,8 @@ export type BattleFxProps = {
   seats?: readonly DuelSeatView[];
   /** A terminal result removes calculation plates even if the core never ends the Damage Step. */
   result?: DuelEngineView["result"];
+  /** Engine window for plate visibility; standalone playback may omit window metadata. */
+  battleStep?: DuelEngineView["battleStep"];
 };
 
 /* ---------- geometry ---------- */
@@ -649,7 +651,7 @@ function declaredAim(attack: DuelEvent): BattleAim | null {
   return { mode: "locked", from, to: { lpSeat: 1 - attack.zone.controller } };
 }
 
-export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null }: BattleFxProps) {
+export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null, battleStep }: BattleFxProps) {
   const [mounted, setMounted] = useState(false);
   const [play, setPlay] = useState<Play | null>(null);
   const [declared, setDeclared] = useState<BattleAim | null>(null);
@@ -802,7 +804,8 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   return (
     <div className={`${styles.layer} ${duelFontClasses}`} aria-hidden>
       {shownAim ? <AimLayer aim={shownAim} reduced={reducedMotion} /> : null}
-      {play ? <AttackPlay key={play.seq} play={play} showStats={active && result == null} /> : null}
+      {play ? <AttackPlay key={play.seq} play={play}
+        showStats={active && result == null && (battleStep === undefined || battleStep === "damage" || battleStep === "damage-calculation")} /> : null}
     </div>
   );
 }
