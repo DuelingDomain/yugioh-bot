@@ -68,6 +68,12 @@ describe("TagHeader", () => {
     expect(screen.getByText("Friday Tag Night")).toBeTruthy();
   });
 
+  it("names the brand link Duelists Kingdom and points it at the duel list", () => {
+    header(baseRoom);
+    const brand = screen.getByRole("link", { name: "Duelists Kingdom" });
+    expect(brand.getAttribute("href")).toBe("/duels");
+  });
+
   it("renders the header tools slot", () => {
     header(baseRoom, { headerTools: <button type="button">Surrender</button> });
     expect(screen.getByRole("button", { name: "Surrender" })).toBeTruthy();

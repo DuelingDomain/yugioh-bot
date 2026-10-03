@@ -59,7 +59,7 @@ export function TagHeader({ session, engine, viewerSeat, nameOf, teamNames, pref
   return (
     <header className={styles.header} data-tag-header>
       <div className={styles.identity}>
-        <Link href="/duels">Yugidraft</Link>
+        <Link href="/duels">Duelists Kingdom</Link>
         <i aria-hidden>/</i>
         <span className={styles.title} title={session.name}>{session.name}</span>
         <em className={styles.format}>{tagModeLabel(session)} &middot; Tag duel (2v2)</em>
