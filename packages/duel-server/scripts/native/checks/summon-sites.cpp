@@ -475,14 +475,17 @@ static void mode_pass() {
 	std::printf("  Trap Monsters in grave: seat 0 %d, seat 1 %d, seat 2 %d\n", count_in(d, 0, LOCATION_GRAVE, 115), count_in(d, 1, LOCATION_GRAVE, 115),
 	            count_in(d, 2, LOCATION_GRAVE, 115));
 	const std::vector<int> want{0, 1};
-	const bool ok = p.card_seats == want && killed && w2 == "grave";
+	bool ok = p.card_seats == want && killed && w2 == "grave" && p.done && logged("c117 group 5");
 	EXPECT(p.card_seats == want, "SELECT_CARD seats %s", seats(p.card_seats).c_str());
 	EXPECT(killed, "seat 1 never chose");
 	EXPECT(w2 == "grave", "seat 2 got no pass (115 is %s)", w2.c_str());
 	EXPECT(p.done && logged("c117 group 5"), "all five Trap Monsters were read and the effect finished");
 	// This fixture tests the pass loop. It sets the loss flag without elimination cleanup.
-	for(int q = 0; q < 3; ++q)
-		EXPECT(count_in(d, q, LOCATION_GRAVE, 115) == 1, "seat %d: one Trap Monster must go to the Graveyard", q);
+	for(int q = 0; q < 3; ++q) {
+		const bool one = count_in(d, q, LOCATION_GRAVE, 115) == 1;
+		EXPECT(one, "seat %d: one Trap Monster must go to the Graveyard", q);
+		ok = ok && one;
+	}
 	std::printf("RESULT pass %s\n", ok ? "PASS" : "FAIL");
 	OCG_DestroyDuel(d);
 }
