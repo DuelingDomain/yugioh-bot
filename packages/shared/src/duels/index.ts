@@ -331,6 +331,8 @@ export interface DuelEvent {
   addedToHand?: true;
   /** move into hand: animation destination in the current engine view. Hidden shuffles stay anonymous. */
   handId?: string;
+  /** move into hand: a public shuffle occurred since this arrival; unknown departures cannot identify it. */
+  handShuffled?: true;
   /** attack: the attacked monster's zone; absent for a direct attack. equip: the monster it was equipped to. */
   target?: DuelZoneRef;
   /** damage: LP lost by `seat` (positive number). */

@@ -45,8 +45,17 @@ describe("baseDuration", () => {
 });
 
 describe("planMoves", () => {
+  it.each([false, true])("does not correlate a public arrival with an unknown departure after a hidden shuffle (reduced=%s)", (reduced) => {
+    const events = [move(1, z(1, GRAVE, 0), z(1, HAND, 1),
+      { addedToHand: true, handId: "departed-1", handShuffled: true }),
+      move(2, z(1, HAND, 1), z(1, DECK, 0), { card: undefined, reason: "return" })];
+    const [incoming, outgoing] = planMoves(events, { now: 0, reduced, duelKey: "t", geometry });
+    expect(incoming.handoff).toBeUndefined();
+    expect(outgoing.handoffFrom).toBeUndefined();
+  });
+
   it("chains a known arrival discarded from a different slot after an unreported engine shuffle", () => {
-    const events = [move(1, z(0, DECK, 0), z(0, HAND, 4), { reason: "draw", handId: "departed-1" }),
+    const events = [move(1, z(0, DECK, 0), z(0, HAND, 4), { reason: "draw", handId: "departed-1", handShuffled: true }),
       move(2, z(0, HAND, 1), z(0, GRAVE, 0), { reason: "discard" })];
     const [incoming, outgoing] = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
     expect(incoming.handoff).toBe(outgoing.id);

@@ -369,6 +369,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       }
       const beforeCode = previous?.event.card?.code;
       if (item && previous && (!previous.event.handId || previous.event.handId.startsWith("departed-")) &&
+        !((afterCode == null || afterCode <= 0) && previous.event.handShuffled) &&
         (beforeCode == null || afterCode == null || beforeCode === afterCode)) {
         item.predecessor = previous;
         chained.add(previous);

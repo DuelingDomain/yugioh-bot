@@ -45,6 +45,32 @@ function concealedHistory(hidden: readonly number[], permutation: readonly numbe
 }
 
 describe("hand order in projected views", () => {
+  it("marks a public arrival's lost correlation identically across hidden worlds", () => {
+    const worlds = [[10, 20], [20, 10]].map((shuffled) => {
+      const ctx = createEventContext();
+      const events = observeMoveEvents({ type: M.DRAW, player: 0, drawn: [{ code: 10, position: P.FACEDOWN_ATTACK }] }, cards, ctx, 1);
+      events.push(...observeMoveEvents({ type: M.MOVE, card: 20,
+        from: { controller: 0, location: L.GRAVE, sequence: 0, position: P.FACEUP_ATTACK },
+        to: { controller: 0, location: L.HAND, sequence: 1, position: P.FACEDOWN_ATTACK } }, cards, ctx, 2));
+      observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: shuffled }, cards, ctx, 3);
+      events.push(...observeMoveEvents({ type: M.MOVE, card: shuffled[1]!,
+        from: { controller: 0, location: L.HAND, sequence: 1, position: P.FACEDOWN_ATTACK },
+        to: { controller: 0, location: L.DECK, sequence: 0, position: P.FACEDOWN_ATTACK } }, cards, ctx, 3));
+      return [1, null].map((viewer) => projectView({
+        lib: { duelQueryField: () => ({ players: [{ deck_size: 30, extra_size: 0 }, { deck_size: 30, extra_size: 0 }], chain: [] }),
+          duelQueryLocation: (_h: unknown, q: { controller: number; location: number }) => q.controller === 0 && q.location === L.HAND
+            ? [{ code: shuffled[0], position: P.FACEDOWN_ATTACK, isPublic: false }] : [] } as never,
+        handle: {} as never, cards, viewer, revision: 0, turn: 1, turnSeat: 0, phase: "main1", lp: [8000, 8000],
+        prompt: null, promptSeat: null, log: [], events, result: null, reveals: createRevealMap(), mode: "normal", handIdentities: ctx.handIdentities,
+      }));
+    });
+    expect(worlds[0]).toEqual(worlds[1]);
+    for (const view of worlds[0]!) {
+      expect(view.events[1]).toMatchObject({ handId: "departed-2", handShuffled: true, card: { code: 20 } });
+      expect(view.events[2]!.card).toBeUndefined();
+    }
+  });
+
   it("does not disclose a hidden copy of a public card after a same-batch shuffle and facedown departure", () => {
     expect(concealedHistory([30, 20], [0, 1, 2], 0)).toEqual(concealedHistory([40, 20], [0, 1, 2], 0));
   });

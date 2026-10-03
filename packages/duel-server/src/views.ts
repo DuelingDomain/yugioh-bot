@@ -1206,6 +1206,7 @@ export function projectView(args: {
         const mismatched = visible?.code != null && projected.card?.code != null && visible.code !== projected.card.code;
         // A departed arrival gets an unresolvable id so its flight cannot hide a replacement card.
         projected.handId = entry && !mismatched ? entry.id : `departed-${event.id}`;
+        if (args.handIdentities.shuffledSinceArrival(seat, event.id)) projected.handShuffled = true;
         // Keep the original engine message coordinates in history. Flights resolve this ID in the
         // current query-ordered hand, rather than rewriting past draws/moves after later compaction.
       }

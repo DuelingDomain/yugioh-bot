@@ -5,6 +5,8 @@ const isSequence = (sequence: number): boolean => Number.isSafeInteger(sequence)
 export class HandIdentities {
   private nextOwn = 0;
   private nextSleeve = 0;
+  private lastArrival = [0, 0];
+  private shuffledThrough = [0, 0];
   private own: Identity[][] = [[], []];
   private sleeves: Identity[][] = [[], []];
   /** The last observed sleeve order until a query confirms which effects survived a shuffle. */
@@ -14,6 +16,7 @@ export class HandIdentities {
 
   add(seat: number, code: number, sequence: number, arrival?: number, isPublic = false, publicArrivalCode?: number): void {
     if (!this.own[seat] || !isSequence(sequence)) return;
+    if (arrival != null) this.lastArrival[seat] = Math.max(this.lastArrival[seat]!, arrival);
     this.own[seat]!.splice(sequence, 0, { id: `hand-${++this.nextOwn}`, code, arrival });
     const sleeve = { id: `sleeve-${++this.nextSleeve}`, code: isPublic ? code : 0, arrival, arrivalCode: isPublic ? code : publicArrivalCode, public: isPublic };
     const following = this.sleeves[seat]![sequence];
@@ -113,6 +116,8 @@ export class HandIdentities {
 
   shuffle(seat: number, codes: readonly number[]): void {
     if (!this.own[seat]) return;
+    // Public shuffle history only: retain this watermark even when a sleeve is removed.
+    this.shuffledThrough[seat] = this.lastArrival[seat]!;
     // SHUFFLE_HAND supplies the new engine sequence. Identical copies are interchangeable.
     const available = [...this.own[seat]!];
     this.own[seat] = codes.map((code) => {
@@ -149,6 +154,10 @@ export class HandIdentities {
 
   at(seat: number, owner: boolean, sequence: number): string | undefined {
     return (owner ? this.own : this.sleeves)[seat]?.[sequence]?.id;
+  }
+
+  shuffledSinceArrival(seat: number, eventId: number): boolean {
+    return eventId > 0 && eventId <= (this.shuffledThrough[seat] ?? 0);
   }
 
   arrival(seat: number, owner: boolean, eventId: number): { id: string; sequence: number } | undefined {
