@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { createEngineGame } from "../../src/engine.js";
 import { currentEngineDataDirectory } from "../engine-data-dir.js";
 import { compileBoard } from "../support/board.js";
@@ -12,12 +12,11 @@ import { liveNseat } from "../support/live-nseat.js";
 import { Session } from "../support/session.js";
 import { createPrivateTableData } from "./private-table-data.js";
 
-const source = currentEngineDataDirectory();
 const hash = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
-const originalDatabaseHash = hash(join(source, "cards.cdb"));
-const originalScriptExists = existsSync(join(source, "card-scripts/official/c5043020.lua"));
-const fixture = createPrivateTableData(source);
-afterAll(fixture.cleanup);
+let source: string;
+let originalDatabaseHash: string;
+let originalScriptExists: boolean;
+let fixture: ReturnType<typeof createPrivateTableData>;
 vi.mock("../support/card-catalog.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../support/card-catalog.js")>();
   return { ...actual, resolveCard: (...args: Parameters<typeof actual.resolveCard>) =>
@@ -25,6 +24,13 @@ vi.mock("../support/card-catalog.js", async (importOriginal) => {
 });
 
 describeWithCores("private pre-errata Firewall table input", [liveNseat, ...needs.domainMulti()], () => {
+  beforeAll(() => {
+    source = currentEngineDataDirectory();
+    originalDatabaseHash = hash(join(source, "cards.cdb"));
+    originalScriptExists = existsSync(join(source, "card-scripts/official/c5043020.lua"));
+    fixture = createPrivateTableData(source);
+  });
+  afterAll(() => fixture?.cleanup());
   it("adds the row and official script only to the private copy", () => {
     const db = new Database(join(fixture.directory, "cards.cdb"), { readonly: true });
     try {
