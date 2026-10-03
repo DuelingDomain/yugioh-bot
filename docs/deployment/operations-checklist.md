@@ -20,7 +20,7 @@
 ## Deploy Smoke Test
 
 - First production start of the duel engine should go through the `main` deploy workflow so the pinned `data/duel-engine` bundle is installed. Do not hand-run `duel:prepare` on the ARM VM (no emsdk).
-- Run `docker compose -f docker-compose.yml up -d --build` only after that bundle exists, or let the workflow start Compose.
+- Use the deploy workflow for image updates; it prepares the temporary `.deploy-duel-engine` context required by `duel-bundled`. To start already built images, use `docker compose -f docker-compose.yml up -d` (without `--build`).
 - Run `docker compose -f docker-compose.yml logs -f` and confirm bot, ws, duel, web, and caddy start.
 - Confirm `duel` logs: `Private server listening` and no rewrite of `data/bot.sqlite`.
 - Visit `http://<IP>` and confirm the web dashboard loads.

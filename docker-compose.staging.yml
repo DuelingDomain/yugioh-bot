@@ -64,11 +64,11 @@ services:
     <<: *staging-service
     build:
       context: .
-      target: duel
+      target: duel-bundled
     user: "${STAGING_UID:-1000}:${STAGING_GID:-1000}"
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
-      # The staging engine directory. It holds the multi-duelist core (ocgcore.multi.wasm).
+      # Both multi cores and the Lua overlay are installed here from the CI bundle.
       - DUEL_DATA_DIR=/app/data/duel-engine
       - DUEL_INTERNAL_HOST=0.0.0.0
       - DUEL_INTERNAL_PORT=4003

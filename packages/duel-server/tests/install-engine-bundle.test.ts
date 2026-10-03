@@ -94,12 +94,111 @@ function run(f: Fixture, preflight: boolean): { status: number | null; out: stri
 }
 
 function snapshot(dir: string): Record<string, string> {
-  const names = ["manifest.json", "ocgcore.standard.wasm", "ocgcore.multi.wasm"];
+  const names = ["manifest.json", "ocgcore.standard.wasm", "ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"];
   return Object.fromEntries(names.filter((name) => existsSync(join(dir, name))).map((name) => [name, readFileSync(join(dir, name), "utf8")]));
 }
 
 afterEach(() => {
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
+});
+
+function writeDomainMulti(dir: string, bytes: string): void {
+  writeFileSync(join(dir, "ocgcore.multi-domain.wasm"), bytes);
+  writeFileSync(join(dir, "ocgcore.multi-domain.sha256"), `${sha(bytes)}  ocgcore.multi-domain.wasm\n`);
+  writeFileSync(join(dir, "ocgcore.multi-domain.SOURCE"), "tag=deploy-test\n");
+}
+
+describe("install-engine-bundle.sh Domain multi core", () => {
+  it("adds Domain to an existing base bundle and leaves an identical core alone during a multiplayer duel", () => {
+    const f = fixture({ tag: "same", multi: "m1" }, { tag: "same", multi: "m1" }, []);
+    writeDomainMulti(f.src, "d1");
+    expect(run(f, false).status).toBe(0);
+    expect(snapshot(f.dst)).toEqual(snapshot(f.src));
+    const db = new Database(join(f.root, "data", "bot.sqlite"));
+    db.prepare("insert into duels (status, format) values (?, ?)").run("active", "ffa3");
+    db.close();
+    for (const preflight of [true, false]) expect(run(f, preflight).status).toBe(0);
+  });
+  it("updates Domain alone under an identical manifest while a 1v1 duel is active", () => {
+    const f = fixture({ tag: "same", multi: "m1" }, { tag: "same", multi: "m1" }, [{ format: "1v1", status: "active" }]);
+    writeDomainMulti(f.dst, "d1");
+    writeDomainMulti(f.src, "d2");
+    expect(run(f, true).status).toBe(0);
+    expect(readFileSync(join(f.dst, "ocgcore.multi-domain.wasm"), "utf8")).toBe("d1");
+    expect(run(f, false).status).toBe(0);
+    expect(snapshot(f.dst)).toEqual(snapshot(f.src));
+    expect(readFileSync(join(f.dst, "ocgcore.multi-domain.SOURCE"), "utf8")).toBe("tag=deploy-test\n");
+  });
+
+  it.each(["ffa3", "ffa4", "tag"])("refuses a changed Domain core during an active %s duel before writing anything", (format) => {
+    const f = fixture({ tag: "same", multi: "m1" }, { tag: "same", multi: "m2" }, [{ format, status: "active" }]);
+    writeDomainMulti(f.dst, "d1");
+    writeDomainMulti(f.src, "d2");
+    const before = snapshot(f.dst);
+    for (const preflight of [true, false]) {
+      expect(run(f, preflight).status).toBe(1);
+      expect(snapshot(f.dst)).toEqual(before);
+    }
+  });
+
+  it.each(["missing", "bad", "empty"])("refuses a %s Domain checksum/artifact before replacing the base bundle", (kind) => {
+    const f = fixture({ tag: "old", multi: "m1" }, { tag: "new", multi: "m1" }, []);
+    writeDomainMulti(f.src, kind === "empty" ? "" : "d2");
+    if (kind === "missing") rmSync(join(f.src, "ocgcore.multi-domain.sha256"));
+    if (kind === "bad") writeFileSync(join(f.src, "ocgcore.multi-domain.sha256"), `${"0".repeat(64)}  ocgcore.multi-domain.wasm\n`);
+    const before = snapshot(f.dst);
+    for (const preflight of [true, false]) {
+      const result = run(f, preflight);
+      expect(result.status).toBe(1);
+      expect(result.out).toContain("bad multi core");
+      expect(snapshot(f.dst)).toEqual(before);
+    }
+  });
+
+  it("refuses a Domain-only change during an active multiplayer duel", () => {
+    const f = fixture({ tag: "same", multi: "m1" }, { tag: "same", multi: "m1" }, [{ format: "ffa4", status: "active" }]);
+    writeDomainMulti(f.dst, "d1");
+    writeDomainMulti(f.src, "d2");
+    for (const preflight of [true, false]) expect(run(f, preflight).status).toBe(1);
+    expect(readFileSync(join(f.dst, "ocgcore.multi-domain.wasm"), "utf8")).toBe("d1");
+  });
+});
+
+describe("staging bundle wrapper", () => {
+  function stagingRun(f: Fixture): { status: number | null; out: string } {
+    writeFileSync(join(f.src, "ocgcore.multi.SOURCE"), "tag=deploy-test\n");
+    const tarball = join(f.root, "bundle.tar.gz");
+    expect(spawnSync("tar", ["-C", f.src, "-czf", tarball, "."]).status).toBe(0);
+    const wrapper = join(dirname(script), "../../../scripts/staging/install-staging-bundle.sh");
+    const result = spawnSync("sh", [wrapper, tarball, dirname(f.dst)], { encoding: "utf8" });
+    return { status: result.status, out: `${result.stdout}${result.stderr}` };
+  }
+
+  it("requires the Domain artifact before changing the installed bundle", () => {
+    const f = fixture({ tag: "old", multi: "m1" }, { tag: "new", multi: "m2" }, []);
+    const before = snapshot(f.dst);
+    const result = stagingRun(f);
+    expect(result.status).toBe(1);
+    expect(result.out).toContain("ocgcore.multi-domain.wasm is missing");
+    expect(snapshot(f.dst)).toEqual(before);
+  });
+
+  it("updates both cores under an identical manifest", () => {
+    const f = fixture({ tag: "same", multi: "m1" }, { tag: "same", multi: "m2" }, []);
+    writeDomainMulti(f.dst, "d1");
+    writeDomainMulti(f.src, "d2");
+    expect(stagingRun(f).status).toBe(0);
+    expect(snapshot(f.dst)).toEqual(snapshot(f.src));
+  });
+
+  it("uses the shared active-duel guard for a Domain-only update", () => {
+    const f = fixture({ tag: "same", multi: "m1" }, { tag: "same", multi: "m1" }, [{ format: "tag", status: "active" }]);
+    writeDomainMulti(f.dst, "d1");
+    writeDomainMulti(f.src, "d2");
+    const before = snapshot(f.dst);
+    expect(stagingRun(f).status).toBe(1);
+    expect(snapshot(f.dst)).toEqual(before);
+  });
 });
 
 describe("install-engine-bundle.sh preflight (DUEL_PREFLIGHT=1)", () => {

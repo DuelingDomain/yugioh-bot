@@ -21,3 +21,10 @@ packages/duel-server/domain-core/out/
 packages/duel-server/domain-core/.*.bak/
 data-staging/
 .worktrees/
+# The CI-prepared bundle is available to duel-bundled. Exclude local snapshot backups.
+.deploy-duel-engine/*.prev
+.deploy-duel-engine/.ready
+packages/duel-server/domain-core/.emcache/
+packages/duel-server/legacy-1v1/domain-core/.build/
+packages/duel-server/legacy-1v1/domain-core/dist/
+.status/

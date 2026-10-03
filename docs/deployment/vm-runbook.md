@@ -65,52 +65,45 @@ The deploy workflow requires these GitHub Actions secrets:
    `... build-domain-core.ts legacy-domain` (the legacy Domain wasm of main, see `packages/duel-server/legacy-1v1/README.md`)
    inside `docker.io/emscripten/emsdk:4.0.9` (digest from `packages/duel-server/domain-core/pins.json`).
    Identical pins hit the Actions cache and skip regenerate.
-   The workflow also builds the multi-duelist core `ocgcore.multi.wasm` (Tag and 3 and 4 player tables) with
-   `build-multi-core.sh` in the same emsdk image: the pinned ygopro-core plus the patch series in
-   `domain-core/patches`, no `LUA_FIXED_SEED`. It has its own cache key (`duel-multi-core-v1-<hash of the patches and
-   the multi build scripts>`). The core is added to the deploy tarball, not to the cached `data/duel-engine` bundle, so
-   the bundle key and the standard and domain cores do not depend on it. The Domain core for 3 and 4 seats
-   (`ocgcore.multi-domain.wasm`) is not built or shipped yet: the server refuses Domain at those tables.
-4. The workflow SSHes into the VM and fetches `origin/main`. Then it runs a **preflight** before anything on the VM
-   changes: the install script of the new commit (`git show origin/main:...`) runs with `DUEL_PREFLIGHT=1` on the new
-   bundle and installs nothing. It refuses while a duel has `status = 'active'` in `data/bot.sqlite` and the bundle
-   would be replaced (a locked or corrupt DB and missing columns fail closed). For a new multi core under an
-   identical bundle, only an active Tag or free-for-all duel refuses. On a refuse the deploy stops there: the old
+   The workflow also builds both multi-duelist cores, `ocgcore.multi.wasm` and `ocgcore.multi-domain.wasm`
+   (Standard and Domain Tag/FFA3/FFA4), with `build-deploy-multi-cores.sh` in the pinned emsdk image.
+   It applies the full patch series; Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`.
+   Neither deploy core uses `LUA_FIXED_SEED`. A separate `duel-multi-cores-v2-<hash>` cache covers the
+   pins, patches, Domain sources and build/packaging scripts, and holds both WASMs and their build metadata.
+   The cores and individual checksum/provenance sidecars are added to the deploy tarball, keeping the
+   cached base bundle independent. See [staging's engine build details](staging.md#engine-files-and-image-build).
+4. The workflow SSHes into the VM and fetches the exact commit checked out on the runner. It runs a
+   **preflight** before anything on the VM changes: the install script from that commit runs with
+   `DUEL_PREFLIGHT=1` on the new bundle and installs nothing. It refuses while a duel has `status = 'active'`
+   in `data/bot.sqlite` and the base bundle would be replaced (a locked or corrupt DB fails closed).
+   For a new multi core under an identical base bundle, only an active Tag/FFA duel refuses. On refusal, the old
    checkout, images and containers stay as they were. The new duel image needs the new bundle, so a half-done
    deploy followed by `docker compose up` would crash-loop the duel service. That is why the check comes first.
-   After the preflight the workflow resets `/opt/yugioh-bot` to `origin/main`, rebuilds Compose images, stops **web**
+   After the preflight the workflow resets `/opt/yugioh-bot` to the same CI commit, prepares the ignored
+   `.deploy-duel-engine` context from the tarball, rebuilds Compose images, stops **web**
    (ingress) only, then installs the bundle into `/opt/yugioh-bot/data/duel-engine` **before** `docker compose down`.
    The duel engine stays up during the check. Install is a no-op when `manifest.json` is identical. The install
    script checks the active duels once more (a table could start during the build, which takes minutes); on that
    second refuse `docker compose start web` restores the old web container and the deploy exits without recreating
    duel. It never writes `data/bot.sqlite`.
-   The multi core is installed on its own (one atomic rename per file, checked against `ocgcore.multi.sha256`),
+   Each multi core is installed independently (atomic renames per file, checked against its `.sha256`),
    also when `manifest.json` is identical. A changed multi core is refused while a Tag or free-for-all duel is active.
    A 1v1 duel never blocks it and never reads it. Without the multi core, a Tag, 3 or 4 player table answers 409
    with a clear message when it starts.
 5. Compose starts bot, ws, duel, web, and caddy. The duel container verifies
-   the volume bundle and runs `node packages/duel-server/dist/server.js`
+   the volume bundle and runs `node packages/duel-server/dist/server.js`. The `duel-bundled` image carries
+   the same bundle at `/opt/duel-engine`, outside the data mount, to initialize a fresh volume
    (`dist/worker.js` is loaded by the compiled host). Container restarts do
    not re-download or recompile the bundle.
 6. Caddy reverse-proxies HTTP on port 80. Port 4003 stays on the Docker
    network only — do not publish it.
 
-Remote steps used by the workflow (bundle tarball is built on the runner first):
-
-```bash
-cd /opt/yugioh-bot && \
-git fetch --all --prune && \
-# preflight: install-engine-bundle.sh of origin/main with DUEL_PREFLIGHT=1; refuses while duels are active
-git reset --hard origin/main && \
-docker compose -f docker-compose.yml build && \
-docker compose -f docker-compose.yml stop web && \
-# install-engine-bundle.sh: unique sibling staging; refuses a different
-# bundle while active duels exist; start web again on refuse
-docker compose -f docker-compose.yml down --remove-orphans && \
-docker compose -f docker-compose.yml up -d && \
-docker compose -f docker-compose.yml ps && \
-docker compose -f docker-compose.yml logs --tail=40
-```
+Image updates should use the workflow: it transfers the pinned bundle, runs active-duel preflight,
+prepares `.deploy-duel-engine` for the `duel-bundled` image target, builds and verifies the image, then
+installs the volume bundle before recreating containers. It removes the temporary build context afterward.
+A later bare `docker compose ... --build` has no such context and fails. Starting already built images
+with `docker compose -f docker-compose.yml up -d` needs no build context. For an isolated manual build,
+use the complete preparation commands in [the staging runbook](staging.md#local-verification-without-starting-services).
 
 ### Before a deploy that changes the engine bundle
 
@@ -268,10 +261,11 @@ Do not publish host port 4003. Compose already keeps the duel engine on the inte
 
 The ARM VM does not compile Domain wasm. First production start should be a `main` push
 or `workflow_dispatch` so GitHub Actions can install `/opt/yugioh-bot/data/duel-engine`.
-A compose-only start without that bundle will fail the `duel` container at verify.
+The workflow also prepares the temporary image build context. Start already built images with the
+command below; use the workflow for rebuilds.
 
 ```bash
-docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml up -d
 ```
 
 Image builds take several minutes. The resource bundle is not rebuilt on container restart.
@@ -334,9 +328,9 @@ docker compose -f docker-compose.yml logs -f
 # Restart a service
 docker compose -f docker-compose.yml restart bot
 
-# Manual image update (does not rebuild the engine bundle; volume data/duel-engine stays)
-git fetch --all --prune && git reset --hard origin/main
-docker compose -f docker-compose.yml up -d --build
+# Image update: run the Deploy workflow (it pins the application and bundle to one CI commit).
+# Start already built images, without a rebuild:
+docker compose -f docker-compose.yml up -d
 
 # Stop all
 docker compose -f docker-compose.yml down

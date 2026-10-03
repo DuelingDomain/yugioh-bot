@@ -31,3 +31,8 @@ services:
   ws:
     ports:
       - "3001:3001"
+
+  duel:
+    # Local development reads its existing engine volume; no CI bundle build context.
+    build:
+      target: duel
