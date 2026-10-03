@@ -314,29 +314,22 @@ export function createDraftService(
         .all(draftId) as Array<{ seat_index: number }>
     ).map((row) => row.seat_index);
 
-  // Walks to the next seat that still has an active player. A pack held by a finished seat
-  // moves on too, so a player who passed some picks can still receive it.
-  const advanceSeatIndex = (
-    seatIndexes: number[],
-    activeSeats: ReadonlySet<number>,
-    currentSeatIndex: number,
-    direction: number,
-  ): number => {
+  // Every pack moves one seat, including finished seats. This is a permutation:
+  // skipping seats would let two live packs converge on the same player.
+  const advanceSeatIndex = (seatIndexes: number[], currentSeatIndex: number, direction: number): number => {
     const currentIndex = seatIndexes.indexOf(currentSeatIndex);
-
-    if (currentIndex === -1 || seatIndexes.length === 0) {
-      return currentSeatIndex;
-    }
-
+    if (currentIndex === -1 || seatIndexes.length === 0) return currentSeatIndex;
     const offset = direction >= 0 ? 1 : -1;
-    for (let step = 1; step <= seatIndexes.length; step += 1) {
-      const nextIndex = (((currentIndex + offset * step) % seatIndexes.length) + seatIndexes.length) % seatIndexes.length;
-      if (activeSeats.has(seatIndexes[nextIndex])) {
-        return seatIndexes[nextIndex];
-      }
-    }
-    return currentSeatIndex;
+    return seatIndexes[(currentIndex + offset + seatIndexes.length) % seatIndexes.length];
   };
+
+  const currentPackAtSeat = (draftId: number, waveNumber: number, seatIndex: number) =>
+    db.prepare(
+      `select p.id, p.pass_direction from draft_packs p
+       where p.draft_id = ? and p.wave_number = ? and p.current_holder_seat_index = ?
+         and exists (select 1 from draft_cards c where c.draft_pack_id = p.id and c.picked_by_player_id is null)
+       order by p.id asc limit 1`,
+    ).get(draftId, waveNumber, seatIndex) as { id: number; pass_direction: number } | undefined;
 
   const pool = (draftId: number, playerId: number): DraftPoolCard[] => {
     findById(draftId);
@@ -912,7 +905,6 @@ export function createDraftService(
       `,
     );
     const updatePackHolder = db.prepare("update draft_packs set current_holder_seat_index = ? where id = ?");
-    let passOnlySteps = 0;
 
     for (;;) {
       const draft = findById(draftId);
@@ -940,10 +932,9 @@ export function createDraftService(
         return;
       }
 
-      // Every active player acted. After more rotations than there are players with nobody
-      // able to pick, no card can reach a player who may take it, so the wave is over.
-      const stuck = passOnlySteps > active.length + 2;
-      if (stuck || !waveHasPickableCard(draftId, currentPackRound, active)) {
+      // With all seats in rotation, every remaining pack can reach every active
+      // player. End a wave only when no active player can take a remaining card.
+      if (!waveHasPickableCard(draftId, currentPackRound, active)) {
         if (currentPackRound >= (draft.config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer)) {
           db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
           return;
@@ -961,14 +952,10 @@ export function createDraftService(
           deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds),
           draftId,
         );
-        passOnlySteps = 0;
         continue;
       }
 
       const seatIndexes = allSeatIndexes(draftId);
-      const activeSeats = new Set(
-        active.map((row) => row.seat_index).filter((seatIndex): seatIndex is number => seatIndex !== null),
-      );
       const currentPacks = db
         .prepare(
           `
@@ -985,16 +972,8 @@ export function createDraftService(
       }>;
 
       for (const pack of currentPacks) {
-        const hasUnpickedCards = db
-          .prepare("select 1 from draft_cards where draft_pack_id = ? and picked_by_player_id is null limit 1")
-          .get(pack.id);
-
-        if (!hasUnpickedCards) {
-          continue;
-        }
-
         updatePackHolder.run(
-          advanceSeatIndex(seatIndexes, activeSeats, pack.current_holder_seat_index, pack.pass_direction),
+          advanceSeatIndex(seatIndexes, pack.current_holder_seat_index, pack.pass_direction),
           pack.id,
         );
       }
@@ -1008,8 +987,7 @@ export function createDraftService(
         `,
       ).run(deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds), draftId);
 
-      // The next step only needs a loop pass when nobody can pick in it; a real pick leaves the loop.
-      passOnlySteps += 1;
+      // Finished seats do not gate the step; rounds with only passes rotate immediately.
     }
   };
 
@@ -1036,11 +1014,7 @@ export function createDraftService(
     }
 
     const seat = playerSeatIndex(draftId, playerId);
-    const pack = db
-      .prepare(
-        "select id from draft_packs where draft_id = ? and wave_number = ? and current_holder_seat_index = ? limit 1",
-      )
-      .get(draftId, draft.currentPackRound, seat) as { id: number } | undefined;
+    const pack = currentPackAtSeat(draftId, draft.currentPackRound, seat);
     if (!pack) {
       throw new Error("Player has no current pack");
     }
@@ -1135,15 +1109,7 @@ export function createDraftService(
     }
 
     const seatIndex = playerSeatIndex(draftId, playerId);
-    const currentPack = db
-      .prepare(
-        `
-          select id, pass_direction from draft_packs
-          where draft_id = ? and wave_number = ? and current_holder_seat_index = ?
-          limit 1
-        `,
-      )
-      .get(draftId, draft.currentPackRound, seatIndex) as { id: number; pass_direction: number } | undefined;
+    const currentPack = currentPackAtSeat(draftId, draft.currentPackRound, seatIndex);
 
     if (!currentPack) {
       throw new Error("Player has no current pack");
@@ -1260,15 +1226,7 @@ export function createDraftService(
     }
 
     const seatIndex = playerSeatIndex(draftId, playerId);
-    const pack = db
-      .prepare(
-        `
-          select id from draft_packs
-          where draft_id = ? and wave_number = ? and current_holder_seat_index = ?
-          limit 1
-        `,
-      )
-      .get(draftId, draft.currentPackRound, seatIndex) as { id: number } | undefined;
+    const pack = currentPackAtSeat(draftId, draft.currentPackRound, seatIndex);
 
     if (!pack) {
       return [];

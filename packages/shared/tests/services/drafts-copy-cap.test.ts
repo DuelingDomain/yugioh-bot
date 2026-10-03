@@ -79,6 +79,36 @@ function boosterDraft(config: Partial<DraftConfig>, cubeCardIds: number[], cardC
 const distinctCube = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
 
 describe("per-player copy cap in booster drafts", () => {
+  it("keeps the last takeable card moving after a player finishes (seed 15838)", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    seedCards(db, 12);
+    let state = 15838;
+    const random = () => {
+      state = (state * 1103515245 + 12345) % 2147483648;
+      return state / 2147483648;
+    };
+    const drafts = createDraftService(db, { seedSource: () => 15838, random });
+    const players = [insertPlayer(db, "A"), insertPlayer(db, "B")];
+    const draft = drafts.create("g", "c", "last card", {
+      cubeCardIds: distinctCube(12).flatMap((id) => Array(10).fill(id)),
+      packSize: 6, packsPerPlayer: 6, cardsPerPlayer: 36,
+    }, "host", players[0]);
+    drafts.join(draft.id, players[1]);
+    drafts.start(draft.id);
+
+    for (let guard = 0; guard < 200 && drafts.findById(draft.id).status === "active"; guard += 1) {
+      const playerId = players.find((id) => drafts.pickOptions(draft.id, id).length > 0);
+      expect(playerId).toBeDefined();
+      const options = drafts.pickOptions(draft.id, playerId!);
+      drafts.pickCard(draft.id, playerId!, options[Math.floor(random() * options.length)].id);
+    }
+
+    expect(drafts.findById(draft.id).status).toBe("completed");
+    expect(players.map((id) => drafts.pool(draft.id, id).length)).toEqual([36, 36]);
+    db.close();
+  });
+
   it("rejects a fourth copy and leaves it out of the pick options", () => {
     const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(16));
     const pack = drafts.currentPackOptions(draftId, a);
