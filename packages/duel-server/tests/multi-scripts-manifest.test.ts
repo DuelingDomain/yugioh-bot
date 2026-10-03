@@ -16,6 +16,7 @@ import { describeWithCores, needs } from "./support/cores.js";
 // and fail with DUEL_REQUIRE_CORES=1 (stock scripts) or stay a skip (triage, a local file).
 
 const KINDS = ["whole", "expr", "trig", "hand", "chooser", "fix", "seat"];
+const CREATURE_SWAP = 31036355;
 const manifest = readManifest();
 const cards = manifest.cards;
 const text = (card: ManifestCard) => readFileSync(join(OVERLAY_DIRECTORY, card.file), "utf8");
@@ -96,7 +97,20 @@ describe("MANIFEST.json of the overlay", () => {
       { code: MIRROR_GATE, name: "Mirror Gate", group: "g", rule: "SCRIPT-FIX" },
       { code: 3, name: "c", group: "g", rule: "CHOOSER" },
     ];
-    expect(r1Codes(triage)).toEqual([1, 2]);
+    expect(r1Codes(triage)).toEqual([1, 2, CREATURE_SWAP]);
+  });
+
+  it("keeps Creature Swap in R1 when the scan does not list it", () => {
+    expect(r1Codes([])).toEqual([CREATURE_SWAP]);
+    expect(r1Codes([{ code: CREATURE_SWAP, name: "Creature Swap", group: "control-swap", rule: "SWAP" }])).toEqual([CREATURE_SWAP]);
+  });
+
+  it("lists Creature Swap once when the scan assigns an R1 rule", () => {
+    const triage: Triage[] = [
+      { code: CREATURE_SWAP, name: "Creature Swap", group: "control-swap", rule: "EACH-DUELIST" },
+      { code: CREATURE_SWAP, name: "Creature Swap", group: "control-swap", rule: "SCRIPT-FIX" },
+    ];
+    expect(r1Codes(triage)).toEqual([CREATURE_SWAP]);
   });
 });
 
