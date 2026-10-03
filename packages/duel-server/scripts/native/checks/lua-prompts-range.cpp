@@ -700,8 +700,8 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 		}
 		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
 		EXPECT(count_kind(nfold, 'b') == 0 && count_kind(nfold, 'd') == 0, "%s: kind b/d records: %d/%d", sc.name, count_kind(nfold, 'b'), count_kind(nfold, 'd'));
-		// Valid bound FFA operations are not kind (c) diagnostics; Tag keeps its stock count.
-		const int want_c = M.tag ? want_picks : 0;
+		// R-COMMON-OPP-PICK and owner Q5: a permitted Tag chooser prompt is not a late-read violation.
+		const int want_c = 0;
 		EXPECT(count_kind(nfold, 'c') == want_c, "%s: %d kind (c) records, want %d", sc.name, count_kind(nfold, 'c'), want_c);
 		EXPECT(out.picks == static_cast<size_t>(want_picks), "%s: %zu pick prompts, want %d", sc.name, out.picks, want_picks);
 		EXPECT(out.pick_bad.empty(), "%s: a pick prompt is wrong: %s", sc.name, out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
