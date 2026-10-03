@@ -301,7 +301,8 @@ export class Session {
             if (visible) {
               if (card.code !== codeOf(ref.card) || !card.name) problems.push(`${label}: expected ${cardLabel(codeOf(ref.card))}, got ${cardLabel(card.code)}`);
             } else {
-              const leaked = Object.keys(card).filter((key) => !["controller", "location", "sequence", "position"].includes(key));
+              // handId and handShuffled are opaque DOM and animation keys. A sleeve id says nothing about the card.
+              const leaked = Object.keys(card).filter((key) => !["controller", "location", "sequence", "position", "handId", "handShuffled"].includes(key));
               if (leaked.length) problems.push(`${label}: private fields leaked: ${leaked.join(", ")}`);
             }
           }
