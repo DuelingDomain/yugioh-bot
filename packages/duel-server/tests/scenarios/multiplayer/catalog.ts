@@ -69,6 +69,7 @@ const EXTRA_RULES: Record<number, string[]> = {
   72405967: ["R-COMMON-EACH-PLAYER"], // Royal Tribute
   35480699: ["R-COMMON-ALL-BOTH"], // Book of Eclipse first flips every seat
   5010422: ["R-TAG-PARTNER", "R-TAG-LP"], // Astromorrigan keeps the Tag fields and shared LP.
+  35316708: ["R-FFA-ACTIVATED-LOCK", "R-FFA-DECLARED-DURATION", "R-FFA-FIRST-DRAW"], // Time Seal counts the declared seat's next Draw Phase.
   // Partner cards count for "you control".
   2314238: ["R-TAG-SHARED-CARDS"], // Dark Magic Attack
   // A card that works only on an opponent (or negates one activation) never hits the partner.
@@ -319,6 +320,19 @@ export const GROUP_ALL: CatalogScenario[] = [
 
 /** Group (b): the effect touches ONE opponent. `binding` names the source (spec 4.2). */
 export const GROUP_ONE: CatalogScenario[] = [
+  one({
+    card: "Time Seal", code: 35316708, ruleClass: "C", binding: "explicit-pick", formats: ["ffa3"],
+    oneVsOne: "Skips the Draw Phase of the opponent's next turn.",
+    results: {
+      ffa3: "Only the opponent declared at activation skips its next Draw Phase. Other opponents' turns do not end the lock (core 0072, W18). If the declared seat leaves, the lock does not move to another seat.",
+      ffa4: "The same declared-opponent rule applies; no FFA4 live proof is registered here.",
+      tag: "The stock opposing-turn count stays; no Tag live proof is registered here.",
+    },
+    evidence: [ev(35316708, 18, "EFFECT_SKIP_DP"), ev(35316708, 22, "RESET_PHASE|PHASE_DRAW|RESET_OPPO_TURN"), ev(35316708, 24, "Duel.RegisterEffect(e1,tp)")],
+    setup: "P0 has Time Seal set. Each seat has a 20-card Deck.",
+    action: "P0 activates Time Seal and declares P2. P1 takes its turn first.",
+    expected: "P1 draws on both turns. P2 skips its first Draw Phase and draws on its second turn. No other seat is locked.",
+  }),
   // These IDs stay stable when their rows move to the one-opponent group.
   one({
     card: "Raigeki", code: 12580477, ruleClass: "C", binding: "explicit-pick",
@@ -885,6 +899,11 @@ export const SCENARIOS: CatalogScenario[] = [...GROUP_ALL, ...GROUP_ONE];
 export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
   72302403: ["rule-gaps-swords-protects-controller-ffa3", "swords-protect-ffa4-p0-p1-direct-targets",
     "rule-gaps-swords-opponents-not-partner-tag", "swords-protect-ffa4-p0-p1-direct-targets-domain"],
+  35316708: [
+    "r3-ffa3-time-seal-skips-the-draw-of-the-declared-opponent",
+    "r3-ffa3-time-seal-declares-p2-and-skips-only-its-next-draw",
+    "r3-ffa3-time-seal-declared-opponent-leaves-the-lock-does-not-move",
+  ], // Time Seal: FFA3 only. Each row also runs as a Domain variant.
   88240808: [
     "p3-catalog-ffa3-kycoo-battle-opponent",
     "p3-catalog-ffa4-kycoo-battle-opponent",

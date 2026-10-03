@@ -70,9 +70,9 @@ const formatOf = async () =>
   new Map(((await loadScenarios()) as (ScenarioLike & { setup?: { format?: string } })[]).map((scenario) => [scenario.id, scenario.setup?.format ?? "1v1"]));
 
 describe("multiplayer card catalog", () => {
-  it("keeps 21 all-seat or ongoing cards and 44 one-opponent cards after the FFA rule change", () => {
+  it("keeps 21 all-seat or ongoing cards and 45 one-opponent cards after the FFA rule change", () => {
     expect(GROUP_ALL).toHaveLength(21);
-    expect(GROUP_ONE).toHaveLength(44);
+    expect(GROUP_ONE).toHaveLength(45);
     expect(MULTIPLAYER_FORBIDDEN.length).toBeGreaterThanOrEqual(25);
   });
 
