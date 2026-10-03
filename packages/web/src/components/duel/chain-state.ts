@@ -222,10 +222,6 @@ export type ChainCallout = {
   owner: string;
   /** What the engine says happened to this link: activation, resolving, resolved or negated. */
   action: string;
-  /** The effect text the engine resolved for the activation (e.g. "Destroy all other face-up monsters"), when it sent one. */
-  effect: string | null;
-  /** The whole callout as one line, for the card's title and for screen readers. */
-  text: string;
 };
 
 /**
@@ -248,8 +244,7 @@ export function chainCallout(
   else if (link.status === "resolving") action = "is resolving";
   else if (link.status === "resolved") action = "resolved";
   const label = `Chain ${link.index}`;
-  const effect = link.description?.trim() || null;
-  return { label, title, owner, action, effect, text: `${label} · ${title} · ${action} · ${owner}` };
+  return { label, title, owner, action };
 }
 
 export type ChainAnchor = {
@@ -472,10 +467,12 @@ export function chainLinkLabel(
   return detail && link.description ? `${text}. ${link.description}` : text;
 }
 
-/** Coordinates only: looking up target names here could leak a face-down card's identity. */
-export function chainTargetLabel(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string): string | null {
-  if (link.targets.length === 0) return null;
-  const places = link.targets.map((zone) => {
+/**
+ * Where a link's targets are, as short place names ("your Field Zone", "opponent's Monster Zone 2"). Coordinates
+ * only: looking up target names here could leak a face-down card's identity.
+ */
+export function chainTargetPlaces(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string): string[] {
+  return link.targets.map((zone) => {
     const whose = mySeat == null ? `${playerName(zone.controller)}'s ` : zone.controller === mySeat ? "your " : "opponent's ";
     let place: string;
     switch (zone.location) {
@@ -490,7 +487,34 @@ export function chainTargetLabel(link: ChainLinkState, mySeat: number | null, pl
     }
     return `${whose}${place}`;
   });
-  return `Chain Link ${link.index} targets ${places.join(", ")}`;
+}
+
+export function chainTargetLabel(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string): string | null {
+  if (link.targets.length === 0) return null;
+  return `Chain Link ${link.index} targets ${chainTargetPlaces(link, mySeat, playerName).join(", ")}`;
+}
+
+export type ChainFlow = {
+  /** The card that activated. */
+  source: string;
+  /** What the engine says the effect does, or null when it sent no text or the card is unknown. */
+  effect: string | null;
+  /** Public target places, empty when the link has none. */
+  targets: string[];
+};
+
+/**
+ * One link as "source, then effect, then targets" for the stack. Only public data: the effect text of an activation
+ * (the card is face-up on the chain once it activates), and target coordinates. An unknown card shows no effect
+ * text, and a target never shows a card name.
+ */
+export function chainFlow(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string): ChainFlow {
+  const known = link.name != null && link.name.trim() !== "";
+  return {
+    source: chainCardName(link),
+    effect: known ? link.description?.trim() || null : null,
+    targets: chainTargetPlaces(link, mySeat, playerName),
+  };
 }
 
 /**

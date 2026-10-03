@@ -40,7 +40,7 @@ import {
   chainAnchor,
   chainAnnouncement,
   chainCallout,
-  chainCardName,
+  chainFlow,
   chainFocusLink,
   chainLinkLabel,
   chainSeatLabel,
@@ -559,6 +559,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             ) : null}
             {rows.map((link) => {
               const callout = chainCallout(link, mySeat, playerName, named);
+              const flow = chainFlow(link, mySeat, playerName);
               return (
                 <li
                   key={link.index}
@@ -574,9 +575,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
                   <b className={styles.rowNum}>{link.index}</b>
                   <span className={styles.thumb} style={artStyle(link.code)} />
                   <span className={styles.text}>
-                    <span className={styles.name}>{chainCardName(link)}</span>
+                    <span className={styles.name}>{flow.source}</span>
                     <small className={styles.who}>{callout.owner} · {callout.action}</small>
-                    {focus?.index === link.index && callout.effect ? <small className={styles.effect}>{callout.effect}</small> : null}
+                    {flow.effect ? <small className={styles.flowEffect}><i aria-hidden="true">→</i> {flow.effect}</small> : null}
+                    {flow.targets.length > 0 ? <small className={styles.flowTargets}><i aria-hidden="true">→</i> {flow.targets.join(", ")}</small> : null}
                   </span>
                 </li>
               );

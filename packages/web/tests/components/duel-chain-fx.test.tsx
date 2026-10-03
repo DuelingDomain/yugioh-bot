@@ -339,8 +339,19 @@ describe("ChainFx", () => {
       expect(text[0]).toContain("My Body as a Shield");
       expect(text[0]).toContain("Opponent");
       expect(text[1]).toContain("Dark Dust Spirit");
-      // The effect text belongs to the focus link only.
-      expect(text[1]).not.toContain("Destroy all other");
+      // Every open link shows its own flow: the effect text sits on the link that has it.
+      expect(text[1]).toContain("→ Destroy all other face-up monsters");
+      expect(text[0]).not.toContain("→");
+    });
+
+    it("shows the public targets of a link as a flow under its name, from coordinates only", () => {
+      placeZones("0:4:2", "1:8:0");
+      const first = dust();
+      const withTarget = { ...shield(), targets: [z(0, SZONE, 5)] } as DuelEvent;
+      const { container } = render(view([first, withTarget]));
+      const top = rows(container)[0].textContent ?? "";
+      expect(top).toContain("→ your Field Zone");
+      expect(rows(container)[1].textContent).not.toContain("Field Zone");
     });
 
     it("highlights each row as it resolves, then clears the stack at the end of the chain", () => {

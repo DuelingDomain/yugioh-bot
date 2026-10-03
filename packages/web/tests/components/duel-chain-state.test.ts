@@ -7,6 +7,7 @@ import {
   chainAnnouncement,
   chainCallout,
   chainCardName,
+  chainFlow,
   chainFocusLink,
   chainLinkLabel,
   chainSeatLabel,
@@ -452,9 +453,8 @@ describe("chain stack and callout", () => {
     expect(callout.title).toBe("Dark Dust Spirit");
     expect(callout.owner).toBe("You");
     expect(callout.action).toBe("activates its effect");
-    expect(callout.effect).toBe("Destroy all other face-up monsters");
-    expect(callout.text).toBe("Chain 1 · Dark Dust Spirit · activates its effect · You");
-    expect(callout.text).not.toMatch(/trigger|quick/i);
+    expect(chainFlow(fold([dust()]).links[0], 0, you).effect).toBe("Destroy all other face-up monsters");
+    expect(`${callout.label} ${callout.title} ${callout.action} ${callout.owner}`).not.toMatch(/trigger|quick/i);
   });
 
   it("names the rival as Opponent, or by name at a table", () => {
@@ -462,7 +462,24 @@ describe("chain stack and callout", () => {
     expect(chainCallout(link, 0, you).owner).toBe("Opponent");
     expect(chainCallout(link, 0, you, true).owner).toBe("Practice Bot");
     expect(chainCallout(link, null, you).owner).toBe("Practice Bot");
-    expect(chainCallout(link, 0, you).effect).toBeNull();
+    expect(chainFlow(link, 0, you).effect).toBeNull();
+  });
+
+  it("builds source, effect and public targets for one link from coordinates only", () => {
+    const withTarget: DuelEvent = { ...shield(), targets: [z(0, SZONE, 5), z(1, MZONE, 1)] };
+    const flow = chainFlow(fold([dust(), withTarget]).links[1], 0, you);
+    expect(flow.source).toBe("My Body as a Shield");
+    expect(flow.targets).toEqual(["your Field Zone", "opponent's Monster Zone 2"]);
+    expect(chainFlow(fold([dust(), withTarget]).links[1], null, you).targets[0]).toBe("You's Field Zone");
+    expect(chainFlow(fold([dust()]).links[0], 0, you).targets).toEqual([]);
+  });
+
+  it("shows no effect text and no name for a card the chain does not know", () => {
+    const hidden = deriveChainState([], [{ index: 1, seat: 1, code: 89111398, description: "Destroy all other face-up monsters" } as never]).links[0];
+    const flow = chainFlow(hidden, 0, you);
+    expect(flow.source).toBe("A card");
+    expect(flow.effect).toBeNull();
+    expect(JSON.stringify(flow)).not.toContain("89111398");
   });
 
   it("falls back to 'activates an effect' when the card is unknown", () => {
@@ -472,7 +489,7 @@ describe("chain stack and callout", () => {
     expect(callout.action).toBe("is resolving");
     const pending = chainCallout(deriveChainState([], [{ index: 1, seat: 1 }]).links[0], 0, you);
     expect(pending.action).toBe("activates an effect");
-    expect(pending.text).toBe("Chain 1 · A card · activates an effect · Opponent");
+    expect(pending.title).toBe("A card");
   });
 
   it("uses one label for an unknown card everywhere and never shows a passcode", () => {

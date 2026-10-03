@@ -487,16 +487,24 @@
   white-space: nowrap;
 }
 .who { color: var(--duel-pen-ink, #c6b6ff); font-size: var(--duel-t-xs, 11px); }
-/* The engine's effect text for the focus link. */
-.effect {
+/* "→ effect" and "→ targets" under the card name: the chain as a small flow, source, effect, targets. */
+.flowEffect,
+.flowTargets {
   display: -webkit-box;
   overflow: hidden;
   color: var(--duel-ink-2, #c3bba8);
   font-size: var(--duel-t-xs, 11px);
-  font-style: italic;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+.flowEffect { font-style: italic; }
+.flowTargets { color: var(--duel-ink-3, #8f8878); }
+.flowEffect i,
+.flowTargets i { color: var(--duel-chain, #e4b64f); font-style: normal; }
+/* The link that resolves now keeps its flow bright; a resolved link folds to its name and state. */
+.row[data-status="resolving"] .flowTargets { color: var(--duel-ink-2, #c3bba8); }
+.row[data-status="resolved"] .flowEffect,
+.row[data-status="resolved"] .flowTargets { display: none; }
 .row[data-focus="true"] { background: rgb(228 182 79 / 0.1); }
 .row[data-mine="true"] .who { color: var(--duel-ink-2, #c3bba8); }
 /* A table of 3 or 4: the owner's seat tone marks the row (a small edge and the name), never the chain gold. */
