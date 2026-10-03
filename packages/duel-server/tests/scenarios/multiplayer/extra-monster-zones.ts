@@ -1,6 +1,6 @@
 import {
   activate, endTurn, expectEvents, expectNotOffered, expectOffered, expectPickOptions, expectRetry,
-  select, setCard, specialSummon, zone, type DuelistExpect, type Scenario, type Step,
+  select, setCard, specialSummon, zone, type DuelistExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { domainVariant } from "./domain-variants.js";
@@ -62,6 +62,7 @@ function coLinks(format: Format, actor: Seat): Scenario {
   }
   const target: Seat = actor === "p0" ? "p1" : "p0";
   const targets = SEATS[format].filter((seat) => seat !== actor && (format !== "tag" || Number(seat[1]) % 2 !== Number(actor[1]) % 2));
+  const targetSeats: DuelistId[] = format !== "tag" ? [target] : targets;
   const before = everySeat(format, state);
   state[actor] = { ...state[actor], monsters: [SECURITY, SPIDER], extra: [], grave: [ELF], zones: { m1: SECURITY, emz0: SPIDER } };
   const linked = everySeat(format, state);
