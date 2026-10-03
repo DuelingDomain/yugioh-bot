@@ -2244,7 +2244,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "f320c55fe74719a12dc3cb9b5d81b0a37778b0a83ca6d630180b1fca14f72a97",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "EARTH, WATER and FIRE global effects run for every real duelist seat. Maintenance runs only in the current controller's End Phase; Tag shares the LP cost. One informational hint names the global caller and core 0067 sends it to every living opponent."
     },
     {
       "code": 34004470,
@@ -2673,7 +2673,7 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "a647c24660bf8aa6baef63356cdde6717ff53135eac3a481b8228dd9326f3b0e",
-      "note": "Each living duelist selects from its own Graveyard or banishment and summons to its own field. Tag includes the partner. A target group with three or four cards does not use PLAYER_ALL."
+      "note": "Every living duelist chooses its own banished monster and summons to its own field. Choices run clockwise from the real turn duelist, also when a later duelist activates the Trap during another duelist's turn."
     },
     {
       "code": 40155014,
@@ -2746,7 +2746,7 @@
       ],
       "r2Class": "FLAG-L0",
       "stockSha256": "4b1ec90bf891df6c655b60b39392757538ce569344ae5c453e51d0dfaeac3188",
-      "note": "The global battle flag reaches every seat in FFA and every team in Tag. The Set and End Phase conditions read the flag of their own holder, so a Tag holder on team 1 does not pick an opponent."
+      "note": "A global battle flag reaches every living duelist, with one key per Tag team. Each face-up copy sends five cards from the real turn duelist's own Deck, including when its controller is off-turn or is that duelist's Tag partner."
     },
     {
       "code": 42517468,
@@ -2810,7 +2810,7 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "1ba4dcc6433a7a015e5e879dfc97204469d5cd095c0a6fc165dacc7560cc141c",
-      "note": "Each living duelist selects from its own Graveyard or banishment and summons to its own field. Tag includes the partner. A target group with three or four cards does not use PLAYER_ALL."
+      "note": "Every living duelist selects a target from its own Graveyard and summons it to its own field, in order from the real turn duelist. Activation requires an eligible own-seat target for the activator and one living opposing duelist. The empty SpecialSummonStep branch is removed."
     },
     {
       "code": 43452193,
@@ -4565,7 +4565,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "a8b24f7dd4f31f1d0811f0a7b00e7271fcc77042bd7da021251aaafc00142e8a",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "The Deck banish includes every living duelist. Standby summon choices run clockwise from the real turn duelist. The existing actor-first helper keeps its contract for other callers."
     },
     {
       "code": 71386411,
@@ -5139,7 +5139,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "44d4bb2b91587576700f78bf5afb4f85f682242aaaefb1069da3eaa5b6ca7210",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Battle damage is stored per seat in FFA and per team in Tag. Hama checks its current controller's Battle Phase. In FFA one undamaged living opponent meets the condition, and only such opponents are legal activation picks. Tag retains its shared opposing LP path."
     },
     {
       "code": 81167171,
@@ -5455,7 +5455,7 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "a529e9038c05c03bdea6e448683c62b41564ff84a6e920492ea1754450542a89",
-      "note": "Each living duelist selects from its own Graveyard or banishment and summons to its own field. Tag includes the partner. A target group with three or four cards does not use PLAYER_ALL."
+      "note": "Every living duelist selects from its own Graveyard and summons to its own field, in order from the real attacking turn duelist. Activation uses the same real-seat target filter and needs an eligible activator target and one living opposing duelist."
     },
     {
       "code": 84257883,
