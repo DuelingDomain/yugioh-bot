@@ -2,15 +2,20 @@ import { describe, expect, it } from "vitest";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { readManifest } from "../../../scripts/generate-multi-scripts.js";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
-import { describeWithCores } from "../../support/cores.js";
+import { describeWithCores, needs } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { ASTROMORRIGAN_SCENARIOS } from "./astromorrigan.js";
+import { domainProof } from "./proof-domain.js";
 
 // Live scenarios of Prediction Princess Astromorrigan: each opponent takes the damage for its own destroyed monsters. Same gate as the other live N-seat
 // files: NSEAT_LIVE=1 and a multi core. Run it on the Standard multi core and again on the Domain multi core (NSEAT_WASM=ocgcore.multi-domain.wasm).
 describeWithCores("live scenarios of Prediction Princess Astromorrigan", liveNseat, () => {
   runScenarios("multiplayer/astromorrigan", ASTROMORRIGAN_SCENARIOS);
+});
+
+describeWithCores("live Domain scenarios of Prediction Princess Astromorrigan", [liveNseat, ...needs.domainMulti()], () => {
+  runScenarios("multiplayer/astromorrigan-domain", ASTROMORRIGAN_SCENARIOS.map((scenario) => domainProof(scenario, "Battle Ox")));
 });
 
 describe("Prediction Princess Astromorrigan scenario list", () => {
