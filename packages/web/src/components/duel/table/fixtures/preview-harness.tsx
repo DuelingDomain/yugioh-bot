@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useDuelAnimationSpeed } from "../../animation-speed-control";
 import { duelFontClasses } from "../../fonts";
 import type { CameraLockReason, CameraMode, TableController } from "../types";
 import { TABLE_STATE_IDS, isTableStateId, type TableFixtureSet, type TableFixtureState } from "./common";
@@ -87,6 +88,8 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage,
   const query = useSearchParams();
   const reduced = query.get("reduced") === "1";
   const viewport = useViewport();
+  // The live room installs the speed hooks for its shells; the preview has no room, so it does.
+  useDuelAnimationSpeed(reduced);
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((message: string) => {

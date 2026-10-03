@@ -245,6 +245,11 @@ const LOCK_PRIORITY: Record<CameraLockReason, number> = { destroy: 1, chain: 2, 
 const LOCK_MS: Record<CameraLockReason, number> = { chain: 900, destroy: 1300, battle: 1500, direct: 1900, elimination: 2400 };
 const DAMAGE_LOCK_MS = 1100;
 
+/** Real milliseconds a lock of `ms` FX milliseconds lasts at the viewer's pace (`duelFxClock.factor()`). */
+export function scaleLockMs(ms: number, speed: number): number {
+  return Number.isFinite(speed) && speed > 0 ? Math.round(ms / speed) : ms;
+}
+
 /** The lock one event asks for. An attack with a target is a battle; with none it is a direct attack. */
 export function fxLockFor(event: DuelEvent): FxLock | null {
   switch (event.kind) {
@@ -261,8 +266,8 @@ export function fxLockFor(event: DuelEvent): FxLock | null {
   }
 }
 
-/** The lock of the events with an id above `afterId`: the strongest reason and the longest time. */
-export function lockForEvents(events: readonly DuelEvent[], afterId: number): FxLock | null {
+/** The lock of the events with an id above `afterId`: the strongest reason and the longest time. `speed` is the viewer's FX rate. */
+export function lockForEvents(events: readonly DuelEvent[], afterId: number, speed = 1): FxLock | null {
   let reason: CameraLockReason | null = null;
   let ms = 0;
   let lastId = afterId;
@@ -274,14 +279,14 @@ export function lockForEvents(events: readonly DuelEvent[], afterId: number): Fx
     if (reason === null || LOCK_PRIORITY[next.reason] > LOCK_PRIORITY[reason]) reason = next.reason;
     ms = Math.max(ms, next.ms);
   }
-  return reason === null ? null : { reason, ms, lastId };
+  return reason === null ? null : { reason, ms: scaleLockMs(ms, speed), lastId };
 }
 
 /** A seat that starts to leave or is newly out locks the camera for the elimination. */
-export function lockForSeats(previous: readonly DuelSeatView[], next: readonly DuelSeatView[]): FxLock | null {
+export function lockForSeats(previous: readonly DuelSeatView[], next: readonly DuelSeatView[], speed = 1): FxLock | null {
   const gone = (view: DuelSeatView | undefined) => view != null && (view.eliminated === true || view.pendingElimination === true);
   for (const view of next) {
-    if (gone(view) && !gone(previous.find((entry) => entry.seat === view.seat))) return { reason: "elimination", ms: LOCK_MS.elimination };
+    if (gone(view) && !gone(previous.find((entry) => entry.seat === view.seat))) return { reason: "elimination", ms: scaleLockMs(LOCK_MS.elimination, speed) };
   }
   return null;
 }

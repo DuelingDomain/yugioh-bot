@@ -291,6 +291,7 @@ export function TableShell({
       ref={rootRef}
       className={`${roomStyles.shell} ${styles.shell} ${duelFontClasses}`}
       data-table-shell
+      data-duel-fx-speed-root
       data-can-act={canAct ? "true" : "false"}
       data-viewport={fillViewport ? "true" : undefined}
       data-domain={domain}
