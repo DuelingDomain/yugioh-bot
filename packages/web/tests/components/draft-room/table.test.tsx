@@ -28,11 +28,15 @@ const card = (id: number) => screen.getByRole("button", { name: `Card ${id}` });
 
 let phone = false;
 let reduced = false;
+let stageWidth = 1440;
+let stageHeight = 900;
 let scrollIntoView: Mock<typeof Element.prototype.scrollIntoView>;
 
 beforeEach(() => {
   phone = false;
   reduced = false;
+  stageWidth = 1440;
+  stageHeight = 900;
   localStorage.clear();
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === "(max-width: 900px)" ? phone : query === "(prefers-reduced-motion: reduce)" && reduced,
@@ -40,7 +44,7 @@ beforeEach(() => {
   }));
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     return this.classList.contains("stage")
-      ? new DOMRect(0, 0, phone ? 390 : 1440, phone ? 844 : 900)
+      ? new DOMRect(0, 0, phone ? 390 : stageWidth, phone ? 844 : stageHeight)
       : new DOMRect();
   });
   scrollIntoView = vi.fn<typeof Element.prototype.scrollIntoView>();
@@ -112,6 +116,28 @@ describe("table card keyboard activation", () => {
 });
 
 describe("tall table stages", () => {
+  it.each([
+    { phone: false, width: 790, height: 842, cols: 7, floor: 64, tableWidth: 568 },
+    { phone: true, width: 390, height: 844, cols: 4, floor: 60, tableWidth: 292 },
+  ])("uses the available columns and a flat table at $width x $height", async (size) => {
+    phone = size.phone;
+    stageWidth = size.width;
+    stageHeight = size.height;
+    useDraftStore.setState({ currentPack: cards });
+    renderRoom({ packSize: 60 });
+    await waitFor(() => expect(card(60)).toBeTruthy());
+    const stage = screen.getByRole("region", { name: "Draft table" });
+    const scene = stage.querySelector<HTMLElement>(".scene")!;
+    expect(stage).toHaveAttribute("data-tall");
+    expect(scene.style.getPropertyValue("--tilt")).toBe("0deg");
+    expect(scene.style.getPropertyValue("--tw")).toBe(`${size.tableWidth}px`);
+    expect(card(size.cols).style.getPropertyValue("--y")).toBe(card(1).style.getPropertyValue("--y"));
+    expect(parseFloat(card(size.cols + 1).style.getPropertyValue("--y"))).toBeGreaterThan(parseFloat(card(1).style.getPropertyValue("--y")));
+    for (const id of [1, size.cols, 60]) {
+      expect(parseFloat(card(id).style.getPropertyValue("--w"))).toBeGreaterThanOrEqual(size.floor);
+    }
+  });
+
   it.each([false, true])("scrolls a focused card into view when reduced motion is %s", async (reduce) => {
     reduced = reduce;
     localStorage.setItem("yugidraft-room-motion", "full");
