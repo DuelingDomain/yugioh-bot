@@ -1958,6 +1958,21 @@
       "stockSha256": "5dd2460270bb911df0e8becec1dee0b0f9dd9e04535139ab769aaf8f04cd61ce"
     },
     {
+      "code": 31036355,
+      "file": "c31036355.lua",
+      "name": "Creature Swap",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "ae2b7890d0a4e9e9369fe648b889b27e851e7d815fb5b828e5695cd23fdd2267",
+      "note": "Every living FFA duelist chooses one monster in turn order; the monsters rotate to the next living seat. Tag keeps the stock swap.",
+      "redefined": [
+        "target",
+        "activate"
+      ]
+    },
+    {
       "code": 31044787,
       "file": "c31044787.lua",
       "name": "Ferret Flames",

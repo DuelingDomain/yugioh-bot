@@ -85,7 +85,6 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   // --- chooser
   { code: 57728570, name: "Crush Card Virus", category: "chooser", reason: "It reads the opponent hand, field and Deck, and asks one opponent to choose.", formats: FFA },
   // --- control-swap
-  { code: 31036355, name: "Creature Swap", category: "control-swap", reason: "The script swaps control between the activator and one named opponent.", formats: FFA },
   { code: 15305240, name: "Creature Seizure", category: "control-swap", reason: "The script swaps control between the activator and one named opponent.", formats: FFA },
   { code: 30426226, name: "Switcheroroo", category: "control-swap", reason: "It needs equal monster counts on two sides and swaps all of them.", formats: FFA },
   { code: 13532663, name: "Dummy Golem", category: "control-swap", reason: "The script swaps control between the activator and a monster chosen by one named opponent.", formats: FFA },
