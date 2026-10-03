@@ -9,17 +9,46 @@ export function duelWindowName(slug: string): string {
   return `yugidraft-duel-${slug}`;
 }
 
-/** Name of the blank window opened at the click, before the server has named the duel. */
+/** Start of the name of the blank window opened at the click, before the server has named the duel. */
 export const PENDING_DUEL_WINDOW = "yugidraft-duel-pending";
 
-// Duel windows this page opened, so a later "Open duel" click focuses one instead of loading a second copy.
-const openedWindows = new Map<string, Window>();
+let pendingCount = 0;
 
-function liveWindow(slug: string): Window | null {
-  const known = openedWindows.get(slug);
-  if (known && !known.closed) return known;
-  openedWindows.delete(slug);
-  return null;
+// A different name for each click, so two quick starts (two matches, two tabs) never share a window.
+function pendingWindowName(): string {
+  pendingCount += 1;
+  return `${PENDING_DUEL_WINDOW}-${Date.now().toString(36)}-${pendingCount}`;
+}
+
+// Duel windows this page opened. A series reuses one window for every game (the window renames itself),
+// so a window is found by its current name and not by the slug it was opened with.
+const openedWindows = new Set<Window>();
+
+function nameOf(target: Window): string | null {
+  try { return target.name; } catch { return null; }
+}
+
+/** The duel window this page opened that now shows `slug`, or null when there is none (or it was closed). */
+export function liveDuelWindow(slug: string): Window | null {
+  const wanted = duelWindowName(slug);
+  let found: Window | null = null;
+  for (const target of [...openedWindows]) {
+    if (target.closed) { openedWindows.delete(target); continue; }
+    if (!found && nameOf(target) === wanted) found = target;
+  }
+  return found;
+}
+
+/** Name an open duel window for the next game of its series before it has moved there itself. */
+export function renameDuelWindow(target: Window, slug: string): void {
+  try { target.name = duelWindowName(slug); } catch { /* the window renames itself when it loads */ }
+}
+
+/** Close a duel window this page opened (the player chose to play in this tab instead). */
+export function closeDuelWindow(target: Window | null): void {
+  if (!target) return;
+  openedWindows.delete(target);
+  try { target.close(); } catch { /* the browser keeps it open */ }
 }
 
 export function duelWindowPath(slug: string): string {
@@ -57,7 +86,7 @@ export function openDuelWindow(slug: string): Window | null {
   } catch {
     target.focus();
   }
-  openedWindows.set(slug, target);
+  openedWindows.add(target);
   return target;
 }
 
@@ -70,7 +99,7 @@ export function openPendingDuelWindow(): Window | null {
   if (typeof window === "undefined") return null;
   let target: Window | null = null;
   try {
-    target = window.open("", PENDING_DUEL_WINDOW);
+    target = window.open("", pendingWindowName());
   } catch {
     target = null;
   }
@@ -97,7 +126,7 @@ export function navigateDuelWindow(target: Window, slug: string): boolean {
   } catch {
     return false;
   }
-  openedWindows.set(slug, target);
+  openedWindows.add(target);
   return true;
 }
 
@@ -108,7 +137,7 @@ export function closePendingDuelWindow(target: Window | null): void {
 
 /** Focus the duel window this page opened for `slug`. False when there is none (or it was closed). */
 export function focusOpenDuelWindow(slug: string): boolean {
-  const target = liveWindow(slug);
+  const target = liveDuelWindow(slug);
   if (!target) return false;
   try { target.focus(); } catch { /* still counts as open */ }
   return true;

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  closePendingDuelWindow, duelSlugFromHref, duelWindowName, duelWindowPath, exitDuelWindow, focusDuelWindowOnClick,
-  focusOpenDuelWindow, isDuelWindow, navigateDuelWindow, openDuelWindow, openPendingDuelWindow,
+  closeDuelWindow, closePendingDuelWindow, duelSlugFromHref, duelWindowName, duelWindowPath, exitDuelWindow, focusDuelWindowOnClick,
+  focusOpenDuelWindow, isDuelWindow, liveDuelWindow, navigateDuelWindow, openDuelWindow, openPendingDuelWindow, renameDuelWindow,
 } from "@/components/duel/duel-window";
 
 afterEach(() => {
@@ -71,12 +71,50 @@ describe("starting a duel from a click", () => {
     const pending = fakeWindow();
     const open = vi.spyOn(window, "open").mockReturnValue(pending as unknown as Window);
     expect(openPendingDuelWindow()).toBe(pending);
-    expect(open).toHaveBeenCalledWith("", "yugidraft-duel-pending");
+    expect(open).toHaveBeenCalledWith("", expect.stringMatching(/^yugidraft-duel-pending-/));
     expect(pending.location.href).toBe("about:blank");
     expect(navigateDuelWindow(pending as unknown as Window, "new-duel")).toBe(true);
     expect(pending.name).toBe("yugidraft-duel-new-duel");
     expect(pending.location.href).toBe("/duels/new-duel?window=1");
     expect(pending.focus).toHaveBeenCalled();
+  });
+
+  it("gives each click its own pending window name", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(fakeWindow() as unknown as Window);
+    openPendingDuelWindow();
+    openPendingDuelWindow();
+    expect(open.mock.calls[0][1]).not.toBe(open.mock.calls[1][1]);
+  });
+
+  it("finds the window of a later game by its current name, not the slug it was opened with", () => {
+    const pending = fakeWindow();
+    navigateDuelWindow(pending as unknown as Window, "series-game-1");
+    expect(liveDuelWindow("series-game-2")).toBeNull();
+    // The window follows the series and names itself for game 2.
+    pending.name = "yugidraft-duel-series-game-2";
+    expect(liveDuelWindow("series-game-2")).toBe(pending);
+    expect(liveDuelWindow("series-game-1")).toBeNull();
+    pending.focus.mockClear();
+    expect(focusOpenDuelWindow("series-game-2")).toBe(true);
+    expect(pending.focus).toHaveBeenCalled();
+    pending.closed = true;
+    expect(liveDuelWindow("series-game-2")).toBeNull();
+  });
+
+  it("names a window for the next game ahead of its own move", () => {
+    const pending = fakeWindow();
+    navigateDuelWindow(pending as unknown as Window, "bo3-1");
+    renameDuelWindow(pending as unknown as Window, "bo3-2");
+    expect(liveDuelWindow("bo3-2")).toBe(pending);
+  });
+
+  it("forgets a window it closed", () => {
+    const pending = fakeWindow();
+    navigateDuelWindow(pending as unknown as Window, "gone-2");
+    closeDuelWindow(pending as unknown as Window);
+    expect(pending.close).toHaveBeenCalled();
+    expect(liveDuelWindow("gone-2")).toBeNull();
+    expect(() => closeDuelWindow(null)).not.toThrow();
   });
 
   it("returns null for a blocked pending window", () => {
