@@ -83,9 +83,9 @@ function PoolGroupView({
   onFail,
 }: {
   group: PoolGroup;
-  onHover: (card: DraftCardDetail, rect: DOMRect) => void;
+  onHover: (card: CardSummary, rect: DOMRect) => void;
   onLeave: () => void;
-  onTap: (card: DraftCardDetail, rect: DOMRect) => void;
+  onTap: (card: CardSummary, rect: DOMRect) => void;
   failed: Set<number>;
   onFail: (id: number) => void;
 }) {
@@ -159,9 +159,9 @@ export function DraftSummaryView({
   const confirmOpen = deleteConfirm.open;
   const setConfirmOpen = deleteConfirm.setOpen;
   const [error, setError] = React.useState<string | null>(null);
-  const [hoveredCard, setHoveredCard] = React.useState<DraftCardDetail | null>(null);
+  const [hoveredCard, setHoveredCard] = React.useState<CardSummary | null>(null);
   // A tapped card stays open until closed, so phones (no hover) can read it too.
-  const [tapped, setTapped] = React.useState<{ card: DraftCardDetail; position: { left: number; top: number } } | null>(null);
+  const [tapped, setTapped] = React.useState<{ card: CardSummary; position: { left: number; top: number } } | null>(null);
   const [popupPosition, setPopupPosition] = React.useState<{ left: number; top: number } | null>(null);
   const [imageErrors, setImageErrors] = React.useState<Set<number>>(new Set());
   const [tournamentFormat, setTournamentFormat] = React.useState<"round_robin" | "single_elim">("round_robin");
@@ -208,12 +208,12 @@ export function DraftSummaryView({
     return { left, top };
   }, []);
 
-  const handleCardHover = React.useCallback((card: DraftCardDetail, rect: DOMRect) => {
+  const handleCardHover = React.useCallback((card: CardSummary, rect: DOMRect) => {
     setHoveredCard(card);
     setPopupPosition(popupAt(rect));
   }, [popupAt]);
 
-  const handleCardTap = React.useCallback((card: DraftCardDetail, rect: DOMRect) => {
+  const handleCardTap = React.useCallback((card: CardSummary, rect: DOMRect) => {
     setTapped({ card, position: popupAt(rect) });
   }, [popupAt]);
 
