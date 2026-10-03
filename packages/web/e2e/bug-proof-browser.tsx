@@ -4,6 +4,7 @@ import type { DuelAnswer, DuelCard, DuelPrompt } from "@yugidraft/shared/duels";
 import { DuelField } from "../src/components/duel/field";
 import { DuelHistoryRail } from "../src/components/duel/history-rail";
 import { MoveFx } from "../src/components/duel/move-fx";
+import { DuelFeedback } from "../src/components/duel/feedback";
 import { PromptCenter } from "../src/components/duel/prompt-center";
 import {
   activatePromptFromField, optionsForCard, promptLegalKeys, promptSelectedKeys, usePromptDraft,
@@ -74,6 +75,7 @@ function Proof({ scenario: s }: { scenario: ProofCase }) {
       historyShowsTarget: historyRows.some((row) => row.text.includes(s.targetName) || row.showsTargetArt),
       revealShowsTarget: ghosts.some((ghost) => ghost.dataset.known === "true" && loadedArt(ghost)),
       revealText: label && Number(getComputedStyle(label).opacity) > 0 ? label.innerText : "",
+      confirmationBannerCount: board.querySelectorAll('[data-kind="confirm"]').length,
       counterText: counter?.innerText ?? null,
       titleText: promptRoot.querySelector<HTMLElement>(`.${promptStyles.barText} > b`)?.innerText ?? null,
       detailText: promptRoot.querySelector<HTMLElement>(`.${promptStyles.barDetail}`)?.innerText ?? null,
@@ -107,7 +109,10 @@ function Proof({ scenario: s }: { scenario: ProofCase }) {
           legalKeys={promptLegalKeys(prompt)} selectedKeys={promptSelectedKeys(prompt, draft.selected)}
           onActivate={activate} onInspect={noop}
           bottomName={playerName(s.mySeat ?? 0)} topName={playerName(s.mySeat === 1 ? 0 : 1)} />
-        {s.bug !== 4 ? <MoveFx events={engine.events} duelKey={s.id} reducedMotion replayFrom={s.replayFrom} /> : null}
+        {s.bug !== 4 ? <>
+          <DuelFeedback events={engine.events} duelKey={s.id} reducedMotion soundEnabled={false} replayFrom={s.replayFrom} />
+          <MoveFx events={engine.events} duelKey={s.id} reducedMotion replayFrom={s.replayFrom} />
+        </> : null}
         <PromptCenter prompt={prompt} mySeat={s.mySeat} active slug={s.id} busy={preview != null}
           draft={draft} onSubmit={submit} menuOpen={false} chain={engine.chain} aimLocked={false}
           reducedMotion revision={engine.revision} />

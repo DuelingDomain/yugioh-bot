@@ -13,6 +13,19 @@ function frame(step: number, logIds: number[], eventIds: number[] = []): DuelRep
 }
 
 describe("buildReplayTimeline", () => {
+  it("keeps a confirmation once in the replay event stream and caption log", () => {
+    const confirmed = frame(1, [2]);
+    confirmed.view.log[0].text = "Confirmed Kojikocy";
+    confirmed.view.events = [{ id: 18, kind: "confirm", text: "Confirmed Kojikocy", moveId: 17,
+      card: { code: 1184620, name: "Kojikocy", description: "", type: 17,
+        attack: 1500, defense: 1200, level: 4, attribute: 1, race: "warrior" } }];
+    const timeline = buildReplayTimeline([frame(0, [1]), confirmed, frame(2, [])]);
+    expect(timeline.viewAt(2).events.filter((event) => event.kind === "confirm")).toEqual(confirmed.view.events);
+    expect(timeline.viewAt(2).log.filter((entry) => entry.text === "Confirmed Kojikocy")).toHaveLength(1);
+    expect(timeline.newLogAt(1).map((entry) => entry.text)).toEqual(["Confirmed Kojikocy"]);
+    expect(timeline.newLogAt(2)).toEqual([]);
+  });
+
   it("concatenates deltas into cumulative views", () => {
     const t = buildReplayTimeline([frame(0, [1, 2], [1]), frame(1, [], []), frame(2, [3], [2, 3])]);
     expect(t.length).toBe(3);

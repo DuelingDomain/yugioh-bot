@@ -21,6 +21,7 @@ export interface ProofRead {
   historyShowsTarget: boolean;
   revealShowsTarget: boolean;
   revealText: string;
+  confirmationBannerCount: number;
   counterText: string | null;
   titleText: string | null;
   detailText: string | null;
