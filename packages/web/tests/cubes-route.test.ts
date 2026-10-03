@@ -81,6 +81,39 @@ describe("cube API routes", () => {
     expect(body.pools.extra.map((c: any) => c.catalogCardId)).toEqual([2]);
   });
 
+  it("allows more than three copies of a card in a cube and rejects a count outside 1 to 99", async () => {
+    await setupDb();
+    const { POST: createCube } = await import("../app/api/cubes/route");
+    const created = await createCube(
+      new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Stun" }) }) as any,
+    );
+    const { cube } = await created.json();
+    const { POST: mutate } = await import("../app/api/cubes/[id]/cards/route");
+    const post = (body: object) =>
+      mutate(new Request("http://x", { method: "POST", body: JSON.stringify(body) }) as any, {
+        params: Promise.resolve({ id: String(cube.id) }),
+      });
+
+    const added = await post({ op: "add", catalogCardId: 1, pool: "main", maxCopies: 25 });
+    expect(added.status).toBe(200);
+    expect((await added.json()).pools.main[0].maxCopies).toBe(25);
+
+    const raised = await post({ op: "setMaxCopies", catalogCardId: 1, maxCopies: 99 });
+    expect(raised.status).toBe(200);
+    expect((await raised.json()).pools.main[0].maxCopies).toBe(99);
+
+    for (const maxCopies of [0, 100, 2.5, "5"]) {
+      const bad = await post({ op: "setMaxCopies", catalogCardId: 1, maxCopies });
+      expect(bad.status).toBe(400);
+    }
+    const bigImport = await post({ op: "import", codes: Array.from({ length: 7 }, () => 2) });
+    expect((await bigImport.json()).pools.extra[0].maxCopies).toBe(7);
+    const { getDb } = await import("../src/lib/db");
+    expect(
+      getDb().prepare("select max_copies from cube_cards where cube_id = ? and catalog_card_id = 1").get(cube.id),
+    ).toEqual({ max_copies: 99 });
+  });
+
   it("lists cubes for the guild", async () => {
     await setupDb();
     const { POST: createCube, GET: listCubes } = await import("../app/api/cubes/route");

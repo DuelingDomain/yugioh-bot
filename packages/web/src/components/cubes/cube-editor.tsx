@@ -283,7 +283,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
 
   const mainTotals = poolTotals(pools.main);
   const extraTotals = poolTotals(pools.extra);
-  const readiness = cubeReadiness(mainTotals.copies, extraTotals.copies);
+  const readiness = cubeReadiness(mainTotals.usable, extraTotals.usable);
 
   const activeEntries = pools[activePool];
   const grid = poolToGridCards(activeEntries, cardsById);

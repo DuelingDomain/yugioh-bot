@@ -163,18 +163,51 @@ describe("CubeEditor", () => {
       expect(posts).toHaveLength(0);
     });
 
-    it("steps copies with setMaxCopies and stops at 1 and 3", async () => {
+    it("steps copies with setMaxCopies, past three, and stops at 1", async () => {
       await open();
       fireEvent.click(screen.getByRole("button", { name: "Main A, 2 copies" }));
       fireEvent.click(screen.getByRole("button", { name: "One more copy" }));
-      await waitFor(() => expect(screen.getByRole("button", { name: "One more copy" })).toBeDisabled());
+      await waitFor(() => expect(posts).toHaveLength(1));
       expect(posts[0]).toEqual({ op: "setMaxCopies", catalogCardId: 1, maxCopies: 3 });
-
-      fireEvent.click(screen.getByRole("button", { name: "One fewer copy" }));
+      // Three is no ceiling: the plus button stays on.
+      await waitFor(() => expect(screen.getByRole("button", { name: "One more copy" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "One more copy" }));
       await waitFor(() => expect(posts).toHaveLength(2));
-      fireEvent.click(await screen.findByRole("button", { name: "One fewer copy" }));
-      await waitFor(() => expect(screen.getByRole("button", { name: "One fewer copy" })).toBeDisabled());
-      expect(posts.map((p) => p.maxCopies)).toEqual([3, 2, 1]);
+      expect(posts[1]).toEqual({ op: "setMaxCopies", catalogCardId: 1, maxCopies: 4 });
+    });
+
+    it("stops at 1 copy and at 99 copies", async () => {
+      main = [{ catalogCardId: 1, pool: "main", maxCopies: 1 }];
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Main A, 1 copy" }));
+      expect(screen.getByRole("button", { name: "One fewer copy" })).toBeDisabled();
+      const input = screen.getByRole("spinbutton", { name: "Copies in the cube" });
+      fireEvent.change(input, { target: { value: "99" } });
+      fireEvent.blur(input);
+      await waitFor(() => expect(posts).toHaveLength(1));
+      await waitFor(() => expect(screen.getByRole("button", { name: "One more copy" })).toBeDisabled());
+    });
+
+    it("sets copies by typing a number and ignores a number outside 1 to 99", async () => {
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Main A, 2 copies" }));
+      const input = screen.getByRole("spinbutton", { name: "Copies in the cube" });
+      fireEvent.change(input, { target: { value: "12" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0]).toEqual({ op: "setMaxCopies", catalogCardId: 1, maxCopies: 12 });
+      await waitFor(() => expect(screen.getByRole("spinbutton", { name: "Copies in the cube" })).toHaveValue(12));
+
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Copies in the cube" }), { target: { value: "100" } });
+      fireEvent.blur(screen.getByRole("spinbutton", { name: "Copies in the cube" }));
+      expect(posts).toHaveLength(1);
+      expect(screen.getByRole("spinbutton", { name: "Copies in the cube" })).toHaveValue(12);
+    });
+
+    it("labels copies as copies in the cube, not a deck limit", async () => {
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Main A, 2 copies" }));
+      expect(screen.getByText(/not a deck limit/i)).toBeInTheDocument();
     });
 
     it("removes with the button, then Undo adds it back with the old copies", async () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createCubeService } from "../../src/services/cubes.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
+import { MAX_CUBE_COPIES } from "../../src/services/constants.js";
 
 function emptyCatalog(db: Database.Database) {
   return createCardCatalogService(db, {
@@ -121,11 +122,36 @@ describe("cube service core", () => {
     void db;
   });
 
-  it("collapses repeated passcodes into max_copies (capped at 3)", async () => {
+  it("collapses repeated passcodes into copies, with no cap of 3", async () => {
     const { cubes } = setup();
     const cube = cubes.createBlank("g", "Custom", "u");
-    await cubes.importPasscodes(cube.id, [1, 1, 1, 1]);
-    expect(cubes.getCubePools(cube.id).main[0].maxCopies).toBe(3);
+    await cubes.importPasscodes(cube.id, [1, 1, 1, 1, 1, 1]);
+    expect(cubes.getCubePools(cube.id).main[0].maxCopies).toBe(6);
+  });
+
+  it("caps imported copies at the cube maximum", async () => {
+    const { cubes } = setup();
+    const cube = cubes.createBlank("g", "Custom", "u");
+    await cubes.importPasscodes(cube.id, Array.from({ length: MAX_CUBE_COPIES + 20 }, () => 1));
+    expect(cubes.getCubePools(cube.id).main[0].maxCopies).toBe(MAX_CUBE_COPIES);
+  });
+
+  it("holds any number of copies of a card in a cube, not just three", () => {
+    const { cubes } = setup();
+    const cube = cubes.createBlank("g", "Stun", "u");
+    cubes.addCard(cube.id, 1, "main", 12);
+    expect(cubes.getCubePools(cube.id).main[0].maxCopies).toBe(12);
+    cubes.setMaxCopies(cube.id, 1, MAX_CUBE_COPIES);
+    expect(cubes.getCubePools(cube.id).main[0].maxCopies).toBe(MAX_CUBE_COPIES);
+  });
+
+  it.each([0, -1, 2.5, MAX_CUBE_COPIES + 1, Number.NaN])("rejects %s copies and leaves the cube alone", (copies) => {
+    const { cubes } = setup();
+    const cube = cubes.createBlank("g", "Stun", "u");
+    cubes.addCard(cube.id, 1, "main", 2);
+    expect(() => cubes.addCard(cube.id, 2, "main", copies)).toThrow(/whole number from 1 to 99/);
+    expect(() => cubes.setMaxCopies(cube.id, 1, copies)).toThrow(/whole number from 1 to 99/);
+    expect(cubes.getCubePools(cube.id).main.map((c) => [c.catalogCardId, c.maxCopies])).toEqual([[1, 2]]);
   });
 
   it("reports unknown passcodes that cannot be synced", async () => {
