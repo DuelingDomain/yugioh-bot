@@ -9,7 +9,7 @@ import { Session } from "./support/session.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 import { scenarios as TWO_SEAT_CASES } from "./scenarios/cases/domain.js";
 import { DOMAIN_NSEAT_STRESS_CHAIN } from "./scenarios/multiplayer/domain-nseat-stress-chain.js";
-import { checkLeftovers, collectLeftovers, pendingLossTitle, type Leftover } from "./support/pending-loss-gap.js";
+import { collectLeftovers, expectNoLeftovers, type Leftover } from "./support/pending-loss-gap.js";
 import { firstDrawSourceFor } from "./scenarios/multiplayer/ffa-first-draw.js";
 import { SEATS, type Format } from "./scenarios/multiplayer/seat-kit.js";
 import { defineScenario, endTurn, expectBoard, expectNotOffered, select, specialSummon, type Scenario, type Step } from "./support/dsl.js";
@@ -61,11 +61,11 @@ describeWithCores("Domain core patch keeps Standard and two-seat rules", [liveNs
           if (seat.eliminated) probes.push({ seat: seat.seat, locations: [1, 2, 4, 8, 16, 32, 64] });
         }
         expect(game.diagnostics().filter((d) => d.kind === "stderr")).toEqual([]);
-        // The pending-loss gap changes only this check (support/pending-loss-gap.ts).
+        // Check the real zones after the chain has finished.
         return collectLeftovers(captured.lib!, captured.handle!, probes);
       } finally { game.close(); }
     };
-    it(pendingLossTitle(base.id, `Standard: ${base.id}`), async () => checkLeftovers(base.id, await run()));
+    it(`Standard: ${base.id}`, async () => expectNoLeftovers(await run()));
   }
 
   const twoSeatSynchro = [
