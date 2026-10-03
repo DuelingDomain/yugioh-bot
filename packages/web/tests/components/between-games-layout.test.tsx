@@ -10,6 +10,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+import { DeckCardPreview } from "@/components/duel/deck-card-preview";
 import { BetweenGamesScreen } from "@/components/duel/between-games";
 import styles from "@/components/duel/between-games.module.css";
 import ui from "@/components/duel/sheet-ui.module.css";
@@ -41,6 +42,14 @@ describe("between-games grid sizing", () => {
     expect(editor["de-c"]).toBeTruthy();
     expect(html).toContain(`class="${editor["de-c"]} ${styles.tile}"`);
     expect(readFileSync(`${root}decks/editor.module.css`, "utf8")).toMatch(/\.de-c \{[^}]*aspect-ratio:\s*421 \/ 614/);
+  });
+
+  it("keeps the empty preview hint across all columns, so the table lobby's art column does not squeeze it", () => {
+    const previewCss = readFileSync(`${root}duel/deck-card-preview.module.css`, "utf8");
+    expect(previewCss).toMatch(/\.preview > \.hint \{[^}]*grid-column:\s*1 \/ -1/);
+    const html = renderToStaticMarkup(<DeckCardPreview code={null} />);
+    expect(html).toContain(`class="${preview.hint}"`);
+    expect(html).not.toContain("<img");
   });
 
   it("has no dashed empty preview box", () => {

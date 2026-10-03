@@ -4,6 +4,8 @@
 .art { width: 100%; background: #06080e; }
 .art { box-shadow: 0 14px 34px rgb(0 0 0 / 0.55); }
 .hint { color: var(--duel-ink-3); font-size: 13px; line-height: 1.5; }
+/* The empty hint spans every column, so a column layout (the table lobby's 120 px art column) does not squeeze it. */
+.preview > .hint { grid-column: 1 / -1; }
 
 .body { display: grid; gap: 8px; min-width: 0; }
 .name { color: var(--duel-ink); font-size: 17px; font-weight: 500; line-height: 1.25; overflow-wrap: anywhere; }
