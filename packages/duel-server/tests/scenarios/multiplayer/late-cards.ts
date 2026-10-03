@@ -479,7 +479,7 @@ const timeSealFfa3P2 = defineScenario({
 const timeSealCutShort = defineScenario({
   id: "r3-ffa3-time-seal-declared-opponent-leaves-the-lock-does-not-move",
   title: "FFA3: p0 declares p1 for Time Seal, then p1 gives up: p1 takes no turn; the lock stays bound to p1 and p2 draws on both of its turns",
-  source: `${TIME_SEAL_RULE} [R-FFA-ELIMINATION]: an effect bound to an eliminated opponent does not move to another opponent`,
+  source: `${TIME_SEAL_RULE}. [R-FFA-ELIMINATION]: p1 leaves the duel. [R-FFA-OPP-ONE] [R-FFA-ACTIVATED-LOCK]: the lock applies only to p1 and does not move to p2`,
   rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-ELIMINATION", "R-FFA-FIRST-DRAW"],
   tags: ["multiplayer", "late-cards", "turn-count", "r3", "elimination", "ffa3", "card:35316708"],
   setup: { format: "ffa3", p0: timeSealSetup },
