@@ -26,7 +26,6 @@ class NSeatWorker implements DuelGameWorker {
   created: GameOptions | null = null;
   answers: Array<{ seat: number; answer: DuelAnswer }> = [];
   eliminated = new Set<number>();
-  private queued = new Set<number>();
   result: DuelEngineView["result"] = null;
   format: DuelFormat = "1v1";
   /** A stuck core: no call returns. */
@@ -88,12 +87,6 @@ class NSeatWorker implements DuelGameWorker {
     this.answers.push({ seat, answer });
     this.revision += 1;
     const count = seatCountFor(this.format);
-    for (const gone of this.queued) {
-      for (let member = 0; member < count; member++) {
-        if (member === gone || (this.format === "tag" && member % 2 === gone % 2)) this.eliminated.add(member);
-      }
-    }
-    this.queued.clear();
     const living = Array.from({ length: count }, (_, index) => index).filter((index) => !this.eliminated.has(index));
     const teams = new Set(living.map((index) => this.format === "tag" ? index % 2 : index));
     if (teams.size <= 1) {
@@ -105,10 +98,8 @@ class NSeatWorker implements DuelGameWorker {
     while (this.eliminated.has(next)) next = (next + 1) % count;
     this.promptSeat = next;
   }
-  async eliminate(seat: number, _reason: number, atTurnEnd = false) {
-    if (!atTurnEnd) throw new Error("This duel core has no Debug.EliminateDuelist");
-    this.queued.add(seat);
-    this.revision += 1;
+  async eliminate(_seat: number, _reason: number) {
+    throw new Error("This duel core has no Debug.EliminateDuelist");
   }
   async search(_query: string): Promise<DuelCardInfo[]> { return []; }
   async diagnostics() { return [{ turn: 1, phase: "main1", kind: "response", seat: 0, detail: "fake" }]; }
@@ -122,12 +113,8 @@ class NSeatWorker implements DuelGameWorker {
 class EliminatingWorker extends NSeatWorker {
   missing = false;
   calls: Array<{ seat: number; reason: number }> = [];
-  async eliminate(seat: number, reason: number, atTurnEnd = false) {
+  async eliminate(seat: number, reason: number) {
     if (this.missing) throw new Error("This duel core has no Debug.EliminateDuelist");
-    if (atTurnEnd) {
-      this.calls.push({ seat, reason });
-      return super.eliminate(seat, reason, true);
-    }
     const count = seatCountFor(this.format);
     this.calls.push({ seat, reason });
     for (let member = 0; member < count; member++) {
@@ -340,12 +327,10 @@ describe("host with more than two seats", () => {
   });
 
   it("Tag surrender ends the duel for the whole team and names both the team and the lowest winning seat", async () => {
-    const t = await table("tag", 4, []);
+    const t = await table("tag", 4, [], undefined, new EliminatingWorker());
     await post(t.host, { op: "start", ...t.organizer });
     const surrendered = await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[2] });
     expect(surrendered.status).toBe(200);
-    expect(t.duels.get(t.slug, "g1").status).toBe("active");
-    await t.respond(t.players[0]!);
     const done = t.duels.get(t.slug, "g1");
     expect(done.status).toBe("completed");
     // Seat 2 is on team 0; team 1 (seats 1 and 3) wins, lowest seat is 1.
@@ -475,14 +460,13 @@ describe("host eliminates through the core", () => {
     expect(t.duels.privateState(t.slug, "g1").commands.some((entry) => entry.command.promptId.startsWith("eliminate:"))).toBe(false);
   });
 
-  it("Tag: one partner queues a team loss through the core", async () => {
+  it("Tag: one partner loses its team at once through the core", async () => {
     const worker = new EliminatingWorker();
     const t = await table("tag", 4, [], undefined, worker);
     await post(t.host, { op: "start", ...t.organizer });
     await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[2] });
     expect(worker.calls).toEqual([{ seat: 2, reason: 0 }]);
-    expect(t.duels.get(t.slug, "g1").status).toBe("active");
-    await t.respond(t.players[0]!);
+    expect(t.duels.get(t.slug, "g1").status).toBe("completed");
     expect(t.duels.get(t.slug, "g1").winnerSeat).toBe(1);
   });
 });
@@ -848,7 +832,7 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
       expect(lines.slice(1).map((line) => [line.type, line.seq, line.seat])).toEqual([["answer", 1, 0], ["eliminate", 2, 1], ["answer", 3, 2]]);
 
       expect(lines[2].command.promptId).toBe("eliminate:0");
-      // A core without the loss function refuses the queue and saves no command.
+      // A core without the loss function refuses the surrender and saves no command.
       const old = new EliminatingWorker();
       old.missing = true;
       const u = await table("ffa3", 3, [], undefined, old);

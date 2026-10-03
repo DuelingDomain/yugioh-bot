@@ -106,7 +106,7 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
     expect(rebuilt).toEqual(live);
   }, 60_000);
 
-  it("keeps the prompt of another seat, marks the leaving seat, and a rebuild after the answer gives the same view", async () => {
+  it("removes another seat at once, keeps the living prompt, and recovers the same view", async () => {
     const t = await table("ffa4", 4);
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
     const holder = await holderOf(t, 4);
@@ -115,15 +115,15 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
     expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[leaver] })).status).toBe(200);
     const during = await t.view(t.host, holder);
     expect(during.prompt?.id).toBe(before.prompt?.id);
-    expect(during.seats[leaver]).toMatchObject({ eliminated: false, pendingElimination: true });
+    expect(during.seats[leaver]).toMatchObject({ eliminated: true, pendingElimination: false });
     expect(t.duels.get(t.slug, "g1").status).toBe("active");
 
-    // Rebuild with the prompt still open: same view, same pending flag.
+    // Rebuild with the prompt still open: same view, with no pending loss.
     const worker2 = new RealEngineWorker();
     const host2 = makeHost(t.db, worker2);
     expect(await t.view(host2, holder)).toEqual(during);
 
-    // The holder passes: the core reports the loss.
+    // The holder can still end its turn after the loss.
     const answered = await post(host2, {
       op: "respond", slug: t.slug, guildId: "g1", playerId: t.players[holder],
       command: { promptId: during.prompt!.id, revision: during.revision, answer: { choice: "to_ep" } },
@@ -139,7 +139,7 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
     expect(rebuilt).toEqual(after);
   }, 60_000);
 
-  it("ends the duel after the current turn when two other seats surrender", async () => {
+  it("ends the duel at once when two other seats surrender", async () => {
     const t = await table("ffa3", 3);
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
     const holder = await holderOf(t, 3);
@@ -147,10 +147,6 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
     expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[others[0]!] })).status).toBe(200);
     expect(t.duels.get(t.slug, "g1").status).toBe("active");
     expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[others[1]!] })).status).toBe(200);
-    expect(t.duels.get(t.slug, "g1").status).toBe("active");
-    const before = await t.view(t.host, holder);
-    expect((await post(t.host, { op: "respond", slug: t.slug, guildId: "g1", playerId: t.players[holder],
-      command: { promptId: before.prompt!.id, revision: before.revision, answer: { choice: "to_ep" } } })).status).toBe(200);
     const session = t.duels.get(t.slug, "g1");
     expect(session.status).toBe("completed");
     expect(session.winnerSeat).toBe(holder);
