@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import type { DuelCard, DuelCardInfo, DuelPrompt } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCard, DuelCardInfo, DuelDeck, DuelPrompt } from "@yugidraft/shared/duels";
 import {
   OcgAttribute,
   OcgEffectClientMode,
@@ -629,6 +629,74 @@ describe("prompt mapping", () => {
 });
 
 describe("live projection", () => {
+  it("publishes a real set-trap response as seat 1 priority during seat 0's turn, keeping its prompt private", async () => {
+    const trap = 53582587; // Torrential Tribute: responds to the opponent's summon.
+    const dataDirectory = engineDataDirectory;
+    const cdb = new Database(resolve(dataDirectory, "cards.cdb"), { readonly: true });
+    const rows = cdb.prepare("SELECT id FROM datas WHERE type = 17 AND alias = 0 AND (level & 255) <= 4 AND (ot & 3) != 0 ORDER BY id LIMIT 40")
+      .all() as { id: number }[];
+    cdb.close();
+    expect(rows).toHaveLength(40);
+    const deck0: DuelDeck = { main: rows.map((row) => row.id), extra: [], side: [] };
+    const deck1: DuelDeck = { main: [trap, ...deck0.main.slice(0, 39)], extra: [], side: [] };
+    const seed = ["1", "2", "3", "4"];
+    // Reproduce the real shuffle with unique cards, then put the trap in a known opening-hand slot.
+    const probe = await createEngineGame({ mode: "normal", decks: [deck0, deck1], seed, dataDirectory });
+    try {
+      const openingCard = probe.view(1).seats[1].hand[0].code!;
+      const to = deck1.main.indexOf(openingCard);
+      const from = deck1.main.indexOf(trap);
+      expect(to).toBeGreaterThanOrEqual(0);
+      [deck1.main[from], deck1.main[to]] = [deck1.main[to], deck1.main[from]];
+    } finally {
+      probe.close();
+    }
+    const game = await createEngineGame({ mode: "normal", decks: [deck0, deck1], seed, dataDirectory });
+    try {
+      expect(game.view(1).seats[1].hand.some((card) => card.code === trap)).toBe(true);
+      let responded = false;
+      for (let step = 0; step < 80; step++) {
+        const view = [game.view(0), game.view(1)].find((candidate) => candidate.prompt != null);
+        expect(view, "engine stopped before the trap response").toBeTruthy();
+        const prompt = view!.prompt!;
+        const setTrap = game.view(1).seats[1].spells.some((card) => card?.code === trap && (card.position & OcgPosition.FACEDOWN) !== 0);
+        if (setTrap && view!.turnSeat === 0 && prompt.seat === 1 && prompt.context?.type === "chain" &&
+            prompt.options.some((option) => option.card?.code === trap)) {
+          for (const viewer of [0, 1, null]) {
+            const projected = game.view(viewer);
+            expect(projected.prioritySeat).toBe(1);
+            expect(projected.turnSeat).toBe(0);
+            if (viewer === 1) expect(projected.prompt).toEqual(prompt);
+            else {
+              expect(projected.prompt).toBeNull();
+              expect(JSON.stringify(projected)).not.toContain(prompt.id);
+              expect(JSON.stringify(projected)).not.toContain(String(trap));
+            }
+          }
+          responded = true;
+          break;
+        }
+        let answer: DuelAnswer;
+        if (prompt.kind === "places" || prompt.kind === "cards" || prompt.kind === "tribute") {
+          answer = { selected: prompt.options.slice(0, prompt.min ?? 1).map((option) => option.id) };
+        } else if (prompt.kind === "choice") {
+          const set = prompt.seat === 1 && view!.turnSeat === 1 && !setTrap
+            ? prompt.options.find((option) => option.id.startsWith("sset:") && option.card?.code === trap) : undefined;
+          const summon = prompt.seat === 0 && view!.turn >= 3
+            ? prompt.options.find((option) => option.id.startsWith("summon:")) : undefined;
+          const pass = prompt.options.find((option) => option.id === "no" || option.id === "to_ep");
+          const option = set ?? summon ?? pass;
+          answer = option ? { choice: option.id } : prompt.cancelable ? { cancel: true } : { choice: prompt.options[0].id };
+        } else if (prompt.cancelable) answer = { cancel: true };
+        else throw new Error(`Unexpected setup prompt: ${JSON.stringify(prompt)}`);
+        game.answer(prompt.seat, prompt.id, answer);
+      }
+      expect(responded, "never reached seat 1's set-trap chain response on seat 0's turn").toBe(true);
+    } finally {
+      game.close();
+    }
+  });
+
   it("shuffles each opening deck with the journal seed and reproduces it on replay", async () => {
     const dataDirectory = engineDataDirectory;
     const cdb = new Database(`${dataDirectory}/cards.cdb`, { readonly: true });

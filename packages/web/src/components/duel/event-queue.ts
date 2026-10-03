@@ -273,15 +273,17 @@ export function collectFreshEvents(
  * False for the chain events that are shown on the board only: a link resolving or resolved is the
  * badge on its card (chain-fx.tsx, paced by chain-beats.ts), and the end of the chain clears the
  * badges. They keep their sound cue and their log and screen reader entries, but get no banner.
+ * Target updates only refresh board markers and have no sound or history tile.
  * "activate" and "chain-negated" keep theirs.
  */
 export function hasCentreBanner(kind: DuelEventKind): boolean {
   // An equip is drawn on the board as a line between the two cards (EquipFx), so it has no banner.
-  return kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end" && kind !== "equip";
+  return kind !== "target" && kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end" && kind !== "equip";
 }
 
 /** How long a banner or toast stays: at least about 1.3 s for anything with words to read (a phase ribbon is shorter). */
 export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number {
+  if (kind === "target") return 0;
   // A phase ribbon is one short beat: the phases of a turn start (Draw, Standby, Main 1) follow each other.
   if (kind === "phase") return reducedMotion ? PHASE_TIMING.reducedBeatMs : PHASE_TIMING.beatMs;
   if (reducedMotion) {
