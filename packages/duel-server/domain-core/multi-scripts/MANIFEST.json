@@ -2038,7 +2038,7 @@
         "damcon",
         "damop"
       ],
-      "note": "Only the holder own duelist turn triggers the effect. Each living duelist takes damage."
+      "note": "The current controller's own turn triggers the effect. Each living duelist takes damage."
     },
     {
       "code": 30339825,
@@ -3069,7 +3069,7 @@
         "damcon",
         "damop"
       ],
-      "note": "Only the holder own duelist turn triggers the effect. Each living duelist takes damage."
+      "note": "The current controller's own turn triggers the effect. Each living duelist takes damage."
     },
     {
       "code": 47475363,
