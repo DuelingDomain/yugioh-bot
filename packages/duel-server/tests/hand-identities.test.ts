@@ -4,6 +4,21 @@ import { createEventContext, observeMoveEvents } from "../src/views.js";
 import { OcgLocation as L, OcgMessageType as M, OcgPosition as P } from "ocgcore-wasm";
 
 describe("animation identities in engine slots", () => {
+  it.each([0, 1])("keeps seat %s owner IDs independent of the other seat's hidden reconciliation", (seat) => {
+    const histories = [false, true].map((miss) => {
+      const ids = new HandIdentities();
+      const other = 1 - seat;
+      ids.add(seat, 10, 0, 1);
+      ids.add(other, 20, 0, 2);
+      ids.shuffle(other, [miss ? 30 : 20]);
+      ids.add(seat, 40, 1, 3);
+      ids.shuffle(seat, [10, 40, 50]);
+      return [0, 1, 2].map((sequence) => ids.at(seat, true, sequence));
+    });
+    expect(histories[0]).toEqual(["hand-1", "hand-2", "hand-3"]);
+    expect(histories[1]).toEqual(histories[0]);
+  });
+
   it.each([-1, 2, NaN, 0.5])("ignores an invalid animation seat %s without throwing", (seat) => {
     const ids = new HandIdentities();
     ids.add(0, 10, 0, 1);

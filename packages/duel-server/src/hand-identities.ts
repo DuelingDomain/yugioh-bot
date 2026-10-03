@@ -3,7 +3,7 @@ type Identity = { id: string; code: number; arrival?: number; arrivalCode?: numb
 const isSequence = (sequence: number): boolean => Number.isSafeInteger(sequence) && sequence >= 0;
 
 export class HandIdentities {
-  private nextOwn = 0;
+  private nextOwn = [0, 0];
   private nextSleeve = 0;
   private lastArrival = [0, 0];
   private shuffledThrough = [0, 0];
@@ -17,7 +17,7 @@ export class HandIdentities {
   add(seat: number, code: number, sequence: number, arrival?: number, isPublic = false, publicArrivalCode?: number): void {
     if (!this.own[seat] || !isSequence(sequence)) return;
     if (arrival != null) this.lastArrival[seat] = Math.max(this.lastArrival[seat]!, arrival);
-    this.own[seat]!.splice(sequence, 0, { id: `hand-${++this.nextOwn}`, code, arrival });
+    this.own[seat]!.splice(sequence, 0, { id: `hand-${++this.nextOwn[seat]!}`, code, arrival });
     const sleeve = { id: `sleeve-${++this.nextSleeve}`, code: isPublic ? code : 0, arrival, arrivalCode: isPublic ? code : publicArrivalCode, public: isPublic };
     const following = this.sleeves[seat]![sequence];
     this.sleeves[seat]!.splice(sequence, 0, sleeve);
@@ -122,7 +122,7 @@ export class HandIdentities {
     const available = [...this.own[seat]!];
     this.own[seat] = codes.map((code) => {
       const index = available.findIndex((entry) => entry.code === code);
-      return index >= 0 ? available.splice(index, 1)[0]! : { id: `hand-${++this.nextOwn}`, code };
+      return index >= 0 ? available.splice(index, 1)[0]! : { id: `hand-${++this.nextOwn[seat]!}`, code };
     });
     this.beforeShuffle[seat] ??= [...this.sleeves[seat]!];
     const publicEntries = this.shuffledPublic[seat] ??= new Map();
