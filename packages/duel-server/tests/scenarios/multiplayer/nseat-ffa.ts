@@ -461,7 +461,7 @@ export const FFA_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate("Pot of Greed", "p0"),
-      activate("Dust Tornado", "p1"),
+      activate("Dust Tornado", "p1"), pickOpponent("p0", "p1"),
       select({ card: "Swords of Revealing Light" }),
       expectPrompt({ by: "p2", context: "chain" }),
       surrender("p1"),
@@ -490,7 +490,7 @@ export const FFA_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate("Pot of Greed", "p0"),
-      activate("Dust Tornado", "p1"),
+      activate("Dust Tornado", "p1"), pickOpponent("p0", "p1"),
       expectPrompt({ by: "p1", kind: "cards" }),
       surrender("p1"),
       // The activation was not cancelled: the link of p1 is on the chain, and p2 holds the window after it.
@@ -538,10 +538,10 @@ export const FFA_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate("Pot of Greed", "p0"),
-      activate("Dust Tornado", "p1"),
+      activate("Dust Tornado", "p1"), pickOpponent("p0", "p1"),
       select({ card: "Swords of Revealing Light", nth: 0 }),
       pass("p1"),
-      activate("Dust Tornado", "p2"),
+      activate("Dust Tornado", "p2"), pickOpponent("p0", "p2"),
       select({ card: "Swords of Revealing Light", nth: 1 }),
       expectChain("Pot of Greed", "Dust Tornado", "Dust Tornado"),
       expectPrompt({ by: "p1", context: "chain" }),
@@ -765,7 +765,7 @@ export const FFA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa4-three-surrenders-in-a-row-last-wins",
-    title: "FFA4: p3, p1 and p2 give up one after the other; p0 wins when it ends its turn and the three losses take effect",
+    title: "FFA4: p3, p1 and p2 give up one after the other; p0 wins immediately and the three losses take effect",
     source: `${SOURCE} [R-FFA-WINNER]`,
     rules: ["R-FFA-WINNER", "R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "surrender", "ffa4"],
@@ -775,7 +775,7 @@ export const FFA_SCENARIOS: Scenario[] = [
       surrender("p1"),
       surrender("p2"),
       // The three losses land at the next check of the core: the turn player ends its turn.
-      endTurn("p0"),
+
       expectEliminated("p1", "p2", "p3"),
       expectResult({ seat: "p0" }),
       // A seat that gives up keeps its LP: it loses by the surrender, not at 0 LP.

@@ -8,10 +8,8 @@ import { choosePracticeBotAnswer, chooseSurrenderedAnswer } from "../src/practic
 import { engineDataDirectory as dataDirectory } from "./engine-data-dir.js";
 import { currentDomainMultiWasm, currentMultiWasm, describeWithCores, needs } from "./support/cores.js";
 
-// Task ELIM: game.eliminate() while a prompt is open. The core applies the loss at its next Adjust, so the
-// engine keeps the open prompt (or answers it for a leaving seat) until the core reports the loss.
-// The multi core of the data directory may be older than Debug.EliminateDuelist: these tests load a build that has it.
-// MULTI_WASM and DOMAIN_MULTI_WASM name the wasm files; without them the live tests skip, or fail with DUEL_REQUIRE_CORES=1 (tests/support/cores.ts).
+// Surrender uses Debug.SurrenderDuelist. With no chain the loss is immediate, including when another seat holds a prompt.
+// MULTI_WASM and DOMAIN_MULTI_WASM select the proof cores. The core and engine must support the same surrender rule.
 const multiWasmPath = currentMultiWasm();
 const domainWasmPath = currentDomainMultiWasm();
 
@@ -88,26 +86,23 @@ describeWithCores("eliminate with a prompt open (multi core)", needs.multi(multi
     }
   });
 
-  it.each(cases)("%s: eliminating another seat keeps the prompt, marks the seat as leaving, and removes it after the answer", async (format) => {
+  it.each(cases)("%s: eliminating another seat removes it immediately and preserves a living FFA prompt", async (format) => {
     const game = await open(format);
     try {
       const holder = promptSeat(game)!;
       const other = format === "tag" ? seatsOfTeam(format, 1 - teamOfSeat(format, holder))[0]! : (holder + 1) % seatCountFor(format);
       const before = game.view(holder).prompt!;
       game.eliminate(other, 0);
-      const during = game.view(holder).prompt;
-      expect(during?.id).toBe(before.id);
-      expect(promptSeat(game)).toBe(holder);
-      const seatView = game.view(null).seats[other]!;
-      expect(seatView.eliminated).toBe(false);
-      expect(seatView.pendingElimination).toBe(true);
-      pass(game, holder);
       expect(isOut(game, other)).toBe(true);
       expect(game.view(null).seats[other]!.pendingElimination ?? false).toBe(false);
       if (format === "tag") {
+        expect(game.view(holder).prompt).toBeNull();
         expect(game.view(null).result?.winnerTeam).toBe(teamOfSeat(format, holder));
         return;
       }
+      expect(game.view(holder).prompt).toEqual(before);
+      expect(promptSeat(game)).toBe(holder);
+      pass(game, holder);
       expect(game.view(null).result ?? null).toBeNull();
       expect(promptSeat(game)).not.toBeNull();
     } finally {
@@ -150,7 +145,7 @@ describeWithCores("eliminate with a prompt open (multi core)", needs.multi(multi
       expect(() => game.eliminate(other, 0)).toThrow(/already eliminated/);
       expect(isOut(game, holder)).toBe(true);
       expect(game.diagnostics().some((entry) => entry.kind === "leaving-answer" && entry.seat === holder)).toBe(true);
-      // `other` is out too, or leaves after the next answer.
+      // Both surrender commands remove their seats before any further player answer.
       const next = promptSeat(game);
       if (next !== null) pass(game, next);
       expect(isOut(game, other)).toBe(true);
@@ -179,7 +174,7 @@ describeWithCores("eliminate with a prompt open (domain multi core)", [needs.mul
         const holder = promptSeat(game)!;
         const target = mode === "holder" ? holder : format === "tag" ? seatsOfTeam(format, 1 - teamOfSeat(format, holder))[0]! : (holder + 1) % seatCountFor(format);
         game.eliminate(target, 0);
-        if (mode === "other") {
+        if (mode === "other" && format !== "tag") {
           expect(promptSeat(game)).toBe(holder);
           pass(game, holder);
         }

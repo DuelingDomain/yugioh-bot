@@ -34,7 +34,7 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
     }),
     scenario(format, "eliminated-owner-loses-its-zone", {
       setup: setup(format, { [owner]: { monsters: ["Mystical Elf"] } }),
-      steps: [surrender(owner), endTurn("p0"), expectEliminated(format === "tag" ? ["p1", "p3"] : [owner]),
+      steps: [surrender(owner), ...(format === "tag" ? [] : [endTurn("p0")]), expectEliminated(format === "tag" ? ["p1", "p3"] : [owner]),
         ...(format === "tag" ? [expectResult({ team: 0 })] : [expectTurn("p1", 2)]),
         board(format, Object.fromEntries((format === "tag" ? ["p1", "p3"] : [owner]).map((s) => [s, { deckMaster: FIELD, hand: [] }]))),
       ],
@@ -63,7 +63,7 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
       steps: [...turnsBefore(format, owner), normalSummon({ card: MASTER[owner], from: "dmz" }, owner), endTurn(owner),
         activate("Change of Heart", "p0"), select({ card: MASTER[owner], owner }),
         board(format, { p0: { monsters: [MASTER[owner]], grave: ["Change of Heart"] }, [owner]: { monsters: ["Mystical Elf"], deckMaster: FIELD } }),
-        surrender(owner), endTurn("p0"), expectEliminated(format === "tag" ? ["p1", "p3"] : [owner]),
+        surrender(owner), ...(format === "tag" ? [] : [endTurn("p0")]), expectEliminated(format === "tag" ? ["p1", "p3"] : [owner]),
         board(format, { p0: { grave: ["Change of Heart"], ...(format === "tag" ? { monsters: [MASTER[owner]] } : {}) }, ...Object.fromEntries((format === "tag" ? ["p1", "p3"] : [owner]).map((s) => [s, { deckMaster: FIELD, hand: [] }])) })],
     }),
     scenario(format, "first-turn-draw-and-battle-window", {

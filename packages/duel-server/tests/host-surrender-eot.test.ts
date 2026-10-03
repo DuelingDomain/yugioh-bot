@@ -399,7 +399,8 @@ end`]);
       const activate = (await t.view()).prompt!.options.find((option) => option.card?.code === 55144522 && option.id.startsWith("activate:"));
       await t.answer(0, { choice: activate!.id });
       for (let step = 0; step < 20; step++) {
-        if ((await t.view()).prompt?.options.some((option) => option.id === "opt:0")) break;
+        const v = await t.view();
+        if (v.chain?.length === 1 && v.prompt?.options.some((option) => option.id === "opt:0")) break;
         await passPrompt(t);
       }
       const before = await t.view();
