@@ -107,6 +107,8 @@ const SPECS: EffectSpec[] = [
     code: 6203182, name: "Two Toads with One Sting", slug: "two-toads-with-one-sting", does: "Special Summons the Dark Magician of the Graveyard of the opponent and equips itself to it",
     p0: { hand: ["Two Toads with One Sting"] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
+    // ADR 0002 R-FFA-OPP-ONE: only the last opponent has a legal target; the binding is automatic.
+    noPick: (roles) => roles.format !== "tag",
     steps: [activate("Two Toads with One Sting", "p0")],
     p0End: { spells: ["Two Toads with One Sting"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
@@ -131,6 +133,8 @@ const SPECS: EffectSpec[] = [
     code: 78610936, name: "Xyz Encore", slug: "xyz-encore", does: "returns the Xyz monster to the Extra Deck and Special Summons its material",
     p0: { hand: ["Xyz Encore"] },
     tgt: { monsters: [{ card: "Daigusto Emeral", materials: [ELF] }] },
+    // ADR 0002 R-FFA-OPP-ONE: only the last opponent has a legal target; the binding is automatic.
+    noPick: (roles) => roles.format !== "tag",
     steps: [activate("Xyz Encore", "p0")],
     p0End: { grave: ["Xyz Encore"] },
     tgtEnd: { monsters: [ELF] },
@@ -208,6 +212,8 @@ const SPECS: EffectSpec[] = [
     code: 85698115, name: "Terrors of the Afterroot", slug: "terrors-of-the-afterroot", does: "Special Summons a monster of an opponent Graveyard",
     p0: { spells: [set("Terrors of the Afterroot")] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
+    // ADR 0002 R-FFA-OPP-ONE: only the last opponent has a legal target; the binding is automatic.
+    noPick: (roles) => roles.format !== "tag",
     steps: [activate("Terrors of the Afterroot", "p0")],
     then: [no("p0")],
     p0End: { grave: ["Terrors of the Afterroot"] },
