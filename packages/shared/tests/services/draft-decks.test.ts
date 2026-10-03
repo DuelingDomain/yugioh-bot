@@ -287,3 +287,29 @@ describe("linking the draft deck to the tournament entry", () => {
     db.close();
   });
 });
+
+describe("making a tournament from a draft when the deck save fails", () => {
+  it("still makes the tournament", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    seed(db);
+    const alice = addPlayer(db, "u1", "Alice");
+    const bob = addPlayer(db, "u2", "Bob");
+    const { draftId } = playDraft(db, [alice, bob], "u1");
+    db.prepare("delete from saved_decks").run();
+    db.prepare("update draft_players set deck_saved_at = null").run();
+    // A failure outside the per-player saves: registering a deck on an entry breaks.
+    db.exec(`create trigger fail_register before update of deck_json on tournament_participants
+             begin select raise(abort, 'boom'); end`);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = createDraftTournamentService(db).createTournamentFromDraft({
+      draftId, format: "round_robin", createdByUserId: "u1",
+    });
+    expect(result.tournamentId).toBeGreaterThan(0);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("[draft-tournament]"), expect.anything());
+    expect(db.prepare("select tournament_id from drafts where id = ?").get(draftId)).toEqual({ tournament_id: result.tournamentId });
+    log.mockRestore();
+    db.close();
+  });
+});

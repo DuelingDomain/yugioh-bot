@@ -115,7 +115,12 @@ export function createDraftTournamentService(db: Database.Database) {
 
         // Every human player's drafted deck becomes their entry's deck, so Start duel works at once.
         // A draft that finished before decks were saved automatically gets them here.
-        createDraftDeckService(db).saveForDraft(draft.id);
+        // A deck error must not undo the tournament: the player can still register a deck by hand.
+        try {
+          createDraftDeckService(db).saveForDraft(draft.id);
+        } catch (error) {
+          console.error(`[draft-tournament] could not save the draft decks for draft ${draft.id}:`, error);
+        }
 
         const tournament = db
           .prepare("select id, name, web_slug from tournaments where id = ?")
