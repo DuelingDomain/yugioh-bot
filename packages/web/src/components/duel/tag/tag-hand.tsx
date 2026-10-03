@@ -5,6 +5,7 @@ import type { DuelCard } from "@yugidraft/shared/duels";
 import { LOCATION_HAND, zoneKey } from "../constants";
 import { CardFace } from "../card-face";
 import { UsableGlow } from "../usable-glow";
+import { TAG_DOM } from "./live-tag";
 import type { DuelActivateHandler, DuelHoverHandler, InspectTarget } from "../table/types";
 import styles from "./tag-stage.module.css";
 
@@ -23,18 +24,25 @@ export interface HandProps {
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
   reducedMotion: boolean;
-  label: string;
+  /** Ignored: the own hand is always `TAG_DOM.handLabel` and the partner hand names its owner. Kept so callers still compile. */
+  label?: string;
 }
 
 function keyOf(seat: number, card: DuelCard, index: number): string {
   return zoneKey(seat, LOCATION_HAND, card.sequence ?? index);
 }
 
-/** The viewer's own hand: usable cards lift a little and carry the soft glow with the small Use chip. */
-export function OwnHand({ seat, cards, legalKeys, selectedKeys, onActivate, onInspect, onHoverCard, reducedMotion, label }: HandProps) {
+/**
+ * The viewer's own hand: usable cards lift a little and carry the soft glow with the small Use chip.
+ * DOM: the dock is the one `role="group"` named `TAG_DOM.handLabel` ("Your hand") on the page; the e2e helpers find it
+ * by that name. A card button is named by the plain card name (exact match); usable state is `data-usable` plus
+ * `aria-description`, never part of the name. The row keeps `data-side="you"` (the helpers' own-hand locator) and
+ * adds `data-relation="self"`.
+ */
+export function OwnHand({ seat, cards, legalKeys, selectedKeys, onActivate, onInspect, onHoverCard, reducedMotion }: HandProps) {
   return (
-    <div className={`${styles.hud} ${styles.handDock}`} data-hand-dock role="group" aria-label={label}>
-      <div className={styles.handRow} data-hand-seat={seat} data-side="you">
+    <div className={`${styles.hud} ${styles.handDock}`} data-hand-dock role="group" aria-label={TAG_DOM.handLabel}>
+      <div className={styles.handRow} data-hand-seat={seat} data-side="you" data-relation="self">
         {cards.map((card, index) => {
           const key = keyOf(seat, card, index);
           const usable = legalKeys.has(key);
@@ -48,7 +56,8 @@ export function OwnHand({ seat, cards, legalKeys, selectedKeys, onActivate, onIn
               data-zones={key}
               data-usable={usable ? "true" : "false"}
               data-sel={selected ? "true" : undefined}
-              aria-label={usable ? `${name}, can be used` : name}
+              aria-label={name}
+              aria-description={usable ? "Can be used" : undefined}
               style={{ ["--ug-r" as string]: "4px" } as CSSProperties}
               onClick={(event) => onActivate([key], card, event.currentTarget)}
               onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
@@ -78,10 +87,20 @@ export function OwnHand({ seat, cards, legalKeys, selectedKeys, onActivate, onIn
 /**
  * The partner's hand, face up, only for the viewer's team. Cards are never usable from here: the partner acts on their
  * own turn, so there is no glow, only the caption and the Ice accent.
+ * DOM: `role="group"` named "<name>'s hand (partner)" and `data-relation="partner"`. It has NO `data-side="you"`:
+ * the e2e helpers read `[data-hand-seat][data-side='you']` (board.ts) and `data-side="you"` zones as the viewer's own,
+ * so the partner hand must not match them. It keeps `data-hand-seat` for the FX hooks.
  */
-export function PartnerHand({ seat, cards, legalKeys, onInspect, onHoverCard, label, partnerName }: Omit<HandProps, "selectedKeys" | "onActivate" | "reducedMotion"> & { partnerName: string }) {
+export function PartnerHand({ seat, cards, legalKeys, onInspect, onHoverCard, partnerName }: Omit<HandProps, "selectedKeys" | "onActivate" | "reducedMotion"> & { partnerName: string }) {
   return (
-    <div className={`${styles.hud} ${styles.phand}`} data-partner-hand data-hand-seat={seat} data-side="you" role="group" aria-label={label}>
+    <div
+      className={`${styles.hud} ${styles.phand}`}
+      data-partner-hand
+      data-hand-seat={seat}
+      data-relation="partner"
+      role="group"
+      aria-label={`${partnerName}\u2019s hand (partner)`}
+    >
       <div className={styles.pl}>
         <svg className={styles.ico} viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" />
