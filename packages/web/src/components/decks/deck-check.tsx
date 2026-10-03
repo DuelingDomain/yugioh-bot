@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
-import { AlertTriangle, Check, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { SectionHead, StatusLine } from "@/components/sheet";
 import type { DuelDeck } from "@yugidraft/shared/duels";
 import { MonsterLevelsChart } from "./levels-chart";
 import { sectionBreakdown, type CardCatalog, type CopyProblem } from "./model";
@@ -19,14 +20,18 @@ export function copyProblemText(problem: CopyProblem, banlistName: string | null
   return `${problem.count} ${problem.count === 1 ? "copy" : "copies"}, ${problem.max === 0 ? "Forbidden" : `${problem.max} allowed${banlistName && problem.max < 3 ? ` on ${banlistName}` : ""}`}`;
 }
 
+const CHECK_TONE = { bad: "block", warn: "warn", ok: "ready" } as const;
+
+/** The deck check: one status line with the verdict, then what to fix. No tinted box. */
 export function DeckCheck({ problems, notes, banlistName, flag, tone, pool, onProblem }: DeckCheckProps) {
   const id = useId();
   return (
     <section className={styles["de-chk"]} data-s={tone} aria-labelledby={id}>
-      <h2 className={styles["de-chk-h"]} id={id}>{tone === "ok" ? <Check className="ic" aria-hidden /> : <AlertTriangle className="ic" aria-hidden />}{flag}</h2>
+      <h2 className="sr" id={id}>Deck check</h2>
+      <StatusLine tone={CHECK_TONE[tone]}><b>{flag}</b></StatusLine>
       {problems.length > 0 ? <ul className={styles["de-probs"]}>{problems.map((problem) => <li key={problem.key}><button type="button" onClick={() => onProblem(problem)}><span className={styles["de-pn"]}>{problem.name}</span>{" "}<span className={styles["de-pw"]}>{copyProblemText(problem, banlistName)}</span></button></li>)}</ul> : null}
       {notes.length > 0 ? <ul className={styles["de-guidance"]}>{notes.map((note) => <li key={note}>{note}</li>)}</ul> : null}
-      <p className="small">{pool ? "A draft deck needs its Main Deck size before it can be saved." : `On ${banlistName ?? "no banlist"}. You can save an unfinished deck. The table checks legality when you ready up.`}</p>
+      <p className={styles["de-chk-n"]}>{pool ? "A draft deck needs its main deck size before it can be saved." : `On ${banlistName ?? "no banlist"}. You can save an unfinished deck. The table checks legality when you ready up.`}</p>
     </section>
   );
 }
@@ -39,7 +44,7 @@ export function DeckSummary({ deck, catalog, emptyNew, ...check }: DeckCheckProp
     <div className={styles["de-sum"]}>
       <DeckCheck {...check} />
       <section className={styles["de-mix"]} aria-labelledby={id}>
-        <h2 className={styles["de-sec"]} id={id}>What's in it</h2>
+        <SectionHead as="h3" id={id} title="What's in it" />
         <p className={styles["df-tally"]}>{["monster", "spell", "trap"].map((key) => <span key={key} data-k={key}><b>{parts.find((part) => part.key === key)?.count ?? 0}</b>{" "}{key === "monster" ? "Monsters" : key === "spell" ? "Spells" : "Traps"}</span>)}</p>
         <MonsterLevelsChart codes={deck.main} catalog={catalog} />
       </section>

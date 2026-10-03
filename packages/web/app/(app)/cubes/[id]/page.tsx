@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { CubeEditor } from "@/components/cubes/cube-editor";
-import { SheetRoot } from "@/components/sheet";
+import { PageFrameFallback } from "@/components/decks/page-frame";
 
 export default async function CubeEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -9,9 +9,7 @@ export default async function CubeEditorPage({ params }: { params: Promise<{ id:
   return (
     <Suspense
       fallback={
-        <SheetRoot>
-          <p className="hint">Loading cube...</p>
-        </SheetRoot>
+        <PageFrameFallback title="Cube" label="Loading cube..." />
       }
     >
       <CubeEditor cubeId={cubeId} />

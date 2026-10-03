@@ -109,7 +109,7 @@ export function CubeLobbyPanel({
     `${allowedCubes.length} ${allowedCubes.length === 1 ? "theme" : "themes"}`,
     uniqueThemes && allowedCubes.length > 0 ? "each player gets a different one" : null,
     showClaim ? "claim yours" : null,
-  ].filter(Boolean).join(" · ");
+  ].filter(Boolean).join(", ");
 
   return (
     <section aria-labelledby={headingId}>
@@ -163,7 +163,7 @@ export function CubeLobbyPanel({
                   </span>
                 )}
                 <span className={styles.thn}>{cube.name}</span>
-                <span className={styles.thm}>{cube.mainCount} main · {cube.extraCount} extra</span>
+                <span className={styles.thm}>{cube.mainCount} main, {cube.extraCount} extra</span>
                 {(main || extra) && (
                   <span className={styles.thProblems}>
                     {main && <span className={styles.shortfall} data-kind="main">Main pool too small: {main.have} of {main.need} cards</span>}

@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 describe("SavedDeckLibrary", () => {
-  it("wraps each row fact with its own dot and omits an absent Master", async () => {
+  it("lists each row's counts as plain items with no dots and omits an absent Master", async () => {
     const decks: SavedDeck[] = [
       {
         id: 1, name: "With master", mode: "domain",
@@ -61,15 +61,9 @@ describe("SavedDeckLibrary", () => {
       ["Without master", ["Main 2", "Extra 1", "Side 1", expect.stringMatching(/^Updated /)]],
     ] as const) {
       const row = screen.getByRole("link", { name }).closest("li")!;
-      const line = row.querySelector(".mt")!;
-      expect(line.children).toHaveLength(1);
-      const items = Array.from(line.firstElementChild!.children);
-      expect(items.map((item) => item.textContent)).toEqual(expected);
-      expect(line.querySelectorAll(".dot")).toHaveLength(expected.length);
-      for (const item of items) {
-        expect(item.querySelectorAll(":scope > .dot")).toHaveLength(1);
-        expect(item.querySelector(".dot")).toHaveAttribute("aria-hidden", "true");
-      }
+      const line = row.querySelector("p[class*='counts']")!;
+      expect(Array.from(line.children, (item) => item.textContent)).toEqual(expected);
+      expect(line.querySelector(".dot")).toBeNull();
       expect(Array.from(line.querySelectorAll("b"), (count) => count.textContent)).toEqual(["2", "1", "1"]);
     }
   });

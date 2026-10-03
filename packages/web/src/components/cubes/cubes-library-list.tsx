@@ -3,9 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Box, Layers, Plus, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
-import { MetaLine } from "@/components/meta-line/meta-line";
-import { SheetRoot } from "@/components/sheet";
+import { Plus, Trash2 } from "lucide-react";
+import { FloorList, FloorRow, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { PageFrame } from "@/components/decks/page-frame";
 import { isDraftTemplate, nextCubeName, type AddTab, type CubeSummary } from "./library-model";
 import styles from "./cubes.module.css";
 
@@ -22,17 +22,19 @@ function DeleteConfirm({
   onDelete: () => void;
   onKeep: () => void;
 }) {
-  const keepRef = React.useRef<HTMLButtonElement>(null);
-  React.useEffect(() => keepRef.current?.focus(), []);
+  const ref = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => ref.current?.querySelector<HTMLElement>("[data-keep]")?.focus(), []);
   return (
-    <div className={`cb-confirm ${styles.confirm}`} role="alertdialog" aria-label={`Delete ${cube.name}`}>
+    <div ref={ref} className={styles.confirm} role="alertdialog" aria-label={`Delete ${cube.name}`}>
       <span>Delete {cube.name} for everyone on the server?</span>
-      <button className="btn btn-danger btn-sm" type="button" disabled={busy} onClick={onDelete}>
-        Delete
-      </button>
-      <button ref={keepRef} className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={onKeep}>
-        Keep
-      </button>
+      <span className={styles.confirmActs}>
+        <SvButton variant="danger" disabled={busy} onClick={onDelete}>
+          Delete
+        </SvButton>
+        <SvButton variant="ghost" disabled={busy} onClick={onKeep} data-keep="">
+          Keep
+        </SvButton>
+      </span>
     </div>
   );
 }
@@ -54,88 +56,63 @@ function CubeRow({
 }) {
   const template = isDraftTemplate(cube);
   const sets = cube.setNames ?? [];
-  const rowClass = `cb-row ${styles.row}`;
 
   const actions = confirming ? (
     <DeleteConfirm cube={cube} busy={busy} onDelete={onDelete} onKeep={onKeep} />
   ) : (
-    <div className={`cb-acts ${styles.acts}`}>
+    <div className={styles.acts}>
       {!template && (
-        <Link className="btn btn-secondary btn-sm" href={`/cubes/${cube.id}`} aria-label={`Open ${cube.name}`}>
+        <Link className={`sv-btn quiet ${styles.openBtn}`} href={`/cubes/${cube.id}`} aria-label={`Open ${cube.name}`}>
           Open
         </Link>
       )}
-      <button
-        className="ib danger"
-        type="button"
-        aria-label={`Delete ${cube.name}`}
-        disabled={busy}
-        onClick={onAskDelete}
-      >
-        <Trash2 className="ic" aria-hidden="true" />
+      <button className={styles.trash} type="button" aria-label={`Delete ${cube.name}`} disabled={busy} onClick={onAskDelete}>
+        <Trash2 size={18} aria-hidden="true" />
       </button>
     </div>
   );
 
   if (template) {
     return (
-      <li className={rowClass} data-template data-confirm={confirming || undefined}>
-        <div>
-          <span className="nm">{cube.name}</span>
-          <MetaLine
-            className="mt"
-            items={[
-              { content: <span>Draft template</span> },
-              { content: <span>{sets.length} {sets.length === 1 ? "set" : "sets"}</span> },
-            ]}
-          />
-          <MetaLine
-            className={`mt ${styles.setNames}`}
-            items={[
-              ...sets.slice(0, MAX_SET_NAMES).map((set) => ({ content: <span>{set}</span> })),
-              ...(sets.length > MAX_SET_NAMES ? [{ content: <span>+{sets.length - MAX_SET_NAMES} more</span> }] : []),
-            ]}
-          />
+      <FloorRow className={styles.row}>
+        <div className={styles.main}>
+          <p className={styles.name}>{cube.name}</p>
+          <p className={styles.facts}>
+            <span>Draft template</span>
+            <span>{sets.length} {sets.length === 1 ? "set" : "sets"}</span>
+          </p>
+          <p className={`${styles.facts} ${styles.setNames}`}>
+            {sets.slice(0, MAX_SET_NAMES).map((set) => <span key={set}>{set}</span>)}
+            {sets.length > MAX_SET_NAMES ? <span>+{sets.length - MAX_SET_NAMES} more</span> : null}
+          </p>
           <p className={styles.tmplNote}>
-            <Layers className="ic sm" aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 6 }} />
             Used by <code>/draft</code>. Booster sets, not a pool, so there are no cards to edit.
           </p>
         </div>
         {actions}
-      </li>
+      </FloorRow>
     );
   }
 
   return (
-    <li className={rowClass} data-confirm={confirming || undefined}>
-      <div>
-        <Link className={`nm ${styles.openLink}`} href={`/cubes/${cube.id}`}>
-          {cube.name}
-        </Link>
-        <MetaLine
-          className="mt"
-          items={[
-            {
-              content: cube.archetype ? (
-                <span>Seeded from <b>{cube.archetype}</b></span>
-              ) : (
-                <span>Built by hand</span>
-              ),
-            },
-            ...(cube.banlist ? [{ content: <span>{cube.banlist} banlist</span> }] : []),
-          ]}
-        />
-        <p className="mt">
-          <span>
-            Main <b>{cube.mainCount}</b> cards
-          </span>
-          <span>
-            Extra <b>{cube.extraCount}</b> cards
-          </span>
+    <FloorRow className={styles.row}>
+      <div className={styles.main}>
+        <p className={styles.name}>
+          <Link className={styles.openLink} href={`/cubes/${cube.id}`}>
+            {cube.name}
+          </Link>
+        </p>
+        <p className={styles.facts}>
+          {cube.archetype ? <span>Seeded from <b>{cube.archetype}</b></span> : <span>Built by hand</span>}
+          {cube.banlist ? <span>{cube.banlist} banlist</span> : null}
+        </p>
+        <p className={styles.counts}>
+          <span>Main <b>{cube.mainCount}</b> cards</span>
+          <span>Extra <b>{cube.extraCount}</b> cards</span>
         </p>
       </div>
       {actions}
-    </li>
+    </FloorRow>
   );
 }
 
@@ -209,74 +186,72 @@ export function CubesLibraryList() {
   };
 
   return (
-    <SheetRoot>
-      <header className="page-h sheet-head">
-        <div>
-          <h1 className="t-title">Cubes</h1>
-          <p className="page-sub">
-            Reusable card pools for cube drafts and Theme Drafts. Anyone on the server can use them; only the creator or an admin can edit one.
-          </p>
-        </div>
-        <button className="btn btn-primary" type="button" disabled={busy || loading} onClick={() => addCube()}>
-          <Plus className="ic sm" aria-hidden="true" />
+    <PageFrame
+      title="Cubes"
+      sub={!loading && !loadFailed && cubes.length > 0 ? `${cubes.length} ${cubes.length === 1 ? "cube" : "cubes"}` : undefined}
+      actions={
+        <SvButton variant="primary" disabled={busy || loading} onClick={() => addCube()}>
+          <Plus size={16} aria-hidden="true" />
           New cube
-        </button>
-      </header>
+        </SvButton>
+      }
+    >
+      <p className={styles.lede}>
+        Reusable card pools for cube drafts and theme drafts. Anyone on the server can use them; only the creator or an admin can edit one.
+      </p>
 
       {error && (
-        <div className={`banner banner-bad ${styles.err}`} role="alert">
-          <TriangleAlert className="ic" aria-hidden="true" />
-          <div>{error}</div>
+        <div role="alert">
+          <StatusLine tone="block">{error}</StatusLine>
         </div>
       )}
 
       {loading ? (
-        <div className="cb-list" aria-busy="true" aria-label="Loading cubes">
+        <ul className={styles.skeleton} aria-busy="true" aria-label="Loading cubes">
           {[46, 38].map((w) => (
-            <div key={w} className={`cb-row ${styles.row}`}>
-              <div style={{ display: "grid", gap: 10 }}>
-                <span className="sk" style={{ width: `${w}%`, height: 14 }} />
-                <span className="sk" style={{ width: `${w + 24}%` }} />
-              </div>
-              <span className="cb-acts">
-                <span className="sk" style={{ width: 64, height: 30 }} />
-              </span>
-            </div>
+            <li key={w}>
+              <span className="sk" style={{ width: `${w}%`, height: 14 }} />
+              <span className="sk" style={{ width: `${w + 24}%` }} />
+            </li>
           ))}
-        </div>
+        </ul>
       ) : loadFailed ? (
-        <div className="banner banner-bad" role="alert">
-          <TriangleAlert className="ic" aria-hidden="true" />
-          <div>
+        <div role="alert" className={styles.alert}>
+          <StatusLine tone="block">
             <b>Couldn&apos;t load your cubes.</b> Check your connection and try again.
-          </div>
-          <button className="btn btn-secondary btn-sm" type="button" style={{ marginLeft: "auto" }} onClick={load}>
-            <RotateCcw className="ic sm" aria-hidden="true" />
+          </StatusLine>
+          <SvButton variant="quiet" onClick={load}>
             Retry
-          </button>
+          </SvButton>
         </div>
       ) : cubes.length === 0 ? (
-        <div className="empty" style={{ padding: "36px 20px" }}>
-          <Box className="ic" aria-hidden="true" />
-          <h2>No cubes yet</h2>
-          <p>
-            A cube is a pool you draft from. Start from an archetype, paste a list of passcodes, or pick cards one at a
-            time.
-          </p>
-          <div className={`acts ${styles.startActs}`}>
-            <button className="btn btn-primary" type="button" disabled={busy} onClick={() => addCube("archetype")}>
-              From an archetype
-            </button>
-            <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => addCube("passcodes")}>
-              From passcodes
-            </button>
-            <button className="btn btn-quiet" type="button" disabled={busy} onClick={() => addCube()}>
-              Blank cube
-            </button>
+        <div className={styles.empty}>
+          <span className={styles.emptyZones} aria-hidden="true">
+            <Zone state="empty" size="md" />
+            <Zone state="empty" size="md" />
+            <Zone state="empty" size="md" />
+          </span>
+          <div>
+            <h2>No cubes yet</h2>
+            <p>
+              A cube is a pool you draft from. Start from an archetype, paste a list of passcodes, or pick cards one at a
+              time.
+            </p>
+            <div className={styles.emptyActs}>
+              <SvButton variant="ghost" disabled={busy} onClick={() => addCube("archetype")}>
+                From an archetype
+              </SvButton>
+              <SvButton variant="ghost" disabled={busy} onClick={() => addCube("passcodes")}>
+                From passcodes
+              </SvButton>
+              <SvButton variant="quiet" disabled={busy} onClick={() => addCube()}>
+                Blank cube
+              </SvButton>
+            </div>
           </div>
         </div>
       ) : (
-        <ul className="cb-list" aria-label="Cubes">
+        <FloorList aria-label="Cubes">
           {cubes.map((cube) => (
             <CubeRow
               key={cube.id}
@@ -288,8 +263,8 @@ export function CubesLibraryList() {
               onKeep={() => setConfirmId(null)}
             />
           ))}
-        </ul>
+        </FloorList>
       )}
-    </SheetRoot>
+    </PageFrame>
   );
 }

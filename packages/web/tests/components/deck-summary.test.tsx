@@ -11,21 +11,23 @@ import styles from "../../src/components/decks/editor.module.css";
 
 describe("deck size meter", () => {
   it.each([
-    ["Main", 41, 40, 60, "ok", "Main 41 cards. Tables want 40 to 60."],
-    ["Main", 33, 40, 60, "under", "Main 33 cards. Tables want 40 to 60."],
+    ["Main", 41, 40, 60, "in", "Main 41 cards. Tables want 40 to 60."],
+    ["Main", 33, 40, 60, "short", "Main 33 cards. Tables want 40 to 60."],
     ["Main", 61, 40, 60, "over", "Main 61 cards. Tables want 40 to 60."],
     ["Extra", 17, 0, 15, "over", "Extra 17 cards. Tables want up to 15."],
-    ["Extra", 1, 0, 15, "ok", "Extra 1 card. Tables want up to 15."],
-    ["Main", 58, 60, 60, "under", "Main 58 cards. Tables want exactly 60."],
-    ["Main", 60, 60, 60, "ok", "Main 60 cards. Tables want exactly 60."],
-    ["Main", 29, 30, 60, "under", "Main 29 cards. Tables want 30 to 60."],
+    ["Extra", 1, 0, 15, "in", "Extra 1 card. Tables want up to 15."],
+    ["Main", 58, 60, 60, "short", "Main 58 cards. Tables want exactly 60."],
+    ["Main", 60, 60, 60, "in", "Main 60 cards. Tables want exactly 60."],
+    ["Main", 29, 30, 60, "short", "Main 29 cards. Tables want 30 to 60."],
   ] as const)("labels %s at %i and gives it the %s state", (title, count, minimum, maximum, state, label) => {
     render(<DeckSizeMeter title={title} count={count} minimum={minimum} maximum={maximum} />);
-    const meter = screen.getByRole("img", { name: label });
-    expect(meter).toHaveAttribute("data-s", state);
-    expect(meter.style.getPropertyValue("--n")).toBe(String(count));
-    expect(meter.style.getPropertyValue("--lo")).toBe(String(minimum));
-    expect(meter.style.getPropertyValue("--hi")).toBe(String(maximum));
+    const meter = screen.getByRole("meter", { name: label });
+    expect(meter).toHaveAttribute("data-state", state);
+    expect(meter).toHaveAttribute("aria-valuenow", String(count));
+    // The two ticks mark the legal range on a bar that ends at the larger of the maximum and the count.
+    const top = Math.max(maximum, count);
+    const ticks = Array.from(meter.querySelectorAll<HTMLElement>(".sv-size-tick"), (tick) => tick.style.left);
+    expect(ticks).toEqual([`${(minimum / top) * 100}%`, `${(maximum / top) * 100}%`]);
   });
 });
 
@@ -33,7 +35,7 @@ function monster(code: number, level: number, type = TYPE_MONSTER): DeckCardInfo
   return { code, name: `Card ${code}`, type, level, description: "", attack: 0, defense: 0, attribute: 0, race: "", alias: 0, setcodes: [], lscale: 0, rscale: 0, arrows: 0, ot: 3 };
 }
 
-describe("Main Deck monster levels", () => {
+describe("main deck monster levels", () => {
   it("groups levels 1–4, 5–6 and 7+, counts copies, and excludes Links and non-monsters", () => {
     const cards = [monster(1, 1), monster(4, 4), monster(5, 5), monster(6, 6), monster(7, 7), monster(8, 8), monster(9, 12), monster(10, 0, TYPE_MONSTER | TYPE_LINK), monster(11, 3, TYPE_MONSTER | TYPE_LINK), monster(12, 8, TYPE_SPELL), monster(13, 0)];
     const catalog = new Map(cards.map((card) => [card.code, card]));
