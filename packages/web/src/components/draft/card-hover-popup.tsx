@@ -1,8 +1,10 @@
 import { useEffect } from "react";
 import { CardArt } from "@/components/cards/card-art";
-import { Shield, Swords, X } from "lucide-react";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { POPUP_MARGIN, POPUP_WIDTH } from "@/lib/card-popup-position";
 import type { CardSummary } from "@/lib/card-types";
+import styles from "./card-hover-popup.module.css";
 
 interface CardHoverPopupProps {
   card: CardSummary;
@@ -33,60 +35,53 @@ export function CardHoverPopup({ card, position, imageError, onImageError, dismi
           "fixed z-50",
           dismissible ? "block" : "pointer-events-none hidden lg:block",
         )}
-        style={{ left: `${position.left}px`, top: `${position.top}px` }}
+        style={{
+          left: `${position.left}px`,
+          top: `${position.top}px`,
+          width: POPUP_WIDTH,
+          maxWidth: `calc(100vw - ${POPUP_MARGIN * 2}px)`,
+        }}
+        data-testid="card-hover-popup"
       >
-        <div className="relative max-h-[calc(100vh-2rem)] w-72 overflow-auto rounded-xl border border-border bg-bg-surface shadow-card">
+        <div className={styles.panel}>
           {dismissible && onDismiss && (
-            <button
-              type="button"
-              aria-label="Close preview"
-              onClick={onDismiss}
-              className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-bg-elevated text-text-secondary hover:text-text-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-primary"
-            >
+            <button type="button" aria-label="Close preview" onClick={onDismiss} className={styles.close}>
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
-          <div className="p-3 pb-0">
+          <div className={styles.art}>
             <div className="card-frame isolate w-full bg-bg-elevated">
               {imageError ? (
-                <div className="flex h-full items-center justify-center text-sm text-text-secondary">No image</div>
+                <div className={styles.noImage}>No image</div>
               ) : (
                 <CardArt
                   smallSrc={card.imageUrlSmall || card.imageUrl}
                   fullSrc={card.imageUrl}
                   alt={card.name}
-                  sizes="288px"
+                  sizes="120px"
                   loadFull
                   className="object-contain"
                   onError={onImageError}
                 />
               )}
-              {(card.qty ?? 1) > 1 && (
-                <div className="absolute right-2 top-2 z-10 rounded-md bg-black/80 px-2 py-0.5 text-sm font-bold tabular-nums text-white">
-                  ×{card.qty}
-                </div>
-              )}
             </div>
+            {(card.qty ?? 1) > 1 && <div className={styles.qty}>×{card.qty}</div>}
           </div>
-          <div className="space-y-3 p-4">
-            <h3 className="mb-1 font-display text-lg text-text-primary">{card.name}</h3>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
-              {card.attribute && <span className="rounded-md bg-bg-elevated px-2 py-1">{card.attribute}</span>}
-              {card.level !== undefined && <span className="rounded-md bg-bg-elevated px-2 py-1">Level {card.level}</span>}
-              <span className="rounded-md bg-bg-elevated px-2 py-1">{card.type}</span>
-              <span className="rounded-md bg-bg-elevated px-2 py-1 capitalize">{card.frameType}</span>
-            </div>
-            <p className="text-sm leading-relaxed text-text-secondary">{card.effectText}</p>
+          <div className={styles.details}>
+            <h3 className={styles.name}>{card.name}</h3>
+            <ul className={styles.chips}>
+              {card.attribute && <li>{card.attribute}</li>}
+              {card.level !== undefined && <li>Level {card.level}</li>}
+              <li>{card.type}</li>
+              <li className="capitalize">{card.frameType}</li>
+            </ul>
             {isMonster && (card.atk !== undefined || card.def !== undefined) && (
-              <div className="flex items-center gap-4 text-sm font-semibold text-text-primary">
-                {card.atk !== undefined && (
-                  <div className="flex items-center gap-1.5"><Swords className="h-4 w-4 text-accent-cta" aria-hidden="true" /><span>ATK {card.atk}</span></div>
-                )}
-                {card.def !== undefined && (
-                  <div className="flex items-center gap-1.5"><Shield className="h-4 w-4 text-accent-primary" aria-hidden="true" /><span>DEF {card.def}</span></div>
-                )}
-              </div>
+              <p className={styles.stats}>
+                {card.atk !== undefined && <span>ATK {card.atk}</span>}
+                {card.def !== undefined && <span>DEF {card.def}</span>}
+              </p>
             )}
+            <p className={styles.text} tabIndex={dismissible ? 0 : undefined} aria-label={dismissible ? `${card.name} card text` : undefined}>{card.effectText}</p>
           </div>
         </div>
       </div>
