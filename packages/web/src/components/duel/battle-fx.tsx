@@ -405,17 +405,17 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events
   const calculation = battleCalculation(events, attack);
   const stats: Play["stats"] = [];
   if (calculation) {
-    const differs = (board: BattleCard | null, stats: { attack: number; defense: number }) =>
-      (board?.attack != null && board.attack !== stats.attack) || (board?.defense != null && board.defense !== stats.defense);
+    const differs = (board: BattleCard | null, stats: { attack: number; defense: number }, stat: "attack" | "defense") =>
+      board?.[stat] != null && board[stat] !== stats[stat];
     const liveAttacker = attack.zone ? board?.get(keyOfZone(attack.zone)) : null;
     const liveTarget = attack.target ? board?.get(keyOfZone(attack.target)) : null;
     // A battle casualty is no longer on the board, even if a floater has filled its slot with another copy.
     const attackerBoard = !resolved.outcome.attacker && liveAttacker?.code != null && liveAttacker.code === capture.attackerCard.code ? liveAttacker : capture.attackerCard;
     const targetBoard = !resolved.outcome.target && liveTarget?.code != null && liveTarget.code === capture.targetCard?.code ? liveTarget : capture.targetCard;
-    if (differs(attackerBoard, calculation.attacker)) {
+    if (differs(attackerBoard, calculation.attacker, "attack")) {
       stats.push({ role: "attacker", box: capture.from, value: calculation.attacker.attack, label: "ATK", above: capture.from.top < capture.to.top });
     }
-    if (calculation.target && !isFacedown(calculation.target.position) && !capture.direct && differs(targetBoard, calculation.target)) {
+    if (calculation.target && !isFacedown(calculation.target.position) && !capture.direct && differs(targetBoard, calculation.target, isDefense(calculation.target.position) ? "defense" : "attack")) {
       const defense = isDefense(calculation.target.position);
       stats.push({ role: "target", box: capture.to, value: defense ? calculation.target.defense : calculation.target.attack,
         label: defense ? "DEF" : "ATK", above: capture.to.top < capture.from.top });

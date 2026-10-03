@@ -256,6 +256,18 @@ describe("BattleFx", () => {
     expect(document.querySelector('[data-battle-stat]')).toBeNull();
   });
 
+  it.each([1, 4])("compares only each calculation plate's displayed stat (target position: %s)", position => {
+    const before = seatsOf(warrior, machine, position);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={before} />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 2300, defense: 100, position: 1 }, target: {
+        attack: position === 4 ? 100 : 2400, defense: position === 4 ? 1500 : 100, position,
+      } } };
+    rerender(<BattleFx events={[phase, attack, calculation, { id: 4, kind: "battle-end", text: "End" }]} reducedMotion seats={before} />);
+    expect(playLayer()).not.toBeNull();
+    expect(document.querySelector('[data-battle-stat]')).toBeNull();
+  });
+
   it("omits a plate when a response changes stats that remain on the live board", () => {
     const before = seatsOf(warrior, { ...machine, attack: 200, defense: 100 });
     const after = seatsOf({ ...warrior, attack: 3300 }, { ...machine, attack: 200, defense: 100 });
