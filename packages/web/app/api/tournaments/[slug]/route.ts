@@ -11,6 +11,7 @@ import {
 import type { DuelBestOf, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { announcer, broadcaster } from "@/lib/notify";
 import { notifyDuelChange } from "@/lib/notify-duel";
+import { viewerStakes } from "@/lib/tournament-stakes";
 
 export const runtime = "nodejs";
 
@@ -177,6 +178,14 @@ export async function GET(
       matches: matchesWithNames,
       isParticipant,
       currentUserPlayerId,
+      // Elo for the viewer's current or next match; null for non-players and when nothing is left to play.
+      stakes: viewerStakes({
+        db,
+        guildId: tournament.guild_id,
+        tournamentStatus: tournament.status,
+        matches: matches.map((match) => ({ id: match.id, playerOneId: match.playerOneId, playerTwoId: match.playerTwoId, status: match.status, reporterId: match.reporterId })),
+        playerId: isParticipant ? currentUserPlayerId : null,
+      }),
     });
   } catch (error) {
     console.error("[api/tournaments/[slug] GET] error:", error);

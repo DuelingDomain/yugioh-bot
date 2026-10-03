@@ -84,6 +84,55 @@ describe.each([
   });
 });
 
+describe("tournament onInvalidate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sockets.length = 0;
+  });
+
+  const fire = (event: string, ...args: unknown[]) => act(() => sockets[0].handlers.get(event)!(...args));
+
+  it("fires after each tournament event, after the specific callback", () => {
+    const calls: string[] = [];
+    renderHook(() =>
+      useTournamentWebsocket("cup", {
+        onMatchUpdated: () => calls.push("match"),
+        onCompleted: () => calls.push("completed"),
+        onInvalidate: () => calls.push("invalidate"),
+      }),
+    );
+    fire("connect");
+    fire("tournament:match-updated");
+    fire("tournament:completed");
+    expect(calls).toEqual(["match", "invalidate", "completed", "invalidate"]);
+    for (const event of ["tournament:started", "tournament:cancelled", "tournament:participant-joined", "tournament:participant-left"]) {
+      fire(event, { playerId: 1, displayName: "A" });
+    }
+    expect(calls.filter((c) => c === "invalidate")).toHaveLength(6);
+  });
+
+  it("fires on reconnect but not on the first connect", () => {
+    const onInvalidate = vi.fn();
+    renderHook(() => useTournamentWebsocket("cup", { onInvalidate }));
+    fire("connect");
+    expect(onInvalidate).not.toHaveBeenCalled();
+    fire("connect");
+    expect(onInvalidate).toHaveBeenCalledTimes(1);
+    expect(sockets[0].emit).toHaveBeenLastCalledWith("tournament:join", { slug: "cup" });
+  });
+
+  it("uses the current callback without replacing the socket", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { rerender } = renderHook(({ cb }) => useTournamentWebsocket("cup", { onInvalidate: cb }), { initialProps: { cb: first } });
+    rerender({ cb: second });
+    fire("tournament:match-updated");
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(io).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("draft reconnect", () => {
   beforeEach(() => {
     vi.clearAllMocks();

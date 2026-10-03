@@ -1,5 +1,15 @@
 import { NextResponse } from "next/server";
-import { createSavedDeckService, SavedDeckServiceError, type SavedDeckService } from "@yugidraft/shared/services";
+import type { SavedDeck } from "@yugidraft/shared/duels";
+import {
+  createPlayerService,
+  createSavedDeckService,
+  createTournamentRegistrationService,
+  deckRegistrationMark,
+  SavedDeckServiceError,
+  type DeckRegistration,
+  type DeckRegistrationMark,
+  type SavedDeckService,
+} from "@yugidraft/shared/services";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -58,4 +68,18 @@ export function savedDeckErrorResponse(error: unknown) {
   }
   console.error("[api/decks]", error);
   return NextResponse.json({ error: "Failed to process deck request" }, { status: 500 });
+}
+
+/** A saved deck as the decks API returns it: the stored deck plus the tournament it is registered for, if any. */
+export type SavedDeckWithRegistration = SavedDeck & { registration: DeckRegistrationMark | null };
+
+/** The player's registered decks for pending and active tournaments (empty when they have no player row yet). */
+export function loadDeckRegistrations(guildId: string, ownerUserId: string): DeckRegistration[] {
+  const db = getDb();
+  const player = createPlayerService(db).findByGuildAndUser(guildId, ownerUserId);
+  return player ? createTournamentRegistrationService(db).deckRegistrations(player.id, guildId) : [];
+}
+
+export function withRegistration(deck: SavedDeck, registrations: readonly DeckRegistration[]): SavedDeckWithRegistration {
+  return { ...deck, registration: deckRegistrationMark(registrations, { savedDeckId: deck.id }) };
 }

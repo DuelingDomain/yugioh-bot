@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import type { SavedDeck } from "@yugidraft/shared/duels";
 import { SavedDeckServiceError } from "@yugidraft/shared/services";
-import { readSavedDeckBody, requireSavedDeckActor, savedDeckErrorResponse } from "@/lib/saved-decks";
+import {
+  loadDeckRegistrations,
+  readSavedDeckBody,
+  requireSavedDeckActor,
+  savedDeckErrorResponse,
+  withRegistration,
+} from "@/lib/saved-decks";
 import { checkDraftDeckWrite, readDraftId, registerDraftDeck } from "./draft-deck";
 
 export const runtime = "nodejs";
@@ -10,7 +16,10 @@ export async function GET() {
   const actor = await requireSavedDeckActor();
   if (!actor.ok) return actor.response;
   try {
-    return NextResponse.json({ decks: actor.decks.list(actor.guildId, actor.ownerUserId) });
+    const registrations = loadDeckRegistrations(actor.guildId, actor.ownerUserId);
+    return NextResponse.json({
+      decks: actor.decks.list(actor.guildId, actor.ownerUserId).map((deck) => withRegistration(deck, registrations)),
+    });
   } catch (error) {
     return savedDeckErrorResponse(error);
   }
@@ -55,14 +64,15 @@ export async function POST(request: Request) {
         throw error;
       }
       const warning = registerDraftDeck(checked.draft, deck);
-      return NextResponse.json(warning ? { deck, warning } : { deck }, { status: 201 });
+      const shown = withRegistration(deck, loadDeckRegistrations(actor.guildId, actor.ownerUserId));
+      return NextResponse.json(warning ? { deck: shown, warning } : { deck: shown }, { status: 201 });
     }
     const deck = actor.decks.create(actor.guildId, actor.ownerUserId, {
       name: body.name,
       mode: body.mode,
       deck: body.deck,
     });
-    return NextResponse.json({ deck }, { status: 201 });
+    return NextResponse.json({ deck: withRegistration(deck, []) }, { status: 201 });
   } catch (error) {
     return savedDeckErrorResponse(error);
   }
