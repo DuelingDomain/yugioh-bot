@@ -50,6 +50,15 @@ export function continuesPlacement(previous: DuelPrompt | null | undefined, next
   return false;
 }
 
+/**
+ * A continuing prompt skips the "answerable" wait (it shows while the player's own answer is still in flight, buttons off)
+ * but not while the room re-reads for a change notice that is not that echo (`catchingUp`): the bar would look ready and
+ * every click would be refused until the read ends. Then it waits for the room to settle like any other prompt.
+ */
+export function skipsAnswerableWait(continuing: boolean, catchingUp: boolean): boolean {
+  return continuing && !catchingUp;
+}
+
 /** Action choices that ask for a zone before anything can go on the chain. */
 const PLACING_ACTIONS = ["summon:", "mset:", "sset:", "spsummon:"];
 

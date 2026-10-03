@@ -5,6 +5,8 @@
  * when a notice is that echo: while an answer is in flight and for a short time after it. A notice outside the window
  * (an opponent's move) keeps the full gate. Clicks that the gate no longer holds are still checked by the duel host
  * against the prompt id and revision, so a click on a prompt that changed meanwhile is refused, not applied.
+ * An echo later than the window (a slow network) is treated as a change: the room is shut for one read, buttons off,
+ * and a continuing prompt does not skip the wait for it (see `skipsAnswerableWait`).
  */
 export const ECHO_QUIET_MS = 800;
 

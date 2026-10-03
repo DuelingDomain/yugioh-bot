@@ -13,6 +13,7 @@ import {
   continuesPlacement,
   keepsPickOpen,
   placesBeforeChain,
+  skipsAnswerableWait,
   PICK_CONTINUATION,
   usePickContinuation,
 } from "@/components/duel/pick-continuation";
@@ -467,5 +468,30 @@ describe("usePickContinuation: only a zone that follows a placing action skips t
     rerender({ prompt: null, rev: 1 });
     rerender({ prompt: places(), rev: 2 });
     expect(result.current.continuing).toBe(true);
+  });
+});
+
+describe("skipsAnswerableWait", () => {
+  it("lets a continuing prompt show while the player's own answer is in flight", () => {
+    expect(skipsAnswerableWait(true, false)).toBe(true);
+  });
+
+  it("holds a continuing prompt back while the room re-reads for another change notice", () => {
+    expect(skipsAnswerableWait(true, true)).toBe(false);
+  });
+
+  it("never skips for a prompt that is not a continuation", () => {
+    expect(skipsAnswerableWait(false, false)).toBe(false);
+    expect(skipsAnswerableWait(false, true)).toBe(false);
+  });
+
+  it("a held continuing prompt shows once the room settles", () => {
+    const { result, rerender } = renderHook(
+      ({ settled }: { settled: boolean }) => usePromptAnswerable("z1", settled, skipsAnswerableWait(true, !settled)),
+      { initialProps: { settled: false } },
+    );
+    expect(result.current).toBe(false);
+    rerender({ settled: true });
+    expect(result.current).toBe(true);
   });
 });

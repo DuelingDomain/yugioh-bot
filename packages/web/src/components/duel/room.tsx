@@ -88,7 +88,7 @@ import { ChainFx } from "./chain-fx";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
-import { usePickContinuation } from "./pick-continuation";
+import { skipsAnswerableWait, usePickContinuation } from "./pick-continuation";
 import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
 import { useResultGate } from "./result-reveal";
 import { PileViewer } from "./pile-viewer";
@@ -291,7 +291,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // Between the click and that prompt the last bar stays up (pick.waiting), buttons off.
   const pick = usePickContinuation(prompt, data?.engine?.revision);
   const revealBeat = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion, skip: pick.continuing });
-  const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp, pick.continuing);
+  const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp, skipsAnswerableWait(pick.continuing, catchingUp));
   const revealed = revealBeat && answerable;
   const activeMenu = !viewerOut && !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
     menu?.revision === data?.engine?.revision ? menu : null;
