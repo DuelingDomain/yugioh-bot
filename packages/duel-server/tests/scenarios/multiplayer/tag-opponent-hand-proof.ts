@@ -16,18 +16,22 @@ export type LateHandCard = 22404570 | 43632709 | 53753697 | 6325660 | 74271714;
 const own = (entry: CardEntry): CardRef => typeof entry === 'object' ? entry.card : entry;
 
 export function proveTagOpponentHand(code: LateHandCard, name: string): void {
-  const cases: Array<{ format: 'tag' | 'ffa4' | '1v1'; actor: number; opponent: number; accept: boolean }> = [];
+  const cases: Array<{ format: 'tag' | 'ffa4' | '1v1'; actor: number; opponent: number; accept: boolean; banishPartner?: boolean }> = [];
   for (let actor = 0; actor < 4; ++actor) for (let opponent = 0; opponent < 4; ++opponent) {
     if (actor % 2 !== opponent % 2) for (const accept of [true, false]) cases.push({ format: 'tag', actor, opponent, accept });
   }
   for (const format of ['ffa4', '1v1'] as const) for (const accept of [true, false]) {
     cases.push({ format, actor: 0, opponent: format === 'ffa4' ? 3 : 1, accept });
   }
+  if (code === 6325660) for (const accept of [true, false]) {
+    cases.push({ format: 'tag', actor: 0, opponent: 3, accept, banishPartner: true });
+  }
   describeWithCores(`${name}: opponent hand pick at activation`, liveNseat, () => {
-    for (const domain of [false, true]) for (const { format, actor, opponent, accept } of cases) {
-      const id = `tag-hand-${code}-${format}-p${actor}-p${opponent}-${accept ? 'yes' : 'no'}-${domain ? 'domain' : 'standard'}`;
+    for (const domain of [false, true]) for (const { format, actor, opponent, accept, banishPartner = false } of cases) {
+      const id = `tag-hand-${code}-${format}-p${actor}-p${opponent}-${accept ? 'yes' : 'no'}${banishPartner ? '-banish-partner' : ''}-${domain ? 'domain' : 'standard'}`;
       it(id, async () => {
         const count = format === '1v1' ? 2 : 4;
+        const banishSeat = banishPartner ? 4 - opponent : opponent;
         const setup: Scenario['setup'] = { format, skipOpeningDraw: true, deckSize: 8, ...(domain ? { mode: 'domain' } : {}) };
         for (let i = 0; i < count; ++i) setup[SEATS[i]] = {
           hand: [HAND[i]], monsters: ['Mystical Elf'], deck: Array(8).fill('Mystical Elf'),
@@ -52,7 +56,7 @@ export function proveTagOpponentHand(code: LateHandCard, name: string): void {
           for (let i = 0; i < count; ++i) if (i !== actor) setup[SEATS[i]]!.hand = [HAND[i], 'Dark Hole'];
         }
         const scenario = defineScenario({ id, title: id, source: 'docs/adr/0002-multiplayer-duel-rules.md',
-          rules: ['R-COMMON-OPP-PICK', ...(format === 'tag' ? ['R-TAG-PARTNER', ...(code === 6325660 ? ['R-TAG-SHARED-CARDS'] : [])] : format === 'ffa4' ? ['R-FFA-OPP-ONE'] : [])],
+          rules: ['R-COMMON-OPP-PICK', ...(format === 'tag' ? ['R-TAG-PARTNER', ...([22404570, 6325660].includes(code) ? ['R-TAG-SHARED-CARDS'] : [])] : format === 'ffa4' ? ['R-FFA-OPP-ONE'] : [])],
           tags: ['multiplayer', 'tag-hand', `card:${code}`, format], setup, steps: [] });
         const game = await createEngineGame({ ...compileBoard(setup).options, dataDirectory: engineDataDirectory,
           multiWasmBinary: domain ? domainNseatWasmBinary() : nseatWasmBinary(), seed: ['1', '2', '3', '4'] });
@@ -89,7 +93,7 @@ export function proveTagOpponentHand(code: LateHandCard, name: string): void {
         } else if (code === 53753697) {
           ab.hand = draws; ab.monsters = ['Mystical Elf', code];
         } else if (code === 6325660) {
-          ab.grave = [code]; ob.monsters = []; ob.banished = ['Mystical Elf'];
+          ab.grave = [code]; board[SEATS[banishSeat]]!.monsters = []; board[SEATS[banishSeat]]!.banished = ['Mystical Elf'];
         } else {
           ab.hand = draws; ab.grave = [code]; ab.banished = ['Dark Hole'];
           if (accept) ob.hand = opponent > 0 && opponent <= actor ? ['Mystical Elf'] : [];
@@ -98,7 +102,7 @@ export function proveTagOpponentHand(code: LateHandCard, name: string): void {
         }
         if (accept && [43632709, 53753697, 6325660].includes(code)) {
           ob.hand = opponent > 0 && opponent <= actor ? ['Mystical Elf'] : [];
-          ob.monsters = [...(code === 6325660 ? [] : ['Mystical Elf']), HAND[opponent]];
+          ob.monsters = [...(code === 6325660 && banishSeat === opponent ? [] : ['Mystical Elf']), HAND[opponent]];
         }
         try {
           session.reachMainPhase();
@@ -156,12 +160,12 @@ export function proveTagOpponentHand(code: LateHandCard, name: string): void {
                 run(select('Power Patron DoomZ'));
               } else if (code === 22404570 || (code === 6325660 && p.title.includes('banish'))) {
                 needPrompt(actor, 'Select the card(s) to banish');
-                if (code === 6325660) {
+                if ([22404570, 6325660].includes(code)) {
                   const targetSeats = [...new Set(p.options.map(o => o.controller))].sort();
                   expect(targetSeats, 'Tag keeps both opposing fields after the hand pick.').toEqual(
                     format === 'tag' ? SEATS.map((_, i) => i).filter(i => i % 2 !== actor % 2) : [opponent]);
                 }
-                run(select({ card: 'Mystical Elf', owner: SEATS[opponent], from: 'mzone' }));
+                run(select({ card: 'Mystical Elf', owner: SEATS[code === 6325660 ? banishSeat : opponent], from: 'mzone' }));
               } else if (code === 74271714 && p.seat === opponent) {
                 needPrompt(opponent, 'Select the card(s) to banish');
                 run(select({ card: HAND[opponent], owner: SEATS[opponent] }, { card: 'Dark Hole', owner: SEATS[opponent] }));
@@ -195,7 +199,7 @@ export function proveTagOpponentHand(code: LateHandCard, name: string): void {
             if (code === 22404570) expect(state.monsters.some(c => c?.name === 'Power Patron DoomZ')).toBe(false);
             if (code === 43632709) expect(state.monsters.some(c => c?.name === 'Nimble Momonga')).toBe(false);
             if (code === 53753697) expect(state.monsters.some(c => c?.code === code)).toBe(false);
-            if (code === 6325660) expect(atPick![opponent].seats[opponent].banished).toHaveLength(0);
+            if (code === 6325660) expect(atPick![banishSeat].seats[banishSeat].banished).toHaveLength(0);
           } else expect(picked).toBe(0);
         } finally { game.close(); }
       }, 20000);
