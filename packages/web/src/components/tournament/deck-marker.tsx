@@ -4,12 +4,7 @@ import type { Participant } from "./types";
 export function DeckMarker({ participant }: { participant: Pick<Participant, "playerId" | "deckRegistered"> }) {
   if (participant.deckRegistered === undefined) return null;
   return (
-    <span
-      data-testid={`player-deck-marker-${participant.playerId}`}
-      className={`rounded-sm px-1 py-px font-mono text-[10px] uppercase tracking-wider ${
-        participant.deckRegistered ? "bg-accent-success/15 text-accent-success" : "bg-accent-gold/15 text-accent-gold"
-      }`}
-    >
+    <span data-testid={`player-deck-marker-${participant.playerId}`} className={`deckst ${participant.deckRegistered ? "ok" : "no"}`}>
       {participant.deckRegistered ? "Deck registered" : "No deck"}
     </span>
   );
