@@ -12,8 +12,8 @@ describe("sheet dates", () => {
   });
 
   it("formats a start time and drops the minutes on the hour", () => {
-    expect(formatWhen("2026-09-26 00:04:00", zone)).toBe("Fri, Sep 25 · 8:04 PM");
-    expect(formatWhen("2026-10-03T03:00:00Z", zone)).toBe("Fri, Oct 2 · 11 PM");
+    expect(formatWhen("2026-09-26 00:04:00", zone)).toBe("Fri, Sep 25, 8:04 PM");
+    expect(formatWhen("2026-10-03T03:00:00Z", zone)).toBe("Fri, Oct 2, 11 PM");
   });
 
   it("uses the weekday for recent results and the date for older ones", () => {

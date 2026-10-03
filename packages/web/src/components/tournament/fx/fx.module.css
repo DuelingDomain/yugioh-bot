@@ -1,0 +1,20 @@
+/* The Animations button, its popover, and the locator card in flight. */
+.barButton {
+  display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px;
+  background: transparent; border: 1px solid var(--rule); border-radius: 8px; color: var(--ink-2);
+  font: inherit; font-size: 15px; cursor: pointer;
+}
+.barButton:hover, .barButton[aria-expanded="true"] { color: var(--ink); border-color: var(--rule-hi); }
+.barButton:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+@container (max-width: 760px) {
+  .barButton { width: 38px; padding: 0; justify-content: center; }
+  .barLabel { display: none; }
+}
+
+.pop {
+  position: fixed; z-index: 80; width: min(280px, calc(100vw - 20px)); padding: 16px;
+  background: var(--panel-2); border: 1px solid var(--rule); border-radius: 10px;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.55);
+}
+.popTitle { margin: 0 0 10px; font: 600 17px var(--f-display); color: var(--ink); }
+.popNote { margin: 10px 0 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }

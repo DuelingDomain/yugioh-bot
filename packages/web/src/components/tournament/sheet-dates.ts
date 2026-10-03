@@ -15,12 +15,12 @@ function clock(date: Date, timeZone?: string): string {
     .replace(":00 ", " ");
 }
 
-/** "Fri, Sep 25 · 8:04 PM"; whole hours drop the minutes: "Fri, Oct 2 · 11 PM". */
+/** "Fri, Sep 25, 8:04 PM"; whole hours drop the minutes: "Fri, Oct 2, 11 PM". */
 export function formatWhen(value: string | null | undefined, timeZone?: string): string | null {
   const date = parseDbTime(value);
   if (!date) return null;
   const day = date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone });
-  return `${day} · ${clock(date, timeZone)}`;
+  return `${day}, ${clock(date, timeZone)}`;
 }
 
 /** "Wed 9:42 PM" within the last six days, otherwise "Sep 18" (with the year when it differs). */
