@@ -15,7 +15,6 @@ vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1" } }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
 import DraftsPage from "../../../app/(app)/drafts/page";
-import styles from "../../../src/components/draft/list/drafts-list.module.css";
 
 describe("DraftsPage", () => {
   let db: Database.Database;
@@ -59,17 +58,17 @@ describe("DraftsPage", () => {
     expect(screen.getAllByRole("link", { name: /new draft/i }).map((a) => a.getAttribute("href"))).toEqual(["/drafts/new", "/drafts/new"]);
   });
 
-  it.each([false, true])("uses the phone title-row layout with joined drafts: %s", async (joined) => {
+  it.each([false, true])("draws its own page bar with New draft and the menu button last: joined drafts %s", async (joined) => {
     if (joined) add("Waiting cube", "pending");
-    render(await DraftsPage());
-    const title = screen.getByRole("heading", { name: "Drafts" });
-    const header = title.closest("header")!;
-    expect(header).toHaveClass(styles.head);
-    expect(title.parentElement).toHaveClass(styles.heading);
-    const action = within(header).getByRole("link", { name: "New draft" });
-    expect(action).toHaveClass(styles.newDraft);
+    const { container } = render(await DraftsPage());
+    expect(container.querySelector("[data-shell-bar='own']")).not.toBeNull();
+    const bar = screen.getByRole("heading", { level: 1, name: "Drafts" }).closest("header")!;
+    expect(bar).toHaveClass("sv-bar");
+    const action = within(bar).getByRole("link", { name: "New draft" });
+    expect(action).toHaveClass("sv-btn", "primary");
     expect(action).toHaveAttribute("href", "/drafts/new");
-    expect(action.querySelector("svg")).toHaveClass("lucide-plus");
+    const actions = bar.querySelector(".sv-bar-actions")!;
+    expect(actions.lastElementChild).toBe(within(bar).getByRole("button", { name: "Open menu" }));
   });
 
   it("lists only joined drafts in this guild, in live, waiting, finished order", async () => {
@@ -82,29 +81,31 @@ describe("DraftsPage", () => {
     render(await DraftsPage());
 
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Live now", "Waiting to start", "Finished"]);
-    expect(document.querySelector(".page-sub")?.textContent).toBe("Drafts you're in1 live1 waiting to start2 finished");
+    expect(document.querySelector(".sv-bar-sub")?.textContent).toBe("1 live, 1 waiting to start, 2 finished");
 
     const live = within(screen.getByRole("region", { name: "Live now" })).getByRole("link");
     expect(live.getAttribute("href")).toBe("/draft/live");
+    expect(live.textContent).toContain("Drafting");
     expect(live.textContent).toContain("Cube draft");
     expect(live.textContent).toContain("6 players");
     expect(live.textContent).toContain("45 s a pick");
-    expect(live.textContent).toContain("Pack 2 of 3");
-    expect(live.textContent).toContain("pick 4");
+    expect(live.textContent).toContain("Pack 2 of 3, pick 4");
     expect(live.textContent).toContain("Open draft room");
 
     const wait = within(screen.getByRole("region", { name: "Waiting to start" })).getByRole("link");
     expect(wait.getAttribute("href")).toBe("/draft/wait");
     expect(wait.textContent).toContain("Theme draft");
     expect(wait.textContent).toContain("Created Thu, Oct 1");
-    expect(within(wait).getByLabelText("1 player joined")).toBeTruthy();
+    expect(wait.textContent).toContain("1 joined");
     expect(wait.textContent).not.toContain("Hosting");
 
     const fin = within(screen.getByRole("region", { name: "Finished" }));
-    const rows = fin.getAllByRole("row").slice(1);
-    expect(rows.map((r) => within(r).getByRole("link").textContent)).toEqual(["Gone", "Done"]);
-    expect(within(rows[0]).getByText("Cancelled").className).toContain("early");
+    const rows = fin.getAllByRole("link");
+    expect(rows.map((r) => r.querySelector(".sv-cell-name")?.textContent)).toEqual(["Gone", "Done"]);
+    expect(within(rows[0]).getByText("Cancelled")).toBeTruthy();
     expect(within(rows[1]).getByText("Sep 28")).toBeTruthy();
+    expect(within(rows[1]).getByText("1 player")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/[\u00b7\u2022]/);
     expect(document.body.textContent).not.toContain("→");
     expect(document.body.textContent).not.toMatch(/\b1 players\b/);
   });
@@ -112,10 +113,10 @@ describe("DraftsPage", () => {
   it("caps the ledger at ten rows with Show all N", async () => {
     for (let i = 0; i < 12; i++) add(`F${i}`, "completed", { endedAt: `2026-08-${String(i + 1).padStart(2, "0")}T00:00:00.000Z` });
     render(await DraftsPage());
-    const table = screen.getByRole("table");
-    expect(within(table).getAllByRole("row").length).toBe(1 + 10 + 1);
+    const fin = within(screen.getByRole("region", { name: "Finished" }));
+    expect(fin.getAllByRole("link").length).toBe(10);
     fireEvent.click(screen.getByRole("button", { name: "Show all 12" }));
-    expect(within(table).getAllByRole("row").length).toBe(1 + 12);
+    expect(fin.getAllByRole("link").length).toBe(12);
     expect(screen.queryByRole("button", { name: /show all/i })).toBeNull();
   });
 
@@ -124,7 +125,8 @@ describe("DraftsPage", () => {
     render(await DraftsPage());
     const row = screen.getByRole("link", { name: /Mirror/ });
     expect(row.textContent).toContain("Theme draft");
-    expect(row.textContent).toContain("Round 41 of 55");
-    expect(row.textContent).toContain("Extra deck");
+    expect(row.textContent).toContain("Round 41 of 55, Extra deck");
+    const stages = within(row).getByRole("list", { name: "Progress of Mirror" });
+    expect(within(stages).getByText("Extra deck").closest("li")).toHaveAttribute("aria-current", "step");
   });
 });

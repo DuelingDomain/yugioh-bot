@@ -1,5 +1,0 @@
-/* Override the foundation flex row only on draft meta lines. */
-:global(.ms) .line.line { display: block; overflow: hidden; }
-.run { display: flex; flex-wrap: wrap; align-items: center; column-gap: 11px; row-gap: 4px; margin-left: -14px; }
-.item { display: inline-flex; align-items: center; white-space: nowrap; }
-.item > :global(.dot) { margin-right: 11px; }

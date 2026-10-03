@@ -65,7 +65,7 @@ describe("draft layout rules", () => {
     const attributes = screen.getByRole("list", { name: "Attributes drafted" });
     expect(attributes.previousElementSibling).toHaveClass(chipStyles.label);
     expect(attributes.firstElementChild!.firstElementChild).toHaveClass(chipStyles.dot);
-    expect(declarations(chips, ".label")).toMatchObject({ color: "var(--ink-3)", "font-size": "12px" });
+    expect(declarations(chips, ".label")).toMatchObject({ color: "var(--ink-3)", "font-size": "14px" });
     expect(declarations(chips, ".dot")).toMatchObject({ width: "7px", height: "7px", "border-radius": "50%" });
     expect(declarations(chips, ".list b").font).toBe("600 14px/1 var(--f-num)");
   });
@@ -75,15 +75,15 @@ describe("draft layout rules", () => {
     expect(declarations(lobby, ".th[data-nofan]")["grid-template-areas"]).toBe('"n x" "m x" "p p" "a a"');
     expect(declarations(lobby, ".thProblems")).toMatchObject({ "grid-area": "p", "min-width": "0" });
     expect(declarations(lobby, ".themes")["grid-template-columns"]).toBe("repeat(auto-fill, minmax(min(100%, 300px), 1fr))");
-    expect(declarations(lobby, ".shortfall")).toMatchObject({ "font-size": "12.5px", "overflow-wrap": "anywhere" });
+    expect(declarations(lobby, ".shortfall")).toMatchObject({ "font-size": "14px", "overflow-wrap": "anywhere" });
     expect(declarations(lobby, '.shortfall[data-kind="main"]').color).toBe("var(--loss-ink)");
-    expect(declarations(lobby, '.shortfall[data-kind="extra"]').color).toBe("var(--chain-ink)");
+    expect(declarations(lobby, '.shortfall[data-kind="extra"]').color).toBe("var(--warn-ink)");
     expect(declarations(lobby, ".shortfall::before")).toMatchObject({ width: "5px", height: "5px", "border-radius": "50%", background: "currentColor" });
   });
 
   it("gives main shortfalls a red border that wins over the Extra warning border", () => {
-    expect(declarations(lobby, ".th[data-bad]")["border-color"]).toBe("rgb(228 90 77 / 0.45)");
-    expect(declarations(lobby, [".th[data-warn]", ".th[data-bad]"])["border-color"]).toBe("rgb(228 90 77 / 0.45)");
+    expect(declarations(lobby, ".th[data-bad]")["border-color"]).toBe("rgb(228 90 77 / 0.6)");
+    expect(declarations(lobby, [".th[data-warn]", ".th[data-bad]"])["border-color"]).toBe("rgb(228 90 77 / 0.6)");
   });
 
   it("keeps the Discord join code on one line", () => {

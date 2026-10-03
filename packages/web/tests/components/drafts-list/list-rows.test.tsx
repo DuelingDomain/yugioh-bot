@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { SheetRoot } from "@/components/sheet";
+import { FloorList, SheetRoot } from "@/components/sheet";
 import { LiveDraftRow, WaitingDraftRow } from "@/components/draft/list/draft-rows";
 import { FinishedLedger } from "@/components/draft/list/finished-ledger";
 import { parseDraftConfig, type DraftListItem } from "@/components/draft/list/drafts-list-model";
-import styles from "@/components/draft/list/drafts-list.module.css";
 
 const draft: DraftListItem = {
   id: 1, name: "Friday cube night", status: "active", webSlug: "friday", playerCount: 3,
@@ -13,63 +12,55 @@ const draft: DraftListItem = {
   config: parseDraftConfig(JSON.stringify({ packsPerPlayer: 3, pickSeconds: 600 })),
 };
 
+const wrap = (node: React.ReactNode) => render(<SheetRoot><FloorList>{node}</FloorList></SheetRoot>);
+
 describe("draft list rows", () => {
-  it("keeps the name first, followed by sibling track and room chip for responsive placement", () => {
-    render(<SheetRoot><LiveDraftRow draft={draft} /></SheetRoot>);
+  it("live row: one link with the name, separate pieces, the stage line and the room button", () => {
+    wrap(<LiveDraftRow draft={draft} />);
     const row = screen.getByRole("link", { name: /Friday cube night/ });
-    const track = within(row).getByRole("list", { name: "Progress of Friday cube night" });
-    expect(row.children[0]).toHaveClass(styles.details);
-    expect(row.children[1]).toContainElement(track);
-    expect(row.children[2]).toHaveClass(styles.side);
-    expect(row.children[2]).toHaveTextContent("Open draft room");
-    expect(row.children[2].querySelector("svg")).toHaveClass(styles.chevron);
-    expect(row).toHaveTextContent("10 min a pick");
-    const meta = row.querySelector(".tl-meta")!;
-    expect(Array.from(meta.firstElementChild!.children, (item) => item.textContent)).toEqual([
-      "Drafting", "Cube draft", "3 players", "10 min a pick",
-    ]);
-    expect(within(track).getByText("Draft").parentElement).toHaveAttribute("aria-current", "step");
-    expect(row.querySelector(".trk-cap")).toHaveTextContent("Pack 1 of 3·pick 2");
+    expect(row.closest("li")).toHaveAttribute("data-you", "true");
+    const pieces = row.querySelector("ul")!;
+    expect(Array.from(pieces.children, (item) => item.textContent)).toEqual(["Drafting", "Cube draft", "3 players", "10 min a pick"]);
+    const stages = within(row).getByRole("list", { name: "Progress of Friday cube night" });
+    expect(within(stages).getByText("Draft").closest("li")).toHaveAttribute("aria-current", "step");
+    expect(within(stages).getByText("Lobby").closest("li")).toHaveAttribute("data-state", "done");
+    expect(row).toHaveTextContent("Pack 1 of 3, pick 2");
+    expect(row).toHaveTextContent("Open draft room");
+    expect(row.textContent).not.toMatch(/[\u00b7]/);
   });
 
-  it.each([1, 3])("puts %i joined immediately after the status and hides the duplicate from assistive technology", (count) => {
-    render(<SheetRoot><WaitingDraftRow draft={{ ...draft, status: "pending", playerCount: count }} /></SheetRoot>);
+  it("live row without a web slug is not a link and has no room button", () => {
+    wrap(<LiveDraftRow draft={{ ...draft, webSlug: undefined }} />);
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByText("Open draft room")).toBeNull();
+  });
+
+  it.each([1, 3])("waiting row with %i joined: status, kind and created day as separate pieces, the count in words", (count) => {
+    wrap(<WaitingDraftRow draft={{ ...draft, status: "pending", playerCount: count }} />);
     const row = screen.getByRole("link");
-    const meta = row.querySelector(".tl-meta")!;
-    const joined = within(meta as HTMLElement).getByLabelText(`${count} ${count === 1 ? "player" : "players"} joined`);
-    expect(joined).toHaveTextContent(`${count} joined`);
-    expect(joined.parentElement).toHaveClass(styles.joined);
-    expect(Array.from(meta.firstElementChild!.children, (item) => item.textContent)).toEqual([
-      "Waiting to start", `${count} joined`, "Cube draft", "Created Fri, Oct 2",
+    expect(Array.from(row.querySelector("ul")!.children, (item) => item.textContent)).toEqual([
+      "Waiting to start", "Cube draft", "Created Fri, Oct 2",
     ]);
-    expect(joined.previousElementSibling).toHaveClass("dot");
-    expect(joined.previousElementSibling).toHaveAttribute("aria-hidden", "true");
-    const bigCount = row.querySelector(".seats-mini")!;
-    expect(bigCount).toHaveAttribute("aria-hidden", "true");
-    expect(bigCount).toHaveTextContent(`${count}joined`);
-    expect(row).toHaveAccessibleName(new RegExp(`Waiting to start.*${count} ${count === 1 ? "player" : "players"} joined.*Cube draft.*Created Fri, Oct 2$`));
+    expect(row).toHaveTextContent(`${count} joined`);
+    expect(row).toHaveAccessibleName(new RegExp(`Waiting to start.*Cube draft.*Created Fri, Oct 2.*${count} joined$`));
   });
 
-  it("puts the joined count before the theme kind and omits an unavailable created date", () => {
-    render(<SheetRoot><WaitingDraftRow draft={{ ...draft, status: "pending", createdAt: undefined, config: parseDraftConfig('{"mode":"theme"}') }} /></SheetRoot>);
-    const meta = screen.getByRole("link").querySelector(".tl-meta")!;
-    expect(Array.from(meta.firstElementChild!.children, (item) => item.textContent)).toEqual([
-      "Waiting to start", "3 joined", "Theme draft",
-    ]);
+  it("omits an unavailable created date and names the theme kind", () => {
+    wrap(<WaitingDraftRow draft={{ ...draft, status: "pending", createdAt: undefined, config: parseDraftConfig('{"mode":"theme"}') }} />);
+    const row = screen.getByRole("link");
+    expect(Array.from(row.querySelector("ul")!.children, (item) => item.textContent)).toEqual(["Waiting to start", "Theme draft"]);
   });
 
-  it("keeps cancelled status in Ended and adds a responsive kind line under the name", () => {
+  it("finished rows: cancelled reads as quiet text in the ended cell, the kind and count stay beside it", () => {
     render(<SheetRoot><FinishedLedger items={[
       { ...draft, status: "cancelled" },
       { ...draft, id: 2, name: "Theme night", webSlug: "theme", status: "completed", endedAt: "2026-10-02 12:00:00", config: parseDraftConfig('{"mode":"theme"}') },
     ]} /></SheetRoot>);
-    expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Draft", "Kind", "Players", "Ended"]);
     for (const [name, kind, ended] of [["Friday cube night", "Cube draft", "Cancelled"], ["Theme night", "Theme draft", "Oct 2"]]) {
-      const row = screen.getByRole("link", { name }).closest("tr")!;
-      const cells = within(row).getAllByRole("cell");
-      expect(within(cells[0]).getByText(kind)).toHaveClass(styles.mobileKind);
-      expect(cells[1]).toHaveClass(styles.kindColumn);
-      expect(cells[3]).toHaveTextContent(ended);
+      const row = screen.getByRole("link", { name: new RegExp(name) });
+      expect(row).toHaveTextContent(kind);
+      expect(row).toHaveTextContent("3 players");
+      expect(row).toHaveTextContent(ended);
     }
   });
 });

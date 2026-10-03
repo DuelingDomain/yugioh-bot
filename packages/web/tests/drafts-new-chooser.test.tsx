@@ -12,14 +12,18 @@ describe("draft-type chooser", () => {
     expect(screen.getByRole("link", { name: /theme draft/i })).toHaveAttribute("href", "/drafts/new/theme");
   });
 
-  it("uses the forms' four stations with Create current and the chooser caption", () => {
-    render(<NewDraftPage />);
-    const track = screen.getByRole("list", { name: "Where creating leads" });
-    expect(within(track).getAllByRole("listitem").map((station) => station.textContent)).toEqual([
-      "NWCreate", "LBLobby", "DRDraft", "DKDecks",
+  it("uses the shared stage line with Create current and two short pieces, with the warning in the bar", () => {
+    const { container } = render(<NewDraftPage />);
+    const stages = screen.getByRole("list", { name: "Where creating leads" });
+    expect(within(stages).getAllByRole("listitem").map((step) => step.textContent)).toEqual([
+      "Create, current", "Lobby", "Draft", "Build deck",
     ]);
-    expect(within(track).getByText("Create").parentElement).toHaveAttribute("aria-current", "step");
-    expect(track.closest("header")?.querySelector(".trk-cap")).toHaveTextContent("Pick a kind·then set it up");
+    expect(within(stages).getByText("Create").closest("li")).toHaveAttribute("aria-current", "step");
+    const pieces = container.querySelectorAll("ul li");
+    expect(Array.from(pieces).slice(0, 2).map((p) => p.textContent)).toEqual(["Pick a kind", "Then set it up"]);
+    expect(container.querySelector(".sv-bar-sub")).toHaveTextContent("You can't switch after the draft is made.");
+    expect(container.querySelector(".sv-bar-back")).toHaveAttribute("href", "/drafts");
+    expect(container.textContent).not.toMatch(/[\u00b7]/);
   });
 
   it("shows the real defaults above non-interactive Match Sheet actions", () => {
@@ -32,7 +36,7 @@ describe("draft-type chooser", () => {
       const factRow = within(card).getByText(facts);
       const button = within(card).getByText(action);
       expect(button.tagName).toBe("SPAN");
-      expect(button).toHaveClass("btn");
+      expect(button).toHaveClass("sv-btn", "ghost");
       expect(button).not.toHaveAttribute("tabindex");
       expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
       expect(factRow.nextElementSibling).toBe(button);

@@ -63,7 +63,7 @@ describe('CardPoolPanel variant="sheet"', () => {
   it("renders a sheet panel with the title as a heading and the count with its detail", () => {
     render(<CardPoolPanel variant="sheet" cards={cards} title="Card pool" countMode="copies" detail="2 sets and 36 passcodes" />);
     expect(screen.getByRole("heading", { level: 2, name: /card pool/i })).toBeTruthy();
-    expect(screen.getByText("2 cards · 4 copies · 2 sets and 36 passcodes")).toBeTruthy();
+    expect(screen.getByText("2 cards, 4 copies, 2 sets and 36 passcodes")).toBeTruthy();
     expect(screen.getByRole("button", { name: /preview bujingi crane/i })).toBeTruthy();
   });
 

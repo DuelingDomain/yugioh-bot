@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Eye } from "lucide-react";
-import { SheetPortal } from "@/components/sheet";
+import { SheetPortal, svButtonClass } from "@/components/sheet";
 import { Sheet } from "@/components/ui/sheet";
 import { CardPoolPanel } from "@/components/cards/card-pool-panel";
 import type { CardSummary } from "@/lib/card-types";
@@ -71,7 +71,7 @@ export function PoolPreview({ cards, unknownIds, loading }: PoolPreviewProps) {
             </p>
           )}
           <button
-            className="btn btn-quiet btn-sm btn-block"
+            className={svButtonClass("quiet", { wide: true })}
             type="button"
             onClick={() => {
               setOpen(true);

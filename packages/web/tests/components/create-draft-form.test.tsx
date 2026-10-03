@@ -195,8 +195,8 @@ describe("CreateDraftForm", () => {
 
     const summary = screen.getByRole("complementary", { name: /draft summary/i });
     expect(screen.getByLabelText(/draft name/i)).toHaveAttribute("placeholder", "Friday cube night");
-    expect(screen.getByLabelText(/draft name/i).closest(".mk-secs")?.className).toMatch(/sections/);
-    expect(screen.getByRole("list", { name: "What happens next" }).className).toMatch(/next_/);
+    expect(screen.getByLabelText(/draft name/i).closest("section")?.className).toMatch(/sec/);
+    expect(screen.getByRole("list", { name: "What happens next" }).className).toMatch(/steps/);
     expect(screen.getByText("/draft join")).toHaveClass("cmd");
     expect(summary).toHaveTextContent("Nothing yet");
     expect(summary).toHaveTextContent("Shuffled at the start");

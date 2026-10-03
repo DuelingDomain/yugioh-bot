@@ -1,9 +1,8 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { ChevronLeft, Pencil, UserPlus, X } from "lucide-react";
-import { ConfirmPanel, DangerRow, DangerZone, SheetPanel, SheetRoot, StationTrack } from "@/components/sheet";
+import { Pencil, UserPlus } from "lucide-react";
+import { Mono, SectionHead, StageLine, StatusLine, SvButton, svButtonClass, type StageStep } from "@/components/sheet";
 import { CubeDraftBuilder } from "@/components/cubes/cube-draft-builder";
 import { CubeLobbyPanel } from "@/components/cubes/cube-lobby-panel";
 import {
@@ -28,8 +27,10 @@ import {
   packsOf,
 } from "./lobby/lobby-model";
 import styles from "./lobby/lobby.module.css";
+import { DangerConfirm } from "./danger-confirm";
+import { formatPickSeconds } from "./pick-time";
 import { useInlineConfirm } from "./use-inline-confirm";
-import { MetaLine } from "./meta-line";
+import { DraftFrame, DraftLayout, DraftMain, DraftRail, Gem, Pieces, RailNote, RailSection, Rules } from "./draft-frame";
 
 interface DraftManageViewProps {
   draft: {
@@ -317,32 +318,100 @@ export function DraftManageView({
     `${playerCount} joined`,
     "at least 2 to start",
     !isTheme && draft.config.randomizeSeats !== false ? "seats are shuffled at the start" : null,
-  ].filter(Boolean).join(" · ");
+  ].filter(Boolean).join(", ");
 
-  const stations = isTheme
+  const stages: StageStep[] = isTheme
     ? [
-        { code: "LB", name: "Lobby" },
-        { code: "MN", name: "Main deck" },
-        ...(themeExtraOn(draft.config) ? [{ code: "EX", name: "Extra deck" }] : []),
-        { code: "DK", name: "Decks" },
+        { label: "Lobby", state: "now" },
+        { label: "Main deck", state: "next" },
+        ...(themeExtraOn(draft.config) ? [{ label: "Extra deck", state: "next" as const }] : []),
+        { label: "Build deck", state: "next" },
       ]
     : [
-        { code: "LB", name: "Lobby" },
-        { code: "DR", name: plural(packsOf(draft.config), "pack") },
-        { code: "DK", name: "Decks" },
+        { label: "Lobby", state: "now" },
+        { label: "Draft", state: "next" },
+        { label: "Build deck", state: "next" },
       ];
 
   const poolDetail = isEditingConfig
     ? poolSources(editFields.setNames.length, parseCustomCardIds(editFields.customCardText).cardIds.length)
     : poolSources(draft.config.setNames?.length ?? 0, draft.config.customCardIds?.length ?? 0);
 
-  return (
-    <SheetRoot>
-      <Link href="/drafts" className="crumb"><ChevronLeft className="ic sm" aria-hidden="true" />All drafts</Link>
+  const kind = isTheme ? "Theme draft" : "Cube draft";
+  const isGuest = !isCreator && !isParticipant;
 
-      <header className="t-head sheet-head">
-        <div>
-          {editing && isCreator ? (
+  const joinPieces = [
+    { content: kind, strong: true },
+    ...(isTheme
+      ? [
+          { content: `${draft.config.cardsPerPlayer ?? 40} main deck picks` },
+          ...(themeExtraOn(draft.config) ? [{ content: `${draft.config.extraDeckSize ?? 15} Extra deck picks` }] : []),
+        ]
+      : [{ content: `${plural(packsOf(draft.config), "pack")} of ${draft.config.packSize ?? 15}` }]),
+    ...(draft.config.pickSeconds ? [{ content: `${formatPickSeconds(draft.config.pickSeconds)} a pick` }] : []),
+    { content: `${plural(playerCount, "player")} so far` },
+  ];
+
+  const actions = (
+    <>
+      {error && (
+        <div role="alert">
+          <StatusLine tone="block">{error}</StatusLine>
+        </div>
+      )}
+      {isGuest && (
+        <SvButton variant="primary" big wide disabled={joining} aria-busy={joining || undefined} onClick={handleJoin}>
+          <UserPlus size={18} aria-hidden="true" />Join draft
+        </SvButton>
+      )}
+      {isCreator && (
+        <>
+          <SvButton
+            variant="primary"
+            big
+            wide
+            disabled={blocker !== null || starting}
+            aria-busy={starting || undefined}
+            aria-describedby={reasonId}
+            onClick={handleStart}
+          >
+            Start draft
+          </SvButton>
+          <p className={styles.start} id={reasonId}>
+            {blocker ? (
+              <span className={styles.reason}>{blocker}</span>
+            ) : (
+              <>
+                {summary.before}<b>{summary.strong}</b>{summary.after}
+              </>
+            )}
+          </p>
+          {botsEnabled && onAddBot && (
+            <SvButton variant="ghost" wide disabled={addingBot} aria-busy={addingBot || undefined} onClick={handleAddBot}>
+              <UserPlus size={16} aria-hidden="true" />Add bot
+            </SvButton>
+          )}
+        </>
+      )}
+    </>
+  );
+  const hasActions = isGuest || isCreator || Boolean(error);
+
+  return (
+    <DraftFrame
+      title={draft.name}
+      back={{ href: "/drafts", label: "All drafts" }}
+      actions={
+        isCreator && !editing ? (
+          <button type="button" className={styles.ren} onClick={() => setEditing(true)} aria-label="Rename draft" title="Rename draft">
+            <Pencil size={17} aria-hidden="true" />
+          </button>
+        ) : undefined
+      }
+    >
+      <DraftLayout>
+        <DraftMain>
+          {editing && isCreator && (
             <div className={styles.rename}>
               <input
                 type="text"
@@ -359,95 +428,60 @@ export function DraftManageView({
                   }
                 }}
               />
-              <button type="button" className="btn btn-primary btn-sm" disabled={saving} aria-busy={saving || undefined} onClick={handleSaveName}>
+              <SvButton variant="ghost" disabled={saving} aria-busy={saving || undefined} onClick={handleSaveName}>
                 Save
-              </button>
-              <button
-                type="button"
-                className="btn btn-quiet btn-sm"
+              </SvButton>
+              <SvButton
+                variant="quiet"
                 onClick={() => {
                   setNameValue(draft.name);
                   setEditing(false);
                 }}
               >
                 Cancel
-              </button>
-            </div>
-          ) : (
-            <h1 className={`t-title ${styles.title}`}>
-              {draft.name}
-              {isCreator && (
-                <button type="button" className={styles.ren} onClick={() => setEditing(true)} aria-label="Rename draft" title="Rename draft">
-                  <Pencil className="ic sm" aria-hidden="true" />
-                </button>
-              )}
-            </h1>
-          )}
-          <MetaLine className="t-meta" items={[
-            { content: <span className="status"><span className="lamp" data-s="open" aria-hidden="true" />Waiting to start</span> },
-            { content: <span>{isTheme ? "Theme draft" : "Cube draft"}</span> },
-            ...(isCreator ? [{ content: <span>Hosted by you</span> }] : []),
-            ...(created ? [{ content: <span>Created {created}</span> }] : []),
-          ]} />
-        </div>
-        <StationTrack
-          className={styles.track}
-          stations={stations}
-          current={0}
-          tone={isCreator ? "mine" : "theirs"}
-          label="Draft progress"
-          caption={
-            <>
-              <span className="at">Lobby</span>
-              <span className="sep">·</span>
-              {playerCount} joined
-              <span className="sep">·</span>
-              {isCreator ? "starts when you press Start" : "waiting on the host"}
-            </>
-          }
-        />
-      </header>
-
-      <div className="t-grid">
-        <div className="t-main">
-          {error && <div className="banner banner-bad" role="alert"><p>{error}</p></div>}
-          {!isTheme && Boolean(boosterPreflight?.errors.length) && (
-            <div className="banner banner-bad" role="alert">
-              {boosterPreflight!.errors.map((message) => <p key={message}>{message}</p>)}
-            </div>
-          )}
-          {!isTheme && Boolean(boosterPreflight?.warnings.length) && (
-            <div className="banner banner-warn" role="status">
-              {boosterPreflight!.warnings.map((message) => <p key={message}>{message}</p>)}
+              </SvButton>
             </div>
           )}
 
-          {!isCreator && !isParticipant && (
-            <div className="join">
+          {!isTheme && boosterPreflight?.errors.map((message) => (
+            <div role="alert" key={message}>
+              <StatusLine tone="block">{message}</StatusLine>
+            </div>
+          ))}
+          {!isTheme && boosterPreflight?.warnings.map((message) => (
+            <div role="status" key={message}>
+              <StatusLine tone="warn">{message}</StatusLine>
+            </div>
+          ))}
+
+          {isGuest ? (
+            <section className={styles.join} aria-labelledby="lobby-join-t">
+              <Mono name="" dashed you size="big" />
               <div>
-                <h2>Join {draft.name}</h2>
-                <p>
-                  {isTheme ? "Theme draft" : "Cube draft"}
-                  {isTheme
-                    ? ` · ${draft.config.cardsPerPlayer ?? 40} main deck picks${themeExtraOn(draft.config) ? ` and ${draft.config.extraDeckSize ?? 15} Extra deck` : ""}`
-                    : ` · ${plural(packsOf(draft.config), "pack")} of ${draft.config.packSize ?? "—"}`}
-                  {draft.config.pickSeconds ? ` · ${draft.config.pickSeconds} s a pick` : ""}. {plural(playerCount, "player")} so far.
-                </p>
+                <h2 className={styles.joinT} id="lobby-join-t">Join {draft.name}</h2>
+                <Pieces items={joinPieces} />
               </div>
-              <button type="button" className="btn btn-primary btn-lg" disabled={joining} aria-busy={joining || undefined} onClick={handleJoin}>
-                <UserPlus className="ic" aria-hidden="true" />Join draft
-              </button>
+            </section>
+          ) : (
+            <div className={styles.lead}>
+              <StageLine steps={stages} label="Draft progress" />
+              <Pieces
+                items={[
+                  { content: <><Gem />Waiting to start</>, strong: true },
+                  { content: kind },
+                  ...(isCreator ? [{ content: "Hosted by you" }] : []),
+                  ...(created ? [{ content: `Created ${created}` }] : []),
+                ]}
+              />
             </div>
           )}
 
           {!isCreator && isParticipant && (
-            <div className="inline-note">
-              <p>
-                {isTheme && themeSelection === "player_pick"
-                  ? "You're in. Claim a theme before the host starts."
-                  : "You're in. Waiting for the host to start."}
-              </p>
-            </div>
+            <StatusLine tone="neutral">
+              {isTheme && themeSelection === "player_pick"
+                ? "You're in. Claim a theme before the host starts."
+                : "You're in. Waiting for the host to start."}
+            </StatusLine>
           )}
 
           {(isCreator || isParticipant) && slug && <InvitePanel slug={slug} />}
@@ -455,54 +489,60 @@ export function DraftManageView({
           <LobbySeats players={draft.players} youIds={youIds} isCreator={isCreator} aux={playersAux} />
 
           {isEditingConfig && !isTheme && (
-            <section className="panel panel-pad" aria-labelledby="lobby-edit-t">
-              <div className={styles.edit}>
-                <h3 className="panel-t"><span id="lobby-edit-t">Edit setup</span><small>the pool below updates as you go</small></h3>
-                {editError && <div className="banner banner-bad" role="alert"><p>{editError}</p></div>}
-                <DraftConfigFields
-                  value={editFields}
-                  onChange={setEditFields}
-                  poolBuilderShowPreview={false}
-                  onPool={handleEditPool}
-                />
-                <div className={styles.editActs}>
-                  <button type="button" className="btn btn-primary btn-sm" disabled={configSaving} aria-busy={configSaving || undefined} onClick={handleSaveConfig}>
-                    Save setup
-                  </button>
-                  <button type="button" className="btn btn-quiet btn-sm" onClick={handleCancelEditConfig} disabled={configSaving}>
-                    Cancel
-                  </button>
+            <section className={styles.edit} aria-labelledby="lobby-edit-t">
+              <SectionHead title={<span id="lobby-edit-t">Edit setup</span>} note="The pool below updates as you go" />
+              {editError && (
+                <div role="alert">
+                  <StatusLine tone="block">{editError}</StatusLine>
                 </div>
+              )}
+              <DraftConfigFields
+                value={editFields}
+                onChange={setEditFields}
+                poolBuilderShowPreview={false}
+                onPool={handleEditPool}
+              />
+              <div className={styles.editActs}>
+                <SvButton variant="ghost" disabled={configSaving} aria-busy={configSaving || undefined} onClick={handleSaveConfig}>
+                  Save setup
+                </SvButton>
+                <SvButton variant="quiet" onClick={handleCancelEditConfig} disabled={configSaving}>
+                  Cancel
+                </SvButton>
               </div>
             </section>
           )}
 
           {!isTheme &&
             (isEditingConfig ? (
-              <CardPoolPanel
-                variant="sheet"
-                title="Card pool"
-                cards={editPoolCards}
-                unknownIds={editPoolUnknownIds}
-                loading={editPoolLoading}
-                emptyMessage="Add sets or card IDs to build the pool."
-                countMode="copies"
-                detail={poolDetail}
-                onCardClick={removeOneFromEditPool}
-                cardActionLabel={editCardActionLabel}
-              />
-            ) : (
-              slug && (
+              <div className={styles.poolWrap}>
                 <CardPoolPanel
                   variant="sheet"
                   title="Card pool"
-                  cards={poolCards ?? []}
-                  loading={poolCards === null && !poolError}
-                  error={poolError ? "Couldn't load the pool." : null}
-                  emptyMessage="This draft's pool hasn't been resolved yet."
+                  cards={editPoolCards}
+                  unknownIds={editPoolUnknownIds}
+                  loading={editPoolLoading}
+                  emptyMessage="Add sets or card IDs to build the pool."
                   countMode="copies"
                   detail={poolDetail}
+                  onCardClick={removeOneFromEditPool}
+                  cardActionLabel={editCardActionLabel}
                 />
+              </div>
+            ) : (
+              slug && (
+                <div className={styles.poolWrap}>
+                  <CardPoolPanel
+                    variant="sheet"
+                    title="Card pool"
+                    cards={poolCards ?? []}
+                    loading={poolCards === null && !poolError}
+                    error={poolError ? "Couldn't load the pool." : null}
+                    emptyMessage="This draft's pool hasn't been resolved yet."
+                    countMode="copies"
+                    detail={poolDetail}
+                  />
+                </div>
               )
             ))}
 
@@ -527,89 +567,53 @@ export function DraftManageView({
               />
             )
           )}
-        </div>
+        </DraftMain>
 
-        <aside className="t-rail" aria-label="Draft details">
-          {isCreator && (
-            <SheetPanel title="Start" aside="only you see this" bodyClassName="start">
-              <button
-                type="button"
-                className="btn btn-primary btn-lg btn-block"
-                disabled={blocker !== null || starting}
-                aria-busy={starting || undefined}
-                aria-describedby={reasonId}
-                onClick={handleStart}
-              >
-                Start draft
-              </button>
-              <p className="small" id={reasonId}>
-                {blocker ?? (
-                  <>
-                    {summary.before}<b>{summary.strong}</b>{summary.after}
-                  </>
-                )}
-              </p>
-              {botsEnabled && onAddBot && (
-                <button type="button" className="btn btn-secondary btn-sm btn-block" disabled={addingBot} aria-busy={addingBot || undefined} onClick={handleAddBot}>
-                  <UserPlus className="ic sm" aria-hidden="true" />Add bot
-                </button>
-              )}
-            </SheetPanel>
-          )}
-
-          <SheetPanel
-            title="Setup"
-            aside={
-              isCreator && !isTheme && !isEditingConfig ? (
-                <button type="button" className="edit-cap" onClick={handleStartEditConfig}>Edit setup</button>
-              ) : isCreator && isTheme ? (
-                "can't be changed here"
-              ) : undefined
-            }
-          >
-            <dl className="rows">
-              {rows.map((row) => (
-                <div key={row.label}><dt>{row.label}</dt><dd>{row.value}</dd></div>
-              ))}
-            </dl>
+        <DraftRail aria-label="Draft details" actions={hasActions ? actions : undefined}>
+          <RailSection title="Setup" id="lobby-setup-t">
+            <Rules rows={rows.map((row) => ({ label: row.label, value: row.value }))} />
             {sets.length > 0 && (
               <div className={styles.sets}>
                 <p>Sets</p>
                 <ul>{sets.map((name) => <li key={name} className="chip">{name}</li>)}</ul>
               </div>
             )}
-          </SheetPanel>
+            {isCreator && !isTheme && !isEditingConfig && (
+              <SvButton variant="quiet" className={styles.editBtn} onClick={handleStartEditConfig}>Edit setup</SvButton>
+            )}
+            {isCreator && isTheme && <RailNote>Can&apos;t be changed here.</RailNote>}
+          </RailSection>
 
           {isCreator && (
-            <DangerZone title="Ending early">
+            <RailSection>
               {showCancelConfirm ? (
                 <div onKeyDown={cancelConfirm.onKeyDown}>
-                <ConfirmPanel
-                  title="Cancel this draft?"
-                  confirmLabel="Yes, cancel"
-                  cancelLabel="Go back"
-                  busy={cancelling}
-                  onCancel={() => setShowCancelConfirm(false)}
-                  onConfirm={handleCancel}
-                >
-                  <p className="small">It ends for the {plural(playerCount, "player")} who joined. Nothing has been dealt yet.</p>
-                </ConfirmPanel>
+                  <DangerConfirm
+                    title="Cancel this draft?"
+                    confirmLabel="Yes, cancel"
+                    busy={cancelling}
+                    consequence={`It ends for the ${plural(playerCount, "player")} who joined. Nothing has been dealt yet.`}
+                    onBack={() => setShowCancelConfirm(false)}
+                    onConfirm={handleCancel}
+                  />
                 </div>
               ) : (
-                <DangerRow
-                  title="Cancel draft"
-                  description={`Ends it for the ${plural(playerCount, "player")} who joined. Nothing has been dealt yet.`}
-                  action={
-                    <button ref={cancelConfirm.triggerRef} type="button" className="btn btn-danger btn-sm" aria-label="Cancel draft" onClick={() => setShowCancelConfirm(true)}>
-                      <X className="ic sm" aria-hidden="true" />Cancel
-                    </button>
-                  }
-                />
+                <>
+                  <button
+                    ref={cancelConfirm.triggerRef}
+                    type="button"
+                    className={svButtonClass("danger", { wide: true })}
+                    onClick={() => setShowCancelConfirm(true)}
+                  >
+                    Cancel draft
+                  </button>
+                  <RailNote>Ends it for the {plural(playerCount, "player")} who joined. Nothing has been dealt yet.</RailNote>
+                </>
               )}
-            </DangerZone>
+            </RailSection>
           )}
-        </aside>
-      </div>
-    </SheetRoot>
+        </DraftRail>
+      </DraftLayout>
+    </DraftFrame>
   );
 }

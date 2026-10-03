@@ -3,7 +3,7 @@ import {
   formatDay,
   groupDrafts,
   listSummaryParts,
-  liveTrack,
+  liveStages,
   parseDraftConfig,
   pickLabel,
   playersLabel,
@@ -52,36 +52,34 @@ describe("labels", () => {
   });
 });
 
-describe("liveTrack", () => {
-  it("cube draft: pack and pick are one-based", () => {
-    const t = liveTrack(item());
-    expect(t.stations.map((s) => s.code)).toEqual(["LB", "DR", "DK"]);
-    expect(t.stations[1].name).toBe("Draft");
-    expect(t.current).toBe(1);
-    expect(t.caption).toEqual(["Pack 2 of 3", "pick 4"]);
+describe("liveStages", () => {
+  const states = (t: ReturnType<typeof liveStages>) => t.steps.map((s) => `${s.label}:${s.state}`);
+  it("cube draft: lobby is done, draft is now, deck building is next; pack and pick are one-based", () => {
+    const t = liveStages(item());
+    expect(states(t)).toEqual(["Lobby:done", "Draft:now", "Build deck:next"]);
+    expect(t.caption).toBe("Pack 2 of 3, pick 4");
   });
   it("cube draft: clamps a stray wave into range", () => {
-    expect(liveTrack(item({ wave: 0, pick: 0 })).caption).toEqual(["Pack 1 of 3", "pick 1"]);
-    expect(liveTrack(item({ wave: 9 })).caption[0]).toBe("Pack 3 of 3");
+    expect(liveStages(item({ wave: 0, pick: 0 })).caption).toBe("Pack 1 of 3, pick 1");
+    expect(liveStages(item({ wave: 9 })).caption).toBe("Pack 3 of 3, pick 4");
   });
   const theme = (over: Partial<DraftListItem>, cfg: object = {}) =>
     item({ config: parseDraftConfig(JSON.stringify({ mode: "theme", cardsPerPlayer: 40, extraDeckEnabled: true, extraDeckSize: 15, ...cfg })), ...over });
   it("theme draft: main deck round", () => {
-    const t = liveTrack(theme({ wave: 12 }));
-    expect(t.stations.map((s) => s.code)).toEqual(["LB", "MN", "EX", "DK"]);
-    expect(t.current).toBe(1);
-    expect(t.caption).toEqual(["Round 12 of 55", "main deck"]);
+    const t = liveStages(theme({ wave: 12 }));
+    expect(states(t)).toEqual(["Lobby:done", "Main deck:now", "Extra deck:next", "Build deck:next"]);
+    expect(t.caption).toBe("Round 12 of 55, main deck");
   });
   it("theme draft: extra deck rounds start after cardsPerPlayer", () => {
-    expect(liveTrack(theme({ wave: 40 })).current).toBe(1);
-    const t = liveTrack(theme({ wave: 41 }));
-    expect(t.current).toBe(2);
-    expect(t.caption).toEqual(["Round 41 of 55", "Extra deck"]);
+    expect(states(liveStages(theme({ wave: 40 })))[1]).toBe("Main deck:now");
+    const t = liveStages(theme({ wave: 41 }));
+    expect(states(t)).toEqual(["Lobby:done", "Main deck:done", "Extra deck:now", "Build deck:next"]);
+    expect(t.caption).toBe("Round 41 of 55, Extra deck");
   });
-  it("theme draft without an Extra deck has no EX stop", () => {
-    const t = liveTrack(theme({ wave: 5 }, { extraDeckEnabled: false }));
-    expect(t.stations.map((s) => s.code)).toEqual(["LB", "MN", "DK"]);
-    expect(t.caption).toEqual(["Round 5 of 40", "main deck"]);
+  it("theme draft without an Extra deck has no Extra deck stage", () => {
+    const t = liveStages(theme({ wave: 5 }, { extraDeckEnabled: false }));
+    expect(states(t)).toEqual(["Lobby:done", "Main deck:now", "Build deck:next"]);
+    expect(t.caption).toBe("Round 5 of 40, main deck");
   });
 });
 

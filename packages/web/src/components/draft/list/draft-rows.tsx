@@ -1,108 +1,81 @@
-import type { ReactNode } from "react";
-import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { StationTrack } from "@/components/sheet";
-import { MetaLine } from "../meta-line";
+import { FloorRow, LiveDot, StageLine, svButtonClass } from "@/components/sheet";
+import { Gem, Pieces } from "../draft-frame";
 import {
   draftHref,
   formatDay,
   kindLabel,
-  liveTrack,
+  liveStages,
   pickLabel,
   playersLabel,
   type DraftListItem,
 } from "./drafts-list-model";
 import styles from "./drafts-list.module.css";
 
-function Row({ draft, you, children }: { draft: DraftListItem; you?: boolean; children: ReactNode }) {
-  const href = draftHref(draft);
-  const cls = `tl-row ${styles.row}`;
-  if (!href) {
-    return (
-      <div className={cls} data-you={you ? "" : undefined}>
-        {children}
-      </div>
-    );
-  }
-  return (
-    <Link href={href} className={cls} data-you={you ? "" : undefined}>
-      {children}
-    </Link>
-  );
-}
-
-/** A draft that is running now. Render inside a `SheetRoot`. */
+/** A draft that is running now. Render inside a `FloorList` in a `SheetRoot`. */
 export function LiveDraftRow({ draft }: { draft: DraftListItem }) {
-  const track = liveTrack(draft);
+  const stages = liveStages(draft);
   const pick = pickLabel(draft.config.pickSeconds);
-  const linked = Boolean(draftHref(draft));
+  const href = draftHref(draft) ?? undefined;
   return (
-    <Row draft={draft} you>
-      <div className={styles.details}>
-        <p className="tl-name">{draft.name}</p>
-        <MetaLine className="tl-meta" items={[
-          { content: <span className="live-pill">Drafting</span> },
-          { content: kindLabel(draft.config) },
-          { content: playersLabel(draft.playerCount) },
-          ...(pick ? [{ content: pick }] : []),
-        ]} />
-      </div>
-      <div className={`tl-prog ${styles.prog}`}>
-        <StationTrack
-          stations={track.stations}
-          current={track.current}
-          tone="mine"
-          size="sm"
-          label={`Progress of ${draft.name}`}
-          caption={
-            <>
-              {track.caption[0]}
-              <span className="sep">·</span>
-              {track.caption[1]}
-            </>
-          }
+    <FloorRow
+      you
+      href={href}
+      className={styles.row}
+      cols="minmax(0, 1fr) minmax(240px, 330px) auto"
+      phoneCols="minmax(0, 1fr) auto"
+      phoneAreas={'"id act" "prog prog"'}
+    >
+      <div className={`${styles.id} ${styles.aId}`}>
+        <p className={`sv-cell-name ${styles.name}`}>{draft.name}</p>
+        <Pieces
+          items={[
+            { key: "live", content: <LiveDot label="Drafting" />, strong: true },
+            { key: "kind", content: kindLabel(draft.config) },
+            { key: "players", content: playersLabel(draft.playerCount) },
+            ...(pick ? [{ key: "pick", content: pick }] : []),
+          ]}
         />
       </div>
-      {linked && (
-        <div className={`tl-side ${styles.side}`}>
-          <span className="chip chip-pen">Open draft room</span>
-          <ChevronRight className={`ic ${styles.chevron}`} aria-hidden="true" />
-        </div>
+      <div className={`${styles.prog} ${styles.aProg}`}>
+        <StageLine steps={stages.steps} label={`Progress of ${draft.name}`} />
+        <p className={styles.cap}>{stages.caption}</p>
+      </div>
+      {href && (
+        <span className={`${styles.actCell} ${styles.aAct}`}>
+          <span className={`${svButtonClass("ghost")} ${styles.act}`}>Open draft room</span>
+        </span>
       )}
-    </Row>
+    </FloorRow>
   );
 }
 
-/** A draft that has not started. Render inside a `SheetRoot`. */
+/** A draft that has not started. Render inside a `FloorList` in a `SheetRoot`. */
 export function WaitingDraftRow({ draft }: { draft: DraftListItem }) {
   const created = formatDay(draft.createdAt, true);
-  const linked = Boolean(draftHref(draft));
+  const href = draftHref(draft) ?? undefined;
   return (
-    <Row draft={draft}>
-      <div className={styles.details}>
-        <p className="tl-name">{draft.name}</p>
-        <MetaLine className="tl-meta" items={[
-          { content: <span className="status">
-            <span className="lamp" data-s="open" aria-hidden="true" />
-            Waiting to start
-          </span> },
-          {
-            className: styles.joined,
-            content: <span aria-label={`${playersLabel(draft.playerCount)} joined`}>{draft.playerCount} joined</span>,
-          },
-          { content: kindLabel(draft.config) },
-          ...(created ? [{ content: `Created ${created}` }] : []),
-        ]} />
+    <FloorRow
+      href={href}
+      className={styles.row}
+      cols="minmax(0, 1fr) auto 18px"
+      phoneCols="minmax(0, 1fr) auto"
+      phoneAreas={'"id n"'}
+    >
+      <div className={`${styles.id} ${styles.aId}`}>
+        <p className={`sv-cell-name ${styles.name}`}>{draft.name}</p>
+        <Pieces
+          items={[
+            { key: "status", content: <><Gem />Waiting to start</>, strong: true },
+            { key: "kind", content: kindLabel(draft.config) },
+            ...(created ? [{ key: "created", content: `Created ${created}` }] : []),
+          ]}
+        />
       </div>
-      <div className={`seats-mini ${styles.count}`} aria-hidden="true">
-        <b>{draft.playerCount}</b>
-        <small>joined</small>
-      </div>
-      {linked && (
-        <div className={`tl-side ${styles.waitingSide}`}>
-          <ChevronRight className={`ic ${styles.chevron}`} aria-hidden="true" />
-        </div>
-      )}
-    </Row>
+      <span className={`${styles.joined} ${styles.aN}`}>
+        <b className="sv-cell-num">{draft.playerCount}</b> joined
+      </span>
+      {href && <ChevronRight className={styles.chevron} aria-hidden="true" />}
+    </FloorRow>
   );
 }
