@@ -5,8 +5,11 @@ import {
   badgeCenter,
   chainAnchor,
   chainAnnouncement,
+  chainCallout,
+  chainFocusLink,
   chainLinkLabel,
   chainSeatLabel,
+  chainStackRows,
   chainStepDelay,
   chainStateKey,
   chainWirePath,
@@ -378,5 +381,91 @@ describe("chainStateKey", () => {
     const b = fold([ev("chain-resolving", 1)], a);
     expect(chainStateKey(a)).not.toBe(chainStateKey(b));
     expect(chainStateKey(a)).toBe(chainStateKey(fold([{ ...activate(1, 0, 11, z(0, SZONE, 0)), id: 999 }])));
+  });
+});
+
+// The recorded chain from the report: Dark Dust Spirit's trigger (89111398), answered by My Body as a Shield (69279219).
+describe("chain stack and callout", () => {
+  const you = (seat: number) => (seat === 0 ? "You" : "Practice Bot");
+  const dust = (): DuelEvent => ({
+    id: nextId++, kind: "activate", text: "a", seat: 0, chainIndex: 1, zone: z(0, MZONE, 2),
+    card: info(89111398, "Dark Dust Spirit"), description: "Destroy all other face-up monsters",
+  });
+  const shield = (): DuelEvent => ({
+    id: nextId++, kind: "activate", text: "a", seat: 1, chainIndex: 2, zone: z(1, SZONE, 0),
+    card: info(69279219, "My Body as a Shield"),
+  });
+
+  it("lists the chain top first with its owner, so link 1 is at the bottom", () => {
+    const state = fold([dust(), shield()]);
+    const rows = chainStackRows(state);
+    expect(rows.map((r) => r.index)).toEqual([2, 1]);
+    expect(rows.map((r) => r.seat)).toEqual([1, 0]);
+    expect(chainStackRows(EMPTY_CHAIN)).toEqual([]);
+  });
+
+  it("does not reorder or change the state it reads", () => {
+    const state = fold([dust(), shield()]);
+    chainStackRows(state);
+    expect(state.links.map((l) => l.index)).toEqual([1, 2]);
+  });
+
+  it("focuses the newest activation, then the resolving link, and nothing when the chain is empty", () => {
+    const opened = fold([dust()]);
+    expect(chainFocusLink(opened)?.index).toBe(1);
+    const two = fold([shield()], opened);
+    expect(chainFocusLink(two)?.index).toBe(2);
+    const resolving = fold([ev("chain-resolving", 2)], two);
+    expect(chainFocusLink(resolving)?.index).toBe(2);
+    const next = fold([ev("chain-resolved", 2), ev("chain-resolving", 1)], resolving);
+    expect(chainFocusLink(next)?.index).toBe(1);
+    expect(chainFocusLink(fold([ev("chain-end")], next))).toBeNull();
+    expect(chainFocusLink(EMPTY_CHAIN)).toBeNull();
+  });
+
+  it("clears the stack when the chain ends", () => {
+    const state = fold([dust(), shield(), ev("chain-resolving", 2), ev("chain-resolved", 2), ev("chain-end")]);
+    expect(chainStackRows(state)).toEqual([]);
+  });
+
+  it("marks a resolved link as resolved and keeps the others waiting", () => {
+    const state = fold([dust(), shield(), ev("chain-resolving", 2), ev("chain-resolved", 2)]);
+    expect(chainStackRows(state).map((r) => r.status)).toEqual(["resolved", "pending"]);
+  });
+
+  it("says a card activates its effect, with the engine's effect text, never trigger or quick", () => {
+    const callout = chainCallout(fold([dust()]).links[0], 0, you);
+    expect(callout.label).toBe("Chain 1");
+    expect(callout.title).toBe("Dark Dust Spirit");
+    expect(callout.owner).toBe("You");
+    expect(callout.action).toBe("activates its effect");
+    expect(callout.effect).toBe("Destroy all other face-up monsters");
+    expect(callout.text).toBe("Chain 1 · Dark Dust Spirit · activates its effect · You");
+    expect(callout.text).not.toMatch(/trigger|quick/i);
+  });
+
+  it("names the rival as Opponent, or by name at a table", () => {
+    const link = fold([dust(), shield()]).links[1];
+    expect(chainCallout(link, 0, you).owner).toBe("Opponent");
+    expect(chainCallout(link, 0, you, true).owner).toBe("Practice Bot");
+    expect(chainCallout(link, null, you).owner).toBe("Practice Bot");
+    expect(chainCallout(link, 0, you).effect).toBeNull();
+  });
+
+  it("falls back to 'activates an effect' when the card is unknown", () => {
+    const state = fold([ev("chain-resolving", 3)]);
+    const callout = chainCallout(state.links[2], 0, you);
+    expect(callout.title).toBe("A card");
+    expect(callout.action).toBe("is resolving");
+    const pending = chainCallout(deriveChainState([], [{ index: 1, seat: 1 }]).links[0], 0, you);
+    expect(pending.action).toBe("activates an effect");
+    expect(pending.text).toBe("Chain 1 · A card · activates an effect · Opponent");
+  });
+
+  it("follows the link through resolving, resolved and negated", () => {
+    const base = fold([dust(), shield()]);
+    expect(chainCallout(fold([ev("chain-resolving", 2)], base).links[1], 0, you).action).toBe("is resolving");
+    expect(chainCallout(fold([ev("chain-resolving", 2), ev("chain-resolved", 2)], base).links[1], 0, you).action).toBe("resolved");
+    expect(chainCallout(fold([ev("chain-negated", 2)], base).links[1], 0, you).action).toBe("was negated");
   });
 });

@@ -192,6 +192,59 @@ export function strayLinks(state: ChainState, lost: ReadonlySet<number>): ChainL
     .sort((a, b) => b.index - a.index);
 }
 
+/** The chain as a stack, top of the chain first: the highest link is on top, Chain Link 1 at the bottom. */
+export function chainStackRows(state: ChainState): ChainLinkState[] {
+  return state.links.slice().sort((a, b) => b.index - a.index);
+}
+
+/**
+ * The link the stack callout is about: the one that is resolving, otherwise the top of the chain (the
+ * activation that just happened). null when no chain is open.
+ */
+export function chainFocusLink(state: ChainState): ChainLinkState | null {
+  if (state.links.length === 0) return null;
+  if (state.resolving != null) return state.links[state.resolving - 1] ?? null;
+  return state.links[state.links.length - 1];
+}
+
+export type ChainCallout = {
+  /** "Chain 1" */
+  label: string;
+  title: string;
+  /** "You" / "Opponent" / the player's name. */
+  owner: string;
+  /** What the engine says happened to this link: activation, resolving, resolved or negated. */
+  action: string;
+  /** The effect text the engine resolved for the activation (e.g. "Destroy all other face-up monsters"), when it sent one. */
+  effect: string | null;
+  /** The whole callout as one line, for the card's title and for screen readers. */
+  text: string;
+};
+
+/**
+ * What the callout says about a link, from the real chain data only. MSG_CHAINING carries the card,
+ * its zone, the controller, the chain count and the effect description; it does not say whether the
+ * effect is a trigger, a quick effect or an ignition effect, so an activation is always "activates its
+ * effect" (and "activates an effect" when even the card is unknown).
+ */
+export function chainCallout(
+  link: ChainLinkState,
+  mySeat: number | null,
+  playerName: (seat: number) => string,
+  named = false,
+): ChainCallout {
+  const known = link.name != null || link.code != null;
+  const title = link.name ?? (known ? `Card ${link.code}` : "A card");
+  const owner = chainSeatLabel(link.seat, mySeat, playerName, named);
+  let action = known ? "activates its effect" : "activates an effect";
+  if (link.negated) action = "was negated";
+  else if (link.status === "resolving") action = "is resolving";
+  else if (link.status === "resolved") action = "resolved";
+  const label = `Chain ${link.index}`;
+  const effect = link.description?.trim() || null;
+  return { label, title, owner, action, effect, text: `${label} · ${title} · ${action} · ${owner}` };
+}
+
 export type ChainAnchor = {
   /** The zone the card activated from; on the board it is found by its data-zones key. */
   zone: DuelZoneRef;
