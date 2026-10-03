@@ -108,6 +108,17 @@ describe("POST /api/bug-reports/precheck", () => {
     expect((await POST(post("{nope"))).status).toBe(400);
   });
 
+  it("413 for a body over the size cap, by content-length or by the bytes read, with no GitHub call", async () => {
+    const POST = await route();
+    const huge = JSON.stringify(body({ description: "x".repeat(200_000) }));
+    expect((await POST(post(huge))).status).toBe(413);
+    const lying = new Request("http://x/api/bug-reports/precheck", { method: "POST", body: huge, headers: { "content-length": "10" } });
+    expect((await POST(lying)).status).toBe(413);
+    const declared = new Request("http://x/api/bug-reports/precheck", { method: "POST", body: "{}", headers: { "content-length": "999999" } });
+    expect((await POST(declared)).status).toBe(413);
+    expect(github).not.toHaveBeenCalled();
+  });
+
   it("returns a known limit that matches the text and the format", async () => {
     const POST = await route();
     const res = await POST(post(body({ description: "I surrendered in the 3-way duel but my monsters stayed on the field", expected: "My monsters should leave at once" })));

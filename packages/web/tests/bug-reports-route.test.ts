@@ -115,6 +115,16 @@ describe("POST /api/bug-reports", () => {
     expect(github).not.toHaveBeenCalled();
   });
 
+  it("413 for a body over the size cap, and nothing is saved or sent", async () => {
+    const POST = await route();
+    const huge = JSON.stringify(body({ description: "x".repeat(200_000) }));
+    expect((await POST(post(huge))).status).toBe(413);
+    const declared = new Request("http://x/api/bug-reports", { method: "POST", body: "{}", headers: { "content-length": "999999" } });
+    expect((await POST(declared)).status).toBe(413);
+    expect(await rows()).toHaveLength(0);
+    expect(github).not.toHaveBeenCalled();
+  });
+
   it("400 with a field error for a short description and a missing expectation, and nothing is saved", async () => {
     const POST = await route();
     const res = await POST(post(body({ description: "It broke", expected: "" })));

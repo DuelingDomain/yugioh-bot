@@ -4,6 +4,7 @@ import { webBaseUrl } from "@/lib/announce-bot";
 import { parseBugReportRequest } from "@/lib/bug-report";
 import { bugReportRepo, commentOnIssue, createGithubIssue, getOpenFromAppIssue, resetGithubIssueCache } from "@/lib/bug-report-github";
 import { takeDuplicateCheckSlot } from "@/lib/bug-reports/precheck";
+import { readJsonBody } from "@/lib/bug-reports/read-body";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
@@ -32,12 +33,9 @@ export async function POST(request: Request) {
   const guildId = env.discordGuildId;
   if (!guildId) return NextResponse.json({ error: "Guild is not configured" }, { status: 500 });
 
-  let raw: unknown;
-  try {
-    raw = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
-  }
+  const read = await readJsonBody(request);
+  if (!read.ok) return read.response;
+  const raw = read.value;
   const parsed = parseBugReportRequest(raw);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error, ...(parsed.fieldErrors ? { fieldErrors: parsed.fieldErrors } : {}) }, { status: 400 });
   const report = parsed.value;
