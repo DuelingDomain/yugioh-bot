@@ -29,6 +29,7 @@ vi.mock("@/components/duel/room", () => ({ DuelRoomView: (props: unknown) => {
   return <div>Room</div>;
 } }));
 
+import { navigateDuelWindow } from "../../src/components/duel/duel-window";
 import { RoomLobby } from "../../src/components/duel/room-lobby";
 import { DuelLobby } from "../../src/components/duel/lobby";
 import DuelRoomPage from "../../app/(app)/duels/[slug]/page";
@@ -144,6 +145,22 @@ describe("choosing a lobby seat", () => {
     data.session.seats[1] = { seat: 1, playerId: null, displayName: "Practice Bot", isBot: true, ready: true };
     render(<RoomLobby {...props(data)} />);
     expect(screen.queryByRole("button", { name: /Take seat/ })).toBeNull();
+  });
+});
+
+describe("own table row", () => {
+  it("focuses the duel window this page already opened instead of loading a second board", () => {
+    const popup = { closed: false, name: "", location: { href: "about:blank" }, focus: vi.fn() };
+    const data = room(0, true);
+    navigateDuelWindow(popup as unknown as Window, data.session.slug);
+    popup.focus.mockClear();
+    listData.duels = [{ ...data.session, status: "active", mySeat: 0, lastActivityAt: "", series: null }];
+    render(<DuelLobby />);
+    const link = screen.getByRole("link", { name: /Return/ });
+    expect(fireEvent.click(link)).toBe(false);
+    expect(popup.focus).toHaveBeenCalledOnce();
+    popup.closed = true;
+    expect(fireEvent.click(link)).toBe(true);
   });
 });
 

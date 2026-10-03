@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { Mono, SectionHead, SvButton, ringColour } from "@/components/sheet";
+import { focusDuelWindowOnClick } from "@/components/duel/duel-window";
 import { SECTION_IDS, type CrosstableProps } from "../sheet-contracts";
 import { goToMatch } from "../standings/crosstable";
 import { nameList } from "../floor/floor-model";
@@ -25,6 +26,7 @@ function Chip({ slot, viewerId }: { slot: BracketSlot; viewerId: number | null }
   const match = slot.match;
   const mine = viewerId !== null && match !== null && (match.playerOneId === viewerId || match.playerTwoId === viewerId);
   const showScore = slot.state === "done" || slot.state === "live";
+  const duelHref = match?.series?.currentDuelSlug ? `/duels/${match.series.currentDuelSlug}` : null;
   return (
     <li className={styles.chip} data-mine={mine ? "true" : undefined} data-bye={slot.bye ? "true" : undefined} data-testid={match ? `bracket-match-${match.id}` : undefined}>
       <ul className={styles.sides}>
@@ -35,7 +37,7 @@ function Chip({ slot, viewerId }: { slot: BracketSlot; viewerId: number | null }
       {slot.state === "live" && match && (
         <p className={styles.cnote}>
           Game {match.series?.gameNumber} in progress.{" "}
-          {match.series?.currentDuelSlug && <Link href={`/duels/${match.series.currentDuelSlug}`}>{mine ? "Open duel" : "Watch"}</Link>}
+          {duelHref && <Link href={duelHref} onClick={(event) => focusDuelWindowOnClick(duelHref, event)}>{mine ? "Open duel" : "Watch"}</Link>}
         </p>
       )}
       {slot.state === "wait" && <p className={styles.cnote}>Reported, waiting to be confirmed.</p>}

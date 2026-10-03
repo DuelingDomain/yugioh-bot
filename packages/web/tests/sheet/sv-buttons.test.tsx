@@ -2,6 +2,7 @@
 import { fireEvent, render, screen, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DUEL_ACTION_LABELS, DuelAction, Segmented, SvButton, svButtonClass } from "@/components/sheet/sv-buttons";
+import { navigateDuelWindow } from "@/components/duel/duel-window";
 import { CopyLinkRow } from "@/components/sheet/sv-copy";
 
 describe("SvButton", () => {
@@ -45,6 +46,18 @@ describe("DuelAction", () => {
     expect(screen.getByRole("link", { name: "Open duel" }).className).toBe("sv-btn primary");
     rerender(<DuelAction kind="watch" href="/duels/a" />);
     expect(screen.getByRole("link", { name: "Watch" }).className).toBe("sv-btn ghost");
+  });
+  it("Open duel focuses the duel window this page already opened, Watch navigates as usual", () => {
+    const popup = { closed: false, name: "", location: { href: "about:blank" }, focus: vi.fn() };
+    navigateDuelWindow(popup as unknown as Window, "reuse-me");
+    popup.focus.mockClear();
+    render(<><DuelAction kind="open" href="/duels/reuse-me" /><DuelAction kind="watch" href="/duels/reuse-me" /></>);
+    // fireEvent returns false when the click was cancelled (default prevented).
+    expect(fireEvent.click(screen.getByRole("link", { name: "Open duel" }))).toBe(false);
+    expect(popup.focus).toHaveBeenCalledOnce();
+    expect(fireEvent.click(screen.getByRole("link", { name: "Watch" }))).toBe(true);
+    popup.closed = true;
+    expect(fireEvent.click(screen.getByRole("link", { name: "Open duel" }))).toBe(true);
   });
   it("is a button with onClick when there is no href", () => {
     const onClick = vi.fn();

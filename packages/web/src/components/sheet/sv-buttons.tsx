@@ -1,5 +1,6 @@
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from "react";
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, MouseEvent, ReactNode } from "react";
 import Link from "next/link";
+import { focusDuelWindowOnClick } from "@/components/duel/duel-window";
 import { sv } from "./sv-util";
 
 export type SvButtonVariant = "primary" | "ghost" | "danger" | "quiet";
@@ -64,7 +65,9 @@ export function DuelAction({ kind, href, onClick, disabled, big, wide, className
 }) {
   const { label, variant } = DUEL_ACTIONS[kind];
   if (href) {
-    return <SvButton as="a" href={href} variant={variant} big={big} wide={wide} className={className}>{label}</SvButton>;
+    // "Open duel" focuses the duel window this page already opened, instead of loading a second copy.
+    const onLinkClick = kind === "open" ? (event: MouseEvent<HTMLAnchorElement>) => focusDuelWindowOnClick(href, event) : undefined;
+    return <SvButton as="a" href={href} variant={variant} big={big} wide={wide} className={className} onClick={onLinkClick}>{label}</SvButton>;
   }
   return <SvButton variant={variant} big={big} wide={wide} className={className} onClick={onClick} disabled={disabled}>{label}</SvButton>;
 }
