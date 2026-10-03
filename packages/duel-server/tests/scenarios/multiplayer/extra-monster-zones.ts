@@ -1,5 +1,5 @@
 import {
-  activate, endTurn, expectEvents, expectNotOffered, expectOffered, expectPickOptions, expectRetry,
+  activate, endTurn, expectEvents, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectRetry, pickOpponent,
   select, setCard, specialSummon, zone, type DuelistExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
@@ -16,39 +16,46 @@ const KNIGHT = "Mekk-Knight Purple Nightfall";
 const emzRule = (format: Format) => format === "ffa4" ? "R-FFA-ACROSS-EMZ" : "R-COMMON-EMZ";
 // The Tag column and Link Infra-Flier controls require C1 on installed P68:
 // domain-core/.build/phase1/df-zones/out/01-local-zone-viewer.patch. The integration route includes C1.
-// FFA4 shared geometry is proved by df-shared-zones.ts after the current C6 export is installed.
+// C6 proves FFA4 shared geometry. W21 also keeps FFA4 rows and the occupied Extra Link outcome here.
 const emz = (card: string) => [null, null, null, null, null, card];
 
 function independentZones(format: Format, right: boolean): Scenario {
   const setup: Scenario["setup"] = { format };
   const steps: Step[] = [];
   const state: Partial<Record<Seat, DuelistExpect>> = {};
-  const extraZone = right ? "emz1" : "emz0";
-  const linkedZone = right ? "m3" : "m1";
   for (const seat of SEATS[format]) {
     setup[seat] = { monsters: [ELF, OX], extra: [SPIDER, IMDUK] };
-    state[seat] = { monsters: [ELF, OX], extra: [SPIDER, IMDUK], hand: [] };
+    state[seat] = { monsters: [ELF, OX], extra: [SPIDER, IMDUK], hand: [], deckCount: 20,
+      zones: { m0: ELF, m1: OX, m2: null, m3: null, m4: null, emz0: null, emz1: null } };
   }
   for (const [index, seat] of SEATS[format].entries()) {
-    if (index) state[seat] = { ...state[seat], hand: [ELF] };
-    steps.push(specialSummon(SPIDER, seat), select({ card: ELF, owner: seat }),
+    const acrossOccupied = format === "ffa4" && index >= 2;
+    // The across EMZ blocks the opposite local number. The last two seats use the same local number as the first two.
+    const extraZone = right ? "emz1" : "emz0";
+    const blockedZone = right ? "emz0" : "emz1";
+    const linkedZone = right ? "m3" : "m1";
+    if (index) state[seat] = { ...state[seat], hand: [ELF], deckCount: 19 };
+    steps.push(specialSummon(SPIDER, seat), select({ card: ELF, owner: seat }));
+    if (!acrossOccupied) steps.push(
       expectPickOptions([{ seat, label: "Extra Monster Zone (left)" }, { seat, label: "Extra Monster Zone (right)" }], seat),
-      // A seat cannot answer with a foreign or absent zone. The real host answer validation keeps the prompt and the board.
-      expectRetry({ selected: ["place:99"] }, { by: seat, error: "Invalid" }),
-      zone(seat, extraZone, seat), expectEvents({ kind: "summon", card: SPIDER, by: seat, summonKind: "link" }));
+      // An invalid zone answer must keep the prompt and all seats' cards.
+      expectRetry({ selected: ["place:99"] }, { by: seat, error: "Invalid" }), zone(seat, extraZone, seat));
+    steps.push(expectPrompt({ by: seat, context: "action" }),
+      expectEvents({ kind: "summon", card: SPIDER, by: seat, summonKind: "link" }));
     state[seat] = { ...state[seat], monsters: [SPIDER, OX], extra: [IMDUK], grave: [ELF],
-      zones: { [extraZone]: SPIDER, [right ? "emz0" : "emz1"]: null } };
+      zones: { ...state[seat]!.zones, m0: null, [extraZone]: SPIDER, [blockedZone]: null } };
     steps.push(everySeat(format, state));
     // With one EMZ occupied, the other is not offered. The Spider arrow opens one Main Monster Zone of this seat only.
     // The core places the monster without a place prompt when just one zone is legal. Check that exact zone below.
     steps.push(specialSummon(IMDUK, seat), select({ card: OX, owner: seat }));
     state[seat] = { ...state[seat], monsters: [SPIDER, IMDUK], extra: [], grave: [ELF, OX],
-      zones: { [extraZone]: SPIDER, [linkedZone]: IMDUK, [right ? "emz0" : "emz1"]: null } };
+      zones: { ...state[seat]!.zones, m1: null, [linkedZone]: IMDUK, [extraZone]: SPIDER, [blockedZone]: null } };
     steps.push(everySeat(format, state));
     if (index < SEATS[format].length - 1) steps.push(endTurn(seat));
   }
   return defineScenario({ id: `emz-${format}-every-seat-${right ? "right" : "left"}-and-own-link-arrow`,
-    title: `${format}: every seat uses its own ${right ? "right" : "left"} EMZ and its own linked main zone`,
+    title: format === "ffa4" ? `ffa4: across seats share two EMZ and use their own Link arrows (${right ? "right" : "left"})`
+      : `${format}: every seat uses its own ${right ? "right" : "left"} EMZ and its own linked main zone`,
     source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "link", "card:98978921", "card:31226177"], setup, steps });
 }
 
@@ -150,7 +157,7 @@ function extraLink(format: Format): Scenario {
   });
 }
 
-const standard = (["ffa3", "tag"] as Format[]).flatMap((format) => [
+const standard = (["ffa3", "ffa4", "tag"] as Format[]).flatMap((format) => [
   independentZones(format, false), independentZones(format, true), coLinks(format, "p0"),
   coLinks(format, format === "ffa3" ? "p2" : "p3"), columns(format), arrowViewer(format, "p0"),
   arrowViewer(format, format === "ffa3" ? "p2" : "p3"), extraLink(format),
