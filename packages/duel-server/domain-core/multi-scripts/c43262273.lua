@@ -1,6 +1,7 @@
 if not aux.MPAny then return end
 -- Appointer of the Red Lotus: save the declared seat at activation in FFA.
 -- Return the card during that seat's next End Phase (R-FFA-DECLARED-DURATION).
+-- If that seat leaves, the next living opponent's End Phase counts (R3).
 -- Keep the stock timing in 1v1 and Tag, and the existing return to the owner's hand.
 local stock_target=s.target
 local stock_activate=s.activate
@@ -17,6 +18,22 @@ local function mp_turn_is(seat)
 			local result=Duel.IsTurnPlayer(0)
 			Duel.MPNthDuelist(0)
 			return result
+		end
+		i=i+1
+	end
+	Duel.MPNthDuelist(0)
+	return false
+end
+
+local function mp_alive(seat)
+	if Duel.MPIsAlive then return Duel.MPIsAlive(seat) end
+	local i=1
+	while true do
+		local ok,current=Duel.MPNthDuelist(i)
+		if not ok then break end
+		if current==seat then
+			Duel.MPNthDuelist(0)
+			return true
 		end
 		i=i+1
 	end
@@ -72,7 +89,10 @@ function s.retcon(e,tp,eg,ep,ev,re,r,rp)
 		e:Reset()
 		return false
 	end
-	return mp_turn_is(e:GetValue()) and Duel.GetTurnCount()~=e:GetLabel()
+	local op=e:GetValue()
+	local alive=mp_alive(op)
+	local counted=alive and mp_turn_is(op) or not alive and Duel.IsTurnPlayer(1-tp)
+	return counted and Duel.GetTurnCount()~=e:GetLabel()
 end
 
 function s.retop(e,tp,eg,ep,ev,re,r,rp)

@@ -2843,7 +2843,7 @@
         "retop"
       ],
       "stockSha256": "721fd4a0bdaa7626b8ee164f0f69bac6ab36be006b1d82bddc447e208534680c",
-      "note": "Script fix (R-FFA-DECLARED-DURATION + R-COMMON-OPP-PICK): in FFA, save the declared opponent's real seat at activation and return the banished card during only that seat's next End Phase. Keep the stock timing in 1v1 and Tag. The card returns to its owner's hand. Requires the W18 declared-opponent phase-reset core fix."
+      "note": "Script fix (R-FFA-DECLARED-DURATION + R-COMMON-OPP-PICK): in FFA, save the declared opponent's real seat at activation and return the banished card during only that seat's next End Phase. If the declared seat leaves, use R3: the next living opponent End Phase. Keep the stock timing in 1v1 and Tag. The card returns to its owner's hand. Requires the W18 declared-opponent phase-reset core fix."
     },
     {
       "code": 43383478,
