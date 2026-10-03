@@ -242,9 +242,10 @@ export const Binder = memo(
             onChange={(e) => onType(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
-                e.stopPropagation();
-                if (text) clearQuery();
-                else input.current?.blur();
+                if (text) {
+                  clearQuery();
+                  e.stopPropagation();
+                } else input.current?.blur();
               }
             }}
           />
