@@ -40,7 +40,7 @@ test.describe("Tag surrender and spectators", () => {
         await expect(watcher.page.locator("[data-team-plate]")).toHaveCount(2);
         for (const team of [0, 1]) await expect(teamLpPlate(watcher.page, team)).toBeVisible();
         await expect(watcher.page.getByRole("list", { name: "Turn order" }).first().locator("li b")).toHaveText(["1A", "2A", "1B", "2B"]);
-        await expect(watcher.page.getByRole("dialog", { name: "Duel result" })).toHaveCount(0);
+        await expect(watcher.page.getByTestId("duel-result")).toHaveCount(0);
       }
       // The spectator view holds no seat, no deck and no hand faces.
       const room = await readTable(watcher.page, slug, true);
@@ -65,23 +65,25 @@ test.describe("Tag surrender and spectators", () => {
 
     await test.step("the result screen shows the winning team", async () => {
       const outcome = async (page: Seat["page"]) => (await result(page).getAttribute("data-result")) ?? (await result(page).getAttribute("data-outcome"));
-      const result = (page: Seat["page"]) => page.getByRole("dialog", { name: "Duel result" }).or(page.getByTestId("duel-result"));
+      const result = (page: Seat["page"]) => page.getByTestId("duel-result");
       // The surrendering player lost; the spectator sees that the other team won.
       await expect(result(alice.page)).toBeVisible();
       await expect.poll(() => outcome(alice.page)).toBe("lose");
       await expect(result(watcher.page)).toBeVisible();
       await expect.poll(() => outcome(watcher.page)).toBe("spectator");
       for (const seat of [alice, watcher]) {
-        const rows = seat.page.getByRole("dialog", { name: "Duel result" }).locator("li[data-won]");
-        await expect(rows).toHaveCount(2);
-        await expect(rows.nth(0)).toHaveAttribute("data-won", "false");
-        await expect(rows.nth(1)).toHaveAttribute("data-won", "true");
+        // The shared result screen lists one row per seat. Team 1 (seats 1 and 3) won; both of its seats are winners.
+        const rows = result(seat.page).locator("li[data-winner]");
+        await expect(rows).toHaveCount(4);
+        for (const seatNumber of [0, 1, 2, 3]) {
+          await expect(result(seat.page).locator(`li[data-winner][data-seat='${seatNumber}']`)).toHaveAttribute("data-winner", seatNumber % 2 === 1 ? "true" : "false");
+        }
       }
       await tableShot(alice.page, slug, info, "tag-surrender-result-loser");
       await tableShot(watcher.page, slug, info, "tag-surrender-result-spectator");
       // The result stays after a reload, and the duel accepts no more action.
       await watcher.page.reload();
-      await expect(watcher.page.getByRole("dialog", { name: "Duel result" }).locator("li[data-won='true']")).toHaveCount(1);
+      await expect(result(watcher.page).locator("li[data-winner='true']")).toHaveCount(2);
       await expect(tagShell(alice.page)).toBeVisible();
       await expect(alice.page.getByRole("button", { name: "End Turn", exact: true })).toHaveCount(0);
     });
