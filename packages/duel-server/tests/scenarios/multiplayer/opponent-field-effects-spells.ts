@@ -298,6 +298,8 @@ const SPECS: EffectSpec[] = [
 const GRAYDLE_PARASITE: EffectSpec = {
   code: 49966595, name: "Graydle Parasite", slug: "graydle-parasite", does: "Special Summons a monster of an opponent Graveyard",
   attackFirstTurn: true,
+  // ADR 0002 R-FFA-OPP-RESPONSE: the direct-attack destination binds the response in FFA.
+  noPick: (roles) => roles.format !== "tag",
   p0: { monsters: ["Graydle Cobra"], spells: [{ card: "Graydle Parasite", pos: "up" }] },
   opp: {},
   tgt: { grave: [MAGICIAN] },
