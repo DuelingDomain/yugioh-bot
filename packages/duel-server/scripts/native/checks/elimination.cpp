@@ -293,9 +293,13 @@ static void check_cards() {
 	EXPECT(empty, "p3 has no card left");
 	for(card* c : { mat_own, xyz, m_own, equip3 })
 		EXPECT(c->current.location == 0 && !in_any_list(f, c) && !c->overlay_target, "removed card is out (loc %d)", c->current.location);
-	EXPECT(m_foreign->current.location == LOCATION_GRAVE && m_foreign->current.controler == 1 && m_foreign->owner == 1
-		&& in_any_list(f, m_foreign), "foreign monster is in its owner's GY (loc %d con %d)", m_foreign->current.location, m_foreign->current.controler);
-	std::printf("ok   a monster p3 controls and p1 owns went to the GY of p1\n");
+	// R-FFA-RETURN-OWNED-CARDS: the living owner has a free Monster Zone.
+	EXPECT(m_foreign->current.location == LOCATION_MZONE && m_foreign->current.controler == 1 && m_foreign->owner == 1
+		&& m_foreign->current.position == POS_FACEUP_ATTACK
+		&& m_foreign->current.sequence < f.player[1].list_mzone.size()
+		&& f.player[1].list_mzone[m_foreign->current.sequence] == m_foreign,
+		"foreign monster is on its owner's field in Attack Position (loc %d con %d)", m_foreign->current.location, m_foreign->current.controler);
+	std::printf("ok   a monster p3 controls and p1 owns returned to p1's field in Attack Position\n");
 	EXPECT(mat_foreign->current.location == LOCATION_GRAVE && mat_foreign->current.controler == 1 && !mat_foreign->overlay_target,
 		"foreign material is in the GY of p1 (loc %d con %d)", mat_foreign->current.location, mat_foreign->current.controler);
 	std::printf("ok   p1's Xyz material under p3's Xyz went to the GY of p1\n");

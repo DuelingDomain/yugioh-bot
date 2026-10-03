@@ -213,7 +213,7 @@ static void check_s1() {
 	setup(g, 4, false);
 	fill_decks(g);
 	// Seat 1 owns c1 (seat 2 controls it) and c1b. Seat 2 owns c2 (seat 1 controls it) and c2b.
-	// Seat 0 owns c3 (seat 1 controls it) and c4 (seat 2 controls it): both go to the grave of seat 0.
+	// Seat 0 owns c3 (seat 1 controls it) and c4 (seat 2 controls it). Both return to seat 0's field.
 	card* c2 = put(g.d, 1, 2, LOCATION_MZONE, 0);
 	card* c3 = put(g.d, 1, 0, LOCATION_MZONE, 1);
 	card* c1b = put(g.d, 1, 1, LOCATION_MZONE, 2);
@@ -261,10 +261,18 @@ static void check_s1() {
 	for(card* c : { c1, c1b, c2, c2b })
 		EXPECT(c->current.location == 0 && !in_any_list(f, c), "card of a loser should be out of the game (loc %d)", c->current.location);
 	for(card* c : { c3, c4 })
-		EXPECT(c->current.location == LOCATION_GRAVE && c->current.controler == 0 && in_any_list(f, c), "card of seat 0 should be in its grave (loc %d con %d)", c->current.location, c->current.controler);
+		EXPECT(c->current.location == LOCATION_MZONE && c->current.controler == 0 && c->owner == 0
+			&& c->current.position == POS_FACEUP_ATTACK
+			&& c->current.sequence < f.player[0].list_mzone.size()
+			&& f.player[0].list_mzone[c->current.sequence] == c,
+			"card of seat 0 must return to its field in Attack Position (loc %d con %d)", c->current.location, c->current.controler);
+	EXPECT(f.player[0].list_mzone[0] && f.player[0].list_mzone[0]->owner == 0,
+		"seat 0 keeps its own monster");
+	EXPECT(f.player[3].list_mzone[0] && f.player[3].list_mzone[0]->owner == 3,
+		"seat 3 keeps its own monster");
 	std::printf("     cards owned before: seat1 %d seat2 %d\n", owned1, owned2);
 	if(!failures)
-		std::printf("ok   s1: two 200 (1 then 2), cards of both losers gone, c3 and c4 in the grave of seat 0\n");
+		std::printf("ok   s1: two 200 (1 then 2), cards of both losers gone, c3 and c4 on seat 0's field\n");
 }
 
 // ---------------------------------------------------------------- s2 / s2all / tagdraw
