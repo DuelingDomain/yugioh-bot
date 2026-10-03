@@ -111,6 +111,40 @@ describe("TagHeader", () => {
   });
 });
 
+describe("TagHeader on a phone", () => {
+  // text-overflow does nothing on bare text in a flex box, so each label needs its own box that CSS can cut with an ellipsis.
+  it("puts the turn text in its own box inside the pill", () => {
+    header(withTurn(baseRoom, 5, 0), { viewerSeat: 0 });
+    const pill = screen.getByTestId("who-pill");
+    const label = screen.getByText("Your turn");
+    expect(label.tagName).toBe("SPAN");
+    expect(label.parentElement).toBe(pill);
+    const direct = [...pill.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim());
+    expect(direct).toHaveLength(0);
+  });
+
+  it("keeps a long name whole in the label for the ellipsis to cut", () => {
+    header(withTurn(baseRoom, 5, 3), { viewerSeat: 0 });
+    expect(screen.getByText("Juniper Rook's turn").parentElement).toBe(screen.getByTestId("who-pill"));
+  });
+
+  // On a phone the live state shows as the red lamp alone, so the words must stay in the page for screen readers.
+  it("keeps the live words in their own box inside the status", () => {
+    header(baseRoom);
+    const status = screen.getByRole("status");
+    const words = screen.getByText("Live duel");
+    expect(words.tagName).toBe("SPAN");
+    expect(words.parentElement).toBe(status);
+    expect(status.getAttribute("data-live")).toBe("true");
+  });
+
+  it("keeps the words of a state that needs the player, such as Polling", () => {
+    header(baseRoom, { connection: { connected: false, syncing: false, recovering: false, presence: { onlineSeats: [], spectatorCount: 0 }, resync: async () => {} } });
+    expect(screen.getByRole("status").getAttribute("data-live")).toBe("false");
+    expect(screen.getByText(/Polling/).parentElement).toBe(screen.getByRole("status"));
+  });
+});
+
 describe("TagTrack", () => {
   it("lists the baton 1A, 2A, 1B, 2B and marks the turn player", () => {
     track(withTurn(baseRoom, 5, 2));
