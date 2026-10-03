@@ -5,8 +5,7 @@ const isSequence = (sequence: number): boolean => Number.isSafeInteger(sequence)
 export class HandIdentities {
   private nextOwn = [0, 0];
   private nextSleeve = 0;
-  private lastArrival = [0, 0];
-  private shuffledThrough = [0, 0];
+  private shuffledArrivals = [new Set<number>(), new Set<number>()];
   private own: Identity[][] = [[], []];
   private sleeves: Identity[][] = [[], []];
   /** The last observed sleeve order until a query confirms which effects survived a shuffle. */
@@ -16,7 +15,6 @@ export class HandIdentities {
 
   add(seat: number, code: number, sequence: number, arrival?: number, isPublic = false, publicArrivalCode?: number): void {
     if (!this.own[seat] || !isSequence(sequence)) return;
-    if (arrival != null) this.lastArrival[seat] = Math.max(this.lastArrival[seat]!, arrival);
     this.own[seat]!.splice(sequence, 0, { id: `hand-${++this.nextOwn[seat]!}`, code, arrival });
     const sleeve = { id: `sleeve-${++this.nextSleeve}`, code: isPublic ? code : 0, arrival, arrivalCode: isPublic ? code : publicArrivalCode, public: isPublic };
     const following = this.sleeves[seat]![sequence];
@@ -116,8 +114,11 @@ export class HandIdentities {
 
   shuffle(seat: number, codes: readonly number[]): void {
     if (!this.own[seat]) return;
-    // Public shuffle history only: retain this watermark even when a sleeve is removed.
-    this.shuffledThrough[seat] = this.lastArrival[seat]!;
+    // Mark only sleeves present when the shuffle occurred. Keep their flags after departure,
+    // but never invalidate an arrival that already left. Hidden codes cannot choose these IDs.
+    for (const sleeve of this.sleeves[seat]!) {
+      if (sleeve.arrival != null) this.shuffledArrivals[seat]!.add(sleeve.arrival);
+    }
     // SHUFFLE_HAND supplies the new engine sequence. Identical copies are interchangeable.
     const available = [...this.own[seat]!];
     this.own[seat] = codes.map((code) => {
@@ -157,7 +158,7 @@ export class HandIdentities {
   }
 
   shuffledSinceArrival(seat: number, eventId: number): boolean {
-    return eventId > 0 && eventId <= (this.shuffledThrough[seat] ?? 0);
+    return this.shuffledArrivals[seat]?.has(eventId) ?? false;
   }
 
   arrival(seat: number, owner: boolean, eventId: number): { id: string; sequence: number } | undefined {

@@ -78,6 +78,23 @@ describe("animation identities in engine slots", () => {
     expect(ctx.handIdentities.arrival(0, true, 2)?.sequence).toBe(0);
   });
 
+  it.each([0, 1])("marks only arrivals still in seat %s at a shuffle", seat => {
+    const ids = new HandIdentities();
+    ids.add(seat, 10, 0, 1);
+    ids.add(seat, 20, 1, 5, false, 20);
+    ids.remove(seat, 1); // Departure 6 precedes the shuffle.
+    ids.shuffle(seat, [10]);
+    expect(ids.shuffledSinceArrival(seat, 5)).toBe(false);
+    expect(ids.shuffledSinceArrival(seat, 1)).toBe(true);
+    ids.add(seat, 30, 1, 7, false, 30);
+    expect(ids.shuffledSinceArrival(seat, 7)).toBe(false);
+    ids.shuffle(seat, [30, 10]);
+    ids.remove(seat, 1);
+    // Once a shuffle intervened, retiring the sleeve must keep its lost-correlation flag.
+    expect(ids.shuffledSinceArrival(seat, 7)).toBe(true);
+    expect(ids.shuffledSinceArrival(seat, 5)).toBe(false);
+  });
+
   it("inserts in the engine's middle slot and compacts a departure", () => {
     const ids = new HandIdentities();
     ids.add(0, 10, 0, 1); ids.add(0, 20, 1, 2);
