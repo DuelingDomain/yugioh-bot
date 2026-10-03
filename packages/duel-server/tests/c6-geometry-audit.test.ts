@@ -37,10 +37,11 @@ function check(root: string, rows: Row[]): void {
   });
   expect(actual, "Each geometry expression needs one audit row and a reason").toEqual(keys(reviewed));
 }
+// The full stock scan can exceed 30 s when parallel integration shards read their copies.
 it("covers every stock geometry regex hit in all Lua folders, with a reason", () => {
   expect(table.pattern).toBe(pattern.source);
   check(stock, table.stock);
-});
+}, 60_000);
 it("covers every overlay geometry regex hit, with a reason", () => check(overlay, table.overlay));
 it("refuses a database row for a script excluded only from the current card data", () => {
   const db = new Database(join(engineDataDirectory, "cards.cdb"), { readonly: true });
