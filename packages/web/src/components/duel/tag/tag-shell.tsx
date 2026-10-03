@@ -9,7 +9,7 @@ import { SeatField } from "../field";
 import { duelFxClock } from "../fx-clock";
 import { duelFontClasses } from "../fonts";
 import { usePickContinuation } from "../pick-continuation";
-import { useDuelPreferences } from "../preferences";
+import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
 import { PromptTray } from "../prompts";
 import { useResultGate } from "../result-reveal";
@@ -57,7 +57,18 @@ const OPEN_LOCK_MS = 1_000_000_000;
  * (table UI, aim flow, reveal gate, pick continuation), and keeps the engine in the room: it only gets a controller.
  */
 export function TagShell(props: TagShellProps) {
+  return props.preferences ? <TagShellBody {...props} preferences={props.preferences} /> : <TagShellOwnPreferences {...props} />;
+}
+
+/** A shell with no room above it (a preview): it keeps its own preferences, created once. */
+function TagShellOwnPreferences(props: TagShellProps) {
+  const preferences = useDuelPreferences();
+  return <TagShellBody {...props} preferences={preferences} />;
+}
+
+function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const {
+    preferences,
     controller: supplied,
     fillViewport = false,
     initialCamera,
@@ -108,7 +119,6 @@ export function TagShell(props: TagShellProps) {
   const suspended = tagInputSuspended({ inputSuspended, menu: ui.menu, pile: ui.pile, narrow, sheetOpen });
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
-  const preferences = useDuelPreferences();
   const [hideResult, setHideResult] = useState(false);
 
   const session = room.session;

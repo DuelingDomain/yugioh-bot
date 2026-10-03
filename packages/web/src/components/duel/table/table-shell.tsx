@@ -39,7 +39,7 @@ import { SeriesBanner } from "../series-banner";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
 import { SummonFx } from "../summon-fx";
-import { useDuelPreferences } from "../preferences";
+import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
@@ -98,6 +98,11 @@ export interface TableShellProps {
   inputSuspended?: boolean;
   /** The room's prompt reveal gate must wait on this shell's board effects. */
   boardRef?: RefObject<HTMLDivElement | null>;
+  /**
+   * The room's one preferences instance. The room already feeds its Motion setting to the controller and the FX speed
+   * clock, so the shell's Settings tab must change that same state. A preview leaves it out and gets its own.
+   */
+  preferences?: DuelPreferences;
 }
 
 /**
@@ -105,7 +110,17 @@ export interface TableShellProps {
  * track, menus, the result screen and the FX. It uses the exported duel components of the 1v1 room and keeps the room's
  * look (room.module.css). The room itself stays the owner of the live engine: it passes a controller.
  */
-export function TableShell({
+export function TableShell(props: TableShellProps) {
+  return props.preferences ? <TableShellBody {...props} preferences={props.preferences} /> : <TableShellOwnPreferences {...props} />;
+}
+
+/** A shell with no room above it (a preview): it keeps its own preferences, created once. */
+function TableShellOwnPreferences(props: TableShellProps) {
+  const preferences = useDuelPreferences();
+  return <TableShellBody {...props} preferences={preferences} />;
+}
+
+function TableShellBody({
   controller: supplied,
   fillViewport = false,
   initialCamera,
@@ -122,7 +137,8 @@ export function TableShell({
   pickContinuation,
   inputSuspended = false,
   boardRef: roomBoardRef,
-}: TableShellProps) {
+  preferences,
+}: TableShellProps & { preferences: DuelPreferences }) {
   // Field clicks use the same reveal gate as the centered prompt; hidden decisions must not answer early.
   const given = useMemo(() => {
     const blocked = roomBusy || supplied.busy || (centerKind(supplied.prompt) != null && !supplied.revealed);
@@ -155,7 +171,6 @@ export function TableShell({
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended });
-  const preferences = useDuelPreferences();
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
