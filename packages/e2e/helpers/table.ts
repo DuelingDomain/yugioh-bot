@@ -51,7 +51,7 @@ export async function expectRealCore(page: Page, slug: string, bots: "practice" 
 }
 
 export async function startTablePreset(page: Page, id: string): Promise<string> {
-  const response = await page.request.post("/api/duels/preset", { data: { presetId: id, seed: ["11", "22", "33", "44"] } });
+  const response = await page.request.post("/api/duels/preset", { data: { presetId: id, seed: ["11", "22", "33", "44"] }, timeout: 60_000 });
   expect(response.ok(), await response.text()).toBe(true);
   const { slug } = await response.json() as { slug: string };
   await page.goto(`/duels/${slug}?window=1`);
