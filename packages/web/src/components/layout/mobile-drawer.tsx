@@ -3,11 +3,11 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
-import { SheetPortal } from "@/components/sheet";
+import { LightRule, SheetPortal } from "@/components/sheet";
 import { AccountMenu } from "./account-menu";
 import { BrandMark } from "./brand-mark";
 import { NavList, SettingsLink } from "./nav-list";
-import { activeNavHref } from "./shell-model";
+import { activeNavHref, type LiveNow } from "./shell-model";
 import type { ShellAccount } from "./use-shell-account";
 import styles from "./shell.module.css";
 
@@ -15,12 +15,13 @@ interface MobileDrawerProps {
   open: boolean;
   onClose: () => void;
   account: ShellAccount;
+  live: LiveNow | null;
   onReportBug?: () => void;
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), [role="menuitem"]:not([aria-disabled="true"]), [tabindex]:not([tabindex="-1"])';
 
-function DrawerDialog({ onClose, account, onReportBug }: Omit<MobileDrawerProps, "open">) {
+function DrawerDialog({ onClose, account, live, onReportBug }: Omit<MobileDrawerProps, "open">) {
   const pathname = usePathname();
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -56,25 +57,26 @@ function DrawerDialog({ onClose, account, onReportBug }: Omit<MobileDrawerProps,
 
   return (
     <div className={styles.layer}>
-      <div className={`ns-scrim ${styles.scrim}`} aria-hidden="true" onClick={onClose} />
+      <div className={styles.scrim} aria-hidden="true" onClick={onClose} />
       <div
         ref={dialogRef}
-        className={`ns-drawer ${styles.drawer}`}
+        className={styles.drawer}
         role="dialog"
         aria-modal="true"
         aria-label="Navigation"
         onKeyDown={onKeyDown}
       >
-        <div className="ns-brand">
-          <BrandMark />
-          <span className="ns-word">Duelists Kingdom</span>
-          <button ref={closeRef} className="ns-ib" type="button" aria-label="Close menu" onClick={onClose}>
-            <X className="ic" aria-hidden="true" />
+        <div className={styles.brand}>
+          <BrandMark className={styles.mark} />
+          <span className={styles.word}>Duelists Kingdom</span>
+          <button ref={closeRef} className={styles.toggle} type="button" aria-label="Close menu" onClick={onClose}>
+            <X className={styles.navIcon} aria-hidden="true" />
           </button>
         </div>
-        <NavList activeHref={activeHref} label="Mobile navigation" onNavigate={onClose} />
-        <div className="ns-foot">
-          <SettingsLink activeHref={activeHref} onNavigate={onClose} />
+        <LightRule />
+        <NavList activeHref={activeHref} label="Mobile navigation" size="phone" live={live} onNavigate={onClose} />
+        <div className={styles.foot}>
+          <SettingsLink activeHref={activeHref} size="phone" onNavigate={onClose} />
           <AccountMenu account={account} pathname={pathname} variant="side" onNavigate={onClose} onReportBug={onReportBug} />
         </div>
       </div>
@@ -83,7 +85,7 @@ function DrawerDialog({ onClose, account, onReportBug }: Omit<MobileDrawerProps,
 }
 
 /** Phone menu: a real dialog, mounted only while open. */
-export function MobileDrawer({ open, onClose, account, onReportBug }: MobileDrawerProps) {
+export function MobileDrawer({ open, onClose, account, live, onReportBug }: MobileDrawerProps) {
   // Locks page scroll while open.
   useEffect(() => {
     if (!open) return;
@@ -97,7 +99,7 @@ export function MobileDrawer({ open, onClose, account, onReportBug }: MobileDraw
   if (!open) return null;
   return (
     <SheetPortal>
-      <DrawerDialog onClose={onClose} account={account} onReportBug={onReportBug} />
+      <DrawerDialog onClose={onClose} account={account} live={live} onReportBug={onReportBug} />
     </SheetPortal>
   );
 }

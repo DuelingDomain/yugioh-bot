@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { TypedServer } from "./events.js";
 import { verifyBroadcastSignature } from "./auth.js";
 import { draftSocketRoom } from "./rooms.js";
+import { isTalkLine, type TalkLineId } from "@yugidraft/shared/ws";
 
 type StatusBody = { slug: string; status: "active" | "cancelled" | "completed" };
 type PickBody = { slug: string; playerId: number; packRound: number; pickStep: number };
@@ -48,6 +49,18 @@ function parseSeats(v: unknown): { slug: string } | null {
   const o = v as Record<string, unknown>;
   if (!isNonEmptyString(o.slug)) return null;
   return { slug: o.slug };
+}
+
+type TalkBody = { slug: string; playerId: number; line: TalkLineId };
+
+/** The line must be one of the fixed ids; anything else never reaches a browser. */
+function parseTalk(v: unknown): TalkBody | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (!isNonEmptyString(o.slug)) return null;
+  if (typeof o.playerId !== "number" || !Number.isInteger(o.playerId)) return null;
+  if (!isTalkLine(o.line)) return null;
+  return { slug: o.slug, playerId: o.playerId, line: o.line };
 }
 
 type TournamentJoinedBody = { slug: string; playerId: number; displayName: string };
@@ -138,6 +151,13 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
         if (!data) return new Response("Bad payload", { status: 400 });
         opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:seats", {});
+        return new Response(null, { status: 204 });
+      }
+      case "/internal/draft/talk": {
+        const data = parseTalk(parsed);
+        if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
+        opts.io.to(draftSocketRoom(data.slug)).emit("draft:talk", { playerId: data.playerId, line: data.line });
         return new Response(null, { status: 204 });
       }
       case "/internal/tournament/participant-joined": {

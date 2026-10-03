@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { Bug, ChevronsUpDown, LogOut, User } from "lucide-react";
+import { Bug, LogOut, User } from "lucide-react";
+import { Mono, TierName } from "@/components/sheet";
 import type { ShellAccount } from "./use-shell-account";
 import { isOwnProfile } from "./shell-model";
 import styles from "./shell.module.css";
@@ -11,29 +12,22 @@ import styles from "./shell.module.css";
 interface AccountMenuProps {
   account: ShellAccount;
   pathname: string;
-  /** side: the name row at the foot of the sidebar. phone: the avatar in the top bar. */
+  /** side: the seat at the foot of the sidebar. phone: the ring in the top bar. */
   variant: "side" | "phone";
+  /** Collapsed rail: the ring alone, no name. Only for the side variant. */
+  rail?: boolean;
   /** Called when a menu choice navigates, so a surrounding drawer can close. */
   onNavigate?: () => void;
   /** Opens the Report bug dialog, which the shell owns so it outlives this menu and a surrounding drawer. */
   onReportBug?: () => void;
 }
 
-function Avatar({ account }: { account: ShellAccount }) {
-  const initial = (account.name || "U").trim().charAt(0).toUpperCase() || "U";
-  return (
-    <span className="ns-av" aria-hidden="true">
-      {account.image ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={account.image} alt="" className={styles.avatarImg} />
-      ) : (
-        initial
-      )}
-    </span>
-  );
+/** You, as a seat: a violet ring with your initials. */
+function Ring({ account, size }: { account: ShellAccount; size: "sm" | "md" }) {
+  return <Mono name={account.name || "You"} you size={size} />;
 }
 
-export function AccountMenu({ account, pathname, variant, onNavigate, onReportBug }: AccountMenuProps) {
+export function AccountMenu({ account, pathname, variant, rail = false, onNavigate, onReportBug }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -101,16 +95,18 @@ export function AccountMenu({ account, pathname, variant, onNavigate, onReportBu
 
   if (account.status === "loading") {
     return variant === "side" ? (
-      <span className="ns-me" aria-busy="true" aria-label="Loading your account">
-        <span className="ns-av sk" />
-        <span className="ns-who" style={{ width: 110, gap: 7 }}>
-          <span className="sk" style={{ width: "72%" }} />
-          <span className="sk" style={{ width: "48%", height: 8 }} />
-        </span>
+      <span className={styles.seatBtn} data-rail={rail ? "true" : undefined} aria-busy="true" aria-label="Loading your account">
+        <span className={styles.seatSkRing} />
+        {rail ? null : (
+          <span className={styles.seatText} style={{ width: 110, gap: 7 }}>
+            <span className={styles.seatSk} style={{ width: "72%" }} />
+            <span className={styles.seatSk} style={{ width: "48%", height: 8 }} />
+          </span>
+        )}
       </span>
     ) : (
-      <span className="ns-avbtn" aria-busy="true" aria-label="Loading your account">
-        <span className="ns-av sk" />
+      <span className={styles.ringBtn} aria-busy="true" aria-label="Loading your account">
+        <span className={styles.seatSkRing} />
       </span>
     );
   }
@@ -123,7 +119,8 @@ export function AccountMenu({ account, pathname, variant, onNavigate, onReportBu
     variant === "side" ? (
       <button
         ref={triggerRef}
-        className="ns-me"
+        className={styles.seatBtn}
+        data-rail={rail ? "true" : undefined}
         type="button"
         data-on={ownProfile ? "" : undefined}
         aria-haspopup="menu"
@@ -132,17 +129,25 @@ export function AccountMenu({ account, pathname, variant, onNavigate, onReportBu
         onClick={() => setOpen((o) => !o)}
         onKeyDown={onTriggerKeyDown}
       >
-        <Avatar account={account} />
-        <span className="ns-who">
-          <span className="nm">{displayName}</span>
-          {noProfile ? <span className="sb">No profile yet</span> : null}
-        </span>
-        <ChevronsUpDown className="ic sm" aria-hidden="true" />
+        <Ring account={account} size="md" />
+        {rail ? null : (
+          <span className={styles.seatText}>
+            <span className={styles.seatName}>{displayName}</span>
+            {noProfile ? (
+              <span className={styles.seatLine}>No profile yet</span>
+            ) : account.tier !== null || account.elo !== null ? (
+              <span className={styles.seatLine}>
+                {account.tier !== null ? <TierName tier={account.tier} /> : null}
+                {account.elo !== null ? <em className={styles.seatElo}>{account.elo}</em> : null}
+              </span>
+            ) : null}
+          </span>
+        )}
       </button>
     ) : (
       <button
         ref={triggerRef}
-        className="ns-avbtn"
+        className={styles.ringBtn}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -150,7 +155,7 @@ export function AccountMenu({ account, pathname, variant, onNavigate, onReportBu
         onClick={() => setOpen((o) => !o)}
         onKeyDown={onTriggerKeyDown}
       >
-        <Avatar account={account} />
+        <Ring account={account} size="sm" />
       </button>
     );
 
@@ -160,23 +165,23 @@ export function AccountMenu({ account, pathname, variant, onNavigate, onReportBu
       {open ? (
         <div
           ref={menuRef}
-          className={variant === "phone" ? "ns-menu ph" : "ns-menu"}
+          className={styles.menu}
+          data-variant={variant}
+          data-rail={rail ? "true" : undefined}
           role="menu"
           aria-label="Account"
           onKeyDown={onMenuKeyDown}
         >
-          <div className="ns-mh">
-            <span className="ns-av lg" aria-hidden="true">
-              {(displayName.trim().charAt(0) || "U").toUpperCase()}
-            </span>
+          <div className={styles.menuHead}>
+            <Ring account={account} size="md" />
             <div>
-              <p className="nm">{displayName}</p>
-              <p className="sb">Signed in with Discord</p>
+              <p className={styles.menuName}>{displayName}</p>
+              <p className={styles.menuSub}>Signed in with Discord</p>
             </div>
           </div>
           {hasProfile ? (
             <Link
-              className="ns-mi"
+              className={styles.menuItem}
               role="menuitem"
               href={`/player/${account.playerId}`}
               onClick={() => {
@@ -184,24 +189,24 @@ export function AccountMenu({ account, pathname, variant, onNavigate, onReportBu
                 onNavigate?.();
               }}
             >
-              <User className="ic" aria-hidden="true" />
+              <User className={styles.menuIcon} aria-hidden="true" />
               Your profile
             </Link>
           ) : (
             <>
-              <span className="ns-mi" role="menuitem" aria-disabled="true">
-                <User className="ic" aria-hidden="true" />
+              <span className={styles.menuItem} role="menuitem" aria-disabled="true">
+                <User className={styles.menuIcon} aria-hidden="true" />
                 Your profile
               </span>
               {noProfile ? (
-                <p className="ns-mnote">You get a profile after your first match, event or draft on this server.</p>
+                <p className={styles.menuNote}>You get a profile after your first match, event or draft on this server.</p>
               ) : null}
             </>
           )}
-          <div className="menu-sep" role="separator" />
+          <div className={styles.menuSep} role="separator" />
           {onReportBug ? (
             <button
-              className="ns-mi"
+              className={styles.menuItem}
               role="menuitem"
               type="button"
               onClick={() => {
@@ -211,12 +216,12 @@ export function AccountMenu({ account, pathname, variant, onNavigate, onReportBu
                 onNavigate?.();
               }}
             >
-              <Bug className="ic" aria-hidden="true" />
+              <Bug className={styles.menuIcon} aria-hidden="true" />
               Report bug
             </button>
           ) : null}
           <button
-            className="ns-mi"
+            className={styles.menuItem}
             role="menuitem"
             type="button"
             onClick={() => {
@@ -224,7 +229,7 @@ export function AccountMenu({ account, pathname, variant, onNavigate, onReportBu
               void signOut({ redirectTo: "/login" });
             }}
           >
-            <LogOut className="ic" aria-hidden="true" />
+            <LogOut className={styles.menuIcon} aria-hidden="true" />
             Sign out
           </button>
         </div>

@@ -159,7 +159,7 @@ export function guidanceNotes(mode: DuelMode, deck: DuelDeck): string[] {
     if (deck.extra.length > 15) notes.push(`Extra is ${deck.extra.length}; tables usually cap Extra at 15.`);
     if (deck.deckMaster == null) notes.push("No Deck Master yet. Domain tables require one before you can ready.");
     if (deck.side.length > 0) {
-      notes.push(`Side still has ${deck.side.length} card${deck.side.length === 1 ? "" : "s"}. Competitive Domain has no Side Deck; they stay here until you move or remove them.`);
+      notes.push(`Side still has ${deck.side.length} card${deck.side.length === 1 ? "" : "s"}. Competitive Domain has no side deck; they stay here until you move or remove them.`);
     }
   } else {
     if (deck.main.length < 40 || deck.main.length > 60) notes.push(`Main is ${deck.main.length}; Standard tables want 40–60.`);

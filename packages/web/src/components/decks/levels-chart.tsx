@@ -23,7 +23,7 @@ export function MonsterLevelsChart({ codes, catalog }: { codes: readonly number[
   ];
   const totals = groups.map(({ start, end }) => levels.slice(start, end).reduce((sum, count) => sum + count, 0));
   const peak = Math.max(1, ...levels);
-  const label = `Main Deck monsters by level: ${totals[0]} need no tribute, ${totals[1]} need one tribute, ${totals[2]} need two tributes. ${levels.map((count, index) => `Level ${index === 7 ? "8+" : index + 1}: ${count}`).join(". ")}.`;
+  const label = `Main deck monsters by level: ${totals[0]} need no tribute, ${totals[1]} need one tribute, ${totals[2]} need two tributes. ${levels.map((count, index) => `Level ${index === 7 ? "8+" : index + 1}: ${count}`).join(". ")}.`;
   return (
     <div className={styles["df-lv"]} role="img" aria-label={label}>
       <p className={styles["df-lv-h"]}><span>Monster levels</span><small>Main deck, by stars</small></p>

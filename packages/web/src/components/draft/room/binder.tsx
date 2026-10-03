@@ -4,8 +4,10 @@ import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo,
 import { downloadYdk } from "@/lib/ydk";
 import { LevelsChart } from "./levels-chart";
 import {
+  EMPTY_FILTER,
   KINDS,
   KIND_LABEL,
+  archetypeChips,
   attributeChips,
   attributeTint,
   countKinds,
@@ -19,8 +21,11 @@ import {
   statParts,
   titleCase,
   toggled,
+  typeChips,
+  typeKeyName,
   typeParts,
   cardText,
+  type FacetChip,
   type Kind,
   type MonsterSubtype,
   type Order,
@@ -67,6 +72,49 @@ interface Row {
 
 const canHover = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: hover)").matches;
 
+/** One labelled row of filter chips. A row with no chips (no data for it yet) is not drawn. */
+function ChipRow({
+  label,
+  group,
+  chips,
+  selected,
+  nameOf = (k) => k,
+  dotOf,
+  onToggle,
+}: {
+  label: string;
+  group: "type" | "attr" | "arch";
+  chips: FacetChip[];
+  selected: ReadonlySet<string>;
+  nameOf?: (key: string) => string;
+  dotOf?: (key: string) => string;
+  onToggle: (key: string) => void;
+}) {
+  if (!chips.length) return null;
+  return (
+    <div className="fg">
+      <span>{label}</span>
+      <div className="chips">
+        {chips.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            className="chip"
+            data-g={group}
+            data-k={c.key}
+            aria-pressed={selected.has(c.key)}
+            data-zero={c.n ? undefined : ""}
+            onClick={() => onToggle(c.key)}
+          >
+            {dotOf ? <i style={{ "--dot": dotOf(c.key) } as React.CSSProperties} /> : null}
+            {nameOf(c.key)} <b>{c.n}</b>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function statText(card: RoomCard): string {
   const sp = statParts(card);
   return sp ? sp.map((x) => x[1]).join(" / ") : "";
@@ -77,6 +125,10 @@ export const Binder = memo(
     const { filter, onFilter, theme, pickConfig } = p;
     const [order, setOrder] = useState<Order>("type");
     const [open, setOpen] = useState<Set<string>>(new Set());
+    const pickOrder = (next: Order) => {
+      setOrder(next);
+      setOpen(new Set());
+    };
     const [facetsOpen, setFacetsOpen] = useState(!p.phone);
     const [text, setText] = useState(filter.q);
     const input = useRef<HTMLInputElement>(null);
@@ -121,6 +173,11 @@ export const Binder = memo(
     const filtering = isFiltering(filter);
     const active = facetCount(filter);
     const chips = useMemo(() => attributeChips(cards, p.packCards, filter.attr), [cards, p.packCards, filter.attr]);
+    const monsterTypeChips = useMemo(() => typeChips("monster", cards, p.packCards, filter.type), [cards, p.packCards, filter.type]);
+    const spellTypeChips = useMemo(() => typeChips("spell", cards, p.packCards, filter.type), [cards, p.packCards, filter.type]);
+    const trapTypeChips = useMemo(() => typeChips("trap", cards, p.packCards, filter.type), [cards, p.packCards, filter.type]);
+    const toggleType = (k: string) => onFilter({ ...filter, type: toggled(filter.type, k) });
+    const archChips = useMemo(() => archetypeChips(cards, p.packCards, filter.arch), [cards, p.packCards, filter.arch]);
 
     const rows = useMemo(() => {
       const out: Array<{ key: string; heading?: React.ReactNode; kind?: Kind; count: number; rows: Row[] }> = [];
@@ -192,7 +249,7 @@ export const Binder = memo(
     const clearAll = useCallback(() => {
       clearTimeout(timer.current);
       setText("");
-      onFilter({ kinds: new Set(), q: "", lvl: new Set(), attr: new Set() });
+      onFilter(EMPTY_FILTER);
     }, [onFilter]);
 
     // a new pick flashes in the list
@@ -318,52 +375,37 @@ export const Binder = memo(
               Breakdown <span>{!facetsOpen && active ? `${active} on` : ""}</span>
             </button>
             <div className="facets" id="facets" hidden={!facetsOpen}>
-              {chips.length ? (
-                <div className="fg">
-                  <span>Attribute</span>
-                  <div className="chips">
-                    {chips.map((c) => (
-                      <button
-                        key={c.key}
-                        type="button"
-                        className="chip"
-                        data-g="attr"
-                        data-k={c.key}
-                        aria-pressed={filter.attr.has(c.key)}
-                        data-zero={c.n ? undefined : ""}
-                        onClick={() => onFilter({ ...filter, attr: toggled(filter.attr, c.key) })}
-                      >
-                        <i style={{ "--dot": attributeTint(c.key) } as React.CSSProperties} />
-                        {titleCase(c.key)} <b>{c.n}</b>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+              <ChipRow label="Monster type" group="type" chips={monsterTypeChips} selected={filter.type} nameOf={typeKeyName} onToggle={toggleType} />
+              <ChipRow
+                label="Attribute"
+                group="attr"
+                chips={chips}
+                selected={filter.attr}
+                nameOf={titleCase}
+                dotOf={attributeTint}
+                onToggle={(k) => onFilter({ ...filter, attr: toggled(filter.attr, k) })}
+              />
+              <ChipRow label="Spells" group="type" chips={spellTypeChips} selected={filter.type} nameOf={typeKeyName} onToggle={toggleType} />
+              <ChipRow label="Traps" group="type" chips={trapTypeChips} selected={filter.type} nameOf={typeKeyName} onToggle={toggleType} />
+              <ChipRow
+                label="Archetype"
+                group="arch"
+                chips={archChips}
+                selected={filter.arch}
+                onToggle={(k) => onFilter({ ...filter, arch: toggled(filter.arch, k) })}
+              />
             </div>
           </div>
           <div className="bd-bar">
             <span className="showing">{showingText}</span>
-            <label className="bd-sort">
-              <span>Sort</span>
-              <select value={order} onChange={(e) => { setOrder(e.target.value as Order); setOpen(new Set()); }}>
-                <option value="type">Type</option>
-                <option value="newest">Newest</option>
-                <option value="oldest">Oldest</option>
-                <option value="name">Name</option>
-              </select>
-            </label>
-            <button
-              type="button"
-              className="bd-export"
-              disabled={p.pool.length === 0}
-              onClick={() => {
-                const name = p.draftName.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, "").trim() || "Draft";
-                downloadYdk(p.pool.map((card) => ({ id: card.passcode, frameType: card.frameType })), `${name} picks.ydk`);
-              }}
-            >
-              Export YDK
-            </button>
+            <div className="seg" role="group" aria-label="Sort">
+              <button type="button" aria-pressed={order === "type"} onClick={() => pickOrder("type")}>
+                By type
+              </button>
+              <button type="button" aria-pressed={order === "oldest"} onClick={() => pickOrder("oldest")}>
+                In order
+              </button>
+            </div>
           </div>
           <div
             className="list"
@@ -440,6 +482,19 @@ export const Binder = memo(
                 </div>
               ))
             )}
+          </div>
+          <div className="bd-foot">
+            <button
+              type="button"
+              className="bd-export"
+              disabled={p.pool.length === 0}
+              onClick={() => {
+                const name = p.draftName.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, "").trim() || "Draft";
+                downloadYdk(p.pool.map((card) => ({ id: card.passcode, frameType: card.frameType })), `${name} picks.ydk`);
+              }}
+            >
+              Export YDK
+            </button>
           </div>
         </div>
       </aside>

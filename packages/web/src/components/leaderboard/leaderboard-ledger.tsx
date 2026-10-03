@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { Flame } from "lucide-react";
-import { RankGem, TierName } from "@/components/sheet";
+import { DuelAction, FloorList, FloorRow, LiveDot, Mono, Seat, ringColour } from "@/components/sheet";
 import type { LeaderboardScope, PlayerPosition, Standing } from "./leaderboard-model";
 import styles from "./leaderboard.module.css";
 
@@ -12,132 +12,130 @@ interface LedgerProps {
   scope: LeaderboardScope;
   position: PlayerPosition | null;
   loading: boolean;
+  /** Player id to the slug of the duel they are playing right now. */
+  liveDuels?: Record<number, string>;
 }
 
-export function LeaderboardLedger({ standings, scope, position, loading }: LedgerProps) {
-  const tableRow = useRef<HTMLTableRowElement>(null);
-  const phoneRow = useRef<HTMLLIElement>(null);
+const SEASON_COLS = "36px minmax(0, 1fr) 96px 68px 60px 56px";
+const ALL_COLS = "36px minmax(0, 1fr) 140px";
+
+export function LeaderboardLedger({ standings, scope, position, loading, liveDuels = {} }: LedgerProps) {
+  const myRow = useRef<HTMLSpanElement>(null);
   const [pinned, setPinned] = useState(false);
   const currentPlayerId = position?.row.playerId;
+  const hasLive = standings.some(({ row }) => liveDuels[row.playerId]);
+  const season = scope === "season";
+  const cols = `${season ? SEASON_COLS : ALL_COLS}${hasLive ? " 92px" : ""}`;
+  const phoneCols = "28px minmax(0, 1fr) auto";
 
   useEffect(() => {
     setPinned(false);
-    const targets = [tableRow.current, phoneRow.current].filter((el): el is NonNullable<typeof el> => el !== null);
-    if (!targets.length || typeof IntersectionObserver === "undefined") return;
-    // The desktop table and the phone list both hold your row and one of them
-    // is always hidden, so you are "in view" when either one is on screen.
-    const seen = new Map<Element, boolean>(targets.map((el) => [el, false]));
+    const target = myRow.current;
+    if (!target || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) seen.set(entry.target, entry.isIntersecting);
-      setPinned(![...seen.values()].some(Boolean));
+      for (const entry of entries) setPinned(!entry.isIntersecting);
     });
-    targets.forEach((el) => observer.observe(el));
+    observer.observe(target);
     return () => observer.disconnect();
   }, [standings, currentPlayerId]);
 
   if (standings.length === 0) {
     return (
-      <div className="empty" role="region" aria-label="Leaderboard standings" aria-busy={loading}>
+      <section className={styles.empty} aria-label="Leaderboard standings" aria-busy={loading}>
         <h2>No one is on the board yet</h2>
         <p>Finish a ranked match to appear here.</p>
-      </div>
+      </section>
     );
   }
 
   return (
-    <div className={`${styles.busy} ${styles.ledgerBox}`} role="region" aria-label="Leaderboard standings" aria-busy={loading}>
-      <div className={styles.deskOnly}>
-        <div className="ledger">
-          <table aria-label={scope === "season" ? "Season leaderboard" : "All-time leaderboard"} data-scope={scope} style={scope === "all" ? { minWidth: 520 } : undefined}>
-            <thead>
-              <tr>
-                <th scope="col" style={{ paddingLeft: 18 }}>#</th>
-                <th scope="col">Player</th>
-                <th scope="col">Tier</th>
-                <th scope="col" className="r">Elo</th>
-                <th scope="col" className="r sort" aria-sort="descending" style={scope === "all" ? { paddingRight: 18 } : undefined}>
-                  {scope === "season" ? "Winnings" : "Career winnings"}
-                </th>
-                {scope === "season" && (
-                  <>
-                    <th scope="col" className="r">W–L</th>
-                    <th scope="col" className="r">Win %</th>
-                    <th scope="col" className="r" style={{ paddingRight: 18 }}>Streak</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {standings.map(({ row, place }) => {
-                const me = row.playerId === currentPlayerId;
-                return (
-                  <tr key={row.playerId} className={me ? "me" : undefined} ref={me ? tableRow : undefined}>
-                    <td className="p">{place}</td>
-                    <td>
-                      <span className="nm">
-                        <Link className={styles.rowLink} href={`/player/${row.playerId}`}>{row.displayName}</Link>
-                        {me && <span className="youtag">you</span>}
-                      </span>
-                    </td>
-                    <td><TierName tier={row.rank} /></td>
-                    <td className="r v">{row.rating}</td>
-                    <td className="r wn" style={scope === "all" ? { paddingRight: 18 } : undefined}>{row.winnings.toLocaleString()}</td>
-                    {scope === "season" && (
+    <section className={`${styles.busy} ${styles.ledger}`} aria-label="Leaderboard standings" aria-busy={loading} data-scope={scope}>
+      <div className={styles.head} style={{ "--cols": cols } as CSSProperties} aria-hidden="true">
+        <span>#</span>
+        <span>Player</span>
+        <span className={styles.r}>{season ? "Winnings" : "Career winnings"}</span>
+        {season && (
+          <>
+            <span className={styles.r}>W–L</span>
+            <span className={styles.r}>Win %</span>
+            <span className={styles.r}>Streak</span>
+          </>
+        )}
+        {hasLive && <span />}
+      </div>
+      <FloorList as="ol" aria-label={season ? "Season leaderboard, ranked by winnings" : "All-time leaderboard, ranked by career winnings"}>
+        {standings.map(({ row, place }) => {
+          const me = row.playerId === currentPlayerId;
+          const slug = liveDuels[row.playerId];
+          return (
+            <FloorRow
+              key={row.playerId}
+              you={me}
+              cols={cols}
+              phoneCols={phoneCols}
+              phoneAreas={'"rk seat win" "rk rec act"'}
+              className={styles.row}
+            >
+              <span className={`sv-cell-rank ${styles.rk}`} data-first={place === 1 ? "true" : undefined}>
+                <span className="sv-sr">Place </span>
+                {place}
+              </span>
+              <Seat
+                name={row.displayName}
+                href={`/player/${row.playerId}`}
+                tier={row.rank}
+                elo={row.rating}
+                you={me}
+                ring={me ? undefined : ringColour(row.playerId)}
+                className={styles.seat}
+              />
+              <span className={`${styles.win} ${styles.r}`}>
+                {row.winnings.toLocaleString()}
+                <span className="sv-sr"> winnings</span>
+              </span>
+              {season && (
+                <>
+                  <span className={`${styles.rec} ${styles.r}`}>
+                    {row.wins}–{row.losses}
+                    <span className="sv-sr"> record</span>
+                  </span>
+                  <span className={`${styles.pct} ${styles.r}`}>
+                    {row.winRate}%<span className="sv-sr"> win rate</span>
+                  </span>
+                  <span className={`${styles.stk} ${styles.r}`}>
+                    {row.currentStreak > 0 ? (
                       <>
-                        <td className="r wl">{row.wins}<span>–</span>{row.losses}</td>
-                        <td className="r v">{row.winRate}</td>
-                        <td className="r" style={{ paddingRight: 18 }}>
-                          {row.currentStreak > 0 ? (
-                            <span className="stk"><Flame className="ic sm" aria-hidden="true" />{row.currentStreak}</span>
-                          ) : (
-                            <span className="stk z">–</span>
-                          )}
-                        </td>
+                        <Flame className={styles.flame} aria-hidden="true" />
+                        {row.currentStreak}
+                        <span className="sv-sr"> win streak</span>
                       </>
+                    ) : (
+                      <span className={styles.none}>–<span className="sv-sr">no streak</span></span>
                     )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className={styles.phoneOnly}>
-        <div className="sec-h">
-          <h2 className="sec-t">{scope === "season" ? "Ranked by winnings" : "Ranked by career winnings"}</h2>
-        </div>
-        <ol className="mini-st lb-ph">
-          {standings.map(({ row, place }) => {
-            const me = row.playerId === currentPlayerId;
-            return (
-              <li key={row.playerId} className={me ? "me" : undefined} ref={me ? phoneRow : undefined}>
-                <span className="pos">{place}</span>
-                <span className="nm">
-                  <RankGem tier={row.rank} />
-                  <Link className={styles.rowLink} href={`/player/${row.playerId}`}>{row.displayName}</Link>
-                  {me && <span className="youtag">you</span>}
-                  {scope === "season" && <small>{row.wins}–{row.losses}</small>}
+                  </span>
+                </>
+              )}
+              {slug && (
+                <span className={styles.act}>
+                  <LiveDot you={me} />
+                  <DuelAction kind={me ? "open" : "watch"} href={`/duels/${slug}`} />
                 </span>
-                <span className="rec">{row.winnings.toLocaleString()}</span>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
+              )}
+              {me && <span ref={myRow} className={styles.anchor} aria-hidden="true" />}
+            </FloorRow>
+          );
+        })}
+      </FloorList>
 
       {pinned && position && (
-        <div className={`pinbar ${styles.pin}`} role="region" aria-label="Your position, pinned">
-          <span className="p">{position.place}</span>
-          <span className="nm">
-            <RankGem tier={position.row.rank} />
-            <Link href={`/player/${position.row.playerId}`}>{position.row.displayName}</Link>
-            <span className="youtag">you</span>
-            {position.gapLabel && <span className="gap">{position.gapLabel}</span>}
-          </span>
-          <span className="wn">{position.row.winnings.toLocaleString()}</span>
+        <div className={styles.pin} role="region" aria-label="Your position, pinned">
+          <span className={styles.pinPlace}>{position.place}</span>
+          <Mono name={position.row.displayName} you size="sm" />
+          <Link href={`/player/${position.row.playerId}`}>{position.row.displayName}</Link>
+          {position.gapLabel && <span className={styles.gap}>{position.gapLabel}</span>}
+          <b className={styles.pinWin}>{position.row.winnings.toLocaleString()}</b>
         </div>
       )}
-    </div>
+    </section>
   );
 }

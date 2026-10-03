@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { DraftConfig } from "@yugidraft/shared/types";
-import { CircleAlert } from "lucide-react";
+import { StatusLine, SvButton } from "@/components/sheet";
+import { DraftLayout, DraftMain, DraftRail, Num, RailSection, Rules } from "./draft-frame";
 import { secondsText, themeSelectionText } from "./create/format";
 import styles from "./create/create.module.css";
 
@@ -79,17 +80,16 @@ export function CreateThemeDraftForm() {
   const unnamed = !name.trim();
 
   return (
-    <form className="mk" onSubmit={handleSubmit}>
-      <div className="min-w-0">
+    <DraftLayout as="form" onSubmit={handleSubmit}>
+      <DraftMain>
         {error && (
-          <div className={`banner banner-bad ${styles.banner}`} role="alert">
-            <CircleAlert className="ic" aria-hidden="true" />
-            <p>{error}</p>
+          <div role="alert" className={styles.alert}>
+            <StatusLine tone="block">{error}</StatusLine>
           </div>
         )}
-        <div className={`mk-secs ${styles.sections}`}>
-          <section className="mk-sec" aria-labelledby="dt-d">
-            <div className="mk-side">
+        <div className={styles.sections}>
+          <section className={styles.sec} aria-labelledby="dt-d">
+            <div className={styles.secSide}>
               <h2 id="dt-d">Draft</h2>
               <p>Players see this name in Discord and on the web.</p>
             </div>
@@ -129,16 +129,16 @@ export function CreateThemeDraftForm() {
             </div>
           </section>
 
-          <section className="mk-sec" aria-labelledby="dt-t">
-            <div className="mk-side">
+          <section className={styles.sec} aria-labelledby="dt-t">
+            <div className={styles.secSide}>
               <h2 id="dt-t">Themes</h2>
               <p>Who drafts which archetype.</p>
             </div>
             <div className="fields">
               <fieldset className={`wide ${styles.fieldset}`}>
                 <legend className="label">Theme selection</legend>
-                <div className="opts">
-                  <label className={`opt ${styles.opt}`}>
+                <div className={styles.zoneOpts}>
+                  <label className={styles.zoneOpt}>
                     <input
                       type="radio"
                       name="theme-selection"
@@ -149,7 +149,7 @@ export function CreateThemeDraftForm() {
                     <b>Players pick</b>
                     <span>Players claim a theme in the lobby. Anyone who hasn&apos;t claimed one gets one at the start.</span>
                   </label>
-                  <label className={`opt ${styles.opt}`}>
+                  <label className={styles.zoneOpt}>
                     <input
                       type="radio"
                       name="theme-selection"
@@ -172,8 +172,8 @@ export function CreateThemeDraftForm() {
             </div>
           </section>
 
-          <section className="mk-sec" aria-labelledby="dt-p">
-            <div className="mk-side">
+          <section className={styles.sec} aria-labelledby="dt-p">
+            <div className={styles.secSide}>
               <h2 id="dt-p">Picks</h2>
               <p>Each pick shows a few cards from your own theme. You take one.</p>
             </div>
@@ -214,39 +214,32 @@ export function CreateThemeDraftForm() {
             </div>
           </section>
         </div>
-      </div>
+      </DraftMain>
 
-      <aside className="sum" aria-label="Draft summary">
-        <div className="card">
-          <p className={`card-kind ${styles.thKind}`}>Theme draft</p>
-          <p className={`sum-name${unnamed ? ` ${styles.unnamed}` : ""}`}>{unnamed ? "Untitled draft" : name.trim()}</p>
-          <dl className="rows">
-            <div>
-              <dt>Themes</dt>
-              <dd>{themeSelectionText(themeSelection, uniqueThemes)}</dd>
-            </div>
-            <div>
-              <dt>Main deck</dt>
-              <dd>{cardsPerPlayer} picks</dd>
-            </div>
-            <div>
-              <dt>Extra deck</dt>
-              <dd>{extraDeckEnabled ? `${extraDeckSize} picks` : "Not drafted"}</dd>
-            </div>
-            <div>
-              <dt>Each pick</dt>
-              <dd>{themePackSize} choices</dd>
-            </div>
-            <div>
-              <dt>Pick duration</dt>
-              <dd>{secondsText(pickSeconds)}</dd>
-            </div>
-            <div>
-              <dt>Passed cards</dt>
-              <dd>{burnUnpicked ? "Gone for good" : "Can come back"}</dd>
-            </div>
-          </dl>
-          <ol className="next" aria-label="What happens next">
+      <DraftRail
+        aria-label="Draft summary"
+        actions={
+          <SvButton type="submit" variant="primary" big wide disabled={submitting} aria-busy={submitting || undefined}>
+            Create theme draft
+          </SvButton>
+        }
+      >
+        <RailSection>
+          <p className={styles.railKind}>Theme draft</p>
+          <p className={`${styles.railName}${unnamed ? ` ${styles.unnamed}` : ""}`}>{unnamed ? "Untitled draft" : name.trim()}</p>
+          <Rules
+            rows={[
+              { label: "Themes", value: themeSelectionText(themeSelection, uniqueThemes) },
+              { label: "Main deck", value: <><Num>{cardsPerPlayer}</Num> picks</> },
+              { label: "Extra deck", value: extraDeckEnabled ? <><Num>{extraDeckSize}</Num> picks</> : "Not drafted" },
+              { label: "Each pick", value: <><Num>{themePackSize}</Num> choices</> },
+              { label: "Pick duration", value: secondsText(pickSeconds) },
+              { label: "Passed cards", value: burnUnpicked ? "Gone for good" : "Can come back" },
+            ]}
+          />
+        </RailSection>
+        <RailSection title="What happens next">
+          <ol className={styles.steps} aria-label="What happens next">
             <li><span>You get a lobby. Add one theme cube per archetype there.</span></li>
             {themeSelection === "random" ? (
               <>
@@ -260,11 +253,8 @@ export function CreateThemeDraftForm() {
               </>
             )}
           </ol>
-          <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={submitting} aria-busy={submitting || undefined}>
-            Create theme draft
-          </button>
-        </div>
-      </aside>
-    </form>
+        </RailSection>
+      </DraftRail>
+    </DraftLayout>
   );
 }

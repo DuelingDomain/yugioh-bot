@@ -1,0 +1,18 @@
+/* The page bar runs edge to edge on the floor (the shell drops its padding for OwnsPageBar), so the body
+   takes the side padding itself: 32px, 16px on phone. */
+:global(.ms).root {
+  padding: 0;
+  background: var(--floor);
+  min-height: 100%;
+}
+.body {
+  display: grid;
+  gap: clamp(28px, 4cqi, 44px);
+  align-content: start;
+  min-width: 0;
+  padding: 28px 32px 56px;
+}
+@container (max-width: 620px) {
+  .body { padding: 20px 16px 48px; }
+}
+.body > * { min-width: 0; }

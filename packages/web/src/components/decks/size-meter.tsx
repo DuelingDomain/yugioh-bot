@@ -1,17 +1,23 @@
-import type { CSSProperties } from "react";
+import { SizeBar } from "@/components/sheet";
 import styles from "./editor.module.css";
 
 export function sizeState(count: number, minimum: number, maximum: number): "ok" | "under" | "over" {
   return count < minimum ? "under" : count > maximum ? "over" : "ok";
 }
 
-/** The fill shows the count; the gold bracket marks the legal range. */
+/**
+ * A section's size on the kit's size bar: the fill is the count, the two ticks are the legal range.
+ * The bar names itself for assistive tech; the count and target sit beside it, so its own header stays hidden.
+ */
 export function DeckSizeMeter({ title, count, minimum, maximum }: { title: string; count: number; minimum: number; maximum: number }) {
   const range = minimum === maximum ? `exactly ${minimum}` : minimum === 0 ? `up to ${maximum}` : `${minimum} to ${maximum}`;
   return (
-    <span className={styles["de-ruler"]} role="img" data-s={sizeState(count, minimum, maximum)} aria-label={`${title} ${count} ${count === 1 ? "card" : "cards"}. Tables want ${range}.`} style={{ "--n": count, "--lo": minimum, "--hi": maximum, "--max": maximum > 15 ? 64 : 16 } as CSSProperties}>
-      <span className={styles["de-band"]} />
-      <span className={styles["de-mark"]} />
-    </span>
+    <SizeBar
+      className={styles["de-size"]}
+      label={`${title} ${count} ${count === 1 ? "card" : "cards"}. Tables want ${range}.`}
+      value={count}
+      min={minimum}
+      max={maximum}
+    />
   );
 }

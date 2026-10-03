@@ -1,0 +1,15 @@
+.wrap { padding: 40px 40px 60px; }
+.body { display: grid; justify-items: center; gap: 14px; padding: 56px 24px; text-align: center; }
+.code { margin: 0; font: 700 56px/1 var(--f-display); letter-spacing: 0.04em; color: var(--ink-2); text-shadow: 0 0 18px rgb(var(--beam) / 0.45); }
+.bad { color: var(--loss-ink); text-shadow: none; font-size: 40px; }
+.title { margin: 0; font: 600 28px/1.2 var(--f-display); color: var(--ink); }
+.text { margin: 0; max-width: 46ch; color: var(--ink-2); font-size: 16px; line-height: 1.5; }
+.text code { color: var(--ink); font-family: var(--f-num); }
+.acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 8px; }
+.loading { margin: 0; padding: 40px 0; color: var(--ink-3); font-size: 17px; }
+@container (max-width: 760px) {
+  .wrap { padding: 20px 16px 40px; }
+  .body { padding: 36px 8px; }
+  .code { font-size: 44px; }
+  .title { font-size: 23px; }
+}

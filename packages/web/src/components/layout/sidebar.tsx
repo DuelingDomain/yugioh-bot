@@ -2,11 +2,11 @@
 
 import { usePathname } from "next/navigation";
 import { PanelLeft } from "lucide-react";
-import { SheetRoot } from "@/components/sheet";
+import { LightRule, SheetRoot, Tip } from "@/components/sheet";
 import { AccountMenu } from "./account-menu";
 import { BrandMark } from "./brand-mark";
 import { NavList, SettingsLink } from "./nav-list";
-import { activeNavHref } from "./shell-model";
+import { activeNavHref, type LiveNow } from "./shell-model";
 import type { ShellAccount } from "./use-shell-account";
 import styles from "./shell.module.css";
 
@@ -14,33 +14,45 @@ interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
   account: ShellAccount;
+  live: LiveNow | null;
   onReportBug?: () => void;
 }
 
 /** Desktop sidebar. Hidden by the shell's CSS at phone width, where the top bar and menu take over. */
-export function Sidebar({ collapsed, onToggle, account, onReportBug }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, account, live, onReportBug }: SidebarProps) {
   const pathname = usePathname();
   const activeHref = activeNavHref(pathname, account.playerId, account.profileSettled);
   const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
+  const size = collapsed ? "rail" : "side";
+
+  const toggle = (
+    <button className={styles.toggle} type="button" aria-label={label} aria-expanded={!collapsed} title={collapsed ? undefined : label} onClick={onToggle}>
+      <PanelLeft className={styles.navIcon} aria-hidden="true" />
+    </button>
+  );
 
   return (
     <SheetRoot flow className={styles.side} data-collapsed={collapsed ? "true" : "false"}>
-      <div className={`ns ${styles.nsWrap}`} data-c={collapsed ? "" : undefined}>
-        <aside className="ns-side" aria-label="Sidebar">
-          <div className="ns-brand">
-            <BrandMark />
-            <span className="ns-word">Duelists Kingdom</span>
-            <button className="ns-ib" type="button" aria-label={label} title={label} aria-expanded={!collapsed} onClick={onToggle}>
-              <PanelLeft className="ic" aria-hidden="true" />
-            </button>
+      <aside className={styles.aside} aria-label="Sidebar" data-rail={collapsed ? "true" : undefined}>
+        <div className={styles.brand}>
+          <BrandMark className={styles.mark} />
+          {collapsed ? null : <span className={styles.word}>Duelists Kingdom</span>}
+          {collapsed ? null : toggle}
+        </div>
+        <LightRule />
+        {collapsed ? (
+          <div className={styles.railToggle}>
+            <Tip label={label} side="right" className={styles.railTip}>
+              {toggle}
+            </Tip>
           </div>
-          <NavList activeHref={activeHref} label="Main navigation" collapsed={collapsed} />
-          <div className="ns-foot">
-            <SettingsLink activeHref={activeHref} collapsed={collapsed} />
-            <AccountMenu account={account} pathname={pathname} variant="side" onReportBug={onReportBug} />
-          </div>
-        </aside>
-      </div>
+        ) : null}
+        <NavList activeHref={activeHref} label="Main navigation" size={size} live={live} />
+        <div className={styles.foot}>
+          <SettingsLink activeHref={activeHref} size={size} />
+          <AccountMenu account={account} pathname={pathname} variant="side" rail={collapsed} onReportBug={onReportBug} />
+        </div>
+      </aside>
     </SheetRoot>
   );
 }

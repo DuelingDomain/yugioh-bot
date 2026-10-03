@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Plus, Search } from "lucide-react";
+import { svButtonClass } from "@/components/sheet";
 import styles from "./create.module.css";
 
 interface ArchetypeAddProps {
@@ -91,7 +92,7 @@ export function ArchetypeAdd({
           )}
         </span>
         <button
-          className="btn btn-secondary"
+          className={svButtonClass("ghost")}
           type="button"
           disabled={query.trim().length === 0}
           onClick={() => choose(query)}

@@ -66,7 +66,7 @@ function DialogBody({ match, ratings, bestOf, actions }: DialogProps) {
   const leader = one > two ? match.playerOneName : match.playerTwoName;
   return <div className={styles.overlay}>
     <div ref={dialog} className="dialog cfm" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-      <div><h3 id={titleId}>Set the result</h3><p className="sub">{match.playerOneName} vs {match.playerTwoName} · Best of {match.series?.bestOf ?? bestOf} · organizer decision</p></div>
+      <div><h3 id={titleId}>Set the result</h3><p className="sub">{match.playerOneName} vs {match.playerTwoName}. Best of {match.series?.bestOf ?? bestOf}. Organizer decision.</p></div>
       <fieldset className="pick">
         <legend className="label">Who won the match?</legend>
         {[

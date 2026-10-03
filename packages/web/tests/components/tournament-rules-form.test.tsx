@@ -63,7 +63,7 @@ describe("TournamentRulesForm", () => {
         onSaved={() => {}}
       />,
     );
-    expect(screen.getByText(/locked — the first online game has started/i)).toBeTruthy();
+    expect(screen.getByText(/locked\. the first online game has started/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /save duel rules/i })).toBeNull();
     expect(screen.getByLabelText(/banlist/i)).toBeDisabled();
     expect(screen.getByRole("radio", { name: /best of 1/i })).toBeDisabled();
@@ -94,7 +94,7 @@ describe("PlayersTab deck marker", () => {
   it("shows deck status per participant to the organizer only", () => {
     const props = { tournament: base, tournamentSlug: "cup", currentUserPlayerId: 1, onChanged: () => {} };
     const { unmount } = render(<PlayersTab {...props} isCreator />);
-    expect(screen.getByTestId("player-deck-marker-1")).toHaveTextContent(/deck registered/i);
+    expect(screen.getByTestId("player-deck-marker-1")).toHaveTextContent(/deck in/i);
     expect(screen.getByTestId("player-deck-marker-2")).toHaveTextContent(/no deck/i);
     unmount();
     render(<PlayersTab {...props} isCreator={false} />);

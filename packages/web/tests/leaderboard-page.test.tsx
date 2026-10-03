@@ -14,6 +14,7 @@ vi.mock("@/lib/db", () => ({ getDb: () => ({ prepare: () => ({ get: () => ({ id:
 vi.mock("@yugidraft/shared/services", () => ({
   createScoringService: () => ({ getLeaderboard: () => referenceRows }),
   createSeasonService: () => ({ getActive }),
+  createDuelService: () => ({ list: () => [] }),
 }));
 
 import LeaderboardPage from "../app/(app)/leaderboard/page";

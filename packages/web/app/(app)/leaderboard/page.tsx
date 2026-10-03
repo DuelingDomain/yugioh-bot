@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createScoringService, createSeasonService } from "@yugidraft/shared/services";
+import { liveDuelSlugs } from "@/components/player/live-duels";
 import { LeaderboardClient } from "./leaderboard-client";
 
 export default async function LeaderboardPage() {
@@ -30,12 +31,15 @@ export default async function LeaderboardPage() {
       })
     : null;
 
+  const liveDuels = liveDuelSlugs(db, guildId, currentPlayerId);
+
   return (
     <LeaderboardClient
       initialRows={initialRows}
       currentPlayerId={currentPlayerId}
       activeSeason={activeSeason}
       seasonStartedOn={seasonStartedOn}
+      liveDuels={liveDuels}
     />
   );
 }

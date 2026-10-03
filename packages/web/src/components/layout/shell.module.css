@@ -1,15 +1,22 @@
 /*
- * App shell frame. The board switches desktop to phone with a container query on `.ns`;
- * the shell can't be a size container (it would trap the pages' fixed overlays), so the
- * same switch is a media query at the same 820px. Everything inside the sidebar and top
- * bar uses the board's `.ns-*` classes from match-sheet.css.
+ * App shell, Solid Vision. A cold panel sidebar with a beam hairline on its edge, a 68px brand
+ * row with one light line under it, nav items with a violet light-line bar when active, a
+ * "Live now" row under Dashboard, and your account as a seat at the foot.
+ *
+ * The shell can't be a size container (it would trap the pages' fixed overlays), so the phone
+ * switch is a media query at 820px, the same width the pages use. Tokens (--ink, --pen, --rule)
+ * come from the `.ms` root that wraps the sidebar, top bar and menu. Module rules are unlayered
+ * so they win over Tailwind's layered utilities; where they have to beat the sheet's own `.ms`
+ * rules, the selector is doubled up on purpose.
  */
 
 .frame {
   position: relative;
+  /* The cold floor (the sheet's --floor). The frame is outside the .ms root, so the value is repeated. */
+  background: #050811;
 }
 
-/* ---- Desktop sidebar ---- */
+/* ---- Sidebar ---- */
 .side {
   position: fixed;
   top: 0;
@@ -17,47 +24,518 @@
   left: 0;
   z-index: 30;
   width: 236px;
+  background: var(--panel);
 }
 
 .side[data-collapsed="true"] {
   width: 68px;
 }
 
-.side > div.nsWrap {
-  display: block;
-  height: 100%;
-  min-height: 0;
+/* The beam hairline on the sidebar's edge, fading out toward the middle. */
+.side::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 1px;
+  background: linear-gradient(180deg, rgb(var(--beam) / 0.22), rgb(var(--beam) / 0.07) 55%, rgb(var(--beam) / 0.16));
+  pointer-events: none;
 }
 
-.side > .nsWrap :global(.ns-side) {
+.aside {
+  display: flex;
+  flex-direction: column;
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) transparent;
 }
 
-/* Keep the account menu outside the rail's scroll clipping. */
-.side > .nsWrap :global(.ns-menu) {
+/* 67px + the 1px light line under it = 68px, level with a page bar's line. */
+.brand {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 67px;
+  padding: 0 6px 0 12px;
+}
+
+.aside[data-rail="true"] .brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.mark {
+  flex: none;
+  width: 28px;
+  height: 28px;
+}
+
+.word {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: 600 16px/1 var(--f-display);
+  letter-spacing: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.toggle {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--ink);
+}
+
+.railToggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 8px 12px 0;
+}
+
+.railToggle .toggle {
+  width: 44px;
+  height: 44px;
+}
+
+/* ---- Nav ---- */
+.nav {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 12px 8px;
+}
+
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.groupLabel {
+  margin: 0;
+  padding: 18px 12px 6px;
+  color: var(--ink-3);
+  font: 500 12.5px/1.2 var(--f-ui);
+  letter-spacing: 0.01em;
+}
+
+.groupLine {
+  display: block;
+  width: 24px;
+  height: 0;
+  margin: 12px auto 10px;
+  border-top: 1px solid var(--rule-lo);
+}
+
+.navItem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--ink-2);
+  font: 500 14.5px/1.2 var(--f-ui);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.navItem[data-size="phone"] {
+  height: 48px;
+  font-size: 16px;
+}
+
+.navItem[data-size="rail"] {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
+}
+
+.navItem:hover {
+  background: rgb(255 255 255 / 0.04);
+  color: var(--ink);
+}
+
+.navItem:focus-visible,
+.toggle:focus-visible,
+.liveRow:focus-visible,
+.liveTile:focus-visible,
+.seatBtn:focus-visible,
+.ringBtn:focus-visible,
+.menuButton:focus-visible,
+.menuItem:focus-visible {
+  outline: 2px solid var(--pen-ink);
+  outline-offset: -2px;
+}
+
+/* Active: a 2px violet light-line bar on the left and a soft violet fill. */
+.navItem[data-active="true"] {
+  background: var(--pen-soft);
+  color: var(--ink);
+}
+
+.navItem[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--pen);
+  box-shadow: 0 0 8px rgb(155 126 255 / 0.55);
+}
+
+.navItem[data-size="rail"][data-active="true"]::before {
+  left: -12px;
+  top: 10px;
+  bottom: 10px;
+}
+
+.navIcon {
+  flex: none;
+  width: 19px;
+  height: 19px;
+  color: var(--ink-3);
+}
+
+.navItem[data-active="true"] .navIcon {
+  color: var(--pen-ink);
+}
+
+.navItem:hover .navIcon {
+  color: var(--ink-2);
+}
+
+.navLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Rail tooltips: fixed, so the scrolling sidebar can't clip them. The tip wrapper is a flex
+   box so the tip's static top lands centred on the control. */
+.railTip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.side .railTip.railTip[data-side="right"] > :global(.sv-tip) {
   position: fixed;
-  right: auto;
-  width: 215px;
-}
-
-.side[data-collapsed="true"] > .nsWrap :global(.ns-menu) {
   left: 76px;
-  width: 284px;
-}
-
-/* Collapsed rail: the label shows as a tooltip on hover and keyboard focus. */
-.side > .nsWrap :global(.ns-tip) {
-  display: none;
-  position: fixed;
-  left: 72px;
   top: auto;
+  bottom: auto;
   translate: none;
 }
 
-.side > .nsWrap :global(.ns-i):hover > :global(.ns-tip),
-.side > .nsWrap :global(.ns-i):focus-visible > :global(.ns-tip) {
-  display: inline-flex;
+/* ---- Live now ---- */
+.liveWrap {
+  display: flex;
+  flex-direction: column;
+  margin: 8px 0;
+}
+
+.liveWrap[data-size="rail"] {
+  align-items: center;
+}
+
+.liveWrap[data-size="rail"] > :global(.sv-rule) {
+  width: 24px;
+}
+
+.liveRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.liveRow[data-size="phone"] {
+  min-height: 56px;
+}
+
+.liveRow:hover,
+.liveTile:hover {
+  background: rgb(255 255 255 / 0.04);
+}
+
+.liveTile {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 40px;
+  margin: 4px 0;
+  border-radius: 8px;
+}
+
+.liveDot {
+  flex: none;
+}
+
+.liveText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.liveTitle {
+  font: 550 14.5px/1.2 var(--f-ui);
+}
+
+.liveSub {
+  overflow: hidden;
+  color: var(--ink-3);
+  font: 400 12.5px/1.25 var(--f-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.liveAction {
+  flex: none;
+  color: var(--pen-ink);
+  font: 500 13px/1.2 var(--f-ui);
+}
+
+/* ---- Foot: Settings and your seat ---- */
+.foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--rule-lo);
+}
+
+.seatBtn {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.seatBtn[data-rail="true"] {
+  width: 44px;
+  min-height: 52px;
+  margin: 0 auto;
+  padding: 0;
+  justify-content: center;
+}
+
+.seatBtn:hover {
+  background: rgb(255 255 255 / 0.04);
+}
+
+.seatBtn[data-on] {
+  background: var(--pen-soft);
+}
+
+.seatText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.seatName {
+  overflow: hidden;
+  color: var(--ink);
+  font: 550 14.5px/1.2 var(--f-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seatLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink-3);
+  font: 400 12.5px/1.2 var(--f-ui);
+  white-space: nowrap;
+}
+
+.seatLine :global(.tier) {
+  font-size: 12.5px;
+}
+
+.seatElo {
+  color: var(--ink-2);
+  font: 500 12.5px/1 var(--f-num);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.seatSkRing {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--panel-3);
+}
+
+.seatSk {
+  display: block;
+  height: 11px;
+  border-radius: 4px;
+  background: var(--panel-3);
+}
+
+.ringBtn {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+/* ---- Account menu ---- */
+.menu {
+  position: fixed;
+  z-index: 70;
+  left: 10px;
+  bottom: 76px;
+  width: 216px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--panel-3);
+  box-shadow: 0 24px 60px -24px rgb(0 0 0 / 0.9);
+}
+
+.menu[data-rail="true"] {
+  left: 76px;
+  bottom: 12px;
+  width: 284px;
+}
+
+.menu[data-variant="phone"] {
+  left: auto;
+  right: 8px;
+  top: 54px;
+  bottom: auto;
+  width: min(300px, calc(100vw - 16px));
+}
+
+.drawer .menu[data-variant="side"] {
+  width: min(300px, calc(86vw - 20px));
+}
+
+.menuHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--rule-lo);
+}
+
+.menuName {
+  margin: 0;
+  color: var(--ink);
+  font: 550 15px/1.25 var(--f-ui);
+}
+
+.menuSub {
+  margin: 3px 0 0;
+  color: var(--ink-3);
+  font: 400 12.5px/1.3 var(--f-ui);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-2);
+  font: 450 14px/1.2 var(--f-ui);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: rgb(255 255 255 / 0.06);
+  color: var(--ink);
+}
+
+.menuItem[aria-disabled="true"] {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.menuItem[aria-disabled="true"]:hover {
+  background: none;
+}
+
+.menuIcon {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  color: var(--ink-3);
+}
+
+.menuNote {
+  margin: 0;
+  padding: 0 10px 8px 38px;
+  color: var(--ink-3);
+  font: 400 12.5px/1.45 var(--f-ui);
+}
+
+.menuSep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--rule-lo);
 }
 
 /* ---- Page column ---- */
@@ -77,6 +555,59 @@
 
 .frame[data-sidebar-collapsed="true"] .bugFab {
   left: calc(68px + 12px);
+  /* The rail's account menu opens to the right, over this corner. It lives in the sidebar's z-30 layer, so the button
+     sits just under that layer and the menu stays on top of it. */
+  z-index: 29;
+}
+
+/* A page that draws its own bar (see OwnsPageBar) runs edge to edge, so the bar's line sits
+   level with the sidebar's brand line. The page pads its own content below the bar. */
+.frame:has([data-shell-bar="own"]) .content {
+  padding: 0 0 64px; /* the 64px at the end keeps the last row clear of the Report bug button */
+}
+
+/* ---- The phone menu button. Bare in the shell's own bar; bordered inside a page bar. ---- */
+.menuButton {
+  position: relative;
+  display: none;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.menuButton:hover {
+  border-color: var(--rule-hi);
+  color: var(--ink);
+}
+
+.menuButton[data-bare="true"] {
+  width: 44px;
+  height: 44px;
+  border-color: transparent;
+}
+
+.menuIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.menuDot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  border-radius: 50%;
+  background: var(--panel);
+  line-height: 0;
 }
 
 /* ---- Phone top bar (phone width only) ---- */
@@ -84,11 +615,25 @@
   display: none;
 }
 
-.avatarImg {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 56px;
+  padding: 0 8px 0 6px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--rule-lo);
+}
+
+.topTitle {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: 600 17px/1.2 var(--f-display);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 820px) {
@@ -104,10 +649,9 @@
   .bugFab,
   .frame[data-sidebar-collapsed="true"] .bugFab {
     left: 12px;
+    z-index: 40;
   }
 
-  /* The board's phone rule for .ns-top sits in a container query, and the shell has no
-     size container, so the same rule is repeated here. */
   .topWrap {
     display: block;
     position: sticky;
@@ -115,14 +659,13 @@
     z-index: 20;
   }
 
-  .topWrap > header:global(.ns-top) {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    height: 56px;
-    padding: 0 8px 0 4px;
-    background: rgb(8 12 23 / 0.94);
-    border-bottom: 1px solid var(--rule-lo);
+  .menuButton {
+    display: inline-grid;
+  }
+
+  /* The page's own bar replaces this one, so two bars never stack. */
+  .frame:has([data-shell-bar="own"]) .topWrap {
+    display: none;
   }
 }
 
@@ -133,6 +676,58 @@
   z-index: 60;
 }
 
-.layer > .drawer {
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: rgb(2 4 10 / 0.7);
+  animation: shell-fade 180ms ease-out backwards;
+}
+
+.drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(320px, 86vw);
   overflow-y: auto;
+  background: var(--panel);
+  animation: shell-slide 220ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+
+.drawer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 1px;
+  background: linear-gradient(180deg, rgb(var(--beam) / 0.22), rgb(var(--beam) / 0.07) 55%, rgb(var(--beam) / 0.16));
+  pointer-events: none;
+}
+
+@keyframes shell-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes shell-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrim,
+  .drawer {
+    animation: none;
+  }
 }

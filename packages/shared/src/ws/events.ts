@@ -1,3 +1,5 @@
+import type { TalkLineId } from "./talk.js";
+
 export type DraftStatusBroadcast = {
   kind: "status";
   slug: string;
@@ -29,14 +31,23 @@ export type DraftSeatsBroadcast = {
   slug: string;
 };
 
+/** A fixed table-talk line from one seated player. */
+export type DraftTalkBroadcast = {
+  kind: "talk";
+  slug: string;
+  playerId: number;
+  line: TalkLineId;
+};
+
 export type DraftBroadcastPayload =
   | DraftStatusBroadcast
   | DraftPickBroadcast
   | DraftResyncBroadcast
   | DraftCompleteBroadcast
-  | DraftSeatsBroadcast;
+  | DraftSeatsBroadcast
+  | DraftTalkBroadcast;
 
-export const DRAFT_BROADCAST_KINDS = ["status", "pick", "resync", "complete", "seats"] as const;
+export const DRAFT_BROADCAST_KINDS = ["status", "pick", "resync", "complete", "seats", "talk"] as const;
 
 export type TournamentParticipantJoinedBroadcast = {
   kind: "participant-joined";

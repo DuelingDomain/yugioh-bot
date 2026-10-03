@@ -2,37 +2,32 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, Flag, Lock, X } from "lucide-react";
-import { ConfirmPanel, DangerRow, DangerZone, RankGem, SheetPanel } from "@/components/sheet";
+import { Mono, StatusLine, SvButton, ringColour, YouPill } from "@/components/sheet";
 import type { PlayerRatings } from "../sheet-contracts";
 import type { TournamentDetail } from "../types";
+import { DeckMarker } from "../deck-marker";
 import { useOptionalRouter } from "../use-optional-router";
+import styles from "./rail.module.css";
 
-/** Decks (organizer) or Players (everyone else): one list, ids "players" for the old ?tab=players link. */
-export function PlayersPanel({ tournament, isHost, ratings }: { tournament: TournamentDetail; isHost: boolean; ratings: PlayerRatings }) {
+/** The organizer's list of who has a deck in. Everyone else sees the standings instead. */
+export function PlayersPanel({ tournament }: { tournament: TournamentDetail; ratings?: PlayerRatings }) {
   return (
-    <SheetPanel id="players" title={isHost ? "Decks" : "Players"} aside={<small>{isHost ? "organizer only" : `${tournament.participants.length} players`}</small>}>
-      <ul className="plist">
-        {tournament.participants.map((player) => (
-          <li key={player.playerId}>
-            <span className="nm">
-              <RankGem tier={ratings.get(player.playerId)?.rank ?? "none"} />
-              <Link href={`/player/${player.playerId}`}>{player.displayName}</Link>
-              {player.playerId === tournament.currentUserPlayerId && <span className="youtag">you</span>}
-            </span>
-            {isHost && (player.deckRegistered !== undefined || player.deckLocked === true) && (
-              player.deckLocked ? <span className="deckst ok"><Lock className="ic sm" aria-hidden="true" />Locked</span>
-                : player.deckRegistered ? <span className="deckst ok"><Check className="ic sm" aria-hidden="true" />Registered</span>
-                  : <span className="deckst no"><span className="lamp" data-s="wait" aria-hidden="true" />No deck yet</span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </SheetPanel>
+    <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+      {tournament.participants.map((player) => (
+        <li key={player.playerId} className={styles.deckRow}>
+          <span className={styles.deckName}>
+            <Mono name={player.displayName} size="sm" ring={ringColour(player.playerId)} you={player.playerId === tournament.currentUserPlayerId} />
+            <Link href={`/player/${player.playerId}`}>{player.displayName}</Link>
+            {player.playerId === tournament.currentUserPlayerId && <YouPill />}
+          </span>
+          <DeckMarker participant={player} />
+        </li>
+      ))}
+    </ul>
   );
 }
 
-/** End now and Cancel, fenced off. Both confirm in place; same endpoints as the old host controls. */
+/** End now and Cancel. Both confirm in place; same endpoints as the old host controls. */
 export function EndingEarly({ tournament, tournamentSlug, onChanged }: { tournament: TournamentDetail; tournamentSlug: string; onChanged: () => void }) {
   const router = useOptionalRouter();
   const [confirm, setConfirm] = useState<"complete" | "cancel" | null>(null);
@@ -60,25 +55,33 @@ export function EndingEarly({ tournament, tournamentSlug, onChanged }: { tournam
   }
 
   return (
-    <DangerZone title="Ending early">
+    <div>
       {confirm ? (
-        <ConfirmPanel
-          title={confirm === "complete" ? "End the tournament now?" : "Cancel this tournament?"}
-          confirmLabel={confirm === "complete" ? "Yes, end now" : "Yes, cancel"}
-          cancelLabel="Go back"
-          busy={busy}
-          onCancel={() => { setConfirm(null); setError(null); }}
-          onConfirm={() => run(confirm)}
-        >
-          {confirm === "complete" ? "Unplayed matches stay unplayed. No champion is recorded." : "It closes for everyone, results and Elo included, and can't be reopened."}
-        </ConfirmPanel>
+        <div className={styles.confirmBox}>
+          <StatusLine tone="warn">
+            <strong>{confirm === "complete" ? "End the tournament now?" : "Cancel this tournament?"}</strong>{" "}
+            {confirm === "complete" ? "Unplayed matches stay unplayed. No champion is recorded." : "It closes for everyone, results and Elo included, and can't be reopened."}
+          </StatusLine>
+          <div className={styles.endActs}>
+            <SvButton variant="quiet" disabled={busy} onClick={() => { setConfirm(null); setError(null); }}>Go back</SvButton>
+            <SvButton variant="danger" disabled={busy} aria-busy={busy} onClick={() => run(confirm)}>{confirm === "complete" ? "Yes, end now" : "Yes, cancel"}</SvButton>
+          </div>
+        </div>
       ) : (
         <>
-          <DangerRow title="End tournament now" description="Unplayed matches stay unplayed. No champion is recorded." action={<button type="button" className="btn btn-secondary btn-sm" onClick={() => setConfirm("complete")}><Flag className="ic sm" aria-hidden="true" />End now</button>} />
-          <DangerRow title="Cancel tournament" description="Removes it for everyone, results and Elo included." action={<button type="button" className="btn btn-danger btn-sm" onClick={() => setConfirm("cancel")}><X className="ic sm" aria-hidden="true" />Cancel</button>} />
+          <div className={styles.endRow}>
+            <p className={styles.endT}>End the tournament early</p>
+            <p className={styles.endN}>Unplayed matches stay unplayed and no champion is recorded.</p>
+            <div className={styles.endActs}><SvButton onClick={() => setConfirm("complete")}>End now</SvButton></div>
+          </div>
+          <div className={styles.endRow}>
+            <p className={styles.endT}>Remove it</p>
+            <p className={styles.endN}>Removes the tournament for everyone, results and Elo included.</p>
+            <div className={styles.endActs}><SvButton variant="danger" onClick={() => setConfirm("cancel")}>Cancel the tournament</SvButton></div>
+          </div>
         </>
       )}
-      {error && <div className="banner banner-bad" role="alert"><p>{error}</p></div>}
-    </DangerZone>
+      {error && <div className={styles.err} role="alert"><StatusLine tone="block">{error}</StatusLine></div>}
+    </div>
   );
 }

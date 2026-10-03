@@ -26,6 +26,10 @@ interface TableProps {
   direction: 1 | -1;
   /** Seats at the table, you included: indexes run clockwise from you. */
   seatCount: number;
+  /** The pack ribbon is up: the table stays empty until it hides, then the cards deal in. */
+  hold: boolean;
+  /** This deal opened a pack or round with a ribbon, so the cards deal in from the middle (the mock's "deal"). */
+  ribboned: boolean;
   /** Raised each time everyone is in. */
   settle: number;
   stepKey: string;
@@ -45,7 +49,7 @@ interface TableProps {
 const hoverable = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: hover)").matches;
 
 export const Table = memo(function Table(props: TableProps) {
-  const { geometry: g, deal, theme, phase, turn, direction, seatCount, settle, stepKey, pickSeconds } = props;
+  const { geometry: g, deal, theme, phase, turn, direction, seatCount, settle, stepKey, pickSeconds, hold, ribboned } = props;
   const slots = useMemo(() => packSlots(g, deal.dealt.length, theme), [g, deal.dealt.length, theme]);
   const [clearedSeq, setClearedSeq] = useState(-1);
   const [leaving, setLeaving] = useState<{ batch: number; items: Item[]; mode: "pass" | "stack" } | null>(null);
@@ -60,11 +64,11 @@ export const Table = memo(function Table(props: TableProps) {
   }, [g.tall]);
 
   const visible: Item[] = useMemo(() => {
-    if (clearedSeq === deal.seq) return [];
+    if (clearedSeq === deal.seq || hold) return [];
     return deal.dealt
       .map((card, index) => ({ card, index, slot: slots[index] }))
       .filter((it) => it.card.id !== deal.pickedId && it.slot);
-  }, [deal.dealt, deal.pickedId, deal.seq, slots, clearedSeq]);
+  }, [deal.dealt, deal.pickedId, deal.seq, slots, clearedSeq, hold]);
 
   const prev = useRef<{ seq: number; items: Item[] }>({ seq: deal.seq, items: [] });
   const mode = theme ? "stack" : "pass";
@@ -179,7 +183,7 @@ export const Table = memo(function Table(props: TableProps) {
   /* deal in */
   const dealt = useRef(-1);
   useLayoutEffect(() => {
-    if (dealt.current === deal.seq || deal.seq === 0) return;
+    if (hold || dealt.current === deal.seq || deal.seq === 0) return;
     dealt.current = deal.seq;
     const host = cardsRef.current;
     if (!host || motionOff()) return;
@@ -191,7 +195,7 @@ export const Table = memo(function Table(props: TableProps) {
       if (!s) return;
       const mv = el.querySelector<HTMLElement>(".mv");
       const flip = el.querySelector<HTMLElement>(".flip");
-      if (deal.reason === "pass") {
+      if (deal.reason === "pass" && !ribboned) {
         if (g.phone) {
           animate(
             mv,
@@ -234,7 +238,7 @@ export const Table = memo(function Table(props: TableProps) {
       );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deal.seq]);
+  }, [deal.seq, hold]);
 
   /* the lamp catches a card now and then while you choose */
   useEffect(() => {

@@ -59,13 +59,17 @@ function titleCase(s: string): string {
 }
 export { titleCase };
 
-/** Type, attribute and level only: the draft API does not send race. */
+/**
+ * Type, attribute, monster type and level. The monster type and the spell or trap kind come from the
+ * duel engine; when the engine could not be reached they are missing and the line is just "Spell" or "Trap".
+ */
 export function typeParts(card: RoomCard): string[] {
   const kind = kindOf(card);
-  if (kind === "spell") return ["Spell"];
-  if (kind === "trap") return ["Trap"];
+  if (kind === "spell") return [card.spellTrapType ? `${card.spellTrapType} Spell` : "Spell"];
+  if (kind === "trap") return [card.spellTrapType ? `${card.spellTrapType} Trap` : "Trap"];
   const parts = [card.type.replace(/ Card$/, "")];
   if (card.attribute) parts.push(card.attribute);
+  if (card.race) parts.push(raceLabel(card.race));
   const frame = card.frameType.trim().toLowerCase();
   if (card.level) {
     if (frame.startsWith("xyz")) parts.push(`Rank ${card.level}`);
@@ -337,20 +341,104 @@ export interface RoomFilter {
   q: string;
   lvl: ReadonlySet<TierKey>;
   attr: ReadonlySet<string>;
+  /** Archetype names, as the card catalog spells them. */
+  arch: ReadonlySet<string>;
+  /** Monster types, and spell and trap kinds, as `monster:Dragon`, `spell:Quick-Play`, `trap:Counter`. */
+  type: ReadonlySet<string>;
 }
 
-export const EMPTY_FILTER: RoomFilter = { kinds: new Set(), q: "", lvl: new Set(), attr: new Set() };
+export const EMPTY_FILTER: RoomFilter = {
+  kinds: new Set(),
+  q: "",
+  lvl: new Set(),
+  attr: new Set(),
+  arch: new Set(),
+  type: new Set(),
+};
 
 export function isFiltering(f: RoomFilter): boolean {
-  return f.kinds.size > 0 || f.q !== "" || f.lvl.size > 0 || f.attr.size > 0;
+  return f.kinds.size > 0 || f.q !== "" || f.lvl.size > 0 || f.attr.size > 0 || f.arch.size > 0 || f.type.size > 0;
 }
 
 export function facetCount(f: RoomFilter): number {
-  return f.lvl.size + f.attr.size;
+  return f.lvl.size + f.attr.size + f.arch.size + f.type.size;
+}
+
+export type TypeRow = "monster" | "spell" | "trap";
+
+/** The chip key for a card's monster type or spell/trap kind, or null when the engine did not say. */
+export function typeKey(card: RoomCard): string | null {
+  const kind = kindOf(card);
+  if (kind === "spell") return card.spellTrapType ? `spell:${card.spellTrapType}` : null;
+  if (kind === "trap") return card.spellTrapType ? `trap:${card.spellTrapType}` : null;
+  return card.race ? `monster:${card.race}` : null;
+}
+
+/** The engine names monster types as keys ("winged_beast"). These are the printed names. */
+const RACE_LABELS: Record<string, string> = {
+  warrior: "Warrior",
+  spellcaster: "Spellcaster",
+  fairy: "Fairy",
+  fiend: "Fiend",
+  zombie: "Zombie",
+  machine: "Machine",
+  aqua: "Aqua",
+  pyro: "Pyro",
+  rock: "Rock",
+  winged_beast: "Winged Beast",
+  windbeast: "Winged Beast",
+  plant: "Plant",
+  insect: "Insect",
+  thunder: "Thunder",
+  dragon: "Dragon",
+  beast: "Beast",
+  beast_warrior: "Beast-Warrior",
+  dinosaur: "Dinosaur",
+  fish: "Fish",
+  sea_serpent: "Sea Serpent",
+  reptile: "Reptile",
+  psychic: "Psychic",
+  divine_beast: "Divine-Beast",
+  divine: "Divine-Beast",
+  creator_god: "Creator God",
+  creatorgod: "Creator God",
+  wyrm: "Wyrm",
+  cyberse: "Cyberse",
+  illusion: "Illusion",
+  cyborg: "Cyborg",
+  magical_knight: "Magical Knight",
+  high_dragon: "High Dragon",
+  omega_psychic: "Omega Psychic",
+  celestial_warrior: "Celestial Warrior",
+  galaxy: "Galaxy",
+};
+
+/** A monster type key or name as it is printed: "beast_warrior" and "Beast-Warrior" both read "Beast-Warrior". */
+export function raceLabel(race: string): string {
+  const raw = race.trim();
+  if (!raw) return "";
+  const known = RACE_LABELS[raw.toLowerCase().replace(/[\s-]+/g, "_")];
+  if (known) return known;
+  return raw
+    .replace(/_+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/(^|\s)(\S)/g, (_, gap: string, ch: string) => gap + ch.toUpperCase());
+}
+
+/** "monster:winged_beast" reads as Winged Beast; "spell:Quick-Play" as Quick-Play. */
+export function typeKeyName(key: string): string {
+  const name = key.slice(key.indexOf(":") + 1);
+  return key.startsWith("monster:") ? raceLabel(name) : name;
+}
+
+function typeKeyWords(key: string): string {
+  const name = typeKeyName(key);
+  return key.startsWith("spell:") ? `${name} Spell` : key.startsWith("trap:") ? `${name} Trap` : name;
 }
 
 export function haystack(card: RoomCard): string {
-  return [card.name, card.effectText, card.type, card.attribute, KIND_ONE[kindOf(card)], ...typeParts(card)]
+  return [card.name, card.effectText, card.type, card.attribute, card.race, card.race ? raceLabel(card.race).replace(/-/g, " ") : null, card.archetype, KIND_ONE[kindOf(card)], ...typeParts(card)]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -372,7 +460,12 @@ export function matchesFilter(card: RoomCard, f: RoomFilter): boolean {
     const level = card.level ?? 0;
     if (![...f.lvl].some((k) => tierMatches(k, level))) return false;
   }
+  if (f.type.size) {
+    const key = typeKey(card);
+    if (!key || !f.type.has(key)) return false;
+  }
   if (f.attr.size && !(card.attribute && f.attr.has(card.attribute))) return false;
+  if (f.arch.size && !(card.archetype && f.arch.has(card.archetype))) return false;
   return true;
 }
 
@@ -383,7 +476,9 @@ export function filterWords(f: RoomFilter): string {
     parts.push(subtype && subtype !== "all" ? `${titleCase(subtype)} monsters` : [...f.kinds].map((k) => KIND_LABEL[k]).join(" or "));
   }
   if (f.lvl.size) parts.push("Level " + [...f.lvl].map((k) => TIER_RANGE[k]).join(" or "));
+  if (f.type.size) parts.push([...f.type].map(typeKeyWords).join(" or "));
   if (f.attr.size) parts.push([...f.attr].map(titleCase).join(" or "));
+  if (f.arch.size) parts.push([...f.arch].join(" or "));
   if (f.q) parts.push(`“${f.q}”`);
   return parts.join(", ");
 }
@@ -400,16 +495,63 @@ export interface FacetChip {
   n: number;
 }
 
-/** Attribute chips: counts come from the list shown, but any attribute in this pack gets a chip too. */
-export function attributeChips(list: RoomCard[], inPack: RoomCard[], selected: ReadonlySet<string>): FacetChip[] {
+/**
+ * One row of filter chips. Counts come from the list shown; any key found in this pack gets a chip
+ * too (greyed at zero), and so does anything already selected. Most cards first, then A to Z.
+ * With a limit, the first `limit` stay and a selected chip is never cut.
+ */
+export function facetChips(opts: {
+  list: RoomCard[];
+  inPack: RoomCard[];
+  selected: ReadonlySet<string>;
+  keyOf: (card: RoomCard) => string | null | undefined;
+  limit?: number;
+}): FacetChip[] {
   const counts = new Map<string, number>();
-  for (const c of list) if (c.attribute) counts.set(c.attribute, (counts.get(c.attribute) ?? 0) + 1);
+  for (const c of opts.list) {
+    const k = opts.keyOf(c);
+    if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
   const keys = new Set<string>(counts.keys());
-  for (const c of inPack) if (c.attribute) keys.add(c.attribute);
-  selected.forEach((k) => keys.add(k));
-  return [...keys]
+  for (const c of opts.inPack) {
+    const k = opts.keyOf(c);
+    if (k) keys.add(k);
+  }
+  opts.selected.forEach((k) => keys.add(k));
+  const sorted = [...keys]
     .map((key) => ({ key, n: counts.get(key) ?? 0 }))
     .sort((a, b) => b.n - a.n || a.key.localeCompare(b.key));
+  if (!opts.limit || sorted.length <= opts.limit) return sorted;
+  const kept = sorted.slice(0, opts.limit);
+  return [...kept, ...sorted.slice(opts.limit).filter((c) => opts.selected.has(c.key))];
+}
+
+/** Attribute chips: counts come from the list shown, but any attribute in this pack gets a chip too. */
+export function attributeChips(list: RoomCard[], inPack: RoomCard[], selected: ReadonlySet<string>): FacetChip[] {
+  return facetChips({ list, inPack, selected, keyOf: (c) => c.attribute });
+}
+
+/**
+ * Type chips for one row: Monster type (monsters and the extra deck), Spells or Traps. Keys look like
+ * `monster:Dragon`. With no engine data there are no keys, so the row is empty and hides.
+ */
+export function typeChips(row: TypeRow, list: RoomCard[], inPack: RoomCard[], selected: ReadonlySet<string>): FacetChip[] {
+  const mine = new Set([...selected].filter((k) => k.startsWith(`${row}:`)));
+  return facetChips({
+    list,
+    inPack,
+    selected: mine,
+    keyOf: (c) => {
+      const key = typeKey(c);
+      return key && key.startsWith(`${row}:`) ? key : null;
+    },
+  });
+}
+
+/** Archetype chips: the eight biggest, plus any you have switched on. */
+export const ARCHETYPE_CHIP_LIMIT = 8;
+export function archetypeChips(list: RoomCard[], inPack: RoomCard[], selected: ReadonlySet<string>): FacetChip[] {
+  return facetChips({ list, inPack, selected, keyOf: (c) => c.archetype, limit: ARCHETYPE_CHIP_LIMIT });
 }
 
 /* ---------- the pool: grouping, order, pick numbers ---------- */
@@ -599,6 +741,68 @@ export function dealReducer(state: DealState, event: DealEvent): DealState {
   }
   if (first) return { ...state, stepKey: event.stepKey };
   return state;
+}
+
+/* ---------- the ribbon that opens a pack or a round ---------- */
+
+export interface DealRibbon {
+  /** The deal this ribbon belongs to. The cards stay off the table until it hides. */
+  seq: number;
+  title: string;
+  sub: string;
+  tone: "" | "extra";
+}
+
+/**
+ * The news that comes before a deal, as in the mock: a new pack (pick 1), the start of a theme draft,
+ * or the switch to the Extra deck. Every other deal (a pass inside a pack) has no ribbon and shows at once.
+ */
+export function dealRibbon(opts: {
+  seq: number;
+  theme: boolean;
+  poolCount: number;
+  pickStep: number;
+  packRound: number;
+  direction: 1 | -1;
+  sizes: Pick<RoomSizes, "extraSize" | "cardsPerPlayer">;
+}): DealRibbon | null {
+  const { seq } = opts;
+  if (seq === 0) return null;
+  if (opts.theme) {
+    if (opts.poolCount === 0 && seq === 1) {
+      return { seq, title: "Theme draft", sub: "Private packs. Nothing passes.", tone: "" };
+    }
+    if (opts.sizes.extraSize > 0 && opts.poolCount === opts.sizes.cardsPerPlayer) {
+      return {
+        seq,
+        title: "Extra deck",
+        sub: `Main deck done. Pick ${opts.sizes.extraSize} for your Extra Deck.`,
+        tone: "extra",
+      };
+    }
+    return null;
+  }
+  if (opts.pickStep === 1) return { seq, title: `Pack ${opts.packRound}`, sub: passLabel(opts.direction), tone: "" };
+  return null;
+}
+
+/**
+ * A reload while you wait: the live deal is gone, but the draft's own pool is not. Your last pool card is the
+ * one you took this step, so the reader can show it again. Nothing about anyone else's pick is read.
+ * The leftover pack is not in the fetched state (the server returns no pack once you have picked).
+ * A pass also counts as hasPicked, but you took no card: the last pool card is an older step's, so show none.
+ */
+export function restoredPick(opts: {
+  turn: Turn;
+  seats: SeatLike[];
+  pool: RoomCard[];
+  passed?: boolean;
+}): RoomCard | null {
+  if (opts.turn !== "waiting" && opts.turn !== "settling") return null;
+  if (opts.passed) return null;
+  const me = opts.seats.find((s) => s.isCurrentPlayer);
+  if (!me?.hasPicked) return null;
+  return opts.pool.length ? opts.pool[opts.pool.length - 1] : null;
 }
 
 /** The cards on the table: the dealt pack without the one you took. */

@@ -31,8 +31,8 @@ describe("theme lobby preflight", () => {
     expect(screen.getByText("Mind: Control").closest("li")).not.toHaveAttribute("data-bad");
     expect(mainTile).toContainElement(mainLine);
     expect(extraTile).toContainElement(extraLine);
-    expect(mainLine.parentElement!.previousElementSibling).toHaveTextContent("60 main · 4 extra");
-    expect(extraLine.parentElement!.previousElementSibling).toHaveTextContent("60 main · 4 extra");
+    expect(mainLine.parentElement!.previousElementSibling).toHaveTextContent("60 main, 4 extra");
+    expect(extraLine.parentElement!.previousElementSibling).toHaveTextContent("60 main, 4 extra");
     expect(within(mainTile).queryByText(/Extra may run short/)).not.toBeInTheDocument();
     expect(within(extraTile).queryByText(/Main pool too small/)).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("Gaia knights can't be drafted yet. Its main pool is too small.");

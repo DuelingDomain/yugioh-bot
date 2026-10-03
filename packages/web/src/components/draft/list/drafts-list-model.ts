@@ -1,4 +1,5 @@
 /** Row model for the drafts list (/drafts). Pure, so it is easy to test. */
+import type { StageStep } from "@/components/sheet";
 import { formatPickSeconds } from "../pick-time";
 
 export interface DraftListConfig {
@@ -108,46 +109,41 @@ export function listSummaryParts(groups: DraftGroups): string[] {
   return parts;
 }
 
-export interface LiveTrack {
-  stations: { code: string; name: string }[];
-  current: number;
-  /** Caption in two halves, joined by the board's "·" separator. */
-  caption: [string, string];
+export interface LiveStages {
+  /** Lobby is done; the draft is now; deck building is next. A theme draft with an Extra deck has a stage for it. */
+  steps: StageStep[];
+  /** Where the draft is, as one quiet line: "Pack 2 of 3, pick 4" or "Round 41 of 55, Extra deck". */
+  caption: string;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(Math.max(n, lo), hi);
 }
 
-export function liveTrack(d: DraftListItem): LiveTrack {
+export function liveStages(d: DraftListItem): LiveStages {
   const c = d.config;
   if (c.mode === "theme") {
     const withExtra = c.extraDeckEnabled && c.extraDeckSize > 0;
     const total = Math.max(c.cardsPerPlayer + (withExtra ? c.extraDeckSize : 0), 1);
     const round = clamp(d.wave, 1, total);
     const inExtra = withExtra && round > c.cardsPerPlayer;
-    const stations = [
-      { code: "LB", name: "Lobby" },
-      { code: "MN", name: "Main deck" },
-      ...(withExtra ? [{ code: "EX", name: "Extra deck" }] : []),
-      { code: "DK", name: "Decks" },
+    const steps: StageStep[] = [
+      { label: "Lobby", state: "done" },
+      { label: "Main deck", state: inExtra ? "done" : "now" },
+      ...(withExtra ? [{ label: "Extra deck", state: inExtra ? ("now" as const) : ("next" as const) }] : []),
+      { label: "Build deck", state: "next" },
     ];
-    return {
-      stations,
-      current: inExtra ? 2 : 1,
-      caption: [`Round ${round} of ${total}`, inExtra ? "Extra deck" : "main deck"],
-    };
+    return { steps, caption: `Round ${round} of ${total}, ${inExtra ? "Extra deck" : "main deck"}` };
   }
   const packs = Math.max(c.packsPerPlayer, 1);
   const pack = clamp(d.wave, 1, packs);
   return {
-    stations: [
-      { code: "LB", name: "Lobby" },
-      { code: "DR", name: "Draft" },
-      { code: "DK", name: "Decks" },
+    steps: [
+      { label: "Lobby", state: "done" },
+      { label: "Draft", state: "now" },
+      { label: "Build deck", state: "next" },
     ],
-    current: 1,
-    caption: [`Pack ${pack} of ${packs}`, `pick ${Math.max(d.pick, 1)}`],
+    caption: `Pack ${pack} of ${packs}, pick ${Math.max(d.pick, 1)}`,
   };
 }
 

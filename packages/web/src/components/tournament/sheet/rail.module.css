@@ -1,0 +1,60 @@
+/* The right rail of the live view and the host drawer. Quiet sections separated by hairlines. */
+.rail { min-width: 0; padding: 4px 28px 60px; border-left: 1px solid var(--rule-lo); }
+.sec { padding: 22px 0; border-bottom: 1px solid var(--rule-lo); }
+.sec:last-child { border-bottom: 0; }
+.h { margin: 0 0 12px; font: 600 18px/1.2 var(--f-display); color: var(--ink); }
+.aside { margin: -6px 0 12px; color: var(--ink-3); font-size: 14px; }
+.waitItem { margin: 0 0 10px; color: var(--ink-2); font-size: 15px; line-height: 1.45; }
+.waitItem:last-child { margin-bottom: 0; }
+.feed { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.feed li { display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 15px; line-height: 1.4; color: var(--ink); }
+.nowrap { white-space: nowrap; }
+.when { color: var(--ink-3); font-size: 13px; }
+.feed a { color: inherit; text-decoration: none; }
+.feed a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.none { margin: 0; color: var(--ink-3); font-size: 15px; }
+.rules { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; font-size: 15px; }
+.rules dt { color: var(--ink-3); }
+.rules dd { margin: 0; color: var(--ink); }
+.fromdraft { margin: 14px 0 0; color: var(--ink-2); font-size: 15px; }
+.fromdraft a { color: var(--pen-ink); }
+.edit { margin-left: 10px; padding: 0; border: 0; background: none; color: var(--pen-ink); font: inherit; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.editNote { margin: 12px 0 0; color: var(--ink-3); font-size: 14px; }
+.myDeck { padding: 22px 0; border-bottom: 1px solid var(--rule-lo); }
+
+@container (max-width: 1060px) {
+  .rail { padding: 4px 16px 40px; border-left: 0; border-top: 1px solid var(--rule-lo); }
+}
+
+/* ---------- host drawer ---------- */
+.scrim { position: fixed; inset: 0; z-index: 59; background: rgb(3 5 10 / 0.55); }
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 60; width: min(380px, 100vw); display: flex; flex-direction: column;
+  background: var(--panel); border-left: 1px solid var(--rule); box-shadow: -18px 0 40px rgb(0 0 0 / 0.5);
+}
+.dHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid var(--rule-lo); }
+.dTitle { margin: 0; font: 600 21px/1.2 var(--f-display); color: var(--ink); }
+.close { display: inline-grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--rule); border-radius: 8px; background: transparent; color: var(--ink-2); cursor: pointer; }
+.close:hover { color: var(--ink); border-color: var(--rule-hi); }
+.close:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+.dBody { flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 24px; }
+.dSec { padding: 18px 0; border-bottom: 1px solid var(--rule-lo); }
+.dSec:last-child { border-bottom: 0; }
+.dSecH { margin: 0 0 12px; font: 600 17px/1.2 var(--f-display); color: var(--ink); }
+.matchList { display: grid; gap: 14px; }
+.deckRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--rule-lo); }
+.deckRow:last-child { border-bottom: 0; }
+.deckName { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 16px; }
+.deckName a { color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.endRow { display: grid; gap: 8px; padding: 12px 0; }
+.endRow + .endRow { border-top: 1px solid var(--rule-lo); }
+.endT { margin: 0; font-size: 16px; font-weight: 600; color: var(--ink); }
+.endN { margin: 0; color: var(--ink-3); font-size: 14.5px; }
+.endActs { display: flex; flex-wrap: wrap; gap: 10px; }
+.confirmBox { display: grid; gap: 12px; padding: 12px 0; }
+.err { margin: 8px 0 0; }
+@media (max-width: 760px) {
+  .drawer { top: auto; width: 100vw; max-height: 86vh; border-left: 0; border-top: 1px solid var(--rule); border-radius: 16px 16px 0 0; }
+}
+.closing { padding: 18px 40px 0; }
+@container (max-width: 760px) { .closing { padding: 14px 16px 0; } }

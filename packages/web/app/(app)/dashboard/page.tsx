@@ -1,7 +1,9 @@
 import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { SheetRoot } from "@/components/sheet";
+import { FloorList, SectionHead } from "@/components/sheet";
+import { PageFrame } from "@/components/dashboard/page-frame";
+import { loadTournamentRounds } from "@/components/dashboard/tournament-rounds";
 import { DraftRow, TournamentRow, type DashboardDraft, type DashboardTournament } from "@/components/dashboard/dashboard-rows";
 import { YourStanding, type StandingProfile } from "@/components/dashboard/your-standing";
 import { WelcomePanel } from "@/components/dashboard/welcome-panel";
@@ -128,57 +130,64 @@ export default async function DashboardPage() {
   }
 
   const hasPlayer = playerIds.length > 0;
+  const rounds = loadTournamentRounds(db, env.discordGuildId, tournaments);
+  const viewerId = playerIds[0] ?? null;
 
   return (
-    <SheetRoot>
-      <header className="page-h sheet-head">
-        <div>
-          <h1 className="t-title">Dashboard</h1>
-          {hasPlayer && <DashboardDate />}
-        </div>
-      </header>
-
+    <PageFrame title="Dashboard" sub={hasPlayer ? <DashboardDate /> : undefined}>
       {!hasPlayer ? (
         <WelcomePanel />
       ) : (
-        <div className="db">
-          <YourStanding profile={profileData} record={stats} />
-          <div className={`db-cols ${styles.cols}`}>
-            <section aria-label="Your tournaments">
-              <div className="sec-h">
-                <h2 className="sec-t">Your tournaments</h2>
-                <Link className="link sec-aux" href="/tournaments">All tournaments</Link>
-              </div>
-              <div className="db-list">
-                {tournaments.length === 0 ? (
-                  <p className="db-none">
-                    You&apos;re not in a tournament right now. <Link className="link" href="/tournaments">See what&apos;s open</Link> or use{" "}
-                    <code className="cmd">/event join</code>.
-                  </p>
-                ) : (
-                  tournaments.map((t) => <TournamentRow key={t.id} tournament={t} />)
-                )}
-              </div>
-            </section>
-            <section aria-label="Your drafts">
-              <div className="sec-h">
-                <h2 className="sec-t">Your drafts</h2>
-                <Link className="link sec-aux" href="/drafts">All drafts</Link>
-              </div>
-              <div className="db-list">
-                {drafts.length === 0 ? (
-                  <p className="db-none">
-                    You&apos;re not in a draft right now. <Link className="link" href="/drafts">See what&apos;s open</Link> or use{" "}
-                    <code className="cmd">/draft join</code>.
-                  </p>
-                ) : (
-                  drafts.map((d) => <DraftRow key={d.id} draft={d} />)
-                )}
-              </div>
-            </section>
-          </div>
+        <div className={styles.cols}>
+          <section className={styles.tournaments} aria-labelledby="db-tournaments">
+            <SectionHead
+              title="Your tournaments"
+              id="db-tournaments"
+              action={
+                <Link className="link" href="/tournaments">
+                  All tournaments
+                </Link>
+              }
+            />
+            {tournaments.length === 0 ? (
+              <p className={styles.none}>
+                You&apos;re not in a tournament right now. <Link className="link" href="/tournaments">See what&apos;s open</Link> or use{" "}
+                <code className="cmd">/event join</code>.
+              </p>
+            ) : (
+              <FloorList aria-labelledby="db-tournaments">
+                {tournaments.map((t) => (
+                  <TournamentRow key={t.id} tournament={t} rounds={rounds.get(t.id)} viewerId={viewerId} />
+                ))}
+              </FloorList>
+            )}
+          </section>
+          <YourStanding className={styles.standing} profile={profileData} record={stats} />
+          <section className={styles.drafts} aria-labelledby="db-drafts">
+            <SectionHead
+              title="Your drafts"
+              id="db-drafts"
+              action={
+                <Link className="link" href="/drafts">
+                  All drafts
+                </Link>
+              }
+            />
+            {drafts.length === 0 ? (
+              <p className={styles.none}>
+                You&apos;re not in a draft right now. <Link className="link" href="/drafts">See what&apos;s open</Link> or use{" "}
+                <code className="cmd">/draft join</code>.
+              </p>
+            ) : (
+              <FloorList aria-labelledby="db-drafts">
+                {drafts.map((d) => (
+                  <DraftRow key={d.id} draft={d} />
+                ))}
+              </FloorList>
+            )}
+          </section>
         </div>
       )}
-    </SheetRoot>
+    </PageFrame>
   );
 }

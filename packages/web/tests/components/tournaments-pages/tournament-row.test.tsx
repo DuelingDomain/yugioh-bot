@@ -5,35 +5,40 @@ import { TournamentRow } from "../../../src/components/tournament/tournament-row
 
 afterEach(cleanup);
 
+const tournament = (variant: "running" | "open") => ({
+  id: 7,
+  name: "Friday tournament",
+  format: "round_robin",
+  status: variant === "running" ? "active" : "pending",
+  participantCount: 5,
+});
+
 describe("TournamentRow", () => {
   it.each([
-    ["running", "In progress", ".live-pill"],
-    ["open", "Open to join", ".status"],
-  ] as const)("keeps the %s status first and each fact with one separator", (variant, statusText, statusSelector) => {
-    render(
-      <TournamentRow
-        tournament={{
-          id: 7,
-          name: "Friday tournament",
-          format: "round_robin",
-          status: variant === "running" ? "active" : "pending",
-          participantCount: 5,
-        }}
-        variant={variant}
-      />
-    );
+    ["running", ["In progress", "Round robin", "5 players"]],
+    ["open", ["Open to join", "Round robin", "5 joined"]],
+  ] as const)("keeps the %s status first and each fact as plain text", (variant, contents) => {
+    render(<ul><TournamentRow tournament={tournament(variant)} variant={variant} /></ul>);
 
-    const row = screen.getByRole("link");
-    const items = Array.from(row.querySelectorAll(".tl-meta > span > span"));
-    expect(items.map((item) => item.textContent)).toEqual([statusText, "Round robin", "5 players"]);
-    expect(items[0].querySelector(statusSelector)).toHaveTextContent(statusText);
-    for (const item of items) {
-      expect(item.querySelectorAll(".dot")).toHaveLength(1);
-      expect(item.firstElementChild).toHaveClass("dot");
-      expect(item.firstElementChild).toHaveAttribute("aria-hidden", "true");
-    }
-    if (variant === "open") {
-      expect(items[0].querySelector(".lamp")).toHaveAttribute("data-s", "open");
-    }
+    const name = screen.getByRole("link", { name: "Friday tournament" });
+    expect(name).toHaveAttribute("href", "/tournament/7");
+    const meta = name.parentElement!.querySelector("p")!;
+    expect(Array.from(meta.children).map((item) => item.textContent)).toEqual(contents);
+    expect(meta.textContent).not.toContain("·");
+    expect(Boolean(meta.querySelector(".sv-ldot"))).toBe(variant === "running");
+  });
+
+  it("is a single link with no strip or action when it has no pairings to read", () => {
+    render(<ul><TournamentRow tournament={tournament("running")} variant="running" /></ul>);
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.queryByRole("list", { name: /rounds/i })).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("starts with the name, with no initials ring in front of it, unless the dashboard asks for one", () => {
+    const { container, rerender } = render(<ul><TournamentRow tournament={tournament("running")} variant="running" you /></ul>);
+    expect(container.querySelector(".sv-mono")).toBeNull();
+    rerender(<ul><TournamentRow tournament={tournament("running")} variant="running" you showYou /></ul>);
+    expect(container.querySelectorAll(".sv-mono")).toHaveLength(1);
   });
 });

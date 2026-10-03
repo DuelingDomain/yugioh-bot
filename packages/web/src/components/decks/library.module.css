@@ -1,25 +1,112 @@
 /*
- * Deck library (b17). Board classes come from match-sheet.css; these are the live app's extras.
- * Every selector is scoped under .ms.
+ * Deck library in Solid Vision. The page bar and rows come from the sheet kit (PageFrame, FloorRow);
+ * these rules lay the row out and style the import panel. Every selector is scoped under .ms.
  */
-:global(.ms) .headActions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+:global(.ms) .lede { margin: 0; max-width: 62ch; color: var(--ink-3); font-size: 14.5px; line-height: 1.5; }
+:global(.ms) .foot { margin: 0; color: var(--ink-3); font-size: 13.5px; line-height: 1.5; }
 
-:global(.ms) .row { position: relative; }
-:global(.ms) .openLink { text-decoration: none; }
-:global(.ms) .why { flex-basis: 100%; color: var(--loss-ink); font-size: 12.5px; }
+/* ---------- rows ---------- */
+:global(.ms) .row:hover { border-bottom-color: rgb(var(--beam) / 0.3); }
+:global(.ms) .row :global(.sv-row-in) {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr) minmax(170px, 270px) auto;
+  grid-template-areas: "fan main status acts" "confirm confirm confirm confirm";
+  align-items: center;
+  gap: 0 18px;
+  padding: 14px 12px;
+}
+.fan { grid-area: fan; display: grid; place-items: center; width: 100px; height: 84px; border: 1px solid rgb(var(--beam) / 0.28); border-radius: 6px; }
+.fanArt { position: relative; width: 90px; height: 72px; }
+.fanArt img { position: absolute; top: 5px; width: 42px; height: 60px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.14), 0 8px 16px -8px #000; }
+.fanArt img:nth-child(1) { left: 0; rotate: -10deg; }
+.fanArt img:nth-child(2) { left: 24px; top: 1px; z-index: 1; }
+.fanArt img:nth-child(3) { left: 47px; rotate: 10deg; }
 
-/* On phones the whole row opens the deck. */
-@container (max-width: 520px) {
-  /* MetaLine needs the separator space even when a leading dot is clipped. */
-  :global(.ms) .row.row :global(.mt) :global(.dot) { display: inline-block; }
-  :global(.ms) .openLink::after { content: ""; position: absolute; inset: 0; }
-  :global(.ms) .row :global(.cb-acts) { position: relative; z-index: 1; }
-  :global(.ms) .row :global(.cb-acts) :global(.ib) { position: relative; z-index: 2; }
-  :global(.ms) .headActions { width: 100%; }
+.main { grid-area: main; display: grid; gap: 5px; min-width: 0; }
+.nameLine { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0; }
+.openLink { color: var(--ink); font: 600 17px/1.3 var(--f-ui); text-decoration: none; overflow-wrap: anywhere; }
+/* The whole row opens the deck: the name link stretches over it, and the controls sit above. */
+.openLink::after { content: ""; position: absolute; inset: 0; }
+.openLink:focus-visible { outline: none; }
+.openLink:focus-visible::after { outline: 2px solid var(--pen-ink); outline-offset: -2px; border-radius: 4px; }
+.mode { padding: 1px 9px; border: 1px solid var(--rule-lo); border-radius: 999px; color: var(--ink-2); font-size: 13px; line-height: 1.5; }
+.counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; margin: 0; color: var(--ink-3); font-size: 13.5px; }
+.counts b { margin-left: 4px; color: var(--ink); font: 600 17px/1 var(--f-num); font-variant-numeric: tabular-nums lining-nums; }
+.when { white-space: nowrap; }
+.draftTag { margin: 0; color: var(--ink-3); font-size: 13px; }
+.mark { margin-top: 2px; }
+.row :global(.sv-deckmark) a { position: relative; z-index: 2; }
+
+.status { grid-area: status; min-width: 0; color: var(--ink-3); font-size: 13.5px; line-height: 1.4; }
+.statusHead { display: flex; align-items: flex-start; gap: 7px; margin: 0; }
+.statusHead svg { flex: none; margin-top: 2px; }
+.status[data-tone="short"] .statusHead { color: var(--warn-ink); }
+.status[data-tone="ready"] .statusHead { color: var(--chain-ink); }
+.statusRest { display: flex; flex-wrap: wrap; gap: 0 10px; margin: 2px 0 0 22px; color: var(--ink-3); }
+
+.acts { grid-area: acts; position: relative; z-index: 2; display: flex; align-items: center; gap: 8px; }
+.openBtn { position: relative; z-index: 2; }
+.trash { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink-3); cursor: pointer; }
+.trash:hover { color: var(--loss-ink); background: rgb(228 90 77 / 0.1); }
+.trash:disabled { opacity: 0.4; cursor: not-allowed; }
+.trash:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+
+.confirm { grid-area: confirm; position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 0 2px; color: var(--ink); font-size: 14.5px; }
+.confirmActs { display: inline-flex; gap: 8px; }
+.why { flex-basis: 100%; color: var(--loss-ink); font-size: 13px; }
+
+@container (max-width: 860px) {
+  :global(.ms) .row :global(.sv-row-in) { grid-template-columns: 100px minmax(0, 1fr) minmax(150px, 220px) auto; gap: 0 14px; }
+  :global(.ms) :global(.sv-btn).openBtn { display: none; }
+}
+/* Phone: the fan spans the first two lines; the status goes under the name. */
+@container (max-width: 620px) {
+  :global(.ms) .row :global(.sv-row-in) {
+    grid-template-columns: 76px minmax(0, 1fr) 36px;
+    grid-template-areas: "fan main acts" "fan status status" "confirm confirm confirm";
+    gap: 6px 10px;
+    padding: 12px 4px;
+  }
+  .fan { width: 76px; height: 84px; }
+  .fanArt { transform: scale(0.78); }
+  .acts { align-self: start; }
+  .statusRest { margin-left: 22px; }
 }
 
-:global(.ms) .srOnly { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
-:global(.ms) .drop:focus-within { outline: 2px solid var(--pen); outline-offset: 2px; }
+/* ---------- states ---------- */
+.skeleton { display: block; margin: 0; padding: 0; list-style: none; }
+.skeleton li { display: flex; align-items: center; gap: 18px; padding: 14px 12px; border-bottom: 1px solid var(--rule-lo); }
+.skText { display: grid; flex: 1; gap: 10px; }
+.alert { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.alert > :first-child { flex: 1 1 260px; }
+.empty { display: flex; flex-wrap: wrap; align-items: center; gap: 20px 28px; padding: 28px 0; border-top: 1px solid var(--rule-lo); border-bottom: 1px solid var(--rule-lo); }
+.emptyZones { display: inline-flex; gap: 12px; }
+.empty > div:last-child { flex: 1 1 280px; min-width: 0; }
+.empty h2 { margin: 0 0 6px; font: 600 19px/1.25 var(--f-display); color: var(--ink); }
+.empty p { margin: 0; max-width: 56ch; color: var(--ink-3); font-size: 14.5px; line-height: 1.5; }
+.emptyActs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+
+/* ---------- import panel ---------- */
+.import { display: grid; gap: 16px; }
+.importBody { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px 28px; align-items: start; }
+.saveAs { display: grid; gap: 8px; }
+.saveAs :global(.label) { margin: 0; }
+.hintText { margin: 0; color: var(--ink-3); font-size: 13.5px; line-height: 1.5; }
+.drop { display: grid; justify-items: center; gap: 4px; padding: 22px 14px; border: 1px dashed rgb(var(--beam) / 0.4); border-radius: 8px; color: var(--ink-2); text-align: center; cursor: pointer; }
+.drop small { color: var(--ink-3); font-size: 13px; }
+.drop:hover, .drop[data-dragging] { border-color: rgb(var(--beam) / 0.9); }
+.drop:focus-within { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+.results { display: block; margin: 0; padding: 0; list-style: none; }
+.results li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 10px 4px; border-bottom: 1px solid var(--rule-lo); color: var(--ink-2); font-size: 14.5px; }
+.results li > :global(.sv-status) { flex: 1 1 260px; border-top: 0; padding-top: 0; }
+.resFile { color: var(--ink); overflow-wrap: anywhere; }
+.resFacts { display: inline-flex; flex-wrap: wrap; gap: 2px 14px; color: var(--ink-3); font-size: 13.5px; }
+.resFacts b { margin-left: 4px; color: var(--ink); font: 600 16px/1 var(--f-num); }
+.resLink { margin-left: auto; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.resFoot { display: flex; justify-content: flex-end; margin-top: 10px; }
+@container (max-width: 760px) { .importBody { grid-template-columns: minmax(0, 1fr); } }
+
+.srOnly { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @media (prefers-reduced-motion: no-preference) {
   :global(.ms) .spin { animation: libspin 0.9s linear infinite; }
 }

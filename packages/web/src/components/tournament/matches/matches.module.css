@@ -19,3 +19,10 @@
 }
 .overlay > :global(.dialog) { width: min(460px, 100%); }
 .winnerName { display: inline-flex; align-items: center; gap: 8px; }
+
+.waiting { color: var(--ink-2); font-size: 14.5px; align-self: center; }
+.report { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule-lo); }
+.reportText { margin: 0 0 12px; color: var(--ink-2); font-size: 15px; }
+.reportActs { display: flex; flex-wrap: wrap; gap: 12px; }
+.up { font-family: var(--f-num); color: var(--chain-ink); }
+.dn { font-family: var(--f-num); color: var(--loss-ink); }

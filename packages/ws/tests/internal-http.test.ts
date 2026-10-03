@@ -126,4 +126,40 @@ describe("createInternalHttpHandler", () => {
     expect(res.status).toBe(400);
     expect(emit).not.toHaveBeenCalled();
   });
+
+  describe("draft talk", () => {
+    it("emits draft:talk to the slug room with the sender and the line id only", async () => {
+      const { io, to, emit } = makeIo();
+      const beforeDraftBroadcast = vi.fn();
+      const handle = createInternalHttpHandler({ io: io as any, secret: SECRET, beforeDraftBroadcast });
+      const res = await handle(makeRequest("/internal/draft/talk", { slug: "abc", playerId: 7, line: "hurry", extra: "ignored" }));
+      expect(res.status).toBe(204);
+      expect(beforeDraftBroadcast).toHaveBeenCalledWith("abc");
+      expect(to).toHaveBeenCalledWith("draft:abc");
+      expect(emit).toHaveBeenCalledWith("draft:talk", { playerId: 7, line: "hurry" });
+    });
+
+    it.each([
+      ["free text", { slug: "abc", playerId: 7, line: "hello everyone" }],
+      ["the words instead of the id", { slug: "abc", playerId: 7, line: "hurry up" }],
+      ["a missing line", { slug: "abc", playerId: 7 }],
+      ["a non-integer player", { slug: "abc", playerId: 7.5, line: "gg" }],
+      ["a text player", { slug: "abc", playerId: "7", line: "gg" }],
+      ["no slug", { playerId: 7, line: "gg" }],
+    ])("refuses %s without emitting", async (_name, body) => {
+      const { io, emit } = makeIo();
+      const handle = createInternalHttpHandler({ io: io as any, secret: SECRET });
+      const res = await handle(makeRequest("/internal/draft/talk", body));
+      expect(res.status).toBe(400);
+      expect(emit).not.toHaveBeenCalled();
+    });
+
+    it("refuses an unsigned request", async () => {
+      const { io, emit } = makeIo();
+      const handle = createInternalHttpHandler({ io: io as any, secret: SECRET });
+      const res = await handle(makeRequest("/internal/draft/talk", { slug: "abc", playerId: 7, line: "gg" }, "sha256=bad"));
+      expect(res.status).toBe(401);
+      expect(emit).not.toHaveBeenCalled();
+    });
+  });
 });

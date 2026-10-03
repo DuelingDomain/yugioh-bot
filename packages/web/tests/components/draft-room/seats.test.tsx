@@ -12,6 +12,8 @@ const friends: FriendView[] = names.map((displayName, i) => ({
   state: "picking",
 }));
 
+const quiet = { heard: {}, canSay: false, sayOpen: false, onSay: () => {} };
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -20,7 +22,7 @@ afterEach(() => {
 
 describe("SeatStrip", () => {
   it("names the list Seats and renders all eleven friends at a twelve-player table", () => {
-    render(<SeatStrip friends={friends} />);
+    render(<SeatStrip friends={friends} {...quiet} />);
     const list = screen.getByRole("list", { name: "Seats" });
     const items = within(list).getAllByRole("listitem");
     expect(items).toHaveLength(11);
@@ -41,7 +43,7 @@ describe("SeatStrip", () => {
       disconnect() { resizeCallbacks.delete(this.callback); }
     });
 
-    const { rerender } = render(<SeatStrip friends={friends} />);
+    const { rerender } = render(<SeatStrip friends={friends} {...quiet} />);
     const list = screen.getByRole("list", { name: "Seats" });
     expect(list).toHaveAttribute("data-more", "end");
 
@@ -59,11 +61,11 @@ describe("SeatStrip", () => {
     expect(list).not.toHaveAttribute("data-more");
 
     box.clientWidth = 330;
-    rerender(<SeatStrip friends={friends.slice()} />);
+    rerender(<SeatStrip friends={friends.slice()} {...quiet} />);
     expect(list).toHaveAttribute("data-more", "end");
 
     box.scrollWidth = 300;
-    rerender(<SeatStrip friends={friends.slice(0, 3)} />);
+    rerender(<SeatStrip friends={friends.slice(0, 3)} {...quiet} />);
     expect(list).not.toHaveAttribute("data-more");
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
   });

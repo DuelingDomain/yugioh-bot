@@ -40,7 +40,7 @@ describe("TournamentsPage", () => {
     expect(screen.getByRole("heading", { name: "No tournaments yet" })).toBeTruthy();
     expect(screen.getByText("/event create")).toBeTruthy();
     expect(screen.getAllByRole("link", { name: /new tournament/i }).length).toBe(2);
-    expect(document.querySelector(".page-sub")).toBeNull();
+    expect(document.querySelector(".sv-bar-sub")).toBeNull();
   });
 
   it("orders running, then open, then finished, newest first, and skips cancelled and other guilds", async () => {
@@ -59,7 +59,7 @@ describe("TournamentsPage", () => {
     const running = within(screen.getByRole("region", { name: "In progress" })).getAllByRole("link");
     expect(running.map((a) => a.getAttribute("href"))).toEqual(["/tournament/newer-run", expect.stringMatching(/^\/tournament\/\d+$/)]);
     expect(running[0].textContent).toContain("Newer run");
-    expect(Array.from(running[0].querySelectorAll(".tl-meta > span > span"), (item) => item.textContent)).toEqual([
+    expect(Array.from(running[0].parentElement!.querySelector("p")!.children, (item) => item.textContent)).toEqual([
       "In progress", "Single elimination", "0 players",
     ]);
     expect(running[1].textContent).toContain("Older run");
@@ -69,27 +69,24 @@ describe("TournamentsPage", () => {
     expect(open[0].getAttribute("href")).toBe("/tournament/open-one");
 
     const fin = within(screen.getByRole("region", { name: "Finished" })).getAllByRole("link");
-    expect(fin.map((a) => a.textContent)).toEqual(["New finished", "Old finished"]);
+    expect(fin).toHaveLength(2);
+    expect(fin[0].textContent).toMatch(/^New finished/);
+    expect(fin[1].textContent).toMatch(/^Old finished/);
 
     expect(screen.queryByText("Gone")).toBeNull();
     expect(screen.queryByText("Elsewhere")).toBeNull();
-    expect(Array.from(document.querySelectorAll(".page-sub > span > span"), (item) => item.textContent)).toEqual([
-      "2 in progress", "1 open to join", "2 finished",
-    ]);
+    expect(document.querySelector(".sv-bar-sub")!.textContent).toBe("2 in progress, 1 open to join, 2 finished");
   });
 
-  it("keeps each summary fact with one separator and leaves out empty groups", async () => {
+  it("writes the summary in plain commas and leaves out empty groups", async () => {
     add("Running", "active", "2026-02-01 00:00:00");
     add("Open", "pending", "2026-02-02 00:00:00");
     render(await TournamentsPage());
 
-    const items = Array.from(document.querySelectorAll(".page-sub > span > span"));
-    expect(items.map((item) => item.textContent)).toEqual(["1 in progress", "1 open to join"]);
-    for (const item of items) {
-      expect(item.querySelectorAll(".dot")).toHaveLength(1);
-      expect(item.firstElementChild).toHaveClass("dot");
-      expect(item.firstElementChild).toHaveAttribute("aria-hidden", "true");
-    }
+    const sub = document.querySelector(".sv-bar-sub")!;
+    expect(sub.textContent).toBe("1 in progress, 1 open to join");
+    expect(sub.textContent).not.toContain("·");
+    expect(screen.queryByRole("region", { name: "Finished" })).toBeNull();
   });
 
   it("shows the first five finished tournaments, then all of them on Show all", async () => {

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { MoreHorizontal, Trash2, Unlink } from "lucide-react";
+import { svButtonClass } from "@/components/sheet";
 import styles from "./lobby.module.css";
 
 /** The host's per-theme menu: a disclosure button with Detach and Delete. Escape and outside clicks close it. */
@@ -67,7 +68,7 @@ export function ThemeMenu({
       <button
         ref={triggerRef}
         type="button"
-        className={`btn btn-quiet btn-sm ${styles.ib}`}
+        className={`${svButtonClass("quiet")} ${styles.ib}`}
         aria-label={`More for ${name}`}
         aria-haspopup="menu"
         aria-expanded={open}

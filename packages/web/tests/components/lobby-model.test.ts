@@ -95,7 +95,7 @@ describe("setupRows", () => {
     const rows = setupRows({ cardsPerPlayer: 40, packsPerPlayer: 3, packSize: 15, pickSeconds: 45, alternatePassDirection: true, randomizeSeats: true });
     expect(rows).toEqual([
       { label: "Each player", value: "40 cards" },
-      { label: "Packs", value: "3 of 15" },
+      { label: "Packs", value: "3 packs of 15" },
       { label: "Pick duration", value: "45 s" },
       { label: "Passing", value: "Left, then right" },
       { label: "Seats", value: "Shuffled at the start" },

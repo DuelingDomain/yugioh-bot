@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { PhoneTopBar } from "./phone-top-bar";
@@ -9,7 +9,9 @@ import { BugReportDialog } from "../bug-report/bug-report-dialog";
 import { BugReportFab } from "../bug-report/bug-report-fab";
 import { collectBugContext } from "../bug-report/context";
 import { useShellAccount } from "./use-shell-account";
-import { PHONE_MAX_WIDTH } from "./shell-model";
+import { useLiveNow } from "./use-live-now";
+import { ShellContext } from "./shell-context";
+import { PHONE_MAX_WIDTH, ROOM_COLLAPSE_QUERY, autoCollapseRoute } from "./shell-model";
 import styles from "./shell.module.css";
 
 const COLLAPSED_KEY = "yugidraft:sidebar-collapsed";
@@ -32,36 +34,62 @@ function writeCollapsed(value: boolean) {
 
 function ShellFrame({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [stored, setStored] = useState(false);
+  // On the tournament page, between 1024 and 1360px, the rail starts collapsed. The toggle then
+  // flips a per-visit override that is not written to storage and resets on the next route.
+  const [override, setOverride] = useState<boolean | null>(null);
+  const [roomWidth, setRoomWidth] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const wasOpen = useRef(false);
   const pathname = usePathname();
   const account = useShellAccount();
+  const live = useLiveNow(pathname);
+  const autoCollapsed = roomWidth && autoCollapseRoute(pathname);
+  const sidebarCollapsed = override ?? (autoCollapsed || stored);
 
   // A page change (including the back button) closes the phone menu.
   useEffect(() => {
     setDrawerOpen(false);
+    setOverride(null);
   }, [pathname]);
 
   // Read after mount so the server render and the first client render agree.
   useEffect(() => {
-    setSidebarCollapsed(readCollapsed());
+    setStored(readCollapsed());
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia?.(ROOM_COLLAPSE_QUERY);
+    if (!mq) return;
+    const onChange = () => setRoomWidth(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
 
   const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed((c) => {
-      writeCollapsed(!c);
-      return !c;
-    });
-  }, []);
+    if (autoCollapsed || override !== null) {
+      // A page that collapses itself: the toggle is for this visit only.
+      setOverride(!sidebarCollapsed);
+      return;
+    }
+    writeCollapsed(!stored);
+    setStored(!stored);
+  }, [autoCollapsed, override, sidebarCollapsed, stored]);
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  const openMenu = useCallback((trigger: HTMLElement | null) => {
+    triggerRef.current = trigger;
+    setDrawerOpen(true);
+  }, []);
   const openReport = useCallback(() => setReportOpen(true), []);
   const closeReport = useCallback(() => setReportOpen(false), []);
   // A page report has no room: the path and the browser details only.
   const collectPage = useCallback(() => collectBugContext(null), []);
+  const shell = useMemo(() => ({ openMenu, menuOpen: drawerOpen, live }), [openMenu, drawerOpen, live]);
 
   // Close the phone menu when the window grows past phone width.
   useEffect(() => {
@@ -80,27 +108,30 @@ function ShellFrame({ children }: { children: ReactNode }) {
   useEffect(() => {
     const frame = frameRef.current;
     if (frame) frame.inert = drawerOpen;
-    if (wasOpen.current && !drawerOpen) menuButtonRef.current?.focus();
+    if (wasOpen.current && !drawerOpen) {
+      const target = triggerRef.current?.isConnected ? triggerRef.current : menuButtonRef.current;
+      target?.focus();
+    }
     wasOpen.current = drawerOpen;
   }, [drawerOpen]);
 
   return (
-    <>
+    <ShellContext.Provider value={shell}>
       <div
         ref={frameRef}
         className={`${styles.frame} min-h-screen bg-bg-deep text-text-primary`}
         data-sidebar-collapsed={sidebarCollapsed ? "true" : "false"}
       >
-        <PhoneTopBar ref={menuButtonRef} account={account} menuOpen={drawerOpen} onMenuClick={() => setDrawerOpen(true)} onReportBug={openReport} />
-        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} account={account} onReportBug={openReport} />
+        <PhoneTopBar ref={menuButtonRef} account={account} menuOpen={drawerOpen} live={live} onMenuClick={openMenu} onReportBug={openReport} />
+        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} account={account} live={live} onReportBug={openReport} />
         <main className={styles.main}>
-          <div className="mx-auto p-4 pb-16 sm:p-6 sm:pb-16 lg:p-8 lg:pb-16">{children}</div>
+          <div className={`${styles.content} mx-auto p-4 pb-16 sm:p-6 sm:pb-16 lg:p-8 lg:pb-16`}>{children}</div>
         </main>
         <BugReportFab className={`fixed bottom-3 z-40 ${styles.bugFab}`} />
       </div>
-      <MobileDrawer open={drawerOpen} onClose={closeDrawer} account={account} onReportBug={openReport} />
+      <MobileDrawer open={drawerOpen} onClose={closeDrawer} account={account} live={live} onReportBug={openReport} />
       <BugReportDialog open={reportOpen} onClose={closeReport} collect={collectPage} />
-    </>
+    </ShellContext.Provider>
   );
 }
 

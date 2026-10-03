@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftStore } from "../../../src/lib/stores/draft-store";
 
@@ -16,6 +16,9 @@ vi.mock("next/font/google", () => {
 vi.mock("next/link", () => ({ default: ({ children, ...p }: any) => <a {...p}>{children}</a> }));
 
 import { DraftRoom } from "../../../src/components/draft/room/draft-room";
+// With animations Off the pack ribbon holds the table for 1.3 s before the cards show, as in the mock.
+configure({ asyncUtilTimeout: 4000 });
+
 
 const mk = (id: number, over: Record<string, unknown> = {}) => ({
   id,
@@ -101,6 +104,58 @@ describe("DraftRoom", () => {
     expect(card(3)).toBeTruthy();
     expect(document.body.style.overflow).toBe("hidden");
     expect(document.body.querySelector(".dr")?.getAttribute("data-turn")).toBe("picking");
+  });
+
+  it("holds the table empty while the pack ribbon plays, then deals the cards", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    renderRoom();
+    await waitFor(() => expect(document.querySelector(".ribbon b")?.textContent).toBe("Pack 1"));
+    expect((document.querySelector(".ribbon") as HTMLElement).style.visibility).toBe("visible");
+    expect(document.querySelectorAll(".tcard")).toHaveLength(0);
+    fireEvent.keyDown(document, { key: "1" });
+    expect(document.querySelector("[data-sel]")).toBeNull();
+    await waitFor(() => expect(card(1)).toBeTruthy(), { timeout: 3000 });
+    expect((document.querySelector(".ribbon") as HTMLElement).style.visibility).toBe("hidden");
+    expect(document.querySelectorAll(".tcard")).toHaveLength(3);
+  });
+
+  it("shows a pass inside a pack at once, with no ribbon", async () => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    load({ pickStep: 3 });
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    expect((document.querySelector(".ribbon") as HTMLElement).style.visibility).toBe("hidden");
+  });
+
+  it("after a reload while waiting, the reader shows your last pick and who is left", async () => {
+    load({
+      currentPack: [],
+      myPool: [mk(2, { name: "Spell Two", type: "Normal Spell Card", frameType: "spell" })],
+      isMyTurn: false,
+      seats: seats.map((s) => ({ ...s, hasPicked: s.isCurrentPlayer })),
+    });
+    renderRoom();
+    await waitFor(() => expect(reader().getByText(/Waiting on/)).toBeTruthy());
+    expect(reader().getByText("Bo")).toBeTruthy();
+    expect(reader().getAllByRole("heading", { name: "Spell Two" }).length).toBeGreaterThan(0);
+    expect(document.querySelector(".insp-head span")?.textContent).toBe("Your pick");
+    expect(document.querySelectorAll(".tcard")).toHaveLength(0);
+  });
+
+  it("after a reload where you passed, the reader shows no pick and the pass line shows", async () => {
+    load({
+      currentPack: [],
+      myPool: [mk(2, { name: "Spell Two", type: "Normal Spell Card", frameType: "spell" })],
+      isMyTurn: false,
+      passed: true,
+      seats: seats.map((s) => ({ ...s, hasPicked: s.isCurrentPlayer })),
+    });
+    renderRoom();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("You pass this pick"));
+    expect(screen.getByRole("status").textContent).toContain("Bo");
+    expect(screen.queryByText("Your pick")).toBeNull();
+    expect(document.querySelector(".insp-head span")?.textContent).not.toBe("Your pick");
+    expect(reader().queryAllByRole("heading", { name: "Spell Two" })).toHaveLength(0);
   });
 
   it("a click selects and a second click picks", async () => {

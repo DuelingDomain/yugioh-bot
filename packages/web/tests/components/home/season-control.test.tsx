@@ -25,6 +25,7 @@ describe("SeasonControl", () => {
     render(<SeasonControl />);
     await screen.findByText("Couldn't load the season.");
     expect(screen.getByRole("alert").textContent).toContain("season. Nothing has changed.");
+    expect(screen.getByRole("alert").querySelector(".sv-status")).toHaveAttribute("data-tone", "block");
     screen.getByRole("button", { name: "Retry" });
     expect(screen.queryByRole("button", { name: /start/i })).toBeNull();
   });
@@ -36,8 +37,8 @@ describe("SeasonControl", () => {
   });
 
   it.each([
-    { name: "Autumn", title: "Season 3 · Autumn" },
-    { name: "Season 30", title: "Season 3 · Season 30" },
+    { name: "Autumn", title: "Season 3, Autumn" },
+    { name: "Season 30", title: "Season 3, Season 30" },
   ])("keeps the distinct season name $name", async ({ name, title }) => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ season: { ...active, name } })));
     render(<SeasonControl />);
@@ -81,6 +82,17 @@ describe("SeasonControl", () => {
     await screen.findByText("Couldn't end Season 3. It's still running. Try again.");
     fireEvent.click(screen.getByRole("button", { name: "Keep it running" }));
     await waitFor(() => screen.getByRole("button", { name: "End season" }));
+  });
+
+  it("shows the running season as a heading, a Started row and a danger row on the floor", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ season: active })));
+    const { container } = render(<SeasonControl />);
+    await screen.findByRole("heading", { level: 3, name: "Season 3" });
+    expect(container.querySelector(".sv-head-note")?.textContent).toMatch(/^running, day \d+$/);
+    expect(screen.getByText("Started")).toBeTruthy();
+    expect(screen.getByText("Freezes the standings as its final table. Nothing resets.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "End season" })).toHaveClass("sv-btn", "danger");
+    expect(container.querySelector(".panel, .msheet")).toBeNull();
   });
 
   it("never reads the all-time leaderboard", async () => {

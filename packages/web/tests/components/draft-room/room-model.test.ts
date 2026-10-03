@@ -4,6 +4,7 @@ import {
   anchorPoint,
   countKinds,
   dealReducer,
+  dealRibbon,
   dialModel,
   INITIAL_DEAL,
   filterWords,
@@ -16,6 +17,7 @@ import {
   orderSeats,
   passDirection,
   passLabel,
+  restoredPick,
   roomSizes,
   seatPackSize,
   stripEdges,
@@ -373,5 +375,60 @@ describe("deal reducer", () => {
     expect(s.reason).toBe("pass");
     expect(s.seq).toBe(2);
     expect(s.dealt.map((c) => c.id)).toEqual([5]);
+  });
+});
+
+describe("dealRibbon", () => {
+  const base = {
+    seq: 1,
+    theme: false,
+    poolCount: 0,
+    pickStep: 1,
+    packRound: 2,
+    direction: -1 as const,
+    sizes: { extraSize: 0, cardsPerPlayer: 40 },
+  };
+
+  it("opens each pack at pick 1 and names the pass direction", () => {
+    expect(dealRibbon(base)).toEqual({ seq: 1, title: "Pack 2", sub: passLabel(-1), tone: "" });
+  });
+
+  it("has no ribbon before the first deal or for a pass inside a pack", () => {
+    expect(dealRibbon({ ...base, seq: 0 })).toBeNull();
+    expect(dealRibbon({ ...base, pickStep: 4 })).toBeNull();
+  });
+
+  it("opens a theme draft once and marks the switch to the Extra deck", () => {
+    const theme = { ...base, theme: true, sizes: { extraSize: 15, cardsPerPlayer: 40 } };
+    expect(dealRibbon(theme)?.title).toBe("Theme draft");
+    expect(dealRibbon({ ...theme, seq: 2, poolCount: 12 })).toBeNull();
+    expect(dealRibbon({ ...theme, seq: 9, poolCount: 40 })).toMatchObject({ title: "Extra deck", tone: "extra" });
+  });
+});
+
+describe("restoredPick", () => {
+  const seat = (over = {}) => ({ seatIndex: 0, playerId: 1, displayName: "Ann", hasPicked: true, isCurrentPlayer: true, ...over });
+  const other = seat({ seatIndex: 1, playerId: 2, displayName: "Bo", hasPicked: false, isCurrentPlayer: false });
+  const pool = [card(1), card(2), card(3)];
+
+  it("brings back your newest pool card while you wait", () => {
+    expect(restoredPick({ turn: "waiting", seats: [seat(), other], pool })?.id).toBe(3);
+    expect(restoredPick({ turn: "settling", seats: [seat(), other], pool })?.id).toBe(3);
+  });
+
+  it("does nothing when you are picking, finished, or have not picked this step", () => {
+    expect(restoredPick({ turn: "picking", seats: [seat(), other], pool })).toBeNull();
+    expect(restoredPick({ turn: "done", seats: [seat(), other], pool })).toBeNull();
+    expect(restoredPick({ turn: "waiting", seats: [seat({ hasPicked: false }), other], pool })).toBeNull();
+    expect(restoredPick({ turn: "waiting", seats: [seat(), other], pool: [] })).toBeNull();
+  });
+
+  it("shows no card when you passed the step, even with a full pool", () => {
+    expect(restoredPick({ turn: "waiting", seats: [seat(), other], pool, passed: true })).toBeNull();
+    expect(restoredPick({ turn: "settling", seats: [seat(), other], pool, passed: true })).toBeNull();
+  });
+
+  it("never reads anyone else's pick", () => {
+    expect(restoredPick({ turn: "waiting", seats: [seat({ isCurrentPlayer: false }), other], pool })).toBeNull();
   });
 });

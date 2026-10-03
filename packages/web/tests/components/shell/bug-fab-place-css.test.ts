@@ -19,3 +19,15 @@ it("puts the Report bug button past the 236px sidebar, past the 68px rail, and a
   expect(leftOf('.frame[data-sidebar-collapsed="true"] .bugFab')).toBe("calc(68px + 12px)");
   expect(leftOf(".bugFab", true)).toBe("12px");
 });
+
+it("keeps the button under the sidebar's layer next to the rail, so the rail's account menu opens over it", () => {
+  const zOf = (selector: string, inMedia: boolean) => {
+    let z: string | undefined;
+    shell.walkRules((rule) => {
+      if ((rule.parent?.type === "atrule") === inMedia && rule.selectors.includes(selector)) rule.walkDecls("z-index", (decl) => { z = decl.value; });
+    });
+    return z;
+  };
+  expect(zOf('.frame[data-sidebar-collapsed="true"] .bugFab', false)).toBe("29");
+  expect(zOf('.frame[data-sidebar-collapsed="true"] .bugFab', true)).toBe("40");
+});

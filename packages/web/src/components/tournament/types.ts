@@ -28,6 +28,14 @@ export interface Match {
   series?: DuelSeriesSummary | null;
 }
 
+/** Elo swing for the viewer's current or next match; null unless the tournament is active and one is waiting. */
+export interface ViewerStakes {
+  tournamentMatchId: number;
+  opponentId: number;
+  win: number;
+  loss: number;
+}
+
 export interface TournamentDetail {
   id: number;
   name: string;
@@ -49,6 +57,8 @@ export interface TournamentDetail {
   /** Set for a tournament made from a draft. */
   draftId?: number | null;
   draftSlug?: string | null;
+  /** The viewer's Elo stakes. Older payloads (and tests) omit it. */
+  stakes?: ViewerStakes | null;
 }
 
 export interface StandingsRow {

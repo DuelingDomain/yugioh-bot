@@ -101,7 +101,7 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
           autoComplete="off"
         />
         <p className="hint">
-          Adds 3 copies. Extra Deck monsters go to the Extra pool. Select a card in the cube to change its copies.
+          Adds 3 copies. Extra deck monsters go to the Extra pool. Select a card in the cube to change its copies.
         </p>
       </div>
       {trimmed.length > 0 && (
@@ -117,7 +117,7 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
                 <div className={styles.resText}>
                   <p className="n">{card.name}</p>
                   <p className="k">
-                    {card.type} · {pool}
+                    {card.type}, {pool}
                   </p>
                 </div>
                 {copies > 0 ? (

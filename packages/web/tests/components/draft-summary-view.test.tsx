@@ -149,7 +149,7 @@ describe("DraftSummaryView", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Your pool" })).toBeTruthy();
-    expect(screen.getByText(/3 cards · tap a card to read it/i)).toBeTruthy();
+    expect(screen.getByText(/3 cards, tap a card to read it/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Blue-Eyes White Dragon" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Dark Hole" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mirror Force" })).toBeTruthy();
@@ -387,10 +387,11 @@ describe("DraftSummaryView", () => {
     expect(screen.queryByRole("link", { name: /(build|edit) your deck/i })).toBeNull();
   });
 
-  it("shows Export YDK as a secondary button for 40 picks", () => {
+  it("shows Export YDK as a ghost button under the primary Build your deck for 40 picks", () => {
     renderView({ ...baseDraft, participantPickCount: 40 });
     const button = screen.getByRole("button", { name: /export ydk/i });
-    expect(button.className).toMatch(/btn-secondary/);
+    expect(button).toHaveClass("sv-btn", "ghost");
+    expect(screen.getByRole("link", { name: /build your deck/i })).toHaveClass("sv-btn", "primary");
     expect(screen.getByRole("link", { name: /build your deck/i })).toBeTruthy();
   });
 
@@ -423,7 +424,7 @@ describe("DraftSummaryView", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderView({ ...baseDraft, participantPickCount: 15 }, { isCreator: true });
     fireEvent.click(screen.getByRole("button", { name: "Create tournament" }));
-    const link = await screen.findByRole("link", { name: "Open the tournament" });
+    const link = await screen.findByRole("link", { name: "Open T" });
     expect(link.getAttribute("href")).toBe("/tournament/t-4");
     vi.unstubAllGlobals();
   });
@@ -438,24 +439,24 @@ describe("DraftSummaryView", () => {
   it("confirms in place before deleting, host only", async () => {
     const onDelete = vi.fn().mockResolvedValue(undefined);
     const { unmount } = renderView({ ...baseDraft, participantPickCount: 15 }, { isCreator: true, onDelete });
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete draft" }));
     expect(screen.getByText("Delete Legendary Draft?")).toBeTruthy();
     expect(onDelete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete" }));
     await waitFor(() => expect(onDelete).toHaveBeenCalled());
     unmount();
     renderView({ ...baseDraft, participantPickCount: 15 });
-    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete draft" })).toBeNull();
   });
 
   it("backs out of the delete confirm with Escape and puts focus back on Delete", async () => {
     const onDelete = vi.fn();
     renderView({ ...baseDraft, participantPickCount: 15 }, { isCreator: true, onDelete });
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete draft" }));
     expect(screen.getByRole("button", { name: "Go back" })).toHaveFocus();
     fireEvent.keyDown(screen.getByRole("button", { name: "Go back" }), { key: "Escape" });
     expect(screen.queryByText("Delete Legendary Draft?")).toBeNull();
-    expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Delete draft" })).toHaveFocus();
     expect(onDelete).not.toHaveBeenCalled();
   });
 
@@ -472,22 +473,28 @@ describe("DraftSummaryView", () => {
     expect(screen.getByText("Keep tuning it, or export your first 40 picks as a YDK file.")).toBeTruthy();
   });
 
-  it("marks the viewer's seat and shows the duration", () => {
+  it("marks the viewer's seat and shows the duration as short pieces", () => {
     renderView(
       { ...baseDraft, startedAt: "2026-05-06T12:00:00.000Z", participantPickCount: 15, seats: [{ playerId: 1, isCurrentPlayer: true }] },
     );
-    expect(screen.getByText("you")).toBeTruthy();
-    expect(screen.getByText(/Took 30 min/)).toBeTruthy();
-    expect(screen.getByText(/everyone has 15 cards/)).toBeTruthy();
-    const meta = screen.getByText("Finished").closest(".t-meta")!;
-    const items = Array.from(meta.firstElementChild!.children);
+    expect(screen.getByText("You", { selector: "span.sv-pill" })).toBeTruthy();
+    const pieces = screen.getByText("Finished").closest("ul")!;
+    const items = Array.from(pieces.children);
     expect(items.slice(0, 3).map((item) => item.textContent)).toEqual(["Finished", "Cube draft", "1 player"]);
     expect(items[3]).toHaveTextContent(/^Ended /);
     expect(items[4]).toHaveTextContent("Took 30 min");
     expect(items).toHaveLength(5);
-    for (const item of items) {
-      expect(item.firstElementChild).toHaveClass("dot");
-      expect(item.firstElementChild).toHaveAttribute("aria-hidden", "true");
-    }
+    const stages = screen.getByRole("list", { name: "Draft progress" });
+    expect(stages.querySelector("[aria-current='step']")).toHaveTextContent("Build deck");
+  });
+
+  it("shows no picks of other players, only how many each made", () => {
+    const { container } = renderView(
+      { ...baseDraft, players: [...baseDraft.players, { playerId: 2, displayName: "Kestrel", seatIndex: 1, pickCount: 15, joinedAt: "2026-05-06T12:00:00.000Z" }], playerCount: 2, participantPickCount: 15, seats: [{ playerId: 1, isCurrentPlayer: true }] },
+      { myPool: samplePool },
+    );
+    expect(screen.getByText("Kestrel")).toBeTruthy();
+    expect(screen.getAllByText("picks")).toHaveLength(2);
+    expect(container.textContent).not.toMatch(/\u00b7/);
   });
 });
