@@ -53,6 +53,8 @@ const SPECS: EffectSpec[] = [
     code: 37129797, name: "Vampire Sucker", slug: "vampire-sucker", does: "Special Summons a monster of an opponent Graveyard in Defense Position",
     p0: { monsters: ["Vampire Sucker"] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
+    // Only the target opponent has a legal GY monster in FFA.
+    noPick: (roles) => roles.format !== "tag",
     steps: [activate("Vampire Sucker", "p0")],
     p0End: { monsters: ["Vampire Sucker"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
