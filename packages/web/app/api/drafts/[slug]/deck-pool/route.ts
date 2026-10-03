@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { createSavedDeckService } from "@yugidraft/shared/services";
+import { createSavedDeckService, deckRegistrationMark } from "@yugidraft/shared/services";
+import { loadDeckRegistrations } from "@/lib/saved-decks";
 import { findDraftDeckContext, loadDraftDeckPool } from "../../draft-deck-pool";
 import { draftReadAccess } from "@/lib/draft-access";
 
@@ -41,6 +42,11 @@ export async function GET(
       cards: pool.cards,
       mainPoolCount: pool.mainPoolCount,
       savedDeckId: saved?.id ?? null,
+      // The tournament this draft's deck is registered for, if any (pending or active tournaments only).
+      registration: deckRegistrationMark(loadDeckRegistrations(guildId, session.user.id), {
+        savedDeckId: saved?.id ?? null,
+        draftId: draft.id,
+      }),
       unresolved: pool.unresolved,
     });
   } catch (error) {
