@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""Create a verified SQLite snapshot without stopping the live WAL writers."""
+
+import fcntl
+import hashlib
+import os
+from pathlib import Path
+import re
+import shutil
+import sqlite3
+import sys
+import tempfile
+from contextlib import closing
+from datetime import datetime, timezone
+
+
+SRC = Path(os.environ.get("DUELING_BACKUP_SRC", "/opt/yugioh-bot/data/bot.sqlite"))
+DEST_DIR = Path(os.environ.get("DUELING_BACKUP_DIR", "/var/backups/yugioh-bot"))
+KEEP_ENV = "DUELING_BACKUP_KEEP"
+SPACE_MULTIPLIER = 3
+CONNECT_TIMEOUT = 30
+UTC = timezone.utc
+AUTOMATIC_NAME = re.compile(r"^bot-(\d{8}-\d{6})Z\.sqlite$")
+
+
+def prune_backups(keep):
+    backups = []
+    for path in DEST_DIR.iterdir():
+        match = AUTOMATIC_NAME.fullmatch(path.name)
+        if not match or path.is_symlink() or not path.is_file():
+            continue
+        try:
+            stamp = datetime.strptime(match.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=UTC)
+        except ValueError:
+            continue
+        backups.append((stamp, path))
+    backups.sort(key=lambda entry: entry[0], reverse=True)
+    for _, path in backups[keep:]:
+        path.unlink()
+        try:
+            Path(str(path) + ".sha256").unlink()
+        except FileNotFoundError:
+            pass
+    retained = backups[:keep]
+    return len(retained), sum(path.stat().st_size for _, path in retained)
+
+
+def create_backup():
+    try:
+        keep = int(os.environ.get(KEEP_ENV, "7"))
+        if keep < 1:
+            raise ValueError
+    except ValueError:
+        raise ValueError(KEEP_ENV + " must be an integer >= 1") from None
+
+    destination = DEST_DIR.absolute()
+    destination.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary_paths = []
+    directory_fd = os.open(str(destination), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        # Lock the directory itself, avoiding an extra lock file or overlapping runs.
+        try:
+            fcntl.flock(directory_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("another backup is already running for " + str(destination))
+
+        source = SRC.absolute()
+        source_size = source.stat().st_size
+        try:
+            wal_size = Path(str(source) + "-wal").stat().st_size
+        except FileNotFoundError:
+            wal_size = 0
+        required = SPACE_MULTIPLIER * (source_size + wal_size)
+        free = shutil.disk_usage(destination).free
+        if free < required:
+            raise RuntimeError("insufficient free space: need {} bytes, have {} in {}".format(required, free, destination))
+
+        fd, temporary_name = tempfile.mkstemp(prefix=".dueling-backup-", suffix=".tmp", dir=str(destination))
+        temporary = Path(temporary_name)
+        temporary_paths.append(temporary)
+        os.close(fd)
+        # URI escaping handles spaces, '?' and '#'. Never use immutable=1 on live WAL.
+        # mode=ro still needs access to the live -shm file; the data directory is writable.
+        with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True, timeout=CONNECT_TIMEOUT)) as live:
+            with closing(sqlite3.connect(str(temporary), timeout=CONNECT_TIMEOUT)) as copy:
+                # One WAL read transaction gives a consistent snapshot without blocking writers; incremental steps can restart indefinitely under steady writes.
+                live.backup(copy)
+                journal = copy.execute("PRAGMA journal_mode=DELETE").fetchone()
+                if journal != ("delete",):
+                    raise RuntimeError("could not switch backup to journal_mode=DELETE")
+                integrity = copy.execute("PRAGMA integrity_check").fetchall()
+                if integrity != [("ok",)]:
+                    raise RuntimeError("backup integrity_check failed: " + repr(integrity))
+
+        temporary.chmod(0o600)
+        digest = hashlib.sha256()
+        with temporary.open("rb") as data:
+            os.fsync(data.fileno())
+            for chunk in iter(lambda: data.read(1024 * 1024), b""):
+                digest.update(chunk)
+        checksum = digest.hexdigest()
+        size = temporary.stat().st_size
+        now = datetime.now(UTC)
+        final = destination / now.strftime("bot-%Y%m%d-%H%M%SZ.sqlite")
+        sidecar = Path(str(final) + ".sha256")
+        if os.path.lexists(final) or os.path.lexists(sidecar):
+            raise RuntimeError("backup name already exists; retry in the next second: " + str(final))
+
+        fd, checksum_name = tempfile.mkstemp(prefix=".dueling-sha256-", suffix=".tmp", dir=str(destination))
+        checksum_temporary = Path(checksum_name)
+        temporary_paths.append(checksum_temporary)
+        with os.fdopen(fd, "w", encoding="ascii") as output:
+            os.fchmod(output.fileno(), 0o600)
+            output.write(checksum + "  " + final.name + "\n")
+            output.flush()
+            os.fsync(output.fileno())
+
+        os.rename(temporary, final)
+        os.rename(checksum_temporary, sidecar)
+        os.fsync(directory_fd)
+        kept, total_bytes = prune_backups(keep)
+        os.fsync(directory_fd)
+        return final, size, checksum, kept, total_bytes
+    finally:
+        try:
+            # Remove only our own temporary files and SQLite's associated journals.
+            for temporary in temporary_paths:
+                for suffix in ("", "-wal", "-shm", "-journal"):
+                    try:
+                        Path(str(temporary) + suffix).unlink()
+                    except FileNotFoundError:
+                        pass
+        finally:
+            os.close(directory_fd)
+
+
+def main():
+    try:
+        path, size, checksum, kept, total_bytes = create_backup()
+        print("{} {} {} kept={} total_bytes={}".format(path, size, checksum, kept, total_bytes))
+        return 0
+    except (Exception, KeyboardInterrupt) as error:
+        message = " ".join(str(error).split()) or type(error).__name__
+        print("ERROR: dueling-backup: " + message, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

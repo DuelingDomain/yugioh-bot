@@ -26,13 +26,19 @@ export async function prepareProofCases(bug: ProofBug): Promise<ProofCase[]> {
     }));
   }
   const cases: ProofCase[] = [];
-  for (const kind of ["synchro", "xyz", "ritual"]) {
+  for (const kind of ["synchro", "xyz", "link", "ritual"]) {
     const scenario = materialCountScenarios.find((entry) => entry.kind === kind)!;
     const result = await runMaterialCountScenario(scenario);
     assert(result.materialViews.length > 0, `No real ${kind} material prompt`);
     assert(result.materialViews.every((view) => view.prompt?.seat === 0), "Summoning seat must own the prompt");
     if (kind !== "ritual") assert.equal(result.materialViews.length, 2, "Expected before/after-first-pick core prompts");
     else assert.equal(result.materialViews[0].prompt?.target, 4, "Expected real White Dragon Ritual Level 4 prompt");
+    if (kind === "synchro") {
+      assert(result.prompts.every((prompt) => prompt.target === 7 && prompt.source?.name === "Junk Archer"),
+        "Expected the chosen Junk Archer's Level 7 target throughout the Synchro procedure");
+      assert.equal(result.prompts[1].options.find((option) => option.selected)?.currentLevel, 3,
+        "Expected Junk Synchron's current Level 3 after the first pick");
+    }
     cases.push({
       id: kind, bug, mySeat: 0, title: `${scenario.monster} · material selection`,
       engine: result.materialViews[0], materialViews: result.materialViews,
@@ -163,14 +169,28 @@ export async function runBugProof(bug: ProofBug) {
       } else {
         check(!/\b[012]\/1 selected\b/.test(row.promptText), `${label}: per-step maximum shown as a total (${row.counterText})`);
         if (row.scenario === "ritual") {
+          check(row.titleText === "Tribute", `${label}: Ritual title must read Tribute (got ${row.titleText})`);
           check(row.instructionText === "Total at least 4", `${label}: Ritual must instruct Total at least 4 (got ${row.instructionText})`);
-          const s = cases.find((entry) => entry.id === "ritual")!;
-          const values = s.materialCodes!.slice(0, row.step).map((code) =>
-            s.engine.prompt!.options.find((option) => option.card?.code === code)?.values?.join("/")).join(" + ") || null;
-          check(row.counterText === values, `${label}: Ritual must show selected Level values (${values}), got ${row.counterText}`);
+          const counter = ["Level total 0", "Level total 2", "Level total 2 + 3 = 5"][row.step];
+          const met = row.step === 2;
+          check(row.counterText === counter, `${label}: Ritual must show ${counter}, got ${row.counterText}`);
+          check(row.counterMet === met && row.counterMarker?.includes(met ? "✓" : "○") === true,
+            `${label}: Ritual pill must be ${met ? "met with ✓" : "unmet with ○"}, got ${row.counterMarker}`);
+          check(row.confirmEnabled === met && row.promptReady === met,
+            `${label}: Ritual Confirm must be ${met ? "enabled" : "disabled"}`);
         } else {
-          check(row.counterText === `${row.step} selected`, `${label}: counter must read ${row.step} selected, got ${row.counterText}`);
-          check(row.instructionText === "Choose a material", `${label}: instruction must read Choose a material, got ${row.instructionText}`);
+          check(row.titleText === "Choose a material", `${label}: title must read Choose a material, got ${row.titleText}`);
+          check(row.instructionText === null, `${label}: no per-click count instruction should be shown (got ${row.instructionText})`);
+          if (row.scenario === "synchro") {
+            const counter = ["Level 0 / 7", "Level 3 / 7", "Level 7 / 7"][row.step];
+            const met = row.step === 2;
+            check(row.detailText === "Synchro material", `${label}: must name Synchro material`);
+            check(row.counterText === counter, `${label}: Synchro must show ${counter}, got ${row.counterText}`);
+            check(row.counterMet === met && row.counterMarker?.includes(met ? "✓" : "○") === true,
+              `${label}: Synchro pill must be ${met ? "met with ✓" : "unmet with ○"}, got ${row.counterMarker}`);
+          } else {
+            check(row.counterText === `${row.step} selected`, `${label}: counter must read ${row.step} selected, got ${row.counterText}`);
+          }
         }
       }
     }

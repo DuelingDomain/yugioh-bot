@@ -22,7 +22,13 @@ export interface ProofRead {
   revealShowsTarget: boolean;
   revealText: string;
   counterText: string | null;
+  titleText: string | null;
+  detailText: string | null;
   instructionText: string | null;
+  counterMet: boolean | null;
+  counterMarker: string | null;
+  confirmEnabled: boolean | null;
+  promptReady: boolean | null;
   promptText: string;
   fieldCardBack: boolean | null;
   fieldCardPosition: number | null;

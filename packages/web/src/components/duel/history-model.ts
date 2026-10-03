@@ -406,6 +406,9 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
 
   batch.forEach((event, index) => {
     switch (event.kind) {
+      case "target":
+        // Coordinates update the board markers; activation already owns the history tile.
+        break;
       case "summon":
       case "set": {
         const card = event.card ?? null;

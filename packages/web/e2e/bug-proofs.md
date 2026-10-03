@@ -19,13 +19,13 @@ node --import tsx packages/web/e2e/material-count.playwright.ts
 
 Use the paths to your own installed Playwright/Chromium if these cached paths differ. Run all three
 commands; each exits zero when its bug stays fixed. Set `PROOF_WIDTH=390` for phone-width shots. JSON lines on stdout and `evidence.json` contain
-the actual DOM copy, visible identity, counter/instruction and screenshot paths.
+the actual DOM copy, visible identity, title/instruction, counter state, Confirm availability and screenshot paths.
 
 | Script | Engine scenario | Screenshots beneath `$PROOF_DIR` |
 | --- | --- | --- |
 | search-reveal | Reinforcement of the Army adds Kojikocy; opponent and spectator | `bug-1/{opponent,spectator}-{history,showcase}.png` |
 | deck-set | Ogama Sets Majespecter Tempest; opponent and spectator | `bug-2/{opponent,spectator}-set.png` |
-| material-count | Junk Archer, Utopia, Paladin of White Dragon; summoning seat | `bug-4/{synchro,xyz,ritual}-{0,1,2}-selected.png` |
+| material-count | Junk Archer, Utopia, LANphorhynchus, Paladin of White Dragon; summoning seat | `bug-4/{synchro,xyz,link,ritual}-{0,1,2}-selected.png` |
 
 Each directory also contains `snapshots.json` and a standalone `bundle/index.html`. Search proofs
 show history alongside the real Added to hand showcase. Playwright pauses removal timers and seeks
@@ -34,13 +34,17 @@ Images use labelled SVG placeholders and the shipped card backs, matching the ex
 Set proofs require public identity in history/reveal while the field retains a face-down position
 and renders a card back.
 
-For Synchro/Xyz, the first two states are untouched core prompts. The core completes immediately
+For Synchro/Xyz/Link, the first two states are untouched core prompts. The core completes immediately
 on the second material, so the last screenshot is explicitly labelled a **pending-answer preview**:
 the browser retains the last real prompt and changes only the second clicked option's selected flag.
 Its original min/max, text, options and board remain intact. `completedView` in `snapshots.json`
-contains the resulting real summon and its Graveyard/Xyz materials. This preview tests `2 selected`
-without inventing a third core prompt or a total. Ritual uses the same real sum prompt with local
-draft picks throughout, and asserts `Total at least 4` plus the selected Level values (`2 + 3`).
+contains the resulting real summon and its Graveyard/Xyz materials. Synchro asserts the title
+`Choose a material` and `Level 0 / 7` → `Level 3 / 7` → `Level 7 / 7`, using the chosen Junk Archer's
+target and the materials' current Levels. The pill shows ✓ only at 7. Xyz/Link retain `N selected`.
+Ritual uses the same real sum prompt with local draft picks throughout and asserts `Total at least 4`
+with `Level total 0` → `Level total 2` → `Level total 2 + 3 = 5`. The pill stays unmet and Confirm
+disabled until the final total reaches the requirement. These checks read the rendered title,
+instruction, counter, CSS marker and button state; they do not supply expected copy to the page.
 
 To generate and validate snapshots/builds without launching Chromium or requiring Playwright:
 

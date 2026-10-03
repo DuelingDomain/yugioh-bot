@@ -66,13 +66,22 @@ function Proof({ scenario: s }: { scenario: ProofCase }) {
     const label = board.querySelector<HTMLElement>('[data-testid="added-label"]');
     const zone = s.setZone ? board.querySelector(`[data-zones~="${s.setZone}"]`) : null;
     const selectedCount = prompt?.kind === "toggle" ? prompt.options.filter((option) => option.selected).length : draft.selected.length;
+    const counter = promptRoot.querySelector<HTMLElement>(`.${promptStyles.barCount}`);
+    const confirm = Array.from(promptRoot.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.innerText === "Confirm");
+    const bar = promptRoot.querySelector<HTMLElement>("[data-ready]");
     return {
       historyRows,
       historyShowsTarget: historyRows.some((row) => row.text.includes(s.targetName) || row.showsTargetArt),
       revealShowsTarget: ghosts.some((ghost) => ghost.dataset.known === "true" && loadedArt(ghost)),
       revealText: label && Number(getComputedStyle(label).opacity) > 0 ? label.innerText : "",
-      counterText: promptRoot.querySelector<HTMLElement>(`.${promptStyles.barCount}`)?.innerText ?? null,
+      counterText: counter?.innerText ?? null,
+      titleText: promptRoot.querySelector<HTMLElement>(`.${promptStyles.barText} > b`)?.innerText ?? null,
+      detailText: promptRoot.querySelector<HTMLElement>(`.${promptStyles.barDetail}`)?.innerText ?? null,
       instructionText: promptRoot.querySelector<HTMLElement>(`.${promptStyles.barAsk}`)?.innerText ?? null,
+      counterMet: counter ? counter.dataset.done === "true" : null,
+      counterMarker: counter ? getComputedStyle(counter, "::before").content : null,
+      confirmEnabled: confirm ? !confirm.disabled : null,
+      promptReady: bar ? bar.dataset.ready === "true" : null,
       promptText: promptRoot.innerText,
       fieldCardBack: zone ? zone.querySelector('[data-card-art]') != null && zone.querySelector('img') == null : null,
       fieldCardPosition: s.setZone ? engine.seats[0].spells.find((card) => card &&

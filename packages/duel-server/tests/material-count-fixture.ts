@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3";
 import type { DuelAnswer, DuelDeck, DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
-import { createEngineGame } from "../src/engine.js";
+import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 
 export const materialCountScenarios = [
@@ -17,12 +17,16 @@ export const materialCountScenarios = [
 export type MaterialCountScenario = (typeof materialCountScenarios)[number];
 
 /** Real stock-core duels, following engine-events.test.ts's unshuffled opening-hand setup. */
-export async function runMaterialCountScenario(scenario: MaterialCountScenario) {
+export async function runMaterialCountScenario(scenario: MaterialCountScenario, options: {
+  extraMonsters?: readonly string[];
+  onMaterialPrompt?: (game: EngineGame, prompt: DuelPrompt) => void;
+} = {}) {
   const db = new Database(`${engineDataDirectory}/cards.cdb`, { readonly: true });
   let monster: number;
   let materials: number[];
   let spell: number | undefined;
   let fillers: number[];
+  let extraMonsters: number[];
   try {
     const id = (name: string) => {
       const row = db.prepare("SELECT d.id FROM datas d JOIN texts t USING(id) WHERE t.name=? AND d.alias=0 AND (d.ot&3)!=0 LIMIT 1").get(name) as { id: number } | undefined;
@@ -32,6 +36,7 @@ export async function runMaterialCountScenario(scenario: MaterialCountScenario) 
     monster = id(scenario.monster);
     materials = scenario.materials.map(id);
     spell = "spell" in scenario ? id(scenario.spell) : undefined;
+    extraMonsters = (options.extraMonsters ?? []).map(id);
     fillers = (db.prepare("SELECT id FROM datas WHERE type=2 AND alias=0 AND (ot&3)!=0 ORDER BY id LIMIT 60").all() as { id: number }[]).map((row) => row.id);
   } finally {
     db.close();
@@ -39,7 +44,7 @@ export async function runMaterialCountScenario(scenario: MaterialCountScenario) 
   const wanted = [...materials, ...(spell ? [spell] : []), ...(["tribute", "ritual"].includes(scenario.kind) ? [monster] : [])];
   const deck: DuelDeck = {
     main: [...wanted, ...fillers.filter((code) => !wanted.includes(code)).slice(0, 40 - wanted.length)],
-    extra: ["tribute", "ritual"].includes(scenario.kind) ? [] : [monster],
+    extra: ["tribute", "ritual"].includes(scenario.kind) ? [] : [...extraMonsters, monster],
     side: [],
   };
   const game = await createEngineGame({
@@ -52,6 +57,8 @@ export async function runMaterialCountScenario(scenario: MaterialCountScenario) 
   });
   const prompts: DuelPrompt[] = [];
   const materialViews: DuelEngineView[] = [];
+  const opponentMaterialViews: DuelEngineView[] = [];
+  const spectatorMaterialViews: DuelEngineView[] = [];
   const trace: string[] = [];
   let summoning = false;
   try {
@@ -61,7 +68,7 @@ export async function runMaterialCountScenario(scenario: MaterialCountScenario) 
       if (summoned) {
         const event = view.events.find((entry) => entry.kind === "summon" && entry.card?.code === monster);
         assert(event, "Completed summon must have an event");
-        return { prompts, materialViews, completedView: view, summoned, event, graveyard: view.seats[0].graveyard, materials, trace };
+        return { prompts, materialViews, opponentMaterialViews, spectatorMaterialViews, completedView: view, summoned, event, graveyard: view.seats[0].graveyard, materials, trace };
       }
       const prompt = view.prompt ?? game.view(1).prompt;
       assert(prompt, `No prompt: ${trace.join(" -> ")}`);
@@ -69,6 +76,9 @@ export async function runMaterialCountScenario(scenario: MaterialCountScenario) 
       if (summoning && prompt.seat === 0 && ["toggle", "sum", "tribute"].includes(prompt.kind)) {
         prompts.push(structuredClone(prompt));
         materialViews.push(structuredClone(view));
+        opponentMaterialViews.push(structuredClone(game.view(1)));
+        spectatorMaterialViews.push(structuredClone(game.view(null)));
+        options.onMaterialPrompt?.(game, prompt);
       }
       let answer: DuelAnswer;
       if (prompt.kind === "choice") {

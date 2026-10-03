@@ -1,4 +1,5 @@
 import type { DuelClock, DuelSettings } from "./settings.js";
+import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
 
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
@@ -28,6 +29,21 @@ export {
   PINNED_TCG_BANLIST_ID,
 } from "./settings.js";
 export type { DuelBanlistOption } from "./banlist-options.js";
+export type {
+  DuelFirstChoice,
+  DuelOpeningReveal,
+  DuelOpeningState,
+  DuelOpeningView,
+  DuelRpsMove,
+} from "./opening.js";
+export {
+  DUEL_OPENING_PICK_MS,
+  DUEL_OPENING_REVEAL_MS,
+  DUEL_RPS_MOVES,
+  isFirstChoice,
+  isRpsMove,
+  rpsWinner,
+} from "./opening.js";
 export type { DeckPoolIssue } from "./pool.js";
 export { checkDeckAgainstPool, deckCardCounts } from "./pool.js";
 export { DUEL_BANLIST_OPTIONS } from "./banlist-options.js";
@@ -86,6 +102,15 @@ export interface DuelSeriesSummary {
   sideReady: [boolean, boolean];
   /** Per playerIds index: the player's deck has side deck cards. */
   hasSide: [boolean, boolean];
+  /**
+   * Between games after a decided game: the playerIds index of the loser, who chooses to go first or
+   * second. Null before game 1, after a draw or an interrupt (the seats swap then), and while a game runs.
+   */
+  firstChooser: 0 | 1 | null;
+  /** What the chooser picked for the next game; null until they choose (the default is first). */
+  firstChoice: DuelFirstChoice | null;
+  /** One player plays the practice bot: `playerIds[1]` is 0 and the bot's name stands in `displayNames[1]`. */
+  vsBot: boolean;
 }
 
 /** The viewer's own decks in a series; only sent to that player. */
@@ -161,6 +186,10 @@ export interface DuelPromptOption {
   location?: number;
   sequence?: number;
   values?: number[];
+  /** Current Level from this viewer's card projection; takes precedence over the printed Level. */
+  currentLevel?: number;
+  /** The card counts as another Level for a Synchro Summon (EFFECT_SYNCHRO_LEVEL), so its Level is not its contribution. */
+  synchroLevelVaries?: boolean;
   max?: number;
   selected?: boolean;
   /** Full printed text of the card this option is bound to (absent when the card is hidden from the viewer). */
@@ -203,6 +232,8 @@ export interface DuelPrompt {
   min?: number;
   max?: number;
   target?: number;
+  /** Sum requirement (also used for a Synchro toggle's Level target), independent of card-count bounds. */
+  sumMode?: "exact" | "at-least";
   mandatory?: string[];
   cancelable?: boolean;
   finishable?: boolean;
@@ -270,11 +301,14 @@ export type DuelBattleStep = "start" | "battle" | "damage" | "damage-calculation
 export interface DuelEvent {
   id: number;
   kind:
-    | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
+    | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
     | "attack" | "phase" | "damage" | "destroy" | "move" | "position" | "equip" | "confirm";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
+  /** target: the link's complete current target list (including [] when cleared). Coordinates only;
+   * identities must come from the viewer's redacted board. Also accepted on activation events. */
+  targets?: DuelZoneRef[];
   text: string;
   description?: string;
   /** confirm: the preceding move of this card, when known. Identity belongs to this confirmation only. */
@@ -341,6 +375,10 @@ export interface DuelChainLink {
   code?: number;
   name?: string;
   description?: string;
+  /** Where the source activated; retained when its activation leaves the event window. */
+  zone?: DuelZoneRef;
+  /** Current target coordinates, public to every viewer. No target names or passcodes. */
+  targets?: DuelZoneRef[];
 }
 
 export interface DuelEngineView {
@@ -352,6 +390,12 @@ export interface DuelEngineView {
   battleStep?: DuelBattleStep | null;
   seats: DuelSeatView[];
   prompt: DuelPrompt | null;
+  /**
+   * Public seat the engine is waiting on, including when that viewer cannot see the prompt.
+   * null while processing or after the duel; absent in older clients' saved views/replays.
+   * This reveals ownership only, never the answering player's prompt or options.
+   */
+  prioritySeat?: number | null;
   chain: DuelChainLink[];
   events: DuelEvent[];
   log: Array<{ id: number; text: string }>;
@@ -408,6 +452,8 @@ export interface DuelRoom {
   series?: DuelSeriesSummary | null;
   /** The viewer's series decks when the viewer is a series player; otherwise null. */
   mySide?: DuelSeriesSideState | null;
+  /** Rock-paper-scissors before the game starts; null when there is none. */
+  opening?: DuelOpeningView | null;
 }
 
 /** A table row in the lobby list or match history, as seen by one viewer. */
