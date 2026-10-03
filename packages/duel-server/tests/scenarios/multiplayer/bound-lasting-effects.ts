@@ -91,7 +91,7 @@ function swords(f: Format): Scenario {
   }
   steps.push(board(f, result));
   return proof(f, "swords-face-up-continuous-lock", setup, steps,
-    ["R-COMMON-ONGOING", f === "tag" ? "R-TAG-PARTNER" : "R-FFA-OPP-ONE"]);
+    ["R-COMMON-ONGOING", ...(f === "tag" ? [] : ["R-FFA-OPP-ONE"])]);
 }
 function watchedLeave(f: Format): Scenario {
   const ghost = "Ghost Mourner & Moonlit Chill";
