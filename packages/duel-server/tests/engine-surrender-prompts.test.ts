@@ -27,8 +27,8 @@ const cases: [string, DuelPrompt["kind"], string][] = [
   ["number", "choice", "Duel.AnnounceNumber(0,1,2,3)"],
   ["tribute", "tribute", "Duel.SelectTribute(0,g:GetFirst(),1,1)"],
   ["counters", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_COST)`],
-  ["counter target leaves", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_COST)`],
-  ["counter fallback", "counters", `(function() Duel.MPWindow(1); local answer=Duel.RemoveCounter(0,0,1,0x1,1,REASON_COST); Duel.MPWindowEnd(); return answer end)()`],
+  ["counter target leaves", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_EFFECT)`],
+  ["counter fallback", "counters", `(function() Duel.MPWindow(1); local answer=Duel.RemoveCounter(0,0,1,0x1,1,REASON_EFFECT); Duel.MPWindowEnd(); return answer end)()`],
   ["retained token counters", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_COST)`],
   ["rock-paper-scissors", "choice", "Duel.RockPaperScissors()"],
 ];
@@ -157,6 +157,95 @@ ${_name === "idle" ? "" : "Duel.RegisterEffect(e,0)"}` }],
         pass(game);
         expect(game.view(null).result ?? null).toBeNull();
         expect(game.diagnostics().filter((d) => d.kind === "stderr")).toEqual([]);
+      } finally { game.close(); }
+    });
+  }
+});
+
+describeWithCores("counter sources changed by surrender", [needs.multi(currentMultiWasm()), ...needs.domainMulti(dataDirectory, currentDomainMultiWasm())], () => {
+  for (const mode of ["normal", "domain"] as const) {
+    it.each(["partial", "one source", "insufficient effect", "continuous cost", "summon cost"] as const)(`${mode}: %s`, async (scenario) => {
+      const cost = scenario.endsWith("cost");
+      const count = scenario.startsWith("insufficient") || cost ? 3 : 1;
+      const ownSources = scenario === "one source" ? 1 : 2;
+      const setup = compileBoard({ mode, format: "ffa4",
+        p0: { hand: ["Axe Raider"], ...(mode === "domain" ? { deckMaster: "Gemini Elf" } : {}) },
+        p1: { ...(mode === "domain" ? { deckMaster: "Giant Soldier of Stone" } : {}) },
+        p2: { ...(mode === "domain" ? { deckMaster: "Summoned Skull" } : {}) },
+        p3: { ...(mode === "domain" ? { deckMaster: "Beaver Warrior" } : {}) },
+      });
+      const bytes = readFileSync(mode === "domain" ? currentDomainMultiWasm() : currentMultiWasm());
+      const game = await createEngineGame({ ...setup.options, dataDirectory, seed: ["1", "2", "3", "4"],
+        multiWasmBinary: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        startupScripts: [...setup.options.startupScripts!, { name: "surrender-counter-sources.lua", content: `
+local sources=Group.CreateGroup()
+for i=0,${ownSources} do
+  local c=Debug.AddCard(46986414,i==${ownSources} and 1 or 0,0,LOCATION_MZONE,i,POS_FACEUP_ATTACK,true)
+  if i==${ownSources} then
+    local control=Effect.CreateEffect(c); control:SetType(EFFECT_TYPE_SINGLE)
+    control:SetCode(EFFECT_SET_CONTROL); control:SetValue(0); control:SetProperty(EFFECT_FLAG_CANNOT_DISABLE)
+    control:SetReset(RESET_EVENT|RESETS_STANDARD|RESET_CONTROL); c:RegisterEffect(control)
+  end
+  sources:AddCard(c)
+end
+local removed=Effect.GlobalEffect()
+removed:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS); removed:SetCode(EVENT_REMOVE_COUNTER+0x1)
+removed:SetOperation(function() Duel.SetLP(3,6000) end); Duel.RegisterEffect(removed,3)
+local function pay()
+  local answer=Duel.RemoveCounter(0,1,0,0x1,${count},${cost ? "REASON_COST" : "REASON_EFFECT"})
+  Duel.SetLP(2,answer and 7000+Duel.GetCounter(0,1,0,0x1) or 7100)
+end
+${scenario === "summon cost" ? `local c=Duel.GetFieldGroup(0,LOCATION_HAND,0):GetFirst()
+local proc=Effect.CreateEffect(c); proc:SetType(EFFECT_TYPE_FIELD); proc:SetCode(EFFECT_SPSUMMON_PROC)
+proc:SetProperty(EFFECT_FLAG_UNCOPYABLE); proc:SetRange(LOCATION_HAND)
+proc:SetCondition(function(e,c) return c==nil or Duel.IsCanRemoveCounter(0,1,0,0x1,3,REASON_COST) end)
+proc:SetOperation(pay); c:RegisterEffect(proc)` : ""}
+local e=Effect.GlobalEffect(); e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_PHASE_START|PHASE_MAIN1); e:SetCondition(function() return Duel.GetTurnCount()==1 end)
+e:SetOperation(function()
+  for c in aux.Next(sources) do
+    local permit=Effect.CreateEffect(c); permit:SetType(EFFECT_TYPE_SINGLE)
+    permit:SetCode(EFFECT_COUNTER_PERMIT+0x1); permit:SetRange(LOCATION_MZONE); permit:SetValue(LOCATION_MZONE)
+    c:RegisterEffect(permit); c:AddCounter(0x1,1)
+  end
+  ${scenario === "summon cost" ? "" : "pay()"}
+end); Duel.RegisterEffect(e,0)` }],
+      });
+      try {
+        for (let step = 0; step < 40 && game.view(0).prompt?.kind !== "counters"; step++) {
+          const prompt = game.view(holder(game)).prompt!;
+          if (scenario === "summon cost" && prompt.kind === "choice" && prompt.context?.type === "action") {
+            const option = prompt.options.find((o) => o.id.startsWith("spsummon:"));
+            expect(option, "counter-cost summon must be offered").toBeDefined();
+            game.answer(0, prompt.id, { choice: option!.id });
+          } else pass(game);
+        }
+        const original = game.view(0).prompt!;
+        expect(original.kind).toBe("counters");
+        game.eliminate(1, 0);
+        expect(game.view(null).seats[1].eliminated).toBe(true);
+        game.answer(0, original.id, chooseSurrenderedAnswer(original));
+        if (scenario === "partial" || scenario === "one source") {
+          const refreshed = game.view(0).prompt!;
+          expect(refreshed.kind).toBe("counters");
+          expect(refreshed.id).not.toBe(original.id);
+          if (refreshed.kind !== "counters") throw new Error("missing refreshed counter prompt");
+          expect(refreshed.options).toHaveLength(ownSources);
+          expect(refreshed.target).toBe(1);
+          game.answer(0, refreshed.id, chooseSurrenderedAnswer(refreshed));
+          expect(game.view(null).seats[2].lp).toBe(7000 + ownSources - 1);
+          expect(game.view(null).seats[3].lp).toBe(6000);
+        } else {
+          expect(game.view(null).seats[2].lp).toBe(cost ? 8000 : 7100);
+          expect(game.view(null).seats[3].lp).toBe(8000);
+          if (scenario === "summon cost") {
+            expect(game.view(0).seats[0].hand.map((c) => c.code)).toContain(48305365);
+            expect(game.view(null).seats[0].monsters.filter(Boolean)).toHaveLength(ownSources);
+          }
+        }
+        expect(game.diagnostics().filter((d) => d.kind === "stderr")).toEqual([]);
+        expect(holder(game)).toBe(0);
+        pass(game);
       } finally { game.close(); }
     });
   }
