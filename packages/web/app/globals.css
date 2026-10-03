@@ -49,6 +49,12 @@ html {
   color-scheme: dark;
 }
 
+/* The phone top bar in shell.module.css is sticky and 56px tall, so in-page jumps and focus
+   scrolling stop below it. Keep this breakpoint in step with shell.module.css. */
+@media (max-width: 820px) {
+  html { scroll-padding-top: 72px; }
+}
+
 body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
