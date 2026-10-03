@@ -356,6 +356,7 @@ export class Session {
       }
       case "zone": {
         const open = this.need(stepNo, step, step.by);
+        if (open.prompt.kind !== "places") this.fail(stepNo, step, "This prompt does not select zones.");
         const want = ZONES[step.zone];
         const pick = open.prompt.options.find(
           (o) => o.controller === seatOf(step.owner) && o.location === want.location && o.sequence === want.sequence,
