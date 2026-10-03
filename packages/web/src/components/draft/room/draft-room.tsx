@@ -598,9 +598,9 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   /* ---------- a reload while waiting: bring your last pick back into the reader ---------- */
   useEffect(() => {
     if (lastPick) return;
-    const card = restoredPick({ turn, seats: rs.seats, pool: rs.pool });
+    const card = restoredPick({ turn, seats: rs.seats, pool: rs.pool, passed });
     if (card) setLastPick(card);
-  }, [lastPick, turn, rs.seats, rs.pool]);
+  }, [lastPick, turn, rs.seats, rs.pool, passed]);
 
   /* ---------- derived views ---------- */
   const waitingOn = useMemo(

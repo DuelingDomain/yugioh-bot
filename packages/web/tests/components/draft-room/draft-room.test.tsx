@@ -142,6 +142,22 @@ describe("DraftRoom", () => {
     expect(document.querySelectorAll(".tcard")).toHaveLength(0);
   });
 
+  it("after a reload where you passed, the reader shows no pick and the pass line shows", async () => {
+    load({
+      currentPack: [],
+      myPool: [mk(2, { name: "Spell Two", type: "Normal Spell Card", frameType: "spell" })],
+      isMyTurn: false,
+      passed: true,
+      seats: seats.map((s) => ({ ...s, hasPicked: s.isCurrentPlayer })),
+    });
+    renderRoom();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("You pass this pick"));
+    expect(screen.getByRole("status").textContent).toContain("Bo");
+    expect(screen.queryByText("Your pick")).toBeNull();
+    expect(document.querySelector(".insp-head span")?.textContent).not.toBe("Your pick");
+    expect(reader().queryAllByRole("heading", { name: "Spell Two" })).toHaveLength(0);
+  });
+
   it("a click selects and a second click picks", async () => {
     renderRoom();
     await waitFor(() => expect(card(1)).toBeTruthy());

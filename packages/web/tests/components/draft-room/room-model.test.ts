@@ -423,6 +423,11 @@ describe("restoredPick", () => {
     expect(restoredPick({ turn: "waiting", seats: [seat(), other], pool: [] })).toBeNull();
   });
 
+  it("shows no card when you passed the step, even with a full pool", () => {
+    expect(restoredPick({ turn: "waiting", seats: [seat(), other], pool, passed: true })).toBeNull();
+    expect(restoredPick({ turn: "settling", seats: [seat(), other], pool, passed: true })).toBeNull();
+  });
+
   it("never reads anyone else's pick", () => {
     expect(restoredPick({ turn: "waiting", seats: [seat({ isCurrentPlayer: false }), other], pool })).toBeNull();
   });

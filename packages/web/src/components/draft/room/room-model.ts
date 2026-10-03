@@ -790,13 +790,16 @@ export function dealRibbon(opts: {
  * A reload while you wait: the live deal is gone, but the draft's own pool is not. Your last pool card is the
  * one you took this step, so the reader can show it again. Nothing about anyone else's pick is read.
  * The leftover pack is not in the fetched state (the server returns no pack once you have picked).
+ * A pass also counts as hasPicked, but you took no card: the last pool card is an older step's, so show none.
  */
 export function restoredPick(opts: {
   turn: Turn;
   seats: SeatLike[];
   pool: RoomCard[];
+  passed?: boolean;
 }): RoomCard | null {
   if (opts.turn !== "waiting" && opts.turn !== "settling") return null;
+  if (opts.passed) return null;
   const me = opts.seats.find((s) => s.isCurrentPlayer);
   if (!me?.hasPicked) return null;
   return opts.pool.length ? opts.pool[opts.pool.length - 1] : null;
