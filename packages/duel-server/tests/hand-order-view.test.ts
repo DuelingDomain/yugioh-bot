@@ -5,7 +5,61 @@ import { clearRevealsAt, createEventContext, createRevealMap, moveReveals, noteR
 
 const cards = { get: (code: number) => ({ code, name: `Card ${code}`, type: 17 }) } as CardDatabase;
 
+/** Compare complete audience view histories while changing only concealed engine codes. */
+function concealedHistory(hidden: readonly number[], permutation: readonly number[], removed: number) {
+  const ctx = createEventContext();
+  const events: StoredDuelEvent[] = [];
+  let raw = [...hidden.map((code) => ({ code, isPublic: false })), { code: 30, isPublic: true }];
+  const feed = (message: Parameters<typeof observeMoveEvents>[0]) => events.push(...observeMoveEvents(message, cards, ctx, events.length + 1));
+  feed({ type: M.DRAW, player: 0, drawn: raw.map(({ code }) => ({ code, position: P.FACEDOWN_ATTACK })) });
+  const project = (viewer: number | null) => projectView({
+    lib: { duelQueryField: () => ({ players: [{ deck_size: 30, extra_size: 0 }, { deck_size: 30, extra_size: 0 }], chain: [] }),
+      duelQueryLocation: (_h: unknown, q: { controller: number; location: number }) => q.controller === 0 && q.location === L.HAND
+        ? raw.map((card) => ({ ...card, position: P.FACEDOWN_ATTACK })) : [] } as never,
+    handle: {} as never, cards, viewer, revision: 0, turn: 1, turnSeat: 0, phase: "main1", lp: [8000, 8000],
+    prompt: null, promptSeat: null, log: [], events, result: null, reveals: createRevealMap(), mode: "normal", handIdentities: ctx.handIdentities,
+  });
+  const snapshot = () => {
+    project(0); // Audience identity reconciliation must also be independent of who queries first.
+    return [project(1), project(null)];
+  };
+  const history = [snapshot()];
+  raw = permutation.map((index) => raw[index]!);
+  feed({ type: M.SHUFFLE_HAND, player: 0, cards: raw.map((card) => card.code) });
+  const departing = raw.splice(removed, 1)[0]!;
+  feed({ type: M.MOVE, card: departing.code,
+    from: { controller: 0, location: L.HAND, sequence: removed, position: P.FACEDOWN_ATTACK },
+    to: { controller: 0, location: L.DECK, sequence: 0, position: P.FACEDOWN_ATTACK } });
+  history.push(snapshot());
+  // A hidden addition and another unobserved shuffle/position change exercise the next batch.
+  feed({ type: M.MOVE, card: hidden[0]!,
+    from: { controller: 0, location: L.DECK, sequence: 0, position: P.FACEDOWN_ATTACK },
+    to: { controller: 0, location: L.HAND, sequence: raw.length, position: P.FACEDOWN_ATTACK } });
+  raw.push({ code: hidden[0]!, isPublic: false });
+  raw.reverse();
+  feed({ type: M.SHUFFLE_HAND, player: 0, cards: raw.map((card) => card.code) });
+  feed({ type: M.POS_CHANGE, controller: 0, location: L.HAND, sequence: 0, code: raw[0]!.code,
+    prev_position: P.FACEUP_ATTACK, position: P.FACEDOWN_ATTACK });
+  history.push(snapshot());
+  return history;
+}
+
 describe("hand order in projected views", () => {
+  it("does not disclose a hidden copy of a public card after a same-batch shuffle and facedown departure", () => {
+    expect(concealedHistory([30, 20], [0, 1, 2], 0)).toEqual(concealedHistory([40, 20], [0, 1, 2], 0));
+  });
+
+  it("keeps opponent and spectator view sequences identical under hidden-card substitutions", () => {
+    const permutations = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+    for (const permutation of permutations) for (const removed of [0, 1, 2]) {
+      const baseline = concealedHistory([40, 50], permutation, removed);
+      for (const first of [10, 20, 30, 40]) for (const second of [10, 20, 30, 40]) {
+        expect(concealedHistory([first, second], permutation, removed),
+          `hidden [${first}, ${second}], shuffle [${permutation}], remove ${removed}`).toEqual(baseline);
+      }
+    }
+  });
+
   it.each([0, 1, null])("keeps EFFECT_PUBLIC cards on their sleeve after an initial query by viewer %s", (initialViewer) => {
     const ctx = createEventContext();
     const events = observeMoveEvents({ type: M.DRAW, player: 0, drawn: [10, 20, 30, 40, 50].map((code) => ({ code, position: P.FACEDOWN_ATTACK })) }, cards, ctx, 1);

@@ -118,7 +118,10 @@ export class HandIdentities {
     // A concealed shuffle severs the connection to the arrived card. Keeping that old target
     // could later bind its flight to an unrelated card when the slot becomes visible.
     for (const entry of this.sleeves[seat]!) if (!entry.public) delete entry.arrival;
-    this.sleeves[seat] = this.reorderSleeves(this.sleeves[seat]!, codes);
+    // Hidden codes cannot choose provisional sleeve slots: a public card may have a hidden
+    // duplicate. Keep the prior order until syncPublic receives the actual public slots.
+    this.sleeves[seat] = Array.from({ length: codes.length }, (_, sequence) =>
+      this.sleeves[seat]![sequence] ?? { id: `sleeve-${++this.nextSleeve}`, code: 0 });
     const before = this.beforeShuffle[seat]!;
     this.beforeShuffle[seat] = before.filter((entry) => this.sleeves[seat]!.includes(entry));
     for (const entry of this.sleeves[seat]!) {
@@ -126,13 +129,13 @@ export class HandIdentities {
     }
   }
 
-  private reorderSleeves(entries: readonly Identity[], codes: readonly number[], publicSlots?: readonly boolean[]): Identity[] {
+  private reorderSleeves(entries: readonly Identity[], codes: readonly number[], publicSlots: readonly boolean[]): Identity[] {
     // Only public card positions may follow codes. Fill the gaps with hidden sleeves in their
     // previous order, so neither IDs nor arrival slots disclose a concealed permutation.
     const publicSleeves = entries.filter((entry) => entry.public);
     const hiddenSleeves = entries.filter((entry) => !entry.public);
     const reordered = codes.map((code, sequence) => {
-      const index = publicSlots && !publicSlots[sequence] ? -1 : publicSleeves.findIndex((entry) => entry.code === code);
+      const index = !publicSlots[sequence] ? -1 : publicSleeves.findIndex((entry) => entry.code === code);
       return index >= 0 ? publicSleeves.splice(index, 1)[0] : undefined;
     });
     // Reconcile the public slot count as well: missing animation messages must not leave stale

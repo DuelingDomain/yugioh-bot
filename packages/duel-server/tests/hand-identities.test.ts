@@ -110,6 +110,8 @@ describe("animation identities in engine slots", () => {
     })) }, cards, ctx, 1);
     const before = [0, 1, 2, 3].map((sequence) => ctx.handIdentities.at(0, false, sequence));
     observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [40, 30, 10, 20] }, cards, ctx, 5);
+    expect([0, 1, 2, 3].map((sequence) => ctx.handIdentities.at(0, false, sequence))).toEqual(before);
+    ctx.handIdentities.syncPublic(0, [40, 30, 10, 20].map((code) => ({ code, isPublic: code === 20 })));
     expect([0, 1, 2, 3].map((sequence) => ctx.handIdentities.at(0, false, sequence))).toEqual([
       before[0], before[2], before[3], before[1],
     ]);
@@ -125,6 +127,7 @@ describe("animation identities in engine slots", () => {
       to: { controller: 0, location: L.HAND, sequence: 1, position: P.FACEUP_ATTACK } }, cards, ctx, 2);
     const before = ctx.handIdentities.at(0, false, 1);
     observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [20, 10] }, cards, ctx, 3);
+    ctx.handIdentities.syncPublic(0, [{ code: 20, isPublic: true }, { code: 10, isPublic: false }]);
     expect(ctx.handIdentities.at(0, false, 0)).toBe(before);
     expect(ctx.handIdentities.arrival(0, false, 2)?.sequence).toBe(0);
   });
@@ -137,6 +140,7 @@ describe("animation identities in engine slots", () => {
     observeMoveEvents({ type: M.POS_CHANGE, code: 20, controller: 0, location: L.HAND, sequence: 1,
       prev_position: P.FACEDOWN_ATTACK, position: P.FACEUP_ATTACK }, cards, ctx, 3);
     observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [20, 10] }, cards, ctx, 3);
+    ctx.handIdentities.syncPublic(0, [{ code: 20, isPublic: true }, { code: 10, isPublic: false }]);
     expect([0, 1].map((sequence) => ctx.handIdentities.at(0, false, sequence))).toEqual([before[1], before[0]]);
     observeMoveEvents({ type: M.POS_CHANGE, code: 20, controller: 0, location: L.HAND, sequence: 0,
       prev_position: P.FACEUP_ATTACK, position: P.FACEDOWN_ATTACK }, cards, ctx, 3);
@@ -182,6 +186,7 @@ describe("animation identities in engine slots", () => {
       code, position: code === 20 ? P.FACEUP_ATTACK : P.FACEDOWN_ATTACK,
     })) }, cards, ctx, 1);
     observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [20, 10] }, cards, ctx, 3);
+    ctx.handIdentities.syncPublic(0, [{ code: 20, isPublic: true }, { code: 10, isPublic: false }]);
     expect(ctx.handIdentities.arrival(0, false, 1)).toBeUndefined();
     expect(ctx.handIdentities.arrival(0, false, 2)?.sequence).toBe(0);
     expect(ctx.handIdentities.arrival(0, true, 1)?.sequence).toBe(1);
@@ -231,21 +236,20 @@ describe("animation identities in engine slots", () => {
     expect(ids.arrival(0, false, 2)).toBeUndefined();
   });
 
-  it("keeps pending visibility validation aligned through removals, insertions and public relocations", () => {
+  it("retires a public correlation consumed before a shuffle's public slots are queried", () => {
     const ids = new HandIdentities();
     ids.add(0, 10, 0, 1); ids.add(0, 20, 1, 2, true); ids.add(0, 30, 2, 3);
     const publicSleeve = ids.at(0, false, 1);
     ids.shuffle(0, [20, 30, 10]);
-    ids.remove(0, 1);
+    ids.remove(0, 1); // Provisional public sleeve; the actual departing card was hidden.
     ids.add(0, 40, 1, 4);
     const laterSleeve = ids.at(0, false, 1);
-    const hiddenSleeve = ids.at(0, false, 2);
     ids.relocate(0, 0, 2);
     ids.syncPublic(0, [40, 10, 20].map((code) => ({ code, isPublic: code === 20 })));
-    expect([0, 1, 2].map((sequence) => ids.at(0, false, sequence))).toEqual([laterSleeve, hiddenSleeve, publicSleeve]);
+    expect([0, 1, 2].map((sequence) => ids.at(0, false, sequence))).not.toContain(publicSleeve);
     expect(ids.at(0, false, 3)).toBeUndefined();
-    expect(ids.arrival(0, false, 2)?.sequence).toBe(2);
-    expect(ids.arrival(0, false, 4)?.sequence).toBe(0);
+    expect(ids.arrival(0, false, 2)).toBeUndefined();
+    expect(ids.arrival(0, false, 4)?.id).toBe(laterSleeve);
   });
 
   it.each(["remove", "insert", "relocate"] as const)("does not expose an expired public card's hidden permutation after an intervening %s", (mutation) => {
