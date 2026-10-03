@@ -21,3 +21,4 @@ export {
   type SvButtonProps, type SvButtonVariant, type DuelActionKind, type SegmentedOption,
 } from "./sv-buttons";
 export { CopyLinkRow } from "./sv-copy";
+export { ringColour, RING_PALETTE } from "./sv-ring";
