@@ -42,7 +42,7 @@ function pin(format: Format, lower: boolean, mixed = false, deadHigh = false): S
       yes(actor),
       ...(format === "tag" ? [] : [pickOpponent("p0", actor)]),
       activate(STRIKE, "p0"),
-      ...(lower ? [{ op: "select", sels: [{ card: ELF, owner: "p0" }], by: actor } satisfies Step] : []),
+      ...(lower && format === "tag" ? [{ op: "select", sels: [{ card: ELF, owner: "p0" }], by: actor } satisfies Step] : []),
       expectPrompt({ by: actor, context: "action" }),
       everySeat(format, spec),
     ],
