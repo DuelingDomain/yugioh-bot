@@ -12,6 +12,8 @@ import styles from "@/components/dashboard/dashboard.module.css";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { createScoringService } from "@yugidraft/shared/services";
+import { RejoinDraftBanner } from "@/components/draft/rejoin-draft";
+import { findRejoinDrafts } from "@/lib/rejoin-drafts";
 
 interface Stats {
   wins: number;
@@ -132,9 +134,11 @@ export default async function DashboardPage() {
   const hasPlayer = playerIds.length > 0;
   const rounds = loadTournamentRounds(db, env.discordGuildId, tournaments);
   const viewerId = playerIds[0] ?? null;
+  const rejoin = hasPlayer ? findRejoinDrafts(db, env.discordGuildId, discordUserId) : [];
 
   return (
     <PageFrame title="Dashboard" sub={hasPlayer ? <DashboardDate /> : undefined}>
+      <RejoinDraftBanner drafts={rejoin} />
       {!hasPlayer ? (
         <WelcomePanel />
       ) : (
