@@ -14,12 +14,14 @@ import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import {
   acceptDuelInvite,
   addPracticeBot,
+  chooseOpeningOrder,
+  pickOpeningMove,
   removePracticeBot,
   archiveDuel,
   cancelDuel,
   duelRoomKey,
   getDuelRoom,
-  joinDuel,
+  takeDuelSeat,
   leaveDuel,
   markDuelReady,
   sendDuelAction,
@@ -28,6 +30,7 @@ import {
   surrenderDuel,
 } from "./api";
 import { RoomLobby } from "./room-lobby";
+import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
@@ -52,12 +55,12 @@ import {
   usePromptDraft,
   type PromptAim,
 } from "./prompts";
-import { isBattlePhase, phaseLabel, zoneKey } from "./constants";
+import { isBattlePhase, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
 import { duelWindowPath, exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
 import { ownWindowGateVisible } from "./start-flow";
 import { SeriesBanner, SeriesGameLabel } from "./series-banner";
-import { SideDeckPanel } from "./side-deck-panel";
+import { BetweenGamesScreen, isStartingNextGame, NextGameStarting } from "./between-games";
 import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
 import { SheetButton } from "./sheet-ui";
 import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } from "./room-settings";
@@ -69,6 +72,7 @@ import { PositionFx } from "./position-fx";
 import { ChainFx } from "./chain-fx";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
+import { MatchSheetLog, phaseTitle } from "./log-line";
 import { centerKind, PromptCenter } from "./prompt-center";
 import { usePickContinuation } from "./pick-continuation";
 import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
@@ -136,89 +140,6 @@ function hasNoLegalMoves(options: readonly DuelPromptOption[]): boolean {
   return options.length > 0 && options.every((option) => PASSIVE_ACTION_IDS.has(option.id));
 }
 
-function phaseTitle(phase: string | null | undefined): string {
-  const label = phaseLabel(phase);
-  switch (label) {
-    case "Draw":
-    case "Standby":
-    case "Battle":
-    case "End":
-      return `${label} Phase`;
-    case "Main 1":
-      return "Main Phase 1";
-    case "Main 2":
-      return "Main Phase 2";
-    case "Damage":
-      return "Damage Step";
-    case "Damage calculation":
-      return "Damage Calculation";
-    default:
-      return label;
-  }
-}
-
-
-const LOG_PHASE_KEYS: ReadonlySet<string> = new Set([
-  "draw", "standby", "main1", "battle_start", "battle_step", "damage", "damage_cal", "battle", "main2", "end",
-]);
-
-type LogKind = "turn" | "phase" | "loss" | "gain" | "chain" | "result" | "line";
-
-function logKind(text: string): LogKind {
-  if (/^Turn \d+/.test(text)) return "turn";
-  if (LOG_PHASE_KEYS.has(text)) return "phase";
-  if (/ wins \(|^Draw \(/.test(text)) return "result";
-  if (/ takes \d+ damage| pays \d+ LP/.test(text)) return "loss";
-  if (/ gains \d+ LP/.test(text)) return "gain";
-  if (/ is activating$|^A chain link was negated$|^Chain ended$/.test(text)) return "chain";
-  return "line";
-}
-
-/** The engine log names seats "Player N"; show the table's display names instead. */
-function logText(text: string, kind: LogKind, playerName: (seat: number) => string): string {
-  if (kind === "phase") return phaseTitle(text);
-  return text.replace(/\bPlayer ([12])\b/g, (_match, seat: string) => playerName(Number(seat) - 1));
-}
-
-function MatchSheetLog({
-  entries,
-  playerName,
-  players,
-}: {
-  entries: ReadonlyArray<{ id: number; text: string }>;
-  playerName: (seat: number) => string;
-  players: string;
-}) {
-  const listRef = useRef<HTMLOListElement>(null);
-  const count = entries.length;
-  // Follow the newest entry id: the engine caps the log at 400 lines, so the length stops changing.
-  const lastId = entries[count - 1]?.id;
-  useEffect(() => {
-    // Scroll only the sheet's own list; scrollIntoView would also scroll the side pane
-    // and push the history rail above it out of view.
-    const list = listRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
-  }, [lastId, count]);
-  return (
-    <div className={styles.sheet}>
-      <div className={styles.sheetHead}>
-        <h2>Match sheet</h2>
-        <span>{players}</span>
-      </div>
-      <ol ref={listRef} className={styles.log} aria-label="Duel log">
-        {entries.map((entry) => {
-          const kind = logKind(entry.text);
-          return (
-            <li key={entry.id} data-kind={kind}>
-              {logText(entry.text, kind, playerName)}
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
-}
-
 export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: string; inviteCode?: string; windowed?: boolean }) {
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
@@ -271,7 +192,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [hideResult, setHideResult] = useState(false);
-  const [sideOpen, setSideOpen] = useState(false);
+  // The next game of a series waits in its lobby for a moment; "Open the table" shows that lobby anyway.
+  const [showTable, setShowTable] = useState(false);
   // Read after mount: the server render cannot know whether this is the duel window.
   const [inDuelWindow, setInDuelWindow] = useState(windowed);
   const [playHere, setPlayHere] = useState(false);
@@ -421,7 +343,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     setInspect(null);
     setPile(null);
     setHideResult(false);
-    setSideOpen(false);
+    setShowTable(false);
     setMobileInspect(false);
     setLogUnread(0);
     setActionError(null);
@@ -452,8 +374,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     [mutate],
   );
 
-  // A series moves on to its next game by itself: follow it, keeping the duel window.
-  const nextTarget = data ? nextGameTarget(data, slug) : null;
+  // A series moves on to its next game by itself: follow it, keeping the duel window. Players always
+  // follow. A spectator follows once they have watched this game while it was the series' current
+  // game, so the end screen of game 1 hands them to game 2; one who opens an older game stays on it.
+  const [watchedLive, setWatchedLive] = useState<string | null>(null);
+  const watchingCurrent = data?.series != null && isSeriesOpen(data.series) && data.series.currentDuelSlug === slug;
+  useEffect(() => {
+    if (watchingCurrent) setWatchedLive(slug);
+  }, [watchingCurrent, slug]);
+  const nextTarget = data ? nextGameTarget(data, slug, { followAsSpectator: watchedLive === slug }) : null;
   const goToGame = useCallback((next: string) => {
     router.replace(inDuelWindow ? duelWindowPath(next) : `/duels/${encodeURIComponent(next)}`);
   }, [router, inDuelWindow]);
@@ -469,6 +398,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     const timer = window.setInterval(() => void refreshRoom(), 2000);
     return () => window.clearInterval(timer);
   }, [seriesWaiting, refreshRoom]);
+
+  // The rock-paper-scissors opening runs on the server clock; poll in case the socket misses a step.
+  const openingRunning = data?.opening != null && data.session.status === "lobby";
+  useEffect(() => {
+    if (!openingRunning) return undefined;
+    const timer = window.setInterval(() => void refreshRoom(), 1500);
+    return () => window.clearInterval(timer);
+  }, [openingRunning, refreshRoom]);
 
   const onSubmitAnswer = useCallback(
     (answer: DuelAnswer) => {
@@ -619,11 +556,16 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,
     hasResult: Boolean(data.engine?.result), starting, windowOpened,
   });
+  // The next game of a Best of 3 is made in a lobby that starts by itself: no table settings between games.
+  if (isStartingNextGame(data) && !showTable && !ownWindowGate) {
+    return <NextGameStarting room={data} onShowTable={() => setShowTable(true)} />;
+  }
   if (data.session.status === "lobby" && !ownWindowGate) {
-    return (
+    const opening = data.opening;
+    const lobby = (
       <RoomLobby room={data} slug={slug} busy={busy} starting={starting} actionError={actionError}
         onDeckLocked={() => void refreshRoom()}
-        onJoin={() => void run(() => joinDuel(slug))}
+        onTakeSeat={(seat) => void run(() => takeDuelSeat(slug, seat))}
         onAddBot={() => void run(() => addPracticeBot(slug))}
         onRemoveBot={() => void run(() => removePracticeBot(slug))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
@@ -645,11 +587,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           });
         }}
         onCancel={() => void run(() => cancelDuel(slug))}
-        onLeave={() => void run(async () => {
-          await leaveDuel(slug);
-          router.replace("/duels");
-        })}
+        onLeave={() => void run(() => leaveDuel(slug))}
       />
+    );
+    if (!opening) return lobby;
+    const seatName = (seat: number) => data.session.seats.find((entry) => entry.seat === seat)?.displayName ?? `Player ${seat + 1}`;
+    return (
+      <>
+        {lobby}
+        <OpeningScreen opening={opening} mySeat={data.mySeat} names={[seatName(0), seatName(1)]} busy={busy} error={actionError}
+          onPick={(move) => void run(() => pickOpeningMove(slug, move))}
+          onChoose={(choice) => void run(() => chooseOpeningOrder(slug, choice))} />
+      </>
     );
   }
 
@@ -666,13 +615,18 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const canArchive = terminal && isOrganizer && !data.session.archivedAt;
   const series = data.series ?? null;
   const myIndex = series ? seriesPlayerIndex(data, series) : null;
-  const sidePanelOpen = sideOpen && series != null && myIndex != null && data.mySide != null && isBetweenGames(data, slug);
-  const showResult = !hideResult && !sidePanelOpen && resultReady && (engine?.result != null || terminal);
   const hasResult = engine?.result != null || terminal;
+  // A series player sees the side deck screen, not the result screen, once the last game has played out.
+  const betweenGames = series != null && myIndex != null && isBetweenGames(data, slug);
+  const showBetweenGames = betweenGames && resultReady && hasResult;
+  const showResult = !hideResult && !showBetweenGames && resultReady && (engine?.result != null || terminal);
   const exitDuel = () => {
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
     else router.replace("/duels");
   };
+  if (showBetweenGames) {
+    return <BetweenGamesScreen room={data} slug={slug} onChanged={refreshRoom} onNavigate={goToGame} />;
+  }
   if (ownWindowGate) {
     return (
       <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 text-center"
@@ -907,9 +861,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           </button>
         </div>
       </header>
-      {series && !showResult ? (
-        <SeriesBanner room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame}
-          onOpenSide={() => setSideOpen(true)} />
+      {series && !showResult && !(betweenGames && myIndex != null) ? (
+        <SeriesBanner room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame} />
       ) : null}
       <div className={styles.layout}>
         {/* Notices float over the top of the layout. In flow they would take height from the board
@@ -942,6 +895,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
               <>
                 <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
                   reducedMotion={preferences.reducedMotion}
+                  priorityLive={!busy && !error && !realtime.recovering && !catchingUp &&
+                    (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed)}
                   legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                   onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
                   bottomName={playerName(localSeat)}
@@ -1034,12 +989,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       {showResult ? (
         <DuelResultScreen room={data} slug={slug} reducedMotion={preferences.reducedMotion}
           soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel}
-          onOpenSide={() => { setHideResult(true); setSideOpen(true); }}
           onSeriesChanged={() => void refreshRoom()} onNavigate={goToGame} />
-      ) : null}
-      {sidePanelOpen && series && myIndex != null && data.mySide ? (
-        <SideDeckPanel slug={slug} series={series} myIndex={myIndex} side={data.mySide}
-          onClose={() => setSideOpen(false)} onChanged={() => void refreshRoom()} onNavigate={goToGame} />
       ) : null}
     </div>
   );

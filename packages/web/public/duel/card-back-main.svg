@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 421 614" width="421" height="614">
+<g id="cb-main">
+  <defs>
+  <linearGradient id="cb-main-fr" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="#f3c978"/><stop offset=".5" stop-color="#a4601c"/><stop offset="1" stop-color="#f3c978" stop-opacity=".85"/>
+  </linearGradient>
+  <radialGradient id="cb-main-bg" gradientUnits="userSpaceOnUse" cx="210.5" cy="307" r="330" gradientTransform="translate(210.5 307) scale(.72 1) translate(-210.5 -307)">
+    <stop offset="0" stop-color="#160b05"/><stop offset="1" stop-color="#341a0a"/>
+  </radialGradient>
+  <clipPath id="cb-main-in"><rect x="26" y="26" width="369" height="562" rx="6"/></clipPath>
+  <linearGradient id="cb-main-st" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#f3c978"/><stop offset="1" stop-color="#c9822b"/>
+  </linearGradient>
+  <radialGradient id="cb-main-gl" gradientUnits="userSpaceOnUse" cx="210.5" cy="307" r="190" gradientTransform="translate(210.5 307) scale(.72 1) translate(-210.5 -307)">
+    <stop offset="0" stop-color="#d9772a" stop-opacity=".38"/><stop offset="1" stop-color="#d9772a" stop-opacity="0"/>
+  </radialGradient></defs>
+  <rect width="421" height="614" fill="url(#cb-main-bg)"/>
+  <g clip-path="url(#cb-main-in)">
+    <ellipse cx="210.5" cy="307" rx="150" ry="224" fill="url(#cb-main-gl)"/>
+    <ellipse cx="210.5" cy="307" rx="104" ry="152" fill="none" stroke="#e9a23f" stroke-opacity=".55" stroke-width="3"/>
+    <path d="M210.5 165L228.1 278.6L298.5 307L228.1 335.4L210.5 449L192.9 335.4L122.5 307L192.9 278.6Z" fill="url(#cb-main-st)"/>
+    <ellipse cx="210.5" cy="307" rx="17" ry="25" fill="#030201"/>
+    <path d="M60 51L66 60L60 69L54 60Z" fill="#f0c877" fill-opacity=".7"/><path d="M361 51L367 60L361 69L355 60Z" fill="#f0c877" fill-opacity=".7"/><path d="M60 545L66 554L60 563L54 554Z" fill="#f0c877" fill-opacity=".7"/><path d="M361 545L367 554L361 563L355 554Z" fill="#f0c877" fill-opacity=".7"/>
+  </g>
+  
+  <rect x="7" y="7" width="407" height="600" rx="16" fill="none" stroke="url(#cb-main-fr)" stroke-width="14"/>
+  <rect x="23" y="23" width="375" height="568" rx="7" fill="none" stroke="#f0c877" stroke-opacity="0.5" stroke-width="2"/>
+</g>
+</svg>
