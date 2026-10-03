@@ -143,6 +143,67 @@ describe("planMoves", () => {
     expect(plan.style).toBe("fade");
     expect(plan.durationMs).toBe(150);
   });
+
+  it.each([false, true])("chains multiple draws into compacted discards despite intervening moves (reduced=%s)", (reduced) => {
+    const identified = (code: number) => ({ ...card!, code });
+    const events = [
+      move(1, z(0, DECK, 0), z(0, HAND, 2), { reason: "draw", card: identified(10) }),
+      move(2, z(0, DECK, 0), z(0, HAND, 3), { reason: "draw", card: identified(20) }),
+      move(3, z(0, DECK, 0), z(0, HAND, 4), { reason: "draw", card: identified(30) }),
+      move(4, z(1, HAND, 0), z(1, GRAVE, 0)),
+      move(5, z(0, HAND, 2), z(0, GRAVE, 0), { reason: "discard", card: identified(10) }),
+      move(6, z(0, HAND, 2), z(0, GRAVE, 1), { reason: "discard", card: identified(20) }),
+    ];
+    const plans = planMoves(events, { now: 0, reduced, duelKey: "t", geometry });
+    const byId = new Map(plans.map((plan) => [plan.id, plan]));
+    for (const [arrival, departure] of [[1, 5], [2, 6]]) {
+      expect(byId.get(arrival)!.handoff).toBe(departure);
+      expect(byId.get(departure)!.handoffFrom?.id).toBe(arrival);
+      expect(byId.get(departure)!.startAt).toBe(byId.get(arrival)!.landAt);
+      expect(byId.get(arrival)!.holdMs).toBe(0);
+    }
+    expect(byId.get(3)!.handoff).toBeUndefined();
+    expect(byId.get(4)!.handoffFrom).toBeUndefined();
+  });
+
+  it("chains an Exchange hand arrival into its departure after another seat's move", () => {
+    const exchange = move(1, z(0, HAND, 1), z(1, HAND, 2));
+    const events = [exchange, move(2, z(0, HAND, 0), z(0, GRAVE, 0)), move(3, z(1, HAND, 2), z(1, GRAVE, 0))];
+    const [arrival, unrelated, departure] = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
+    expect(arrival.handoff).toBe(departure.id);
+    expect(departure.handoffFrom?.id).toBe(exchange.id);
+    expect(departure.startAt).toBe(arrival.landAt);
+    expect(unrelated.handoffFrom).toBeUndefined();
+  });
+
+  it("chains a concealed draw when the subsequent discard reveals its card", () => {
+    const events = [
+      move(1, z(1, DECK, 0), z(1, HAND, 2), { reason: "draw", card: undefined }),
+      move(2, z(0, HAND, 0), z(0, GRAVE, 0)),
+      move(3, z(1, HAND, 2), z(1, GRAVE, 0), { reason: "discard" }),
+    ];
+    const [arrival, , departure] = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
+    expect(arrival.handoff).toBe(departure.id);
+    expect(departure.startAt).toBe(arrival.landAt);
+    expect(arrival.event.card).toBeUndefined();
+    expect(departure.event.card).toBe(card);
+  });
+
+  it("compacts pending arrivals through skipped moves without matching an older identical copy", () => {
+    const events = [
+      move(1, z(0, DECK, 0), z(0, HAND, 2), { reason: "draw" }),
+      move(2, z(0, DECK, 0), z(0, HAND, 3), { reason: "draw" }),
+      move(3, z(0, HAND, 0), z(0, GRAVE, 0), { reason: "discard" }),
+      move(4, z(0, HAND, 1), z(0, GRAVE, 1), { reason: "discard" }),
+      move(5, z(0, HAND, 1), z(0, GRAVE, 2), { reason: "discard" }),
+    ];
+    const [a, b, discardA, discardB] = planMoves(events, { now: 0, reduced: false, duelKey: "t",
+      geometry: (event) => event.id === 3 ? null : geometry() });
+    expect(a.handoff).toBe(discardA.id);
+    expect(b.handoff).toBe(discardB.id);
+    expect(discardA.handoffFrom?.id).toBe(a.id);
+    expect(discardB.handoffFrom?.id).toBe(b.id);
+  });
 });
 
 describe("moveStyleOf", () => {

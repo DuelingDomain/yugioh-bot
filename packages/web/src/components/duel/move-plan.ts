@@ -101,6 +101,8 @@ export type MovePlan = {
   showcase: ShowcasePlan | null;
   /** Same-batch hand departure: replace this ghost at landing, without a duplicate or glow. */
   handoff?: number;
+  /** The preceding arrival, whose current landing geometry becomes this flight's source. */
+  handoffFrom?: DuelEvent;
 };
 
 export type MoveGeometry = { distance: number };
@@ -345,15 +347,37 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
   }
   if (candidates.length === 0) return [];
   const chained = new Set<Candidate>();
-  for (let i = 1; i < candidates.length; i++) {
-    const item = candidates[i];
-    const previous = candidates[i - 1];
-    if (previous.event.zone?.location !== LOCATION_HAND || previous.event.from?.location === LOCATION_HAND ||
-      !sameZone(previous.event.zone, item.event.from) || previous.event.card?.code !== item.event.card?.code || chained.has(previous)) continue;
-    item.predecessor = previous;
-    chained.add(previous);
-    const target = handArrivalTarget(previous.event);
-    if (target) item.source = { ...target, faceUp: (previous.event.card?.code ?? 0) > 0, defense: false };
+  const byId = new Map(candidates.map((item) => [item.event.id, item]));
+  const pending = new Map<number, Map<number, Candidate>>();
+  // Follow engine slots through the complete batch, including moves without visible anchors.
+  // Draws, searches and Exchange can all be followed by departures after other cards moved;
+  // removing a hand card compacts the remaining sequences before the next move is observed.
+  for (const event of fresh) {
+    if (!isMoveEvent(event) || sameZone(event.from, event.zone)) continue;
+    const from = event.from!;
+    const to = event.zone!;
+    const item = byId.get(event.id);
+    if (from.location === LOCATION_HAND) {
+      const hand = pending.get(from.controller) ?? new Map<number, Candidate>();
+      const previous = hand.get(from.sequence);
+      const beforeCode = previous?.event.card?.code;
+      const afterCode = event.card?.code;
+      if (item && previous && (beforeCode == null || afterCode == null || beforeCode === afterCode)) {
+        item.predecessor = previous;
+        chained.add(previous);
+        const target = handArrivalTarget(previous.event);
+        if (target) item.source = { ...target, faceUp: (previous.event.card?.code ?? 0) > 0, defense: false };
+      }
+      pending.set(from.controller, new Map([...hand]
+        .filter(([sequence]) => sequence !== from.sequence)
+        .map(([sequence, arrival]) => [sequence > from.sequence ? sequence - 1 : sequence, arrival])));
+    }
+    if (to.location === LOCATION_HAND) {
+      const hand = pending.get(to.controller) ?? new Map<number, Candidate>();
+      const inserted = new Map([...hand].map(([sequence, arrival]) => [sequence >= to.sequence ? sequence + 1 : sequence, arrival]));
+      if (item) inserted.set(to.sequence, item);
+      pending.set(to.controller, inserted);
+    }
   }
   // The showcase of a run goes first: the card the player cares about is shown, then the rest of the
   // effect (the other cards to the Graveyard) plays. A run is moves with no other event between them.
@@ -384,12 +408,14 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       const dur = phases ? phases.totalMs : item.base * speed;
       const predecessorIndex = item.predecessor ? candidates.indexOf(item.predecessor) : -1;
       const predecessor = out[predecessorIndex];
-      const start = Math.max(cursor + item.lead, item.notBefore, predecessor ? predecessor.start + predecessor.dur : 0);
+      // A continuation starts exactly where its own card lands, even while other cards in the
+      // effect are arriving. Keep the serial queue moving forward for unrelated flights.
+      const start = Math.max(predecessor ? predecessor.start + predecessor.dur + item.lead : cursor + item.lead, item.notBefore);
       out.push({ start, dur, phases });
       // The next card of the effect starts as the showcase card sets off for the hand.
       const minGap = item.event.zone?.location === LOCATION_HAND ? MOVE_TIMING.handMinGapMs : MOVE_TIMING.minGapMs;
       const gate = phases ? showcaseGateMs(phases, candidates[index + 1]?.style === "add") : Math.max(dur * MOVE_TIMING.overlap, minGap);
-      cursor = start + gate;
+      cursor = Math.max(cursor, start + gate);
     });
     return { out, cursor };
   };
@@ -413,7 +439,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     const { start, dur, phases } = layout.out[index];
     const plan: MovePlan = {
       id: item.event.id,
-      event: item.event,
+      event: { ...item.event },
       style: item.style,
       startAt: start,
       landAt: start + dur,
@@ -430,6 +456,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       source: item.source,
       showcase: phases && item.origin ? { origin: item.origin, phases } : null,
       handoff: candidates.find((candidate) => candidate.predecessor === item)?.event.id,
+      handoffFrom: item.predecessor?.event,
     };
     plans.set(plan.id, plan);
     for (const id of item.paired) pairs.set(id, plan.id);
