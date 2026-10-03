@@ -35,6 +35,7 @@ for (const [format, seat] of ROLES) {
       setup: setup(format, { [seat]: { deckMaster: "Demise, King of Armageddon", hand: ["Advanced Ritual Art"], deck: ["Mystical Elf", "Blue-Eyes White Dragon"] } }),
       steps: [...before, activate("Advanced Ritual Art", seat),
         // R-FFA-OPP-ONE: own Ritual material checks do not declare an opponent.
+        expectPrompt({ kind: "sum", by: seat }),
         select("Blue-Eyes White Dragon"),
         board(format, { [seat]: { monsters: ["Demise, King of Armageddon"], grave: ["Advanced Ritual Art", "Blue-Eyes White Dragon"], deckMaster: OUT } })],
     }),
