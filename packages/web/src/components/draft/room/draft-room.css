@@ -495,8 +495,9 @@
   left: 0;
   z-index: 2;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   justify-items: center;
-  width: 118px;
+  width: var(--seat-width, 118px);
   translate: -50% -100%;
   pointer-events: none;
 }
@@ -545,6 +546,12 @@
   text-align: center;
 }
 .dr[data-mode="theme"] .seat .pk b { display: none; }
+/* Keep the avatar and its badge inside the far seat's share of the row. */
+.dr .seat[data-far] .who { transform: scale(var(--seat-scale, 1)); }
+.dr .seat[data-far] .pk { left: 28px; }
+.dr .seat[data-far] .pk b { right: -4px; }
+.dr .seat[data-compact] .pk { left: 22px; width: 18px; height: 26px; }
+.dr .seat[data-compact] .pk b { right: -4px; top: -5px; min-width: 17px; padding: 1px 3px; font-size: 11px; }
 .dr .av {
   display: grid;
   place-items: center;
@@ -559,8 +566,8 @@
   transition: box-shadow 0.3s;
 }
 .dr [data-state="picked"] > .av, .dr [data-state="picked"] .av { --av-ring: var(--ink-4); box-shadow: 0 0 0 2px var(--av-ring); }
-.dr .seat .nm { margin-top: 6px; color: var(--ink); font-size: 14px; font-weight: 500; white-space: nowrap; }
-.dr .seat .st { color: var(--chain-ink); font-size: 12.5px; white-space: nowrap; }
+.dr .seat .nm { max-width: 100%; overflow: hidden; margin-top: 6px; color: var(--ink); font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; pointer-events: auto; }
+.dr .seat .st { max-width: 100%; min-height: 1.5em; overflow: hidden; color: var(--chain-ink); font-size: 12.5px; white-space: nowrap; }
 /* still deciding: three dots, like someone typing */
 .dr .seat .dots { display: none; gap: 2px; margin-left: 3px; vertical-align: 2px; }
 .dr .seat[data-state="picking"] .dots { display: inline-flex; }
@@ -569,6 +576,9 @@
 .dr .seat .dots i:nth-child(3) { animation-delay: 0.36s; }
 @keyframes dr-think { 30% { opacity: 1; transform: translateY(-2px); } 60% { opacity: 0.35; transform: none; } }
 .dr .seat[data-state="picked"] .st { color: var(--ink-3); }
+.dr .seat[data-dots-only] .stx { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.dr .seat[data-dots-only] .dots { display: inline-flex; margin-left: 0; }
+.dr .seat[data-dots-only][data-state="picked"] .dots i { animation: none; opacity: 1; }
 .dr .seat .th { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
 .dr[data-mode="theme"] .seat { opacity: 0.9; }
 @keyframes dr-hold { 0%, 100% { transform: rotateY(-24deg) translateY(0); } 50% { transform: rotateY(24deg) translateY(-3px); } }
@@ -1106,20 +1116,45 @@
   .dr .body { grid-template-columns: minmax(0, 1fr); }
 
   .dr .seatstrip {
+    /* Leave the arrow's 22px and its 8px inset outside the start fade. */
+    --strip-start: 30px;
+    --strip-mask: none;
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: 0 6px 0 8px;
+    min-width: 0;
+    padding: 6px 6px 6px 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+    scroll-padding-left: var(--strip-start);
+    -webkit-mask-image: var(--strip-mask);
+    mask-image: var(--strip-mask);
     border-bottom: 1px solid var(--rule-lo);
     background: rgb(8 13 25 / 0.82);
     position: relative;
     z-index: 5;
   }
-  .dr .seatstrip .dir { flex: 0 0 auto; display: grid; place-items: center; width: 22px; color: var(--ink-3); }
+  .dr .seatstrip::-webkit-scrollbar { display: none; }
+  .dr .seatstrip[data-more="end"] {
+    --strip-mask: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  }
+  .dr .seatstrip[data-more="start"] {
+    --strip-mask: linear-gradient(to right, #000 var(--strip-start), transparent var(--strip-start), #000 calc(var(--strip-start) + 24px));
+  }
+  .dr .seatstrip[data-more="both"] {
+    --strip-mask: linear-gradient(to right, #000 var(--strip-start), transparent var(--strip-start), #000 calc(var(--strip-start) + 24px), #000 calc(100% - 24px), transparent);
+  }
+  .dr .seatstrip .dir { position: sticky; left: 0; z-index: 1; flex: 0 0 auto; display: grid; place-items: center; align-self: stretch; margin-block: -6px; width: 22px; color: var(--ink-3); }
+  /* Cover the inset too when the sticky arrow has reached the left edge. */
+  .dr .seatstrip[data-more] .dir { background: #080d19; box-shadow: 8px 0 #080d19; }
   .dr .seatstrip .dir svg { width: 18px; height: 12px; }
   .dr[data-dir="-1"] .seatstrip .dir svg { transform: scaleX(-1); }
   .dr[data-mode="theme"] .seatstrip .dir { display: none; }
-  .dr .chip-seat { position: relative; flex: 1 1 0; min-width: 0; display: grid; justify-items: center; gap: 3px; }
+  .dr[data-mode="theme"] .seatstrip { --strip-start: 0px; }
+  .dr .chip-seat { position: relative; flex: 1 0 44px; min-width: 0; display: grid; justify-items: center; gap: 3px; scroll-snap-align: start; }
   .dr .chip-seat .av { width: 28px; height: 28px; font-size: 11.5px; }
   .dr .chip-seat[data-state="picking"] .av { animation: dr-breathe 1.6s ease-in-out infinite; }
   .dr .chip-seat .nm { max-width: 100%; overflow: hidden; color: var(--ink-2); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
