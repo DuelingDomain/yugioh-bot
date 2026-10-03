@@ -1,13 +1,14 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { MULTIPLAYER_TABLES_OFF_MESSAGE, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
+import { MULTIPLAYER_TABLES_OFF_MESSAGE, MULTI_CORE_UNAVAILABLE_MESSAGE, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
 import { createDuelService, type DuelService } from "@yugidraft/shared/services";
 
-const { actor, notify } = vi.hoisted(() => ({ actor: vi.fn(), notify: vi.fn() }));
+const { actor, host, notify } = vi.hoisted(() => ({ actor: vi.fn(), host: vi.fn(), notify: vi.fn() }));
 vi.mock("@/lib/duel-host", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/duel-host")>(),
   requireDuelActor: actor,
+  callDuelHost: host,
 }));
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: notify }));
@@ -40,6 +41,9 @@ beforeEach(() => {
   duels = createDuelService(db);
   joinSpy = vi.spyOn(duels, "join");
   actor.mockReset().mockResolvedValue({ ok: true, guildId: "g1", playerId, duels });
+  host.mockReset().mockResolvedValue({
+    ok: true, data: { multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady: true },
+  });
   notify.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => {
@@ -60,6 +64,7 @@ describe("POST /api/duels/[slug]/join with MULTIPLAYER_TABLES", () => {
       }
     }
     expect(joinSpy).not.toHaveBeenCalled();
+    expect(host).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
   });
 
@@ -71,6 +76,7 @@ describe("POST /api/duels/[slug]/join with MULTIPLAYER_TABLES", () => {
       expect(duels.get(session.slug, "g1").seats.map((seat) => seat.playerId)).toEqual([organizerPlayerId, playerId]);
       expect(notify).toHaveBeenCalledWith(session.slug, "g1");
     }
+    expect(host).not.toHaveBeenCalled();
   });
 
   it.each(["1", "true", "on"])("joins multiplayer tables when the flag is %j", async (flag) => {
@@ -103,6 +109,7 @@ describe("POST /api/duels/[slug]/join with MULTIPLAYER_TABLES", () => {
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: "Duel not found" });
     expect(notify).not.toHaveBeenCalled();
+    expect(host).not.toHaveBeenCalled();
   });
 
   it("does not look up or join a duel in another guild", async () => {
@@ -111,6 +118,7 @@ describe("POST /api/duels/[slug]/join with MULTIPLAYER_TABLES", () => {
     expect((await join(session.slug)).status).toBe(404);
     expect(duels.get(session.slug, "g1").seats).toHaveLength(1);
     expect(notify).not.toHaveBeenCalled();
+    expect(host).not.toHaveBeenCalled();
   });
 
   it("requires authentication before reading the duel", async () => {
@@ -121,6 +129,7 @@ describe("POST /api/duels/[slug]/join with MULTIPLAYER_TABLES", () => {
     expect(get).not.toHaveBeenCalled();
     expect(room).not.toHaveBeenCalled();
     expect(joinSpy).not.toHaveBeenCalled();
+    expect(host).not.toHaveBeenCalled();
   });
 
   it.each(["0", "1"])("checks private room access before the format gate when the flag is %j", async (flag) => {
@@ -139,6 +148,7 @@ describe("POST /api/duels/[slug]/join with MULTIPLAYER_TABLES", () => {
     }
     expect(get).not.toHaveBeenCalled();
     expect(joinSpy).not.toHaveBeenCalled();
+    expect(host).not.toHaveBeenCalled();
     expect(notify).not.toHaveBeenCalled();
   });
 
@@ -158,5 +168,73 @@ describe("POST /api/duels/[slug]/join with MULTIPLAYER_TABLES", () => {
     notify.mockRejectedValue(new Error("notification unavailable"));
     expect((await join(session.slug)).status).toBe(200);
     expect(duels.get(session.slug, "g1").seats).toHaveLength(2);
+  });
+});
+
+describe("POST /api/duels/[slug]/join with host capabilities", () => {
+  beforeEach(() => vi.stubEnv("MULTIPLAYER_TABLES", "1"));
+
+  it.each(["tag", "ffa3", "ffa4"] as const)("joins Standard and Domain %s tables when the multi core is ready", async (format) => {
+    for (const mode of ["normal", "domain"] as const) {
+      const session = lobby(format, mode);
+      const response = await join(session.slug);
+      expect(response.status).toBe(200);
+      expect(host).toHaveBeenCalledWith({ op: "capabilities", guildId: "g1", playerId });
+      expect(duels.get(session.slug, "g1").seats.map((seat) => seat.playerId)).toEqual([organizerPlayerId, playerId]);
+      expect(notify).toHaveBeenCalledWith(session.slug, "g1");
+    }
+    expect(host).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { name: "missing core", data: { multiplayerTables: true, multiCoreReady: false } },
+    { name: "old host without the field", data: { multiplayerTables: true } },
+    { name: "string readiness", data: { multiplayerTables: true, multiCoreReady: "true" } },
+    { name: "null readiness", data: { multiplayerTables: true, multiCoreReady: null } },
+    { name: "null capabilities", data: null },
+  ])("fails closed with 409 for $name", async ({ data }) => {
+    host.mockResolvedValue({ ok: true, data });
+    for (const mode of ["normal", "domain"] as const) {
+      for (const format of ["tag", "ffa3", "ffa4"] as const) {
+        const session = lobby(format, mode);
+        const response = await join(session.slug);
+        expect(response.status).toBe(409);
+        expect(await response.json()).toEqual({ error: MULTI_CORE_UNAVAILABLE_MESSAGE });
+        expect(host).toHaveBeenCalledWith({ op: "capabilities", guildId: "g1", playerId });
+        expect(duels.get(session.slug, "g1").seats).toHaveLength(1);
+      }
+    }
+    expect(joinSpy).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("returns the host error when capabilities cannot be read", async () => {
+    host.mockResolvedValue({ ok: false, response: Response.json({ error: "Host unavailable" }, { status: 503 }) });
+    const session = lobby("ffa3");
+    const response = await join(session.slug);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Host unavailable" });
+    expect(duels.get(session.slug, "g1").seats).toHaveLength(1);
+    expect(joinSpy).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it.each(["normal", "domain"] as const)("joins a %s 1v1 table without querying the host", async (mode) => {
+    host.mockResolvedValue({ ok: true, data: { multiCoreReady: false } });
+    const session = lobby("1v1", mode);
+    expect((await join(session.slug)).status).toBe(200);
+    expect(host).not.toHaveBeenCalled();
+  });
+
+  it("checks the installed core on every join request", async () => {
+    const open = lobby("ffa3");
+    const closed = lobby("ffa4");
+    expect((await join(open.slug)).status).toBe(200);
+    host.mockResolvedValue({ ok: true, data: { multiCoreReady: false } });
+    expect((await join(closed.slug)).status).toBe(409);
+    expect(duels.get(closed.slug, "g1").seats).toHaveLength(1);
+    expect(host).toHaveBeenCalledTimes(2);
+    expect(joinSpy).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
   });
 });
