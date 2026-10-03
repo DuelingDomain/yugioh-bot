@@ -297,6 +297,7 @@ const SPECS: EffectSpec[] = [
 // field turns the direct attack into a replay, so no seat takes damage.
 const GRAYDLE_PARASITE: EffectSpec = {
   code: 49966595, name: "Graydle Parasite", slug: "graydle-parasite", does: "Special Summons a monster of an opponent Graveyard",
+  binding: "event-opponent",
   attackFirstTurn: true,
   // ADR 0002 R-FFA-OPP-RESPONSE: the direct-attack destination binds the response in FFA.
   noPick: (roles) => roles.format !== "tag",

@@ -1,7 +1,7 @@
 // Live scenarios of the cards whose EFFECT Special Summons a card or tokens to the field of an opponent (OPPONENT_FIELD_EFFECT_SUMMON in
 // src/banlists/multiplayer.ts). One table row per card; the generator makes one scenario per format (FFA3, FFA4, Tag) from the row.
-// Rule (ADR 0002, Q5): the summoning player picks ONE opponent, the card or the tokens go to the field of that opponent only. In Tag the
-// pick is between the opposing members and the partner is never offered.
+// Rules (ADR 0002): an activated effect declares one legal opponent (R-FFA-OPP-ONE); a trigger or response can bind the opponent that caused
+// it (R-FFA-OPP-RESPONSE). In Tag a pick offers opposing members only; the partner is never offered.
 // Layout of a scenario: FFA3 p0 acts, p1 and p2 are the opponents, p2 is picked (not the first seat, so a default of the core fails).
 // FFA4: p1, p2, p3 are the opponents, p3 is picked. Tag: p1 and p3 are the opposing members, p3 is picked, p2 is the partner.
 // Every scenario ends with the state of every seat (everySeat). Plain data, also read by scripts/rule-coverage.ts; opponent-field-effects.test.ts
@@ -72,8 +72,10 @@ export interface EffectSpec {
   steps: Step[] | ((roles: Roles) => Step[]);
   /** The steps after the pick, for example the answer of a yes/no prompt. */
   then?: Step[] | ((roles: Roles) => Step[]);
-  /** The pick is not asked (one legal opponent only) and the scenario has no pick step. */
+  /** The helper adds no pick step: a cause binds the opponent, one opponent is legal, or steps has the pick. */
   noPick?: boolean | ((roles: Roles) => boolean);
+  /** The trigger or response binds the opponent that caused it (R-FFA-OPP-RESPONSE). */
+  binding?: "event-opponent";
   /** The seat that picks. Default p0. */
   pickBy?: Seat;
   /** The seats offered. Default: all opponents of p0. */
@@ -154,15 +156,17 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
     const steps = typeof spec.steps === "function" ? spec.steps(roles) : spec.steps;
     const then = typeof spec.then === "function" ? spec.then(roles) : (spec.then ?? []);
     const by = spec.pickBy ?? "p0";
-    const pick: Step[] = (typeof spec.noPick === "function" ? spec.noPick(roles) : spec.noPick)
+    const noPick = typeof spec.noPick === "function" ? spec.noPick(roles) : spec.noPick;
+    const ffaRule = noPick && spec.binding === "event-opponent" ? "R-FFA-OPP-RESPONSE" : "R-FFA-OPP-ONE";
+    const pick: Step[] = noPick
       ? []
       : [expectPickSeats((spec.offered ? spec.offered(roles) : roles.opponents) as Seat[], by), pickOpponent(roles.tgt, by)];
     const where = format === "tag" ? "an opposing member" : "the picked opponent";
     return defineScenario({
       id: `opponent-field-effects-${format}-${spec.slug}-goes-to-${format === "tag" ? "an-opposing-member" : "the-picked-opponent"}`,
       title: `${FORMAT_LABEL[format]}: ${spec.name} ${spec.does} on the field of ${where} (${roles.tgt}) only; the other seats are unchanged`,
-      source: `${SOURCE} [R-COMMON-OPP-PICK] ${format === "tag" ? "[R-TAG-SHARED-CARDS]" : "[R-FFA-OPP-ONE]"}`,
-      rules: format === "tag" ? ["R-COMMON-OPP-PICK", "R-TAG-SHARED-CARDS", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK", "R-FFA-OPP-ONE"],
+      source: `${SOURCE} [R-COMMON-OPP-PICK] ${format === "tag" ? "[R-TAG-SHARED-CARDS]" : `[${ffaRule}]`}`,
+      rules: format === "tag" ? ["R-COMMON-OPP-PICK", "R-TAG-SHARED-CARDS", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK", ffaRule],
       tags: ["multiplayer", "opponent-field-summon", format, `card:${spec.code}`],
       setup: setup as never,
       steps: [...steps, ...pick, ...then, everySeat(format, Object.fromEntries(Object.entries(seatSpec).map(([seat, zones]) => [seat, expectOf(zones)])))],

@@ -41,6 +41,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 74440055, name: "Cactus Fighter", slug: "cactus-fighter", does: "Special Summons a Cactus Token when it destroys a monster by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     p0: { monsters: ["Cactus Fighter"] },
@@ -164,6 +165,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 44689688, name: "Jurrac Spinos", slug: "jurrac-spinos", does: "Special Summons a Jurrac Token when it destroys a monster by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     p0: { monsters: ["Jurrac Spinos"] },
@@ -275,6 +277,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 82994509, name: "Horseytail", slug: "horseytail", does: "Special Summons a Horseytail Token to the opponent that destroyed it by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     tgt: { monsters: ["Battle Ox"] },
@@ -306,6 +309,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 57844634, name: "Nimble Musasabi", slug: "nimble-musasabi", does: "Special Summons another Nimble Musasabi from the Deck to the opponent that destroyed it by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     tgt: { monsters: ["Battle Ox"] },
@@ -321,6 +325,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 65676461, name: "Number 32: Shark Drake", slug: "number-32-shark-drake", does: "Special Summons the monster it destroyed by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     p0: { monsters: [{ card: "Number 32: Shark Drake", materials: [ELF, ELF] }] },
@@ -331,6 +336,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 59900655, name: "Gold Pride - Nytro Head", slug: "gold-pride-nytro-head", does: "Special Summons a Nytro Token in the Standby Phase of an opponent",
+    binding: "event-opponent",
     p0: { monsters: ["Gold Pride - Nytro Head"] },
     // ADR 0002 R-FFA-OPP-RESPONSE: the opponent whose Standby Phase caused the trigger receives the token.
     noPick: (roles) => roles.format !== "tag",
@@ -349,6 +355,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 65477143, name: "Abyss Actor - Liberty Dramatist", slug: "abyss-actor-liberty-dramatist", does: "Special Summons itself from the Pendulum Zone when a monster attacks",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     p0: { pendulum: ["Abyss Actor - Liberty Dramatist", null], monsters: ["Battle Ox"], hand: ["Giant Rat"] },
@@ -359,6 +366,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 40343749, name: "House Duston", slug: "house-duston", does: "Special Summons a Duston to its controller and a Duston to the opponent that destroyed it by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     tgt: { monsters: ["Battle Ox"] },
@@ -382,6 +390,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 47126872, name: "Space-Time Police", slug: "space-time-police", does: "Sets the monster it banished (of p1) on the field of the opponent that destroyed it, when it leaves the field",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     p0: { hand: ["Monster Reborn"], grave: ["Space-Time Police"] },
