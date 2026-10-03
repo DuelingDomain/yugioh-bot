@@ -23,7 +23,7 @@ describe("chain stack placement", () => {
   });
 
   it("turns the stack into a row of numbered chips in the top left corner when there is no free gutter", () => {
-    expect(rule(chainCss, ".front[data-size=\"compact\"] .dock")).toMatch(/inset:\s*\d+px auto auto \d+px/);
+    expect(rule(chainCss, ".front[data-size=\"compact\"] .dock")).toMatch(/inset:\s*var\(--chain-dock-top, 4px\) auto auto var\(--chain-dock-left, 4px\)/);
     const panel = /\.front\[data-size="compact"\] \.panel,[^{]*\{([^}]*)\}/.exec(chainCss);
     expect(panel).not.toBeNull();
     expect(panel![1]).toMatch(/flex-direction:\s*row/);

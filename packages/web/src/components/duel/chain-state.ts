@@ -388,6 +388,36 @@ function rectsOverlap(a: Box, b: Box, pad: number): boolean {
 }
 
 /**
+ * Where the row of numbered chips goes: the top left corner, moved clear of anything it would cover (a life-point
+ * plate, an open prompt panel). It first slides right past the thing in its way; when the row no longer fits on the
+ * board that way, it goes back to the left edge and drops below it. Ten steps at most, so a crowded board still ends.
+ */
+export function placeChips(
+  size: { width: number; height: number },
+  board: { width: number; height: number },
+  obstacles: readonly Box[],
+): { left: number; top: number } {
+  const EDGE = 4;
+  const GAP = 6;
+  let left = EDGE;
+  let top = EDGE;
+  for (let step = 0; step < 10; step += 1) {
+    const hit = obstacles.find(
+      (o) => left < o.left + o.width + GAP && left + size.width > o.left - GAP && top < o.top + o.height + GAP && top + size.height > o.top - GAP,
+    );
+    if (!hit) break;
+    const right = hit.left + hit.width + GAP;
+    if (right + size.width <= board.width - EDGE) {
+      left = right;
+    } else {
+      left = EDGE;
+      top = hit.top + hit.height + GAP;
+    }
+  }
+  return { left, top: Math.max(EDGE, Math.min(top, Math.max(EDGE, board.height - size.height - EDGE))) };
+}
+
+/**
  * Where the callout tag of the focus card goes. All boxes are in board pixels. The tag is centred on its card and
  * opens below it on the upper half of the board (`half` "high") and above it on the lower half. It slides sideways to
  * stay on the board. It must never sit over an open prompt panel (the Yes/No bar, the card choices): clicks pass

@@ -22,6 +22,7 @@ import {
   isChainEvent,
   nextToResolve,
   placeCallout,
+  placeChips,
   strayLinks,
   type ChainState,
 } from "../../src/components/duel/chain-state";
@@ -572,5 +573,26 @@ describe("chain stack size and covered marks", () => {
     expect(coveredFraction(card, [{ left: 100, top: 100, width: 60, height: 40 }])).toBeCloseTo(0.5);
     expect(coveredFraction(card, [{ left: 0, top: 0, width: 500, height: 500 }])).toBe(1);
     expect(coveredFraction({ ...card, width: 0 }, [{ left: 0, top: 0, width: 500, height: 500 }])).toBe(0);
+  });
+});
+
+describe("placeChips", () => {
+  const board = { width: 900, height: 600 };
+  const chips = { width: 300, height: 30 };
+  it("starts in the top left corner", () => {
+    expect(placeChips(chips, board, [])).toEqual({ left: 4, top: 4 });
+  });
+  it("slides right past a plate in the corner", () => {
+    expect(placeChips(chips, board, [{ left: 10, top: 10, width: 160, height: 80 }])).toEqual({ left: 176, top: 4 });
+  });
+  it("drops below the plate when the row no longer fits to its right", () => {
+    expect(placeChips({ width: 800, height: 30 }, board, [{ left: 10, top: 10, width: 160, height: 80 }])).toEqual({ left: 4, top: 96 });
+  });
+  it("stops on a crowded board and stays on it", () => {
+    const wall: Array<{ left: number; top: number; width: number; height: number }> = [];
+    for (let i = 0; i < 30; i += 1) wall.push({ left: 0, top: i * 20, width: 900, height: 20 });
+    const place = placeChips(chips, board, wall);
+    expect(place.top).toBeLessThanOrEqual(board.height - chips.height - 4);
+    expect(place.left).toBeGreaterThanOrEqual(4);
   });
 });

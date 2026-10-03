@@ -54,6 +54,7 @@ import {
   isChainEvent,
   nextToResolve,
   placeCallout,
+  placeChips,
   type CalloutPlace,
   type ChainAnchor,
   type ChainLinkState,
@@ -287,6 +288,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   targetLinksRef.current = targetLinks;
   const overlayRef = useRef<HTMLDivElement>(null);
   const frontRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLOListElement>(null);
   // The front layer lives in the duel's own root (the element that holds the pace slider's scope), not in the
   // fx slot. A slot or the board is a stacking context, and nothing inside one can rise above its siblings
   // (the prompt slot, the room's prompt dock); the root is above all of them. undefined = not looked up yet,
@@ -333,6 +335,19 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         gutter = freeGutter(origin);
         gutterRef.current = { at: now, px: gutter };
       }
+      // Life-point plates and the stack's own size, for the chips: they keep clear of both.
+      const size = front ? chainStackSize(gutter, front.dataset.size as "full" | "compact" | undefined) : "full";
+      let chips: { left: number; top: number } | null = null;
+      const panelEl = panelRef.current;
+      if (front && size === "compact" && panelEl) {
+        const obstacles = panels.slice();
+        for (const plate of document.querySelectorAll<HTMLElement>("[data-lp-seat]")) {
+          const rect = plate.getBoundingClientRect();
+          if (rect.width > 4 && rect.height > 4) obstacles.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
+        }
+        const own = panelEl.getBoundingClientRect();
+        chips = placeChips({ width: own.width, height: own.height }, { width: origin.width, height: origin.height }, obstacles);
+      }
       const stacked = new Map<HTMLElement, number>();
       const placed: PlacedLink[] = [];
       const centers = new Map<number, { x: number; y: number }>();
@@ -371,8 +386,18 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       }
       // ---- Write phase. ----
       if (front) {
-        const size = chainStackSize(gutter, front.dataset.size as "full" | "compact" | undefined);
         if (front.dataset.size !== size) front.dataset.size = size;
+        const dock = chips ? `${Math.round(chips.left)},${Math.round(chips.top)}` : "";
+        if (front.dataset.dock !== dock) {
+          front.dataset.dock = dock;
+          if (chips) {
+            front.style.setProperty("--chain-dock-left", `${Math.round(chips.left)}px`);
+            front.style.setProperty("--chain-dock-top", `${Math.round(chips.top)}px`);
+          } else {
+            front.style.removeProperty("--chain-dock-left");
+            front.style.removeProperty("--chain-dock-top");
+          }
+        }
         const px = String(Math.round(gutter));
         if (front.dataset.gutter !== px) {
           front.dataset.gutter = px;
@@ -548,7 +573,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       }))}
       {showStack ? (
         <div className={styles.dock}>
-          <ol className={styles.panel} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
+          <ol ref={panelRef} className={styles.panel} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
             <li className={styles.head}>
               <span>Chain</span>
               <small>{links.length} {links.length === 1 ? "link" : "links"}</small>

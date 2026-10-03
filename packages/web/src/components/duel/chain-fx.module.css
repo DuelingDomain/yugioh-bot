@@ -602,7 +602,13 @@
  * in the top left corner, so it never covers a pile column, a Field Zone or a target ring. Each chip keeps its state
  * (resolving, negated, resolved); the names and effect text stay in the callout and the screen reader list.
  */
-.front[data-size="compact"] .dock { inset: 4px auto auto 4px; max-width: calc(100% - 8px); align-items: flex-start; }
+/* The corner is moved by chain-fx.tsx (--chain-dock-*) when a life-point plate or a prompt panel sits there. */
+.front[data-size="compact"] .dock {
+  inset: var(--chain-dock-top, 4px) auto auto var(--chain-dock-left, 4px);
+  width: max-content;
+  max-width: calc(100% - 8px);
+  align-items: flex-start;
+}
 .front[data-size="compact"] .panel,
 .front[data-size="compact"][data-table] .panel,
 .front[data-size="compact"][data-table="ffa4"] .panel {
