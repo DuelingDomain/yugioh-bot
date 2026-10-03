@@ -432,7 +432,7 @@ diff --git a/processor.cpp b/processor.cpp
  }
  int32_t field::check_event(uint32_t code, tevent* pe) {
  	for(const auto& ev : core.point_event) {
-@@ -333,10 +336,13 @@
+@@ -333,14 +336,18 @@
  		const bool out_turn = n_duelists > 2 && phase == PHASE_END && core.force_turn_end && !is_alive(infos.turn_player);
  		if(out_turn)
  			core.hand_adjusted = true;
@@ -442,7 +442,7 @@ diff --git a/processor.cpp b/processor.cpp
 -				|| (phase == PHASE_BATTLE && (core.force_turn_end || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_BP)))
 +		// Finish a phase window already open at surrender; skip only later phase windows.
 +		const bool skip_turn_phase = core.force_turn_end
-+			&& !(core.turn_surrendered && arg.check_cursor != DUELIST_NONE);
++			&& !(core.turn_surrendered && arg.response_round_open);
 +		if((phase == PHASE_DRAW && (skip_turn_phase || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_DP)))
 +				|| (phase == PHASE_STANDBY && (skip_turn_phase || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_SP)))
 +				|| (phase == PHASE_BATTLE_START && (skip_turn_phase || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_BP)))
@@ -450,7 +450,12 @@ diff --git a/processor.cpp b/processor.cpp
  				|| (phase == PHASE_END && ((core.force_turn_end && !out_turn) || is_player_affected_by_effect(infos.turn_player, EFFECT_SKIP_EP)))) {
  			arg.step = 24;
  			return FALSE;
-@@ -487,7 +493,7 @@
+ 		}
++		arg.response_round_open = true;
+ 		int32_t phase_event = EVENT_PHASE + phase;
+ 		nil_event.event_code = phase_event;
+ 		nil_event.event_player = infos.turn_player;
+@@ -487,7 +494,7 @@
  			else
  				message->write<uint64_t>(26);
  			if(tf_count == 0 && to_count == 1 && fc_count == 0 && cn_count == 0) {
@@ -459,7 +464,23 @@ diff --git a/processor.cpp b/processor.cpp
  				return FALSE;
  			} else {
  				emplace_process<Processors::SelectChain>(check_player, core.spe_effect[check_player], (tf_count + cn_count) > 0);
-@@ -640,7 +646,9 @@
+@@ -530,6 +537,7 @@
+ 			}
+ 			return FALSE;
+ 		}
++		arg.response_round_open = false;
+ 		arg.priority_passed = false;
+ 		arg.pass_mask = 0;
+ 		auto selected_chain = std::next(core.select_chains.begin(), returns.at<int32_t>(0));
+@@ -622,6 +630,7 @@
+ 		return FALSE;
+ 	}
+ 	case 22: {
++		arg.response_round_open = false;
+ 		core.hand_adjusted = true;
+ 		emplace_process<Processors::PointEvent>(false, false, false);
+ 		arg.step = Processors::restart;
+@@ -640,7 +649,9 @@
  	case 26: {
  		core.quick_f_chain.clear();
  		core.instant_event.clear();
@@ -469,7 +490,7 @@ diff --git a/processor.cpp b/processor.cpp
  		core.delayed_activate_event.clear();
  		core.full_event.clear();
  		/*if(core.set_forced_attack) {
-@@ -665,6 +673,7 @@
+@@ -665,6 +676,7 @@
  	case 0: {
  		core.select_chains.clear();
  		core.point_event.splice(core.point_event.end(), core.instant_event);
@@ -477,7 +498,7 @@ diff --git a/processor.cpp b/processor.cpp
  		if(skip_trigger) {
  			arg.step = 7;
  			return FALSE;
-@@ -703,8 +712,10 @@
+@@ -703,8 +715,10 @@
  			   && check_trigger_effect(*clit)
  			   && peffect->is_chainable(tp)
  			   && peffect->is_activateable(tp, clit->evt, TRUE, FALSE, FALSE, is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE), is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE))) {
@@ -489,7 +510,7 @@ diff --git a/processor.cpp b/processor.cpp
  			} else {
  				peffect->active_type = 0;
  				core.new_fchain_s.erase(clit++);
-@@ -798,8 +809,10 @@
+@@ -798,8 +812,10 @@
  			   && peffect->is_chainable(tp)
  			   && peffect->is_activateable(tp, clit->evt, TRUE, FALSE, FALSE, is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE), is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE))
  			   && check_spself_from_hand_trigger(*clit)) {
@@ -501,7 +522,7 @@ diff --git a/processor.cpp b/processor.cpp
  			} else {
  				peffect->active_type = 0;
  				core.new_ochain_s.erase(clit++);
-@@ -825,7 +838,7 @@
+@@ -825,7 +841,7 @@
  				core.select_chains.erase(endit, core.select_chains.end());
  			}
  			if(core.select_chains.size() == 1 && !core.current_chain.size()) {
@@ -510,7 +531,7 @@ diff --git a/processor.cpp b/processor.cpp
  				return FALSE;
  			} else {
  				emplace_process<Processors::SelectChain>(core.current_player, 0x7f, false);
-@@ -969,6 +982,7 @@
+@@ -969,6 +985,7 @@
  			emplace_process<Processors::SolveChain>(skip_trigger, skip_freechain, skip_new);
  		} else {
  			core.used_event.splice(core.used_event.end(), core.point_event);
@@ -518,7 +539,21 @@ diff --git a/processor.cpp b/processor.cpp
  			reset_chain();
  			returns.set<int32_t>(0, FALSE);
  		}
-@@ -1492,6 +1506,8 @@
+@@ -1070,6 +1087,13 @@
+ 	return TRUE;
+ }
+ bool field::process(Processors::QuickEffect& arg) {
++	// A queued priority round may start after its activation was cancelled.
++	// Keep an already open round (continuations start at step 1), real action
++	// responses, and required quick chains; open no new empty departed-turn round.
++	if(arg.step == 0 && core.turn_surrendered && !is_alive(infos.turn_player)
++		&& core.current_chain.empty() && core.new_chains.empty() && core.quick_f_chain.empty()
++		&& !response_window_participants())
++		return TRUE;
+ 	auto skip_freechain = arg.skip_freechain;
+ 	auto priority = arg.priority_player;
+ 	switch(arg.step) {
+@@ -1492,6 +1516,8 @@
  	chain_list tp;
  	chain_list ntp;
  	for(const auto& ev : core.single_event) {
@@ -527,7 +562,7 @@ diff --git a/processor.cpp b/processor.cpp
  		card* starget = ev.trigger_card;
  		auto pr = starget->single_effect.equal_range(ev.event_code);
  		for(auto eit = pr.first; eit != pr.second;) {
-@@ -3526,6 +3542,7 @@
+@@ -3526,6 +3552,7 @@
  	switch(arg.step) {
  	case 0: {
  		//Pre Draw
@@ -535,7 +570,7 @@ diff --git a/processor.cpp b/processor.cpp
  		core.used_event.clear();
  		// These containers compare by effect ids, so an insert or erase reads the effects in
  		// them. In turn 1 they can still hold entries from the Startup events (the first clear
-@@ -3912,6 +3929,23 @@
+@@ -3912,6 +3939,23 @@
  	return TRUE;
  }
  bool field::process(Processors::AddChain& arg) {
@@ -559,7 +594,7 @@ diff --git a/processor.cpp b/processor.cpp
  	switch (arg.step) {
  	case 0: {
  		if (!core.new_chains.size())
-@@ -4473,8 +4507,8 @@
+@@ -4473,8 +4517,8 @@
  		for(uint8_t p = 0; p < n_duelists; ++p)
  			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
  		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED). A duelist with a pending loss
@@ -570,7 +605,7 @@ diff --git a/processor.cpp b/processor.cpp
  			if(!(cait->flag & CHAIN_DISABLE_EFFECT)) {
  				auto message = pduel->new_message(MSG_CHAIN_DISABLED);
  				message->write<uint8_t>(cait->chain_count);
-@@ -4708,6 +4742,7 @@
+@@ -4708,6 +4752,7 @@
  	}
  	case 12: {
  		core.used_event.splice(core.used_event.end(), core.point_event);
@@ -578,7 +613,7 @@ diff --git a/processor.cpp b/processor.cpp
  		pduel->new_message(MSG_CHAIN_END);
  		reset_chain();
  		if((core.summoning_card || core.summoning_proc_group_type || core.effect_damage_step == 1) && core.reserved)
-@@ -4751,6 +4786,7 @@
+@@ -4751,6 +4796,7 @@
  		}
  	}
  	core.used_event.splice(core.used_event.end(), core.instant_event);
@@ -586,7 +621,7 @@ diff --git a/processor.cpp b/processor.cpp
  	adjust_instant();
  	if(n_duelists == 2 && !is_flag(DUEL_RELAY) && !core.force_turn_end) {
  		uint32_t winp = 5, rea = 1;
-@@ -4812,9 +4848,16 @@
+@@ -4812,9 +4858,16 @@
  // Duel.Win of another team (every living opponent without CANNOT_LOSE_EFFECT). Losses wait while a chain
  // resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
  // else every loser is eliminated in turn order from the turn player.
@@ -605,7 +640,7 @@ diff --git a/processor.cpp b/processor.cpp
  	uint8_t order[MAX_DUELISTS];
  	uint8_t count = 0;
  	for(uint8_t i = 0; i < n_duelists; ++i) {
-@@ -4830,7 +4873,7 @@
+@@ -4830,7 +4883,7 @@
  	};
  	for(uint8_t i = 0; i < count; ++i) {
  		const auto p = order[i];
@@ -614,7 +649,7 @@ diff --git a/processor.cpp b/processor.cpp
  			bool protect = false;
  			for(uint8_t q = 0; q < count; ++q) {
  				if(same_team(order[q], p) && is_player_affected_by_effect(order[q], EFFECT_CANNOT_LOSE_LP))
-@@ -4839,13 +4882,13 @@
+@@ -4839,13 +4892,13 @@
  			if(!protect)
  				mark(p, 1);
  		}
@@ -646,7 +681,15 @@ diff --git a/processor_unit.h b/processor_unit.h
  };
  struct SelectYesNo : public Process<true> {
  	uint8_t playerid;
-@@ -276,8 +277,11 @@
+@@ -233,6 +234,7 @@
+ 	bool priority_passed;
+ 	uint8_t check_cursor{ DUELIST_NONE }; // n_duelists > 2: the duelist asked now
+ 	uint8_t pass_mask{ 0 }; // n_duelists > 2: bit q is set when duelist q passed since the last activation
++	bool response_round_open{ false }; // a phase response round ends on activation
+ 	PhaseEvent(uint16_t step_, uint16_t phase_) :
+ 		Process(step_), phase(phase_), is_opponent(false), priority_passed(false) {}
+ };
+@@ -276,8 +278,11 @@
  };
  struct AddChain : public Process<false> {
  	bool is_activated_effect;

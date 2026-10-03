@@ -60,12 +60,111 @@ static void surrender_phase(int leaver) {
 	OCG_DestroyDuel(d);
 }
 
+// A living player can use the kept window. Its chain finishes, but the
+// departed turn must not start a new empty response round after the chain.
+static void surrender_then_activate(bool during_chain) {
+	OCG_Duel d = make_ffa4({{103}, {103}, {103}, {103}}, 0);
+	std::vector<Msg> msgs;
+	bool activated = false, surrendered = false, reached_idle = false, chain_ended = false;
+	int solved = 0, empty_after_chain = 0;
+	for(int steps = 0; steps < 4000; ++steps) {
+		const int status = advance(d, msgs);
+		for(const auto& m : msgs) {
+			if(m.id == MSG_CHAIN_SOLVED) ++solved;
+			if(m.id == MSG_CHAIN_END && activated) chain_ended = true;
+		}
+		if(status == OCG_DUEL_STATUS_END) break;
+		if(status != OCG_DUEL_STATUS_AWAITING) continue;
+		if(msgs.empty()) { EXPECT(false, "awaiting without messages"); break; }
+		const Msg last = msgs.back();
+		auto& f = F(d);
+		if(last.id == MSG_SELECT_IDLECMD) {
+			reached_idle = true;
+			EXPECT(f.infos.turn_player == 1 && f.infos.turn_id == 2, "living chain did not reach next turn");
+			break;
+		}
+		if(last.id == MSG_SELECT_CHAIN) {
+			if(!activated && last.b1 == 1) {
+				if(!during_chain) {
+					EXPECT(run_lua(d, "Debug.SurrenderDuelist(0)"), "turn player surrender failed");
+					EXPECT(!f.is_alive(0), "turn player did not leave before living activation");
+					surrendered = true;
+				}
+				activated = true;
+				answer_i32(d, 0);
+			} else {
+				if(during_chain && !surrendered && !f.core.current_chain.empty()) {
+					EXPECT(run_lua(d, "Debug.SurrenderDuelist(0)"), "chain surrender failed");
+					EXPECT(f.is_alive(0) && f.player[0].pending_loss, "chain surrender did not defer the loss");
+					surrendered = true;
+				}
+				if(chain_ended && f.infos.turn_id == 1 && f.core.current_chain.empty()
+				   && f.response_window_participants() == 0) ++empty_after_chain;
+				answer_i32(d, -1);
+			}
+			continue;
+		}
+		EXPECT(answer_default(d, last), "unexpected living-chain prompt %u", last.id);
+	}
+	EXPECT(activated && surrendered && reached_idle, "activated=%d surrendered=%d reached_idle=%d", activated, surrendered, reached_idle);
+	EXPECT(!F(d).is_alive(0), "turn player remains after living chain");
+	EXPECT(solved == 1, "living link solved %d times, want 1", solved);
+	EXPECT(empty_after_chain == 0, "%d new empty prompts after the living chain", empty_after_chain);
+	std::printf("Living activation (surrender during chain %d): solved %d; new empty prompts %d\n", during_chain, solved, empty_after_chain);
+	OCG_DestroyDuel(d);
+}
+
+// Cancelling the leaver's pre-chain zone choice must not open a new empty window.
+static void surrender_cancel_activation() {
+	OCG_Duel d = make_ffa4({{100}, {103}, {103}, {103}}, 0);
+	std::vector<Msg> msgs;
+	bool activated = false, surrendered = false, reached_idle = false;
+	int solved = 0, new_empty = 0;
+	for(int steps = 0; steps < 4000; ++steps) {
+		const int status = advance(d, msgs);
+		for(const auto& m : msgs) if(m.id == MSG_CHAIN_SOLVED) ++solved;
+		if(status == OCG_DUEL_STATUS_END) break;
+		if(status != OCG_DUEL_STATUS_AWAITING) continue;
+		if(msgs.empty()) { EXPECT(false, "awaiting without messages"); break; }
+		const Msg last = msgs.back();
+		auto& f = F(d);
+		if(last.id == MSG_SELECT_IDLECMD) {
+			if(!activated) {
+				EXPECT(last.b1 == 0, "initial idle seat %d", last.b1);
+				activated = true;
+				answer_u32(d, 5);
+				continue;
+			}
+			reached_idle = true;
+			EXPECT(f.infos.turn_player == 1 && f.infos.turn_id == 2, "cancelled activation did not reach next turn");
+			break;
+		}
+		if(activated && !surrendered && last.id == MSG_SELECT_PLACE) {
+			EXPECT(f.core.current_chain.empty(), "place choice already has a chain");
+			EXPECT(run_lua(d, "Debug.SurrenderDuelist(0)"), "pre-chain surrender failed");
+			EXPECT(!f.is_alive(0), "pre-chain surrender was not immediate");
+			surrendered = true;
+		}
+		if(surrendered && f.infos.turn_id == 1 && last.id == MSG_SELECT_CHAIN
+		   && f.core.current_chain.empty() && f.response_window_participants() == 0) ++new_empty;
+		EXPECT(answer_default(d, last), "unexpected cancelled-activation prompt %u", last.id);
+	}
+	EXPECT(activated && surrendered && reached_idle, "activated=%d surrendered=%d reached_idle=%d", activated, surrendered, reached_idle);
+	EXPECT(solved == 0, "cancelled link solved %d times", solved);
+	EXPECT(new_empty == 0, "%d new empty prompts after cancelled activation", new_empty);
+	std::printf("Cancelled activation: solved %d; new empty prompts %d\n", solved, new_empty);
+	OCG_DestroyDuel(d);
+}
+
 int main() {
 	init_scripts();
 	// FX3: a seat which passed, and is not the turn player, is removed at seat 2's prompt.
 	mode_phase(1, 2, "non-turn-passed");
 	surrender_phase(0);
 	surrender_phase(1);
+	surrender_then_activate(false);
+	surrender_then_activate(true);
+	surrender_cancel_activation();
 	std::printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
 	return failures ? 1 : 0;
 }
