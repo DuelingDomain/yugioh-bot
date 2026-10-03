@@ -94,6 +94,9 @@
 .note { margin: 10px 0 0; color: var(--ink-3); font-size: 14.5px; }
 .deckline { margin: 10px 0 0; color: var(--ink-2); font-size: 14.5px; }
 .deckline a { color: var(--pen-ink); }
+.deckbtn { padding: 0; border: 0; background: none; color: var(--pen-ink); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.deckbtn:hover { color: var(--ink); }
+.deckbtn:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 .panel { margin-top: 14px; }
 .spacer { height: 122px; }
 

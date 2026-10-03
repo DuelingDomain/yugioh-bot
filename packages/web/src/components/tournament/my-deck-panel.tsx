@@ -11,15 +11,21 @@ import styles from "./my-deck.module.css";
  * "My deck" for a participant: the registered deck and its lock state, plus
  * registration. A draft tournament uses the player's draft deck; any other
  * tournament takes a saved deck.
+ *
+ * The `rail` panel stays out of sight until its deck state loads. The `floor` panel is the one
+ * "Register a deck" opens under your field: it says when it is loading or could not load, and it
+ * carries its own ids so both panels can be on the page.
  */
 export function MyDeckPanel({
   tournament,
   tournamentSlug,
   onChanged,
+  variant = "rail",
 }: {
   tournament: TournamentDetail;
   tournamentSlug: string;
   onChanged: () => void;
+  variant?: "rail" | "floor";
 }) {
   const [state, setState] = React.useState<MyDeckState | null>(null);
   const [loaded, setLoaded] = React.useState(false);
@@ -27,6 +33,7 @@ export function MyDeckPanel({
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [savedNote, setSavedNote] = React.useState(false);
+  const [loadFailed, setLoadFailed] = React.useState(false);
   const latestRequest = React.useRef(0);
 
   const visible =
@@ -38,11 +45,19 @@ export function MyDeckPanel({
     const request = ++latestRequest.current;
     try {
       const res = await fetch(`/api/tournaments/${tournamentSlug}/deck`);
-      if (!res.ok || request !== latestRequest.current) return;
+      if (request !== latestRequest.current) return;
+      if (!res.ok) {
+        setLoadFailed(true);
+        return;
+      }
       const next = parseMyDeckState(await res.json());
-      if (request === latestRequest.current) setState(next);
+      if (request === latestRequest.current) {
+        setState(next);
+        setLoadFailed(next === null);
+      }
     } catch {
       // The panel stays on its last state; the next refetch tries again.
+      if (request === latestRequest.current) setLoadFailed(true);
     } finally {
       if (request === latestRequest.current) setLoaded(true);
     }
@@ -54,7 +69,25 @@ export function MyDeckPanel({
     return () => { latestRequest.current++; };
   }, [visible, load, tournament]);
 
-  if (!visible || !loaded || !state) return null;
+  if (!visible) return null;
+  const sectionId = variant === "floor" ? "floor-my-deck" : "tournament-my-deck";
+  if (!loaded || !state) {
+    if (variant !== "floor") return null;
+    return (
+      <section id={sectionId} data-testid={sectionId} className={styles.panel} aria-label="Register a deck">
+        {loaded && loadFailed ? (
+          <div role="alert" className={styles.err}>
+            <StatusLine tone="block">Could not load your decks.</StatusLine>
+            <div className={styles.row}>
+              <SvButton variant="ghost" onClick={() => { setLoaded(false); void load(); }}>Try again</SvButton>
+            </div>
+          </div>
+        ) : (
+          <p className={styles.note} role="status">Loading your decks…</p>
+        )}
+      </section>
+    );
+  }
 
   const isDraft = state.draft !== null || tournament.draftId != null;
   const draftSlug = state.draft?.slug ?? tournament.draftSlug ?? null;
@@ -97,7 +130,7 @@ export function MyDeckPanel({
   }
 
   return (
-    <section id="tournament-my-deck" data-testid="tournament-my-deck" className={styles.panel}>
+    <section id={sectionId} data-testid={sectionId} className={styles.panel}>
       <h2 className={styles.h}>My deck</h2>
 
       {registration ? (
