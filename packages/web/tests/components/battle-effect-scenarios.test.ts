@@ -4,6 +4,15 @@ import { applyEdits } from "../../src/components/duel/fx-lab/board";
 import { findScenario } from "../../src/components/duel/fx-lab/scenarios";
 
 describe("battle effect lab scenes", () => {
+  it("turns an Enemy Controller target before attacking and destroying it in defense", () => {
+    const scene = BATTLE_EFFECT_SCENARIOS.find(s => s.id === "battle-enemy-controller-defender")!.build();
+    const events = scene.steps.flatMap(s => s.events ?? []);
+    expect(events.findIndex(e => e.kind === "position")).toBeLessThan(events.findIndex(e => e.kind === "attack"));
+    expect(events.find(e => e.kind === "battle")?.battle?.target?.position).toBe(4);
+    expect(events.find(e => e.kind === "destroy")?.fromPosition).toBe(4);
+    expect(events.find(e => e.kind === "move" && e.reason === "destroy")?.fromPosition).toBe(4);
+    expect(events.some(e => e.kind === "damage")).toBe(false);
+  });
   it.each(BATTLE_EFFECT_SCENARIOS)("registers $id at its FX-lab hash", scene => {
     expect(findScenario(scene.id)).toBe(scene);
   });

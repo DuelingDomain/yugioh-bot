@@ -46,6 +46,33 @@ function catBattle(boosted: boolean): LabScript {
 
 export const BATTLE_EFFECT_SCENARIOS: LabScenario[] = [
   {
+    id: "battle-enemy-controller-defender", category: "Attacks", name: "Enemy Controller: destroy the turned defender",
+    description: "Enemy Controller turns Celtic Guardian sideways. Gemini Elf then attacks; the defender stays sideways through calculation, the break and its departure.",
+    build: () => {
+      const initial = newBoard({}, {}, "battle_start");
+      edit.monster(0, 2, geminiElf)(initial);
+      edit.monster(1, 2, CARDS.celtic)(initial);
+      edit.spell(0, 0, enemyController)(initial);
+      const why = { cause: "battle" as const, sourceCode: geminiElf.code, sourceKind: "monster" as const, sourceSeat: 0 };
+      return { initial, tailMs: 4200, steps: [
+        { at: 0, events: [ev.activate(0, enemyController, SZ(0, 0), 1)], chain: [link(1, 0, enemyController)] },
+        { at: 800, events: [ev.chain("chain-resolving", 0, enemyController, 1),
+          ev.position(1, CARDS.celtic, MZ(1, 2), 1, 4), ev.chain("chain-resolved", 0, enemyController, 1),
+          ev.move(0, enemyController, SZ(0, 0), { controller: 0, location: 16, sequence: 0 }, "send"), ev.chainEnd()],
+          edits: [edit.position(1, 2, 4), edit.spell(0, 0, null), edit.grave(0, enemyController)], chain: [] },
+        { at: 2200, events: [ev.attack(0, MZ(0, 2), MZ(1, 2))] },
+        { at: 3100, events: [
+          { kind: "battle", seat: 0, text: "Damage calculation", zone: MZ(0, 2), target: MZ(1, 2),
+            battle: { attacker: { attack: 1900, defense: 900, position: 1 },
+              target: { attack: CARDS.celtic.attack, defense: CARDS.celtic.defense, position: 4 } } },
+          { ...ev.toGrave(1, CARDS.celtic, MZ(1, 2), 0, why), fromPosition: 4 },
+          { ...ev.destroy(1, CARDS.celtic, MZ(1, 2), why), fromPosition: 4 },
+          { kind: "battle-end", text: "Damage Step ended" }],
+          edits: [edit.monster(1, 2, null), edit.grave(1, CARDS.celtic)] },
+      ] };
+    },
+  },
+  {
     id: "battle-cats-ear-tribe", category: "Attacks", name: "Cat's Ear Tribe: temporary 200 ATK",
     description: "Gemini Elf calculates at 200 ATK. Both monsters break, with no LP damage. The calculation values stay visible during the fight.",
     build: () => catBattle(false),

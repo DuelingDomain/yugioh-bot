@@ -33,7 +33,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { duelFxClock } from "./fx-clock";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
+import { cardArtUrl, isDefense, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
 import {
   auraTintOf,
   collectFreshEvents,
@@ -714,7 +714,12 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
   const handoff = item.plan != null;
   const claimed = item.claim3d === true;
   useEffectSetup(overlay, item, done, ({ track, geo }) => {
-    if (anchor.current) placeAnchor(anchor.current, geo);
+    const defense = item.event.fromPosition == null ? geo.defense : isDefense(item.event.fromPosition);
+    if (anchor.current) {
+      placeAnchor(anchor.current, geo);
+      // The zone can already be empty. Keep the whole stand-in and every shard in its departure pose.
+      anchor.current.style.rotate = defense ? "90deg" : "";
+    }
     const d = item.delayMs;
     const breakAt = item.breakMs ?? (item.event.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs);
     // With a flight to the Graveyard the card ends here and MoveFx picks it up at the break. A break
@@ -729,8 +734,11 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
       sequence: 0,
     });
     const gyGeo = gy ? measure(overlay, gy) : null;
-    const dxGy = gyGeo ? gyGeo.cx - geo.cx : 0;
-    const dyGy = gyGeo ? gyGeo.cy - geo.cy : geo.side === "opp" ? -geo.h : geo.h;
+    const screenDx = gyGeo ? gyGeo.cx - geo.cx : 0;
+    const screenDy = gyGeo ? gyGeo.cy - geo.cy : geo.side === "opp" ? -geo.h : geo.h;
+    // Shard motion is local to the rotated anchor; its destination remains in screen space.
+    const dxGy = defense ? screenDy : screenDx;
+    const dyGy = defense ? -screenDx : screenDy;
 
     // The card stands as it was until the break, with a red rim and the fissures appearing.
     track.play(
