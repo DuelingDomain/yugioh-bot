@@ -777,18 +777,39 @@ const MOVES: LabScenario[] = [
       4800,
     );
   }),
-  moveScenario("move-hand-order", "Hand order: search through engine shuffles", "The added card stays on your right while its engine sequence changes. It gets a soft landing glow; the opponent adds on their own right.", () => {
+  moveScenario("move-hand-order", "Hand order: engine slots", "A search lands in the middle while neighbours slide. Engine re-sequencing moves the same card and its landing glow; a discard closes the gap. The opponent's middle insertion is mirrored.", () => {
     const initial = board();
     for (const seat of initial.seats) seat.hand.forEach((card, i) => { card.handId = `lab-${seat.seat}-${i}`; });
     const arrival = "lab-added";
     return script(initial, [
-      { at: 0, events: [{ ...ev.addToHand(ME, C.cyberDragon, DECK(ME), HAND(ME, 4)), handId: arrival }],
-        edits: [edit.addHand(ME, C.cyberDragon), (b) => {
-          b.seats[ME].hand.at(-1)!.handId = arrival;
-          b.seats[ME].hand.forEach((c, i) => { c.sequence = (i + 1) % 5; });
+      { at: 0, events: [{ ...ev.addToHand(ME, C.cyberDragon, DECK(ME), HAND(ME, 2)), handId: arrival }],
+        edits: [edit.drawFromDeck(ME), edit.addHand(ME, C.cyberDragon), (b) => {
+          const hand = b.seats[ME].hand;
+          const added = hand.pop()!;
+          added.handId = arrival;
+          hand.splice(2, 0, added);
+          hand.forEach((c, i) => { c.sequence = i; });
         }] },
-      { at: 900, edits: [(b) => { b.seats[ME].hand.forEach((c, i) => { c.sequence = 4 - i; }); }] },
-      { at: 3200, events: [ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5))], edits: [edit.addHand(OPP, null)] },
+      { at: 900, edits: [(b) => {
+        const hand = b.seats[ME].hand;
+        b.seats[ME].hand = [hand[4], hand[2], hand[0], hand[3], hand[1]];
+        b.seats[ME].hand.forEach((c, i) => { c.sequence = i; });
+      }] },
+      { at: 2300, edits: [(b) => {
+        const hand = b.seats[ME].hand;
+        hand.splice(3, 0, hand.splice(1, 1)[0]);
+        hand.forEach((c, i) => { c.sequence = i; });
+      }] },
+      { at: 3200, events: [ev.move(ME, C.cyberDragon, HAND(ME, 3), GY(ME, 0), "discard")],
+        edits: [edit.removeHand(ME, 3), edit.grave(ME, C.cyberDragon)] },
+      { at: 5000, events: [{ ...ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 2)), handId: "lab-opp-added" }],
+        edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null), (b) => {
+          const hand = b.seats[OPP].hand;
+          const added = hand.pop()!;
+          added.handId = "lab-opp-added";
+          hand.splice(2, 0, added);
+          hand.forEach((c, i) => { c.sequence = i; });
+        }] },
     ], 4000);
   }),
   moveScenario("move-added-salvage", "Added to hand: salvage from the Graveyard", "A monster comes back from the Graveyard to the hand.", () => {

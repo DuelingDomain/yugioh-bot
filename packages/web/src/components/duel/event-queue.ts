@@ -197,7 +197,7 @@ export function findZoneElement(zone: DuelZoneRef | undefined | null): HTMLEleme
   );
 }
 
-/** Hand destinations use display identity because the core may shuffle before the flight finishes. */
+/** Resolve the card's current engine slot; an arrival that left must not target its replacement. */
 export function findMoveDestination(event: DuelEvent): HTMLElement | null {
   if (event.handId && typeof document !== "undefined") {
     const hand = document.querySelector(`[data-hand-seat="${event.zone?.controller}"]`);
@@ -206,6 +206,27 @@ export function findMoveDestination(event: DuelEvent): HTMLElement | null {
     return card?.querySelector<HTMLElement>("[data-zones]") ?? null;
   }
   return findZoneElement(event.zone);
+}
+
+/** Engine-slot geometry without a hand card's temporary FLIP/entry translation. */
+export function moveDestinationRect(dest: HTMLElement): { left: number; top: number; width: number; height: number } {
+  const rect = dest.getBoundingClientRect();
+  const card = dest.closest?.<HTMLElement>("[data-hand-card]");
+  const translate = card ? getComputedStyle(card).translate : undefined;
+  const [x, y] = translate?.split(/\s+/).map((value) => Number.parseFloat(value) || 0) ?? [0, 0];
+  return { left: rect.left - x, top: rect.top - (y ?? 0), width: rect.width, height: rect.height };
+}
+
+/** Keep landing overlays attached to the visible card through its handoff fade and glow. */
+export function followMoveDestination(event: DuelEvent, update: (dest: HTMLElement | null) => void): () => void {
+  let frame: number | undefined;
+  const tick = () => {
+    update(findMoveDestination(event));
+    frame = window.requestAnimationFrame(tick);
+  };
+  update(findMoveDestination(event));
+  if (typeof window.requestAnimationFrame === "function") frame = window.requestAnimationFrame(tick);
+  return () => { if (frame != null) window.cancelAnimationFrame(frame); };
 }
 
 /**

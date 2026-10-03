@@ -7,7 +7,7 @@ import type { DuelEvent } from "@yugidraft/shared/duels";
 import { MoveFx } from "@/components/duel/move-fx";
 import { CardStrip, type StripCard } from "@/components/duel/card-strip";
 import { showcasePhases } from "@/components/duel/add-to-hand";
-import { ADD_TO_HAND } from "@/components/duel/duel-timing";
+import { ADD_TO_HAND, CARD_FX } from "@/components/duel/duel-timing";
 import { resetMoveSchedule } from "@/components/duel/move-plan";
 import { resetPickRects, takePickRect } from "@/components/duel/pick-rects";
 
@@ -73,13 +73,42 @@ afterEach(() => {
 const advance = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
 
 /** Mounts the board with no events, then delivers the move (the first render only sets the cursor). */
-function deliver(event: DuelEvent, props: { reduced?: boolean; slotCode?: number } = {}) {
+function deliver(event: DuelEvent, props: { reduced?: boolean; slotCode?: number; handId?: string } = {}) {
   const view = render(<Board events={[]} {...props} />);
   view.rerender(<Board events={[event]} {...props} />);
   return view;
 }
 
 describe("the Added to hand showcase on the board", () => {
+  it("keeps the fading ghost and landing ring on the card when the engine re-sequences just after landing", () => {
+    const event = addEvent({ handId: "arrival" });
+    const view = deliver(event, { handId: "arrival" });
+    const phases = showcasePhases(1, false);
+    advance(phases.riseMs + phases.holdMs + phases.flyMs + 20);
+    expect(view.getByTestId("slot").style.visibility).toBe("");
+    boxes.set("slot", { left: 200, top: 700, width: 70, height: 100 });
+    view.rerender(<Board events={[event]} handId="arrival" sequence={1} />);
+    advance(20);
+    expect(view.getByTestId("added-ring").style.left).toBe("200px");
+    const ghost = view.getByTestId("added-ghost");
+    expect(Number.parseFloat(ghost.style.left) + Number.parseFloat(ghost.style.width) / 2).toBe(235);
+    expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBe("true");
+  });
+  it("follows a new engine slot during the flight before showing the real card", () => {
+    const view = deliver(addEvent({ handId: "arrival" }), { handId: "arrival" });
+    const phases = showcasePhases(1, false);
+    advance(phases.riseMs + phases.holdMs + phases.flyMs / 2);
+    boxes.set("slot", { left: 200, top: 700, width: 70, height: 100 });
+    view.rerender(<Board events={[addEvent({ handId: "arrival" })]} handId="arrival" sequence={1} />);
+    advance(phases.flyMs / 2);
+    expect(view.getByTestId("slot").style.visibility).toBe("hidden");
+    const correction = animate.mock.calls.find((call) => (call[1] as { duration: number }).duration === CARD_FX.glideMs);
+    expect(correction).toBeDefined();
+    expect(String((correction![0] as Keyframe[]).at(-1)?.transform)).toContain("-300.00px");
+    advance(CARD_FX.glideMs + 1);
+    expect(view.getByTestId("slot").style.visibility).toBe("");
+    expect(view.getByTestId("added-ring").style.left).toBe("200px");
+  });
   it.each([true, false])("lands on the same hand card through an in-flight engine shuffle (known=%s)", (known) => {
     const event = addEvent({ handId: "arrival", card: known ? info(1234) : undefined });
     const props = { handId: "arrival", slotCode: known ? 1234 : 0 };

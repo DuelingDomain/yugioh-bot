@@ -17,7 +17,7 @@ import {
 } from "ocgcore-wasm";
 import { raceLabel, type CardDatabase } from "./cards.js";
 import { fillPlaceholders, locationLabel } from "./text.js";
-import { HandOrder } from "./hand-order.js";
+import { HandIdentities } from "./hand-identities.js";
 
 export const LOCATION_DECKMASTER = 0x4000;
 export const DOMAIN_LEAVE_TAX_STEP = 500;
@@ -422,7 +422,7 @@ export interface EventContext {
   moves: TrackedMove[];
   /** Cards in each hand, so DRAW messages (which carry no sequence) can be given a hand slot. */
   handSize: [number, number];
-  handOrder: HandOrder;
+  handIdentities: HandIdentities;
   /** Location each field zone's current card arrived from (zone key -> location bit), kept across batches. */
   arrivals: Map<string, number>;
   /** The answer that started the current summon was a Pendulum Summon (a Pendulum Zone card's summon action). */
@@ -438,7 +438,7 @@ interface TrackedMove {
 }
 
 export function createEventContext(): EventContext {
-  return { battle: false, released: [0, 0], destroyNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], handOrder: new HandOrder(), arrivals: new Map(), pendulumSummon: false };
+  return { battle: false, released: [0, 0], destroyNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], handIdentities: new HandIdentities(), arrivals: new Map(), pendulumSummon: false };
 }
 
 /** Feed an engine log line to the context; returns true when it was a destruction note. */
@@ -728,12 +728,12 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
     case OcgMessageType.REMOVE_CARDS:
       for (const card of [...message.cards].sort((a, b) => b.sequence - a.sequence)) {
         if (card.location !== OcgLocation.HAND) continue;
-        ctx.handOrder.remove(card.controller, card.sequence);
+        ctx.handIdentities.remove(card.controller, card.sequence);
         ctx.handSize[card.controller] = Math.max(0, ctx.handSize[card.controller] - 1);
       }
       return [];
     case OcgMessageType.SHUFFLE_HAND:
-      ctx.handOrder.shuffle(message.player, message.cards);
+      ctx.handIdentities.shuffle(message.player, message.cards);
       return [];
     case OcgMessageType.DRAW: {
       const seat = message.player === 1 ? 1 : 0;
@@ -742,7 +742,7 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
         const from = { controller: seat, location: OcgLocation.DECK as number, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE as number };
         const to = { controller: seat, location: OcgLocation.HAND as number, sequence: ctx.handSize[seat] + index, position: drawn.position as number };
         out.push(trackMove(ctx, firstId + out.length, cards, drawn.code, from, to, "draw"));
-        ctx.handOrder.add(seat, drawn.code, to.sequence, firstId + out.length - 1);
+        ctx.handIdentities.add(seat, drawn.code, to.sequence, firstId + out.length - 1);
       });
       ctx.handSize[seat] += message.drawn.length;
       return out;
@@ -750,11 +750,11 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
     case OcgMessageType.MOVE: {
       const { from, to } = message;
       if (from.location === OcgLocation.HAND && to.location === OcgLocation.HAND && from.controller === to.controller) {
-        ctx.handOrder.relocate(from.controller, from.sequence, to.sequence);
+        ctx.handIdentities.relocate(from.controller, from.sequence, to.sequence);
         return [];
       }
-      if (from.location === OcgLocation.HAND) ctx.handOrder.remove(from.controller, from.sequence);
-      if (to.location === OcgLocation.HAND) ctx.handOrder.add(to.controller, message.card, to.sequence, firstId);
+      if (from.location === OcgLocation.HAND) ctx.handIdentities.remove(from.controller, from.sequence);
+      if (to.location === OcgLocation.HAND) ctx.handIdentities.add(to.controller, message.card, to.sequence, firstId);
       if (from.location === OcgLocation.HAND) ctx.handSize[from.controller === 1 ? 1 : 0] = Math.max(0, ctx.handSize[from.controller === 1 ? 1 : 0] - 1);
       if (to.location === OcgLocation.HAND) ctx.handSize[to.controller === 1 ? 1 : 0] += 1;
       if (isFieldLocation(from.location)) ctx.arrivals.delete(slotKey(from.controller, from.location, from.sequence));
@@ -1098,7 +1098,7 @@ export function projectView(args: {
   reveals: RevealMap;
   mode: DuelMode;
   domainState?: DomainSeatState[];
-  handOrder?: HandOrder;
+  handIdentities?: HandIdentities;
 }): DuelEngineView {
   const field = args.lib.duelQueryField(args.handle);
   const seats: DuelSeatView[] = [0, 1].map((seat) => {
@@ -1126,11 +1126,12 @@ export function projectView(args: {
     });
     const spells = projectList(args.viewer, controller, OcgLocation.SZONE, queryLocation(args.lib, args.handle, controller, OcgLocation.SZONE), args.cards, args.reveals);
     const engineHand = compact(projectList(args.viewer, controller, OcgLocation.HAND, queryLocation(args.lib, args.handle, controller, OcgLocation.HAND), args.cards, args.reveals));
-    const ordered = args.handOrder?.entries(seat, args.viewer === seat);
-    const hand = ordered ? ordered.flatMap((entry) => {
-      const card = engineHand.find((c) => c.sequence === entry.sequence);
-      return card ? [{ ...card, handId: entry.id }] : [];
-    }) : engineHand;
+    // The query alone determines membership, order and engine coordinates. IDs only keep DOM
+    // nodes and animation destinations attached while the core inserts, removes or shuffles.
+    const hand = engineHand.map((card) => {
+      const handId = args.handIdentities?.at(seat, args.viewer === seat, card.sequence);
+      return handId ? { ...card, handId } : card;
+    });
     const graveyard = compact(projectList(args.viewer, controller, OcgLocation.GRAVE, queryLocation(args.lib, args.handle, controller, OcgLocation.GRAVE), args.cards, args.reveals));
     const banished = compact(projectList(args.viewer, controller, OcgLocation.REMOVED, queryLocation(args.lib, args.handle, controller, OcgLocation.REMOVED), args.cards, args.reveals));
     const extraQueries = queryLocation(args.lib, args.handle, controller, OcgLocation.EXTRA);
@@ -1182,11 +1183,13 @@ export function projectView(args: {
     chain,
     events: args.events.map((event) => {
       const projected = projectStoredEvent(event, args.viewer);
-      if (event.kind === "move" && event.zone?.location === OcgLocation.HAND && args.handOrder) {
+      if (event.kind === "move" && event.zone?.location === OcgLocation.HAND && args.handIdentities) {
         const seat = event.zone.controller;
-        const entry = args.handOrder.entries(seat, args.viewer === seat).find((c) => c.arrival === event.id);
+        const entry = args.handIdentities.arrival(seat, args.viewer === seat, event.id);
         // A departed arrival gets an unresolvable id so its flight cannot hide a replacement card.
         projected.handId = entry?.id ?? `departed-${event.id}`;
+        // Keep the original engine message coordinates in history. Flights resolve this ID in the
+        // current query-ordered hand, rather than rewriting past draws/moves after later compaction.
       }
       return projected;
     }),

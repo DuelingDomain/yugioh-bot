@@ -554,7 +554,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         events,
         result,
         reveals,
-        handOrder: eventContext.handOrder,
+        handIdentities: eventContext.handIdentities,
         mode: options.mode,
         domainState: readDomainState(),
       });

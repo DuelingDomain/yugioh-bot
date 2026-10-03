@@ -156,7 +156,7 @@ export interface DuelCard {
   location: number;
   sequence: number;
   position: number;
-  /** Opaque hand display identity; sequence remains the current engine coordinate. */
+  /** Opaque animation identity; hand order and sequence always come from the engine query. */
   handId?: string;
   code?: number;
   name?: string;
@@ -329,7 +329,7 @@ export interface DuelEvent {
    * Deck then reads like a draw).
    */
   addedToHand?: true;
-  /** move into hand: opaque destination identity, stable across engine hand shuffles. */
+  /** move into hand: animation destination in the current engine view. Hidden shuffles stay anonymous. */
   handId?: string;
   /** attack: the attacked monster's zone; absent for a direct attack. equip: the monster it was equipped to. */
   target?: DuelZoneRef;

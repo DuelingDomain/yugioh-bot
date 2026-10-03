@@ -24,7 +24,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
-import { collectFreshEvents, findMoveDestination, maxEventId } from "./event-queue";
+import { collectFreshEvents, findMoveDestination, followMoveDestination, maxEventId, moveDestinationRect } from "./event-queue";
 import {
   getMovePlan,
   planMoves,
@@ -224,7 +224,7 @@ type GhostProps = {
 /** How far the destination centre moved (in overlay space) since the flight was aimed, or null when it stayed put. */
 export function destinationShift(overlay: HTMLElement, dest: HTMLElement, cx: number, cy: number): { dx: number; dy: number } | null {
   const o = overlay.getBoundingClientRect();
-  const z = dest.getBoundingClientRect();
+  const z = moveDestinationRect(dest);
   if (z.width < 4 || z.height < 4) return null;
   const dx = z.left - o.left + z.width / 2 - cx;
   const dy = z.top - o.top + z.height / 2 - cy;
@@ -328,7 +328,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
       return undefined;
     }
     const o = overlay.getBoundingClientRect();
-    const z = dest.getBoundingClientRect();
+    const z = moveDestinationRect(dest);
     if (z.width < 4 || z.height < 4 || o.width < 4) {
       landedRef.current();
       doneRef.current();
@@ -404,6 +404,15 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         landedRef.current();
         const tail = plan.style === "fade" || !source ? plan.holdMs : Math.max(plan.holdMs, LAND_FADE_MS);
         if (tail > 0) {
+          if (plan.event.zone?.location === LOCATION_HAND) {
+            track.onDispose(followMoveDestination(plan.event, (destination) => {
+              if (!destination) { el.style.visibility = "hidden"; return; }
+              const visible = destination.getBoundingClientRect();
+              const layer = overlay.getBoundingClientRect();
+              el.style.left = `${visible.left - layer.left + visible.width / 2 - w / 2 - dx}px`;
+              el.style.top = `${visible.top - layer.top + visible.height / 2 - h / 2 - dy}px`;
+            }));
+          }
           // A heavy summon's hologram rises out of the landed card: it dissolves as that starts.
           const fade = new Track();
           fade.play(el, [{ opacity: 1 }, { opacity: 0 }], { duration: tail, easing: "ease-out", fill: "both" });
@@ -415,24 +424,25 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
           doneRef.current();
         }
       };
-      // The destination may have moved while the card flew (a hand re-centres): glide the last pixels.
-      const shift = plan.style === "fade" || !source ? null : destinationShift(overlay, dest, cx, cy);
-      if (shift) {
-        const rest = `translate3d(0px, 0px, 0) rotate(${endTurn}deg) scale(1)`;
+      let dx = 0;
+      let dy = 0;
+      const settle = () => {
+        if (!alive) return;
+        const current = findMoveDestination(plan.event);
+        const shift = current && plan.style !== "fade" && source ? destinationShift(overlay, current, cx + dx, cy + dy) : null;
+        if (!shift) { finish(); return; }
+        const rest = `translate3d(${dx.toFixed(2)}px, ${dy.toFixed(2)}px, 0) rotate(${endTurn}deg) scale(1)`;
+        dx += shift.dx;
+        dy += shift.dy;
         const glide = new Track();
-        glide.play(
-          el,
-          [
-            { transform: rest },
-            { transform: `translate3d(${shift.dx.toFixed(2)}px, ${shift.dy.toFixed(2)}px, 0) rotate(${endTurn}deg) scale(1)` },
-          ],
-          { duration: GLIDE_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "both" },
-        );
+        glide.play(el, [
+          { transform: rest },
+          { transform: `translate3d(${dx.toFixed(2)}px, ${dy.toFixed(2)}px, 0) rotate(${endTurn}deg) scale(1)` },
+        ], { duration: GLIDE_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "both" });
         track.anims.push(...glide.anims);
-        void glide.settled().then(finish);
-      } else {
-        finish();
-      }
+        void glide.settled().then(settle);
+      };
+      settle();
     });
     return () => {
       alive = false;
@@ -591,7 +601,8 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
     if (!reduced) {
       for (const move of moves) {
         const card = byKey.get(move.key);
-        if (!card || typeof card.animate !== "function") continue;
+        // The ghost brings an invisible arrival straight to its new engine slot. Only neighbours slide.
+        if (!card || typeof card.animate !== "function" || card.querySelector('[style*="visibility: hidden"]')) continue;
         applied.set(card, { key: move.key, dx: move.dx, dy: move.dy });
         card.animate(
           [{ translate: `${move.dx}px ${move.dy}px` }, { translate: "0px 0px" }],

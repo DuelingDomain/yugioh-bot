@@ -30,7 +30,7 @@ import { playsBigSummon } from "./big-summon";
 import { MOVE_PACE } from "./duel-timing";
 import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type ShowcaseOrigin, type ShowcasePhases } from "./add-to-hand";
 import { chainEffectAt } from "./chain-beats";
-import { findZoneElement, findMoveDestination } from "./event-queue";
+import { findZoneElement, findMoveDestination, moveDestinationRect } from "./event-queue";
 
 export const MOVE_TIMING = {
   placeMin: MOVE_PACE.placeMinMs,
@@ -224,7 +224,7 @@ export function resolveSource(zone: DuelZoneRef): ZoneSnapshot | null {
 export function measureGeometry(event: DuelEvent): MoveGeometry | null {
   const to = findMoveDestination(event);
   if (!to) return null;
-  const toRect = to.getBoundingClientRect();
+  const toRect = moveDestinationRect(to);
   if (toRect.width < 4) return null;
   const fromRect = event.from ? resolveSource(event.from)?.rect : null;
   if (!fromRect) return { distance: 240 };
