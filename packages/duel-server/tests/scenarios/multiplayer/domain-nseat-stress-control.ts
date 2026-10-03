@@ -42,11 +42,10 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
       // Use a captured opening board in Tag so the opposing team is the intended first Deck-out loser.
       setup: { ...setup(format), deckSize: 1, ...(format === "tag" ? { skipOpeningDraw: true } : {}) },
       rules: [format === "tag" ? "R-TAG-LOSS" : "R-FFA-ELIMINATION"],
-      // Domain: every seat draws its only card on its first turn. At the turn 5 draw p0 loses, and in Tag its whole team with it.
-      steps: [...SEATS[format].map((seat) => endTurn(seat)),
-        expectEliminated(format === "tag" ? ["p0", "p2"] : SEATS[format].slice(0, -1)),
-        expectResult({ team: format === "tag" ? 1 : SEATS[format].length - 1, reason: "drawn" }),
-        board(format, Object.fromEntries((format === "tag" ? ["p0", "p2"] : SEATS[format].slice(0, -1)).map((s) => [s, { deckMaster: OUT, hand: [], deckCount: 0 }])) )],
+      steps: [...SEATS[format].map((seat) => endTurn(seat)), ...(format === "tag" ? [endTurn("p0")] : []),
+        expectEliminated(format === "tag" ? ["p1", "p3"] : SEATS[format].slice(0, -1)),
+        expectResult({ team: format === "tag" ? 0 : SEATS[format].length - 1, reason: "drawn" }),
+        board(format, Object.fromEntries((format === "tag" ? ["p1", "p3"] : SEATS[format].slice(0, -1)).map((s) => [s, { deckMaster: OUT, hand: [], deckCount: 0 }])) )],
     }),
     scenario(format, "all-sides-lose-together-with-masters-in-their-zones", {
       setup: setup(format, Object.fromEntries(SEATS[format].map((seat) => [seat, { lp: 100, ...(seat === "p0" ? { hand: ["Dark Snake Syndrome"] } : {}) }]))),

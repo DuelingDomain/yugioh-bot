@@ -43,7 +43,7 @@ function lpTrigger(format: Format, actor: 0 | 1, [code, card]: typeof CARDS[numb
     steps.push(attack("Battle Ox", { card: victim, owner: seat(actor) }, seat(enemy)), activate(card, seat(actor)));
     for (let i = 0; i < n; i++) board[seat(i)]!.hand = { count: (actor === 0 && i === enemy ? 2 : 1) + (format === "tag" && i >= 2 ? 1 : 0) };
     board[seat(actor)]!.grave = [victim, card]; board[seat(enemy)]!.grave = ["Battle Ox"];
-    damage = 850;
+    if (code === 18271561) damage = 850;
   } else if (code === 47233801) {
     setup[seat(actor)]!.hand = [card];
     if (actor === 1) steps.push(endTurn("p0"));

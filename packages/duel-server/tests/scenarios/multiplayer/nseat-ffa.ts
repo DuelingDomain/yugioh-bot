@@ -825,7 +825,7 @@ export const FFA_SCENARIOS: Scenario[] = [
     // the LAST trigger on the chain resolves first. Under the wrong order (p2 before p0) Sangan would resolve first.
     setup: {
       format: "ffa4",
-      p0: { hand: ["Dark Hole"], monsters: ["Sangan"], deck: ["Giant Rat"] },
+      p0: { hand: ["Dark Hole"], monsters: ["Sangan"], deck: [ELF, "Giant Rat"] },
       p2: { monsters: ["Witch of the Black Forest"], deck: ["Silver Fang"] },
     },
     steps: [
@@ -852,7 +852,7 @@ export const FFA_SCENARIOS: Scenario[] = [
     // p0 second, and Sangan resolves first. A plain seat order from p0 would put Sangan first on the chain.
     setup: {
       format: "ffa4",
-      p0: { monsters: ["Sangan"], deck: ["Giant Rat"] },
+      p0: { monsters: ["Sangan"], deck: [ELF, "Giant Rat"] },
       p1: { hand: ["Dark Hole"] },
       p2: { monsters: ["Witch of the Black Forest"], deck: ["Silver Fang"] },
     },

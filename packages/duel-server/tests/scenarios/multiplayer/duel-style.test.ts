@@ -3,9 +3,10 @@ import { seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
 import { describeWithCores } from "../../support/cores.js";
 import {
-  activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectLp, expectPickSeats, normalSummon,
+  activate, attack, changePhase, choose, endTurn, expectBoard, expectLp, expectPickSeats, normalSummon,
   pickOpponent, select, yes, zone, type Scenario,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -270,7 +271,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
       format: "ffa3",
       p0: {
         monsters: ["Elemental HERO Avian"],
-        // The Deck top is the same card as the hand card: the draw of turn 4 gives a second copy, so the random pick finds a Hero in any case.
+        // All drawn cards are the same Hero, so every random pick finds a Hero.
         hand: ["Elemental HERO Sparkman"],
         deck: ["Elemental HERO Sparkman"],
         spells: [{ card: "Hero Counterattack", pos: "set" }],
@@ -292,7 +293,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
         p2: { monsters: [ELF] },
       }),
     ],
-  }),
+  }, { card: "Elemental HERO Sparkman" }),
   // --- OQ2: three shapes of an effect that Special Summons to the field of an opponent
   defineScenario({
     id: "opponent-field-summon-foolish-revival-ffa3-summons-a-card-to-the-picked-opponent",
@@ -342,7 +343,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     source: SUMMON,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "opponent-field-summon", "yes-no", "token", "ffa3", "card:11654067"],
-    setup: { format: "ffa3", p0: { hand: ["Fire Ejection"], deck: ["Volcanic Rat"] } },
+    setup: { format: "ffa3", p0: { hand: ["Fire Ejection"], deck: [ELF, "Volcanic Rat"] } },
     steps: [
       activate("Fire Ejection", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),

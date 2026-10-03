@@ -5,9 +5,10 @@
 // Every scenario asserts the state of EVERY seat that the rule touches: p1 and p2 hold a monster that must stay. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, choose, defineScenario, endTurn, expectBoard, expectLp, expectPickSeats, normalSummon, pickOpponent, select, yes,
+  activate, choose, endTurn, expectBoard, expectLp, expectPickSeats, normalSummon, pickOpponent, select, yes,
   type Scenario,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 const SKULL = "Summoned Skull";
@@ -116,7 +117,7 @@ export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
     source: SUMMON,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "opponent-field-summon", "yes-no", "token", "ffa4", "card:11654067"],
-    setup: { format: "ffa4", p0: { hand: ["Fire Ejection"], deck: ["Volcanic Rat"] } },
+    setup: { format: "ffa4", p0: { hand: ["Fire Ejection"], deck: [ELF, "Volcanic Rat"] } },
     steps: [
       activate("Fire Ejection", "p0"),
       expectPickSeats(["p1", "p2", "p3"], "p0"),
