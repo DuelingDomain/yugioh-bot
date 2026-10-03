@@ -497,6 +497,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const lp: number[] = Array.from({ length: seatCount }, () => team.startingLP);
   const lpOf = (seat: number) => lp[teamOfSeat(format, seat)] ?? 0;
   const eliminated = new Set<number>();
+  const eliminationReasons = new Map<number, number>();
   const eliminationOrder: number[][] = [];
   let eliminationGroup: number[] | null = null;
   /** Seats (a whole team in Tag) after `eliminate()` whose loss the core has not reported yet. */
@@ -752,7 +753,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           eliminationOrder.push(eliminationGroup);
         }
         eliminationGroup.push(...newlyLost);
-        for (const seat of newlyLost) eliminated.add(seat);
+        for (const seat of newlyLost) {
+          eliminated.add(seat);
+          eliminationReasons.set(seat, raw.reason);
+        }
       }
       diagnose("msg200", raw.duelist, `reason ${raw.reason}`);
       const reason = raw.reason === 0 ? "Surrender" : cards.victory(raw.reason) ?? `Win reason ${raw.reason}`;
@@ -868,7 +872,12 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const LEAVING_ANSWER_LIMIT = 200;
 
   const mustCloseResponseWindow = () => pending?.seat === closedResponseSeat
-    && pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced;
+    && (pending?.message.type === OcgMessageType.SELECT_EFFECTYN
+      || pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced);
+
+  // Keep the existing cut-short optional-chain policy for LP, deck and time-limit losses.
+  const mustPassOtherCutShortTurn = () => eliminated.has(turnSeat) && eliminationReasons.get(turnSeat) !== 0
+    && liveChainSize === 0 && pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced;
 
   /**
    * While the open prompt belongs to a seat that is leaving, answer it for that seat (the answer that changes
@@ -876,7 +885,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
    * a journal replay of the same commands gives the same answers.
    */
   const answerForLeavingSeats = () => {
-    for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow()); step += 1) {
+    for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow() || mustPassOtherCutShortTurn()); step += 1) {
       const current = pending;
       closedResponseSeat = null;
       if (step >= LEAVING_ANSWER_LIMIT) {

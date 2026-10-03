@@ -19,18 +19,21 @@ diff --git a/field.h b/field.h
  	uint32_t global_id{};
  	bool operator< (const tevent& v) const;
  };
-@@ -262,6 +263,10 @@
+@@ -262,6 +263,13 @@
  	event_list single_event;
  	event_list solving_event;
  	event_list sub_solving_event;
 +	// Snapshot the event participants before immediate surrender removes their cards.
++	bool turn_surrendered{ false };
++	uint8_t response_instant_seats{ 0 };
++	uint8_t response_point_seats{ 0 };
 +	uint8_t response_window_seats{ 0 };
 +	uint8_t response_window_player{ DUELIST_NONE };
 +	bool response_window_optional{ false };
  	chain_list select_chains;
  	chain_array current_chain;
  	int32_t real_chain_count;
-@@ -711,7 +716,9 @@
+@@ -711,7 +719,9 @@
  	// any body runs): then p is not "already out" and the body runs.
  	void eliminate(uint8_t p, uint8_t reason, bool marked = false);
  	// Applies the losses of a duel with more than 2 duelists (Adjust step 1). Sends MSG_WIN at the end.
@@ -41,7 +44,7 @@ diff --git a/field.h b/field.h
  	// Calls f(p) for p = 0 .. n_duelists - 1 in ascending order (the stock order: player 0, then 1).
  	template<typename F>
  	void for_each_duelist(F&& f) const {
-@@ -955,9 +962,9 @@
+@@ -955,9 +965,9 @@
  		emplace_process<T>(Step{ 0 }, std::forward<Args>(args)...);
  	}
  
@@ -57,7 +60,7 @@ diff --git a/field.h b/field.h
 diff --git a/libdebug.cpp b/libdebug.cpp
 --- a/libdebug.cpp
 +++ b/libdebug.cpp
-@@ -336,6 +336,31 @@
+@@ -336,6 +336,33 @@
  	return 0;
  }
  
@@ -77,6 +80,8 @@ diff --git a/libdebug.cpp b/libdebug.cpp
 +	const bool close_window = field->n_teams == field->n_duelists && p == field->infos.turn_player
 +		&& field->core.current_chain.empty() && field->core.response_window_optional
 +		&& (field->core.response_window_seats & (1u << p));
++	if(field->n_teams == field->n_duelists && p == field->infos.turn_player)
++		field->core.turn_surrendered = true;
 +	field->player[p].pending_loss = 0x200;
 +	field->check_losses_n(true);
 +	if(close_window && !field->is_alive(p)) {
@@ -232,7 +237,40 @@ diff --git a/playerop.cpp b/playerop.cpp
  
  bool field::process(Processors::SelectBattleCmd& arg) {
  	auto playerid = arg.playerid;
-@@ -259,11 +260,11 @@
+@@ -172,6 +173,7 @@
+ 	auto pcard = arg.pcard;
+ 	auto description = arg.description;
+ 	if(arg.step == 0) {
++		core.response_window_optional = false;
+ 		// a seat that is not alive answers "no"
+ 		if(is_skipped_seat(playerid)) {
+ 			returns.set<int32_t>(0, 0);
+@@ -180,6 +182,16 @@
+ 		if((arg.playerid == 1) && is_flag(DUEL_SIMPLE_AI)) {
+ 			returns.set<int32_t>(0, 1);
+ 			return TRUE;
++		}
++		if(arg.response_window) {
++			core.response_window_seats = response_window_participants();
++			if(n_duelists > 2 && n_teams == n_duelists && core.current_chain.empty()
++				&& core.turn_surrendered && !is_alive(infos.turn_player) && (core.response_window_seats & (1u << infos.turn_player))) {
++				returns.set<int32_t>(0, 0);
++				return TRUE;
++			}
++			core.response_window_optional = true;
++			core.response_window_player = playerid;
+ 		}
+ 		auto message = pduel->new_message(MSG_SELECT_EFFECTYN);
+ 		message->write<uint8_t>(playerid);
+@@ -193,6 +205,7 @@
+ 			pduel->new_message(MSG_RETRY);
+ 			return FALSE;
+ 		}
++		core.response_window_optional = false;
+ 		return TRUE;
+ 	}
+ }
+@@ -259,11 +272,11 @@
  					all_picks = false;
  					break;
  				}
@@ -246,7 +284,7 @@ diff --git a/playerop.cpp b/playerop.cpp
  				pduel->new_message(MSG_RETRY);
  				return FALSE;
  			}
-@@ -493,10 +494,61 @@
+@@ -493,11 +506,63 @@
  		return TRUE;
  	}
  }
@@ -293,7 +331,8 @@ diff --git a/playerop.cpp b/playerop.cpp
 +}
 +// Real action events take precedence over phase/free-chain events in the same window.
 +uint8_t field::response_window_participants() const {
-+	uint8_t seats = 0;
++	uint8_t seats = core.response_point_seats | core.response_instant_seats;
++	for(const auto& ch : core.select_chains) seats |= ch.evt.response_seats;
 +	for(const auto* events : { &core.point_event, &core.instant_event })
 +		for(const auto& e : *events) seats |= e.response_seats;
 +	if(!seats && is_duelist(infos.turn_player)) seats |= 1u << infos.turn_player;
@@ -304,25 +343,44 @@ diff --git a/playerop.cpp b/playerop.cpp
  	auto playerid = arg.playerid;
  	auto spe_count = arg.spe_count;
  	auto forced = arg.forced;
-+	core.response_window_optional = false;
  	if(arg.step == 0) {
++		core.response_window_optional = false;
  		returns.set<int32_t>(0, -1);
  		// a seat that is not alive passes, and only takes a forced chain
-@@ -522,6 +574,13 @@
+ 		if(is_skipped_seat(playerid)) {
+@@ -522,6 +587,13 @@
  			}
  			return TRUE;
  		}
 +		core.response_window_seats = response_window_participants();
 +		// Close only a response to the departed turn player. Other living actions finish first.
 +		if(n_duelists > 2 && n_teams == n_duelists && !forced && core.current_chain.empty()
-+			&& !is_alive(infos.turn_player) && (core.response_window_seats & (1u << infos.turn_player)))
++			&& core.turn_surrendered && !is_alive(infos.turn_player) && (core.response_window_seats & (1u << infos.turn_player)))
 +			return TRUE;
 +		core.response_window_optional = !forced;
 +		core.response_window_player = playerid;
  		auto message = pduel->new_message(MSG_SELECT_CHAIN);
  		message->write<uint8_t>(playerid);
  		message->write<uint8_t>(spe_count);
-@@ -561,6 +620,10 @@
+@@ -545,12 +617,15 @@
+ 		}
+ 		return FALSE;
+ 	} else {
+-		if(!forced && returns.at<int32_t>(0) == -1)
+-			return TRUE;
++		if(!forced && returns.at<int32_t>(0) == -1) {
++			core.response_window_optional = false;
++			return TRUE;
++		}
+ 		if(returns.at<int32_t>(0) < 0 || returns.at<int32_t>(0) >= (int32_t)core.select_chains.size()) {
+ 			pduel->new_message(MSG_RETRY);
+ 			return FALSE;
+ 		}
++		core.response_window_optional = false;
+ 		return TRUE;
+ 	}
+ }
+@@ -561,6 +636,10 @@
  	auto disable_field = arg.disable_field;
  	// n_duelists > 2: the seat whose field the opponent zones belong to (DUELIST_NONE = not named, or the own field)
  	const uint8_t target = (n_duelists > 2 && arg.target != playerid) ? arg.target : DUELIST_NONE;
@@ -375,7 +433,92 @@ diff --git a/processor.cpp b/processor.cpp
  }
  int32_t field::check_event(uint32_t code, tevent* pe) {
  	for(const auto& ev : core.point_event) {
-@@ -3912,6 +3915,23 @@
+@@ -487,7 +490,7 @@
+ 			else
+ 				message->write<uint64_t>(26);
+ 			if(tf_count == 0 && to_count == 1 && fc_count == 0 && cn_count == 0) {
+-				emplace_process<Processors::SelectEffectYesNo>(check_player, 0, core.select_chains.front().triggering_effect->get_handler());
++				emplace_process<Processors::SelectEffectYesNo>(check_player, 0, core.select_chains.front().triggering_effect->get_handler(), true);
+ 				return FALSE;
+ 			} else {
+ 				emplace_process<Processors::SelectChain>(check_player, core.spe_effect[check_player], (tf_count + cn_count) > 0);
+@@ -640,7 +643,9 @@
+ 	case 26: {
+ 		core.quick_f_chain.clear();
+ 		core.instant_event.clear();
++		core.response_instant_seats = 0;
+ 		core.point_event.clear();
++		core.response_point_seats = 0;
+ 		core.delayed_activate_event.clear();
+ 		core.full_event.clear();
+ 		/*if(core.set_forced_attack) {
+@@ -665,6 +670,7 @@
+ 	case 0: {
+ 		core.select_chains.clear();
+ 		core.point_event.splice(core.point_event.end(), core.instant_event);
++		core.response_point_seats |= std::exchange(core.response_instant_seats, 0);
+ 		if(skip_trigger) {
+ 			arg.step = 7;
+ 			return FALSE;
+@@ -703,8 +709,10 @@
+ 			   && check_trigger_effect(*clit)
+ 			   && peffect->is_chainable(tp)
+ 			   && peffect->is_activateable(tp, clit->evt, TRUE, FALSE, FALSE, is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE), is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE))) {
+-				if(tp == core.current_player)
++				if(tp == core.current_player) {
+ 					core.select_chains.push_back(*clit);
++					core.response_point_seats |= clit->evt.response_seats;
++				}
+ 			} else {
+ 				peffect->active_type = 0;
+ 				core.new_fchain_s.erase(clit++);
+@@ -798,8 +806,10 @@
+ 			   && peffect->is_chainable(tp)
+ 			   && peffect->is_activateable(tp, clit->evt, TRUE, FALSE, FALSE, is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE), is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE))
+ 			   && check_spself_from_hand_trigger(*clit)) {
+-				if(tp == core.current_player)
++				if(tp == core.current_player) {
+ 					core.select_chains.push_back(*clit);
++					core.response_point_seats |= clit->evt.response_seats;
++				}
+ 			} else {
+ 				peffect->active_type = 0;
+ 				core.new_ochain_s.erase(clit++);
+@@ -825,7 +835,7 @@
+ 				core.select_chains.erase(endit, core.select_chains.end());
+ 			}
+ 			if(core.select_chains.size() == 1 && !core.current_chain.size()) {
+-				emplace_process<Processors::SelectEffectYesNo>(core.current_player, 221, core.select_chains.front().triggering_effect->get_handler());
++				emplace_process<Processors::SelectEffectYesNo>(core.current_player, 221, core.select_chains.front().triggering_effect->get_handler(), true);
+ 				return FALSE;
+ 			} else {
+ 				emplace_process<Processors::SelectChain>(core.current_player, 0x7f, false);
+@@ -969,6 +979,7 @@
+ 			emplace_process<Processors::SolveChain>(skip_trigger, skip_freechain, skip_new);
+ 		} else {
+ 			core.used_event.splice(core.used_event.end(), core.point_event);
++		core.response_point_seats = 0;
+ 			reset_chain();
+ 			returns.set<int32_t>(0, FALSE);
+ 		}
+@@ -1492,6 +1503,8 @@
+ 	chain_list tp;
+ 	chain_list ntp;
+ 	for(const auto& ev : core.single_event) {
++		// Single-card actions have the same response lifetime as instant events.
++		core.response_instant_seats |= ev.response_seats;
+ 		card* starget = ev.trigger_card;
+ 		auto pr = starget->single_effect.equal_range(ev.event_code);
+ 		for(auto eit = pr.first; eit != pr.second;) {
+@@ -3526,6 +3539,7 @@
+ 	switch(arg.step) {
+ 	case 0: {
+ 		//Pre Draw
++		core.turn_surrendered = false;
+ 		core.used_event.clear();
+ 		// These containers compare by effect ids, so an insert or erase reads the effects in
+ 		// them. In turn 1 they can still hold entries from the Startup events (the first clear
+@@ -3912,6 +3926,23 @@
  	return TRUE;
  }
  bool field::process(Processors::AddChain& arg) {
@@ -399,7 +542,7 @@ diff --git a/processor.cpp b/processor.cpp
  	switch (arg.step) {
  	case 0: {
  		if (!core.new_chains.size())
-@@ -4473,8 +4493,8 @@
+@@ -4473,8 +4504,8 @@
  		for(uint8_t p = 0; p < n_duelists; ++p)
  			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
  		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED). A duelist with a pending loss
@@ -410,7 +553,23 @@ diff --git a/processor.cpp b/processor.cpp
  			if(!(cait->flag & CHAIN_DISABLE_EFFECT)) {
  				auto message = pduel->new_message(MSG_CHAIN_DISABLED);
  				message->write<uint8_t>(cait->chain_count);
-@@ -4812,9 +4832,16 @@
+@@ -4708,6 +4739,7 @@
+ 	}
+ 	case 12: {
+ 		core.used_event.splice(core.used_event.end(), core.point_event);
++		core.response_point_seats = 0;
+ 		pduel->new_message(MSG_CHAIN_END);
+ 		reset_chain();
+ 		if((core.summoning_card || core.summoning_proc_group_type || core.effect_damage_step == 1) && core.reserved)
+@@ -4751,6 +4783,7 @@
+ 		}
+ 	}
+ 	core.used_event.splice(core.used_event.end(), core.instant_event);
++	core.response_instant_seats = 0;
+ 	adjust_instant();
+ 	if(n_duelists == 2 && !is_flag(DUEL_RELAY) && !core.force_turn_end) {
+ 		uint32_t winp = 5, rea = 1;
+@@ -4812,9 +4845,16 @@
  // Duel.Win of another team (every living opponent without CANNOT_LOSE_EFFECT). Losses wait while a chain
  // resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
  // else every loser is eliminated in turn order from the turn player.
@@ -429,7 +588,7 @@ diff --git a/processor.cpp b/processor.cpp
  	uint8_t order[MAX_DUELISTS];
  	uint8_t count = 0;
  	for(uint8_t i = 0; i < n_duelists; ++i) {
-@@ -4830,7 +4857,7 @@
+@@ -4830,7 +4870,7 @@
  	};
  	for(uint8_t i = 0; i < count; ++i) {
  		const auto p = order[i];
@@ -438,7 +597,7 @@ diff --git a/processor.cpp b/processor.cpp
  			bool protect = false;
  			for(uint8_t q = 0; q < count; ++q) {
  				if(same_team(order[q], p) && is_player_affected_by_effect(order[q], EFFECT_CANNOT_LOSE_LP))
-@@ -4839,13 +4866,13 @@
+@@ -4839,13 +4879,13 @@
  			if(!protect)
  				mark(p, 1);
  		}
@@ -458,7 +617,19 @@ diff --git a/processor.cpp b/processor.cpp
 diff --git a/processor_unit.h b/processor_unit.h
 --- a/processor_unit.h
 +++ b/processor_unit.h
-@@ -276,8 +276,11 @@
+@@ -63,8 +63,9 @@
+ 	uint8_t playerid;
+ 	card* pcard;
+ 	uint64_t description;
+-	SelectEffectYesNo(uint16_t step_, uint8_t playerid_, uint64_t description_, card* pcard_) :
+-		Process(step_), playerid(playerid_), pcard(pcard_), description(description_) {}
++	bool response_window;
++	SelectEffectYesNo(uint16_t step_, uint8_t playerid_, uint64_t description_, card* pcard_, bool response_window_ = false) :
++		Process(step_), playerid(playerid_), pcard(pcard_), description(description_), response_window(response_window_) {}
+ };
+ struct SelectYesNo : public Process<true> {
+ 	uint8_t playerid;
+@@ -276,8 +277,11 @@
  };
  struct AddChain : public Process<false> {
  	bool is_activated_effect;

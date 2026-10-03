@@ -610,6 +610,63 @@ Duel.RegisterEffect(e,${actor})`]);
       }, 60_000);
     }
 
+    for (const owner of [0, 1]) for (const triggers of [1, 2]) {
+      it.each(["ffa3", "ffa4"] as const)(`R-COMMON-SURRENDER-EOT: %s single-card response keeps its event (owner ${owner}, triggers ${triggers})`, async (format) => {
+        const t = await table(mode, format, true, [`local c=Debug.AddCard(15025844,${owner},1,LOCATION_MZONE,1,POS_FACEUP_ATTACK)
+local holder=Effect.CreateEffect(c)
+holder:SetType(EFFECT_TYPE_SINGLE)
+holder:SetCode(EFFECT_SET_CONTROL)
+holder:SetValue(1)
+c:RegisterEffect(holder)
+c:EnableCounterPermit(0x1001)
+for i=1,${triggers} do
+ local trigger=Effect.CreateEffect(c)
+ trigger:SetType(EFFECT_TYPE_SINGLE|EFFECT_TYPE_TRIGGER_O)
+ trigger:SetCode(EVENT_ADD_COUNTER+0x1001)
+ trigger:SetRange(LOCATION_MZONE)
+ trigger:SetOperation(function() end)
+ c:RegisterEffect(trigger)
+end
+local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_PHASE_START+PHASE_STANDBY)
+e:SetCountLimit(1)
+e:SetOperation(function() if Duel.GetTurnCount()==1 then c:AddCounter(0x1001,1) end end)
+Duel.RegisterEffect(e,1)`]);
+        for (let step = 0; step < 50; step++) {
+          const v = await t.view(1);
+          if (v.phase === "standby" && v.seats[1]!.monsters.some((c) => c?.counters?.some((counter) => counter.count === 1)) && v.prompt && (v.prompt.options.some((o) => o.id === "no") || v.prompt.context?.type === "chain" && v.prompt.options.some((o) => o.card?.code === 15025844))) break;
+          await passPrompt(t);
+        }
+        const before = await t.view(1);
+        expect(before).toMatchObject({ turn: 1, turnSeat: 0, phase: "standby", chain: [] });
+        expect(before.prompt).not.toBeNull();
+        if (triggers === 1) expect(before.prompt!.options.map((o) => o.id)).toContain("no");
+        else expect(before.prompt).toMatchObject({ context: { type: "chain", forced: false }, cancelable: true });
+        await t.post("surrender", 0);
+        const after = await t.view(1);
+        expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
+        if (owner === 0) expect(after.prompt?.id).not.toBe(before.prompt!.id);
+        else {
+          expect(after.prompt).toEqual(before.prompt);
+          await t.recover();
+          expect(await t.view(1)).toEqual(after);
+          expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[1]).toEqual(after);
+          await t.answer(1, chooseSurrenderedAnswer(after.prompt!));
+          // Passing the trigger still leaves the same living action's later quick response open.
+          for (let step = 0; step < t.count; step++) {
+            const next = await t.view(t.count - 1);
+            expect(next).toMatchObject({ turn: 1, turnSeat: 0, chain: [] });
+            if (next.prompt?.context?.type === "chain") break;
+            await passPrompt(t);
+          }
+          expect((await t.view(t.count - 1)).prompt?.context?.type).toBe("chain");
+        }
+        await reachMain(t, 1);
+        expect(await t.view(1)).toMatchObject({ turn: 2, turnSeat: 1, result: null });
+      }, 60_000);
+    }
+
     for (const action of ["destroy borrowed", "move borrowed", "reset living trap", "shuffle living sets"] as const) {
       it.each(["ffa3", "ffa4"] as const)(`R-COMMON-SURRENDER-EOT: %s response participants follow the action (${action})`, async (format) => {
         const closes = action === "destroy borrowed" || action === "move borrowed";
