@@ -47,6 +47,19 @@ describe("useRoofKeys", () => {
     expect(tab.defaultPrevented).toBe(false);
   });
 
+  it("leaves a key alone when an earlier handler already took it (defaultPrevented)", () => {
+    const dispatch = vi.fn();
+    render(<Probe dispatch={dispatch} />);
+    const early = (event: KeyboardEvent) => event.preventDefault();
+    window.addEventListener("keydown", early, true);
+    try {
+      press("3");
+    } finally {
+      window.removeEventListener("keydown", early, true);
+    }
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it("takes Tab and Shift+Tab as focus steps when nothing is open", () => {
     const dispatch = vi.fn();
     render(<Probe dispatch={dispatch} />);

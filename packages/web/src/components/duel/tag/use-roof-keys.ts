@@ -38,7 +38,8 @@ export function useRoofKeys({ dispatch, anchorSeat, pinned = false, suspended = 
   ref.current = { dispatch, anchorSeat, pinned, suspended, yields };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
+      // A prompt (PromptCenter, capture phase) that took the key already called preventDefault: the camera stays out.
+      if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
       const { dispatch: send, anchorSeat: anchor, pinned: pin, suspended: off, yields: yielded } = ref.current;
       if (off || yielded) return;
       const target = event.target as HTMLElement | null;
