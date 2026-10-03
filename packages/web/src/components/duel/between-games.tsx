@@ -1,10 +1,10 @@
 "use client";
 
-import { Children, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Children, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DuelDeck, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { CardArt } from "@/components/decks/card-art";
 import deckStyles from "@/components/decks/editor.module.css";
-import { cancelSeries, chooseSeriesFirst, getDuelCards, readySeries, saveSeriesSideDeck } from "./api";
+import { cancelSeries, chooseSeriesFirst, DuelRequestError, getDuelCards, readySeries, saveSeriesSideDeck, unreadySeries } from "./api";
 import { DeckCardPreview } from "./deck-card-preview";
 import { cx, sheetRoot, SheetButton } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -19,6 +19,7 @@ import {
   isMarkedOut,
   NO_MARKS,
   planSideDeck,
+  sameDeck,
   SIDE_EXTRA_MAX,
   SIDE_MAIN_MAX,
   SIDE_MAIN_MIN,
@@ -92,12 +93,14 @@ function Section({ title, count, target, tone, hint, children, empty }: {
  * like the deck editor (Main, Extra and Side) where cards come out of the Main or Extra Deck and go
  * in from the Side Deck. The count out must equal the count in, so the Side Deck never changes size.
  * Ready saves the deck for the next game (the saved deck is never touched) and marks the player ready;
- * when both players are ready the room follows the series to the next game.
+ * the first subsequent deck edit takes Ready back immediately, before saving. Editing stays locked
+ * while Ready is in flight, and Ready waits for un-ready so the requests cannot land out of order.
+ * When both players are ready the room follows the series to the next game.
  */
 export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCards, initialMarks }: {
   room: DuelRoom;
   slug: string;
-  onChanged: () => void;
+  onChanged: () => void | Promise<unknown>;
   onNavigate: (slug: string) => void;
   /** Card names and types known up front (the FX lab has no card database). */
   knownCards?: ReadonlyMap<number, CardMeta>;
@@ -109,8 +112,9 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const info = betweenGamesInfo(room, slug);
   const seconds = useSecondsUntil(series.nextGameAt);
   const side = room.mySide ?? null;
-  const current = side?.currentDeck ?? EMPTY_DECK;
-  const base = side?.baseDeck ?? current;
+  const serverDeck = side?.currentDeck ?? EMPTY_DECK;
+  const base = side?.baseDeck ?? serverDeck;
+  const [current, setCurrent] = useState(serverDeck);
 
   const [marks, setMarks] = useState<SideMarks>(initialMarks ?? NO_MARKS);
   const [busy, setBusy] = useState(false);
@@ -118,13 +122,35 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const [error, setError] = useState<string | null>(null);
   const [meta, setMeta] = useState<ReadonlyMap<number, CardMeta>>(knownCards ?? new Map());
   const [hovered, setHovered] = useState<number | null>(null);
+  const serverReady = index != null && series.sideReady[index];
+  const [seenReady, setSeenReady] = useState(serverReady);
+  // Local request results keep the UI accurate until the room catches up. Never use these flags
+  // to decide whether an edit needs un-ready: a stale snapshot or lost Ready answer is unsafe.
+  const [knownReady, setKnownReady] = useState<boolean | null>(null);
+  const [unreadied, setUnreadied] = useState(false);
+  const unreadying = useRef<Promise<void> | null>(null);
+  const unreadyFailed = useRef(false);
+  const unreadyAgain = useRef(false);
+  const working = useRef(false);
+  const [moving, setMoving] = useState(false);
+  const advancing = useRef(false);
 
   // The server deck changed (Ready saved it, or a new game began): the marks start again from it.
-  const serverKey = JSON.stringify(current);
+  const serverKey = JSON.stringify(serverDeck);
   const [seenKey, setSeenKey] = useState(serverKey);
   if (serverKey !== seenKey) {
     setSeenKey(serverKey);
-    setMarks(NO_MARKS);
+    // A save's snapshot can arrive after the player has already begun their next edit. Keep those
+    // new marks when this is merely the room catching up with our own successful save.
+    if (!sameDeck(current, serverDeck)) {
+      setCurrent(serverDeck);
+      setMarks(NO_MARKS);
+    }
+  }
+  if (serverReady !== seenReady) {
+    setSeenReady(serverReady);
+    setKnownReady(null);
+    if (serverReady) setUnreadied(false);
   }
 
   const codesKey = [...deckCodes(current)].sort((a, b) => a - b).join(",");
@@ -145,10 +171,10 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const plan = useMemo(() => planSideDeck(current, marks, types, base), [current, marks, types, base]);
 
   if (index == null) return null;
-  const imReady = series.sideReady[index];
+  const imReady = knownReady ?? serverReady;
   const theirReady = series.sideReady[index === 0 ? 1 : 0];
   const hasSide = current.side.length > 0;
-  const locked = imReady || busy || !hasSide;
+  const locked = busy || moving || !hasSide;
   const choosing = viewerChoosesFirst(series, index);
   const interrupted = series.nextGameAt == null;
   const nameOf = (code: number) => meta.get(code)?.name ?? String(code);
@@ -159,59 +185,144 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const flag = (code: number, section: string, tag?: Tag, extra?: boolean) =>
     `${nameOf(code)}, ${section} Deck${tag === "out" ? ", going out" : tag === "in" ? ", coming in" : ""}${extra ? ", goes to the Extra Deck" : ""}`;
 
+  async function refresh() {
+    try {
+      const pending = onChanged();
+      if (!pending) return;
+      await pending;
+      // The room now holds a snapshot newer than any of our requests: it is the truth, even when its Ready
+      // equals the last one seen (another tab may have changed it and changed it back meanwhile).
+      setKnownReady(null);
+    } catch { /* The next edit still sends un-ready after a failed refresh. */ }
+  }
+
+  function follow(nextSlug: string) {
+    advancing.current = true;
+    setMoving(true);
+    onNavigate(nextSlug);
+  }
+
+  /**
+   * Every edit sends the idempotent un-ready (one at a time): Ready may have been clicked in another tab
+   * without this screen seeing it yet, and only the server knows.
+   */
+  function leaveReady() {
+    if (unreadying.current) {
+      // A Ready from another tab may land after the request in flight: send one more when it settles.
+      unreadyAgain.current = true;
+      return;
+    }
+    const wasReady = imReady;
+    const before = knownReady;
+    if (wasReady) {
+      setKnownReady(false);
+      setUnreadied(true);
+    }
+    unreadying.current = unreadySeries(slug).then(
+      (result) => {
+        if (unreadyFailed.current) {
+          unreadyFailed.current = false;
+          setError(null);
+        }
+        if (result.nextSlug) follow(result.nextSlug);
+        else void refresh();
+      },
+      (cause: unknown) => {
+        if (wasReady) {
+          setKnownReady(before);
+          setUnreadied(false);
+        }
+        unreadyFailed.current = true;
+        setError(cause instanceof Error ? cause.message : "Could not take back your Ready. Try again.");
+        // A closed series rejects editing; let the room recover its current state.
+        if (cause instanceof DuelRequestError && cause.status === 409) void refresh();
+      },
+    ).finally(() => {
+      unreadying.current = null;
+      if (unreadyAgain.current && !advancing.current) {
+        unreadyAgain.current = false;
+        leaveReady();
+      }
+    });
+  }
+
+  function edit(next: SideMarks) {
+    if (working.current || advancing.current || !hasSide) return;
+    leaveReady();
+    setMarks(next);
+  }
+
   async function run(work: () => Promise<void>) {
-    if (busy) return;
+    if (working.current || advancing.current) return;
+    working.current = true;
     setBusy(true);
     setError(null);
     try {
       await work();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Something went wrong. Try again.");
-      onChanged();
+      await refresh();
     } finally {
+      working.current = false;
       setBusy(false);
     }
   }
 
   const ready = () => run(async () => {
     if (plan.reason) return;
-    if (changed) await saveSeriesSideDeck(slug, plan.deck);
+    // Wait out every un-ready, a queued one included, so none can land after this Ready.
+    while (unreadying.current) await unreadying.current;
+    if (advancing.current) return;
+    if (changed) {
+      const saved = await saveSeriesSideDeck(slug, plan.deck);
+      setKnownReady(saved.series.sideReady[index]);
+      setCurrent(plan.deck);
+      setMarks(NO_MARKS);
+    }
     const result = await readySeries(slug);
-    if (result.nextSlug) onNavigate(result.nextSlug);
-    else onChanged();
+    setKnownReady(result.series.sideReady[index]);
+    setUnreadied(false);
+    if (result.nextSlug) follow(result.nextSlug);
+    else await refresh();
   });
   const choose = (choice: "first" | "second") => run(async () => {
     if (choice === series.firstChoice) return;
+    await unreadying.current;
+    if (advancing.current) return;
+    // The server allows choice changes while ready and does not clear Ready for them.
     const result = await chooseSeriesFirst(slug, choice);
-    if (result.nextSlug) onNavigate(result.nextSlug);
-    else onChanged();
+    if (result.nextSlug) follow(result.nextSlug);
+    else await refresh();
   });
   const cancel = () => run(async () => {
     await cancelSeries(series.id);
     setConfirmCancel(false);
-    onChanged();
+    await refresh();
   });
 
-  const readyReason = imReady ? null : plan.reason;
+  const readyReason = imReady && !changed ? null : plan.reason;
   const counterState = !changed ? "none" : plan.balanced ? "even" : "uneven";
-  const status = imReady
-    ? (theirReady ? "Both players are ready." : !hasSide ? "Your deck has no Side Deck, so you are ready. Waiting for your opponent." : "You are ready. Waiting for your opponent.")
+  const status = imReady && changed
+    ? "Saving these swaps clears your Ready. Click Ready again when you are done."
+    : imReady
+      ? (theirReady ? "Both players are ready." : !hasSide ? "Your deck has no Side Deck, so you are ready. Waiting for your opponent." : "You are ready. Waiting for your opponent.")
+    : unreadied ? "You are no longer ready. Finish your swaps, then click Ready again."
     : interrupted ? "The last game did not finish. Both players must click Ready to play on."
       : !hasSide ? "Your deck has no Side Deck, so there is nothing to change. Click Ready."
-        : "Click Ready before the timer ends, or your changes are lost.";
+        : "Click Ready to save your changes and start sooner.";
 
   const mainCards = current.main.map((code, i) => {
     const tag: Tag | undefined = isMarkedOut(marks, "main", i) ? "out" : undefined;
     return (
       <Tile key={`main-${i}`} code={code} name={nameOf(code)} label={flag(code, "Main", tag)} tag={tag} locked={locked}
-        onClick={() => setMarks(toggleOut(marks, "main", i))} onHover={setHovered} />
+        onClick={() => edit(toggleOut(marks, "main", i))} onHover={setHovered} />
     );
   });
   const extraCards = current.extra.map((code, i) => {
     const tag: Tag | undefined = isMarkedOut(marks, "extra", i) ? "out" : undefined;
     return (
       <Tile key={`extra-${i}`} code={code} name={nameOf(code)} label={flag(code, "Extra", tag)} tag={tag} locked={locked}
-        onClick={() => setMarks(toggleOut(marks, "extra", i))} onHover={setHovered} />
+        onClick={() => edit(toggleOut(marks, "extra", i))} onHover={setHovered} />
     );
   });
   // A Side card that is marked in shows in the section it will join, with an IN mark; click to take it back.
@@ -221,7 +332,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
       const code = current.side[sideIndex];
       return (
         <Tile key={`in-${section}-${sideIndex}`} code={code} name={nameOf(code)} label={flag(code, section === "main" ? "Main" : "Extra", "in")}
-          tag="in" locked={locked} onClick={() => setMarks(toggleIn(marks, sideIndex))} onHover={setHovered} />
+          tag="in" locked={locked} onClick={() => edit(toggleIn(marks, sideIndex))} onHover={setHovered} />
       );
     });
   const sideCards = current.side.map((code, i) => {
@@ -230,7 +341,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     const extra = type != null && isExtraDeckType(type);
     return (
       <Tile key={`side-${i}`} code={code} name={nameOf(code)} label={flag(code, "Side", tag, extra)} tag={tag} extra={extra} locked={locked}
-        onClick={() => setMarks(toggleIn(marks, i))} onHover={setHovered} />
+        onClick={() => edit(toggleIn(marks, i))} onHover={setHovered} />
     );
   });
 
@@ -286,7 +397,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
           </p>
 
           <div className={styles.nextBlock}>
-            {choosing ? <FirstChoiceGroup series={series} busy={busy} onChoose={(choice) => void choose(choice)} />
+            {choosing ? <FirstChoiceGroup series={series} busy={busy || moving} onChoose={(choice) => void choose(choice)} />
               : info && !(series.firstChooser != null && series.firstChoice == null)
                 ? <p className={styles.first} data-testid="between-first">{info.first}</p> : null}
             <OpponentFirstChip series={series} index={index} />
@@ -295,13 +406,22 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
           </div>
 
           <div className={styles.actions}>
-            <p className={styles.reason} id="between-reason" data-testid="ready-reason">{readyReason ?? status}</p>
+            {readyReason ? <p className={styles.reason} role="status" data-testid="my-side-status">{status}</p> : null}
+            {hasSide || !interrupted ? (
+              <p className={styles.help}>
+                {[hasSide ? "Changing your deck after Ready takes it back." : null,
+                  !interrupted ? "When the timer ends, the next game starts with your last saved deck." : null].filter(Boolean).join(" ")}
+              </p>
+            ) : null}
+            <p className={styles.reason} id="between-reason" data-testid="ready-reason">
+              {readyReason ?? <span role="status" data-testid="my-side-status">{status}</span>}
+            </p>
             <div className={styles.buttons}>
-              <SheetButton kind="primary" size="lg" loading={busy && !confirmCancel} disabled={imReady || busy || readyReason != null}
+              <SheetButton kind="primary" size="lg" loading={busy && !confirmCancel} disabled={(imReady && !changed) || busy || moving || readyReason != null}
                 aria-describedby="between-reason" onClick={() => void ready()}>
                 Ready
               </SheetButton>
-              <SheetButton kind="secondary" disabled={locked || !changed} onClick={() => setMarks(NO_MARKS)}>
+              <SheetButton kind="secondary" disabled={locked || !changed} onClick={() => edit(NO_MARKS)}>
                 Reset to the deck from last game
               </SheetButton>
               {canCancelInterrupted(series) ? (

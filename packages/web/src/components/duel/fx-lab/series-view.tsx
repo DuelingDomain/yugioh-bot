@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { DuelDeck, DuelOpeningView, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
+import { defaultDuelSettings, type DuelDeck, type DuelOpeningView, type DuelRoom, type DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { SeriesGameLabel } from "../series-banner";
 import { DuelResultScreen } from "../duel-result";
 import { BetweenGamesScreen, type CardMeta } from "../between-games";
@@ -45,6 +45,7 @@ function labMarks(spec: LabSeries): SideMarks {
 function summary(spec: LabSeries): DuelSeriesSummary {
   const over = spec.screen === "won";
   const between = spec.screen === "ready" || spec.screen === "side";
+  const nextLive = spec.screen === "next-live";
   return {
     id: 7,
     bestOf: 3,
@@ -53,8 +54,8 @@ function summary(spec: LabSeries): DuelSeriesSummary {
     playerIds: [1, spec.vsBot ? 0 : 2],
     displayNames: namesOf(spec),
     wins: spec.wins,
-    gameNumber: spec.game,
-    currentDuelSlug: "fx-lab",
+    gameNumber: nextLive ? spec.game + 1 : spec.game,
+    currentDuelSlug: nextLive ? "fx-lab-next" : "fx-lab",
     winnerPlayerId: over ? (spec.wins[0] > spec.wins[1] ? 1 : spec.vsBot ? null : 2) : null,
     tournamentId: null,
     tournamentSlug: null,
@@ -74,6 +75,7 @@ function summary(spec: LabSeries): DuelSeriesSummary {
 
 export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
   const finished = spec.screen !== "label";
+  const spectator = spec.viewer === "spectator";
   // Game 1 is the one you just won or lost: the leader of the score won it. Game 3 of the match was won by the match winner.
   const winnerSeat = spec.wins[0] > spec.wins[1] ? 0 : 1;
   const result = finished ? { winnerSeat, reason: "Life points reached 0" } : null;
@@ -87,7 +89,7 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       mode: "normal",
       masterRule: 5,
       status: finished ? "completed" : "active",
-      settings: {} as DuelRoom["session"]["settings"],
+      settings: { ...defaultDuelSettings("normal"), visibility: spec.visibility ?? "public" },
       seats: [
         { seat: 0, playerId: 1, displayName: NAMES[0], ready: true, isBot: false },
         { seat: 1, playerId: spec.vsBot ? null : 2, displayName: namesOf(spec)[1], ready: true, isBot: spec.vsBot === true },
@@ -102,8 +104,8 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       seriesId: 7,
       gameNumber: spec.game,
     },
-    role: "player",
-    mySeat: 0,
+    role: spectator ? "spectator" : "player",
+    mySeat: spectator ? null : 0,
     myDeck: null,
     clock: null,
     metadataOnly: false,
@@ -120,7 +122,7 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       result,
     },
     series: summary(spec),
-    mySide: spec.noSide ? { baseDeck: NO_SIDE_DECK, currentDeck: NO_SIDE_DECK } : { baseDeck: SIDE_DECK, currentDeck: SIDE_DECK },
+    mySide: spectator ? null : spec.noSide ? { baseDeck: NO_SIDE_DECK, currentDeck: NO_SIDE_DECK } : { baseDeck: SIDE_DECK, currentDeck: SIDE_DECK },
   };
 }
 
@@ -147,7 +149,7 @@ export function SeriesLabHeader({ room }: { room: DuelRoom }) {
 export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom; spec: LabSeries; reduced: boolean; sound: boolean }) {
   const [closed, setClosed] = useState(false);
   if (spec.screen === "label" || !room.series) return null;
-  if (spec.screen === "ready" || spec.screen === "side") {
+  if (spec.viewer !== "spectator" && (spec.screen === "ready" || spec.screen === "side")) {
     return (
       <BetweenGamesScreen room={room} slug="fx-lab" knownCards={KNOWN_CARDS} initialMarks={labMarks(spec)}
         onChanged={() => undefined} onNavigate={() => undefined} />
