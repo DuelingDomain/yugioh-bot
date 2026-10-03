@@ -84,8 +84,9 @@ export async function POST(request: Request) {
     context: report.context,
     baseUrl: webBaseUrl(request),
   };
-  // Last line of defence: nothing that names the reporter or the guild may reach the public issue.
-  const redact = [actor.userId, actor.userName, guildId];
+  // Removed from the text the player wrote (not from the whole issue): the Discord id, the session name, the stored
+  // display name and the guild id. Bare "Unknown" and values under 3 characters are skipped by `redactText`.
+  const redact = [actor.userId, actor.userName, player.displayName, guildId];
 
   if (target) {
     reports.recordIssue(saved.id, guildId, { number: target.number, url: target.url });

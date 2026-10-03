@@ -245,19 +245,34 @@ export function parseBugReportRequest(raw: unknown): ParseResult<BugReportReques
 const FORMAT_TAG: Record<BugFormat, string> = { "1v1": "1v1", ffa3: "FFA3", ffa4: "FFA4", tag: "Tag" };
 const FORMAT_TEXT: Record<BugFormat, string> = { "1v1": "1v1", ffa3: "3-player FFA", ffa4: "4-player FFA", tag: "Tag 2v2" };
 
-/** Removes every occurrence of the given private values (Discord id, display name, guild id). Values under 3 characters are skipped. */
-export function redactText(text: string, redact: readonly string[]): string {
+/** Names that tell nothing about a person. A display name that is only one of these is not worth removing (and "Unknown" is the session fallback). */
+const COMMON_NAMES = new Set(["unknown", "user", "player", "guest", "admin", "anonymous", "duelist", "null", "undefined", "none", "the", "and"]);
+const WORD_CHAR = "\\p{L}\\p{N}_";
+
+/**
+ * Removes the given private values (Discord id, session name, stored display name, handle, guild id) from text the player
+ * wrote. Matching ignores case and needs a word boundary on each side, so "Dark" does not hit "Darkness" and a name with
+ * backticks or other symbols still matches. Values under 3 characters, and bare common names such as "Unknown", are skipped.
+ * Run it on the player's text BEFORE `fence`, never on the finished markdown.
+ */
+export function redactText(text: string, redact: readonly string[], replacement = "[removed]"): string {
+  const values = [...new Set(redact.map((value) => value.trim()))]
+    .filter((value) => value.length >= 3 && !COMMON_NAMES.has(value.toLowerCase()))
+    // Longest first, so "Seraphina Quill" goes before "Seraphina".
+    .sort((a, b) => b.length - a.length);
   let out = text;
-  for (const secret of redact) {
-    const value = secret.trim();
-    if (value.length >= 3) out = out.split(value).join("[removed]");
+  for (const value of values) {
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`(?<![${WORD_CHAR}])${escaped}(?![${WORD_CHAR}])`, "giu"), () => replacement);
   }
   return out;
 }
 
-export function issueTitle(description: string, context: BugReportContext): string {
+export function issueTitle(description: string, context: BugReportContext, redact: readonly string[] = []): string {
   const tag = context.format ? ` [${FORMAT_TAG[context.format]}]` : "";
-  return `[Bug]${tag} ${sanitizeInline(description, 70) || "Bug report"}`;
+  // `sanitizeInline` strips brackets, so the removal mark is swapped in after it.
+  const text = sanitizeInline(redactText(limitText(description), redact, "\uE000"), 70).replace(/\uE000/g, "[removed]");
+  return `[Bug]${tag} ${text || "Bug report"}`;
 }
 
 export interface IssueBodyInput {
@@ -271,17 +286,27 @@ export interface IssueBodyInput {
   baseUrl: string;
 }
 
+/** The browser name and major version only ("Chrome 126"): the full user agent is not published. */
+export function browserLabel(userAgent: string | undefined): string | undefined {
+  if (!userAgent) return undefined;
+  const found = /(Edg|EdgA|EdgiOS)\/(\d+)/.exec(userAgent) ?? /(OPR|Opera)\/(\d+)/.exec(userAgent) ?? /(Firefox|FxiOS)\/(\d+)/.exec(userAgent)
+    ?? /(Chrome|CriOS|Chromium)\/(\d+)/.exec(userAgent) ?? (/Safari\//.test(userAgent) ? /(Version)\/(\d+)/.exec(userAgent) : null);
+  if (!found) return "Other browser";
+  const name = { Edg: "Edge", EdgA: "Edge", EdgiOS: "Edge", OPR: "Opera", Opera: "Opera", Firefox: "Firefox", FxiOS: "Firefox", Chrome: "Chrome", CriOS: "Chrome", Chromium: "Chromium", Version: "Safari" }[found[1]!];
+  return `${name} ${found[2]}`;
+}
+
 const cell = (value: string | number | null | undefined) =>
   value === null || value === undefined || value === "" ? "-" : `\`${sanitizeLine(String(value), 300).replace(/`/g, "").replace(/\|/g, "\\|")}\``;
 
 /**
- * The public issue text. `redact` holds values that must never appear (Discord id, display name, guild id): any
- * occurrence in the finished text is removed, whatever field it came from.
+ * The public issue text. `redact` holds values that must never appear (Discord id, names, guild id): they are removed
+ * from the two texts the player wrote, before the code fence is built. The other fields come from the server.
  */
 export function buildIssueBody(input: IssueBodyInput, redact: readonly string[] = []): string {
-  const sections = reportSections(input);
+  const sections = reportSections(input, redact);
   sections.push("---", `\`Report #${input.reportId}\` · sent from the in-app Report bug button`);
-  return redactText(sections.join("\n\n"), redact);
+  return sections.join("\n\n");
 }
 
 /**
@@ -289,12 +314,12 @@ export function buildIssueBody(input: IssueBodyInput, redact: readonly string[] 
  * first line that names the report. No new issue is made.
  */
 export function buildCommentBody(input: IssueBodyInput, redact: readonly string[] = []): string {
-  const sections = [`**+1** from \`Report #${input.reportId}\`: another player hit the same bug.`, ...reportSections(input)];
+  const sections = [`**+1** from \`Report #${input.reportId}\`: another player hit the same bug.`, ...reportSections(input, redact)];
   sections.push("---", `\`Report #${input.reportId}\` · sent from the in-app Report bug button`);
-  return redactText(sections.join("\n\n"), redact);
+  return sections.join("\n\n");
 }
 
-function reportSections(input: IssueBodyInput): string[] {
+function reportSections(input: IssueBodyInput, redact: readonly string[]): string[] {
   const { context } = input;
   const seat = context.seat === undefined ? undefined : context.seat === null ? "spectator" : `seat ${context.seat + 1}`;
   const rows: Array<[string, string]> = [
@@ -309,16 +334,16 @@ function reportSections(input: IssueBodyInput): string[] {
     ["Players alive", cell(context.livingPlayers)],
     ["Animation speed", cell(context.animationSpeed === undefined ? undefined : `${context.animationSpeed}x`)],
     ["Viewport", cell(context.viewport ? `${context.viewport.width}x${context.viewport.height}` : undefined)],
-    ["Browser", cell(context.userAgent)],
+    ["Browser", cell(browserLabel(context.userAgent))],
     ["Sent at", cell(context.timestamp)],
   ];
   const table = ["| Field | Value |", "| --- | --- |", ...rows.filter(([, value]) => value !== "-").map(([key, value]) => `| ${key} | ${value} |`)].join("\n");
   const log = (context.log ?? []).slice(-BUG_LOG_LINES).map((line) => sanitizeLine(line, LOG_LINE_MAX));
   const sections = [
     "## Description",
-    fence(sanitizeText(input.description)),
+    fence(sanitizeText(redactText(limitText(input.description), redact))),
     "## Expected",
-    input.expected ? fence(sanitizeText(input.expected)) : "_Not given._",
+    input.expected ? fence(sanitizeText(redactText(limitText(input.expected), redact))) : "_Not given._",
     "## Context",
     table,
     "## Recent log",
