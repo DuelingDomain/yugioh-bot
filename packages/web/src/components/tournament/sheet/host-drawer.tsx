@@ -78,9 +78,11 @@ export function HostDrawer({ tournament, tournamentSlug, ratings, onChanged, onC
             <h3 className={styles.dSecH}>Decks</h3>
             <PlayersPanel tournament={tournament} ratings={ratings} />
           </section>
-          <section className={styles.dSec} aria-label="Ending early">
-            <EndingEarly tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
-          </section>
+          {tournament.status === "active" && (
+            <section className={styles.dSec} aria-label="Ending early">
+              <EndingEarly tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
+            </section>
+          )}
         </div>
       </aside>
     </SheetPortal>

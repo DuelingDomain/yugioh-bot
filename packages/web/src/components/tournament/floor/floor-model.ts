@@ -101,6 +101,16 @@ export function tableMatches(tournament: Pick<TournamentDetail, "matches">, roun
     .sort((a, b) => a.id - b.id);
 }
 
+/**
+ * Series in play outside the shown round, in round then id order. Round robin rounds are not gated, so a
+ * duel can be live in round 4 while the page is about round 1; these are the ones the tables would hide.
+ */
+export function liveElsewhere(tournament: Pick<TournamentDetail, "matches">, round: number): Match[] {
+  return tournament.matches
+    .filter((match) => match.roundNumber !== round && !isByeMatch(match) && match.status !== "completed" && isSeriesOpen(match.series) && !!match.series?.currentDuelSlug)
+    .sort((a, b) => a.roundNumber - b.roundNumber || a.id - b.id);
+}
+
 export function tableNumber(tournament: Pick<TournamentDetail, "matches">, match: Match): number {
   return tableMatches(tournament, match.roundNumber).findIndex((m) => m.id === match.id) + 1;
 }

@@ -7,6 +7,7 @@ import { LocatorFly, type Moment } from "../fx/locator-fly";
 import { useAnimations } from "../fx/use-animations";
 import { finishedSeries, pickMoment, tournamentEnding } from "../floor/floor-model";
 import { LiveView } from "../floor/live-view";
+import { hostToolsAvailable } from "../sheet-rules";
 import { StandingsFloor } from "../standings/standings-floor";
 import type { PlayerRatings } from "../sheet-contracts";
 import { SECTION_IDS } from "../sheet-contracts";
@@ -72,7 +73,7 @@ export function TournamentSheet({ tournament, tournamentSlug, isHost, ratings, o
   }, [pending, tab]);
 
   const section = { tournament, tournamentSlug, currentUserPlayerId: tournament.currentUserPlayerId, ratings };
-  const showHost = isHost && active;
+  const showHost = hostToolsAvailable(tournament, isHost);
 
   return (
     <div data-testid="tournament-page-shell" data-motion={motion} ref={root}>

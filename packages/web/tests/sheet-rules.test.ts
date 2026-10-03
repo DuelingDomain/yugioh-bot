@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatLabel, rulesSummary } from "@/components/tournament/sheet-rules";
+import { formatLabel, hostToolsAvailable, rulesSummary } from "@/components/tournament/sheet-rules";
 
 describe("sheet rules summary", () => {
   it("summarises constructed rules for the rail and the Your match line", () => {
@@ -12,5 +12,19 @@ describe("sheet rules summary", () => {
     expect(rulesSummary({ bestOf: 1, draftId: 4, duelRules: undefined })?.line).toBe("Best of 1, Draft pool, no banlist");
     expect(rulesSummary({ bestOf: undefined, draftId: null, duelRules: undefined })).toBeNull();
     expect(formatLabel("single_elim")).toBe("Single elimination");
+  });
+});
+
+describe("host tools availability", () => {
+  it("covers an active event, and a completed round robin where results can be reopened", () => {
+    expect(hostToolsAvailable({ status: "active", format: "single_elim" }, true)).toBe(true);
+    expect(hostToolsAvailable({ status: "completed", format: "round_robin" }, true)).toBe(true);
+  });
+
+  it("is off for other viewers, a completed bracket, a cancelled event and a lobby", () => {
+    expect(hostToolsAvailable({ status: "completed", format: "round_robin" }, false)).toBe(false);
+    expect(hostToolsAvailable({ status: "completed", format: "single_elim" }, true)).toBe(false);
+    expect(hostToolsAvailable({ status: "cancelled", format: "round_robin" }, true)).toBe(false);
+    expect(hostToolsAvailable({ status: "pending", format: "round_robin" }, true)).toBe(false);
   });
 });

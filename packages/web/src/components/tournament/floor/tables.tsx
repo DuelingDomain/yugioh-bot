@@ -5,7 +5,7 @@ import Link from "next/link";
 import { LiveDot, Mono, ringColour } from "@/components/sheet";
 import { isSeriesOpen } from "../duel-rules";
 import type { Match, TournamentDetail } from "../types";
-import { byeNames, isDecided, nameList, tableMatches, tableNumber, tableStatus, totalRounds } from "./floor-model";
+import { byeNames, isDecided, liveElsewhere, nameList, tableMatches, tableNumber, tableStatus, totalRounds } from "./floor-model";
 import { GameDots, scoreOf } from "./game-dots";
 import { ZoneStrip } from "./zones";
 import styles from "./floor.module.css";
@@ -41,12 +41,38 @@ function TableLine({ tournament, match, viewerId }: { tournament: TournamentDeta
   );
 }
 
+/** Live duels from the rounds the page is not about, each with a Watch link. Nothing when there are none. */
+function AlsoLive({ tournament, round }: { tournament: TournamentDetail; round: number }) {
+  const live = liveElsewhere(tournament, round);
+  if (live.length === 0) return null;
+  return (
+    <div className={styles.alsoLive} data-testid="also-live">
+      <h3 className={styles.alsoHead}>Also live</h3>
+      <ul className={styles.alsoList}>
+        {live.map((match) => {
+          const href = watchHref(match);
+          return (
+            <li key={match.id} className={styles.alsoRow} data-also-live={match.id}>
+              <LiveDot />
+              <span className={styles.alsoText}>
+                <b>Round {match.roundNumber}.</b> {match.playerOneName} against {match.playerTwoName ?? "Opponent"}
+              </span>
+              <TableScore match={match} />
+              {href && <Link className={styles.watch} href={href} aria-label={`Watch ${match.playerOneName} against ${match.playerTwoName ?? "Opponent"}, round ${match.roundNumber}`}>Watch</Link>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 /** The tables of a round as small strips, above your own field. Your table comes first. */
 export function TableStrip({ tournament, round, viewerId }: { tournament: TournamentDetail; round: number; viewerId: number | null }) {
   const isMine = (match: Match) => viewerId !== null && (match.playerOneId === viewerId || match.playerTwoId === viewerId);
   const matches = tableMatches(tournament, round).sort((a, b) => Number(isMine(b)) - Number(isMine(a)) || a.id - b.id);
   const byes = byeNames(tournament, round);
-  if (matches.length === 0 && byes.length === 0) return null;
+  if (matches.length === 0 && byes.length === 0 && liveElsewhere(tournament, round).length === 0) return null;
   const total = totalRounds(tournament);
   const heading = tournament.format === "single_elim" && round === total
     ? `The final. ${matches.length} ${matches.length === 1 ? "table" : "tables"}.`
@@ -98,6 +124,7 @@ export function TableStrip({ tournament, round, viewerId }: { tournament: Tourna
           );
         })}
       </ul>
+      <AlsoLive tournament={tournament} round={round} />
       {byes.length > 0 && <p className={styles.byeinfo}>Bye this round: {nameList(byes)}.</p>}
     </section>
   );
@@ -147,6 +174,7 @@ export function SpectatorGrid({ tournament, round, viewerId }: { tournament: Tou
           );
         })}
       </ul>
+      <AlsoLive tournament={tournament} round={round} />
       {byes.length > 0 && <p className={styles.byeinfo}>Bye this round: {nameList(byes)}.</p>}
     </section>
   );

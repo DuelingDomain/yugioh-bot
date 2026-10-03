@@ -144,3 +144,21 @@ describe("the field as drawn in the mock", () => {
     expect(container).toHaveTextContent("Game 2 in progress");
   });
 });
+
+describe("live duels in other rounds", () => {
+  it("lists a live series from a later round under the table strip with a Watch link", () => {
+    render(<SheetRoot><TableStrip tournament={sheetTournament} round={1} viewerId={5} /></SheetRoot>);
+    const also = screen.getByTestId("also-live");
+    expect(within(also).getByRole("heading", { name: "Also live" })).toBeInTheDocument();
+    expect(also).toHaveTextContent("Round 2.");
+    expect(within(also).getByRole("link", { name: /^Watch .* round 2$/ })).toHaveAttribute("href", "/duels/duel-4");
+  });
+
+  it("lists it under the spectator grid too, and not when the live series is in the shown round", () => {
+    const first = render(<SheetRoot><SpectatorGrid tournament={sheetTournament} round={1} viewerId={null} /></SheetRoot>);
+    expect(within(screen.getByTestId("also-live")).getByRole("link", { name: /^Watch/ })).toHaveAttribute("href", "/duels/duel-4");
+    first.unmount();
+    render(<SheetRoot><SpectatorGrid tournament={sheetTournament} round={2} viewerId={null} /></SheetRoot>);
+    expect(screen.queryByTestId("also-live")).toBeNull();
+  });
+});
