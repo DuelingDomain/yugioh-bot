@@ -142,6 +142,20 @@ describe("hand geometry snapshots", () => {
     view.rerender(<SnapshotBoard ids={["a"]} codes={[10]} events={[added, removed]} />);
     expect(resolveSource(removed.from!, removed.id)).toBeNull();
   });
+
+  it("finds an old owner card shuffled into a newly inserted slot with no old anchor", () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return rect(100 + Number(this.dataset.zones?.split(":")[2] ?? 0) * 100, 500, 70, 100);
+    });
+    const view = render(<SnapshotBoard ids={["a", "b"]} codes={[10, 20]} events={[]} />);
+    const added: DuelEvent = { ...arrival(0), zone: { controller: 0, location: LOCATION_HAND, sequence: 2 },
+      card: cardInfo(30), addedToHand: true };
+    const removed: DuelEvent = { ...departure(2), from: { controller: 0, location: LOCATION_HAND, sequence: 2 }, card: cardInfo(20) };
+    // The core appended C to [A, B], then shuffled [A, B, C] to [A, C, B] before removing B.
+    view.rerender(<SnapshotBoard ids={["a", "new"]} codes={[10, 30]} events={[added, removed]} />);
+    expect(resolveSource(removed.from!, removed.id)?.rect.left).toBe(200);
+    expect(getMovePlan(2)?.source?.rect.left).toBe(200);
+  });
 });
 
 const departure = (id: number): DuelEvent => ({ id, kind: "move", text: "A card moved",

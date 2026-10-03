@@ -535,7 +535,7 @@ export function captureZoneSnapshots(root: ParentNode = document): void {
 /** Called before a batch commits. Each engine removal compacts its hand, but keeps the original rect. */
 export function captureDepartureSnapshots(events: readonly DuelEvent[], root: ParentNode = document): void {
   captureZoneSnapshots(root);
-  type HandSource = { snapshot: ZoneSnapshot; code: number };
+  type HandSource = { snapshot: ZoneSnapshot | null; code: number };
   const hands = new Map<number, Array<HandSource | null>>();
   const ownedHands = new Set<number>();
   for (const [key, snapshot] of snapshots) {
@@ -555,11 +555,11 @@ export function captureDepartureSnapshots(events: readonly DuelEvent[], root: Pa
     let sourceSequence = from.sequence;
     const indexed = sourceHand?.[sourceSequence];
     const code = event.card?.code ?? 0;
-    if (ownedHands.has(from.controller) && indexed?.snapshot.side === "you" && indexed.code > 0 && code > 0 && indexed.code !== code) {
+    if (sourceHand && ownedHands.has(from.controller) && code > 0 && indexed?.code !== code) {
       // SHUFFLE_HAND has no projected event. An owner can still identify its departed card in
       // the old DOM; consume that copy once. Opponent/spectator sleeves stay slot-bound, and a
       // missing old card never borrows the indexed replacement's geometry or membership.
-      sourceSequence = sourceHand!.findIndex((entry) => entry?.snapshot.side === "you" && entry.code === code);
+      sourceSequence = sourceHand.findIndex((entry) => entry?.code === code && (!entry.snapshot || entry.snapshot.side === "you"));
     }
     const sourceEntry = sourceHand?.[sourceSequence] ?? null;
     const source = from.location === LOCATION_HAND ? sourceEntry?.snapshot ?? null : getZoneSnapshot(from);
@@ -568,8 +568,9 @@ export function captureDepartureSnapshots(events: readonly DuelEvent[], root: Pa
     if (to.location === LOCATION_HAND) {
       const hand = hands.get(to.controller) ?? [];
       // A card added and removed within this batch has no old DOM anchor; its preceding flight
-      // supplies the hand source. Never read a replacement at its original message coordinate.
-      hand.splice(to.sequence, 0, from.location === LOCATION_HAND ? sourceEntry : null);
+      // supplies the hand source. Keep its known code so a later shuffle can distinguish this
+      // unanchored arrival from an older duplicate without borrowing replacement geometry.
+      hand.splice(to.sequence, 0, from.location === LOCATION_HAND && sourceEntry ? sourceEntry : { snapshot: null, code });
       hands.set(to.controller, hand);
     }
   }
