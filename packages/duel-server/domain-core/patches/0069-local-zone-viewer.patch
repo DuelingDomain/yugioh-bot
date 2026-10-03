@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Release Check <release@localhost>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] A001 final route
+
+---
+diff --git a/fold_lib.h b/fold_lib.h
+index d721be2..5dbd656 100644
+--- a/fold_lib.h
++++ b/fold_lib.h
+@@ -175,7 +175,11 @@ inline bool get_player(duel* pduel, lua_State* L, int idx, const char* fn, uint8
+ // GetLinkedZone and the like: does the Lua player cp (given as argument idx, or absent) name the controler of the
+ // card? The zones of a duelist are only known for the card's own controler (separate fields at n > 2).
+ inline bool cp_is_controler(duel* pduel, lua_State* L, int idx, uint8_t cp, uint8_t controler) {
+-	return lua_isnoneornil(L, idx) || matches(pduel, cp, controler);
++	if(lua_isnoneornil(L, idx))
++		return true;
++	if(const auto* s = active(pduel); s && is_own(*pduel->game_field, s->P, cp))
++		return s->P == controler;
++	return matches(pduel, cp, controler);
+ }
+ 
+ // (player, location1 / self, location2 / oppo): the seat of the field side, with the two arguments
