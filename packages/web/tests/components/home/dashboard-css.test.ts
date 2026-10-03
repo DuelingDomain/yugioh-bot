@@ -37,4 +37,21 @@ describe("dashboard responsive styles", () => {
     expect(wrapping).toBe("anywhere");
     expect(cover).toBe("0");
   });
+
+  it("places the row cells by area at 620px with a selector as heavy as the column rules, so the ring row stacks", () => {
+    const phone: string[] = [];
+    row.walkAtRules("container", (query) => {
+      if (query.params.replace(/\s/g, "") !== "(max-width:620px)") return;
+      query.walkRules((rule) => {
+        if (rule.selector.startsWith(".row ") && rule.some((n) => n.type === "decl" && n.prop === "grid-area")) phone.push(rule.selector);
+      });
+    });
+    expect(phone).toEqual(expect.arrayContaining([".row .lead", ".row .id", ".row .strip", ".row .act"]));
+  });
+
+  it("keeps a slash command in the empty-state lines on one line", () => {
+    let nowrap = false;
+    dashboard.walkRules(".none code", (rule) => rule.walkDecls("white-space", (d) => { nowrap = d.value === "nowrap"; }));
+    expect(nowrap).toBe(true);
+  });
 });

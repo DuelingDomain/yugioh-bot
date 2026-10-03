@@ -24,6 +24,7 @@
   }
 }
 
+.none code { white-space: nowrap; }
 .none { margin: 16px 0 0; color: var(--ink-2); line-height: 1.55; max-width: 58ch; }
 
 /* draft rows */

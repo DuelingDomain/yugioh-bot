@@ -39,14 +39,15 @@
 
 @container (max-width: 620px) {
   :global(.ms) .row > :global(.sv-row-in) { padding-block: 10px; }
-  .lead { grid-area: lead; }
-  .id { grid-area: id; }
-  .strip { grid-area: strip; justify-content: flex-start; margin-top: 8px; }
+  /* Same weight as the .withLead column rules above, so the phone areas win. */
+  .row .lead { grid-area: lead; }
+  .row .id { grid-area: id; }
+  .row .strip { grid-area: strip; justify-content: flex-start; margin-top: 8px; }
   /* The action sits on its own line under the meta and strip, so the title keeps the full width. */
-  .act { grid-area: act; justify-content: flex-start; margin-top: 10px; }
-  .actionWrap { justify-items: start; max-width: none; }
-  .actionBtns { justify-content: flex-start; }
-  .actionError { text-align: left; }
+  .row .act { grid-area: act; justify-content: flex-start; margin-top: 10px; }
+  .row .actionWrap { justify-items: start; max-width: none; }
+  .row .actionBtns { justify-content: flex-start; }
+  .row .actionError { text-align: left; }
   .name { font-size: 17px; }
 }
 
