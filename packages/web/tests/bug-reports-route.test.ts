@@ -36,6 +36,11 @@ async function seed() {
   migrate(db);
   db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (1, ?, ?, 'Seraphina Quill')").run(GUILD, DISCORD_ID);
   db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status, format) values (?, 'duel-a', 'T', 1, 'normal', 'active', 'ffa3')").run(GUILD);
+  // An invite-only duel of the same guild that the reporter (player 1) has no seat, grant or organizer role in.
+  db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (3, ?, 'other-owner', 'Other Owner')").run(GUILD);
+  const { defaultDuelSettings } = await import("@yugidraft/shared/duels");
+  db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status, format, settings_json) values (?, 'duel-private', 'T', 3, 'normal', 'active', 'ffa3', ?)")
+    .run(GUILD, JSON.stringify({ ...defaultDuelSettings("normal"), visibility: "private" }));
   db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (2, 'guild-2', 'x', 'X')").run();
   db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status) values ('guild-2', 'duel-other', 'T', 2, 'normal', 'active')").run();
   db.close();
@@ -334,11 +339,28 @@ describe("POST /api/bug-reports", () => {
     expect(github).toHaveBeenCalledTimes(5);
   });
 
-  it("404 for a duel of another guild, and nothing is saved", async () => {
+  it("keeps a report about a duel of another guild without the duel: no slug saved or sent", async () => {
     const POST = await route();
-    const res = await POST(post(body({ duelSlug: "duel-other" })));
-    expect(res.status).toBe(404);
-    expect(await rows()).toHaveLength(0);
+    const res = await POST(post(body({ duelSlug: "duel-other", path: "/duels/duel-other" })));
+    expect(res.status).toBe(200);
+    const [row] = await rows();
+    expect(row!.duel_slug).toBeNull();
+    expect(githubCalls()[0]!.payload.body).not.toContain("duel-other");
+  });
+
+  it("drops the duel slug when the player may not see the duel: not saved, no replay link, no slug in the issue", async () => {
+    const POST = await route();
+    const res = await POST(post(body({ duelSlug: "duel-private", path: "/duels/duel-private" })));
+    expect(res.status).toBe(200);
+    const [row] = await rows();
+    expect(row!.duel_slug).toBeNull();
+    const [call] = githubCalls();
+    expect(call!.payload.body).not.toContain("duel-private");
+    expect(call!.payload.body).not.toContain("## Replay");
+    expect(call!.payload.body).not.toContain("/replay");
+    // Nothing asked the duel host about it, and no duel facts of it are kept.
+    expect(callDuelHost).not.toHaveBeenCalled();
+    expect(call!.payload.title.startsWith("[Bug] [FFA3]")).toBe(false);
   });
 
   it("accepts a report with no duel (a general page)", async () => {

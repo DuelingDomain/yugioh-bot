@@ -72,8 +72,13 @@ export async function POST(request: Request) {
     }
   }
 
-  // The duel facts and the log come from the server, never from the browser's copy.
-  report.context = await buildReportContext({ guildId, playerId: player.id, duels: createDuelService(db), duelSlug: report.duelSlug, client: report.context });
+  // The duel facts and the log come from the server, never from the browser's copy. A duel the player may not see
+  // (invite-only, or not found) is not kept: no saved slug, no replay link, no slug in the issue.
+  const built = await buildReportContext({ guildId, playerId: player.id, duels: createDuelService(db), duelSlug: report.duelSlug, client: report.context });
+  report.context = built.context;
+  const duelSlug = built.duelVerified ? report.duelSlug : undefined;
+  // The page path of such a duel names the slug too, so it is masked.
+  if (report.duelSlug && !duelSlug) report.path = report.path.split(report.duelSlug).join("[duel]");
 
   let saved;
   try {
@@ -81,7 +86,7 @@ export async function POST(request: Request) {
       guildId,
       playerId: player.id,
       path: report.path,
-      duelSlug: report.duelSlug ?? null,
+      duelSlug: duelSlug ?? null,
       description: report.description,
       expected: report.expected ?? null,
       context: report.context,
