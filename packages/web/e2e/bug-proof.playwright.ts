@@ -155,6 +155,9 @@ export async function runBugProof(bug: ProofBug) {
     // Check desired fixed behavior only AFTER all cases/steps have their screenshots.
     for (const row of evidence) {
       const label = `${row.scenario}${bug === 4 ? ` (${row.step} selected)` : ""}`;
+      if (bug === 1 || bug === 2) {
+        check(row.confirmationBannerCount === 0, `${label}: confirmation must not also show a feedback banner`);
+      }
       if (bug === 1) {
         check(row.historyShowsTarget || row.revealShowsTarget, `${label}: confirmed Kojikocy is invisible in history and showcase`);
         const addition = row.historyRows.find((entry) => entry.showsTargetArt || entry.text.includes("Kojikocy"))
