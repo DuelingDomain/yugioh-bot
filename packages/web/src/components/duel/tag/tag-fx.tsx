@@ -89,7 +89,7 @@ export function TagFx({ controller, preferences, fxActive = true, passedSeats = 
       <SummonFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
       <MoveFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <PositionFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
-      <ChainFx events={events} chain={engine.chain} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} />
+      <ChainFx events={events} chain={engine.chain} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={room.session.status !== "active" || engine.result != null} />
       <MasterReturnFx events={events} seats={engine.seats} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} />
       <BattleFx events={events} seats={engine.seats} reducedMotion={reducedMotion} active aim={null} />
       <DestroyFx events={events} reducedMotion={reducedMotion} active mySeat={viewerSeat ?? 0} />

@@ -74,6 +74,22 @@ describe("ChainFx", () => {
     expect(chips[0].getAttribute("data-now")).toBe("true");
   });
 
+  it("clears the chain when the duel ends in the middle of it", () => {
+    placeZones("0:8:0");
+    const events = [activate(1, 0, 11, z(0, SZONE, 0))];
+    const chain: DuelChainLink[] = [{ index: 1, seat: 0, code: 11 }];
+    const { container, rerender } = render(<ChainFx events={events} chain={chain} duelKey="t" reducedMotion mySeat={0} playerName={names} />);
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(rows(container)).toHaveLength(1);
+    // No "chain-end" arrives: the result alone clears the stack, the badges and the rings.
+    rerender(<ChainFx events={events} chain={chain} duelKey="t" reducedMotion mySeat={0} playerName={names} ended />);
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(rows(container)).toHaveLength(0);
+    expect(container.querySelector("[data-chain-link]")).toBeNull();
+    expect(container.querySelector("[data-chain-card]")).toBeNull();
+    expect(container.querySelector("[data-chain-panel]")).toBeNull();
+  });
+
   it("renders nothing for an empty chain", () => {
     const { container } = render(view([]));
     expect(container.querySelector("[data-chain-link]")).toBeNull();

@@ -76,6 +76,8 @@ export type ChainFxProps = {
   seatTones?: ReadonlyMap<number, { main: string; ink: string }>;
   /** Tables of 3 or 4 seats: who may answer the open chain, in order. The panel lists it under its head. */
   priority?: readonly PrioritySlot[];
+  /** The duel is over (a result, or the session is not active): a chain that was open when it ended is cleared. */
+  ended?: boolean;
 };
 
 function toneVars(tones: ChainFxProps["seatTones"], seat: number): CSSProperties | undefined {
@@ -245,12 +247,14 @@ function ChainGlyph() {
   );
 }
 
-export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority }: ChainFxProps) {
+export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false }: ChainFxProps) {
   const named = seatTones != null;
-  const state = useChainPlayback(events, chain, duelKey, reducedMotion);
+  const played = useChainPlayback(events, chain, duelKey, reducedMotion);
+  // A duel that ends mid-chain sends no "chain-end": nothing is left to resolve, so nothing stays on the board.
+  const state = ended ? EMPTY_CHAIN : played;
   // Badges play historical resolution beats; targeting follows the live engine so a replacement
   // occupant is never marked while old beats play, and chain-end clears target rings immediately.
-  const live = useMemo(() => deriveChainState(events, chain), [events, chain]);
+  const live = useMemo(() => (ended ? EMPTY_CHAIN : deriveChainState(events, chain)), [events, chain, ended]);
   const targetLinks = live.links.filter((link) => link.status !== "resolved");
   const targetsKey = chainStateKey(live);
   const targetLinksRef = useRef(targetLinks);
