@@ -1124,31 +1124,31 @@
     },
     {
       "script": "mp-utility.lua",
-      "line": 364,
+      "line": 387,
       "expression": "if not same then mask=mask>>16 end",
       "result": "C6 fixed: exact seats select the own/across comparison. The source effect or card supplies a non-binding origin; a numeric foreign origin needs an existing binding."
     },
     {
       "script": "mp-utility.lua",
-      "line": 365,
+      "line": 388,
       "expression": "result=(mask&(1<<c:GetPreviousSequence()))~=0",
       "result": "C6 fixed: exact seats select the own/across comparison. The source effect or card supplies a non-binding origin; a numeric foreign origin needs an existing binding."
     },
     {
       "script": "mp-utility.lua",
-      "line": 410,
+      "line": 433,
       "expression": "local mp_is_column=Card.IsColumn",
       "result": "C6 fixed: exact seats select the own/across comparison. The source effect or card supplies a non-binding origin; a numeric foreign origin needs an existing binding."
     },
     {
       "script": "mp-utility.lua",
-      "line": 411,
+      "line": 434,
       "expression": "function Card.IsColumn(c,seq,tp,loc,source)",
       "result": "C6 fixed: exact seats select the own/across comparison. The source effect or card supplies a non-binding origin; a numeric foreign origin needs an existing binding."
     },
     {
       "script": "mp-utility.lua",
-      "line": 432,
+      "line": 455,
       "expression": "return mp_is_column(c,4-seq,c:GetControler(),loc)",
       "result": "C6 fixed: exact seats select the own/across comparison. The source effect or card supplies a non-binding origin; a numeric foreign origin needs an existing binding."
     }
