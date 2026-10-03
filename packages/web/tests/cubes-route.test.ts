@@ -114,6 +114,75 @@ describe("cube API routes", () => {
     ).toEqual({ max_copies: 99 });
   });
 
+  it("imports a YDK file into a cube, merging copies and reporting unknown passcodes", async () => {
+    await setupDb();
+    // The catalog asks ygoprodeck about a passcode it does not know; answer with no card.
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
+    const { POST: createCube } = await import("../app/api/cubes/route");
+    const created = await createCube(
+      new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Imported" }) }) as any,
+    );
+    const { cube } = await created.json();
+    const { POST: mutate } = await import("../app/api/cubes/[id]/cards/route");
+    const post = (body: object) =>
+      mutate(new Request("http://x", { method: "POST", body: JSON.stringify(body) }) as any, {
+        params: Promise.resolve({ id: String(cube.id) }),
+      });
+
+    const first = await post({ op: "importYdk", text: "#created by x\n#main\n1\n1\n1\n#extra\n2\n!side\n777\n" });
+    expect(first.status).toBe(200);
+    const body = await first.json();
+    expect(body).toMatchObject({ added: 2, copies: 4, unknown: [777] });
+    expect(body.pools.main.map((c: any) => [c.catalogCardId, c.maxCopies])).toEqual([[1, 3]]);
+    expect(body.pools.extra.map((c: any) => [c.catalogCardId, c.maxCopies])).toEqual([[2, 1]]);
+
+    const second = await (await post({ op: "importYdk", text: "#main\n1\n" })).json();
+    expect(second.pools.main[0].maxCopies).toBe(4);
+
+    const cap = await (await post({ op: "importYdk", text: `#main\n${"1\n".repeat(150)}` })).json();
+    expect(cap.pools.main[0].maxCopies).toBe(99);
+
+    for (const text of ["", "   ", 5, "# only a comment\n", "x".repeat(600_000), "#deckmaster\n1\n#deckmaster\n2\n"]) {
+      expect((await post({ op: "importYdk", text })).status).toBe(400);
+    }
+  });
+
+  it("exports a cube as a .ydk download named after the cube", async () => {
+    await setupDb();
+    const { POST: createCube } = await import("../app/api/cubes/route");
+    const created = await createCube(
+      new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Stun: pool" }) }) as any,
+    );
+    const { cube } = await created.json();
+    const { POST: mutate } = await import("../app/api/cubes/[id]/cards/route");
+    for (const op of [
+      { op: "add", catalogCardId: 1, pool: "main", maxCopies: 2 },
+      { op: "add", catalogCardId: 2, pool: "extra", maxCopies: 3 },
+    ]) {
+      await mutate(new Request("http://x", { method: "POST", body: JSON.stringify(op) }) as any, {
+        params: Promise.resolve({ id: String(cube.id) }),
+      });
+    }
+
+    const { GET: exportYdk } = await import("../app/api/cubes/[id]/ydk/route");
+    const res = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: String(cube.id) }) });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-disposition")).toContain('filename="Stun pool.ydk"');
+    expect(await res.text()).toBe("#created by Duelists Kingdom\n#main\n1\n1\n#extra\n2\n2\n2\n!side\n");
+
+    const missing = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: "9999" }) });
+    expect(missing.status).toBe(404);
+
+    // A cube from another guild is not readable.
+    const { getDb } = await import("../src/lib/db");
+    const foreign = Number(
+      getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','x')").run()
+        .lastInsertRowid,
+    );
+    const hidden = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: String(foreign) }) });
+    expect(hidden.status).toBe(404);
+  });
+
   it("lists cubes for the guild", async () => {
     await setupDb();
     const { POST: createCube, GET: listCubes } = await import("../app/api/cubes/route");

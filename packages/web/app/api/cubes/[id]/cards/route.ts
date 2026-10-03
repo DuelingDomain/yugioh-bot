@@ -5,6 +5,8 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
 import { cubeDetail } from "@/lib/cube-detail";
+import { importYdkIntoCube } from "@/lib/cube-ydk";
+import { YDK_MAX_CHARS } from "@/lib/ydk-file";
 
 export const runtime = "nodejs";
 
@@ -13,6 +15,7 @@ type Op =
   | { op: "remove"; catalogCardId: number }
   | { op: "setMaxCopies"; catalogCardId: number; maxCopies: number }
   | { op: "import"; codes: number[]; pool?: "main" | "extra" }
+  | { op: "importYdk"; text: string }
   | { op: "seedArchetype"; archetype: string; banlist?: string };
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -52,6 +55,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           ? body.codes.filter((n): n is number => Number.isInteger(n))
           : [];
         const result = await cubes.importPasscodes(cubeId, codes, { pool: body.pool });
+        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result });
+      }
+      case "importYdk": {
+        if (typeof body.text !== "string" || body.text.trim() === "") {
+          return NextResponse.json({ error: "Add a YDK file or paste a deck list." }, { status: 400 });
+        }
+        if (body.text.length > YDK_MAX_CHARS) {
+          return NextResponse.json({ error: "That YDK text is too large." }, { status: 400 });
+        }
+        // parseDeckText throws on a file with two #deckmaster sections; the catch below sends it as a 400.
+        const result = await importYdkIntoCube(cubes, cubeId, body.text);
+        if (result.added === 0 && result.unknown.length === 0) {
+          return NextResponse.json({ error: "No passcodes found in that YDK text." }, { status: 400 });
+        }
         return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result });
       }
       case "seedArchetype": {

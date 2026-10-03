@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Check, Download, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { PageFrame } from "@/components/decks/page-frame";
-import { ConfirmPanel, SectionHead, SizeBar, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { ConfirmPanel, SectionHead, SizeBar, StatusLine, SvButton, svButtonClass, Zone } from "@/components/sheet";
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import { isExtraDeckCardClient, poolToGridCards, type CubeCardDto, type CubePoolsDto } from "@/lib/cube-pools";
@@ -150,7 +150,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
         return null;
       }
       applyDetail({ pools: data.pools, cards: data.cards });
-      return { added: data.added, unknown: data.unknown };
+      return { added: data.added, unknown: data.unknown, copies: data.copies };
     } finally {
       setBusy(false);
     }
@@ -309,6 +309,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     onAddCard: addCard,
     onSeedArchetype: (archetype: string) => mutate({ op: "seedArchetype", archetype }),
     onImportCodes: (codes: number[]) => mutate({ op: "import", codes }),
+    onImportYdk: (text: string) => mutate({ op: "importYdk", text }),
   };
 
   const inspector = selected ? (
@@ -367,6 +368,10 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
             <Pencil size={16} aria-hidden="true" />
             Rename
           </SvButton>
+          <a className={svButtonClass("ghost")} href={`/api/cubes/${cubeId}/ydk`} download title="Download this cube as a .ydk file">
+            <Download size={16} aria-hidden="true" />
+            Export YDK
+          </a>
           <SvButton variant="danger" disabled={busy} onClick={() => setConfirmingDelete(true)}>
             <Trash2 size={16} aria-hidden="true" />
             Delete cube

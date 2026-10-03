@@ -33,8 +33,8 @@ export function nextCubeName(existing: Iterable<string>): string {
   return name;
 }
 
-export type AddTab = "card" | "archetype" | "passcodes";
+export type AddTab = "card" | "archetype" | "passcodes" | "ydk";
 
 export function parseAddTab(value: string | null | undefined): AddTab {
-  return value === "archetype" || value === "passcodes" ? value : "card";
+  return value === "archetype" || value === "passcodes" || value === "ydk" ? value : "card";
 }

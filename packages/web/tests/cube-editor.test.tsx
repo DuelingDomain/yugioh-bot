@@ -57,6 +57,14 @@ beforeEach(() => {
           extra = [{ catalogCardId: 2, pool: "extra", maxCopies: 1 }];
           return { ok: true, json: async () => ({ ...detail(), added: 2, unknown: [] }) } as Response;
         }
+        if (body.op === "importYdk") {
+          main = [{ catalogCardId: 1, pool: "main", maxCopies: 3 }];
+          extra = [{ catalogCardId: 2, pool: "extra", maxCopies: 1 }];
+          return {
+            ok: true,
+            json: async () => ({ ...detail(), added: 2, copies: 4, unknown: [777, 888] }),
+          } as Response;
+        }
         if (body.op === "setMaxCopies") {
           main = main.map((e) => (e.catalogCardId === body.catalogCardId ? { ...e, maxCopies: body.maxCopies } : e));
         } else if (body.op === "remove") {
@@ -143,6 +151,38 @@ describe("CubeEditor", () => {
     await screen.findByText(/Added 2 cards/);
     expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Extra\s*1/ })).toBeInTheDocument();
+  });
+
+  it("imports a YDK list from the YDK tab and reports cards, copies and unknown passcodes", async () => {
+    await open();
+
+    fireEvent.click(screen.getByRole("button", { name: "YDK" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add deck list" }));
+    expect(posts).toEqual([]);
+    expect(screen.getByText(/Load a \.ydk file or paste/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Deck list (.ydk)"), { target: { value: "#main\n1\n1\n1\n#extra\n2\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add deck list" }));
+
+    await screen.findByText(/Added 2 cards, 4 copies/);
+    expect(posts[0]).toEqual({ op: "importYdk", text: "#main\n1\n1\n1\n#extra\n2\n" });
+    expect(screen.getByText(/Not found/)).toHaveTextContent("777, 888");
+    expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
+  });
+
+  it("loads a .ydk file into the YDK box", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "YDK" }));
+    const file = new File(["#main\n1\n"], "deck.ydk", { type: "" });
+    fireEvent.change(screen.getByLabelText("Upload YDK file"), { target: { files: [file] } });
+    await waitFor(() => expect(screen.getByLabelText("Deck list (.ydk)")).toHaveValue("#main\n1\n"));
+  });
+
+  it("offers the cube as a .ydk download", async () => {
+    await open();
+    const link = screen.getByRole("link", { name: /Export YDK/ });
+    expect(link).toHaveAttribute("href", "/api/cubes/5/ydk");
+    expect(link).toHaveAttribute("download");
   });
 
   describe("with a card in the cube", () => {
