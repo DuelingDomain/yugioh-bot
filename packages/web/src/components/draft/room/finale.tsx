@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { FullscreenLayer } from "./layer";
 import { animate } from "./motion";
 import { KINDS, KIND_LABEL, countKinds, kindOf, type RoomCard } from "./room-model";
@@ -13,6 +13,8 @@ export interface FinaleProps {
   /** How many of the picks are Extra deck cards (theme drafts). */
   extraCount: number;
   canBuild: boolean;
+  exporting: boolean;
+  exportError: string | null;
   onExport: () => void;
   onClose: () => void;
 }
@@ -27,12 +29,16 @@ export function DraftFinale(p: FinaleProps) {
   const sub = p.theme
     ? `${mainCount} main deck cards and ${p.extraCount} for the Extra Deck.`
     : `${p.pool.length} cards drafted. Your deck starts here.`;
-  const first = useRef<HTMLAnchorElement | HTMLButtonElement>(null);
+  const focused = useRef(false);
+  const focusFirst = useCallback((el: HTMLAnchorElement | HTMLButtonElement | null) => {
+    if (!el || focused.current) return;
+    focused.current = true;
+    el.focus();
+  }, []);
   const word = useRef<HTMLHeadingElement>(null);
   const fanRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    first.current?.focus();
     animate(word.current, [{ opacity: 0, transform: "scale(1.75)" }, { opacity: 1, transform: "scale(1)" }], {
       duration: 420,
       easing: "cubic-bezier(0.2,0.9,0.3,1)",
@@ -50,17 +56,19 @@ export function DraftFinale(p: FinaleProps) {
     });
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      p.onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [p.onClose]);
+
   return (
     <FullscreenLayer label="Draft complete">
-      <div
-        className="finale"
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            p.onClose();
-          }
-        }}
-      >
+      <div className="finale">
         <div className="frame">
           <i className="pip" />
           <i className="pip" />
@@ -101,12 +109,12 @@ export function DraftFinale(p: FinaleProps) {
           <p className="fin-note">{`${noTribute} of your ${monsters.length} main deck monsters need no tribute.`}</p>
           <div className="fin-actions">
             {p.canBuild ? (
-              <Link className="pick-btn" href={`/decks/draft/${p.slug}`} ref={first as React.Ref<HTMLAnchorElement>}>
+              <Link className="pick-btn" href={`/decks/draft/${p.slug}`} ref={focusFirst}>
                 <span>Build your deck</span>
               </Link>
             ) : null}
-            <button className="btn-2" type="button" onClick={p.onExport} ref={p.canBuild ? undefined : (first as React.Ref<HTMLButtonElement>)}>
-              Export YDK
+            <button className="btn-2" type="button" onClick={p.onExport} disabled={p.exporting} ref={p.canBuild ? undefined : focusFirst}>
+              {p.exporting ? "Exporting…" : "Export YDK"}
             </button>
             <Link className="btn-2" href="/drafts">
               Back to drafts
@@ -115,6 +123,7 @@ export function DraftFinale(p: FinaleProps) {
               Close
             </button>
           </div>
+          {p.exportError && <p className="fin-error" role="alert">{p.exportError}</p>}
         </div>
       </div>
     </FullscreenLayer>

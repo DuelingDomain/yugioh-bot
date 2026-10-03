@@ -121,6 +121,8 @@ export default function DraftDetailPage() {
   // The room is shown while the draft is active; finishing it from the room ends on the finale.
   const [wasInRoom, setWasInRoom] = useState(false);
   const [finaleClosed, setFinaleClosed] = useState(false);
+  const [finaleExporting, setFinaleExporting] = useState(false);
+  const [finaleExportError, setFinaleExportError] = useState<string | null>(null);
 
   const setFromServer = useDraftStore((s) => s.setFromServer);
   const storeCompleted = useDraftStore((s) => s.completed);
@@ -244,7 +246,11 @@ export default function DraftDetailPage() {
 
   const handleExportYdk = async (): Promise<string> => {
     const res = await fetch(`/api/drafts/${slug}/export`);
-    if (!res.ok) throw new Error("Failed to export deck");
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const serverError = typeof body?.error === "string" ? body.error.trim() : "";
+      throw new Error(serverError || "Failed to export deck", { cause: serverError || undefined });
+    }
     return res.text();
   };
 
@@ -323,6 +329,9 @@ export default function DraftDetailPage() {
   const showFinale = wasInRoom && !finaleClosed && draft.status === DRAFT_STATUS.completed && isParticipant && finalePool.length > 0;
   const finaleExtra = isThemeDraft ? Math.max(0, finalePool.length - (draft.config.cardsPerPlayer ?? 40)) : 0;
   const downloadYdk = async () => {
+    if (finaleExporting) return;
+    setFinaleExporting(true);
+    setFinaleExportError(null);
     try {
       const ydk = await handleExportYdk();
       const url = URL.createObjectURL(new Blob([ydk], { type: "text/plain" }));
@@ -333,8 +342,12 @@ export default function DraftDetailPage() {
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch {
-      /* the summary view shows export errors */
+    } catch (err) {
+      const serverError = err instanceof Error && typeof err.cause === "string" ? err.cause : "";
+      const detail = serverError ? ` ${serverError}${serverError.endsWith(".") ? "" : "."}` : "";
+      setFinaleExportError(`Couldn't export the YDK file.${detail}`);
+    } finally {
+      setFinaleExporting(false);
     }
   };
 
@@ -356,6 +369,8 @@ export default function DraftDetailPage() {
           theme={isThemeDraft}
           extraCount={finaleExtra}
           canBuild
+          exporting={finaleExporting}
+          exportError={finaleExportError}
           onExport={() => void downloadYdk()}
           onClose={() => setFinaleClosed(true)}
         />
