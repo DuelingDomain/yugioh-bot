@@ -286,7 +286,7 @@ export function createDuelHost(options: {
     format: DuelFormat = "1v1",
     startupScripts?: string[],
     engine?: DuelEngineChoice,
-    firstTurnDraw = firstTurnDrawFor(mode, masterRule),
+    firstTurnDraw = firstTurnDrawFor(mode, masterRule, engine, format),
   ): GameOptions {
     const created: GameOptions = {
       mode,
@@ -1327,17 +1327,19 @@ export function createDuelHost(options: {
       const state = service.privateState(slug, guildId);
       const settings = state.session.settings;
       const scripts = (copts.startupScripts ?? []).map((script) => script.content);
+      const engine = engineForNewTable(preset.format, true);
+      const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, engine, preset.format);
       const botPolicies: Record<string, string> = {};
       for (let seat = 1; seat < seatCount; seat += 1) botPolicies[String(seat)] = SCRIPTED_POLICY;
       game = spawn();
       try {
-        await game.create(workerCreateOptions(state.session.mode, state.decks, seed, state.session.masterRule, settings, preset.format, scripts, engineForNewTable(preset.format, true)));
+        await game.create(workerCreateOptions(state.session.mode, state.decks, seed, state.session.masterRule, settings, preset.format, scripts, engine, firstTurnDraw));
       } catch (error) {
         throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
       }
       const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
       service.activate(slug, guildId, actor, seed, pinnedVersionFor(preset.format), clock, {
-        firstTurnDraw: firstTurnDrawFor(state.session.mode, state.session.masterRule),
+        firstTurnDraw,
         scenarioId: preset.id,
         presetId: preset.id,
         startupScripts: scripts,
@@ -1755,6 +1757,7 @@ export function createDuelHost(options: {
     const bytes = randomBytes(32);
     const seed = [0, 8, 16, 24].map((offset) => bytes.readBigUInt64LE(offset).toString());
     const engine = engineForNewTable(state.session.format);
+    const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, engine, state.session.format);
     const game = spawn();
     try {
       await game.create(workerCreateOptions(
@@ -1766,11 +1769,12 @@ export function createDuelHost(options: {
         state.session.format,
         undefined,
         engine,
+        firstTurnDraw,
       ));
       const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
       // The engine is saved with the duel, so a recover and a replay use it even after DUEL_1V1_ENGINE changes.
       service.activate(slug, guildId, organizer, seed, pinnedVersionFor(state.session.format), clock, {
-        ...(state.setup ?? {}), firstTurnDraw: firstTurnDrawFor(state.session.mode, state.session.masterRule), ...(engine ? { engine } : {}),
+        ...(state.setup ?? {}), firstTurnDraw, ...(engine ? { engine } : {}),
       });
       games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
       await emitChange(slug, guildId);

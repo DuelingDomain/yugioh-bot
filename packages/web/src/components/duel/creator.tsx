@@ -315,9 +315,10 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                       <span>
                         <strong>{customDomain ? "Custom Domain" : "Domain preset"}</strong>
                         {customDomain ? " — these overrides differ from official Domain rules." : " — 60 singleton Main Deck cards, a separate Deck Master, up to 15 Extra Deck cards, no Side Deck."}
+                        {/* The host does not send its 1v1 engine choice to the creator. */}
                         {format !== "1v1"
                           ? " In Domain, every duelist draws on their first turn."
-                          : " First-turn draws follow the selected Master Rule."}
+                          : " In 1v1 Domain, the duelist who goes first draws at Master Rule 1 and 2; at Master Rule 3 to 5 this depends on the server engine. The second duelist always draws."}
                       </span>
                     </p>
                   ) : (

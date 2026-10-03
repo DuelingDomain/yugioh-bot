@@ -4,16 +4,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import type { DuelDeck } from "@yugidraft/shared/duels";
+import type { DuelDeck, DuelMasterRule } from "@yugidraft/shared/duels";
 import { createEngineGame } from "../src/engine.js";
 import { createLegacyEngineGame } from "../src/legacy/index.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { itEachWithCores, itWithCores, needs } from "./support/cores.js";
 
 // The legacy 1v1 engine must run the same cores as main: the npm package core for Standard, main's own Domain build for Domain.
 // The checks compare the core a legacy duel reports with the npm file, the manifest and the legacy files in the bundle.
 
 const MANIFEST = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { integrity: Record<string, string> };
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+const legacyDomain = needs.file("legacy Domain core", join(DATA, "ocgcore.domain.legacy.wasm"),
+  "Run npm run duel:prepare, then build-domain-core.ts legacy-domain.");
 
 const settings = {
   visibility: "public" as const, banlist: "none" as const, cardPool: "both" as const, turnSeconds: 240,
@@ -40,6 +43,54 @@ function npmCoreFile(): string {
 }
 
 describe("legacy 1v1 engine core identity", () => {
+  it.each([1, 2, 3, 4, 5] as const)("Standard MR%s: only MR1 and MR2 draw on turn 1", async (masterRule) => {
+    const game = await createLegacyEngineGame({ mode: "normal", format: "1v1", masterRule,
+      decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
+    try {
+      for (let actor = 0; actor < 2; actor++) {
+        const own = game.view(actor);
+        expect(own.turn).toBe(actor + 1);
+        expect(own.turnSeat).toBe(actor);
+        expect(own.prompt?.options.some((option) => option.id === "to_ep")).toBe(true);
+        for (let viewer = 0; viewer < 2; viewer++) {
+          const view = game.view(viewer);
+          for (let seat = 0; seat < 2; seat++) {
+            const drew = seat <= actor && (seat > 0 || masterRule <= 2);
+            expect(view.seats[seat]!.hand).toHaveLength(5 + Number(drew));
+            expect(view.seats[seat]!.deckCount).toBe(35 - Number(drew));
+          }
+        }
+        if (actor === 0) game.answer(actor, own.prompt!.id, { choice: "to_ep" });
+      }
+    } finally {
+      game.close();
+    }
+  });
+
+  itEachWithCores<[DuelMasterRule]>(legacyDomain, [[1], [2], [3], [4], [5]], "Domain MR%s: only MR1 and MR2 draw on turn 1", async (masterRule) => {
+    const game = await createLegacyEngineGame({ mode: "domain", format: "1v1", masterRule,
+      decks: decks(true), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
+    try {
+      for (let actor = 0; actor < 2; actor++) {
+        const own = game.view(actor);
+        expect(own.turn).toBe(actor + 1);
+        expect(own.turnSeat).toBe(actor);
+        expect(own.prompt?.options.some((option) => option.id === "to_ep")).toBe(true);
+        for (let viewer = 0; viewer < 2; viewer++) {
+          const view = game.view(viewer);
+          for (let seat = 0; seat < 2; seat++) {
+            const drew = seat <= actor && (seat > 0 || masterRule <= 2);
+            expect(view.seats[seat]!.hand).toHaveLength(5 + Number(drew));
+            expect(view.seats[seat]!.deckCount).toBe(35 - Number(drew));
+          }
+        }
+        if (actor === 0) game.answer(actor, own.prompt!.id, { choice: "to_ep" });
+      }
+    } finally {
+      game.close();
+    }
+  });
+
   it("Standard runs the npm package core, byte for byte", async () => {
     const game = await createLegacyEngineGame({ mode: "normal", format: "1v1", decks: decks(false), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
     try {
@@ -52,7 +103,7 @@ describe("legacy 1v1 engine core identity", () => {
     }
   });
 
-  it("Domain runs main's Domain build, the file the manifest lists as domainLegacyWasm", async () => {
+  itWithCores("Domain runs main's Domain build, the file the manifest lists as domainLegacyWasm", legacyDomain, async () => {
     const game = await createLegacyEngineGame({ mode: "domain", format: "1v1", decks: decks(true), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
     try {
       const info = game.coreInfo();
