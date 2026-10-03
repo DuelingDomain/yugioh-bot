@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
@@ -36,7 +36,7 @@ import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
 import { TableShell, type TableShellProps } from "./table/table-shell";
 import { TagShell } from "./tag/tag-shell";
-import { defaultTeamNames, type TagShellLiveProps } from "./tag/live-tag";
+import { defaultTeamNames } from "./tag/live-tag";
 import { useLiveTableController } from "./table/use-live-table-controller";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { MultiSeatStage } from "./multi-seat-stage";
@@ -96,9 +96,6 @@ import {
 /** The attack target the player pointed at; only the confirm submits it. */
 type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLElement; name: string };
 
-// TODO(integrator): drop this cast when tag-shell.tsx takes TagShellLiveProps (the live Tag shell branch). Before that merge
-// TagShell takes only { controller, teamNames, initialCamera }, so the cast hides the live seams the room already passes.
-const LiveTagShell = TagShell as unknown as ComponentType<TagShellLiveProps>;
 
 export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false, spectate = false, actorPlayerId = null }: {
   slug: string; inviteCode?: string; windowed?: boolean; legacyStage?: boolean; spectate?: boolean; actorPlayerId?: number | null;
@@ -690,7 +687,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {surrenderModal}
       </>,
     };
-    if (liveTagTable) return <LiveTagShell key={slug} {...shellProps} teamNames={defaultTeamNames()} />;
+    if (liveTagTable) return <TagShell key={slug} {...shellProps} teamNames={defaultTeamNames()} />;
     return <TableShell key={slug} {...shellProps} />;
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
