@@ -263,6 +263,23 @@ sudo systemctl start "$unit.service"
 sudo journalctl -u "$unit.service" --no-pager -n 30
 ```
 
+**Workstation migration** — backups now stay on the VM. If you used the previous workstation setup, deleting the repo's pull tooling does not remove the installed script or Windows scheduled task. Run these commands in **Windows PowerShell**, as the Windows user who registered the task (use your configured task name if changed):
+
+```powershell
+$taskName = 'Dueling System backup pull'
+Stop-ScheduledTask -TaskName $taskName
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+```
+
+Confirm the task is absent in Task Scheduler and no pull is still running in WSL. Before deleting the installed script, note any `LOCAL_DIR` or `MIRROR_DIR` overrides. In the WSL distro and Linux account used by the task, remove the copied script and retained workstation backups, including sidecars and `pull.log` (adjust these paths if customized):
+
+```bash
+rm -f -- "$HOME/bin/pull-dueling-backup.sh"
+rm -rf -- /home/imran/backups/dueling-system
+```
+
+Also delete retained SQLite backups and SHA-256 sidecars from any configured `MIRROR_DIR` and other workstation copies.
+
 **RESTORE** — run as root on the VM, choose an existing backup below, and stop on any failed command. Pause the timer and take a fresh snapshot before verifying the chosen backup. Keep the original database and WAL/SHM together in the dated folder; only remove these live files after all four writers stop.
 
 ```bash
