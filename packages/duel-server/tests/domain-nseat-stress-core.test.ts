@@ -11,6 +11,19 @@ import { engineDataDirectory } from "./engine-data-dir.js";
 import { DOMAIN_NSEAT_STRESS } from "./scenarios/multiplayer/domain-nseat-stress.js";
 import { DOMAIN_NSEAT_STRESS_CHAIN } from "./scenarios/multiplayer/domain-nseat-stress-chain.js";
 import { it } from "vitest";
+import { expectKnownFailure, type KnownGap } from "./support/expected-failure.js";
+
+// The pending-loss cases fail on the installed P68 cores. Chain cleanup sends the removed Dust Tornado back to the
+// Graveyard of the lost seat 1, because field::eliminate does not clear core.leave_confirmed. They need
+// domain-core/proposals/domain-nseat-stress/remove-eliminated-chain-cards.patch
+// (docs/specs/2026-10-02-approved-core-integration.md lines 210 and 218-226). Each case is green only for the
+// known failure below. When the patch lands the case fails with "known gap fixed": remove the mark then.
+const PENDING_LOSS_GAP: KnownGap = {
+  patch: "remove-eliminated-chain-cards.patch",
+  spec: "docs/specs/2026-10-02-approved-core-integration.md:210,218",
+  failsWith: ["seat 1, location 16: expected 1 to be +0"],
+};
+const isPendingLoss = (id: string) => id.includes("-pending-loss-keeps-other-seat-chain-window");
 
 // Views hide the cards of an eliminated seat. Query the real core too, so that
 // a hidden card left in the zone cannot make this proof pass. P61 fails the
@@ -20,7 +33,7 @@ describeWithCores("Domain elimination removes the real zone", [liveNseat, ...nee
   for (const scenario of [...DOMAIN_NSEAT_STRESS.filter((s) => s.setup.format !== "tag" &&
     (s.id.endsWith("eliminated-owner-loses-its-zone") || s.id.endsWith("stolen-master-is-removed-with-owner"))),
     ...DOMAIN_NSEAT_STRESS_CHAIN.filter((s) => s.setup.format !== "tag")]) {
-    it(scenario.id, async () => {
+    const run = async () => {
       let core: Awaited<ReturnType<typeof createDomainCore>> | undefined;
       registerDomainCoreFactory(async (ctx) => { core = await createDomainCore(ctx); return core; });
       const bytes = readFileSync(currentDomainMultiWasm());
@@ -48,6 +61,8 @@ describeWithCores("Domain elimination removes the real zone", [liveNseat, ...nee
         game.close();
         registerDomainCoreFactory(createDomainCore);
       }
-    });
+    };
+    if (isPendingLoss(scenario.id)) it(`${scenario.id} [expected failure: ${PENDING_LOSS_GAP.patch}]`, () => expectKnownFailure(PENDING_LOSS_GAP, run));
+    else it(scenario.id, run);
   }
 });

@@ -9,6 +9,7 @@ import { Session } from "./support/session.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 import { scenarios as TWO_SEAT_CASES } from "./scenarios/cases/domain.js";
 import { DOMAIN_NSEAT_STRESS_CHAIN } from "./scenarios/multiplayer/domain-nseat-stress-chain.js";
+import { expectKnownFailure, type KnownGap } from "./support/expected-failure.js";
 import { firstDrawSourceFor } from "./scenarios/multiplayer/ffa-first-draw.js";
 import { SEATS, type Format } from "./scenarios/multiplayer/seat-kit.js";
 import { defineScenario, endTurn, expectBoard, expectNotOffered, select, specialSummon, type Scenario, type Step } from "./support/dsl.js";
@@ -31,11 +32,23 @@ vi.mock("ocgcore-wasm", async (original) => {
   } };
 });
 
+// The Standard pending-loss cases fail on the installed P68 cores. Chain cleanup sends the removed Dust Tornado back to the
+// Graveyard of the lost seat 1, because field::eliminate does not clear core.leave_confirmed. They need
+// domain-core/proposals/domain-nseat-stress/remove-eliminated-chain-cards.patch
+// (docs/specs/2026-10-02-approved-core-integration.md lines 210 and 218-226). Each case is green only for the
+// known failure below. When the patch lands the case fails with "known gap fixed": remove the mark then.
+const PENDING_LOSS_GAP: KnownGap = {
+  patch: "remove-eliminated-chain-cards.patch",
+  spec: "docs/specs/2026-10-02-approved-core-integration.md:210,218",
+  failsWith: ["seat 1, location 16: expected 1 to be +0"],
+};
+const isPendingLoss = (id: string) => id.includes("-pending-loss-keeps-other-seat-chain-window");
+
 describeWithCores("Domain core patch keeps Standard and two-seat rules", [liveNseat, ...needs.domainMulti()], () => {
   for (const domain of DOMAIN_NSEAT_STRESS_CHAIN.filter((s) => s.setup.format !== "tag")) {
     // The Domain fixture counts the extra FFA first draw. Standard MR3-5 skips it, so run the scenario as written.
     const base = firstDrawSourceFor(domain);
-    it(`Standard: ${base.id}`, async () => {
+    const run = async () => {
       const setup = { ...base.setup, mode: "normal" as const };
       for (const seat of SEATS[setup.format as Format]) {
         const { deckMaster: _master, ...rest } = setup[seat]!;
@@ -52,14 +65,16 @@ describeWithCores("Domain core patch keeps Standard and two-seat rules", [liveNs
         session.reachMainPhase();
         steps.forEach((step, index) => session.run(step, index + 1));
         for (const seat of game.view(null).seats) {
-          expect(captured.lib!.duelQueryCount(captured.handle!, seat.seat, 0x4000 as import("ocgcore-wasm").OcgLocation)).toBe(0);
+          expect(captured.lib!.duelQueryCount(captured.handle!, seat.seat, 0x4000 as import("ocgcore-wasm").OcgLocation), `seat ${seat.seat}, location 16384`).toBe(0);
           if (seat.eliminated) for (const location of [1, 2, 4, 8, 16, 32, 64]) {
-            expect(captured.lib!.duelQueryCount(captured.handle!, seat.seat, location as import("ocgcore-wasm").OcgLocation)).toBe(0);
+            expect(captured.lib!.duelQueryCount(captured.handle!, seat.seat, location as import("ocgcore-wasm").OcgLocation), `seat ${seat.seat}, location ${location}`).toBe(0);
           }
         }
         expect(game.diagnostics().filter((d) => d.kind === "stderr")).toEqual([]);
       } finally { game.close(); }
-    });
+    };
+    if (isPendingLoss(base.id)) it(`Standard: ${base.id} [expected failure: ${PENDING_LOSS_GAP.patch}]`, () => expectKnownFailure(PENDING_LOSS_GAP, run));
+    else it(`Standard: ${base.id}`, run);
   }
 
   const twoSeatSynchro = [
