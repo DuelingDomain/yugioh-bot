@@ -19,6 +19,7 @@ import { PriorityChips } from "@/components/duel/priority-chips";
 
 vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined }));
 
+const prefs = { soundEnabled: true, soundVolume: 0.7, shake: "medium" as const };
 const main = TAG_FIXTURES.states.main.room;
 const damage = (id: number, seat: number, amount = 800, cause = "effect"): DuelEvent => ({ id, kind: "damage", seat, amount, cause: cause as never, text: `d${id}` });
 
@@ -36,13 +37,13 @@ const damageSeen = (name: string) => {
 describe("TagFx", () => {
   it("renders no effects while fxActive is false", () => {
     seen.calls.length = 0;
-    render(<TagFx controller={controllerWith([damage(1, 0)])} fxActive={false} />);
+    render(<TagFx controller={controllerWith([damage(1, 0)])} fxActive={false} preferences={prefs} />);
     expect(seen.calls).toEqual([]);
   });
 
   it("renders the whole effects set while fxActive is true", () => {
     seen.calls.length = 0;
-    render(<TagFx controller={controllerWith([])} />);
+    render(<TagFx controller={controllerWith([])} preferences={prefs} />);
     expect(new Set(seen.calls.map((call) => call.name))).toEqual(
       new Set(["DuelFeedback", "SummonFx", "MoveFx", "PositionFx", "ChainFx", "MasterReturnFx", "BattleFx", "DestroyFx"]),
     );
@@ -50,28 +51,28 @@ describe("TagFx", () => {
 
   it("passes one damage event to the effects as one effect", () => {
     seen.calls.length = 0;
-    render(<TagFx controller={controllerWith([damage(1, 1)])} />);
+    render(<TagFx controller={controllerWith([damage(1, 1)])} preferences={prefs} />);
     expect(damageSeen("BattleFx")).toHaveLength(1);
     expect(damageSeen("DuelFeedback")).toHaveLength(1);
   });
 
-  it("plays a mirrored team damage pair once", () => {
+  it("plays two equal hits on team mates twice: they are two real hits", () => {
     seen.calls.length = 0;
-    render(<TagFx controller={controllerWith([damage(1, 1), damage(2, 3)])} />);
-    expect(damageSeen("BattleFx").map((event) => event.id)).toEqual([1]);
-    expect(damageSeen("DestroyFx").map((event) => event.id)).toEqual([1]);
+    render(<TagFx controller={controllerWith([damage(1, 1), damage(2, 3)])} preferences={prefs} />);
+    expect(damageSeen("BattleFx").map((event) => event.id)).toEqual([1, 2]);
+    expect(damageSeen("DestroyFx").map((event) => event.id)).toEqual([1, 2]);
   });
 
   it("gives the chain effect the Tag response order", () => {
     seen.calls.length = 0;
-    render(<TagFx controller={controllerWith([], { chain: chainOf(0) })} />);
+    render(<TagFx controller={controllerWith([], { chain: chainOf(0) })} preferences={prefs} />);
     const chain = seen.calls.find((call) => call.name === "ChainFx")!;
     expect((chain.props.priority as Array<{ seat: number }>).map((slot) => slot.seat)).toEqual([1, 3, 0, 2]);
   });
 
   it("passes the reduced motion flag on", () => {
     seen.calls.length = 0;
-    render(<TagFx controller={controllerWith([], {}, true)} />);
+    render(<TagFx controller={controllerWith([], {}, true)} preferences={prefs} />);
     expect(seen.calls.every((call) => call.props.reducedMotion === true)).toBe(true);
   });
 });
@@ -81,7 +82,8 @@ describe("dedupeTeamDamage", () => {
     const events = [damage(1, 0), damage(2, 1)];
     expect(dedupeTeamDamage(events)).toBe(events);
   });
-  it("keeps a team mate hit for a different amount or cause", () => {
+  it("keeps a team mate hit for the same amount and cause (two real hits)", () => {
+    expect(dedupeTeamDamage([damage(1, 1), damage(2, 3)])).toHaveLength(2);
     expect(dedupeTeamDamage([damage(1, 1), damage(2, 3, 900)])).toHaveLength(2);
     expect(dedupeTeamDamage([damage(1, 1), damage(2, 3, 800, "battle")])).toHaveLength(2);
   });
@@ -90,10 +92,6 @@ describe("dedupeTeamDamage", () => {
   });
   it("drops a repeated event id", () => {
     expect(dedupeTeamDamage([damage(1, 1), damage(1, 1)]).map((event) => event.id)).toEqual([1]);
-  });
-  it("does not pair across another event", () => {
-    const quiet: DuelEvent = { id: 2, kind: "phase", text: "phase" };
-    expect(dedupeTeamDamage([damage(1, 1), quiet, damage(3, 3)])).toHaveLength(3);
   });
 });
 

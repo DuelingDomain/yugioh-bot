@@ -11,7 +11,7 @@ import { MasterReturnFx } from "../master-return-fx";
 import { MoveFx } from "../move-fx";
 import { PositionFx } from "../position-fx";
 import type { PrioritySlot } from "../priority-chips";
-import { useDuelPreferences } from "../preferences";
+import type { DuelPreferences } from "../preferences";
 import { SummonFx } from "../summon-fx";
 import { tableLayout } from "../table/geometry";
 import { toneBySeat } from "../table/seat-state";
@@ -23,37 +23,26 @@ export type TagFxController = Pick<TableController, "engine" | "room" | "viewerS
 
 export interface TagFxProps {
   controller: TagFxController;
+  /** The shell's one `useDuelPreferences()` object, so the header toggle, the Settings tab and the sound agree. */
+  preferences: Pick<DuelPreferences, "soundEnabled" | "soundVolume" | "shake">;
   /** False while the connection is down or recovering: nothing plays, so no effect replays old events. */
   fxActive?: boolean;
   /** Seats that passed on the open chain (the shell tracks them); the chain chips follow them. */
   passedSeats?: readonly number[];
 }
 
-const sameTeam = (a: number, b: number) => teamOfSeat("tag", a) === teamOfSeat("tag", b);
-
 /**
- * One effect per hit. The engine makes one damage event per core message; if a team's loss reaches the view once per
- * member, the second event is a mirror of the first and would play the same effect twice. A damage event is dropped when
- * its id was seen already, or when the damage event right before it hit a team mate for the same amount and cause.
+ * One effect per hit. A damage event id plays once: a repeated id (a resend of the same core message) is dropped.
+ * Two damage events with different ids are two real hits, even for team mates with the same amount and cause: the
+ * engine takes team LP once per core message.
  */
 export function dedupeTeamDamage(events: DuelEvent[]): DuelEvent[] {
   const seen = new Set<number>();
   const kept: DuelEvent[] = [];
-  let previous: DuelEvent | null = null;
   for (const event of events) {
     if (seen.has(event.id)) continue;
     seen.add(event.id);
-    const mirror =
-      event.kind === "damage" &&
-      previous?.kind === "damage" &&
-      event.seat != null &&
-      previous.seat != null &&
-      event.seat !== previous.seat &&
-      sameTeam(event.seat, previous.seat) &&
-      event.amount === previous.amount &&
-      event.cause === previous.cause;
-    previous = event;
-    if (!mirror) kept.push(event);
+    kept.push(event);
   }
   return kept.length === events.length ? events : kept;
 }
@@ -76,9 +65,8 @@ export function tagPriority(engine: DuelEngineView, passed: readonly number[], c
  * read the same events as the FFA table and render nothing at all while `fxActive` is false. Mount it inside the stage's
  * board overlay slot. The chain chips use the Tag response order instead of the seat order.
  */
-export function TagFx({ controller, fxActive = true, passedSeats = [] }: TagFxProps) {
+export function TagFx({ controller, preferences, fxActive = true, passedSeats = [] }: TagFxProps) {
   const { engine, room, viewerSeat, nameOf, prompt, reducedMotion } = controller;
-  const preferences = useDuelPreferences();
   const events = useMemo(() => dedupeTeamDamage(engine.events), [engine.events]);
   const layout = useMemo(
     () => tableLayout("tag", engine, viewerSeat),
