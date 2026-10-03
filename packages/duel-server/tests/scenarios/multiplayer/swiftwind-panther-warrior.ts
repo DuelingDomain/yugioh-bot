@@ -20,7 +20,7 @@ function swiftwindPantherWarrior(format: Format, tribute: boolean): Scenario {
   const action: Step[] = tribute
     ? [
       activate(PANTHER, holder),
-      // R-COMMON-OPP-ONE: the LP read declares an opponent before the own Tribute.
+      // R-COMMON-OPP-PICK: the LP read declares an opponent before the activator Tributes a monster.
       ...(format !== "tag" ? [pickOpponent("p0", holder)] : []),
       select({ card: ELF, owner: holder, from: "mzone" }),
       select({ card: WIZARD, owner: holder, from: "deck", nth: 0 }),

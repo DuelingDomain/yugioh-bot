@@ -282,7 +282,7 @@ const SPECS: EffectSpec[] = [
     code: 81003500, name: "Elemental HERO Necroid Shaman", slug: "elemental-hero-necroid-shaman", does: "Special Summons a monster from the Graveyard of an opponent",
     p0: { hand: ["Polymerization"], monsters: ["Elemental HERO Wildheart", "Elemental HERO Necroshade"], extra: ["Elemental HERO Necroid Shaman"] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
-    // R-COMMON-OPP-ONE: the declared field and Graveyard each have one target, which the engine selects.
+    // R-FFA-OPP-ONE: the declared field and Graveyard each have one target, which the engine selects.
     noPick: (roles) => roles.format !== "tag",
     steps: (roles) => [activate("Polymerization", "p0"), select("Elemental HERO Wildheart", "Elemental HERO Necroshade"), roles.format !== "tag" ? pickOpponent(roles.tgt, "p0") : select({ card: ELF, owner: roles.tgt })],
     then: (roles) => roles.format === "tag" ? [select(MAGICIAN)] : [],

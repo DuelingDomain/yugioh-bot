@@ -16,7 +16,7 @@ const scenes = formats.flatMap(format => {
       id: `audit-fiendish-${format}`, title: `${format}: return the target to its owner`, source: SOURCE,
       rules: ['R-COMMON-SEAT-STATE'], tags: ['multiplayer', format, 'card:4145915'],
       setup: baseSetup(format, { p0: { hand: [knight] }, p1: { grave: ['Battle Ox'] }, [target]: { grave: [elf] } }),
-      // R-COMMON-OPP-ONE: the chosen Graveyard has one target, which the engine selects.
+      // R-FFA-OPP-ONE: the chosen Graveyard has one target, which the engine selects.
       steps: [activate(knight, 'p0'), format !== 'tag' ? pickOpponent(target, 'p0') : select({ card: elf, owner: target }),
         everySeat(format, { p0: { monsters: [knight], hand: [] }, p1: { grave: ['Battle Ox'] }, [target]: { monsters: [elf], grave: [] } })],
     }),

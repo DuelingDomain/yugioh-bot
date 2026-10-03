@@ -98,7 +98,7 @@ function solemnSpell(): Scenario {
     },
     steps: [
       activate(RAIGEKI, "p0"),
-      // R-COMMON-OPP-ONE: declare the opponent before the response window.
+      // R-FFA-OPP-ONE: declare the opponent before the response window.
       pickOpponent("p1", "p0"),
       expectPrompt({ by: "p2", context: "chain" }),
       activate(SOLEMN, "p2"),
@@ -191,7 +191,7 @@ function swordsFfa3(): Scenario {
     setup: { format: "ffa3", p0: { hand: [SWORDS], monsters: [RAT] }, p1: { monsters: [OX] }, p2: { monsters: [AXE] } },
     steps: [
       activate(SWORDS, "p0"),
-      // R-COMMON-OPP-ONE: Swords binds its lasting attack lock to p1.
+      // R-FFA-OPP-ONE: declare p1 for the activation. R-COMMON-ONGOING: the face-up attack lock applies to all opponents.
       pickOpponent("p1", "p0"),
       endTurn("p0"), endTurn("p1"), endTurn("p2"),
       ...attackTurn("p0", RAT, true),

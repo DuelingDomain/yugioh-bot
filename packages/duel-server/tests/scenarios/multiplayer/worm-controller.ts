@@ -19,7 +19,7 @@ export const WORM_CONTROLLER_SCENARIOS: Scenario[] = (["ffa3", "ffa4", "tag"] as
     source: `${SOURCE} [R-COMMON-SEAT-STATE] the card controller fixes the damage recipient`,
     rules: ["R-COMMON-SEAT-STATE"], tags: ["multiplayer", "controller", format, "card:71315423"],
     setup: baseSetup(format, { p0: { monsters: [{ card: CARD, pos: "set" }] }, p1: { monsters: [OX] }, [target]: { monsters: [ELF] } }),
-    // R-COMMON-OPP-ONE: declare the equipped monster controller before selecting its monster.
+    // R-FFA-OPP-ONE: declare the equipped monster controller before selecting its monster.
     steps: [changePosition(CARD, "p0"), yes("p0"), ...(format !== "tag" ? [pickOpponent(target, "p0")] : [{ op: "select", sels: [{ card: ELF, owner: target }], by: "p0" } satisfies Step]), endTurn("p0"),
       expectPrompt({ by: "p1", context: "action" }), everySeat(format, spec)],
   });

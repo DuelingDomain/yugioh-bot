@@ -113,7 +113,7 @@ function taker(format: Format, user: Seat, target: Seat): Scenario {
     rules: ["R-COMMON-SEAT-STATE"],
     tags: ["multiplayer", "event-opponent", format, "card:81510157"],
     setup: baseSetup(format, setup as never),
-    // R-COMMON-OPP-ONE: declare the target controller before selecting its monster.
+    // R-FFA-OPP-ONE: declare the target controller before selecting its monster.
     steps: [...turnsBefore(format, user), activate(TAKER, user), ...(format !== "tag" ? [pickOpponent(target, user)] : [select({ card: ELF, owner: target })]), everySeat(format, spec as never)],
   });
 }
@@ -191,7 +191,7 @@ function negate(format: Format, card: "veiler" | "impermanence", turnSeat: Seat,
     endTurn(turnSeat),
     expectOffered("activate", name, holder),
     activate(name, holder),
-    // R-COMMON-OPP-ONE: declare the target controller before selecting its monster.
+    // R-FFA-OPP-ONE: declare the target controller before selecting its monster.
     ...(format !== "tag" ? [pickOpponent(target, holder)] : []),
     select({ card: CALCULATOR, owner: target }),
   ];

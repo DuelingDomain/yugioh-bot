@@ -16,7 +16,7 @@ function probe(format: Format, actor: 0 | 1, [code,card]: typeof CARDS[number]):
   if(format==="tag"){const partner=actor+2;setup[seat(partner)]!.monsters=["Silver Fang"];board[seat(partner)]!.monsters=["Silver Fang"];}
   const turns=actor===0?n+1:n;for(let j=0;j<turns;j++)turn(j%n);
   steps.push(attack("Battle Ox",{card:"Beaver Warrior",owner:seat(actor)},seat(other)),activate(card,seat(actor)));
-  board[seat(actor)]!.monsters=["Beaver Warrior"];board[seat(actor)]!.grave=[card];board[seat(other)]!.grave=["Battle Ox"];// R-COMMON-OPP-ONE: the battle event binds destruction and damage to the attacker.
+  board[seat(actor)]!.monsters=["Beaver Warrior"];board[seat(actor)]!.grave=[card];board[seat(other)]!.grave=["Battle Ox"];// R-FFA-OPP-RESPONSE: in FFA, the battle event binds destruction and damage to the attacker.
   if(format==="tag")board[seat(late)]!.grave=["Luster Dragon"];else board[seat(late)]!.monsters=["Luster Dragon"];if(format==="ffa4")board.p2!.monsters=["Silver Fang"];
   const amount=format==="tag"?1800:850;damage(actor,amount);damage(other,amount);
  }else if(code===52038441){
