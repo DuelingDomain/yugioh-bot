@@ -104,21 +104,21 @@ describe("Tag hand labels", () => {
 });
 
 describe("Tag hand relations", () => {
-  it("marks one self hand and one partner hand, and no hand as rival", () => {
+  it("marks one self hand and one partner hand, and no other hand", () => {
     const root = mount("main");
     const hands = [...root.querySelectorAll("[data-hand-seat]")];
     expect(hands.filter((node) => node.getAttribute("data-relation") === "self").length).toBe(1);
     expect(hands.filter((node) => node.getAttribute("data-relation") === "partner").length).toBe(1);
-    // A rival hand is never drawn (hidden information), so no hand may carry another relation.
+    // An opponent hand is never drawn (hidden information), so no hand may carry another relation.
     expect(hands.length).toBe(2);
   });
 
-  it("keeps data-side=you for the own hand only, so own-hand locators skip the partner", () => {
+  it("keeps data-side=you for the own hand only (the partner hand is data-side=partner), so own-hand locators skip the partner", () => {
     const root = mount("main");
     const own = root.querySelectorAll("[data-hand-seat][data-side='you']");
     expect(own.length).toBe(1);
     expect(own[0].getAttribute("data-hand-seat")).toBe("0");
-    expect(root.querySelector("[data-partner-hand]")?.hasAttribute("data-side")).toBe(false);
+    expect(root.querySelector("[data-partner-hand]")?.getAttribute("data-side")).toBe("partner");
   });
 
   it("draws no hand for a spectator", () => {

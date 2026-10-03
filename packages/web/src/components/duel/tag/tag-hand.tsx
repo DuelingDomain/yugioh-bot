@@ -87,9 +87,9 @@ export function OwnHand({ seat, cards, legalKeys, selectedKeys, onActivate, onIn
 /**
  * The partner's hand, face up, only for the viewer's team. Cards are never usable from here: the partner acts on their
  * own turn, so there is no glow, only the caption and the Ice accent.
- * DOM: `role="group"` named "<name>'s hand (partner)" and `data-relation="partner"`. It has NO `data-side="you"`:
- * the e2e helpers read `[data-hand-seat][data-side='you']` (board.ts) and `data-side="you"` zones as the viewer's own,
- * so the partner hand must not match them. It keeps `data-hand-seat` for the FX hooks.
+ * DOM: `role="group"` named "<name>'s hand (partner)", `data-relation="partner"` and `data-side="partner"`. It must NOT
+ * carry `data-side="you"`: the e2e helpers read `[data-hand-seat][data-side='you']` (board.ts) and `data-side="you"`
+ * zones as the viewer's own, so the partner hand must not match them. It keeps `data-hand-seat` for the FX hooks.
  */
 export function PartnerHand({ seat, cards, legalKeys, onInspect, onHoverCard, partnerName }: Omit<HandProps, "selectedKeys" | "onActivate" | "reducedMotion"> & { partnerName: string }) {
   return (
@@ -97,6 +97,7 @@ export function PartnerHand({ seat, cards, legalKeys, onInspect, onHoverCard, pa
       className={`${styles.hud} ${styles.phand}`}
       data-partner-hand
       data-hand-seat={seat}
+      data-side="partner"
       data-relation="partner"
       role="group"
       aria-label={`${partnerName}\u2019s hand (partner)`}
