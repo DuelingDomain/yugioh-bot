@@ -61,7 +61,9 @@
 .state { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; font-size: 14px; }
 .state p[role="alert"] { color: #ffb2b9; }
 .stateLinks { display: flex; flex-wrap: wrap; gap: 16px; }
-.logNew { background: rgb(139 92 246 / 0.18); border-left: 3px solid #b48bea; padding-left: 8px; }
+/* Every log line carries data-kind (log-line.tsx), and room.module.css tints some kinds at specificity 0,2,1
+   (.log li[data-kind="chain"]); the doubled class keeps the new-line light on top of those. */
+.logNew.logNew[data-kind] { background: rgb(139 92 246 / 0.18); border-left: 3px solid #b48bea; padding-left: 8px; }
 @media (max-width: 900px) {
   .meta { margin-left: 0; width: 100%; justify-content: space-between; }
   .controls { padding: 8px; }

@@ -56,16 +56,15 @@ export function SeriesGameLabel({ room }: { room: Pick<DuelRoom, "session" | "my
 }
 
 /**
- * A thin strip under the room header for the side deck window (countdown, Ready, Side deck) and
+ * A thin strip under the room header for the side deck window (countdown, Ready) and
  * for a spectator who can follow the series to its next game. Nothing else shows in the strip so
  * the board keeps its height during a game.
  */
-export function SeriesBanner({ room, slug, onChanged, onNavigate, onOpenSide }: {
+export function SeriesBanner({ room, slug, onChanged, onNavigate }: {
   room: DuelRoom;
   slug: string;
   onChanged: () => void;
   onNavigate: (slug: string) => void;
-  onOpenSide: () => void;
 }) {
   const series = room.series;
   if (!series) return null;
@@ -79,7 +78,7 @@ export function SeriesBanner({ room, slug, onChanged, onNavigate, onOpenSide }: 
         <SeriesBadges series={series} showGame />
       </div>
       {between ? (
-        <SeriesNextControls room={room} slug={slug} tone="sheet" onChanged={onChanged} onNavigate={onNavigate} onOpenSide={onOpenSide} />
+        <SeriesNextControls room={room} slug={slug} tone="sheet" onChanged={onChanged} onNavigate={onNavigate} />
       ) : follow ? (
         <span className={styles.stripNext}>
           A later game is being played.

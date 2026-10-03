@@ -32,6 +32,48 @@
 @keyframes oppWait { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 .strip .next .opp { font-size: 13px; }
 
+/* ---------- both players' Ready state (spectator view between games) ---------- */
+.watchHead {
+  color: var(--s-gold); font-size: 0.8em; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+}
+.readyRows {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%;
+  margin: 2px 0; padding: 0; list-style: none;
+}
+.readyRow {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0;
+  padding: 7px 12px; border: 1px solid var(--s-rule); border-radius: 2px; background: rgb(255 255 255 / 0.025);
+}
+.readyName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s-ink); font-weight: 600; }
+.readyState { display: inline-flex; align-items: center; gap: 7px; flex: none; color: var(--s-ink-2); font-size: 0.9em; white-space: nowrap; }
+.readyState i { width: 7px; height: 7px; border-radius: 50%; background: var(--s-pen); animation: oppWait 1.4s ease-in-out infinite; }
+.readyRow[data-ready="true"] { border-color: rgb(228 182 79 / 0.45); }
+.readyRow[data-ready="true"] .readyState { color: var(--s-gold); }
+.readyRow[data-ready="true"] .readyState i { background: var(--s-gold); animation: none; }
+.next[data-viewer="spectator"] .status { color: var(--s-ink-2); }
+.strip .readyRows { display: flex; flex-wrap: wrap; width: auto; margin: 0; gap: 6px; }
+.strip .readyRow { padding: 3px 10px; font-size: 13px; }
+.strip .watchHead { font-size: 11px; }
+@media (max-width: 560px) {
+  .readyRows { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* the loser of the last game chooses to go first or second */
+.first { display: grid; justify-items: center; gap: 6px; margin-top: 2px; }
+.firstHead { color: var(--s-ink-2); font-size: 0.9em; }
+.firstRow { display: inline-flex; gap: 6px; padding: 3px; border: 1px solid var(--s-rule); border-radius: 8px; }
+.firstBtn {
+  min-height: 36px; min-width: 104px; padding: 0 14px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--s-ink-2); font: inherit; font-size: 0.95em; cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.firstBtn:hover:not(:disabled) { color: var(--s-ink); border-color: var(--s-rule-hi); }
+.firstBtn[aria-pressed="true"] { color: var(--s-gold); border-color: var(--s-rule-hi); background: rgb(244 214 144 / 0.08); }
+.firstBtn:focus-visible { outline: 2px solid var(--s-gold); outline-offset: 2px; }
+.firstBtn:disabled { opacity: 0.6; cursor: default; }
+.firstNote { color: var(--s-ink-3); font-size: 0.82em; }
+.next[data-tone="sheet"] .first { justify-items: start; }
+
 /* ---------- game label (duel room header, top right) ---------- */
 .gameLabel {
   display: inline-flex; align-items: baseline; gap: 0.5em; padding: 0 calc(9 * var(--duel-unit, 1px));
@@ -73,6 +115,7 @@ a.badge:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
 .resultLine b { color: var(--s-gold); font-weight: 600; font-variant-numeric: tabular-nums; }
 .resultHead { font-size: 1.15em; font-weight: 600; color: var(--s-ink); letter-spacing: 0.02em; }
 .resultRecord { font-size: 0.9em; color: var(--s-ink-3); }
+.result[data-final="true"] .resultHead { color: var(--s-gold); font-size: 1.35em; letter-spacing: 0.03em; }
 
 /* ---------- lobby header ---------- */
 .lobbyBlock { display: grid; gap: 10px; }
@@ -122,7 +165,8 @@ a.badge:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
   .stripNext { margin-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .opp i { animation: none; }
+  .opp i, .readyState i { animation: none; }
+  .firstBtn { transition: none; }
   .tile { transition: none; }
   .tile:hover, .tile[aria-pressed="true"] { translate: none; }
 }
