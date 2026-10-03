@@ -134,6 +134,36 @@ describe("hand geometry snapshots", () => {
     expect(getMovePlan(2)?.source?.rect.left).toBe(200);
   });
 
+  it("uses an unknown old sleeve's engine slot and compacts later departures", () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return rect(100 + Number(this.dataset.zones?.split(":")[2] ?? 0) * 100, 500, 70, 100);
+    });
+    const view = render(<SnapshotBoard ids={["a", "unknown", "b"]} codes={[10, 0, 20]} events={[]} />);
+    const events = [
+      { ...departure(1), from: { controller: 0, location: LOCATION_HAND, sequence: 1 }, card: cardInfo(30) },
+      { ...departure(2), from: { controller: 0, location: LOCATION_HAND, sequence: 1 } },
+    ];
+    view.rerender(<SnapshotBoard ids={["a"]} codes={[10]} events={events} />);
+    expect(events.map((event) => resolveSource(event.from!, event.id)?.rect.left)).toEqual([200, 300]);
+  });
+
+  it("keeps Exchange's known card on the transferred sleeve before same-batch discards", () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const [seat, , sequence] = (this.dataset.zones ?? "0:2:0").split(":").map(Number);
+      return rect((seat === 1 ? 900 : 100) + sequence * 100, 500, 70, 100);
+    });
+    const view = render(<SnapshotBoard ids={["a", "b"]} codes={[10, 20]} opponentCodes={[0]} events={[]} />);
+    const events: DuelEvent[] = [
+      { ...departure(1), from: { controller: 1, location: LOCATION_HAND, sequence: 0 },
+        zone: { controller: 0, location: LOCATION_HAND, sequence: 1 }, card: cardInfo(30) },
+      { ...departure(2), from: { controller: 0, location: LOCATION_HAND, sequence: 1 }, card: cardInfo(30) },
+      { ...departure(3), from: { controller: 0, location: LOCATION_HAND, sequence: 1 } },
+    ];
+    view.rerender(<SnapshotBoard ids={["a"]} codes={[10]} opponentCodes={[]} events={events} />);
+    expect(resolveSource(events[1].from!, 2)?.rect.left).toBe(900);
+    expect(resolveSource(events[2].from!, 3)?.rect.left).toBe(200);
+  });
+
   it("does not bind a just-added duplicate's departure to an older copy", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rect(100, 500, 70, 100));
     const view = render(<SnapshotBoard ids={["a"]} codes={[10]} events={[]} />);
@@ -162,13 +192,17 @@ const departure = (id: number): DuelEvent => ({ id, kind: "move", text: "A card 
   from: { controller: 0, location: LOCATION_HAND, sequence: 0 },
   zone: { controller: 0, location: LOCATION_GRAVE, sequence: id - 1 }, reason: "discard" });
 
-function SnapshotBoard({ ids, codes, events, side = "you", owner = side === "you" }: { ids: string[]; codes?: number[]; events: DuelEvent[]; side?: "you" | "opp"; owner?: boolean }) {
+function SnapshotBoard({ ids, codes, events, side = "you", owner = side === "you", opponentCodes }: { ids: string[]; codes?: number[]; events: DuelEvent[]; side?: "you" | "opp"; owner?: boolean; opponentCodes?: number[] }) {
   const root = useRef<HTMLDivElement>(null);
   return <div ref={root}><MoveSourceBoundary events={events} duelKey="snapshot-test" root={root}>
     <div data-hand-seat="0" data-side={side}>{ids.map((id, sequence) =>
       <div key={id} data-hand-id={`${owner ? "hand" : "sleeve"}-${id}`} data-hand-card><div data-zones={`0:2:${sequence}`} data-side={side}>
         {codes?.[sequence] ? <img src={`/api/cards/${codes[sequence]}/image`} alt="" /> : null}
       </div></div>)}</div>
+    {opponentCodes && <div data-hand-seat="1" data-side="opp">{opponentCodes.map((code, sequence) =>
+      <div key={sequence} data-hand-id={`sleeve-opp-${sequence}`} data-hand-card><div data-zones={`1:2:${sequence}`} data-side="opp">
+        {code ? <img src={`/api/cards/${code}/image`} alt="" /> : null}
+      </div></div>)}</div>}
     <PlanAfterCommit events={events} />
   </MoveSourceBoundary></div>;
 }

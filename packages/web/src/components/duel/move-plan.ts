@@ -558,11 +558,15 @@ export function captureDepartureSnapshots(events: readonly DuelEvent[], root: Pa
     if (sourceHand && ownedHands.has(from.controller) && code > 0 && indexed?.code !== code) {
       // SHUFFLE_HAND has no projected event. An owner can still identify its departed card in
       // the old DOM; consume that copy once. Opponent/spectator sleeves stay slot-bound, and a
-      // missing old card never borrows the indexed replacement's geometry or membership.
-      sourceSequence = sourceHand.findIndex((entry) => entry?.code === code && (!entry.snapshot || entry.snapshot.side === "you"));
+      // missing known card never borrows the indexed replacement's geometry. Unknown sleeves
+      // (including Exchange transfers) still occupy and consume their engine sequence.
+      const matched = sourceHand.findIndex((entry) => entry?.code === code && (!entry.snapshot || entry.snapshot.side === "you"));
+      sourceSequence = matched >= 0 ? matched : from.sequence;
     }
     const sourceEntry = sourceHand?.[sourceSequence] ?? null;
-    const source = from.location === LOCATION_HAND ? sourceEntry?.snapshot ?? null : getZoneSnapshot(from);
+    const mismatchedOwner = sourceHand && ownedHands.has(from.controller) && code > 0 &&
+      sourceEntry != null && sourceEntry.code > 0 && sourceEntry.code !== code;
+    const source = from.location === LOCATION_HAND ? mismatchedOwner ? null : sourceEntry?.snapshot ?? null : getZoneSnapshot(from);
     departureSnapshots.set(event.id, source);
     if (from.location === LOCATION_HAND && sourceSequence >= 0) sourceHand?.splice(sourceSequence, 1);
     if (to.location === LOCATION_HAND) {
@@ -570,7 +574,7 @@ export function captureDepartureSnapshots(events: readonly DuelEvent[], root: Pa
       // A card added and removed within this batch has no old DOM anchor; its preceding flight
       // supplies the hand source. Keep its known code so a later shuffle can distinguish this
       // unanchored arrival from an older duplicate without borrowing replacement geometry.
-      hand.splice(to.sequence, 0, from.location === LOCATION_HAND && sourceEntry ? sourceEntry : { snapshot: null, code });
+      hand.splice(to.sequence, 0, from.location === LOCATION_HAND && sourceEntry ? { ...sourceEntry, code: code || sourceEntry.code } : { snapshot: null, code });
       hands.set(to.controller, hand);
     }
   }
