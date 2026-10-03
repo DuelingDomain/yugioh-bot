@@ -602,10 +602,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           // Tag: `player` is the winning team (its lowest seat).
           const winnerTeam = winnerSeat == null ? null : teamOfSeat(format, winnerSeat);
           // A Tag duel ends with MSG_WIN only (no message 200 for the losing team): every seat of another team is out.
-          if (winnerSeat === null) {
-            // The last loss group records the draw. Those seats stay as players on the result screen.
-            for (const seat of eliminationOrder.at(-1) ?? []) eliminated.delete(seat);
-          } else {
+          if (winnerSeat !== null) {
             for (let seat = 0; seat < seatCount; seat++) {
               if (teamOfSeat(format, seat) !== winnerTeam) eliminated.add(seat);
             }

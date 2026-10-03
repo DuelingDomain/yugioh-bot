@@ -1019,12 +1019,14 @@ Duel.RegisterEffect(e,0)`]);
         expect(room.role).toBe("player");
         expect(room.mySeat).toBe(seat);
         expect(room.myDeck).not.toBeNull();
-        expect(states(room.engine!)).toEqual(Array(count).fill("in"));
-        expect(room.engine!.seats[seat]!.hand[0]!.code).not.toBeNull();
+        // R-FFA-ELIMINATION: final draw seats are out; result roles stay player. Tag sends no seat-loss message.
+        expect(states(room.engine!)).toEqual(Array(count).fill(format === "tag" ? "in" : "out"));
+        if (format === "tag") expect(room.engine!.seats[seat]!.hand[0]!.code).not.toBeNull();
+        else expect(room.engine!.seats[seat]!.hand).toHaveLength(0);
       }
       const replay = await t.post("replay", 0) as unknown as DuelReplay;
       expect(replay).toMatchObject({ role: "player", mySeat: 0 });
-      expect(replay.frames.at(-1)!.view.seats.every((seat) => !seat.eliminated)).toBe(true);
+      expect(replay.frames.at(-1)!.view.seats.every((seat) => seat.eliminated === (format !== "tag"))).toBe(true);
     }, 60_000);
 
     it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s keeps an earlier loser as a spectator after a draw", async (format) => {
@@ -1051,7 +1053,7 @@ Duel.RegisterEffect(e,0)`]);
       expect(final.eliminationOrder).toHaveLength(2);
       expect(final.eliminationOrder![0]).toEqual([earlier]);
       expect([...final.eliminationOrder![1]!].sort()).toEqual(Array.from({ length: earlier }, (_, seat) => seat));
-      expect(states(final)).toEqual([...Array(earlier).fill("in"), "out"]);
+      expect(states(final)).toEqual(Array(t.count).fill("out"));
       for (let seat = 0; seat < t.count; seat++) {
         const room = await t.post("view", seat);
         expect(room.session).toMatchObject({ status: "completed", winnerSeat: null });
