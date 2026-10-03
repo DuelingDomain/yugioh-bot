@@ -25,7 +25,17 @@ const NEEDS_ENGINE = [
   "tests/host-engine-switch.test.ts",
   "tests/host-multiplayer-flag.test.ts",
   "tests/legacy-engine-identity.test.ts",
+  // cards.cdb and card scripts through a real duel (every test in these files loads the card database or starts an engine game)
+  "tests/chain-targets.test.ts",
+  "tests/material-count.test.ts",
+  "tests/target-response.test.ts",
   // a wasm core (engine, host, summons, presets, scenarios, fuzz, differential)
+  "tests/battle-card-effects.test.ts",
+  "tests/deck-reveal.test.ts",
+  "tests/hand-order-engine.test.ts",
+  "tests/hand-order-random-duels.test.ts",
+  "tests/host-opening.test.ts",
+  "tests/host-spectator-view.test.ts",
   "tests/domain-extra-bridge-invariants.test.ts",
   "tests/domain-leave-tax.test.ts",
   "tests/domain-pendulum.test.ts",
