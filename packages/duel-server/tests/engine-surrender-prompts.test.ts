@@ -280,6 +280,7 @@ end); Duel.RegisterEffect(e,0)` }],
           expect(game.view(null).seats[3].lp).toBe(8000);
           if (scenario === "returned sources") expect(game.view(null).seats[0].monsters.filter(Boolean)).toHaveLength(ownSources + 1);
           if (scenario === "summon cost") {
+            expect(game.view(0).prompt).toMatchObject({ kind: "choice", context: { type: "action" } });
             expect(game.view(0).seats[0].hand.map((c) => c.code)).toContain(48305365);
             expect(game.view(null).seats[0].monsters.filter(Boolean)).toHaveLength(ownSources);
           }
