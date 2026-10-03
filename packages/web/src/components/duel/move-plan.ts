@@ -349,7 +349,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
   if (candidates.length === 0) return [];
   const chained = new Set<Candidate>();
   const byId = new Map(candidates.map((item) => [item.event.id, item]));
-  const pending = new Map<number, Map<number, Candidate>>();
+  const pending = new Map<number, Array<Candidate | undefined>>();
   // Follow engine slots through the complete batch, including moves without visible anchors.
   // Draws, searches and Exchange can all be followed by departures after other cards moved;
   // removing a hand card compacts the remaining sequences before the next move is observed.
@@ -359,13 +359,13 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     const to = event.zone!;
     const item = byId.get(event.id);
     if (from.location === LOCATION_HAND) {
-      const hand = pending.get(from.controller) ?? new Map<number, Candidate>();
-      let previous = hand.get(from.sequence);
+      const hand = pending.get(from.controller) ?? [];
+      let previous = hand[from.sequence];
       const afterCode = event.card?.code;
       if (afterCode != null && (previous == null || (previous.event.card?.code != null && previous.event.card.code !== afterCode))) {
         // SHUFFLE_HAND is not an animation event. Only an explicitly retired arrival may
         // follow its known code across that permutation; an older identical copy can also leave.
-        previous = [...hand.values()].find((arrival) => arrival.event.handId?.startsWith("departed-") && arrival.event.card?.code === afterCode);
+        previous = hand.find((arrival) => arrival?.event.handId?.startsWith("departed-") && arrival.event.card?.code === afterCode);
       }
       const beforeCode = previous?.event.card?.code;
       if (item && previous && (!previous.event.handId || previous.event.handId.startsWith("departed-")) &&
@@ -375,15 +375,21 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
         const target = handArrivalTarget(previous.event);
         if (target) item.source = { ...target, faceUp: (previous.event.card?.code ?? 0) > 0, defense: false };
       }
-      pending.set(from.controller, new Map([...hand]
-        .filter(([sequence, arrival]) => previous ? arrival !== previous : sequence !== from.sequence)
-        .map(([sequence, arrival]) => [sequence > from.sequence ? sequence - 1 : sequence, arrival])));
+      if (previous) {
+        const matched = hand.indexOf(previous);
+        // The departure identifies its engine slot after an unreported shuffle. Preserve the
+        // displaced pending entry until a later message identifies it, then compact once.
+        if (matched !== from.sequence) hand[matched] = hand[from.sequence];
+      }
+      hand.splice(from.sequence, 1);
+      pending.set(from.controller, hand);
     }
     if (to.location === LOCATION_HAND) {
-      const hand = pending.get(to.controller) ?? new Map<number, Candidate>();
-      const inserted = new Map([...hand].map(([sequence, arrival]) => [sequence >= to.sequence ? sequence + 1 : sequence, arrival]));
-      if (item) inserted.set(to.sequence, item);
-      pending.set(to.controller, inserted);
+      const hand = pending.get(to.controller) ?? [];
+      // Empty entries represent older cards or moves without visible anchors.
+      hand.length = Math.max(hand.length, to.sequence);
+      hand.splice(to.sequence, 0, item);
+      pending.set(to.controller, hand);
     }
   }
   // The showcase of a run goes first: the card the player cares about is shown, then the rest of the

@@ -54,6 +54,23 @@ describe("planMoves", () => {
     expect(outgoing.startAt).toBe(incoming.landAt);
   });
 
+  it.each([false, true])("preserves every pending arrival when code matching differs from the compacted engine slot (reduced=%s)", (reduced) => {
+    const identified = (code: number) => ({ ...card!, code });
+    const events = [
+      ...[10, 20, 30].map((code, index) => move(index + 1, z(0, DECK, 0), z(0, HAND, index + 2),
+        { reason: "draw", handId: `departed-${index + 1}`, card: identified(code) })),
+      // An unreported shuffle put C in A's engine slot; B and A then leave that compacted slot.
+      ...[30, 20, 10].map((code, index) => move(index + 4, z(0, HAND, 2), z(0, GRAVE, index),
+        { reason: "discard", card: identified(code) })),
+    ];
+    const plans = new Map(planMoves(events, { now: 0, reduced, duelKey: "t", geometry }).map((plan) => [plan.id, plan]));
+    for (const [arrival, departure] of [[3, 4], [2, 5], [1, 6]]) {
+      expect(plans.get(arrival)!.handoff).toBe(departure);
+      expect(plans.get(departure)!.handoffFrom?.id).toBe(arrival);
+      expect(plans.get(departure)!.startAt).toBe(plans.get(arrival)!.landAt);
+    }
+  });
+
   it("keeps a surviving identical arrival separate from an older card's departure", () => {
     const events = [move(1, z(0, DECK, 0), z(0, HAND, 2), { reason: "draw", handId: "hand-survivor" }),
       move(2, z(0, HAND, 2), z(0, GRAVE, 0), { reason: "discard" })];
