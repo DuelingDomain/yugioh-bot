@@ -13,6 +13,11 @@ describe("expectKnownFailure", () => {
     await expect(expectKnownFailure(GAP, () => { throw new Error("[x] step 4 expectBoard({}) p0.hand"); }))
       .rejects.toThrow(/does not contain: "step 3 expectBoard"/);
   });
+  it("treats a thrown non-Error as another failure, and accepts one that holds the known text", async () => {
+    await expect(expectKnownFailure(GAP, () => { throw "plain string"; }))
+      .rejects.toThrow(/not the known gap \(test\.patch, spec\.md:1\)/);
+    await expect(expectKnownFailure(GAP, () => { throw "step 3 expectBoard p0.hand"; })).resolves.toBeUndefined();
+  });
   it("fails with a clear message when the gap is fixed", async () => {
     await expect(expectKnownFailure(GAP, async () => undefined))
       .rejects.toThrow("known gap fixed: remove the expected-failure mark");

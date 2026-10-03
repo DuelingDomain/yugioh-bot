@@ -9,6 +9,7 @@ import { EXTRA_MONSTER_ZONE_SCENARIOS } from "./extra-monster-zones.js";
 // (01-local-zone-viewer.patch; docs/specs/2026-10-02-approved-core-integration.md lines 214 and 227-232).
 // With that patch all 48 zone cases pass. Each case is green only for its known failure.
 // When the patch lands the case fails with "known gap fixed": remove the entry then.
+// emz-tag-arrow-viewer-p0 fails at step 1, so while it is marked the rest of its scenario body does not run.
 const ZONE_VIEWER_PATCH = { patch: "01-local-zone-viewer.patch (local zone viewer)", spec: "docs/specs/2026-10-02-approved-core-integration.md:214,227" };
 const EXPECTED_FAILURES: Record<string, KnownGap> = {};
 for (const suffix of ["", "-domain"]) {

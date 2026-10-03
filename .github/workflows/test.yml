@@ -241,10 +241,13 @@ jobs:
       # DUEL_REQUIRE_CORES=1 (from the job env) makes a missing bundle a failure here.
       # The step finds the files itself: every web test that imports the shared cores helper
       # (describeWithCores / itWithCores) runs here, so a new engine test needs no edit of this file.
+      # Only direct imports of the cores helper are found. A web test that gets the helper through another module is not run here.
       # The full web suite (about 400 files) already runs in the unit job, so only the matching files run again.
       - name: Web tests with the engine
         run: |
-          files=$(grep -rlE "duel-server/tests/support/cores(\.js)?[\"']" packages/web/tests --include='*.test.ts' --include='*.test.tsx' | sed 's#^packages/web/##' | sort)
+          set -o pipefail
+          # Lines that start with // or * are comments: a comment that names the helper does not count.
+          files=$(grep -rE "duel-server/tests/support/cores(\.js)?[\"']" packages/web/tests --include='*.test.ts' --include='*.test.tsx' | grep -vE '^[^:]*:[[:space:]]*(//|\*)' | cut -d: -f1 | sed 's#^packages/web/##' | sort -u)
           if [ -z "$files" ]; then echo "No web test imports the cores helper. Fix this step."; exit 1; fi
           echo "$files"
           npm exec --workspace=packages/web -- vitest run $files
